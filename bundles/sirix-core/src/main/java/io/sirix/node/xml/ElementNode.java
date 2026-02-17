@@ -67,7 +67,9 @@ import java.util.List;
 /**
  * Node representing an XML element.
  *
- * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
+ * <p>
+ * Uses primitive fields for efficient storage with delta+varint encoding.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -108,14 +110,12 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   private boolean lazyFieldsParsed = true;
 
   /**
-   * Primary constructor with all primitive fields.
-   * Used by deserialization (NodeKind.ELEMENT.deserialize).
+   * Primary constructor with all primitive fields. Used by deserialization
+   * (NodeKind.ELEMENT.deserialize).
    */
-  public ElementNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey,
-      long firstChildKey, long lastChildKey, long childCount, long descendantCount,
-      long hash, long pathNodeKey, int prefixKey, int localNameKey, int uriKey,
-      LongHashFunction hashFunction, byte[] deweyID,
+  public ElementNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long firstChildKey, long lastChildKey, long childCount, long descendantCount, long hash,
+      long pathNodeKey, int prefixKey, int localNameKey, int uriKey, LongHashFunction hashFunction, byte[] deweyID,
       LongList attributeKeys, LongList namespaceKeys, QNm qNm) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -134,20 +134,22 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     this.uriKey = uriKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
-    this.attributeKeys = attributeKeys != null ? attributeKeys : new LongArrayList();
-    this.namespaceKeys = namespaceKeys != null ? namespaceKeys : new LongArrayList();
+    this.attributeKeys = attributeKeys != null
+        ? attributeKeys
+        : new LongArrayList();
+    this.namespaceKeys = namespaceKeys != null
+        ? namespaceKeys
+        : new LongArrayList();
     this.qNm = qNm;
   }
 
   /**
    * Constructor with SirixDeweyID instead of byte array.
    */
-  public ElementNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey,
-      long firstChildKey, long lastChildKey, long childCount, long descendantCount,
-      long hash, long pathNodeKey, int prefixKey, int localNameKey, int uriKey,
-      LongHashFunction hashFunction, SirixDeweyID deweyID,
-      LongList attributeKeys, LongList namespaceKeys, QNm qNm) {
+  public ElementNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long firstChildKey, long lastChildKey, long childCount, long descendantCount, long hash,
+      long pathNodeKey, int prefixKey, int localNameKey, int uriKey, LongHashFunction hashFunction,
+      SirixDeweyID deweyID, LongList attributeKeys, LongList namespaceKeys, QNm qNm) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -165,8 +167,12 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     this.uriKey = uriKey;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
-    this.attributeKeys = attributeKeys != null ? attributeKeys : new LongArrayList();
-    this.namespaceKeys = namespaceKeys != null ? namespaceKeys : new LongArrayList();
+    this.attributeKeys = attributeKeys != null
+        ? attributeKeys
+        : new LongArrayList();
+    this.namespaceKeys = namespaceKeys != null
+        ? namespaceKeys
+        : new LongArrayList();
     this.qNm = qNm;
   }
 
@@ -245,7 +251,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public long getLastChildKey() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     return lastChildKey;
   }
 
@@ -255,7 +262,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public boolean hasLastChild() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     return lastChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
@@ -263,7 +271,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public long getPathNodeKey() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     return pathNodeKey;
   }
 
@@ -294,7 +303,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int getURIKey() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     return uriKey;
   }
 
@@ -305,7 +315,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int getPreviousRevisionNumber() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     return previousRevision;
   }
 
@@ -316,7 +327,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int getLastModifiedRevisionNumber() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     return lastModifiedRevision;
   }
 
@@ -327,7 +339,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public long getChildCount() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     return childCount;
   }
 
@@ -337,7 +350,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public long getDescendantCount() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     return descendantCount;
   }
 
@@ -348,7 +362,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public long getHash() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     if (hash == 0L && hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
@@ -362,25 +377,29 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public void incrementChildCount() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     childCount++;
   }
 
   @Override
   public void decrementChildCount() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     childCount--;
   }
 
   @Override
   public void incrementDescendantCount() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     descendantCount++;
   }
 
   @Override
   public void decrementDescendantCount() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     descendantCount--;
   }
 
@@ -508,9 +527,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     }
 
     bytes.clear();
-    bytes.writeLong(getNodeKey())
-         .writeLong(getParentKey())
-         .writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
 
     bytes.writeLong(getChildCount())
          .writeLong(getDescendantCount())
@@ -522,9 +539,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
       bytes.writeLong(getLastChildKey());
     }
 
-    bytes.writeInt(getPrefixKey())
-         .writeInt(getLocalNameKey())
-         .writeInt(getURIKey());
+    bytes.writeInt(getPrefixKey()).writeInt(getLocalNameKey()).writeInt(getURIKey());
 
     return bytes.hashDirect(hashFunction);
   }
@@ -532,8 +547,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   /**
    * Populate this node from a BytesIn source for singleton reuse.
    */
-  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
-      LongHashFunction hashFunction, ResourceConfiguration config) {
+  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId, LongHashFunction hashFunction,
+      ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
@@ -558,7 +573,9 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     this.uriKey = DeltaVarIntCodec.decodeSigned(source);
     this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
-    this.childCount = config.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0L;
+    this.childCount = config.storeChildCount()
+        ? DeltaVarIntCodec.decodeSigned(source)
+        : 0L;
     if (config.hashType != HashType.NONE) {
       this.hash = source.readLong();
       this.descendantCount = DeltaVarIntCodec.decodeSigned(source);
@@ -612,16 +629,14 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
    * Create a deep copy snapshot of this node.
    */
   public ElementNode toSnapshot() {
-    if (!lazyFieldsParsed) parseLazyFields();
-    return new ElementNode(
-        nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
-        childCount, descendantCount, hash, pathNodeKey, prefixKey,
-        localNameKey, uriKey, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null,
-        new LongArrayList(attributeKeys),
-        new LongArrayList(namespaceKeys),
-        qNm);
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    return new ElementNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
+        firstChildKey, lastChildKey, childCount, descendantCount, hash, pathNodeKey, prefixKey, localNameKey, uriKey,
+        hashFunction, deweyIDBytes != null
+            ? deweyIDBytes.clone()
+            : null,
+        new LongArrayList(attributeKeys), new LongArrayList(namespaceKeys), qNm);
   }
 
   @Override
@@ -654,10 +669,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     if (!(obj instanceof ElementNode other))
       return false;
 
-    return nodeKey == other.nodeKey
-        && parentKey == other.parentKey
-        && getPrefixKey() == other.getPrefixKey()
-        && getLocalNameKey() == other.getLocalNameKey()
-        && getURIKey() == other.getURIKey();
+    return nodeKey == other.nodeKey && parentKey == other.parentKey && getPrefixKey() == other.getPrefixKey()
+        && getLocalNameKey() == other.getLocalNameKey() && getURIKey() == other.getURIKey();
   }
 }

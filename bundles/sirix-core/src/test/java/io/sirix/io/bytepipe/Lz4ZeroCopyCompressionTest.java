@@ -48,7 +48,7 @@ class Lz4ZeroCopyCompressionTest {
 
     final byte[] compressed;
     try (ByteArrayOutputStream out = new ByteArrayOutputStream();
-         net.jpountz.lz4.LZ4BlockOutputStream lzOut = new net.jpountz.lz4.LZ4BlockOutputStream(out)) {
+        net.jpountz.lz4.LZ4BlockOutputStream lzOut = new net.jpountz.lz4.LZ4BlockOutputStream(out)) {
       lzOut.write(payload);
       lzOut.finish();
       compressed = out.toByteArray();
@@ -64,7 +64,7 @@ class Lz4ZeroCopyCompressionTest {
 
   @Test
   void memorySegmentBytesOutCopiesSegment() {
-    final byte[] payload = new byte[]{1, 2, 3, 4};
+    final byte[] payload = new byte[] {1, 2, 3, 4};
     final MemorySegment segment = MemorySegment.ofArray(payload);
 
     try (MemorySegmentBytesOut out = new MemorySegmentBytesOut()) {
@@ -85,39 +85,40 @@ class Lz4ZeroCopyCompressionTest {
       sb.append("JSON data often has similar structures: {\"key\": \"value\", \"count\": ").append(i).append("} ");
     }
     final byte[] payload = sb.toString().getBytes(StandardCharsets.UTF_8);
-    
+
     // Compress with FFI (HC mode)
     final var ffiCompressor = new FFILz4Compressor();
     final MemorySegment ffiCompressed = ffiCompressor.compress(MemorySegment.ofArray(payload));
     final long ffiCompressedSize = ffiCompressed.byteSize();
-    
+
     // Compress with Java library (LZ4BlockOutputStream)
     final byte[] libraryCompressed;
     try (ByteArrayOutputStream out = new ByteArrayOutputStream();
-         net.jpountz.lz4.LZ4BlockOutputStream lzOut = new net.jpountz.lz4.LZ4BlockOutputStream(out)) {
+        net.jpountz.lz4.LZ4BlockOutputStream lzOut = new net.jpountz.lz4.LZ4BlockOutputStream(out)) {
       lzOut.write(payload);
       lzOut.finish();
       libraryCompressed = out.toByteArray();
     }
     final long libraryCompressedSize = libraryCompressed.length;
-    
+
     // Calculate compression ratios
     final double ffiRatio = (double) payload.length / ffiCompressedSize;
     final double libraryRatio = (double) payload.length / libraryCompressedSize;
-    
+
     LOGGER.info("Original size: {} bytes", payload.length);
     LOGGER.info("FFI HC compressed size: {} bytes (ratio: {}x)", ffiCompressedSize, String.format("%.2f", ffiRatio));
-    LOGGER.info("Library compressed size: {} bytes (ratio: {}x)", libraryCompressedSize, String.format("%.2f", libraryRatio));
-    
+    LOGGER.info("Library compressed size: {} bytes (ratio: {}x)", libraryCompressedSize,
+        String.format("%.2f", libraryRatio));
+
     // FFI with HC mode should achieve at least 80% of the library's compression ratio
     // (allowing some tolerance for format differences)
     final double ratioComparison = ffiRatio / libraryRatio;
     LOGGER.info("FFI/Library ratio comparison: {}", String.format("%.2f", ratioComparison));
-    
-    assertTrue(ratioComparison >= 0.8, 
+
+    assertTrue(ratioComparison >= 0.8,
         String.format("FFI compression ratio (%.2fx) should be at least 80%% of library ratio (%.2fx), but was %.2f%%",
             ffiRatio, libraryRatio, ratioComparison * 100));
-    
+
     // Verify FFI round-trip works correctly (using deprecated decompress for test simplicity)
     final MemorySegment decompressedSegment = ffiCompressor.decompress(ffiCompressed);
     final byte[] decompressed = new byte[payload.length];
@@ -133,23 +134,22 @@ class Lz4ZeroCopyCompressionTest {
     // Random data compresses poorly - tests that FFI handles this correctly
     final byte[] payload = new byte[64 * 1024]; // 64KB
     new Random(42).nextBytes(payload);
-    
+
     // Compress with FFI
     final var ffiCompressor = new FFILz4Compressor();
     final MemorySegment ffiCompressed = ffiCompressor.compress(MemorySegment.ofArray(payload));
-    
+
     // Random data typically doesn't compress well, but it should still work
     // LZ4 may produce output larger than input for incompressible data (up to compressBound)
     assertTrue(ffiCompressed.byteSize() > 0, "Compressed size should be positive");
-    
+
     // Verify round-trip (using deprecated decompress for test simplicity)
     final MemorySegment decompressedSegment = ffiCompressor.decompress(ffiCompressed);
     final byte[] decompressed = new byte[payload.length];
     MemorySegment.copy(decompressedSegment, 0, MemorySegment.ofArray(decompressed), 0, decompressed.length);
     assertArrayEquals(payload, decompressed, "Random data round-trip should produce identical data");
-    
-    LOGGER.info("Random data: {} bytes -> {} bytes (ratio: {}x)", 
-        payload.length, ffiCompressed.byteSize(), 
+
+    LOGGER.info("Random data: {} bytes -> {} bytes (ratio: {}x)", payload.length, ffiCompressed.byteSize(),
         String.format("%.2f", (double) payload.length / ffiCompressed.byteSize()));
   }
 
@@ -158,15 +158,15 @@ class Lz4ZeroCopyCompressionTest {
     // Data smaller than MIN_COMPRESSION_SIZE (64 bytes) should be stored uncompressed
     final byte[] smallPayload = "Short text".getBytes(java.nio.charset.StandardCharsets.UTF_8);
     final MemorySegment source = MemorySegment.ofArray(smallPayload);
-    
+
     final FFILz4Compressor compressor = new FFILz4Compressor();
     final MemorySegment compressed = compressor.compress(source);
-    
+
     // Check header - negative size indicates uncompressed
     int sizeHeader = compressed.get(java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED, 0);
     assertTrue(sizeHeader < 0, "Small data should have negative size header (uncompressed)");
     assertEquals(-smallPayload.length, sizeHeader, "Header should be negated original size");
-    
+
     // Verify round-trip
     final MemorySegment decompressed = compressor.decompress(compressed);
     byte[] result = new byte[smallPayload.length];
@@ -178,39 +178,37 @@ class Lz4ZeroCopyCompressionTest {
   void testAdaptiveCompressionUsesCorrectModeForSize() {
     // Test that different sizes use appropriate compression modes
     final FFILz4Compressor compressor = new FFILz4Compressor();
-    
+
     // Small page (< 16KB) - should use fast mode
     final byte[] smallPage = new byte[8 * 1024];
     java.util.Arrays.fill(smallPage, (byte) 'A'); // Highly compressible
     final MemorySegment smallCompressed = compressor.compress(MemorySegment.ofArray(smallPage));
-    
+
     // Large page (> 16KB) - should use HC mode
     final byte[] largePage = new byte[32 * 1024];
     java.util.Arrays.fill(largePage, (byte) 'A'); // Highly compressible
     final MemorySegment largeCompressed = compressor.compress(MemorySegment.ofArray(largePage));
-    
+
     // Both should compress well (we can't directly verify which mode was used,
     // but we can verify they work correctly)
     assertTrue(smallCompressed.byteSize() < smallPage.length, "Small page should compress");
     assertTrue(largeCompressed.byteSize() < largePage.length, "Large page should compress");
-    
+
     // Verify round-trips
     MemorySegment smallDecompressed = compressor.decompress(smallCompressed);
     MemorySegment largeDecompressed = compressor.decompress(largeCompressed);
-    
+
     byte[] smallResult = new byte[smallPage.length];
     byte[] largeResult = new byte[largePage.length];
     MemorySegment.copy(smallDecompressed, 0, MemorySegment.ofArray(smallResult), 0, smallResult.length);
     MemorySegment.copy(largeDecompressed, 0, MemorySegment.ofArray(largeResult), 0, largeResult.length);
-    
+
     assertArrayEquals(smallPage, smallResult);
     assertArrayEquals(largePage, largeResult);
-    
-    LOGGER.info("Small page (8KB): {} -> {} bytes ({}%)", 
-        smallPage.length, smallCompressed.byteSize(),
+
+    LOGGER.info("Small page (8KB): {} -> {} bytes ({}%)", smallPage.length, smallCompressed.byteSize(),
         String.format("%.1f", 100.0 * smallCompressed.byteSize() / smallPage.length));
-    LOGGER.info("Large page (32KB): {} -> {} bytes ({}%)", 
-        largePage.length, largeCompressed.byteSize(),
+    LOGGER.info("Large page (32KB): {} -> {} bytes ({}%)", largePage.length, largeCompressed.byteSize(),
         String.format("%.1f", 100.0 * largeCompressed.byteSize() / largePage.length));
   }
 
@@ -219,26 +217,27 @@ class Lz4ZeroCopyCompressionTest {
     // Random data should be stored uncompressed if compression isn't beneficial
     final byte[] randomData = new byte[4096];
     new java.util.Random(42).nextBytes(randomData);
-    
+
     final FFILz4Compressor compressor = new FFILz4Compressor();
     final MemorySegment compressed = compressor.compress(MemorySegment.ofArray(randomData));
-    
+
     // Verify round-trip regardless of storage mode
     final MemorySegment decompressed = compressor.decompress(compressed);
     byte[] result = new byte[randomData.length];
     MemorySegment.copy(decompressed, 0, MemorySegment.ofArray(result), 0, result.length);
     assertArrayEquals(randomData, result, "Random data round-trip should be identical");
-    
-    LOGGER.info("Random data (4KB): {} -> {} bytes (header check: {})", 
-        randomData.length, compressed.byteSize(),
-        compressed.get(java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED, 0) < 0 ? "uncompressed" : "compressed");
+
+    LOGGER.info("Random data (4KB): {} -> {} bytes (header check: {})", randomData.length, compressed.byteSize(),
+        compressed.get(java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED, 0) < 0
+            ? "uncompressed"
+            : "compressed");
   }
 
   @Test
   void testCompressionPerformanceComparison() {
     // Performance test comparing different compression modes
     final FFILz4Compressor compressor = new FFILz4Compressor();
-    
+
     // Create test data that compresses well - repetitive JSON-like pattern
     final String pattern = "JSON data pattern: {\"key\": \"value_99\"}";
     final byte[] testData = new byte[64 * 1024]; // 64KB
@@ -247,12 +246,12 @@ class Lz4ZeroCopyCompressionTest {
       testData[i] = patternBytes[i % patternBytes.length];
     }
     final MemorySegment source = MemorySegment.ofArray(testData);
-    
+
     // Warmup
     for (int i = 0; i < 100; i++) {
       compressor.compress(source);
     }
-    
+
     // Benchmark
     final int iterations = 1000;
     long startTime = System.nanoTime();
@@ -260,14 +259,13 @@ class Lz4ZeroCopyCompressionTest {
       compressor.compress(source);
     }
     long endTime = System.nanoTime();
-    
+
     double avgTimeMs = (endTime - startTime) / 1_000_000.0 / iterations;
     double throughputMBps = (testData.length / 1024.0 / 1024.0) / (avgTimeMs / 1000.0);
-    
-    LOGGER.info("Compression performance: {}/iteration, {} MB/s throughput",
-        String.format("%.3f ms", avgTimeMs),
+
+    LOGGER.info("Compression performance: {}/iteration, {} MB/s throughput", String.format("%.3f ms", avgTimeMs),
         String.format("%.1f", throughputMBps));
-    
+
     // Sanity check - should be reasonably fast
     assertTrue(avgTimeMs < 10, "Compression should complete in < 10ms per 64KB");
   }

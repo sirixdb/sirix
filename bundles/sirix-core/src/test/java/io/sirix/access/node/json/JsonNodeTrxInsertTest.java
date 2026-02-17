@@ -59,9 +59,8 @@ public final class JsonNodeTrxInsertTest {
             {"item":"this is item 0", "package":"package", "kg":5}
             """.strip();
 
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(jsonObject),
-                                      JsonNodeTrx.Commit.IMPLICIT,
-                                      JsonNodeTrx.CheckParentNode.YES);
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(jsonObject), JsonNodeTrx.Commit.IMPLICIT,
+            JsonNodeTrx.CheckParentNode.YES);
 
         for (int i = 0; i < 650_000; i++) {
           System.out.println(i);
@@ -69,9 +68,8 @@ public final class JsonNodeTrxInsertTest {
               {"item":"this is item %s", "package":"package", "kg":5}
               """.strip().formatted(i);
 
-          wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(jsonObject),
-                                          JsonNodeTrx.Commit.IMPLICIT,
-                                          JsonNodeTrx.CheckParentNode.NO);
+          wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(jsonObject), JsonNodeTrx.Commit.IMPLICIT,
+              JsonNodeTrx.CheckParentNode.NO);
         }
 
         wtx.commit();
@@ -87,8 +85,8 @@ public final class JsonNodeTrxInsertTest {
     final var resource = "smallInsertions";
 
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(resource);
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(resource);
+        final Writer writer = new StringWriter()) {
       System.out.println("Start serializing");
 
       final var time = System.nanoTime();
@@ -103,9 +101,9 @@ public final class JsonNodeTrxInsertTest {
   @Test
   public void testInsert500SubtreesAsFirstChild() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
       wtx.insertArrayAsFirstChild();
 
       for (int i = 0; i < 500; i++) {
@@ -118,13 +116,8 @@ public final class JsonNodeTrxInsertTest {
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
 
-      final var expected = Files.readString(Path.of("src",
-                                                    "test",
-                                                    "resources",
-                                                    "json",
-                                                    "jsonNodeTrxInsertTest",
-                                                    "testInsert500SubtreesAsFirstChild",
-                                                    "expected.json"));
+      final var expected = Files.readString(Path.of("src", "test", "resources", "json", "jsonNodeTrxInsertTest",
+          "testInsert500SubtreesAsFirstChild", "expected.json"));
 
       assertEquals(expected, writer.toString());
     }
@@ -146,24 +139,24 @@ public final class JsonNodeTrxInsertTest {
     }
 
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final Writer writer = new StringWriter()) {
       final var wtx = session.beginNodeTrx();
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
 
       assertEquals("""
-                           {"foo":"bar"}
-                       """.strip(), writer.toString());
+              {"foo":"bar"}
+          """.strip(), writer.toString());
     }
   }
 
   @Test
   public void testInsertSubtreeArrayAsFirstChild() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
 
@@ -177,9 +170,9 @@ public final class JsonNodeTrxInsertTest {
   @Test
   public void testInsertSubtreeArrayAsLastChild() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
       wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[]"));
       wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[]"));
 
@@ -193,9 +186,9 @@ public final class JsonNodeTrxInsertTest {
   @Test
   public void testInsertSubtreeArrayAsLeftSibling() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.insertSubtreeAsLeftSibling(JsonShredder.createStringReader("[]"));
@@ -210,9 +203,9 @@ public final class JsonNodeTrxInsertTest {
   @Test
   public void testInsertSubtreeArrayAsRightSibling() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("[]"));
@@ -227,9 +220,9 @@ public final class JsonNodeTrxInsertTest {
   @Test
   public void testInsertSubtreeObjectAsFirstChild() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{}"));
 
@@ -243,9 +236,9 @@ public final class JsonNodeTrxInsertTest {
   @Test
   public void testInsertSubtreeObjectAsLastChild() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
       wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("[]"));
       wtx.insertSubtreeAsLastChild(JsonShredder.createStringReader("{}"));
 
@@ -259,9 +252,9 @@ public final class JsonNodeTrxInsertTest {
   @Test
   public void testInsertSubtreeObjectAsLeftSibling() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{}"));
       wtx.insertSubtreeAsLeftSibling(JsonShredder.createStringReader("{}"));
@@ -276,9 +269,9 @@ public final class JsonNodeTrxInsertTest {
   @Test
   public void testInsertSubtreeObjectAsRightSibling() throws IOException {
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{}"));
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{}"));
@@ -295,8 +288,8 @@ public final class JsonNodeTrxInsertTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx()) {
       wtx.moveTo(8);
 
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"foo\": \"bar\"}"));
@@ -317,8 +310,8 @@ public final class JsonNodeTrxInsertTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx()) {
       wtx.moveTo(3);
 
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"foo\"]"));
@@ -338,8 +331,8 @@ public final class JsonNodeTrxInsertTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx()) {
       wtx.moveTo(4);
 
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("[\"foo\"]"));
@@ -361,8 +354,8 @@ public final class JsonNodeTrxInsertTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final var wtx = session.beginNodeTrx()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx()) {
       wtx.moveTo(4);
 
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"foo\": \"bar\"}"));
@@ -389,9 +382,8 @@ public final class JsonNodeTrxInsertTest {
     }
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       // Enable FSST compression
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .stringCompressionType(StringCompressionType.FSST)
-          .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder(RESOURCE).stringCompressionType(StringCompressionType.FSST).build());
       try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
         wtx.insertObjectAsFirstChild();
         // Insert multiple strings with common patterns for FSST to build symbol table
@@ -399,7 +391,8 @@ public final class JsonNodeTrxInsertTest {
         wtx.moveTo(1); // Move back to object node
         wtx.insertObjectRecordAsFirstChild("message2", new StringValue("Hello World! This is another test message."));
         wtx.moveTo(1);
-        wtx.insertObjectRecordAsFirstChild("message3", new StringValue("Hello World! This is yet another test message."));
+        wtx.insertObjectRecordAsFirstChild("message3",
+            new StringValue("Hello World! This is yet another test message."));
         wtx.moveTo(1);
         wtx.insertObjectRecordAsFirstChild("message4", new StringValue("Hello World! This is the final test message."));
         wtx.commit();
@@ -407,8 +400,8 @@ public final class JsonNodeTrxInsertTest {
     }
 
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
 
@@ -417,9 +410,12 @@ public final class JsonNodeTrxInsertTest {
       System.out.println("Serialized output: " + result);
       assertTrue(result.contains("Hello World!"), "Expected 'Hello World!' in: " + result);
       assertTrue(result.contains("This is a test message"), "Expected 'This is a test message' in: " + result);
-      assertTrue(result.contains("This is another test message"), "Expected 'This is another test message' in: " + result);
-      assertTrue(result.contains("This is yet another test message"), "Expected 'This is yet another test message' in: " + result);
-      assertTrue(result.contains("This is the final test message"), "Expected 'This is the final test message' in: " + result);
+      assertTrue(result.contains("This is another test message"),
+          "Expected 'This is another test message' in: " + result);
+      assertTrue(result.contains("This is yet another test message"),
+          "Expected 'This is yet another test message' in: " + result);
+      assertTrue(result.contains("This is the final test message"),
+          "Expected 'This is the final test message' in: " + result);
     }
   }
 
@@ -431,9 +427,8 @@ public final class JsonNodeTrxInsertTest {
     }
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       // Enable FSST compression
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .stringCompressionType(StringCompressionType.FSST)
-          .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder(RESOURCE).stringCompressionType(StringCompressionType.FSST).build());
       try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
         wtx.insertArrayAsFirstChild();
         // Insert JSON array with many similar strings
@@ -446,15 +441,15 @@ public final class JsonNodeTrxInsertTest {
     }
 
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
 
       String result = writer.toString();
       // Verify all values are present
       for (int i = 0; i < 10; i++) {
-        assertTrue(result.contains("Common prefix: value number " + i), 
+        assertTrue(result.contains("Common prefix: value number " + i),
             "Should contain 'Common prefix: value number " + i + "' but got: " + result);
       }
     }
@@ -470,9 +465,8 @@ public final class JsonNodeTrxInsertTest {
     }
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       // Enable FSST compression
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .stringCompressionType(StringCompressionType.FSST)
-          .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder(RESOURCE).stringCompressionType(StringCompressionType.FSST).build());
       try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
         wtx.insertArrayAsFirstChild();
         // Insert strings with high entropy (random UUIDs) - should NOT benefit from FSST
@@ -487,14 +481,15 @@ public final class JsonNodeTrxInsertTest {
 
     // Verify all data is readable (even if FSST was rejected)
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
 
       String result = writer.toString();
       // Should be a valid JSON array with 100 elements
-      assertTrue(result.startsWith("["), "Should be a JSON array: " + result.substring(0, Math.min(50, result.length())));
+      assertTrue(result.startsWith("["),
+          "Should be a JSON array: " + result.substring(0, Math.min(50, result.length())));
       assertTrue(result.endsWith("]"), "Should end with ]: " + result);
     }
   }
@@ -507,9 +502,8 @@ public final class JsonNodeTrxInsertTest {
       Databases.createJsonDatabase(config);
     }
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
-      database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-          .stringCompressionType(StringCompressionType.FSST)
-          .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder(RESOURCE).stringCompressionType(StringCompressionType.FSST).build());
       try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
         wtx.insertArrayAsFirstChild();
         // Insert larger strings with repetitive patterns (should benefit from FSST)
@@ -523,8 +517,8 @@ public final class JsonNodeTrxInsertTest {
     }
 
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile());
-         final var session = database.beginResourceSession(RESOURCE);
-         final Writer writer = new StringWriter()) {
+        final var session = database.beginResourceSession(RESOURCE);
+        final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
 

@@ -77,7 +77,7 @@ public final class RAMStorage implements IOStorage {
    * The resource configuration.
    */
   private final ResourceConfiguration mResourceConfiguration;
-  
+
   /**
    * Revision index holder for fast timestamp lookups.
    */
@@ -123,14 +123,13 @@ public final class RAMStorage implements IOStorage {
   }
 
   @Override
-  public void close() {
-  }
+  public void close() {}
 
   @Override
   public ByteHandlerPipeline getByteHandler() {
     return mHandler;
   }
-  
+
   @Override
   public @NonNull RevisionIndexHolder getRevisionIndexHolder() {
     return revisionIndexHolder;
@@ -200,8 +199,7 @@ public final class RAMStorage implements IOStorage {
     }
 
     @Override
-    public void close() throws SirixIOException {
-    }
+    public void close() throws SirixIOException {}
 
     @Override
     public Writer truncateTo(StorageEngineReader pageReadOnlyTrx, int revision) {

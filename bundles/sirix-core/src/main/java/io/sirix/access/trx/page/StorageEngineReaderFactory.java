@@ -6,11 +6,12 @@ import io.sirix.api.StorageEngineReader;
 
 public final class StorageEngineReaderFactory implements ObjectFactory<StorageEngineReader> {
 
-  private final AbstractResourceSession<?,?> resourceSession;
+  private final AbstractResourceSession<?, ?> resourceSession;
 
   public StorageEngineReaderFactory(final AbstractResourceSession<?, ?> resourceSession) {
     this.resourceSession = resourceSession;
   }
+
   @Override
   public StorageEngineReader create() {
     return resourceSession.beginPageReadOnlyTrx();

@@ -48,8 +48,7 @@ public class GeneralComp extends AbstractComparator {
    * @param mOperand2 Second value of the comparison
    * @param mCom comparison kind
    */
-  public GeneralComp(final XmlNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2,
-      final CompKind mCom) {
+  public GeneralComp(final XmlNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2, final CompKind mCom) {
 
     super(rtx, mOperand1, mOperand2, mCom);
   }
@@ -58,8 +57,7 @@ public class GeneralComp extends AbstractComparator {
    * {@inheritDoc}
    */
   @Override
-  protected boolean compare(final AtomicValue[] mOperand1, final AtomicValue[] mOperand2)
-      throws SirixXPathException {
+  protected boolean compare(final AtomicValue[] mOperand1, final AtomicValue[] mOperand2) throws SirixXPathException {
 
     assert mOperand1.length >= 1 && mOperand2.length >= 1;
 
@@ -86,8 +84,7 @@ public class GeneralComp extends AbstractComparator {
     final List<AtomicValue> op = new ArrayList<AtomicValue>();
     AtomicValue atomized;
     // cast to double, if compatible with XPath 1.0 and <, >, >=, <=
-    final boolean convert =
-        !(!XPathAxis.XPATH_10_COMP || getCompKind() == CompKind.EQ || getCompKind() == CompKind.EQ);
+    final boolean convert = !(!XPathAxis.XPATH_10_COMP || getCompKind() == CompKind.EQ || getCompKind() == CompKind.EQ);
 
     boolean first = true;
     do {

@@ -115,10 +115,10 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
         Thread.currentThread().interrupt();
       }
     }
-    
+
     // Create a new executor service
     executorService = Executors.newSingleThreadExecutor();
-    
+
     if (producer != null) {
       producer.reset(nodeKey);
     }
@@ -201,9 +201,8 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
   }
 
   /**
-   * Cleanup method to ensure the executor service is properly shut down.
-   * This is called automatically by done(), but can also be called explicitly
-   * for cleanup in case of exceptions.
+   * Cleanup method to ensure the executor service is properly shut down. This is called automatically
+   * by done(), but can also be called explicitly for cleanup in case of exceptions.
    */
   public synchronized void close() {
     if (executorService != null && !executorService.isShutdown()) {

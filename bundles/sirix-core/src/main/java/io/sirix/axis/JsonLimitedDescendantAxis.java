@@ -31,9 +31,9 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * <p>
- * Iterate over all descendants of a JSON subtree with configurable limits on depth (maxLevel)
- * and children per parent (maxChildren). Handles OBJECT_KEY semantics where key and value
- * are at the same level.
+ * Iterate over all descendants of a JSON subtree with configurable limits on depth (maxLevel) and
+ * children per parent (maxChildren). Handles OBJECT_KEY semantics where key and value are at the
+ * same level.
  * </p>
  * 
  * <p>
@@ -117,7 +117,7 @@ public final class JsonLimitedDescendantAxis extends AbstractAxis {
   public void reset(long nodeKey) {
     super.reset(nodeKey);
     first = true;
-    
+
     // Initialize or clear stacks
     if (siblingStack == null) {
       siblingStack = new LongArrayList();
@@ -134,7 +134,7 @@ public final class JsonLimitedDescendantAxis extends AbstractAxis {
     } else {
       childCount.clear();
     }
-    
+
     level = 0;
 
     // Cache boundary marker: start node's right sibling
@@ -150,7 +150,9 @@ public final class JsonLimitedDescendantAxis extends AbstractAxis {
   // ═══════════════════════════════════════════════════════════════════════════
 
   private int getChildCount(int lvl) {
-    return lvl < childCount.size() ? childCount.getInt(lvl) : 0;
+    return lvl < childCount.size()
+        ? childCount.getInt(lvl)
+        : 0;
   }
 
   private void setChildCount(int lvl, int value) {
@@ -171,10 +173,12 @@ public final class JsonLimitedDescendantAxis extends AbstractAxis {
   @Override
   protected long nextKey() {
     final NodeCursor cursor = getCursor();
-    
+
     // Cast to JSON transaction if possible (for isObjectKey check)
     final boolean isJsonTrx = cursor instanceof JsonNodeReadOnlyTrx;
-    final JsonNodeReadOnlyTrx jsonRtx = isJsonTrx ? (JsonNodeReadOnlyTrx) cursor : null;
+    final JsonNodeReadOnlyTrx jsonRtx = isJsonTrx
+        ? (JsonNodeReadOnlyTrx) cursor
+        : null;
 
     // ═══════════════════════════════════════════════════════════════════════
     // CASE 1: First call
@@ -185,7 +189,7 @@ public final class JsonLimitedDescendantAxis extends AbstractAxis {
       first = false;
 
       if (includeSelf() == IncludeSelf.YES) {
-        level = 1;  // Start at level 1 (matches old algorithm)
+        level = 1; // Start at level 1 (matches old algorithm)
         setChildCount(1, 1);
         return cursor.getNodeKey();
       } else {
@@ -237,7 +241,9 @@ public final class JsonLimitedDescendantAxis extends AbstractAxis {
 
       // ObjectKey → Value: NO level increment (same level)
       // Other → Child: level increment
-      int nextLevel = isObjectKey ? level : level + 1;
+      int nextLevel = isObjectKey
+          ? level
+          : level + 1;
 
       // Push right sibling for later backtracking (at CURRENT level)
       long rightSibKey = cursor.getRightSiblingKey();

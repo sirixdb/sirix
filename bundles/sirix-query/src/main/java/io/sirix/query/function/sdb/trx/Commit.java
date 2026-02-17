@@ -50,10 +50,16 @@ public final class Commit extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args) {
     final StructuredDBItem<?> document = ((StructuredDBItem<?>) args[0]);
 
-    final String commitMessage = args.length >= 2 ? FunUtil.getString(args, 1, "commitMessage", null, null, false) : null;
+    final String commitMessage = args.length >= 2
+        ? FunUtil.getString(args, 1, "commitMessage", null, null, false)
+        : null;
 
-    final DateTime dateTime = args.length == 3 ? (DateTime) args[2] : null;
-    final Instant commitTimestamp = args.length == 3 ? dateTimeToInstant.convert(dateTime) : null;
+    final DateTime dateTime = args.length == 3
+        ? (DateTime) args[2]
+        : null;
+    final Instant commitTimestamp = args.length == 3
+        ? dateTimeToInstant.convert(dateTime)
+        : null;
 
     if (document.getTrx() instanceof NodeTrx) {
       final NodeTrx wtx = (NodeTrx) document.getTrx();

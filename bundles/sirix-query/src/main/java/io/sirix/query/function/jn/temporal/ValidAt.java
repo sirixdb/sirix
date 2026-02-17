@@ -26,16 +26,18 @@ import java.time.Instant;
 
 /**
  * <p>
- * Function for querying data by valid time. Returns all records where the valid time
- * interval contains the specified timestamp. Supported signatures are:
+ * Function for querying data by valid time. Returns all records where the valid time interval
+ * contains the specified timestamp. Supported signatures are:
  * </p>
  * <ul>
  * <li><code>jn:valid-at($coll as xs:string, $res as xs:string, $validTime as xs:dateTime) as json-item()*</code></li>
  * </ul>
  *
- * <p>This function is part of the bitemporal query support in SirixDB. It requires
- * the resource to be configured with valid time paths via
- * {@link io.sirix.access.ResourceConfiguration.Builder#validTimePaths(String, String)}.</p>
+ * <p>
+ * This function is part of the bitemporal query support in SirixDB. It requires the resource to be
+ * configured with valid time paths via
+ * {@link io.sirix.access.ResourceConfiguration.Builder#validTimePaths(String, String)}.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -51,7 +53,7 @@ public final class ValidAt extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the name of the function
+   * @param name the name of the function
    * @param signature the signature of the function
    */
   public ValidAt(final QNm name, final Signature signature) {
@@ -64,8 +66,7 @@ public final class ValidAt extends AbstractFunction {
       throw new QueryException(new QNm("Expected 3 arguments: collection, resource, validTime"));
     }
 
-    final JsonDBCollection collection = (JsonDBCollection) ctx.getJsonItemStore()
-        .lookup(((Str) args[0]).stringValue());
+    final JsonDBCollection collection = (JsonDBCollection) ctx.getJsonItemStore().lookup(((Str) args[0]).stringValue());
 
     if (collection == null) {
       throw new QueryException(new QNm("Collection not found: " + ((Str) args[0]).stringValue()));
@@ -86,8 +87,8 @@ public final class ValidAt extends AbstractFunction {
     final ValidTimeConfig validTimeConfig = resourceSession.getResourceConfig().getValidTimeConfig();
 
     if (validTimeConfig == null) {
-      throw new QueryException(new QNm("Resource does not have valid time configuration. " +
-          "Configure valid time paths when creating the resource."));
+      throw new QueryException(new QNm("Resource does not have valid time configuration. "
+          + "Configure valid time paths when creating the resource."));
     }
 
     // Return a lazy sequence that filters by valid time

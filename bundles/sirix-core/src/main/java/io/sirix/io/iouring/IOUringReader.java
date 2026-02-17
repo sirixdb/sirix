@@ -49,7 +49,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 /**
- * File Reader. Used for {@link StorageEngineReader} to provide read only access on a RandomAccessFile.
+ * File Reader. Used for {@link StorageEngineReader} to provide read only access on a
+ * RandomAccessFile.
  *
  * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz
@@ -77,9 +78,9 @@ public final class IOUringReader extends AbstractReader {
   /**
    * Constructor.
    *
-   * @param dataFile            the data file
+   * @param dataFile the data file
    * @param revisionsOffsetFile the file, which holds pointers to the revision root pages
-   * @param handler             {@link ByteHandler} instance
+   * @param handler {@link ByteHandler} instance
    */
   public IOUringReader(final AsyncFile dataFile, final AsyncFile revisionsOffsetFile, final ByteHandler handler,
       final SerializationType type, final PagePersister pagePersistenter,
@@ -176,7 +177,6 @@ public final class IOUringReader extends AbstractReader {
   }
 
   @Override
-  public void close() {
-  }
+  public void close() {}
 
 }

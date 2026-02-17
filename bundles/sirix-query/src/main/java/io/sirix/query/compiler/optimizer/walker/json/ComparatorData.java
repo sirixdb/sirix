@@ -8,8 +8,7 @@ final class ComparatorData {
   private String upperBoundComparator;
   private Atomic upperBoundAtomic;
 
-  ComparatorData() {
-  }
+  ComparatorData() {}
 
   ComparatorData(String comparator, Atomic atomic, String upperBoundComparator, Atomic upperBoundAtomic) {
     this.comparator = comparator;

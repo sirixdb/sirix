@@ -417,7 +417,8 @@ public final class StAXSerializer implements XMLEventReader {
 
       // Remember to emit all pending end elements from stack if
       // required.
-      if ((!rtx.hasFirstChild() && !rtx.hasRightSibling()) || (rtx.getKind() == NodeKind.ELEMENT && !rtx.hasFirstChild())) {
+      if ((!rtx.hasFirstChild() && !rtx.hasRightSibling())
+          || (rtx.getKind() == NodeKind.ELEMENT && !rtx.hasFirstChild())) {
         moveToNextNode();
       }
     }

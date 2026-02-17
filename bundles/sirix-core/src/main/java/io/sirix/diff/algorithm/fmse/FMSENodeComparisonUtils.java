@@ -36,8 +36,8 @@ class FMSENodeComparisonUtils {
    * Compares the values of two nodes. Values are the text content, if the nodes do have child nodes
    * or the name for inner nodes such as element or attribute (an attribute has one child: the value).
    *
-   * @param x      first node
-   * @param y      second node
+   * @param x first node
+   * @param y second node
    * @param oldRtx the transactional cursor on the old revision
    * @param newRtx the transactional cursor on the new revision
    * @return true iff the values of the nodes are equal
@@ -61,7 +61,7 @@ class FMSENodeComparisonUtils {
    * @param oldValue value of first node
    * @param newValue value of second node
    * @return ratio between 0 and 1, whereas 1 is a complete match and 0 denotes that the Strings are
-   * completely different
+   *         completely different
    */
   float calculateRatio(final String oldValue, final String newValue) {
     assert oldValue != null;
@@ -83,7 +83,7 @@ class FMSENodeComparisonUtils {
    * @param oldKey start key in old revision
    * @param newKey start key in new revision
    * @return {@code true} if all ancestors up to the start keys are considered equal, {@code false}
-   * otherwise
+   *         otherwise
    */
   boolean checkAncestors(final long oldKey, final long newKey) {
     assert oldKey >= 0;
@@ -103,11 +103,10 @@ class FMSENodeComparisonUtils {
           return false;
         }
       } while (oldRtx.getNodeKey() != oldStartKey && newRtx.getNodeKey() != newStartKey && oldRtx.hasParent()
-          && newRtx.hasParent()
-          && calculateRatio(getNodeValue(oldRtx.getNodeKey(), oldRtx), getNodeValue(newRtx.getNodeKey(), newRtx))
-          >= 0.7f);
-      retVal = (!oldRtx.hasParent() || oldRtx.getNodeKey() == oldStartKey) && (!newRtx.hasParent()
-          || newRtx.getNodeKey() == newStartKey);
+          && newRtx.hasParent() && calculateRatio(getNodeValue(oldRtx.getNodeKey(), oldRtx),
+              getNodeValue(newRtx.getNodeKey(), newRtx)) >= 0.7f);
+      retVal = (!oldRtx.hasParent() || oldRtx.getNodeKey() == oldStartKey)
+          && (!newRtx.hasParent() || newRtx.getNodeKey() == newStartKey);
     } else {
       retVal = false;
     }
@@ -125,9 +124,9 @@ class FMSENodeComparisonUtils {
       oldRtx.moveToAttribute(i);
       final QNm name = oldRtx.getName();
 
-      if (newRtx.moveToAttributeByName(name) && (
-          calculateRatio(getNodeValue(oldRtx.getNodeKey(), oldRtx), getNodeValue(newRtx.getNodeKey(), newRtx)) < 0.7f
-              || calculateRatio(oldRtx.getValue(), newRtx.getValue()) < 0.7f)) {
+      if (newRtx.moveToAttributeByName(name) && (calculateRatio(getNodeValue(oldRtx.getNodeKey(), oldRtx),
+          getNodeValue(newRtx.getNodeKey(), newRtx)) < 0.7f
+          || calculateRatio(oldRtx.getValue(), newRtx.getValue()) < 0.7f)) {
         newRtx.moveTo(newNodeKey);
         oldRtx.moveTo(oldNodeKey);
         return false;
@@ -148,7 +147,7 @@ class FMSENodeComparisonUtils {
    * @param oldKey start key in old revision
    * @param newKey start key in new revision
    * @return {@code true} if all ancestors up to the start keys of the FMSE-algorithm, {@code false}
-   * otherwise
+   *         otherwise
    */
   boolean checkIfAncestorIdsMatch(final long oldKey, final long newKey, final QNm id) {
     assert oldKey >= 0;
@@ -184,7 +183,7 @@ class FMSENodeComparisonUtils {
    * {@code prefix:localName} or the value of {@link TextNode}s.
    *
    * @param nodeKey node from which to get the value
-   * @param rtx     {@link XmlNodeReadOnlyTrx} implementation reference
+   * @param rtx {@link XmlNodeReadOnlyTrx} implementation reference
    * @return string value of current node
    */
   String getNodeValue(final long nodeKey, final XmlNodeReadOnlyTrx rtx) {

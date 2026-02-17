@@ -259,8 +259,7 @@ public class StAXSerializerTest {
    * @param isElem Determines if it is an element or an attribute.
    */
   @Ignore
-  private static void emitQName(final boolean isElem, final XMLEvent event,
-      final StringBuilder strBuilder) {
+  private static void emitQName(final boolean isElem, final XMLEvent event, final StringBuilder strBuilder) {
     QName qName;
     if (isElem) {
       if (event.isStartElement()) {

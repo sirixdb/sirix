@@ -42,11 +42,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Stress tests designed to trigger HOT internal operations:
- * - Page splits when leaf pages overflow
- * - Node upgrades (BiNode -> SpanNode -> MultiNode)
- * - Merge operations during deletions
- * - Indirect page creation and navigation
+ * Stress tests designed to trigger HOT internal operations: - Page splits when leaf pages overflow
+ * - Node upgrades (BiNode -> SpanNode -> MultiNode) - Merge operations during deletions - Indirect
+ * page creation and navigation
  */
 @DisplayName("HOT Merge/Split Stress Tests")
 class HOTMergeSplitStressTest {
@@ -76,29 +74,29 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           // 20,000 unique object keys - will definitely trigger many page splits
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 20000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             // Use padded format to ensure lexicographic ordering
             json.append("\"k_").append(String.format("%06d", i)).append("\": ").append(i);
           }
           json.append("}");
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         // Verify data integrity
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           assertTrue(rtx.hasFirstChild(), "Object should have children");
@@ -113,27 +111,27 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           // 50,000 array elements
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 50000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append(i);
           }
           json.append("]");
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -147,27 +145,47 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           // 10,000 objects with 5 unique keys each = 50,000 total keys
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 10000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{")
-                .append("\"id_").append(i).append("\": ").append(i).append(",")
-                .append("\"name_").append(i).append("\": \"item_").append(i).append("\",")
-                .append("\"value_").append(i).append("\": ").append(i * 10).append(",")
-                .append("\"category_").append(i % 100).append("\": ").append(i % 100).append(",")
-                .append("\"tag_").append(i % 500).append("\": \"t").append(i % 500).append("\"")
+                .append("\"id_")
+                .append(i)
+                .append("\": ")
+                .append(i)
+                .append(",")
+                .append("\"name_")
+                .append(i)
+                .append("\": \"item_")
+                .append(i)
+                .append("\",")
+                .append("\"value_")
+                .append(i)
+                .append("\": ")
+                .append(i * 10)
+                .append(",")
+                .append("\"category_")
+                .append(i % 100)
+                .append("\": ")
+                .append(i % 100)
+                .append(",")
+                .append("\"tag_")
+                .append(i % 500)
+                .append("\": \"t")
+                .append(i % 500)
+                .append("\"")
                 .append("}");
           }
           json.append("]");
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
@@ -186,24 +204,24 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create CAS index
           final var pathToValue = parse("/items/[]/value", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
           // 10,000 unique values
           StringBuilder json = new StringBuilder("{\"items\": [");
           for (int i = 0; i < 10000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{\"value\": ").append(i).append("}");
           }
           json.append("]}");
@@ -212,18 +230,15 @@ class HOTMergeSplitStressTest {
           wtx.commit();
 
           // Query across the entire range
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/items/[]/value"),
-                  new Int32(0),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/items/[]/value"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
           while (casIndex.hasNext()) {
             casIndex.next();
             count++;
-            if (count > 15000) break; // Safety
+            if (count > 15000)
+              break; // Safety
           }
           assertTrue(count > 0, "Should find indexed values");
         }
@@ -237,23 +252,23 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var pathToName = parse("/users/[]/name", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
           // 5,000 unique string values
           StringBuilder json = new StringBuilder("{\"users\": [");
           for (int i = 0; i < 5000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{\"name\": \"user_").append(String.format("%05d", i)).append("\"}");
           }
           json.append("]}");
@@ -262,18 +277,15 @@ class HOTMergeSplitStressTest {
           wtx.commit();
 
           // Range query
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/users/[]/name"),
-                  new Str("user_02000"),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/users/[]/name"), new Str("user_02000"), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
           while (casIndex.hasNext()) {
             casIndex.next();
             count++;
-            if (count > 5000) break;
+            if (count > 5000)
+              break;
           }
           assertTrue(count > 0, "Should find string values >= user_02000");
         }
@@ -293,16 +305,17 @@ class HOTMergeSplitStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(10)
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(10)
+                                                     .build());
 
         // Initial array
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 100; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append(i);
           }
           json.append("]");
@@ -313,11 +326,11 @@ class HOTMergeSplitStressTest {
         // 99 more revisions, each adding 50 elements
         for (int rev = 2; rev <= 100; rev++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
             wtx.moveToDocumentRoot();
-            wtx.moveToFirstChild();  // array
+            wtx.moveToFirstChild(); // array
             wtx.moveToLastChild();
-            
+
             for (int i = 0; i < 50; i++) {
               wtx.insertNumberValueAsRightSibling(rev * 1000 + i);
             }
@@ -329,7 +342,7 @@ class HOTMergeSplitStressTest {
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           int mostRecent = session.getMostRecentRevisionNumber();
           assertEquals(100, mostRecent);
-          
+
           // Read several revisions
           for (int rev : new int[] {1, 25, 50, 75, 100}) {
             try (var rtx = session.beginNodeReadOnlyTrx(rev)) {
@@ -349,16 +362,17 @@ class HOTMergeSplitStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.DIFFERENTIAL)
-            .maxNumberOfRevisionsToRestore(5)
-            .build());
+                                                     .versioningApproach(VersioningType.DIFFERENTIAL)
+                                                     .maxNumberOfRevisionsToRestore(5)
+                                                     .build());
 
         // Initial data: 1000 objects
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 1000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{\"id\": ").append(i).append("}");
           }
           json.append("]");
@@ -369,9 +383,9 @@ class HOTMergeSplitStressTest {
         // 49 more revisions with mixed operations
         for (int rev = 2; rev <= 50; rev++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
             wtx.moveToDocumentRoot();
-            wtx.moveToFirstChild();  // array
+            wtx.moveToFirstChild(); // array
 
             if (rev % 3 == 0) {
               // Delete first 20 elements
@@ -420,16 +434,16 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         // Create 500 elements
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 500; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append(i);
           }
           json.append("]");
@@ -440,13 +454,13 @@ class HOTMergeSplitStressTest {
         // Delete elements in batches
         for (int batch = 0; batch < 4; batch++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
             wtx.moveToDocumentRoot();
-            wtx.moveToFirstChild();  // array
-            
+            wtx.moveToFirstChild(); // array
+
             if (wtx.hasFirstChild()) {
               wtx.moveToFirstChild();
-              
+
               // Delete 100 elements per batch
               for (int i = 0; i < 100; i++) {
                 if (wtx.hasRightSibling()) {
@@ -466,7 +480,7 @@ class HOTMergeSplitStressTest {
 
         // Verify remaining data
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -481,16 +495,17 @@ class HOTMergeSplitStressTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-            .maxNumberOfRevisionsToRestore(5)
-            .build());
+                                                     .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                     .maxNumberOfRevisionsToRestore(5)
+                                                     .build());
 
         // Initial: 500 elements
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 500; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append(i);
           }
           json.append("]");
@@ -501,9 +516,9 @@ class HOTMergeSplitStressTest {
         // 29 more revisions
         for (int rev = 2; rev <= 30; rev++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
             wtx.moveToDocumentRoot();
-            wtx.moveToFirstChild();  // array
+            wtx.moveToFirstChild(); // array
 
             if (rev % 2 == 0) {
               // Even revisions: Add 100 elements
@@ -521,7 +536,8 @@ class HOTMergeSplitStressTest {
                   if (wtx.hasRightSibling()) {
                     long rightKey = wtx.getRightSiblingKey();
                     wtx.remove();
-                    if (!wtx.moveTo(rightKey)) break;
+                    if (!wtx.moveTo(rightKey))
+                      break;
                   } else {
                     wtx.remove();
                     break;
@@ -551,22 +567,23 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           // 5000 keys with very long common prefixes
-          String commonPrefix = "this_is_a_very_long_common_prefix_that_all_keys_share_to_stress_the_discriminative_bit_computation_";
+          String commonPrefix =
+              "this_is_a_very_long_common_prefix_that_all_keys_share_to_stress_the_discriminative_bit_computation_";
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 5000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"").append(commonPrefix).append(String.format("%04d", i)).append("\": ").append(i);
           }
           json.append("}");
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
@@ -580,23 +597,23 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           // 3000 keys with sparse, non-sequential values
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 3000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             // Use prime-based sparse distribution
-            int key = (i * 997) % 1000000;  // Prime multiplier for distribution
+            int key = (i * 997) % 1000000; // Prime multiplier for distribution
             json.append("\"key_").append(String.format("%06d", key)).append("\": ").append(i);
           }
           json.append("}");
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
@@ -610,26 +627,31 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           // 4000 keys in 10 tight clusters
           StringBuilder json = new StringBuilder("{");
           int keyIndex = 0;
           for (int cluster = 0; cluster < 10; cluster++) {
-            int baseKey = cluster * 100000;  // Clusters far apart
+            int baseKey = cluster * 100000; // Clusters far apart
             for (int i = 0; i < 400; i++) {
-              if (keyIndex > 0) json.append(",");
-              json.append("\"cluster_").append(cluster).append("_key_").append(String.format("%03d", i)).append("\": ").append(keyIndex);
+              if (keyIndex > 0)
+                json.append(",");
+              json.append("\"cluster_")
+                  .append(cluster)
+                  .append("_key_")
+                  .append(String.format("%03d", i))
+                  .append("\": ")
+                  .append(keyIndex);
               keyIndex++;
             }
           }
           json.append("}");
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
@@ -648,12 +670,11 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // PATH index
@@ -663,10 +684,12 @@ class HOTMergeSplitStressTest {
           // 80 sections x 100 fields = 8000 unique paths
           StringBuilder json = new StringBuilder("{");
           for (int section = 0; section < 80; section++) {
-            if (section > 0) json.append(",");
+            if (section > 0)
+              json.append(",");
             json.append("\"section_").append(section).append("\": {");
             for (int field = 0; field < 100; field++) {
-              if (field > 0) json.append(",");
+              if (field > 0)
+                json.append(",");
               json.append("\"field_").append(field).append("\": ").append(section * 100 + field);
             }
             json.append("}");
@@ -690,12 +713,11 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // NAME index
@@ -705,7 +727,8 @@ class HOTMergeSplitStressTest {
           // 1000 unique key names
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 1000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"unique_name_").append(String.format("%05d", i)).append("\": ").append(i);
           }
           json.append("}");
@@ -731,20 +754,20 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 10000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"w").append(String.format("%05d", i)).append("\": ").append(i);
           }
           json.append("}");
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
@@ -758,13 +781,12 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           int depth = 100;
           StringBuilder json = new StringBuilder();
           for (int i = 0; i < depth; i++) {
@@ -774,7 +796,7 @@ class HOTMergeSplitStressTest {
           for (int i = 0; i < depth; i++) {
             json.append("}");
           }
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
@@ -788,26 +810,27 @@ class HOTMergeSplitStressTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           // 500 objects x 100 keys = 50,000 key-value pairs
           StringBuilder json = new StringBuilder("[");
           for (int obj = 0; obj < 500; obj++) {
-            if (obj > 0) json.append(",");
+            if (obj > 0)
+              json.append(",");
             json.append("{");
             for (int key = 0; key < 100; key++) {
-              if (key > 0) json.append(",");
+              if (key > 0)
+                json.append(",");
               json.append("\"k").append(key).append("\": ").append(obj * 100 + key);
             }
             json.append("}");
           }
           json.append("]");
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }

@@ -13,27 +13,11 @@ final class NodeKindLayoutsTest {
 
   @Test
   void xmlAndJsonCoreKindsExposeFixedLayouts() {
-    final NodeKind[] fixedKinds = {
-        NodeKind.XML_DOCUMENT,
-        NodeKind.ELEMENT,
-        NodeKind.ATTRIBUTE,
-        NodeKind.NAMESPACE,
-        NodeKind.TEXT,
-        NodeKind.COMMENT,
-        NodeKind.PROCESSING_INSTRUCTION,
-        NodeKind.JSON_DOCUMENT,
-        NodeKind.OBJECT,
-        NodeKind.ARRAY,
-        NodeKind.OBJECT_KEY,
-        NodeKind.STRING_VALUE,
-        NodeKind.NUMBER_VALUE,
-        NodeKind.BOOLEAN_VALUE,
-        NodeKind.NULL_VALUE,
-        NodeKind.OBJECT_STRING_VALUE,
-        NodeKind.OBJECT_NUMBER_VALUE,
-        NodeKind.OBJECT_BOOLEAN_VALUE,
-        NodeKind.OBJECT_NULL_VALUE
-    };
+    final NodeKind[] fixedKinds = {NodeKind.XML_DOCUMENT, NodeKind.ELEMENT, NodeKind.ATTRIBUTE, NodeKind.NAMESPACE,
+        NodeKind.TEXT, NodeKind.COMMENT, NodeKind.PROCESSING_INSTRUCTION, NodeKind.JSON_DOCUMENT, NodeKind.OBJECT,
+        NodeKind.ARRAY, NodeKind.OBJECT_KEY, NodeKind.STRING_VALUE, NodeKind.NUMBER_VALUE, NodeKind.BOOLEAN_VALUE,
+        NodeKind.NULL_VALUE, NodeKind.OBJECT_STRING_VALUE, NodeKind.OBJECT_NUMBER_VALUE, NodeKind.OBJECT_BOOLEAN_VALUE,
+        NodeKind.OBJECT_NULL_VALUE};
 
     for (final NodeKind kind : fixedKinds) {
       final NodeKindLayout layout = NodeKindLayouts.layoutFor(kind);
@@ -72,8 +56,7 @@ final class NodeKindLayoutsTest {
         if (offset < 0) {
           continue;
         }
-        assertTrue(offset + field.widthInBytes() <= slotSize,
-            "Field exceeds slot boundary: " + kind + "/" + field);
+        assertTrue(offset + field.widthInBytes() <= slotSize, "Field exceeds slot boundary: " + kind + "/" + field);
         markRangeFreeThenOccupy(occupied, offset, field.widthInBytes(), kind + "/" + field);
       }
 

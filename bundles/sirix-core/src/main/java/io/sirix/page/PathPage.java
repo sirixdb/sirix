@@ -87,8 +87,8 @@ public final class PathPage extends AbstractForwardingPage {
   /**
    * Read meta page.
    *
-   * @param delegate                        The references page instance.
-   * @param maxNodeKeys                     Maximum node keys.
+   * @param delegate The references page instance.
+   * @param maxNodeKeys Maximum node keys.
    * @param currentMaxLevelsOfIndirectPages Current maximum levels of indirect pages in the tree.
    */
   public PathPage(final Page delegate, final Int2LongMap maxNodeKeys,
@@ -112,12 +112,12 @@ public final class PathPage extends AbstractForwardingPage {
    * Initialize path index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx  {@link StorageEngineReader} instance
-   * @param index        the index number
-   * @param log          the transaction intent log
+   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param index the index number
+   * @param log the transaction intent log
    */
-  public void createPathIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx, final int index,
-      final TransactionIntentLog log) {
+  public void createPathIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
+      final int index, final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
@@ -138,11 +138,13 @@ public final class PathPage extends AbstractForwardingPage {
   /**
    * Initialize HOT (Height Optimized Trie) path index tree.
    *
-   * <p>Creates a cache-friendly HOT index instead of the traditional RBTree-based index.</p>
+   * <p>
+   * Creates a cache-friendly HOT index instead of the traditional RBTree-based index.
+   * </p>
    *
    * @param pageReadTrx {@link StorageEngineReader} instance
-   * @param index       the index number
-   * @param log         the transaction intent log
+   * @param index the index number
+   * @param log the transaction intent log
    */
   public void createHOTPathIndexTree(final StorageEngineReader pageReadTrx, final int index,
       final TransactionIntentLog log) {

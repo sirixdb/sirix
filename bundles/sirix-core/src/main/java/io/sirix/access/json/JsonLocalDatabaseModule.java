@@ -40,11 +40,6 @@ public interface JsonLocalDatabaseModule {
       final DatabaseConfiguration dbConfig, final PathBasedPool<Database<?>> sessions,
       final ResourceStore<JsonResourceSession> resourceStore, final WriteLocksRegistry writeLocks,
       final PathBasedPool<ResourceSession<?, ?>> resourceManagers) {
-    return new LocalDatabase<>(transactionManager,
-                               dbConfig,
-                               sessions,
-                               resourceStore,
-                               writeLocks,
-                               resourceManagers);
+    return new LocalDatabase<>(transactionManager, dbConfig, sessions, resourceStore, writeLocks, resourceManagers);
   }
 }

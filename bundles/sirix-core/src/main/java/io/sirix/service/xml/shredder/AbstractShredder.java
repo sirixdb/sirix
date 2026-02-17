@@ -114,7 +114,8 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
       case AS_RIGHT_SIBLING -> {
         if (wtx.getKind() == NodeKind.XML_DOCUMENT
             || wtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-          throw new IllegalStateException("Subtree can not be inserted as sibling of document root or the root-element!");
+          throw new IllegalStateException(
+              "Subtree can not be inserted as sibling of document root or the root-element!");
         }
         key = wtx.insertElementAsRightSibling(name).getNodeKey();
         insertLocation = InsertPosition.AS_FIRST_CHILD;
@@ -122,7 +123,8 @@ public abstract class AbstractShredder implements Shredder<String, QNm> {
       case AS_LEFT_SIBLING -> {
         if (wtx.getKind() == NodeKind.XML_DOCUMENT
             || wtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-          throw new IllegalStateException("Subtree can not be inserted as sibling of document root or the root-element!");
+          throw new IllegalStateException(
+              "Subtree can not be inserted as sibling of document root or the root-element!");
         }
         key = wtx.insertElementAsLeftSibling(name).getNodeKey();
         insertLocation = InsertPosition.AS_FIRST_CHILD;

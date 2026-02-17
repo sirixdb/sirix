@@ -56,8 +56,7 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-public final class SAXSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, XmlNodeTrx>
-    implements XMLReader {
+public final class SAXSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, XmlNodeTrx> implements XMLReader {
 
   /** {@link LogWrapper} reference. */
   private final LogWrapper LOGGER = new LogWrapper(LoggerFactory.getLogger(SAXSerializer.class));

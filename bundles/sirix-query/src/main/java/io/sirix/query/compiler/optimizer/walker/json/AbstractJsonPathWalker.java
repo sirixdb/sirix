@@ -65,34 +65,31 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     final RevisionData revisionData = getRevisionData(node);
 
     try (final var jsonCollection = jsonDBStore.lookup(revisionData.databaseName());
-         final var resMgr = jsonCollection.getDatabase().beginResourceSession(revisionData.resourceName());
-         final var rtx = revisionData.revision() == -1
-             ? resMgr.beginNodeReadOnlyTrx()
-             : resMgr.beginNodeReadOnlyTrx(revisionData.revision());
-         final var pathSummary = revisionData.revision() == -1
-             ? resMgr.openPathSummary()
-             : resMgr.openPathSummary(revisionData.revision())) {
+        final var resMgr = jsonCollection.getDatabase().beginResourceSession(revisionData.resourceName());
+        final var rtx = revisionData.revision() == -1
+            ? resMgr.beginNodeReadOnlyTrx()
+            : resMgr.beginNodeReadOnlyTrx(revisionData.revision());
+        final var pathSummary = revisionData.revision() == -1
+            ? resMgr.openPathSummary()
+            : resMgr.openPathSummary(revisionData.revision())) {
       if (rtx.getDescendantCount() < MIN_NODE_NUMBER) {
         return astNode;
       }
 
       // path node keys of all paths, which have the right most field of the query in its path
       var queryPathSegment = pathSegmentNamesToArrayIndexes.getLast();
-      var pathNodeKeys = findFurthestFromRootPathNodes(astNode,
-                                                       !queryPathSegment.arrayIndexes().isEmpty()
-                                                           ? "__array__"
-                                                           : queryPathSegment.pathSegmentName(),
-                                                       pathSummary,
-                                                       !queryPathSegment.arrayIndexes().isEmpty()
-                                                           ? NodeKind.ARRAY
-                                                           : NodeKind.OBJECT_KEY);
+      var pathNodeKeys = findFurthestFromRootPathNodes(astNode, !queryPathSegment.arrayIndexes().isEmpty()
+          ? "__array__"
+          : queryPathSegment.pathSegmentName(), pathSummary,
+          !queryPathSegment.arrayIndexes().isEmpty()
+              ? NodeKind.ARRAY
+              : NodeKind.OBJECT_KEY);
 
-      var pathNodeKeysToRemove = pathNodeKeys.stream()
-                                             .filter(pathNodeKey -> Paths.isPathNodeNotAQueryResult(
-                                                 pathSegmentNamesToArrayIndexes,
-                                                 pathSummary,
-                                                 pathNodeKey))
-                                             .toList();
+      var pathNodeKeysToRemove =
+          pathNodeKeys.stream()
+                      .filter(pathNodeKey -> Paths.isPathNodeNotAQueryResult(pathSegmentNamesToArrayIndexes,
+                          pathSummary, pathNodeKey))
+                      .toList();
 
       // remove path node keys which do not belong to the query result
       pathNodeKeys.removeIf(pathNodeKeysToRemove::contains);
@@ -107,26 +104,14 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       final var predicateSegmentNames = toPredicateSegmentNames(predicateSegmentNamesToArrayIndexes);
 
       removeFirstPredicateSegmentNameIfPredicateLeafNodeIsContextItemAndParentOfCtxItemIsAnArrayAccessExpr(
-          predicateLeafNode,
-          predicateSegmentNames);
+          predicateLeafNode, predicateSegmentNames);
 
-      boolean notFound = findIndexDefsForPathNodeKeys(predicateNode,
-                                                      type,
-                                                      predicateSegmentNames,
-                                                      revisionData,
-                                                      resMgr,
-                                                      pathSummary,
-                                                      pathNodeKeys,
-                                                      foundIndexDefsToPaths,
-                                                      foundIndexDefsToPredicateLevels);
+      boolean notFound = findIndexDefsForPathNodeKeys(predicateNode, type, predicateSegmentNames, revisionData, resMgr,
+          pathSummary, pathNodeKeys, foundIndexDefsToPaths, foundIndexDefsToPredicateLevels);
 
       if (!notFound) {
-        return replaceFoundAST(astNode,
-                               revisionData,
-                               foundIndexDefsToPaths,
-                               foundIndexDefsToPredicateLevels,
-                               pathSegmentNamesToArrayIndexes,
-                               predicateLeafNode);
+        return replaceFoundAST(astNode, revisionData, foundIndexDefsToPaths, foundIndexDefsToPredicateLevels,
+            pathSegmentNamesToArrayIndexes, predicateLeafNode);
       }
     }
 
@@ -180,7 +165,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     final Optional<AST> newNode;
 
     if (node.getType() == XQ.DerefExpr) {
-      // otherwise the pathSegmentName has been added in the getPredicatePathStep method already (only if context item _plus_ array index access expr)
+      // otherwise the pathSegmentName has been added in the getPredicatePathStep method already (only if
+      // context item _plus_ array index access expr)
       if (!(predicateLeafNode.isPresent() && predicateLeafNode.get().getType() == XQ.ContextItemExpr
           && predicateLeafNode.get().getParent().getType() == XQ.ArrayAccess)) {
         final var pathSegmentName = node.getChild(1).getStringValue();
@@ -209,9 +195,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     }
 
     return newNode.map(unwrappedNode -> new PathData(pathSegmentNamesToArrayIndexes,
-                                                     predicatePathSegmentNamesToArrayIndexes,
-                                                     unwrappedNode,
-                                                     predicateLeafNode.orElse(null))).orElse(null);
+        predicatePathSegmentNamesToArrayIndexes, unwrappedNode, predicateLeafNode.orElse(null))).orElse(null);
   }
 
   private List<Integer> findFurthestFromRootPathNodes(AST astNode, String pathSegmentNameToCheck,
@@ -384,9 +368,9 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
 
       adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName, pathSegmentNamesToArrayIndexes, Integer.MIN_VALUE);
 
-      //      if (possiblyDerefAstNode.getType() == XQ.ContextItemExpr) {
-      //        return Optional.of(possiblyDerefAstNode);
-      //      }
+      // if (possiblyDerefAstNode.getType() == XQ.ContextItemExpr) {
+      // return Optional.of(possiblyDerefAstNode);
+      // }
 
       if (doPathRecursion) {
         return getPathStep(possiblyDerefAstNode, pathSegmentNamesToArrayIndexes);
@@ -396,9 +380,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     }
 
     if (possiblyDerefAstNode.getType() == XQ.FunctionCall) {
-      adaptPathNamesToArrayIndexesWithNewArrayIndex(null,
-                                                    pathSegmentNamesToArrayIndexes,
-                                                    ((Int32) indexAstNode.getValue()).intValue());
+      adaptPathNamesToArrayIndexesWithNewArrayIndex(null, pathSegmentNamesToArrayIndexes,
+          ((Int32) indexAstNode.getValue()).intValue());
 
       return Optional.of(possiblyDerefAstNode);
     } else if (possiblyDerefAstNode.getType() == XQ.VariableRef) {
@@ -414,9 +397,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     } else {
       final var pathSegmentName = possiblyDerefAstNode.getChild(step.getChildCount() - 1).getStringValue();
 
-      adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName,
-                                                    pathSegmentNamesToArrayIndexes,
-                                                    ((Int32) indexAstNode.getValue()).intValue());
+      adaptPathNamesToArrayIndexesWithNewArrayIndex(pathSegmentName, pathSegmentNamesToArrayIndexes,
+          ((Int32) indexAstNode.getValue()).intValue());
 
       if (doPathRecursion) {
         return getPathStep(possiblyDerefAstNode, pathSegmentNamesToArrayIndexes);
@@ -515,9 +497,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
           return processArrayAccess(pathNameForIndexes, pathNamesToArrayIndexes, firstChildAstNode);
         }
 
-        adaptPathNamesToArrayIndexesWithNewArrayIndex(pathNameForIndexes,
-                                                      pathNamesToArrayIndexes,
-                                                      ((Int32) indexAstNode.getValue()).intValue());
+        adaptPathNamesToArrayIndexesWithNewArrayIndex(pathNameForIndexes, pathNamesToArrayIndexes,
+            ((Int32) indexAstNode.getValue()).intValue());
         return processArrayAccess(pathNameForIndexes, pathNamesToArrayIndexes, firstChildAstNode);
       }
     }

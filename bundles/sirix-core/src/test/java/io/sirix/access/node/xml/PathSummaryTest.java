@@ -1005,7 +1005,8 @@ public final class PathSummaryTest {
     System.out.println("nodes");
 
     OutputStream out = new ByteArrayOutputStream();
-    XmlSerializer serializer = new XmlSerializerBuilder(holder.getResourceSession(), out).emitIDs().prettyPrint().build();
+    XmlSerializer serializer =
+        new XmlSerializerBuilder(holder.getResourceSession(), out).emitIDs().prettyPrint().build();
     serializer.call();
     System.out.println(out);
 
@@ -1383,26 +1384,26 @@ public final class PathSummaryTest {
   }
 
   private static void checkInMemoryNodes(PathSummaryReader summary) {
-//    if (summary.getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-//      assertNull(summary.getPathNode().getFirstChild());
-//    } else {
-//      assertEquals(summary.getPathNode().getFirstChild().getNodeKey(), summary.getFirstChildKey());
-//    }
-//    if (summary.getLeftSiblingKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-//      assertNull(summary.getPathNode().getLeftSibling());
-//    } else {
-//      assertEquals(summary.getPathNode().getLeftSibling().getNodeKey(), summary.getLeftSiblingKey());
-//    }
-//    if (summary.getRightSiblingKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-//      assertNull(summary.getPathNode().getRightSibling());
-//    } else {
-//      assertEquals(summary.getPathNode().getRightSibling().getNodeKey(), summary.getRightSiblingKey());
-//    }
-//    if (summary.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-//      assertNull(summary.getPathNode().getParent());
-//    } else {
-//      assertEquals(summary.getPathNode().getParent().getNodeKey(), summary.getParentKey());
-//    }
+    // if (summary.getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+    // assertNull(summary.getPathNode().getFirstChild());
+    // } else {
+    // assertEquals(summary.getPathNode().getFirstChild().getNodeKey(), summary.getFirstChildKey());
+    // }
+    // if (summary.getLeftSiblingKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+    // assertNull(summary.getPathNode().getLeftSibling());
+    // } else {
+    // assertEquals(summary.getPathNode().getLeftSibling().getNodeKey(), summary.getLeftSiblingKey());
+    // }
+    // if (summary.getRightSiblingKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+    // assertNull(summary.getPathNode().getRightSibling());
+    // } else {
+    // assertEquals(summary.getPathNode().getRightSibling().getNodeKey(), summary.getRightSiblingKey());
+    // }
+    // if (summary.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+    // assertNull(summary.getPathNode().getParent());
+    // } else {
+    // assertEquals(summary.getPathNode().getParent().getNodeKey(), summary.getParentKey());
+    // }
   }
 
   /**

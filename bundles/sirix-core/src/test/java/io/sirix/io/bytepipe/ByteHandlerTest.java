@@ -23,8 +23,7 @@ import static org.testng.AssertJUnit.assertTrue;
 public final class ByteHandlerTest {
 
   /**
-   * //todo not found
-   * Test method for {@link ByteHandler#deserialize(java.io.InputStream)} and for
+   * //todo not found Test method for {@link ByteHandler#deserialize(java.io.InputStream)} and for
    * {@link ByteHandler#serialize(java.io.OutputStream)}.
    *
    * @throws IOException
@@ -50,8 +49,7 @@ public final class ByteHandlerTest {
       input.close();
 
       final byte[] encoded = output.toByteArray();
-      assertFalse(
-          new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
+      assertFalse(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
           Arrays.equals(bytes, encoded));
 
       input = new ByteArrayInputStream(encoded);
@@ -64,15 +62,13 @@ public final class ByteHandlerTest {
       input.close();
 
       final byte[] decoded = output.toByteArray();
-      assertTrue(
-          new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
+      assertTrue(new StringBuilder("Check for ").append(handler.getClass()).append(" failed.").toString(),
           Arrays.equals(bytes, decoded));
     }
   }
 
   /**
-   * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test
-   * class.
+   * Providing different implementations of the {@link ByteHandler} as Dataprovider to the test class.
    *
    * @return different classes of the {@link ByteHandler}
    * @throws SirixIOException if an I/O error occurs
@@ -82,8 +78,7 @@ public final class ByteHandlerTest {
     final Path encryptionKeyPath = Paths.get("src", "test", "resources", "resourceName");
 
     Object[][] returnVal = {{ByteHandler.class,
-        new ByteHandler[] {new Encryptor(encryptionKeyPath), new DeflateCompressor(),
-            new SnappyCompressor(),
+        new ByteHandler[] {new Encryptor(encryptionKeyPath), new DeflateCompressor(), new SnappyCompressor(),
             new ByteHandlerPipeline(new Encryptor(encryptionKeyPath), new DeflateCompressor()),
             new ByteHandlerPipeline(new DeflateCompressor(), new Encryptor(encryptionKeyPath)),
             new ByteHandlerPipeline(new Encryptor(encryptionKeyPath), new SnappyCompressor()),

@@ -1,4 +1,5 @@
 package io.sirix.axis;
+
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.api.Axis;
@@ -124,7 +125,8 @@ public class BatchDescendantAxisTest {
     return result;
   }
 
-  private List<Long> collectAllBatched(final XmlNodeReadOnlyTrx rtx, final IncludeSelf includeSelf, final int batchSize) {
+  private List<Long> collectAllBatched(final XmlNodeReadOnlyTrx rtx, final IncludeSelf includeSelf,
+      final int batchSize) {
     rtx.moveToDocumentRoot();
     final var axis = new BatchDescendantAxis(rtx, includeSelf);
     final var out = new LongArrayList(batchSize);
@@ -138,7 +140,8 @@ public class BatchDescendantAxisTest {
     return result;
   }
 
-  private List<Long> collectAllCallback(final XmlNodeReadOnlyTrx rtx, final IncludeSelf includeSelf, final int batchSize) {
+  private List<Long> collectAllCallback(final XmlNodeReadOnlyTrx rtx, final IncludeSelf includeSelf,
+      final int batchSize) {
     rtx.moveToDocumentRoot();
     final var axis = new BatchDescendantAxis(rtx, includeSelf);
 

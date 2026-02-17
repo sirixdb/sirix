@@ -41,8 +41,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
 
     final long nodeKey = nodeTrx.getNodeKey();
 
-    final StructNode root =
-        nodeTrx.getPageWtx().prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    final StructNode root = nodeTrx.getPageWtx().prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     root.setDeweyID(id);
     persistUpdatedRecord(root);
 

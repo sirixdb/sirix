@@ -54,7 +54,7 @@ public final class IndexExpr implements Expr {
     databaseName = (String) properties.get("databaseName");
     resourceName = (String) properties.get("resourceName");
     revision = (Integer) properties.get("revision");
-    //noinspection unchecked
+    // noinspection unchecked
     indexDefsToPaths = (Map<IndexDef, List<Path<QNm>>>) properties.get("indexDefs");
   }
 
@@ -70,13 +70,15 @@ public final class IndexExpr implements Expr {
         ? manager.getRtxIndexController(manager.getMostRecentRevisionNumber())
         : manager.getRtxIndexController(revision);
 
-    final JsonNodeReadOnlyTrx rtx =
-        revision == -1 ? manager.beginNodeReadOnlyTrx() : manager.beginNodeReadOnlyTrx(revision);
+    final JsonNodeReadOnlyTrx rtx = revision == -1
+        ? manager.beginNodeReadOnlyTrx()
+        : manager.beginNodeReadOnlyTrx(revision);
     var nodeKeys = new ArrayList<Long>();
 
     final var indexType = (IndexType) properties.get("indexType");
     final var indexTypeToNodeKeys = new HashMap<IndexDef, List<Long>>();
-    @SuppressWarnings("unchecked") final var pathSegmentNamesToArrayIndexes =
+    @SuppressWarnings("unchecked")
+    final var pathSegmentNamesToArrayIndexes =
         (Deque<QueryPathSegment>) properties.get("pathSegmentNamesToArrayIndexes");
 
     for (final Map.Entry<IndexDef, List<Path<QNm>>> entrySet : indexDefsToPaths.entrySet()) {
@@ -85,17 +87,10 @@ public final class IndexExpr implements Expr {
       switch (indexType) {
         case PATH -> {
           final Iterator<NodeReferences> nodeReferencesIterator = indexController.openPathIndex(rtx.getPageTrx(),
-                                                                                                entrySet.getKey(),
-                                                                                                indexController.createPathFilter(
-                                                                                                    pathStrings,
-                                                                                                    rtx));
+              entrySet.getKey(), indexController.createPathFilter(pathStrings, rtx));
 
-          checkIfIndexNodeIsApplicable(manager,
-                                       rtx,
-                                       pathSegmentNamesToArrayIndexes,
-                                       nodeReferencesIterator,
-                                       nodeKeys,
-                                       false);
+          checkIfIndexNodeIsApplicable(manager, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
+              false);
         }
         case CAS -> {
           final var atomic = (Atomic) properties.get("atomic");
@@ -107,27 +102,20 @@ public final class IndexExpr implements Expr {
           if (atomicUpperBound != null && comparisonUpperBound != null) {
             final SearchMode searchModeUpperBound = getSearchMode(comparisonUpperBound);
 
-            if ((searchMode != SearchMode.GREATER && searchMode != SearchMode.GREATER_OR_EQUAL) || (
-                searchModeUpperBound != SearchMode.LOWER && searchModeUpperBound != SearchMode.LOWER_OR_EQUAL)) {
+            if ((searchMode != SearchMode.GREATER && searchMode != SearchMode.GREATER_OR_EQUAL)
+                || (searchModeUpperBound != SearchMode.LOWER && searchModeUpperBound != SearchMode.LOWER_OR_EQUAL)) {
               throw new QueryException(JNFun.ERR_INVALID_ARGUMENT, new QNm("Search mode not supported."));
             }
 
-            final var casFilter = new CASFilterRange(new HashSet<>(entrySet.getValue()),
-                                                     atomic,
-                                                     atomicUpperBound,
-                                                     searchMode == SearchMode.GREATER_OR_EQUAL,
-                                                     searchModeUpperBound == SearchMode.LOWER_OR_EQUAL,
-                                                     new JsonPCRCollector(rtx));
+            final var casFilter = new CASFilterRange(new HashSet<>(entrySet.getValue()), atomic, atomicUpperBound,
+                searchMode == SearchMode.GREATER_OR_EQUAL, searchModeUpperBound == SearchMode.LOWER_OR_EQUAL,
+                new JsonPCRCollector(rtx));
 
             final Iterator<NodeReferences> nodeReferencesIterator =
                 indexController.openCASIndex(rtx.getPageTrx(), entrySet.getKey(), casFilter);
 
-            checkIfIndexNodeIsApplicable(manager,
-                                         rtx,
-                                         pathSegmentNamesToArrayIndexes,
-                                         nodeReferencesIterator,
-                                         nodeKeys,
-                                         false);
+            checkIfIndexNodeIsApplicable(manager, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
+                false);
 
           } else {
 
@@ -137,35 +125,20 @@ public final class IndexExpr implements Expr {
             final Iterator<NodeReferences> nodeReferencesIterator =
                 indexController.openCASIndex(rtx.getPageTrx(), entrySet.getKey(), casFilter);
 
-            checkIfIndexNodeIsApplicable(manager,
-                                         rtx,
-                                         pathSegmentNamesToArrayIndexes,
-                                         nodeReferencesIterator,
-                                         nodeKeys,
-                                         false);
+            checkIfIndexNodeIsApplicable(manager, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
+                false);
 
           }
           indexTypeToNodeKeys.put(entrySet.getKey(), nodeKeys);
           nodeKeys = new ArrayList<>();
         }
         case NAME -> {
-          final Iterator<NodeReferences> nodeReferencesIterator = indexController.openNameIndex(rtx.getPageTrx(),
-                                                                                                entrySet.getKey(),
-                                                                                                new NameFilter(Set.of(
-                                                                                                    entrySet.getValue()
-                                                                                                            .get(
-                                                                                                                entrySet.getValue()
-                                                                                                                        .size()
-                                                                                                                    - 1)
-                                                                                                            .tail()),
-                                                                                                               Set.of()));
+          final Iterator<NodeReferences> nodeReferencesIterator =
+              indexController.openNameIndex(rtx.getPageTrx(), entrySet.getKey(),
+                  new NameFilter(Set.of(entrySet.getValue().get(entrySet.getValue().size() - 1).tail()), Set.of()));
 
-          checkIfIndexNodeIsApplicable(manager,
-                                       rtx,
-                                       pathSegmentNamesToArrayIndexes,
-                                       nodeReferencesIterator,
-                                       nodeKeys,
-                                       true);
+          checkIfIndexNodeIsApplicable(manager, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
+              true);
 
         }
         default -> throw new IllegalStateException("Index type " + indexType + " not known");
@@ -190,7 +163,9 @@ public final class IndexExpr implements Expr {
           }
         } else {
           var index = arrayIndexes.getFirst();
-          index = index < 0 ? (int) (rtx.getChildCount() + index) : index;
+          index = index < 0
+              ? (int) (rtx.getChildCount() + index)
+              : index;
           boolean hasMoved = rtx.moveToFirstChild();
           assert hasMoved;
           int k = 1;
@@ -203,8 +178,8 @@ public final class IndexExpr implements Expr {
       });
       case CAS -> indexDefsToPaths.keySet().forEach(indexDef -> {
         final var predicateLeafNode = (AST) properties.get("predicateLeafNode");
-        @SuppressWarnings(
-            "unchecked") final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
+        @SuppressWarnings("unchecked")
+        final var indexDefToPredicateLevel = (Map<IndexDef, Integer>) properties.get("predicateLevel");
         final var predicateLevel = indexDefToPredicateLevel.get(indexDef);
         final var nodeKeysOfIndex = indexTypeToNodeKeys.get(indexDef);
         nodeKeysOfIndex.forEach(nodeKey -> {
@@ -250,18 +225,22 @@ public final class IndexExpr implements Expr {
       Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, Iterator<NodeReferences> nodeReferencesIterator,
       List<Long> nodeKeys, boolean checkPathBecauseOfFieldNameChecks) {
     final long numberOfArrayIndexes = getNumberOfArrayIndexes(pathSegmentNamesToArrayIndexes);
-    try (final var pathSummary = revision == -1 ? manager.openPathSummary() : manager.openPathSummary(revision)) {
+    try (final var pathSummary = revision == -1
+        ? manager.openPathSummary()
+        : manager.openPathSummary(revision)) {
       nodeReferencesIterator.forEachRemaining(currentNodeReferences -> {
         final var currNodeKeys = new LongLinkedOpenHashSet(currentNodeReferences.getNodeKeys().toArray());
-        // if array numberOfArrayIndexes are given (only some might be specified we have to drop false positive nodes
+        // if array numberOfArrayIndexes are given (only some might be specified we have to drop false
+        // positive nodes
         if (numberOfArrayIndexes != 0 || checkPathBecauseOfFieldNameChecks) {
-          final var nodeKeyIter =  currentNodeReferences.getNodeKeys().getLongIterator();
+          final var nodeKeyIter = currentNodeReferences.getNodeKeys().getLongIterator();
           while (nodeKeyIter.hasNext()) {
             final var nodeKey = nodeKeyIter.next();
             final var currentPathSegmentNamesToArrayIndexes = new ArrayDeque<QueryPathSegment>();
             pathSegmentNamesToArrayIndexes.forEach(pathSegmentNameToArrayIndex -> {
               final var currentIndexes = new ArrayDeque<>(pathSegmentNameToArrayIndex.arrayIndexes());
-              currentPathSegmentNamesToArrayIndexes.addLast(new QueryPathSegment(pathSegmentNameToArrayIndex.pathSegmentName(), currentIndexes));
+              currentPathSegmentNamesToArrayIndexes.addLast(
+                  new QueryPathSegment(pathSegmentNameToArrayIndex.pathSegmentName(), currentIndexes));
             });
 
             rtx.moveTo(nodeKey);
@@ -283,8 +262,7 @@ public final class IndexExpr implements Expr {
             assert path != null;
             final var steps = path.steps();
 
-            outer:
-            for (int i = steps.size() - 1; i >= 0; i--) {
+            outer: for (int i = steps.size() - 1; i >= 0; i--) {
               final var step = steps.get(i);
 
               boolean moveToParent = true;
@@ -302,7 +280,9 @@ public final class IndexExpr implements Expr {
 
                 assert currentPathSegmentNamesToArrayIndexes.peekLast() != null;
                 tempIndexes = currentPathSegmentNamesToArrayIndexes.peekLast().arrayIndexes();
-                final Deque<Integer> indexes = tempIndexes == null ? null : new ArrayDeque<>(tempIndexes);
+                final Deque<Integer> indexes = tempIndexes == null
+                    ? null
+                    : new ArrayDeque<>(tempIndexes);
 
                 if (indexes == null) {
                   // no array numberOfArrayIndexes given
@@ -314,7 +294,8 @@ public final class IndexExpr implements Expr {
                   // at least some array numberOfArrayIndexes are given for the specific object key node
                   int y = 0;
                   for (int m = 0, length = currentIndex - j - indexes.size(); m < length; m++) {
-                    // for instance =>foo[[0]]=>bar   in a path /foo/[]/[]/[]/bar meaning at least one index is not specified
+                    // for instance =>foo[[0]]=>bar in a path /foo/[]/[]/[]/bar meaning at least one index is not
+                    // specified
                     y++;
                     rtx.moveToParent();
                   }
@@ -323,7 +304,9 @@ public final class IndexExpr implements Expr {
                     int index = indexes.pop();
 
                     if (index != Integer.MIN_VALUE) {
-                      index = index < 0 ? (int) (rtx.getChildCount() + index) : index;
+                      index = index < 0
+                          ? (int) (rtx.getChildCount() + index)
+                          : index;
                       if (currentIndex == steps.size() - 1) {
                         boolean hasMoved = rtx.moveToFirstChild();
                         int k = 0;

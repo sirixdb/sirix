@@ -17,32 +17,38 @@ public interface ByteHandler {
   /**
    * Result of scoped decompression - must be closed after use to return buffer to pool.
    * 
-   * <p>This is the Loom-friendly alternative to ThreadLocal buffer caching.
-   * Memory is bounded by pool size (typically 2×CPU cores), not thread count.
+   * <p>
+   * This is the Loom-friendly alternative to ThreadLocal buffer caching. Memory is bounded by pool
+   * size (typically 2×CPU cores), not thread count.
    * 
-   * <p>For zero-copy page deserialization, ownership of the backing buffer can be transferred
-   * to the page via {@link #transferOwnership()}. When ownership is transferred, the buffer
-   * is NOT returned to the pool when close() is called - the page becomes responsible for
-   * releasing it when the page is closed/evicted.
+   * <p>
+   * For zero-copy page deserialization, ownership of the backing buffer can be transferred to the
+   * page via {@link #transferOwnership()}. When ownership is transferred, the buffer is NOT returned
+   * to the pool when close() is called - the page becomes responsible for releasing it when the page
+   * is closed/evicted.
    * 
-   * <p>Usage (normal - buffer returned to pool):
+   * <p>
+   * Usage (normal - buffer returned to pool):
+   * 
    * <pre>{@code
    * try (var result = byteHandler.decompressScoped(compressed)) {
-   *     Page page = deserialize(result.segment());
-   *     return page;
+   *   Page page = deserialize(result.segment());
+   *   return page;
    * } // Buffer automatically returned to pool
    * }</pre>
    * 
-   * <p>Usage (zero-copy - buffer ownership transferred to page):
+   * <p>
+   * Usage (zero-copy - buffer ownership transferred to page):
+   * 
    * <pre>{@code
    * var result = byteHandler.decompressScoped(compressed);
    * try {
-   *     // Page takes ownership via transferOwnership()
-   *     Page page = deserializeWithZeroCopy(result);
-   *     return page;
+   *   // Page takes ownership via transferOwnership()
+   *   Page page = deserializeWithZeroCopy(result);
+   *   return page;
    * } finally {
-   *     // Only releases if ownership wasn't transferred
-   *     result.close();
+   *   // Only releases if ownership wasn't transferred
+   *   result.close();
    * }
    * }</pre>
    * 
@@ -51,26 +57,23 @@ public interface ByteHandler {
    * @param releaser Returns buffer to allocator when called
    * @param ownershipTransferred Tracks whether ownership was transferred to prevent double-release
    */
-  record DecompressionResult(
-      MemorySegment segment,
-      MemorySegment backingBuffer,
-      Runnable releaser,
-      AtomicBoolean ownershipTransferred
-  ) implements AutoCloseable {
-    
+  record DecompressionResult(MemorySegment segment, MemorySegment backingBuffer, Runnable releaser,
+      AtomicBoolean ownershipTransferred) implements AutoCloseable {
+
     /**
      * Compact constructor for backwards compatibility (creates non-transferable result).
      */
     public DecompressionResult(MemorySegment segment, Runnable releaser) {
       this(segment, segment, releaser, new AtomicBoolean(false));
     }
-    
+
     /**
-     * Transfer buffer ownership to caller (typically a page for zero-copy).
-     * After this call, close() becomes a no-op and caller is responsible for releasing.
+     * Transfer buffer ownership to caller (typically a page for zero-copy). After this call, close()
+     * becomes a no-op and caller is responsible for releasing.
      * 
-     * <p>This enables zero-copy page deserialization where the decompression buffer
-     * becomes the page's slotMemory directly, avoiding a copy.
+     * <p>
+     * This enables zero-copy page deserialization where the decompression buffer becomes the page's
+     * slotMemory directly, avoiding a copy.
      * 
      * @return the releaser to call when done, or null if already transferred
      */
@@ -78,9 +81,9 @@ public interface ByteHandler {
       if (ownershipTransferred.compareAndSet(false, true)) {
         return releaser;
       }
-      return null;  // Already transferred
+      return null; // Already transferred
     }
-    
+
     @Override
     public void close() {
       // Only release if ownership wasn't transferred
@@ -114,8 +117,8 @@ public interface ByteHandler {
   ByteHandler getInstance();
 
   /**
-   * Compress data using MemorySegment (zero-copy).
-   * Default implementation throws UnsupportedOperationException.
+   * Compress data using MemorySegment (zero-copy). Default implementation throws
+   * UnsupportedOperationException.
    *
    * @param source uncompressed data
    * @return compressed data in a MemorySegment
@@ -125,8 +128,8 @@ public interface ByteHandler {
   }
 
   /**
-   * Decompress data using MemorySegment (zero-copy).
-   * Default implementation throws UnsupportedOperationException.
+   * Decompress data using MemorySegment (zero-copy). Default implementation throws
+   * UnsupportedOperationException.
    *
    * @param compressed compressed data
    * @return decompressed data in a MemorySegment
@@ -140,14 +143,17 @@ public interface ByteHandler {
   /**
    * Decompress data using a pooled buffer with explicit lifecycle (Loom-friendly).
    * 
-   * <p>Unlike {@link #decompress(MemorySegment)} which uses ThreadLocal (problematic with
-   * millions of virtual threads), this method uses a bounded pool. Memory is bounded by
-   * pool size, not thread count.
+   * <p>
+   * Unlike {@link #decompress(MemorySegment)} which uses ThreadLocal (problematic with millions of
+   * virtual threads), this method uses a bounded pool. Memory is bounded by pool size, not thread
+   * count.
    * 
-   * <p>The returned result MUST be closed after use to return the buffer to the pool:
+   * <p>
+   * The returned result MUST be closed after use to return the buffer to the pool:
+   * 
    * <pre>{@code
    * try (var result = handler.decompressScoped(compressed)) {
-   *     // Use result.segment() here
+   *   // Use result.segment() here
    * } // Buffer returned to pool
    * }</pre>
    *

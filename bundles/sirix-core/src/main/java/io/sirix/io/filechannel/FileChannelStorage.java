@@ -52,7 +52,7 @@ public final class FileChannelStorage implements IOStorage {
    * Revision file data cache.
    */
   private final AsyncCache<Integer, RevisionFileData> cache;
-  
+
   /**
    * Revision index holder for fast timestamp lookups.
    */
@@ -66,15 +66,14 @@ public final class FileChannelStorage implements IOStorage {
    * @param revisionIndexHolder the revision index holder
    */
   public FileChannelStorage(final ResourceConfiguration resourceConfig,
-      final AsyncCache<Integer, RevisionFileData> cache,
-      final RevisionIndexHolder revisionIndexHolder) {
+      final AsyncCache<Integer, RevisionFileData> cache, final RevisionIndexHolder revisionIndexHolder) {
     assert resourceConfig != null : "resourceConfig must not be null!";
     file = resourceConfig.resourcePath;
     byteHandlerPipeline = resourceConfig.byteHandlePipeline;
     this.cache = cache;
     this.revisionIndexHolder = revisionIndexHolder;
   }
-  
+
   /**
    * Constructor (backward compatibility).
    *
@@ -96,12 +95,9 @@ public final class FileChannelStorage implements IOStorage {
       final FileChannel revisionsOffsetFileChannel = createRevisionsOffsetFileChannel(revisionsOffsetFilePath);
       final FileChannel dataFileChannel = createDataFileChannel(dataFilePath);
 
-      return new FileChannelReader(dataFileChannel,
-                                   revisionsOffsetFileChannel,
-                                   new ByteHandlerPipeline(byteHandlerPipeline),
-                                   SerializationType.DATA,
-                                   new PagePersister(),
-                                   cache.synchronous());
+      return new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel,
+          new ByteHandlerPipeline(byteHandlerPipeline), SerializationType.DATA, new PagePersister(),
+          cache.synchronous());
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -139,20 +135,11 @@ public final class FileChannelStorage implements IOStorage {
       final var byteHandlePipeline = new ByteHandlerPipeline(byteHandlerPipeline);
       final var serializationType = SerializationType.DATA;
       final var pagePersister = new PagePersister();
-      final var reader = new FileChannelReader(dataFileChannel,
-                                               revisionsOffsetFileChannel,
-                                               byteHandlePipeline,
-                                               serializationType,
-                                               pagePersister,
-                                               cache.synchronous());
+      final var reader = new FileChannelReader(dataFileChannel, revisionsOffsetFileChannel, byteHandlePipeline,
+          serializationType, pagePersister, cache.synchronous());
 
-      return new FileChannelWriter(dataFileChannel,
-                                   revisionsOffsetFileChannel,
-                                   serializationType,
-                                   pagePersister,
-                                   cache,
-                                   revisionIndexHolder,
-                                   reader);
+      return new FileChannelWriter(dataFileChannel, revisionsOffsetFileChannel, serializationType, pagePersister, cache,
+          revisionIndexHolder, reader);
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
@@ -201,7 +188,7 @@ public final class FileChannelStorage implements IOStorage {
   public ByteHandler getByteHandler() {
     return byteHandlerPipeline;
   }
-  
+
   @Override
   public @NonNull RevisionIndexHolder getRevisionIndexHolder() {
     return revisionIndexHolder;

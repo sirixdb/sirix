@@ -228,9 +228,8 @@ public final class XmlTestHelper {
         Databases.createXmlDatabase(config);
       }
       final var database = Databases.openXmlDatabase(file);
-      database.createResource(new ResourceConfiguration.Builder(RESOURCE)
-          .indexBackendType(IndexBackendType.RBTREE)
-          .build());
+      database.createResource(
+          new ResourceConfiguration.Builder(RESOURCE).indexBackendType(IndexBackendType.RBTREE).build());
       INSTANCES.put(file, database);
       return database;
     }
@@ -268,7 +267,7 @@ public final class XmlTestHelper {
   /**
    * Read a file into a StringBuilder.
    *
-   * @param file        the file to read
+   * @param file the file to read
    * @param whitespaces retrieve file and don't remove any whitespaces
    * @return StringBuilder instance, which has the string representation of the document
    * @throws IOException if an I/O operation fails
@@ -303,7 +302,7 @@ public final class XmlTestHelper {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
     try (final XmlResourceSession manager = database.beginResourceSession(RESOURCE);
-         final XmlNodeTrx wtx = manager.beginNodeTrx()) {
+        final XmlNodeTrx wtx = manager.beginNodeTrx()) {
       XmlDocumentCreator.create(wtx);
       wtx.commit();
     }
@@ -317,7 +316,7 @@ public final class XmlTestHelper {
   public static void createPICommentTestDocument() {
     final var database = XmlTestHelper.getDatabaseWithRollingHashesEnabled(PATHS.PATH1.getFile());
     try (final XmlResourceSession manager = database.beginResourceSession(RESOURCE);
-         final XmlNodeTrx wtx = manager.beginNodeTrx()) {
+        final XmlNodeTrx wtx = manager.beginNodeTrx()) {
       XmlDocumentCreator.createCommentPI(wtx);
       wtx.commit();
     }

@@ -66,30 +66,30 @@ public final class PageUtils {
    * Create the initial tree structure.
    *
    * @param databaseType The type of database.
-   * @param reference    reference from revision root
-   * @param indexType    the index type
+   * @param reference reference from revision root
+   * @param indexType the index type
    */
   public static void createTree(final DatabaseType databaseType, @NonNull PageReference reference,
       final IndexType indexType, final StorageEngineReader pageReadTrx, final TransactionIntentLog log) {
     // Create new record page.
     final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceSession().getResourceConfig();
-    
+
     // Direct allocation (no pool)
-    final MemorySegmentAllocator allocator = OS.isWindows() 
+    final MemorySegmentAllocator allocator = OS.isWindows()
         ? WindowsMemorySegmentAllocator.getInstance()
         : LinuxMemorySegmentAllocator.getInstance();
-    
-    final KeyValueLeafPage recordPage = new KeyValueLeafPage(
-        Fixed.ROOT_PAGE_KEY.getStandardProperty(),
-        indexType,
-        resourceConfiguration,
-        pageReadTrx.getRevisionNumber(),
-        allocator.allocate(SIXTYFOUR_KB),
-        resourceConfiguration.areDeweyIDsStored ? allocator.allocate(SIXTYFOUR_KB) : null,
-        false  // Memory from allocator - release on close()
-    );
 
-    final SirixDeweyID id = resourceConfiguration.areDeweyIDsStored ? SirixDeweyID.newRootID() : null;
+    final KeyValueLeafPage recordPage =
+        new KeyValueLeafPage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, resourceConfiguration,
+            pageReadTrx.getRevisionNumber(), allocator.allocate(SIXTYFOUR_KB), resourceConfiguration.areDeweyIDsStored
+                ? allocator.allocate(SIXTYFOUR_KB)
+                : null,
+            false // Memory from allocator - release on close()
+        );
+
+    final SirixDeweyID id = resourceConfiguration.areDeweyIDsStored
+        ? SirixDeweyID.newRootID()
+        : null;
 
     // Create a {@link DocumentRootNode}.
     recordPage.setRecord(databaseType.getDocumentNode(id));
@@ -100,35 +100,34 @@ public final class PageUtils {
   /**
    * Create the initial HOT (Height Optimized Trie) tree structure.
    *
-   * <p>Unlike the traditional tree which uses {@link KeyValueLeafPage},
-   * this creates an {@link HOTLeafPage} for cache-friendly secondary indexes.</p>
+   * <p>
+   * Unlike the traditional tree which uses {@link KeyValueLeafPage}, this creates an
+   * {@link HOTLeafPage} for cache-friendly secondary indexes.
+   * </p>
    *
-   * @param reference   reference from revision root
-   * @param indexType   the index type (PATH, CAS, or NAME)
+   * @param reference reference from revision root
+   * @param indexType the index type (PATH, CAS, or NAME)
    * @param pageReadTrx the storage engine reader
-   * @param log         the transaction intent log
+   * @param log the transaction intent log
    */
-  public static void createHOTTree(@NonNull PageReference reference,
-      final IndexType indexType, final StorageEngineReader pageReadTrx, final TransactionIntentLog log) {
-    
+  public static void createHOTTree(@NonNull PageReference reference, final IndexType indexType,
+      final StorageEngineReader pageReadTrx, final TransactionIntentLog log) {
+
     // Create new HOT leaf page (starts as a leaf, grows into trie on demand)
-    final HOTLeafPage hotLeafPage = new HOTLeafPage(
-        Fixed.ROOT_PAGE_KEY.getStandardProperty(),
-        pageReadTrx.getRevisionNumber(),
-        indexType
-    );
+    final HOTLeafPage hotLeafPage =
+        new HOTLeafPage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageReadTrx.getRevisionNumber(), indexType);
 
     // Set page key on reference
     reference.setKey(Fixed.ROOT_PAGE_KEY.getStandardProperty());
-    
+
     log.put(reference, PageContainer.getInstance(hotLeafPage, hotLeafPage));
   }
 
   /**
-   * Fix up PageReferences in a loaded page by setting database and resource IDs.
-   * This follows the PostgreSQL pattern where BufferTag components (tablespace_oid, database_oid, 
-   * relation_oid) from the read context are combined with on-disk block numbers to create full
-   * cache keys. Pages store only page numbers; the database/resource context comes from the caller.
+   * Fix up PageReferences in a loaded page by setting database and resource IDs. This follows the
+   * PostgreSQL pattern where BufferTag components (tablespace_oid, database_oid, relation_oid) from
+   * the read context are combined with on-disk block numbers to create full cache keys. Pages store
+   * only page numbers; the database/resource context comes from the caller.
    *
    * @param page the page to fix up
    * @param databaseId the database ID to set
@@ -138,7 +137,7 @@ public final class PageUtils {
     if (page == null) {
       return;
     }
-    
+
     // Some page types (like UberPage) don't have PageReferences to fix up
     try {
       var references = page.getReferences();

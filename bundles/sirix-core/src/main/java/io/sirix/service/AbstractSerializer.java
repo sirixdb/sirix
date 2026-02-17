@@ -50,15 +50,17 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   /**
    * Constructor.
    *
-   * @param resMgr    Sirix {@link ResourceSession}
-   * @param revision  first revision to serialize
+   * @param resMgr Sirix {@link ResourceSession}
+   * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
   public AbstractSerializer(final ResourceSession<R, W> resMgr, final NodeVisitor visitor,
       final @NonNegative int revision, final int... revisions) {
     this.visitor = visitor;
     stack = new LongArrayList();
-    this.revisions = revisions == null ? new int[1] : new int[revisions.length + 1];
+    this.revisions = revisions == null
+        ? new int[1]
+        : new int[revisions.length + 1];
     initialize(revision, revisions);
     this.session = requireNonNull(resMgr);
     startNodeKey = 0;
@@ -67,16 +69,18 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   /**
    * Constructor.
    *
-   * @param resMgr    Sirix {@link ResourceSession}
-   * @param key       key of root node from which to serialize the subtree
-   * @param revision  first revision to serialize
+   * @param resMgr Sirix {@link ResourceSession}
+   * @param key key of root node from which to serialize the subtree
+   * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
   public AbstractSerializer(final ResourceSession<R, W> resMgr, final NodeVisitor visitor, final @NonNegative long key,
       final @NonNegative int revision, final int... revisions) {
     this.visitor = visitor;
     stack = new LongArrayList();
-    this.revisions = revisions == null ? new int[1] : new int[revisions.length + 1];
+    this.revisions = revisions == null
+        ? new int[1]
+        : new int[revisions.length + 1];
     initialize(revision, revisions);
     this.session = requireNonNull(resMgr);
     startNodeKey = key;
@@ -85,7 +89,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
   /**
    * Initialize.
    *
-   * @param revision  first revision to serialize
+   * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
   private void initialize(final @NonNegative int revision, final int... revisions) {
@@ -106,10 +110,14 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
     emitStartDocument();
 
     final int nrOfRevisions = revisions.length;
-    final int length = (nrOfRevisions == 1 && revisions[0] < 0) ? session.getMostRecentRevisionNumber() : nrOfRevisions;
+    final int length = (nrOfRevisions == 1 && revisions[0] < 0)
+        ? session.getMostRecentRevisionNumber()
+        : nrOfRevisions;
 
     for (int i = 1; i <= length; i++) {
-      try (final R rtx = session.beginNodeReadOnlyTrx((nrOfRevisions == 1 && revisions[0] < 0) ? i : revisions[i - 1])) {
+      try (final R rtx = session.beginNodeReadOnlyTrx((nrOfRevisions == 1 && revisions[0] < 0)
+          ? i
+          : revisions[i - 1])) {
         emitRevisionStartNode(rtx);
 
         rtx.moveTo(startNodeKey);

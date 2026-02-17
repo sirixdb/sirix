@@ -52,13 +52,14 @@ import static java.util.Objects.requireNonNull;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-@SuppressWarnings({ "unused", "UnusedReturnValue" })
+@SuppressWarnings({"unused", "UnusedReturnValue"})
 public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(PathSummaryReader.class);
 
   /**
    * Debug flag for path summary operations.
+   * 
    * @see DiagnosticSettings#PATH_SUMMARY_DEBUG
    */
   private static final boolean DEBUG_PATH_SUMMARY = DiagnosticSettings.PATH_SUMMARY_DEBUG;
@@ -99,9 +100,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   private final Map<Path<QNm>, LongSet> pathCache;
 
   /**
-   * Cache for O(1) child path node lookups using primitives only.
-   * Maps computeChildLookupKey(parentNodeKey, childName, childKind) -> childPathNodeKey.
-   * Uses fastutil's Long2LongOpenHashMap for zero boxing overhead.
+   * Cache for O(1) child path node lookups using primitives only. Maps
+   * computeChildLookupKey(parentNodeKey, childName, childKind) -> childPathNodeKey. Uses fastutil's
+   * Long2LongOpenHashMap for zero boxing overhead.
    */
   private final Long2LongOpenHashMap childLookupCache;
 
@@ -110,7 +111,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Private constructor.
    *
-   * @param pageReadTrx     page reader
+   * @param pageReadTrx page reader
    * @param resourceSession {@link ResourceSession} reference
    */
   private PathSummaryReader(final StorageEngineReader pageReadTrx,
@@ -120,19 +121,18 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     isClosed = false;
     this.resourceSession = resourceSession;
 
-    final Cache<PathSummaryCacheKey, PathSummaryData> pathSummaryCache = pageReadTrx.getBufferManager().getPathSummaryCache();
-    final PathSummaryCacheKey cacheKey = new PathSummaryCacheKey(
-        pageReadTrx.getDatabaseId(),
-        pageReadTrx.getResourceId(),
-        pageReadTrx.getRevisionNumber());
+    final Cache<PathSummaryCacheKey, PathSummaryData> pathSummaryCache =
+        pageReadTrx.getBufferManager().getPathSummaryCache();
+    final PathSummaryCacheKey cacheKey = new PathSummaryCacheKey(pageReadTrx.getDatabaseId(),
+        pageReadTrx.getResourceId(), pageReadTrx.getRevisionNumber());
     final PathSummaryData pathSummaryData = pathSummaryCache.get(cacheKey);
 
     if (pathSummaryData == null || pageReadTrx.hasTrxIntentLog()) {
       if (DEBUG_PATH_SUMMARY) {
         LOGGER.debug("[PATH_SUMMARY-INIT] Initializing pathNodeMapping: hasTrxIntentLog={}, revision={}",
-                     pageReadTrx.hasTrxIntentLog(), pageReadTrx.getRevisionNumber());
+            pageReadTrx.hasTrxIntentLog(), pageReadTrx.getRevisionNumber());
       }
-      
+
       currentNode =
           this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
 
@@ -143,8 +143,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       final int maxNrOfNodes =
           (int) this.pageReadTrx.getPathSummaryPage(this.pageReadTrx.getActualRevisionRootPage()).getMaxNodeKey(0);
       final int maxNrOfNodesForMap = (int) Math.ceil(maxNrOfNodes / 0.75);
-      pathNodeMapping =
-          new StructNode[maxNrOfNodes + 1];
+      pathNodeMapping = new StructNode[maxNrOfNodes + 1];
       qnmMapping = new HashMap<>(maxNrOfNodesForMap);
       childLookupCache = new Long2LongOpenHashMap(maxNrOfNodesForMap);
       childLookupCache.defaultReturnValue(-1L); // Return -1 for missing keys
@@ -159,34 +158,33 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
           moveTo(pathNode.getNodeKey());
           assert this.getNodeKey() == pathNode.getNodeKey();
           qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>()).add(pathNode);
-          
+
           // Populate parent-child lookup cache for O(1) lookups (primitives only)
           final long parentKey = pathNode.getParentKey();
-          final long lookupKey = PathSummaryData.computeChildLookupKey(parentKey, this.getName(), pathNode.getPathKind());
+          final long lookupKey =
+              PathSummaryData.computeChildLookupKey(parentKey, this.getName(), pathNode.getPathKind());
           childLookupCache.put(lookupKey, pathNode.getNodeKey());
-          
+
           nodesLoaded++;
-         // assert Objects.equals(this.getName(), pathNode.getName());
+          // assert Objects.equals(this.getName(), pathNode.getName());
         }
 
         if (DEBUG_PATH_SUMMARY) {
-          LOGGER.debug("[PATH_SUMMARY-INIT]   -> Loaded {} nodes into pathNodeMapping, arraySize={}",
-                       nodesLoaded, pathNodeMapping.length);
+          LOGGER.debug("[PATH_SUMMARY-INIT]   -> Loaded {} nodes into pathNodeMapping, arraySize={}", nodesLoaded,
+              pathNodeMapping.length);
         }
 
         moveToDocumentRoot();
       }
       if (!pageReadTrx.hasTrxIntentLog()) {
-        final PathSummaryCacheKey putKey = new PathSummaryCacheKey(
-            pageReadTrx.getDatabaseId(),
-            pageReadTrx.getResourceId(),
-            pageReadTrx.getRevisionNumber());
+        final PathSummaryCacheKey putKey = new PathSummaryCacheKey(pageReadTrx.getDatabaseId(),
+            pageReadTrx.getResourceId(), pageReadTrx.getRevisionNumber());
         pathSummaryCache.put(putKey, new PathSummaryData(currentNode, pathNodeMapping, qnmMapping, childLookupCache));
       }
     } else {
       if (DEBUG_PATH_SUMMARY) {
         LOGGER.debug("[PATH_SUMMARY-INIT] Using cached pathSummaryData from revision {}",
-                     pageReadTrx.getRevisionNumber());
+            pageReadTrx.getRevisionNumber());
       }
       currentNode = pathSummaryData.currentNode();
       pathNodeMapping = pathSummaryData.pathNodeMapping();
@@ -198,13 +196,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   /**
-   * Find child path node by parent key, name, and kind in O(1) time.
-   * This is much faster than iterating through all children with ChildAxis.
-   * Uses primitive long operations only - no boxing.
+   * Find child path node by parent key, name, and kind in O(1) time. This is much faster than
+   * iterating through all children with ChildAxis. Uses primitive long operations only - no boxing.
    *
    * @param parentNodeKey the parent path node key
-   * @param childName     the child name to find
-   * @param childKind     the child node kind
+   * @param childName the child name to find
+   * @param childKind the child node kind
    * @return the child path node key, or -1 if not found
    */
   public long findChild(final long parentNodeKey, final QNm childName, final NodeKind childKind) {
@@ -212,28 +209,29 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final long lookupKey = PathSummaryData.computeChildLookupKey(parentNodeKey, childName, childKind);
     return childLookupCache.get(lookupKey); // Returns -1L if not found (default value)
   }
-  
+
   /**
-   * Add a child to the lookup cache. Called when a new path node is inserted.
-   * Uses primitive long operations only - no boxing.
+   * Add a child to the lookup cache. Called when a new path node is inserted. Uses primitive long
+   * operations only - no boxing.
    *
    * @param parentNodeKey the parent path node key
-   * @param childName     the child name
-   * @param childKind     the child node kind
-   * @param childNodeKey  the child path node key
+   * @param childName the child name
+   * @param childKind the child node kind
+   * @param childNodeKey the child path node key
    */
-  void putChildLookup(final long parentNodeKey, final QNm childName, final NodeKind childKind, final long childNodeKey) {
+  void putChildLookup(final long parentNodeKey, final QNm childName, final NodeKind childKind,
+      final long childNodeKey) {
     final long lookupKey = PathSummaryData.computeChildLookupKey(parentNodeKey, childName, childKind);
     childLookupCache.put(lookupKey, childNodeKey);
   }
-  
+
   /**
-   * Remove a child from the lookup cache. Called when a path node is deleted.
-   * Uses primitive long operations only - no boxing.
+   * Remove a child from the lookup cache. Called when a path node is deleted. Uses primitive long
+   * operations only - no boxing.
    *
    * @param parentNodeKey the parent path node key
-   * @param childName     the child name
-   * @param childKind     the child node kind
+   * @param childName the child name
+   * @param childKind the child node kind
    */
   void removeChildLookup(final long parentNodeKey, final QNm childName, final NodeKind childKind) {
     final long lookupKey = PathSummaryData.computeChildLookupKey(parentNodeKey, childName, childKind);
@@ -258,7 +256,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Get a new path summary reader instance.
    *
-   * @param pageReadTrx     the {@link StorageEngineReader} instance
+   * @param pageReadTrx the {@link StorageEngineReader} instance
    * @param resourceSession the {@link ResourceSession} instance
    * @return new path summary reader instance
    */
@@ -271,16 +269,18 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   void putMapping(final @NonNegative long pathNodeKey, final StructNode node) {
     if (DEBUG_PATH_SUMMARY) {
       if (node instanceof PathNode pn) {
-        LOGGER.debug("[PATH_SUMMARY-PUT-MAPPING] Updating cache: nodeKey={}, refCount={}, level={}",
-                     pathNodeKey, pn.getReferences(), pn.getLevel());
+        LOGGER.debug("[PATH_SUMMARY-PUT-MAPPING] Updating cache: nodeKey={}, refCount={}, level={}", pathNodeKey,
+            pn.getReferences(), pn.getLevel());
       } else {
         LOGGER.debug("[PATH_SUMMARY-PUT-MAPPING] Updating cache: nodeKey={}", pathNodeKey);
       }
     }
-    
+
     if (pathNodeKey >= pathNodeMapping.length) {
       var nodeCountTimes2 = Constants.NDP_NODE_COUNT << 1;
-      pathNodeMapping = Arrays.copyOf(pathNodeMapping, pathNodeKey >= nodeCountTimes2 ? (int) pathNodeKey * 2 : nodeCountTimes2);
+      pathNodeMapping = Arrays.copyOf(pathNodeMapping, pathNodeKey >= nodeCountTimes2
+          ? (int) pathNodeKey * 2
+          : nodeCountTimes2);
     }
     pathNodeMapping[(int) pathNodeKey] = node;
   }
@@ -310,7 +310,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Match all descendants of the node denoted by its {@code pathNodeKey} with the given {@code name}.
    *
-   * @param name        the QName
+   * @param name the QName
    * @param pathNodeKey the path node key to start the search from
    * @param includeSelf if current node should be included or not
    * @return a set with bits set for each matching path node (its {@code pathNodeKey})
@@ -324,7 +324,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     moveTo(pathNodeKey);
     final BitSet matches = new BitSet();
     for (final long nodeKey : new FilterAxis<>(new DescendantAxis(this, includeSelf),
-                                               new PathNameFilter(this, name.toString()))) {
+        new PathNameFilter(this, name.toString()))) {
       matches.set((int) nodeKey);
     }
     return matches;
@@ -333,7 +333,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Match a {@link QNm} with a minimum level.
    *
-   * @param name     the QName
+   * @param name the QName
    * @param minLevel minimum level
    * @return a set with bits set for each matching path node
    */
@@ -355,7 +355,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Match a {@link QNm} with a minimum level.
    *
-   * @param name     the QName
+   * @param name the QName
    * @param minLevel minimum level
    * @return a set with bits set for each matching path node
    */
@@ -377,8 +377,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Match a {@link QNm} with a specific level.
    *
-   * @param name     the QName
-   * @param level    minimum level
+   * @param name the QName
+   * @param level minimum level
    * @param nodeKind the node type
    * @return a set with bits set for each matching path node
    */
@@ -426,10 +426,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     if (pathNodeKey < 0 || pathNodeKey >= pathNodeMapping.length) {
       return null;
     }
-    
+
     final StructNode node = pathNodeMapping[(int) pathNodeKey];
     // Return null if the node is not a PathNode (e.g., if it's a DeletedNode)
-    return node instanceof PathNode pathNode ? pathNode : null;
+    return node instanceof PathNode pathNode
+        ? pathNode
+        : null;
   }
 
   @Override
@@ -446,7 +448,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Get path class records (PCRs) for the specified path.
    *
-   * @param path     the path for which to get a set of PCRs
+   * @param path the path for which to get a set of PCRs
    * @return set of PCRs belonging to the specified path
    * @throws SirixException if anything went wrong
    */
@@ -464,7 +466,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
     final long nodeKey = currentNode.getNodeKey();
     moveToDocumentRoot();
-    for (final Axis axis = new DescendantAxis(this); axis.hasNext(); ) {
+    for (final Axis axis = new DescendantAxis(this); axis.hasNext();) {
       axis.nextLong();
       final PathNode node = this.getPathNode();
 
@@ -518,12 +520,12 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       // Safe bounds check to avoid ArrayIndexOutOfBoundsException
       if (nodeKey < 0 || nodeKey >= pathNodeMapping.length) {
         if (DEBUG_PATH_SUMMARY) {
-          LOGGER.debug("[PATH_SUMMARY-MOVETO] nodeKey out of bounds: nodeKey={}, arrayLength={}",
-                       nodeKey, pathNodeMapping.length);
+          LOGGER.debug("[PATH_SUMMARY-MOVETO] nodeKey out of bounds: nodeKey={}, arrayLength={}", nodeKey,
+              pathNodeMapping.length);
         }
         return false;
       }
-      
+
       final StructNode mappedNode = pathNodeMapping[(int) nodeKey];
 
       // Check if node exists AND is a PathNode (not a DeletedNode)
@@ -535,8 +537,11 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         return true;
       } else {
         if (DEBUG_PATH_SUMMARY) {
-          LOGGER.debug("[PATH_SUMMARY-MOVETO] NOT in pathNodeMapping or deleted: nodeKey={}, arrayLength={}, init={}, nodeType={}",
-                       nodeKey, pathNodeMapping.length, init, mappedNode != null ? mappedNode.getClass().getSimpleName() : "null");
+          LOGGER.debug(
+              "[PATH_SUMMARY-MOVETO] NOT in pathNodeMapping or deleted: nodeKey={}, arrayLength={}, init={}, nodeType={}",
+              nodeKey, pathNodeMapping.length, init, mappedNode != null
+                  ? mappedNode.getClass().getSimpleName()
+                  : "null");
         }
         return false;
       }
@@ -564,8 +569,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     } else {
       if (DEBUG_PATH_SUMMARY) {
         if (newNode instanceof PathNode pn) {
-          LOGGER.debug("[PATH_SUMMARY-MOVETO]   -> Loaded from page: nodeKey={}, refCount={}, level={}",
-                       nodeKey, pn.getReferences(), pn.getLevel());
+          LOGGER.debug("[PATH_SUMMARY-MOVETO]   -> Loaded from page: nodeKey={}, refCount={}, level={}", nodeKey,
+              pn.getReferences(), pn.getLevel());
         } else {
           LOGGER.debug("[PATH_SUMMARY-MOVETO]   -> Loaded from page: nodeKey={}", nodeKey);
         }
@@ -645,9 +650,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   /**
-   * Make sure that the path summary is not yet closed when calling this method.
-   * Uses assert for zero overhead in production (assertions disabled by default).
-   * Enable with -ea JVM flag during development/testing.
+   * Make sure that the path summary is not yet closed when calling this method. Uses assert for zero
+   * overhead in production (assertions disabled by default). Enable with -ea JVM flag during
+   * development/testing.
    */
   private void assertNotClosed() {
     assert !isClosed : "Path summary is already closed.";
@@ -715,11 +720,13 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
           ? ""
           : pageReadTrx.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
       final int prefixKey = nameNode.getPrefixKey();
-      final String prefix =
-          prefixKey == -1 ? "" : pageReadTrx.getName(prefixKey, ((PathNode) currentNode).getPathKind());
+      final String prefix = prefixKey == -1
+          ? ""
+          : pageReadTrx.getName(prefixKey, ((PathNode) currentNode).getPathKind());
       final int localNameKey = nameNode.getLocalNameKey();
-      final String localName =
-          localNameKey == -1 ? "" : pageReadTrx.getName(localNameKey, ((PathNode) currentNode).getPathKind());
+      final String localName = localNameKey == -1
+          ? ""
+          : pageReadTrx.getName(localNameKey, ((PathNode) currentNode).getPathKind());
       final var qNm = new QNm(uri, prefix, localName);
       if (nameNode instanceof PathNode pathNode) {
         pathNode.setName(qNm);

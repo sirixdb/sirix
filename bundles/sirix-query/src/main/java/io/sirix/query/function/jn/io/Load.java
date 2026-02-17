@@ -85,7 +85,7 @@ public final class Load extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the name of the function
+   * @param name the name of the function
    * @param signature the signature of the function
    */
   public Load(final QNm name, final Signature signature) {
@@ -132,8 +132,8 @@ public final class Load extends AbstractFunction {
     }
   }
 
-  private static void add(final JsonDBCollection collection, final String resourceName,
-      final Sequence resources, final Object options) {
+  private static void add(final JsonDBCollection collection, final String resourceName, final Sequence resources,
+      final Object options) {
     if (resources instanceof Atomic res) {
       try (final JsonReader reader =
           new JsonReader(new InputStreamReader(URIHandler.getInputStream(res.stringValue())))) {
@@ -144,8 +144,9 @@ public final class Load extends AbstractFunction {
     } else if (resources instanceof FunctionConversionSequence seq) {
       try (final Iter iter = seq.iterate()) {
         int size = collection.getDatabase().listResources().size();
-        for (Item item; (item = iter.next()) != null; ) {
-          try (final JsonReader reader = new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue())))) {
+        for (Item item; (item = iter.next()) != null;) {
+          try (final JsonReader reader =
+              new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue())))) {
             collection.add("resource" + size++, reader, options);
           } catch (final Exception e) {
             throw new QueryException(new QNm("Failed to insert subtree: " + e.getMessage()));
@@ -168,7 +169,7 @@ public final class Load extends AbstractFunction {
       try (final Iter iter = seq.iterate()) {
         final Set<JsonReader> jsonReaders = new HashSet<>();
 
-        for (Item item; (item = iter.next()) != null; ) {
+        for (Item item; (item = iter.next()) != null;) {
           jsonReaders.add(new JsonReader(new InputStreamReader(URIHandler.getInputStream(((Str) item).stringValue()))));
         }
 

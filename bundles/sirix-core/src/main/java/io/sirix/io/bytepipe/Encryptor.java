@@ -70,9 +70,9 @@ public final class Encryptor implements ByteHandler {
 
   private KeysetHandle getKeysetHandle() {
     if (mKeySetHandle == null)
-      mKeySetHandle = getKeysetHandle(
-          mResourcePath.resolve(ResourceConfiguration.ResourcePaths.ENCRYPTION_KEY.getPath())
-                       .resolve("encryptionKey.json"));
+      mKeySetHandle =
+          getKeysetHandle(mResourcePath.resolve(ResourceConfiguration.ResourcePaths.ENCRYPTION_KEY.getPath())
+                                       .resolve("encryptionKey.json"));
     return mKeySetHandle;
   }
 

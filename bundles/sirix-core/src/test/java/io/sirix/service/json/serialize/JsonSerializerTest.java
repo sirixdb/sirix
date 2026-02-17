@@ -43,8 +43,8 @@ public final class JsonSerializerTest {
   public void test() throws IOException {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx();
-         final var writer = new StringWriter()) {
+        final var wtx = manager.beginNodeTrx();
+        final var writer = new StringWriter()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"test\",\"test\"]"));
       wtx.moveTo(2);
       wtx.remove();
@@ -68,7 +68,7 @@ public final class JsonSerializerTest {
 
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final Writer writer = new StringWriter()) {
+        final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).prettyPrint().build();
       serializer.call();
       final var expected = Files.readString(JSON.resolve("pretty-printed-test-doc.json"), StandardCharsets.UTF_8);
@@ -82,7 +82,7 @@ public final class JsonSerializerTest {
 
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final Writer writer = new StringWriter()) {
+        final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).build();
       serializer.call();
       Assert.assertEquals(JsonDocumentCreator.JSON, writer.toString());
@@ -95,8 +95,8 @@ public final class JsonSerializerTest {
 
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var writer = new StringWriter();
-         final var wtx = manager.beginNodeTrx()) {
+        final var writer = new StringWriter();
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
@@ -120,25 +120,29 @@ public final class JsonSerializerTest {
       var serializedString = getSerializedStringWithMaxChildren(manager, 1);
       var expected = Files.readString(JSON.resolve("jsonSerializer")
                                           .resolve("testJsonDocumentWithMaxChildren1")
-                                          .resolve("document-with-1-maxChildren.json"), StandardCharsets.UTF_8);
+                                          .resolve("document-with-1-maxChildren.json"),
+          StandardCharsets.UTF_8);
       JSONAssert.assertEquals(expected, serializedString, true);
 
       serializedString = getSerializedStringWithMaxChildren(manager, 2);
       expected = Files.readString(JSON.resolve("jsonSerializer")
                                       .resolve("testJsonDocumentWithMaxChildren1")
-                                      .resolve("document-with-2-maxChildren.json"), StandardCharsets.UTF_8);
+                                      .resolve("document-with-2-maxChildren.json"),
+          StandardCharsets.UTF_8);
       JSONAssert.assertEquals(expected, serializedString, true);
 
       serializedString = getSerializedStringWithMaxChildren(manager, 3);
       expected = Files.readString(JSON.resolve("jsonSerializer")
                                       .resolve("testJsonDocumentWithMaxChildren1")
-                                      .resolve("document-with-3-maxChildren.json"), StandardCharsets.UTF_8);
+                                      .resolve("document-with-3-maxChildren.json"),
+          StandardCharsets.UTF_8);
       JSONAssert.assertEquals(expected, serializedString, true);
 
       serializedString = getSerializedStringWithMaxChildren(manager, 4);
       expected = Files.readString(JSON.resolve("jsonSerializer")
                                       .resolve("testJsonDocumentWithMaxChildren1")
-                                      .resolve("document-with-4-maxChildren.json"), StandardCharsets.UTF_8);
+                                      .resolve("document-with-4-maxChildren.json"),
+          StandardCharsets.UTF_8);
       JSONAssert.assertEquals(expected, serializedString, true);
     }
   }
@@ -158,13 +162,14 @@ public final class JsonSerializerTest {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).useDeweyIDs(true).build());
     try (final JsonResourceSession manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+        final JsonNodeTrx wtx = manager.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(JSON.resolve("complex3.json")));
 
       var serializedString = getSerializedStringWithMaxChildren(manager, 2);
       var expected = Files.readString(JSON.resolve("jsonSerializer")
                                           .resolve("testJsonDocumentWithMaxChildren2")
-                                          .resolve("document-with-1-maxChildren.json"), StandardCharsets.UTF_8);
+                                          .resolve("document-with-1-maxChildren.json"),
+          StandardCharsets.UTF_8);
       JSONAssert.assertEquals(expected, serializedString, true);
     }
   }
@@ -175,7 +180,7 @@ public final class JsonSerializerTest {
 
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final Writer writer = new StringWriter()) {
+        final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).build();
       serializer.call();
 
@@ -192,7 +197,7 @@ public final class JsonSerializerTest {
 
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final Writer writer = new StringWriter()) {
+        final Writer writer = new StringWriter()) {
       final var serializer =
           new JsonSerializer.Builder(manager, writer).withMetaData(true).maxLevel(2).prettyPrint().build();
       serializer.call();
@@ -210,11 +215,10 @@ public final class JsonSerializerTest {
     final var jsonPath = JSON.resolve("simple-testdoc.json");
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx,
-                                                    JsonShredder.createFileReader(jsonPath),
-                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        final var trx = manager.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).maxLevel(2).build();
@@ -233,11 +237,10 @@ public final class JsonSerializerTest {
     final var jsonPath = JSON.resolve("simple-testdoc.json");
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx,
-                                                    JsonShredder.createFileReader(jsonPath),
-                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        final var trx = manager.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
       final var serializer =
@@ -245,7 +248,7 @@ public final class JsonSerializerTest {
       serializer.call();
 
       final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-objectkey.json"),
-                                            StandardCharsets.UTF_8);
+          StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       JSONAssert.assertEquals(expected, actual, true);
@@ -257,11 +260,10 @@ public final class JsonSerializerTest {
     final var jsonPath = JSON.resolve("simple-testdoc.json");
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx,
-                                                    JsonShredder.createFileReader(jsonPath),
-                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        final var trx = manager.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
       final var serializer =
@@ -269,7 +271,7 @@ public final class JsonSerializerTest {
       serializer.call();
 
       final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-object.json"),
-                                            StandardCharsets.UTF_8);
+          StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       JSONAssert.assertEquals(expected, actual, true);
@@ -281,11 +283,10 @@ public final class JsonSerializerTest {
     final var jsonPath = JSON.resolve("simple-testdoc.json");
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx,
-                                                    JsonShredder.createFileReader(jsonPath),
-                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        final var trx = manager.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
       final var serializer =
@@ -293,7 +294,7 @@ public final class JsonSerializerTest {
       serializer.call();
 
       final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-array.json"),
-                                            StandardCharsets.UTF_8);
+          StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       JSONAssert.assertEquals(expected, actual, true);
@@ -305,7 +306,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final Writer writer = new StringWriter()) {
+        final Writer writer = new StringWriter()) {
 
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true)
                                                                         .startNodeKey(15)
@@ -316,7 +317,7 @@ public final class JsonSerializerTest {
 
       final var expected =
           Files.readString(JSON.resolve("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel2.json"),
-                           StandardCharsets.UTF_8);
+              StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       assertEquals(expected, actual);
@@ -329,7 +330,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final Writer writer = new StringWriter()) {
+        final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).withNodeKeyMetaData(true)
                                                                         .startNodeKey(15)
                                                                         .maxLevel(3)
@@ -337,9 +338,9 @@ public final class JsonSerializerTest {
                                                                         .build();
       serializer.call();
 
-      final var expected =
-          Files.readString(JSON.resolve("test-withnodekeymetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
-                           StandardCharsets.UTF_8);
+      final var expected = Files.readString(
+          JSON.resolve("test-withnodekeymetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
+          StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
       assertEquals(expected, actual);
@@ -352,7 +353,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final Writer writer = new StringWriter()) {
+        final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).withNodeKeyAndChildCountMetaData(true)
                                                                         .startNodeKey(15)
                                                                         .maxLevel(3)
@@ -360,9 +361,9 @@ public final class JsonSerializerTest {
                                                                         .build();
       serializer.call();
 
-      final var expected = Files.readString(JSON.resolve(
-                                                "test-withnodekeyandchildcountmetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
-                                            StandardCharsets.UTF_8);
+      final var expected = Files.readString(
+          JSON.resolve("test-withnodekeyandchildcountmetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
+          StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
       assertEquals(expected, actual);
@@ -374,7 +375,7 @@ public final class JsonSerializerTest {
     JsonTestHelper.createTestDocument();
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final Writer writer = new StringWriter()) {
+        final Writer writer = new StringWriter()) {
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true)
                                                                         .startNodeKey(15)
                                                                         .maxLevel(3)
@@ -384,7 +385,7 @@ public final class JsonSerializerTest {
 
       final var expected =
           Files.readString(JSON.resolve("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel3.json"),
-                           StandardCharsets.UTF_8);
+              StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       assertEquals(expected, actual);
@@ -396,20 +397,18 @@ public final class JsonSerializerTest {
     final var jsonPath = JSON.resolve("simple-testdoc.json");
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var trx = manager.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
-      final var shredder = new JsonShredder.Builder(trx,
-                                                    JsonShredder.createFileReader(jsonPath),
-                                                    InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        final var trx = manager.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
+      final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
+          InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
       final var serializer =
           new JsonSerializer.Builder(manager, writer).withMetaData(true).maxLevel(3).prettyPrint().build();
       serializer.call();
 
-      final var expected =
-          Files.readString(JSON.resolve("simple-testdoc-withmetadata-withmaxlevel-withprettyprint.json"),
-                           StandardCharsets.UTF_8);
+      final var expected = Files.readString(
+          JSON.resolve("simple-testdoc-withmetadata-withmaxlevel-withprettyprint.json"), StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       JSONAssert.assertEquals(expected, actual, true);
@@ -456,8 +455,8 @@ public final class JsonSerializerTest {
   public void testArrayWithNumberOfNodesEmitsExactLimit() throws IOException {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx();
-         final Writer writer = new StringWriter()) {
+        final var wtx = manager.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2]"));
       wtx.commit();
 
@@ -566,7 +565,7 @@ public final class JsonSerializerTest {
 
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var rtx = manager.beginNodeReadOnlyTrx()) {
+        final var rtx = manager.beginNodeReadOnlyTrx()) {
 
       rtx.moveTo(2);
       final var level = rtx.getDeweyID().getLevel();
@@ -616,7 +615,7 @@ public final class JsonSerializerTest {
 
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var rtx = manager.beginNodeReadOnlyTrx()) {
+        final var rtx = manager.beginNodeReadOnlyTrx()) {
 
       rtx.moveTo(2);
       final var level = rtx.getDeweyID().getLevel();

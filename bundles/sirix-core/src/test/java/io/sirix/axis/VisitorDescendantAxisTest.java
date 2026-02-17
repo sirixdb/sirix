@@ -40,8 +40,7 @@ public class VisitorDescendantAxisTest {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveToDocumentRoot();
-    AbsAxisTest.testAxisConventions(
-        VisitorDescendantAxis.newBuilder(rtx).build(),
+    AbsAxisTest.testAxisConventions(VisitorDescendantAxis.newBuilder(rtx).build(),
         new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
         ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
@@ -54,8 +53,7 @@ public class VisitorDescendantAxisTest {
     }.test();
 
     rtx.moveTo(1L);
-    AbsAxisTest.testAxisConventions(
-        VisitorDescendantAxis.newBuilder(rtx).build(),
+    AbsAxisTest.testAxisConventions(VisitorDescendantAxis.newBuilder(rtx).build(),
         new long[] {4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
         ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
@@ -68,10 +66,8 @@ public class VisitorDescendantAxisTest {
     }.test();
 
     rtx.moveTo(9L);
-    AbsAxisTest.testAxisConventions(
-        VisitorDescendantAxis.newBuilder(rtx).build(), new long[] {11L, 12L});
-    new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(11L, 12L),
-        null) {
+    AbsAxisTest.testAxisConventions(VisitorDescendantAxis.newBuilder(rtx).build(), new long[] {11L, 12L});
+    new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(11L, 12L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
         final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
@@ -82,8 +78,7 @@ public class VisitorDescendantAxisTest {
 
     rtx.moveTo(13L);
     AbsAxisTest.testAxisConventions(VisitorDescendantAxis.newBuilder(rtx).build(), new long[] {});
-    new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, Collections.emptyList(),
-        null) {
+    new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, Collections.emptyList(), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
         final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
@@ -97,14 +92,10 @@ public class VisitorDescendantAxisTest {
   public void testIterateIncludingSelfVisitor() throws SirixException {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
     rtx.moveToDocumentRoot();
-    AbsAxisTest.testAxisConventions(
-        VisitorDescendantAxis.newBuilder(rtx).includeSelf().build(),
-        new long[] { Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L,
-            12L, 13L});
+    AbsAxisTest.testAxisConventions(VisitorDescendantAxis.newBuilder(rtx).includeSelf().build(),
+        new long[] {Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-        ImmutableList.of(
-            Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L,
-            13L),
+        ImmutableList.of(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), 1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
         null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
@@ -115,8 +106,7 @@ public class VisitorDescendantAxisTest {
     }.test();
 
     rtx.moveTo(1L);
-    AbsAxisTest.testAxisConventions(
-        new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
+    AbsAxisTest.testAxisConventions(new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
         new long[] {1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L});
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
         ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L), null) {
@@ -129,10 +119,9 @@ public class VisitorDescendantAxisTest {
     }.test();
 
     rtx.moveTo(9L);
-    AbsAxisTest.testAxisConventions(
-        new VisitorDescendantAxis.Builder(rtx).includeSelf().build(), new long[] {9L, 11L, 12L});
-    new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-        ImmutableList.of(9L, 11L, 12L), null) {
+    AbsAxisTest.testAxisConventions(new VisitorDescendantAxis.Builder(rtx).includeSelf().build(),
+        new long[] {9L, 11L, 12L});
+    new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(9L, 11L, 12L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
         final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
@@ -142,10 +131,8 @@ public class VisitorDescendantAxisTest {
     }.test();
 
     rtx.moveTo(13L);
-    AbsAxisTest.testAxisConventions(
-        new VisitorDescendantAxis.Builder(rtx).includeSelf().build(), new long[] {13L});
-    new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(13L),
-        null) {
+    AbsAxisTest.testAxisConventions(new VisitorDescendantAxis.Builder(rtx).includeSelf().build(), new long[] {13L});
+    new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(13L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
         final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();

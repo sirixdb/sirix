@@ -53,15 +53,19 @@ public class VersioningTest {
   public void setUp() {
     // Clear global caches FIRST to ensure clean state from previous test
     try {
-      //Databases.getGlobalBufferManager().clearAllCaches();
+      // Databases.getGlobalBufferManager().clearAllCaches();
     } catch (Exception e) {
       // Ignore - buffer manager might not exist yet on first test
     }
-    
+
     XmlTestHelper.deleteEverything();
     // Use higher memory budget for versioning stress tests
-    var config = new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile())
-        .setMaxSegmentAllocationSize(16L * (1L << 30)); // 16GB instead of default 8GB
+    var config =
+        new DatabaseConfiguration(XmlTestHelper.PATHS.PATH1.getFile()).setMaxSegmentAllocationSize(16L * (1L << 30)); // 16GB
+                                                                                                                      // instead
+                                                                                                                      // of
+                                                                                                                      // default
+                                                                                                                      // 8GB
     Databases.createXmlDatabase(config);
     database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile());
   }
@@ -71,7 +75,7 @@ public class VersioningTest {
     // Close database first to ensure all transactions are properly closed
     // and pages are unpinned
     database.close();
-    
+
     // Then clear global buffer manager caches to release memory segments
     // This is essential with global BufferManager to prevent memory pool exhaustion
     try {
@@ -83,137 +87,152 @@ public class VersioningTest {
 
   @Test
   public void testIncremental() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     test();
   }
 
   @Test
   public void testIncremental1() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     test1();
   }
 
   @Test
   public void testIncremental2() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     test2();
   }
 
   @Test
   public void testIncremental3() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.INCREMENTAL)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     testModifySamePageMultipleTimes();
   }
 
   @Test
   public void testDifferential() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     test();
   }
 
   @Test
   public void testDifferential1() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     test1();
   }
 
   @Test
   public void testDifferential3() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.DIFFERENTIAL)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     testModifySamePageMultipleTimes();
   }
 
   @Test
   public void testFull() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     test();
   }
 
   @Test
   public void testFull1() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     test1();
   }
 
   @Test
   public void testFull2() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     test2();
   }
 
   @Test
   public void testFull3() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.FULL)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     testModifySamePageMultipleTimes();
   }
 
 
   @Test
   public void testSlidingSnapshot() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     test();
   }
 
   @Test
   public void testSlidingSnapshot1() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     test1();
   }
 
   @Test
   public void testSlidingSnapshot2() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     test2();
   }
 
   @Test
   public void testSlidingSnapshot3() {
-    database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-                                                                                     .hashKind(HashType.NONE)
-                                                                                     .maxNumberOfRevisionsToRestore(3)
-                                                                                     .build());
+    database.createResource(
+        new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                                 .hashKind(HashType.NONE)
+                                                                 .maxNumberOfRevisionsToRestore(3)
+                                                                 .build());
     testModifySamePageMultipleTimes();
   }
 
@@ -224,7 +243,7 @@ public class VersioningTest {
    */
   public void testModifySamePageMultipleTimes() {
     try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final XmlNodeTrx wtx = manager.beginNodeTrx()) {
+        final XmlNodeTrx wtx = manager.beginNodeTrx()) {
       for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
         wtx.insertElementAsFirstChild(new QNm("rev1"));
       }

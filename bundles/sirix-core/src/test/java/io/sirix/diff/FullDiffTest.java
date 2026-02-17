@@ -74,16 +74,14 @@ public class FullDiffTest {
   }
 
   @Test
-  public void testFullDiffSecond()
-      throws IOException, XMLStreamException {
+  public void testFullDiffSecond() throws IOException, XMLStreamException {
     DiffTestHelper.setUpSecond(holder);
     DiffTestHelper.checkFullDiff(holder, observer, DiffOptimized.NO);
     DiffTestHelper.verifyDiffSecond(observer);
   }
 
   @Test
-  public void testFullDiffThird()
-      throws SirixException, IOException {
+  public void testFullDiffThird() throws SirixException, IOException {
     DiffTestHelper.setUpThird(holder);
     DiffTestHelper.checkFullDiff(holder, observer, DiffOptimized.NO);
     DiffTestHelper.verifyDiffThird(observer);

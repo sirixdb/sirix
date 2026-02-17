@@ -86,8 +86,7 @@ public final class Levenshtein {
    *
    * @return the estimated time in milliseconds taken to perform the similarity measure
    */
-  public static float getSimilarityTimingEstimated(final String first,
-      @NonNull final String second) {
+  public static float getSimilarityTimingEstimated(final String first, @NonNull final String second) {
     // timed millisecond times with string lengths from 1 + 50 each increment
     // 0 0.31 1.12 2.4 4.41 6.77 11.28 14.5 24.33 31.29 43.6 51 54.5 67.67 68 78
     // 88.67 101.5 109 117.5

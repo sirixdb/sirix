@@ -52,8 +52,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     return new SirixCompileChain(null, jsonStore);
   }
 
-  public static SirixCompileChain createWithNodeAndJsonStore(final XmlDBStore nodeStore,
-      final JsonDBStore jsonStore) {
+  public static SirixCompileChain createWithNodeAndJsonStore(final XmlDBStore nodeStore, final JsonDBStore jsonStore) {
     return new SirixCompileChain(nodeStore, jsonStore);
   }
 

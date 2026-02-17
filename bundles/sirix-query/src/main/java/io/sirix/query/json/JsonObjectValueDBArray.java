@@ -28,7 +28,7 @@ public final class JsonObjectValueDBArray extends AbstractJsonDBArray<JsonObject
   /**
    * Constructor.
    *
-   * @param rtx        {@link JsonNodeReadOnlyTrx} for providing reading access to the underlying node
+   * @param rtx {@link JsonNodeReadOnlyTrx} for providing reading access to the underlying node
    * @param collection {@link JsonDBCollection} reference
    */
   public JsonObjectValueDBArray(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
@@ -41,17 +41,21 @@ public final class JsonObjectValueDBArray extends AbstractJsonDBArray<JsonObject
   @Override
   public Stream<JsonObjectValueDBArray> getEarlier(final boolean includeSelf) {
     moveRtx();
-    final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
+    final IncludeSelf include = includeSelf
+        ? IncludeSelf.YES
+        : IncludeSelf.NO;
     return new TemporalSirixJsonObjectValueArrayStream(new PastAxis<>(rtx.getResourceSession(), rtx, include),
-                                                       collection);
+        collection);
   }
 
   @Override
   public Stream<JsonObjectValueDBArray> getFuture(final boolean includeSelf) {
     moveRtx();
-    final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
+    final IncludeSelf include = includeSelf
+        ? IncludeSelf.YES
+        : IncludeSelf.NO;
     return new TemporalSirixJsonObjectValueArrayStream(new FutureAxis<>(rtx.getResourceSession(), rtx, include),
-                                                       collection);
+        collection);
   }
 
   @Override

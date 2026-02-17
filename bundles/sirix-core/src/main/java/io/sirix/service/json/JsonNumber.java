@@ -5,8 +5,7 @@ import java.math.BigInteger;
 
 public final class JsonNumber {
 
-  private JsonNumber() {
-  }
+  private JsonNumber() {}
 
   private static Number stringDecimal(String stringValue) {
     Number number;

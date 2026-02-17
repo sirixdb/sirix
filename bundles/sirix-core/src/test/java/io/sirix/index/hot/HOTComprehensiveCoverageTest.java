@@ -73,16 +73,16 @@ class HOTComprehensiveCoverageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           // Create many unique paths to trigger index operations
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 200; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"path").append(i).append("\": {\"nested\": ").append(i).append("}");
           }
           json.append("}");
@@ -92,7 +92,7 @@ class HOTComprehensiveCoverageTest {
 
         // Verify data was indexed
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           assertEquals(NodeKind.OBJECT, rtx.getKind());
@@ -106,16 +106,16 @@ class HOTComprehensiveCoverageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         // Create initial data
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 50; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{\"id\": ").append(i).append("}");
           }
           json.append("]");
@@ -125,11 +125,11 @@ class HOTComprehensiveCoverageTest {
 
         // Remove the first child in a new revision
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.moveToDocumentRoot();
-          wtx.moveToFirstChild();  // array
+          wtx.moveToFirstChild(); // array
           if (wtx.hasFirstChild()) {
-            wtx.moveToFirstChild();  // first object
+            wtx.moveToFirstChild(); // first object
             wtx.remove();
           }
           wtx.commit();
@@ -137,7 +137,7 @@ class HOTComprehensiveCoverageTest {
 
         // Verify remaining data
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -150,15 +150,13 @@ class HOTComprehensiveCoverageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         // Create initial data
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader("{\"name\": \"initial\", \"value\": 1}"), 
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"name\": \"initial\", \"value\": 1}"),
               JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
@@ -166,7 +164,7 @@ class HOTComprehensiveCoverageTest {
         // Update data multiple times
         for (int rev = 0; rev < 5; rev++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild();
             wtx.remove();
@@ -179,7 +177,7 @@ class HOTComprehensiveCoverageTest {
 
         // Verify final state
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -197,16 +195,16 @@ class HOTComprehensiveCoverageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         // Create data
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 100; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"key").append(i).append("\": \"value").append(i).append("\"");
           }
           json.append("}");
@@ -235,20 +233,19 @@ class HOTComprehensiveCoverageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         // Create minimal data
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{}"), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         // Read empty structure
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           assertEquals(NodeKind.OBJECT, rtx.getKind());
@@ -311,7 +308,7 @@ class HOTComprehensiveCoverageTest {
       boolean underfilled1 = NodeUpgradeManager.isUnderfilled(biNode, 0.1);
       boolean underfilled2 = NodeUpgradeManager.isUnderfilled(biNode, 0.5);
       boolean underfilled3 = NodeUpgradeManager.isUnderfilled(biNode, 0.9);
-      
+
       // Results depend on implementation, just verify no exceptions
       assertNotNull(Boolean.valueOf(underfilled1));
       assertNotNull(Boolean.valueOf(underfilled2));
@@ -329,16 +326,14 @@ class HOTComprehensiveCoverageTest {
       // Uniform distribution
       byte[][] uniform = new byte[8][];
       for (int i = 0; i < 8; i++) {
-        uniform[i] = new byte[]{(byte) (i * 16)};
+        uniform[i] = new byte[] {(byte) (i * 16)};
       }
       int splitUniform = HeightOptimalSplitter.findOptimalSplitPoint(uniform);
       assertTrue(splitUniform >= 0 && splitUniform < uniform.length);
 
       // Clustered distribution
-      byte[][] clustered = new byte[][] {
-          {0x00}, {0x01}, {0x02}, {0x03},
-          {(byte)0xF0}, {(byte)0xF1}, {(byte)0xF2}, {(byte)0xF3}
-      };
+      byte[][] clustered =
+          new byte[][] {{0x00}, {0x01}, {0x02}, {0x03}, {(byte) 0xF0}, {(byte) 0xF1}, {(byte) 0xF2}, {(byte) 0xF3}};
       int splitClustered = HeightOptimalSplitter.findOptimalSplitPoint(clustered);
       assertTrue(splitClustered >= 0 && splitClustered < clustered.length);
     }
@@ -362,15 +357,15 @@ class HOTComprehensiveCoverageTest {
     @DisplayName("Test should create SpanNode decision")
     void testShouldCreateSpanNodeDecision() {
       // Keys with multiple bits difference in same byte
-      byte[] left1 = new byte[]{0x0F};
-      byte[] right1 = new byte[]{(byte)0xF0};
+      byte[] left1 = new byte[] {0x0F};
+      byte[] right1 = new byte[] {(byte) 0xF0};
       boolean should1 = HeightOptimalSplitter.shouldCreateSpanNode(left1, right1, 0);
-      
+
       // Keys with single bit difference
-      byte[] left2 = new byte[]{0x00};
-      byte[] right2 = new byte[]{0x01};
+      byte[] left2 = new byte[] {0x00};
+      byte[] right2 = new byte[] {0x01};
       boolean should2 = HeightOptimalSplitter.shouldCreateSpanNode(left2, right2, 7);
-      
+
       // Just verify the method executes without error
       assertNotNull(Boolean.valueOf(should1));
       assertNotNull(Boolean.valueOf(should2));
@@ -492,11 +487,11 @@ class HOTComprehensiveCoverageTest {
       spk.setEntry(7, (byte) 0x80);
 
       // Test various search patterns
-      int mask1 = spk.search(0x01);  // Match first
-      int mask2 = spk.search(0x80);  // Match last
-      int mask3 = spk.search(0x0F);  // Match first four
-      int mask4 = spk.search(0xF0);  // Match last four
-      int mask5 = spk.search(0xFF);  // Match all
+      int mask1 = spk.search(0x01); // Match first
+      int mask2 = spk.search(0x80); // Match last
+      int mask3 = spk.search(0x0F); // Match first four
+      int mask4 = spk.search(0xF0); // Match last four
+      int mask5 = spk.search(0xFF); // Match all
 
       assertTrue(mask1 != 0);
       assertTrue(mask2 != 0);
@@ -530,7 +525,7 @@ class HOTComprehensiveCoverageTest {
       for (int bitPos : new int[] {0, 7, 8, 15, 16, 23, 31, 63}) {
         PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(bitPos);
         assertNotNull(mapping);
-        
+
         int msb = mapping.getMostSignificantBitIndex();
         int lsb = mapping.getLeastSignificantBitIndex();
         assertTrue(msb >= 0);
@@ -542,13 +537,13 @@ class HOTComprehensiveCoverageTest {
     @DisplayName("Test adding additional bits")
     void testAddingAdditionalBits() {
       PartialKeyMapping initial = PartialKeyMapping.forSingleBit(0);
-      
+
       PartialKeyMapping with1 = PartialKeyMapping.withAdditionalBit(initial, 8);
       assertNotNull(with1);
-      
+
       PartialKeyMapping with2 = PartialKeyMapping.withAdditionalBit(with1, 16);
       assertNotNull(with2);
-      
+
       PartialKeyMapping with3 = PartialKeyMapping.withAdditionalBit(with2, 24);
       assertNotNull(with3);
     }
@@ -557,7 +552,7 @@ class HOTComprehensiveCoverageTest {
     @DisplayName("Test prefix bits mask")
     void testPrefixBitsMask() {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(7);
-      
+
       for (int bitIndex : new int[] {0, 4, 8, 12, 16}) {
         int prefixMask = mapping.getPrefixBitsMask(bitIndex);
         assertTrue(prefixMask >= 0);
@@ -568,16 +563,10 @@ class HOTComprehensiveCoverageTest {
     @DisplayName("Test extract mask from keys")
     void testExtractMaskFromKeys() {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(7);
-      
-      byte[][] testKeys = new byte[][] {
-          {0x00},
-          {0x01},
-          {(byte)0x80},
-          {(byte)0xFF},
-          {0x00, 0x01},
-          {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}
-      };
-      
+
+      byte[][] testKeys = new byte[][] {{0x00}, {0x01}, {(byte) 0x80}, {(byte) 0xFF}, {0x00, 0x01},
+          {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08}};
+
       for (byte[] key : testKeys) {
         int extracted = mapping.extractMask(key);
         assertTrue(extracted >= 0);
@@ -653,7 +642,7 @@ class HOTComprehensiveCoverageTest {
         PageReference ref = new PageReference();
         ref.setKey(idx * 10);
         dir.setChunkRef(idx, ref);
-        
+
         PageReference retrieved = dir.getChunkRef(idx);
         assertNotNull(retrieved);
         assertEquals(idx * 10, retrieved.getKey());
@@ -665,7 +654,7 @@ class HOTComprehensiveCoverageTest {
     void testEqualsHashCode() {
       ChunkDirectory dir1 = new ChunkDirectory();
       dir1.getOrCreateChunkRef(0).setKey(100);
-      
+
       ChunkDirectory dir2 = new ChunkDirectory();
       dir2.getOrCreateChunkRef(0).setKey(100);
 
@@ -683,7 +672,7 @@ class HOTComprehensiveCoverageTest {
     void testLongKeys() {
       byte[] key1 = new byte[] {0, 0, 0, 0, 0, 0, 0, 0, 0x01};
       byte[] key2 = new byte[] {0, 0, 0, 0, 0, 0, 0, 0, 0x02};
-      
+
       int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
       assertTrue(bit >= 64, "Difference should be in 9th byte");
     }
@@ -695,7 +684,7 @@ class HOTComprehensiveCoverageTest {
         byte[] key1 = new byte[8];
         byte[] key2 = new byte[8];
         key2[bytePos] = 0x01;
-        
+
         int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
         assertTrue(bit >= bytePos * 8 && bit < (bytePos + 1) * 8);
       }
@@ -704,11 +693,11 @@ class HOTComprehensiveCoverageTest {
     @Test
     @DisplayName("Test with all bits set")
     void testAllBitsSet() {
-      byte[] key1 = new byte[] {(byte)0xFF, (byte)0xFF};
-      byte[] key2 = new byte[] {(byte)0xFF, (byte)0xFE};
-      
+      byte[] key1 = new byte[] {(byte) 0xFF, (byte) 0xFF};
+      byte[] key2 = new byte[] {(byte) 0xFF, (byte) 0xFE};
+
       int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
-      assertTrue(bit >= 8);  // Difference in second byte
+      assertTrue(bit >= 8); // Difference in second byte
     }
   }
 
@@ -723,19 +712,20 @@ class HOTComprehensiveCoverageTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(3)
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(3)
+                                                     .build());
 
         // Create many revisions with growing data
         for (int rev = 0; rev < 10; rev++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
-            
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
+
             if (rev == 0) {
               StringBuilder json = new StringBuilder("[");
               for (int i = 0; i < 20; i++) {
-                if (i > 0) json.append(",");
+                if (i > 0)
+                  json.append(",");
                 json.append(i);
               }
               json.append("]");
@@ -746,7 +736,8 @@ class HOTComprehensiveCoverageTest {
               wtx.remove();
               StringBuilder json = new StringBuilder("[");
               for (int i = 0; i < 20 + rev * 5; i++) {
-                if (i > 0) json.append(",");
+                if (i > 0)
+                  json.append(",");
                 json.append(i + rev * 100);
               }
               json.append("]");
@@ -774,23 +765,25 @@ class HOTComprehensiveCoverageTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           // Create deeply nested structure
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 10; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"level").append(i).append("\": {");
             for (int j = 0; j < 5; j++) {
-              if (j > 0) json.append(",");
+              if (j > 0)
+                json.append(",");
               json.append("\"sub").append(j).append("\": [");
               for (int k = 0; k < 3; k++) {
-                if (k > 0) json.append(",");
+                if (k > 0)
+                  json.append(",");
                 json.append("{\"value\": ").append(i * 100 + j * 10 + k).append("}");
               }
               json.append("]");
@@ -798,14 +791,14 @@ class HOTComprehensiveCoverageTest {
             json.append("}");
           }
           json.append("}");
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         // Verify structure was created
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild(), "Should have root element");
           rtx.moveToFirstChild();

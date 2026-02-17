@@ -133,7 +133,7 @@ public final class JsonTestHelper {
   /**
    * Getting a database and create one if not existing, using a custom ResourceConfiguration.
    *
-   * @param file           to be created
+   * @param file to be created
    * @param resourceConfig the custom resource configuration to use
    * @return a database-obj
    */
@@ -223,9 +223,8 @@ public final class JsonTestHelper {
       }
       final var database = Databases.openJsonDatabase(file);
       if (!database.existsResource(RESOURCE)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE)
-            .indexBackendType(IndexBackendType.RBTREE)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE).indexBackendType(IndexBackendType.RBTREE).build());
       }
       INSTANCES.put(file, database);
       return database;
@@ -269,7 +268,7 @@ public final class JsonTestHelper {
   public static void createTestDocument() {
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);
       wtx.commit();
     }
@@ -283,7 +282,7 @@ public final class JsonTestHelper {
   public static void createTestDocumentWithDeweyIdsEnabled() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     try (final JsonResourceSession session = database.beginResourceSession(RESOURCE);
-         final JsonNodeTrx wtx = session.beginNodeTrx()) {
+        final JsonNodeTrx wtx = session.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);
       wtx.commit();
     }

@@ -31,9 +31,11 @@ public final class DropResourceIntegrationTest extends TestCase {
   @Test
   public void test() throws IOException {
     // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
 
       // Use Query to store a JSON string into the store.
       final String storeQuery = "jn:store('json-path1','mydoc', '{\"foo\":\"bar\"}')";

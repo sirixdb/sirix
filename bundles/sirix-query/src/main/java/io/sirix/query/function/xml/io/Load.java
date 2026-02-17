@@ -41,9 +41,10 @@ import java.time.Instant;
  *
  * @author Johannes Lichtenberger
  */
-@FunctionAnnotation(description = "Store the given fragments in a collection. "
-    + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
-    parameters = { "$coll", "$res", "$fragments", "$create-new" })
+@FunctionAnnotation(
+    description = "Store the given fragments in a collection. "
+        + "If explicitly required or if the collection does not exist, " + "a new collection will be created. ",
+    parameters = {"$coll", "$res", "$fragments", "$create-new"})
 public final class Load extends AbstractFunction {
 
   /**
@@ -65,28 +66,25 @@ public final class Load extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the function name
+   * @param name the function name
    * @param createNew determines if a new collection has to be created or not
    */
   public Load(final QNm name, final boolean createNew) {
-    super(name,
-          createNew
-              ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-                              new SequenceType(AtomicType.STR, Cardinality.One),
-                              new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
-                              new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))
-              : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
-                              new SequenceType(AtomicType.STR, Cardinality.One),
-                              new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
-                              new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
-                              new SequenceType(AtomicType.BOOL, Cardinality.One)),
-          true);
+    super(name, createNew
+        ? new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany))
+        : new Signature(new SequenceType(ElementType.ELEMENT, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne),
+            new SequenceType(AtomicType.STR, Cardinality.ZeroOrMany),
+            new SequenceType(AtomicType.BOOL, Cardinality.One)),
+        true);
   }
 
   /**
    * Constructor.
    *
-   * @param name      the function name
+   * @param name the function name
    * @param signature the signature
    */
   public Load(final QNm name, final Signature signature) {
@@ -103,11 +101,16 @@ public final class Load extends AbstractFunction {
         throw new QueryException(new QNm("No sequence of resources specified!"));
       final boolean createNew = args.length < 4 || args[3].booleanValue();
 
-      final String commitMessage =
-          args.length >= 5 ? FunUtil.getString(args, 4, "commitMessage", null, null, false) : null;
+      final String commitMessage = args.length >= 5
+          ? FunUtil.getString(args, 4, "commitMessage", null, null, false)
+          : null;
 
-      final DateTime dateTime = args.length == 6 ? (DateTime) args[5] : null;
-      final Instant commitTimesstamp = args.length == 6 ? dateTimeToInstant.convert(dateTime) : null;
+      final DateTime dateTime = args.length == 6
+          ? (DateTime) args[5]
+          : null;
+      final Instant commitTimesstamp = args.length == 6
+          ? dateTimeToInstant.convert(dateTime)
+          : null;
 
       final BasicXmlDBStore store = (BasicXmlDBStore) ctx.getNodeStore();
       XmlDBCollection coll;
@@ -132,7 +135,8 @@ public final class Load extends AbstractFunction {
   private static TemporalNodeCollection<?> add(final XmlDBCollection coll, final String resName,
       final Sequence resources, final String commitMessage, final Instant commitTimestamp) throws IOException {
     if (resources instanceof final Atomic res) {
-      coll.add(resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())), commitMessage, commitTimestamp);
+      coll.add(resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())), commitMessage,
+          commitTimestamp);
     } else {
       try (ParserStream parsers = new ParserStream(resources)) {
         for (NodeSubtreeParser parser = parsers.next(); parser != null; parser = parsers.next()) {
@@ -146,17 +150,14 @@ public final class Load extends AbstractFunction {
   private static XmlDBCollection create(final BasicXmlDBStore store, final String collName, final String resName,
       final Sequence resources, final String commitMessage, final Instant commitTimestamp) throws IOException {
     if (resources instanceof Atomic res) {
-      return store.create(collName,
-                          resName,
-                          new DocumentParser(URIHandler.getInputStream(res.stringValue())),
-                          commitMessage,
-                          commitTimestamp);
+      return store.create(collName, resName, new DocumentParser(URIHandler.getInputStream(res.stringValue())),
+          commitMessage, commitTimestamp);
     } else {
       return store.create(collName, new ParserStream(resources));
     }
   }
 
-  private static class StoreParser implements NodeSubtreeParser{
+  private static class StoreParser implements NodeSubtreeParser {
 
     private final NodeStreamSubtreeParser parser;
     private final boolean intercept;
@@ -278,8 +279,7 @@ public final class Load extends AbstractFunction {
           return new StoreParser(n);
         } else {
           throw new QueryException(ErrorCode.ERR_TYPE_INAPPROPRIATE_TYPE,
-                                   "Cannot create subtree parser for item of type: %s",
-                                   i.itemType());
+              "Cannot create subtree parser for item of type: %s", i.itemType());
         }
       } catch (final QueryException e) {
         throw new DocumentException(e);

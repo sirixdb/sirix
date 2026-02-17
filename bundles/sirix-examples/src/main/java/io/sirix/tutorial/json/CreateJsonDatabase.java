@@ -28,10 +28,8 @@ public final class CreateJsonDatabase {
     final var dbConfig = new DatabaseConfiguration(databaseFile);
     Databases.createJsonDatabase(dbConfig);
     try (final var database = Databases.openJsonDatabase(databaseFile)) {
-      database.createResource(ResourceConfiguration.newBuilder("resource")
-                                                   .useTextCompression(false)
-                                                   .useDeweyIDs(true)
-                                                   .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder("resource").useTextCompression(false).useDeweyIDs(true).build());
       try (final var manager = database.beginResourceSession("resource"); final var wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(pathToJsonFile));
         wtx.commit();

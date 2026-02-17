@@ -44,11 +44,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Integration tests for HOT (Height Optimized Trie) index infrastructure.
  *
- * <p>These tests verify both RBTree (default) and HOT backends work correctly.</p>
+ * <p>
+ * These tests verify both RBTree (default) and HOT backends work correctly.
+ * </p>
  */
 class HOTIndexIntegrationTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
-  
+
   private static String originalHOTSetting;
 
   @BeforeAll
@@ -57,7 +59,7 @@ class HOTIndexIntegrationTest {
     originalHOTSetting = System.getProperty("sirix.index.useHOT");
     System.setProperty("sirix.index.useHOT", "true");
   }
-  
+
   @AfterAll
   static void restoreHOTSetting() {
     // Restore original setting
@@ -69,32 +71,32 @@ class HOTIndexIntegrationTest {
   }
 
   // ===== Configuration Tests =====
-  
+
   @Test
   @DisplayName("HOT configuration property enables/disables HOT indexes")
   void testHOTConfigurationProperty() {
     // Disable first
     System.clearProperty("sirix.index.useHOT");
-    
+
     // Test that HOT can be enabled/disabled via system property
     assertFalse(PathIndexListenerFactory.isHOTEnabled(), "HOT should be disabled when property cleared");
     assertFalse(CASIndexListenerFactory.isHOTEnabled(), "HOT should be disabled when property cleared");
     assertFalse(NameIndexListenerFactory.isHOTEnabled(), "HOT should be disabled when property cleared");
-    
+
     // Enable HOT
     System.setProperty("sirix.index.useHOT", "true");
     assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled");
     assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled");
     assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled");
-    
+
     // Disable HOT
     System.clearProperty("sirix.index.useHOT");
     assertFalse(PathIndexListenerFactory.isHOTEnabled(), "HOT should be disabled");
-    
+
     // Re-enable HOT for subsequent tests (class default)
     System.setProperty("sirix.index.useHOT", "true");
   }
-  
+
   @Test
   @DisplayName("Per-resource IndexBackendType configuration works correctly")
   void testPerResourceIndexBackendConfiguration() {
@@ -102,80 +104,74 @@ class HOTIndexIntegrationTest {
     // 1. ResourceConfiguration.indexBackendType defaults to HOT
     // 2. ResourceConfiguration.indexBackendType can be explicitly set to RBTREE
     // 3. Configuration is properly stored and accessible
-    
+
     System.clearProperty("sirix.index.useHOT");
-    
+
     // Test 1: Default configuration should be HOT
     JsonTestHelper.deleteEverything();
     try {
-      final var databaseWithDefault = JsonTestHelper.getDatabaseWithResourceConfig(
-          JsonTestHelper.PATHS.PATH1.getFile(),
-          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-              .build());  // No explicit index backend - should default to HOT
-      
+      final var databaseWithDefault = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
+          ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE).build()); // No explicit index backend - should
+                                                                              // default to HOT
+
       try (final var manager = databaseWithDefault.beginResourceSession(JsonTestHelper.RESOURCE)) {
         // Verify default is HOT
-        assertEquals(IndexBackendType.HOT, 
-            manager.getResourceConfig().indexBackendType,
+        assertEquals(IndexBackendType.HOT, manager.getResourceConfig().indexBackendType,
             "Default index backend should be HOT");
       }
     } finally {
       JsonTestHelper.closeEverything();
     }
-    
+
     // Test 2: Explicit HOT configuration
     JsonTestHelper.deleteEverything();
     try {
-      final var databaseWithHOT = JsonTestHelper.getDatabaseWithResourceConfig(
-          JsonTestHelper.PATHS.PATH1.getFile(),
+      final var databaseWithHOT = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
           ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-              .useHOTIndexes()  // Explicitly set HOT
-              .build());
-      
+                               .useHOTIndexes() // Explicitly set HOT
+                               .build());
+
       try (final var manager = databaseWithHOT.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        assertEquals(IndexBackendType.HOT, 
-            manager.getResourceConfig().indexBackendType,
+        assertEquals(IndexBackendType.HOT, manager.getResourceConfig().indexBackendType,
             "Resource should be configured for HOT");
       }
     } finally {
       JsonTestHelper.closeEverything();
     }
-    
+
     // Test 3: Explicit RBTREE configuration (opt-out of HOT)
     JsonTestHelper.deleteEverything();
     try {
-      final var databaseWithRBTree = JsonTestHelper.getDatabaseWithResourceConfig(
-          JsonTestHelper.PATHS.PATH1.getFile(),
+      final var databaseWithRBTree = JsonTestHelper.getDatabaseWithResourceConfig(JsonTestHelper.PATHS.PATH1.getFile(),
           ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
-              .useRBTreeIndexes()  // Explicitly use RBTREE
-              .build());
-      
+                               .useRBTreeIndexes() // Explicitly use RBTREE
+                               .build());
+
       try (final var manager = databaseWithRBTree.beginResourceSession(JsonTestHelper.RESOURCE)) {
-        assertEquals(IndexBackendType.RBTREE, 
-            manager.getResourceConfig().indexBackendType,
+        assertEquals(IndexBackendType.RBTREE, manager.getResourceConfig().indexBackendType,
             "Resource should be configured for RBTREE");
       }
     } finally {
       JsonTestHelper.closeEverything();
     }
-    
+
     // Re-enable HOT for subsequent tests
     System.setProperty("sirix.index.useHOT", "true");
   }
-  
+
   // ===== RBTree Backend Tests =====
-  
+
   @Nested
   @DisplayName("RBTree Backend Tests")
   class RBTreeBackendTests {
-    
+
     @BeforeEach
     void setUp() {
       JsonTestHelper.deleteEverything();
       // Explicitly disable HOT for RBTree tests (overrides class-level default)
       System.clearProperty("sirix.index.useHOT");
     }
-    
+
     @AfterEach
     void tearDown() {
       JsonTestHelper.closeEverything();
@@ -189,9 +185,9 @@ class HOTIndexIntegrationTest {
     void testPathIndexWithRBTreeBackend() {
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         // Create PATH index
@@ -201,8 +197,7 @@ class HOTIndexIntegrationTest {
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
         // Shred JSON
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
@@ -221,9 +216,9 @@ class HOTIndexIntegrationTest {
     void testCASIndexWithRBTreeBackend() {
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         // Create CAS index for /features/[]/type
@@ -234,19 +229,14 @@ class HOTIndexIntegrationTest {
         indexController.createIndexes(Set.of(idxDefOfType), trx);
 
         // Shred JSON
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Query for "Feature" value
-        final var casIndex = indexController.openCASIndex(trx.getPageTrx(),
-            idxDefOfType,
-            indexController.createCASFilter(
-                Set.of("/features/[]/type"),
-                new Str("Feature"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        final var casIndex =
+            indexController.openCASIndex(trx.getPageTrx(), idxDefOfType, indexController.createCASFilter(
+                Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
         assertTrue(casIndex.hasNext(), "CAS query should find results");
 
@@ -255,20 +245,20 @@ class HOTIndexIntegrationTest {
       }
     }
   }
-  
+
   // ===== HOT Backend Tests =====
   // Note: HOT is enabled by default at class level (@BeforeAll)
-  
+
   @Nested
   @DisplayName("HOT Backend Tests")
   class HOTBackendTests {
-    
+
     @BeforeEach
     void setUp() {
       JsonTestHelper.deleteEverything();
       // HOT is already enabled by default - no need to set it
     }
-    
+
     @AfterEach
     void tearDown() {
       JsonTestHelper.closeEverything();
@@ -279,12 +269,12 @@ class HOTIndexIntegrationTest {
     @DisplayName("PATH index with HOT backend creation and query")
     void testPathIndexWithHOTBackend() {
       assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         // Create PATH index with HOT backend
@@ -294,8 +284,7 @@ class HOTIndexIntegrationTest {
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
         // Shred JSON
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
@@ -314,12 +303,12 @@ class HOTIndexIntegrationTest {
     @org.junit.jupiter.api.Disabled("NAME index with HOT has serialization issues causing early splits - needs investigation")
     void testNameIndexWithHOTBackend() {
       assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = session.beginNodeTrx()) {
+          final var trx = session.beginNodeTrx()) {
         var indexController = session.getWtxIndexController(trx.getRevisionNumber());
 
         // Create NAME index with HOT backend
@@ -327,21 +316,18 @@ class HOTIndexIntegrationTest {
         indexController.createIndexes(Set.of(allObjectKeyNames), trx);
 
         // Shred JSON
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Query for specific name using HOT reader
-        final var nameIndex = indexController.openNameIndex(trx.getPageTrx(),
-            allObjectKeyNames,
+        final var nameIndex = indexController.openNameIndex(trx.getPageTrx(), allObjectKeyNames,
             indexController.createNameFilter(Set.of("type")));
 
         assertTrue(nameIndex.hasNext(), "HOT NAME index should find 'type' keys");
 
         final var typeReferences = nameIndex.next();
-        assertTrue(typeReferences.getNodeKeys().getLongCardinality() > 0, 
-            "HOT should have references to 'type' nodes");
+        assertTrue(typeReferences.getNodeKeys().getLongCardinality() > 0, "HOT should have references to 'type' nodes");
       }
     }
 
@@ -349,12 +335,12 @@ class HOTIndexIntegrationTest {
     @DisplayName("CAS index with HOT backend creation and query")
     void testCASIndexWithHOTBackend() {
       assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         // Create CAS index with HOT backend
@@ -365,19 +351,14 @@ class HOTIndexIntegrationTest {
         indexController.createIndexes(Set.of(idxDefOfType), trx);
 
         // Shred JSON
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
 
         // Query for "Feature" value using HOT reader
-        final var casIndex = indexController.openCASIndex(trx.getPageTrx(),
-            idxDefOfType,
-            indexController.createCASFilter(
-                Set.of("/features/[]/type"),
-                new Str("Feature"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        final var casIndex =
+            indexController.openCASIndex(trx.getPageTrx(), idxDefOfType, indexController.createCASFilter(
+                Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
         assertTrue(casIndex.hasNext(), "HOT CAS query should find results");
 
@@ -385,17 +366,17 @@ class HOTIndexIntegrationTest {
         assertEquals(53, refs.getNodeKeys().getLongCardinality(), "HOT should find 53 'Feature' values");
       }
     }
-    
+
     @Test
     @DisplayName("HOT listener writes to HOTLeafPage correctly")
     void testHOTListenerWritesToHOTLeafPage() {
       assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
@@ -405,32 +386,31 @@ class HOTIndexIntegrationTest {
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
         // Shred JSON - this triggers the listeners which write to HOT
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
-        
+
         // Verify the path summary works (this validates the basic infrastructure)
         final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToType);
         assertEquals(1, pathNodeKeys.size(), "Should find one path node key for /features/[]/type");
-        
+
         // Verify index was created
         final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
         assertTrue(indexDef != null, "Index definition should exist");
         assertEquals(IndexType.PATH, indexDef.getType(), "Should be PATH index");
       }
     }
-    
+
     @Test
     @DisplayName("HOT PATH index works before commit (uncommitted data)")
     void testHOTPathIndexBeforeCommit() {
       assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
@@ -439,11 +419,10 @@ class HOTIndexIntegrationTest {
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
         // Shred WITHOUT commitAfterwards - data is in transaction log only
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).build();
         shredder.call();
-        
+
         // Query BEFORE commit - this tests uncommitted HOT page access
         final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
         final var index = indexController.openPathIndex(trx.getPageTrx(), indexDef, null);
@@ -451,23 +430,23 @@ class HOTIndexIntegrationTest {
         assertTrue(index.hasNext(), "HOT PATH index should have results before commit");
         var refs = index.next();
         assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'type' nodes before commit");
-        
+
         // Now commit
         trx.commit();
       }
     }
-    
+
     @Test
     @DisplayName("HOT PATH index works across multiple commits in same transaction")
     void testHOTPathIndexMultipleCommits() {
       assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       // Single transaction with commit and query to verify index updates
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
@@ -476,44 +455,41 @@ class HOTIndexIntegrationTest {
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
         // Shred JSON - creates initial data
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).build();
         shredder.call();
-        
+
         // Query after shredding but before commit
         final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
         var index = indexController.openPathIndex(trx.getPageTrx(), indexDef, null);
         assertTrue(index.hasNext(), "HOT PATH index should have results before commit");
         var refs = index.next();
-        assertEquals(53, refs.getNodeKeys().getLongCardinality(), 
-            "Should find 53 'type' nodes before commit");
-        
+        assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'type' nodes before commit");
+
         // Commit first revision
         trx.commit();
-        
+
         int firstRevision = trx.getRevisionNumber();
         assertTrue(firstRevision >= 1, "Should have at least revision 1");
-        
+
         // Query again after commit - should still work
         index = indexController.openPathIndex(trx.getPageTrx(), indexDef, null);
         assertTrue(index.hasNext(), "HOT PATH index should have results after commit");
         refs = index.next();
-        assertEquals(53, refs.getNodeKeys().getLongCardinality(), 
-            "Should still find 53 'type' nodes after commit");
+        assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should still find 53 'type' nodes after commit");
       }
     }
-    
+
     @Test
     @DisplayName("HOT PATH index deletion works in same transaction")
     void testHOTPathIndexDeleteInSameTransaction() {
       assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
@@ -522,16 +498,15 @@ class HOTIndexIntegrationTest {
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
         // Shred JSON - 53 type nodes
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).build();
         shredder.call();
-        
+
         // Verify initial count
         var index = indexController.openPathIndex(trx.getPageTrx(), pathIndexDef, null);
         assertTrue(index.hasNext(), "Should have results after shredding");
         assertEquals(53, index.next().getNodeKeys().getLongCardinality(), "Should have 53 'type' nodes initially");
-        
+
         // Delete one feature - should reduce count by 1
         trx.moveToDocumentRoot();
         trx.moveToFirstChild(); // root object
@@ -540,29 +515,29 @@ class HOTIndexIntegrationTest {
         trx.moveToFirstChild(); // features ARRAY
         trx.moveToFirstChild(); // first feature OBJECT
         trx.remove();
-        
+
         // Query after deletion - count should be 52
         index = indexController.openPathIndex(trx.getPageTrx(), pathIndexDef, null);
         assertTrue(index.hasNext(), "Should still have results after deletion");
         long countAfterDelete = index.next().getNodeKeys().getLongCardinality();
         assertEquals(52, countAfterDelete, "Should have 52 'type' nodes after 1 deletion");
-        
+
         trx.commit();
       }
     }
-    
+
     @Test
     @DisplayName("HOT PATH index deletion works across transactions")
     void testHOTPathIndexDeleteAcrossTransactions() {
       assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
       IndexDef savedIndexDef;
-      
+
       // Transaction 1: Create index and insert data
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
@@ -571,23 +546,22 @@ class HOTIndexIntegrationTest {
 
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).build();
         shredder.call();
-        
+
         // Verify 53 type nodes
         var index = indexController.openPathIndex(trx.getPageTrx(), pathIndexDef, null);
         assertTrue(index.hasNext());
         assertEquals(53, index.next().getNodeKeys().getLongCardinality());
-        
+
         trx.commit();
       }
-      
+
       // Transaction 2: Delete one feature
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
-        
+          final var trx = manager.beginNodeTrx()) {
+
         trx.moveToDocumentRoot();
         trx.moveToFirstChild(); // root object
         trx.moveToFirstChild(); // "type" OBJECT_KEY
@@ -597,30 +571,30 @@ class HOTIndexIntegrationTest {
         trx.remove();
         trx.commit();
       }
-      
+
       // Transaction 3 (read-only): Verify 52 entries
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
-        
+
         var index = indexController.openPathIndex(rtx.getPageTrx(), savedIndexDef, null);
         assertTrue(index.hasNext(), "Should have results after deletion");
         long count = index.next().getNodeKeys().getLongCardinality();
         assertEquals(52, count, "Should have 52 'type' nodes after cross-transaction deletion");
       }
     }
-    
+
     @Test
     @DisplayName("HOT PATH index persists across session close/reopen")
     void testHOTPathIndexPersistence() {
       assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       // Create index and commit data
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
@@ -628,119 +602,101 @@ class HOTIndexIntegrationTest {
 
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
-        
+
         // Verify it works right after commit
         final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
         assertNotNull(indexDef, "Index definition should exist right after commit");
-        
+
         var index = indexController.openPathIndex(trx.getPageTrx(), indexDef, null);
         assertTrue(index.hasNext(), "HOT PATH index should have results after commit");
         var refs = index.next();
         assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 nodes");
       }
-      
+
       // Reopen resource session and verify index still works (read from latest revision)
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
-        
+
         final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
         // Note: Index definitions are stored separately; if null, it's a known limitation
         // of how indexes are persisted in SirixDB
         if (indexDef != null) {
           final var index = indexController.openPathIndex(rtx.getPageTrx(), indexDef, null);
           assertTrue(index.hasNext(), "HOT PATH index should have results after session reopen");
-          
+
           var refs = index.next();
-          assertEquals(53, refs.getNodeKeys().getLongCardinality(), 
-              "Should find 53 'type' nodes after session reopen");
+          assertEquals(53, refs.getNodeKeys().getLongCardinality(), "Should find 53 'type' nodes after session reopen");
         }
       }
     }
-    
+
     @Test
     @DisplayName("HOT CAS index works with array-based document")
     void testHOTCASIndexWithArray() {
       assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      
+
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       // Create index with an array document containing multiple objects
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToName = parse("/[]/name", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR, 
-            Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
         // Insert array with multiple objects having "name" field
-        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "[{\"name\": \"Alice\"}, {\"name\": \"Bob\"}, {\"name\": \"Charlie\"}]"));
+        trx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader("[{\"name\": \"Alice\"}, {\"name\": \"Bob\"}, {\"name\": \"Charlie\"}]"));
         trx.commit();
-        
+
         // Query for "Alice" - should exist
-        var aliceIndex = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/[]/name"),
-                new Str("Alice"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        var aliceIndex = indexController.openCASIndex(trx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            Set.of("/[]/name"), new Str("Alice"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(aliceIndex.hasNext(), "Should find 'Alice'");
-        
+
         // Query for "Bob" - should exist
-        var bobIndex = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/[]/name"),
-                new Str("Bob"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        var bobIndex = indexController.openCASIndex(trx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            Set.of("/[]/name"), new Str("Bob"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(bobIndex.hasNext(), "Should find 'Bob'");
-        
+
         // Query for "Charlie" - should exist
-        var charlieIndex = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/[]/name"),
-                new Str("Charlie"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        var charlieIndex = indexController.openCASIndex(trx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            Set.of("/[]/name"), new Str("Charlie"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(charlieIndex.hasNext(), "Should find 'Charlie'");
-        
+
         // Query for non-existent value - should NOT exist
-        var daveIndex = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/[]/name"),
-                new Str("Dave"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        var daveIndex = indexController.openCASIndex(trx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            Set.of("/[]/name"), new Str("Dave"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertFalse(daveIndex.hasNext(), "Should NOT find 'Dave'");
       }
     }
-    
+
     // ===== Multi-Revision Versioning Tests =====
-    
+
     @Test
     // @Disabled("Cross-transaction HOT modifications need further work on page persistence")
     @DisplayName("HOT PATH index with 6+ revisions: insert and delete operations")
     void testHOTPathIndexMultiRevisionVersioning() {
       assertTrue(PathIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       // Track the index definition for use across transactions
       IndexDef savedPathIndexDef;
       int revision1;
-      
+
       // Revision 1: Create index with initial data (53 type nodes)
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
@@ -750,27 +706,26 @@ class HOTIndexIntegrationTest {
         indexController.createIndexes(Set.of(pathIndexDef), trx);
 
         // Shred large JSON file
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).build();
         shredder.call();
-        
+
         // Store the revision number BEFORE commit (this is the revision being created)
         revision1 = trx.getRevisionNumber();
-        
+
         trx.commit();
-        
+
         // Verify 53 type nodes indexed
         var index = indexController.openPathIndex(trx.getPageTrx(), pathIndexDef, null);
         assertTrue(index.hasNext());
         assertEquals(53, index.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 53 type nodes");
       }
-      
+
       // Revisions 2-6: Delete elements one by one (5 deletions)
       // JSON structure: { "type": "...", "features": [...], ... }
       for (int i = 2; i <= 6; i++) {
         try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-             final var trx = manager.beginNodeTrx()) {
+            final var trx = manager.beginNodeTrx()) {
           trx.moveToDocumentRoot();
           trx.moveToFirstChild(); // root object
           trx.moveToFirstChild(); // "type" OBJECT_KEY (first key)
@@ -778,86 +733,81 @@ class HOTIndexIntegrationTest {
           trx.moveToFirstChild(); // features ARRAY (value of the key)
           trx.moveToFirstChild(); // first feature OBJECT in array
           trx.remove();
-          
+
           trx.commit();
         }
       }
-      
+
       // Final verification in read transaction
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
-        
+
         assertTrue(rtx.getRevisionNumber() >= 6, "Should have at least 6 revisions");
-        
+
         var index = indexController.openPathIndex(rtx.getPageTrx(), savedPathIndexDef, null);
         assertTrue(index.hasNext(), "Should have results after deletions");
         long count = index.next().getNodeKeys().getLongCardinality();
         assertEquals(48, count, "Latest: Should have 48 type nodes (53 - 5 deleted)");
       }
-      
+
       // Verify historical revision: Rev1 should have 53 nodes
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx(revision1)) {
+          final var rtx = manager.beginNodeReadOnlyTrx(revision1)) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
         var idx = indexController.openPathIndex(rtx.getPageTrx(), savedPathIndexDef, null);
         assertTrue(idx.hasNext(), "Rev1 should have results");
         assertEquals(53, idx.next().getNodeKeys().getLongCardinality(), "Rev1: Should still have 53 nodes");
       }
     }
-    
+
     @Test
     @DisplayName("HOT CAS index with 6+ revisions: insert, query, delete operations")
     void testHOTCASIndexMultiRevisionVersioning() {
       assertTrue(CASIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       // Track the index definition for use across transactions
       IndexDef savedCasIndexDef;
       int revision1;
-      
+
       // Revision 1: Create CAS index with initial data
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToType = parse("/features/[]/type", PathParser.Type.JSON);
-        final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR, 
-            Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
+        final var casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToType), 0, IndexDef.DbType.JSON);
         savedCasIndexDef = casIndexDef;
 
         indexController.createIndexes(Set.of(casIndexDef), trx);
 
         // Shred JSON file
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).build();
         shredder.call();
         trx.commit();
-        
+
         // This is the first commit, so the committed revision number is 1.
         // Note: Don't use trx.getRevisionNumber() after commit on a write transaction,
         // as it returns the next revision to be written, not the just-committed one.
         revision1 = 1;
-        
+
         // Query for "Feature" - should find 53 nodes
-        var idx = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
-            indexController.createCASFilter(
-                Set.of("/features/[]/type"),
-                new Str("Feature"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(trx)));
+        var idx = indexController.openCASIndex(trx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(idx.hasNext(), "Rev1: Should find 'Feature' values");
         assertEquals(53, idx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 53 'Feature' nodes");
       }
-      
+
       // Revisions 2-6: Delete elements one by one (5 deletions)
       // JSON structure: { "type": "...", "features": [...], ... }
       for (int i = 2; i <= 6; i++) {
         try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-             final var trx = manager.beginNodeTrx()) {
+            final var trx = manager.beginNodeTrx()) {
           trx.moveToDocumentRoot();
           trx.moveToFirstChild(); // root object
           trx.moveToFirstChild(); // "type" OBJECT_KEY (first key)
@@ -868,54 +818,47 @@ class HOTIndexIntegrationTest {
           trx.commit();
         }
       }
-      
+
       // Final verification in read transaction
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
-        
+
         assertTrue(rtx.getRevisionNumber() >= 6, "Should have at least 6 revisions");
-        
-        var idx = indexController.openCASIndex(rtx.getPageTrx(), savedCasIndexDef,
-            indexController.createCASFilter(
-                Set.of("/features/[]/type"),
-                new Str("Feature"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(rtx)));
+
+        var idx = indexController.openCASIndex(rtx.getPageTrx(), savedCasIndexDef, indexController.createCASFilter(
+            Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
         assertTrue(idx.hasNext(), "Latest: Should find 'Feature'");
-        assertEquals(48, idx.next().getNodeKeys().getLongCardinality(), "Latest: Should have 48 'Feature' nodes (53 - 5 deleted)");
+        assertEquals(48, idx.next().getNodeKeys().getLongCardinality(),
+            "Latest: Should have 48 'Feature' nodes (53 - 5 deleted)");
       }
-      
+
       // Verify historical revision: Rev1 should have 53 nodes
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx(revision1)) {
+          final var rtx = manager.beginNodeReadOnlyTrx(revision1)) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
-        var idx = indexController.openCASIndex(rtx.getPageTrx(), savedCasIndexDef,
-            indexController.createCASFilter(
-                Set.of("/features/[]/type"),
-                new Str("Feature"),
-                SearchMode.EQUAL,
-                new JsonPCRCollector(rtx)));
+        var idx = indexController.openCASIndex(rtx.getPageTrx(), savedCasIndexDef, indexController.createCASFilter(
+            Set.of("/features/[]/type"), new Str("Feature"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
         assertTrue(idx.hasNext(), "Rev1: Should find 'Feature'");
         assertEquals(53, idx.next().getNodeKeys().getLongCardinality(), "Rev1: Should still have 53 'Feature' nodes");
       }
     }
-    
+
     @Test
     @DisplayName("HOT NAME index with 6+ revisions: insert and delete operations")
     @org.junit.jupiter.api.Disabled("NAME index with HOT has serialization issues causing early splits - needs investigation")
     void testHOTNameIndexMultiRevisionVersioning() {
       assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT should be enabled for this test");
-      
+
       final var jsonPath = JSON.resolve("abc-location-stations.json");
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-      
+
       // Track the index definition for use across transactions
       IndexDef savedNameIndexDef;
-      
+
       // Revision 1: Create NAME index with initial data
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         // Create NAME index for all keys (ID will be JSON_NAME_INDEX_OFFSET + 0 = 1)
@@ -925,12 +868,11 @@ class HOTIndexIntegrationTest {
         indexController.createIndexes(Set.of(nameIndexDef), trx);
 
         // Shred JSON file
-        final var shredder = new JsonShredder.Builder(trx,
-            JsonShredder.createFileReader(jsonPath),
+        final var shredder = new JsonShredder.Builder(trx, JsonShredder.createFileReader(jsonPath),
             InsertPosition.AS_FIRST_CHILD).build();
         shredder.call();
         trx.commit();
-        
+
         // Query for "type" name - NAME index finds ALL occurrences in doc (not just /features/[]/type)
         // abc-location-stations.json has 63 "type" keys total
         var idx = indexController.openNameIndex(trx.getPageTrx(), nameIndexDef,
@@ -939,12 +881,12 @@ class HOTIndexIntegrationTest {
         long initialTypeCount = idx.next().getNodeKeys().getLongCardinality();
         assertTrue(initialTypeCount > 0, "Rev1: Should have 'type' keys");
       }
-      
+
       // Revisions 2-6: Delete elements one by one (5 deletions) in separate transactions
       // JSON structure: { "type": "...", "features": [...], ... }
       for (int i = 2; i <= 6; i++) {
         try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-             final var trx = manager.beginNodeTrx()) {
+            final var trx = manager.beginNodeTrx()) {
           trx.moveToDocumentRoot();
           trx.moveToFirstChild(); // root object
           trx.moveToFirstChild(); // "type" OBJECT_KEY (first key)
@@ -955,14 +897,14 @@ class HOTIndexIntegrationTest {
           trx.commit();
         }
       }
-      
+
       // Final verification in a new read transaction
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
-        
+
         assertTrue(rtx.getRevisionNumber() >= 6, "Should have at least 6 revisions");
-        
+
         // Use the saved index definition - count should be reduced by deletions
         var idx = indexController.openNameIndex(rtx.getPageTrx(), savedNameIndexDef,
             indexController.createNameFilter(Set.of("type")));
@@ -970,12 +912,12 @@ class HOTIndexIntegrationTest {
         long latestCount = idx.next().getNodeKeys().getLongCardinality();
         assertTrue(latestCount > 0, "Latest: Should have 'type' keys after deletions");
       }
-      
+
       // Verify historical access works - revision 1 should have original count
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx(1)) {
+          final var rtx = manager.beginNodeReadOnlyTrx(1)) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
-        
+
         var idx = indexController.openNameIndex(rtx.getPageTrx(), savedNameIndexDef,
             indexController.createNameFilter(Set.of("type")));
         assertTrue(idx.hasNext(), "Rev1: Should find 'type' keys in historical access");
@@ -996,7 +938,7 @@ class HOTIndexIntegrationTest {
 
       // Revision 1: Create index and insert data
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToName = parse("/users/[]/name", PathParser.Type.JSON);
@@ -1017,7 +959,7 @@ class HOTIndexIntegrationTest {
 
       // Read from latest revision in a new read-only transaction - this should work!
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
         assertTrue(rtx.getRevisionNumber() >= 1, "Should be reading latest revision");
@@ -1038,7 +980,7 @@ class HOTIndexIntegrationTest {
 
       // Revision 1: Create index and insert data
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         final var pathToName = parse("/users/[]/name", PathParser.Type.JSON);
@@ -1058,7 +1000,7 @@ class HOTIndexIntegrationTest {
 
       // Revision 2: Add more users in a NEW transaction
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         // Before insert - check existing entries are still there
@@ -1072,7 +1014,7 @@ class HOTIndexIntegrationTest {
         trx.moveToFirstChild(); // root object
         trx.moveToFirstChild(); // "users" key
         trx.moveToFirstChild(); // users array
-        trx.moveToLastChild();  // last user
+        trx.moveToLastChild(); // last user
 
         trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("""
             {"name": "Charlie"}
@@ -1088,7 +1030,7 @@ class HOTIndexIntegrationTest {
 
       // Read from latest in a new read-only transaction
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
         assertTrue(rtx.getRevisionNumber() >= 2, "Should be reading latest revision (at least 2)");
@@ -1110,15 +1052,15 @@ class HOTIndexIntegrationTest {
 
       // Revision 1: Create index with multiple paths and insert initial data
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         // Create PATH index for multiple paths
         final var pathToName = parse("/users/[]/name", PathParser.Type.JSON);
         final var pathToAge = parse("/users/[]/age", PathParser.Type.JSON);
         final var pathToCity = parse("/users/[]/address/city", PathParser.Type.JSON);
-        final var pathIndexDef = IndexDefs.createPathIdxDef(
-            Set.of(pathToName, pathToAge, pathToCity), 0, IndexDef.DbType.JSON);
+        final var pathIndexDef =
+            IndexDefs.createPathIdxDef(Set.of(pathToName, pathToAge, pathToCity), 0, IndexDef.DbType.JSON);
         savedPathIndexDef = pathIndexDef;
 
         indexController.createIndexes(Set.of(pathIndexDef), trx);
@@ -1149,21 +1091,19 @@ class HOTIndexIntegrationTest {
 
       // Revision 2: Add 2 more users
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         // Navigate to users array
         trx.moveToDocumentRoot();
         trx.moveToFirstChild(); // root object
         trx.moveToFirstChild(); // "users" key
         trx.moveToFirstChild(); // users array
-        trx.moveToLastChild();  // last user object
+        trx.moveToLastChild(); // last user object
 
         // Insert new users as siblings
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(
-            """
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("""
             {"name": "Diana", "age": 28, "address": {"city": "Boston", "zip": "02101"}}
             """));
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(
-            """
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("""
             {"name": "Eve", "age": 32, "address": {"city": "Seattle", "zip": "98101"}}
             """));
         trx.commit();
@@ -1180,7 +1120,7 @@ class HOTIndexIntegrationTest {
 
       // Revision 3: Delete first user
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         trx.moveToDocumentRoot();
         trx.moveToFirstChild(); // root object
         trx.moveToFirstChild(); // "users" key
@@ -1201,14 +1141,13 @@ class HOTIndexIntegrationTest {
 
       // Revision 4: Add another user
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         trx.moveToDocumentRoot();
         trx.moveToFirstChild();
         trx.moveToFirstChild();
         trx.moveToFirstChild();
         trx.moveToLastChild();
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(
-            """
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("""
             {"name": "Frank", "age": 40, "address": {"city": "Denver", "zip": "80201"}}
             """));
         trx.commit();
@@ -1216,7 +1155,7 @@ class HOTIndexIntegrationTest {
 
       // Verify latest revision in a new read transaction: Should have 5 users
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
         var idx = indexController.openPathIndex(rtx.getPageTrx(), savedPathIndexDef, null);
@@ -1239,7 +1178,7 @@ class HOTIndexIntegrationTest {
 
       // Revision 1: Create index for specific names and insert initial data
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         // Create NAME index for all keys
@@ -1283,19 +1222,17 @@ class HOTIndexIntegrationTest {
 
       // Revision 2: Add 2 more products
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         trx.moveToDocumentRoot();
         trx.moveToFirstChild(); // root object
         trx.moveToFirstChild(); // "products" key
         trx.moveToFirstChild(); // products array
-        trx.moveToLastChild();  // last product
+        trx.moveToLastChild(); // last product
 
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(
-            """
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("""
             {"id": 4, "name": "Doohickey", "price": 39.99, "category": "tools"}
             """));
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(
-            """
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("""
             {"id": 5, "name": "Whatchamacallit", "price": 49.99, "category": "misc", "featured": true}
             """));
         trx.commit();
@@ -1303,7 +1240,7 @@ class HOTIndexIntegrationTest {
 
       // Revision 3: Remove first product
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         trx.moveToDocumentRoot();
         trx.moveToFirstChild();
         trx.moveToFirstChild();
@@ -1315,7 +1252,7 @@ class HOTIndexIntegrationTest {
 
       // Revision 4: Remove second product
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         trx.moveToDocumentRoot();
         trx.moveToFirstChild();
         trx.moveToFirstChild();
@@ -1327,7 +1264,7 @@ class HOTIndexIntegrationTest {
 
       // Verify latest revision: Should have 3 products (3 + 2 - 1 - 1)
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
         var nameIdx = indexController.openNameIndex(rtx.getPageTrx(), savedNameIndexDef,
@@ -1360,19 +1297,19 @@ class HOTIndexIntegrationTest {
 
       // Revision 1: Create CAS indexes for multiple paths and insert initial data
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         // Create CAS index for task status
         final var pathToStatus = parse("/tasks/[]/status", PathParser.Type.JSON);
-        final var statusIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
-            Collections.singleton(pathToStatus), 0, IndexDef.DbType.JSON);
+        final var statusIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToStatus), 0, IndexDef.DbType.JSON);
         savedStatusIndexDef = statusIndexDef;
 
         // Create CAS index for task priority
         final var pathToPriority = parse("/tasks/[]/priority", PathParser.Type.JSON);
-        final var priorityIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
-            Collections.singleton(pathToPriority), 1, IndexDef.DbType.JSON);
+        final var priorityIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToPriority), 1, IndexDef.DbType.JSON);
         savedPriorityIndexDef = priorityIndexDef;
 
         indexController.createIndexes(Set.of(statusIndexDef, priorityIndexDef), trx);
@@ -1391,45 +1328,40 @@ class HOTIndexIntegrationTest {
         trx.commit();
 
         // Verify status counts
-        var pendingIdx = indexController.openCASIndex(trx.getPageTrx(), statusIndexDef,
-            indexController.createCASFilter(Set.of("/tasks/[]/status"), new Str("pending"),
-                SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var pendingIdx = indexController.openCASIndex(trx.getPageTrx(), statusIndexDef, indexController.createCASFilter(
+            Set.of("/tasks/[]/status"), new Str("pending"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(pendingIdx.hasNext(), "Rev1: Should find 'pending' status");
         assertEquals(3, pendingIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 3 pending tasks");
 
-        var completedIdx = indexController.openCASIndex(trx.getPageTrx(), statusIndexDef,
-            indexController.createCASFilter(Set.of("/tasks/[]/status"), new Str("completed"),
-                SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var completedIdx =
+            indexController.openCASIndex(trx.getPageTrx(), statusIndexDef, indexController.createCASFilter(
+                Set.of("/tasks/[]/status"), new Str("completed"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(completedIdx.hasNext(), "Rev1: Should find 'completed' status");
         assertEquals(1, completedIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 1 completed task");
 
         // Verify priority counts
-        var highIdx = indexController.openCASIndex(trx.getPageTrx(), priorityIndexDef,
-            indexController.createCASFilter(Set.of("/tasks/[]/priority"), new Str("high"),
-                SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var highIdx = indexController.openCASIndex(trx.getPageTrx(), priorityIndexDef, indexController.createCASFilter(
+            Set.of("/tasks/[]/priority"), new Str("high"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(highIdx.hasNext(), "Rev1: Should find 'high' priority");
         assertEquals(2, highIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 2 high priority tasks");
       }
 
       // Revision 2: Add more tasks with different statuses
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         trx.moveToDocumentRoot();
         trx.moveToFirstChild();
         trx.moveToFirstChild();
         trx.moveToFirstChild();
         trx.moveToLastChild();
 
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(
-            """
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("""
             {"id": 5, "title": "Task E", "status": "in_progress", "priority": "high"}
             """));
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(
-            """
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("""
             {"id": 6, "title": "Task F", "status": "in_progress", "priority": "medium"}
             """));
-        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(
-            """
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("""
             {"id": 7, "title": "Task G", "status": "pending", "priority": "low"}
             """));
         trx.commit();
@@ -1437,7 +1369,7 @@ class HOTIndexIntegrationTest {
 
       // Revision 3: Delete some tasks
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         // Delete first task (pending, high)
         trx.moveToDocumentRoot();
         trx.moveToFirstChild();
@@ -1450,7 +1382,7 @@ class HOTIndexIntegrationTest {
 
       // Revision 4: Delete another task
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         // Delete completed task (now first after previous deletion)
         trx.moveToDocumentRoot();
         trx.moveToFirstChild();
@@ -1464,33 +1396,34 @@ class HOTIndexIntegrationTest {
 
       // Verify latest revision
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
         // pending: 3 initially - 1 deleted + 1 added = 3; but second deletion removed another pending = 2
-        var pendingIdx = indexController.openCASIndex(rtx.getPageTrx(), savedStatusIndexDef,
-            indexController.createCASFilter(Set.of("/tasks/[]/status"), new Str("pending"),
-                SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var pendingIdx =
+            indexController.openCASIndex(rtx.getPageTrx(), savedStatusIndexDef, indexController.createCASFilter(
+                Set.of("/tasks/[]/status"), new Str("pending"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
         assertTrue(pendingIdx.hasNext(), "Latest: Should find 'pending' status");
         long pendingCount = pendingIdx.next().getNodeKeys().getLongCardinality();
         assertTrue(pendingCount >= 2, "Latest: Should have at least 2 pending tasks");
 
         // in_progress: 2 added
-        var inProgressIdx = indexController.openCASIndex(rtx.getPageTrx(), savedStatusIndexDef,
-            indexController.createCASFilter(Set.of("/tasks/[]/status"), new Str("in_progress"),
-                SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var inProgressIdx =
+            indexController.openCASIndex(rtx.getPageTrx(), savedStatusIndexDef, indexController.createCASFilter(
+                Set.of("/tasks/[]/status"), new Str("in_progress"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
         assertTrue(inProgressIdx.hasNext(), "Latest: Should find 'in_progress' status");
-        assertEquals(2, inProgressIdx.next().getNodeKeys().getLongCardinality(), "Latest: Should have 2 in_progress tasks");
+        assertEquals(2, inProgressIdx.next().getNodeKeys().getLongCardinality(),
+            "Latest: Should have 2 in_progress tasks");
 
         // high priority: Initial 2 + 1 added = 3
         // Note: CAS index deletions in nested objects may not propagate completely
         // since we're deleting parent objects, not the value nodes directly
-        var highIdx = indexController.openCASIndex(rtx.getPageTrx(), savedPriorityIndexDef,
-            indexController.createCASFilter(Set.of("/tasks/[]/priority"), new Str("high"),
-                SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var highIdx =
+            indexController.openCASIndex(rtx.getPageTrx(), savedPriorityIndexDef, indexController.createCASFilter(
+                Set.of("/tasks/[]/priority"), new Str("high"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
         assertTrue(highIdx.hasNext(), "Latest: Should find 'high' priority");
         long highCount = highIdx.next().getNodeKeys().getLongCardinality();
-        assertTrue(highCount >= 2 && highCount <= 3, 
+        assertTrue(highCount >= 2 && highCount <= 3,
             "Latest: Should have 2-3 high priority tasks (depending on deletion handling), got: " + highCount);
       }
     }
@@ -1510,7 +1443,7 @@ class HOTIndexIntegrationTest {
 
       // Revision 1: Create all three index types and insert initial data
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var trx = manager.beginNodeTrx()) {
+          final var trx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(trx.getRevisionNumber());
 
         // PATH index for /orders/[]/status
@@ -1521,8 +1454,8 @@ class HOTIndexIntegrationTest {
         nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
 
         // CAS index for /orders/[]/status values (uses separate CASPage, so ID 0 is fine)
-        casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
-            Collections.singleton(pathToStatus), 0, IndexDef.DbType.JSON);
+        casIndexDef =
+            IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToStatus), 0, IndexDef.DbType.JSON);
 
         indexController.createIndexes(Set.of(pathIndexDef, nameIndexDef, casIndexDef), trx);
 
@@ -1548,9 +1481,8 @@ class HOTIndexIntegrationTest {
         assertTrue(nameIdx.hasNext(), "Rev1: NAME index should find 'status'");
         assertEquals(3, nameIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 3 'status' keys");
 
-        var casIdx = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
-            indexController.createCASFilter(Set.of("/orders/[]/status"), new Str("new"),
-                SearchMode.EQUAL, new JsonPCRCollector(trx)));
+        var casIdx = indexController.openCASIndex(trx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            Set.of("/orders/[]/status"), new Str("new"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
         assertTrue(casIdx.hasNext(), "Rev1: CAS index should find 'new' status");
         assertEquals(2, casIdx.next().getNodeKeys().getLongCardinality(), "Rev1: Should have 2 'new' status values");
       }
@@ -1559,7 +1491,7 @@ class HOTIndexIntegrationTest {
       String[] newStatuses = {"processing", "processing", "shipped", "delivered"};
       for (int i = 0; i < 4; i++) {
         try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-             final var trx = manager.beginNodeTrx()) {
+            final var trx = manager.beginNodeTrx()) {
           trx.moveToDocumentRoot();
           trx.moveToFirstChild();
           trx.moveToFirstChild();
@@ -1567,10 +1499,9 @@ class HOTIndexIntegrationTest {
           trx.moveToLastChild();
 
           int orderId = 4 + i;
-          trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(
-              String.format("""
-                  {"id": "ORD%03d", "status": "%s", "total": %d}
-                  """, orderId, newStatuses[i], (orderId * 50))));
+          trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(String.format("""
+              {"id": "ORD%03d", "status": "%s", "total": %d}
+              """, orderId, newStatuses[i], (orderId * 50))));
           trx.commit();
         }
       }
@@ -1578,7 +1509,7 @@ class HOTIndexIntegrationTest {
       // Revisions 6-7: Delete first two orders
       for (int i = 0; i < 2; i++) {
         try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-             final var trx = manager.beginNodeTrx()) {
+            final var trx = manager.beginNodeTrx()) {
           trx.moveToDocumentRoot();
           trx.moveToFirstChild();
           trx.moveToFirstChild();
@@ -1591,7 +1522,7 @@ class HOTIndexIntegrationTest {
 
       // Verify latest revision
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var indexController = manager.getRtxIndexController(rtx.getRevisionNumber());
 
         assertTrue(rtx.getRevisionNumber() >= 7, "Should have at least 7 revisions");
@@ -1608,16 +1539,15 @@ class HOTIndexIntegrationTest {
         assertEquals(5, nameIdx.next().getNodeKeys().getLongCardinality(), "Latest: Should have 5 'status' keys");
 
         // CAS: 'processing' should have 2 occurrences
-        var processingIdx = indexController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-            indexController.createCASFilter(Set.of("/orders/[]/status"), new Str("processing"),
-                SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var processingIdx = indexController.openCASIndex(rtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            Set.of("/orders/[]/status"), new Str("processing"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
         assertTrue(processingIdx.hasNext(), "Latest: CAS index should find 'processing'");
-        assertEquals(2, processingIdx.next().getNodeKeys().getLongCardinality(), "Latest: Should have 2 'processing' status");
+        assertEquals(2, processingIdx.next().getNodeKeys().getLongCardinality(),
+            "Latest: Should have 2 'processing' status");
 
         // CAS: 'new' entries should be completely removed (both were deleted)
-        var newIdx = indexController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-            indexController.createCASFilter(Set.of("/orders/[]/status"), new Str("new"),
-                SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var newIdx = indexController.openCASIndex(rtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            Set.of("/orders/[]/status"), new Str("new"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
         assertFalse(newIdx.hasNext(), "Latest: 'new' should be completely removed after deletions");
       }
     }
@@ -1626,7 +1556,7 @@ class HOTIndexIntegrationTest {
   // ===== CAS Index Deletion Corner Cases =====
   // Formal proof of correctness: systematically test all deletion scenarios
   // Note: HOT is enabled by default at class level (@BeforeAll)
-  
+
   @Nested
   @DisplayName("CAS Index Deletion Corner Cases")
   class CASIndexDeletionTests {
@@ -1645,9 +1575,8 @@ class HOTIndexIntegrationTest {
     /**
      * Test Case 1: Direct array value deletion
      * 
-     * Scenario: Delete a string value in an array directly.
-     * Note: Object values cannot be deleted directly, but array values can.
-     * Expected: The value should be removed from the CAS index.
+     * Scenario: Delete a string value in an array directly. Note: Object values cannot be deleted
+     * directly, but array values can. Expected: The value should be removed from the CAS index.
      */
     @Test
     @DisplayName("TC1: Direct array value deletion removes entry from CAS index")
@@ -1655,24 +1584,24 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         // Create CAS index on /items/[] path (array elements)
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Set.of(parse("/items/[]", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
+            Set.of(parse("/items/[]", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(casIndexDef), wtx);
 
         // Insert JSON with array of strings
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"items\": [\"apple\", \"banana\", \"cherry\"]}"));
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader("{\"items\": [\"apple\", \"banana\", \"cherry\"]}"));
         wtx.commit();
 
         // Verify all values are indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/items/[]"), new Str("banana"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'banana' should be indexed");
           assertEquals(1, idx.next().getNodeKeys().getLongCardinality());
         }
@@ -1685,29 +1614,26 @@ class HOTIndexIntegrationTest {
         wtx.moveToFirstChild(); // "apple"
         wtx.moveToRightSibling(); // "banana"
         assertEquals("banana", wtx.getValue(), "Should be at 'banana' value node");
-        
+
         wtx.remove(); // Direct deletion of array element
         wtx.commit();
 
         // Verify "banana" is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          
+
           // "banana" should be gone
-          var bananaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/items/[]"), new Str("banana"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var bananaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(bananaIdx.hasNext(), "After deletion: 'banana' should be removed from index");
-          
+
           // "apple" and "cherry" should still be there
-          var appleIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/items/[]"), new Str("apple"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var appleIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(appleIdx.hasNext(), "'apple' should still be indexed");
-          
-          var cherryIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/items/[]"), new Str("cherry"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+
+          var cherryIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/items/[]"), new Str("cherry"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(cherryIdx.hasNext(), "'cherry' should still be indexed");
         }
       }
@@ -1716,10 +1642,9 @@ class HOTIndexIntegrationTest {
     /**
      * Test Case 2: Parent object key deletion
      * 
-     * Scenario: Delete an object key that contains a string value.
-     * This is the main case the bug fix addressed - the value node must be
-     * passed to the index controller, not the parent node.
-     * Expected: The value should be removed from the CAS index.
+     * Scenario: Delete an object key that contains a string value. This is the main case the bug fix
+     * addressed - the value node must be passed to the index controller, not the parent node. Expected:
+     * The value should be removed from the CAS index.
      */
     @Test
     @DisplayName("TC2: Parent object key deletion removes value from CAS index")
@@ -1727,12 +1652,12 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         // Create CAS index on /user/status path
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Set.of(parse("/user/status", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
+            Set.of(parse("/user/status", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(casIndexDef), wtx);
 
         // Insert JSON with status value
@@ -1743,9 +1668,8 @@ class HOTIndexIntegrationTest {
         // Verify "active" is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/user/status"), new Str("active"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'active' should be indexed");
           assertEquals(1, idx.next().getNodeKeys().getLongCardinality());
         }
@@ -1758,16 +1682,15 @@ class HOTIndexIntegrationTest {
         wtx.moveToFirstChild(); // "name" key
         wtx.moveToRightSibling(); // "status" key
         assertEquals("status", wtx.getName().getLocalName(), "Should be at 'status' key");
-        
+
         wtx.remove(); // Delete the object key (and its value)
         wtx.commit();
 
         // Verify "active" is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/user/status"), new Str("active"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 'active' should be removed from index");
         }
       }
@@ -1776,9 +1699,9 @@ class HOTIndexIntegrationTest {
     /**
      * Test Case 3: Grandparent object deletion
      * 
-     * Scenario: Delete an ancestor object that contains nested object keys with values.
-     * The entire subtree is deleted, all values should be removed from CAS index.
-     * Expected: All nested values should be removed from the CAS index.
+     * Scenario: Delete an ancestor object that contains nested object keys with values. The entire
+     * subtree is deleted, all values should be removed from CAS index. Expected: All nested values
+     * should be removed from the CAS index.
      */
     @Test
     @DisplayName("TC3: Grandparent object deletion removes all nested values from CAS index")
@@ -1786,12 +1709,12 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         // Create CAS index on /data/user/status path
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Set.of(parse("/data/user/status", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
+            Set.of(parse("/data/user/status", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(casIndexDef), wtx);
 
         // Insert JSON with nested structure
@@ -1802,9 +1725,8 @@ class HOTIndexIntegrationTest {
         // Verify "active" is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/data/user/status"), new Str("active"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/data/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'active' should be indexed");
         }
 
@@ -1813,16 +1735,15 @@ class HOTIndexIntegrationTest {
         wtx.moveToFirstChild(); // root object
         wtx.moveToFirstChild(); // "data" key
         assertEquals("data", wtx.getName().getLocalName(), "Should be at 'data' key");
-        
+
         wtx.remove(); // Delete entire "data" subtree including nested "active" value
         wtx.commit();
 
         // Verify "active" is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/data/user/status"), new Str("active"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/data/user/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 'active' should be removed from index");
         }
       }
@@ -1831,9 +1752,9 @@ class HOTIndexIntegrationTest {
     /**
      * Test Case 4: Number value deletion
      * 
-     * Scenario: Delete an object key containing a number value.
-     * Tests that NUMBER type values are correctly removed from CAS index.
-     * Expected: The number value should be removed from the CAS index.
+     * Scenario: Delete an object key containing a number value. Tests that NUMBER type values are
+     * correctly removed from CAS index. Expected: The number value should be removed from the CAS
+     * index.
      */
     @Test
     @DisplayName("TC4: Number value deletion removes entry from CAS index")
@@ -1841,26 +1762,25 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         // Create CAS index for strings on /product/price path
         // (numbers are converted to strings for CAS indexing with Type.STR)
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Set.of(parse("/product/price", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
+            Set.of(parse("/product/price", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(casIndexDef), wtx);
 
         // Insert JSON with price value (number will be indexed as string)
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "{\"product\": {\"name\": \"Widget\", \"price\": 99.99, \"stock\": 100}}"));
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader("{\"product\": {\"name\": \"Widget\", \"price\": 99.99, \"stock\": 100}}"));
         wtx.commit();
 
         // Verify 99.99 is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/product/price"), new Str("99.99"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/product/price"), new Str("99.99"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 99.99 should be indexed");
         }
 
@@ -1872,16 +1792,15 @@ class HOTIndexIntegrationTest {
         wtx.moveToFirstChild(); // "name" key
         wtx.moveToRightSibling(); // "price" key
         assertEquals("price", wtx.getName().getLocalName(), "Should be at 'price' key");
-        
+
         wtx.remove(); // Delete price key and value
         wtx.commit();
 
         // Verify 99.99 is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/product/price"), new Str("99.99"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/product/price"), new Str("99.99"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 99.99 should be removed from index");
         }
       }
@@ -1890,9 +1809,9 @@ class HOTIndexIntegrationTest {
     /**
      * Test Case 5: Boolean value deletion
      * 
-     * Scenario: Delete an object key containing a boolean value.
-     * Tests that BOOLEAN type values are correctly removed from CAS index.
-     * Expected: The boolean value should be removed from the CAS index.
+     * Scenario: Delete an object key containing a boolean value. Tests that BOOLEAN type values are
+     * correctly removed from CAS index. Expected: The boolean value should be removed from the CAS
+     * index.
      */
     @Test
     @DisplayName("TC5: Boolean value deletion removes entry from CAS index")
@@ -1900,25 +1819,24 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         // Create CAS index on /user/active path
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Set.of(parse("/user/active", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
+            Set.of(parse("/user/active", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(casIndexDef), wtx);
 
         // Insert JSON with boolean value
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "{\"user\": {\"name\": \"John\", \"active\": true, \"verified\": false}}"));
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader("{\"user\": {\"name\": \"John\", \"active\": true, \"verified\": false}}"));
         wtx.commit();
 
         // Verify true is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/user/active"), new Str("true"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/user/active"), new Str("true"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'true' should be indexed");
         }
 
@@ -1930,16 +1848,15 @@ class HOTIndexIntegrationTest {
         wtx.moveToFirstChild(); // "name" key
         wtx.moveToRightSibling(); // "active" key
         assertEquals("active", wtx.getName().getLocalName(), "Should be at 'active' key");
-        
+
         wtx.remove(); // Delete active key and value
         wtx.commit();
 
         // Verify true is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/user/active"), new Str("true"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/user/active"), new Str("true"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 'true' should be removed from index");
         }
       }
@@ -1948,8 +1865,8 @@ class HOTIndexIntegrationTest {
     /**
      * Test Case 6: Multiple identical values - partial deletion
      * 
-     * Scenario: Multiple nodes have the same value. Delete one occurrence.
-     * Expected: Index count decreases by 1, other occurrences remain indexed.
+     * Scenario: Multiple nodes have the same value. Delete one occurrence. Expected: Index count
+     * decreases by 1, other occurrences remain indexed.
      */
     @Test
     @DisplayName("TC6: Partial deletion of multiple identical values")
@@ -1957,27 +1874,26 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         // Create CAS index on /users/[]/status path
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Set.of(parse("/users/[]/status", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
+            Set.of(parse("/users/[]/status", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(casIndexDef), wtx);
 
         // Insert JSON with 3 users all having status "active"
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "{\"users\": [{\"name\": \"Alice\", \"status\": \"active\"}, " +
-            "{\"name\": \"Bob\", \"status\": \"active\"}, " +
-            "{\"name\": \"Charlie\", \"status\": \"active\"}]}"));
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader("{\"users\": [{\"name\": \"Alice\", \"status\": \"active\"}, "
+                + "{\"name\": \"Bob\", \"status\": \"active\"}, "
+                + "{\"name\": \"Charlie\", \"status\": \"active\"}]}"));
         wtx.commit();
 
         // Verify 3 "active" values are indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/users/[]/status"), new Str("active"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/users/[]/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'active' should be indexed");
           assertEquals(3, idx.next().getNodeKeys().getLongCardinality(), "Should have 3 'active' values");
         }
@@ -1989,18 +1905,18 @@ class HOTIndexIntegrationTest {
         wtx.moveToFirstChild(); // users array
         wtx.moveToFirstChild(); // Alice object
         wtx.moveToRightSibling(); // Bob object
-        
+
         wtx.remove(); // Delete Bob (including his "active" status)
         wtx.commit();
 
         // Verify now only 2 "active" values are indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/users/[]/status"), new Str("active"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/users/[]/status"), new Str("active"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "After deletion: 'active' should still be indexed");
-          assertEquals(2, idx.next().getNodeKeys().getLongCardinality(), "Should have 2 'active' values after deleting Bob");
+          assertEquals(2, idx.next().getNodeKeys().getLongCardinality(),
+              "Should have 2 'active' values after deleting Bob");
         }
       }
     }
@@ -2008,9 +1924,8 @@ class HOTIndexIntegrationTest {
     /**
      * Test Case 7: Deep nesting deletion
      * 
-     * Scenario: Delete an ancestor in a deeply nested structure (5+ levels).
-     * All descendant values should be removed from CAS index.
-     * Expected: All nested values are removed from the CAS index.
+     * Scenario: Delete an ancestor in a deeply nested structure (5+ levels). All descendant values
+     * should be removed from CAS index. Expected: All nested values are removed from the CAS index.
      */
     @Test
     @DisplayName("TC7: Deep nesting ancestor deletion removes all nested values")
@@ -2018,25 +1933,24 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         // Create CAS index on deep path
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Set.of(parse("/a/b/c/d/e/value", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
+            Set.of(parse("/a/b/c/d/e/value", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(casIndexDef), wtx);
 
         // Insert deeply nested JSON
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "{\"a\": {\"b\": {\"c\": {\"d\": {\"e\": {\"value\": \"deep\"}}}}}}"));
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader("{\"a\": {\"b\": {\"c\": {\"d\": {\"e\": {\"value\": \"deep\"}}}}}}"));
         wtx.commit();
 
         // Verify "deep" is indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/a/b/c/d/e/value"), new Str("deep"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/a/b/c/d/e/value"), new Str("deep"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Before deletion: 'deep' should be indexed");
         }
 
@@ -2049,16 +1963,15 @@ class HOTIndexIntegrationTest {
         wtx.moveToFirstChild(); // b object
         wtx.moveToFirstChild(); // "c" key
         assertEquals("c", wtx.getName().getLocalName(), "Should be at 'c' key");
-        
+
         wtx.remove(); // Delete "c" and all descendants
         wtx.commit();
 
         // Verify "deep" is removed from index
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/a/b/c/d/e/value"), new Str("deep"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/a/b/c/d/e/value"), new Str("deep"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(idx.hasNext(), "After deletion: 'deep' should be removed from index");
         }
       }
@@ -2067,9 +1980,9 @@ class HOTIndexIntegrationTest {
     /**
      * Test Case 8: Cross-transaction deletion persistence
      * 
-     * Scenario: Delete value in one transaction, commit, then verify in new transaction.
-     * Tests that deletions are properly persisted to storage.
-     * Expected: Deletion persists across transaction boundaries.
+     * Scenario: Delete value in one transaction, commit, then verify in new transaction. Tests that
+     * deletions are properly persisted to storage. Expected: Deletion persists across transaction
+     * boundaries.
      */
     @Test
     @DisplayName("TC8: Cross-transaction deletion persistence")
@@ -2079,28 +1992,26 @@ class HOTIndexIntegrationTest {
 
       // Transaction 1: Create index and insert data
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
-        casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Set.of(parse("/data/value", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR, Set.of(parse("/data/value", PathParser.Type.JSON)), 0,
+            IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(casIndexDef), wtx);
 
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "{\"data\": {\"value\": \"persistent\"}}"));
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"data\": {\"value\": \"persistent\"}}"));
         wtx.commit();
       }
 
       // Transaction 2: Delete the value
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         // Verify it exists before deletion
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/data/value"), new Str("persistent"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/data/value"), new Str("persistent"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(idx.hasNext(), "Transaction 2: Value should exist before deletion");
         }
 
@@ -2111,19 +2022,18 @@ class HOTIndexIntegrationTest {
         wtx.moveToFirstChild(); // data object
         wtx.moveToFirstChild(); // "value" key
         assertEquals("value", wtx.getName().getLocalName());
-        
+
         wtx.remove();
         wtx.commit();
       }
 
       // Transaction 3: Verify deletion persisted
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
 
         var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-        var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-            readController.createCASFilter(Set.of("/data/value"), new Str("persistent"),
-                SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+        var idx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+            Set.of("/data/value"), new Str("persistent"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
         assertFalse(idx.hasNext(), "Transaction 3: Deletion should persist across transactions");
       }
     }
@@ -2131,9 +2041,9 @@ class HOTIndexIntegrationTest {
     /**
      * Test Case 9: Mixed insert-delete-insert operations
      * 
-     * Scenario: Insert values, delete some, insert more, verify final state.
-     * Tests that the index correctly handles interleaved operations.
-     * Expected: Final index state reflects all operations correctly.
+     * Scenario: Insert values, delete some, insert more, verify final state. Tests that the index
+     * correctly handles interleaved operations. Expected: Final index state reflects all operations
+     * correctly.
      */
     @Test
     @DisplayName("TC9: Mixed insert-delete-insert operations")
@@ -2141,12 +2051,12 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         // Create CAS index on /items/[] path
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Set.of(parse("/items/[]", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
+            Set.of(parse("/items/[]", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(casIndexDef), wtx);
 
         // Initial insert: apple, banana
@@ -2156,14 +2066,12 @@ class HOTIndexIntegrationTest {
         // Verify initial state
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var appleIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/items/[]"), new Str("apple"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var appleIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(appleIdx.hasNext(), "Step 1: 'apple' should be indexed");
-          
-          var bananaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/items/[]"), new Str("banana"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+
+          var bananaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(bananaIdx.hasNext(), "Step 1: 'banana' should be indexed");
         }
 
@@ -2190,20 +2098,17 @@ class HOTIndexIntegrationTest {
         // Verify final state: apple (yes), banana (no), cherry (yes)
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          
-          var appleIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/items/[]"), new Str("apple"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+
+          var appleIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/items/[]"), new Str("apple"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(appleIdx.hasNext(), "Final: 'apple' should be indexed");
-          
-          var bananaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/items/[]"), new Str("banana"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+
+          var bananaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/items/[]"), new Str("banana"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertFalse(bananaIdx.hasNext(), "Final: 'banana' should be removed");
-          
-          var cherryIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/items/[]"), new Str("cherry"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+
+          var cherryIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/items/[]"), new Str("cherry"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(cherryIdx.hasNext(), "Final: 'cherry' should be indexed");
         }
       }
@@ -2212,9 +2117,8 @@ class HOTIndexIntegrationTest {
     /**
      * Test Case 10: Insert-only multi-revision test
      * 
-     * Scenario: Insert values across multiple revisions without any deletions.
-     * Verifies that index correctly accumulates entries across commits.
-     * Expected: Index count increases with each revision.
+     * Scenario: Insert values across multiple revisions without any deletions. Verifies that index
+     * correctly accumulates entries across commits. Expected: Index count increases with each revision.
      */
     @Test
     @DisplayName("TC10: Insert-only across multiple revisions")
@@ -2222,24 +2126,23 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
-        final var casIndexDef = IndexDefs.createCASIdxDef(
-            false, Type.STR, Set.of(parse("/data/[]/value", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
+            Set.of(parse("/data/[]/value", PathParser.Type.JSON)), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(casIndexDef), wtx);
 
         // Rev 1: Insert 2 values
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "{\"data\": [{\"value\": \"alpha\"}, {\"value\": \"beta\"}]}"));
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader("{\"data\": [{\"value\": \"alpha\"}, {\"value\": \"beta\"}]}"));
         wtx.commit();
 
         // Verify Rev 1: 2 distinct values
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var alphaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/data/[]/value"), new Str("alpha"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var alphaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(alphaIdx.hasNext());
           assertEquals(1, alphaIdx.next().getNodeKeys().getLongCardinality(), "Rev1: 1 'alpha'");
         }
@@ -2258,21 +2161,18 @@ class HOTIndexIntegrationTest {
         // Verify Rev 2: all 4 values present
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          
-          var gammaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/data/[]/value"), new Str("gamma"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+
+          var gammaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/data/[]/value"), new Str("gamma"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(gammaIdx.hasNext(), "Rev2: 'gamma' should be indexed");
-          
-          var deltaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/data/[]/value"), new Str("delta"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+
+          var deltaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/data/[]/value"), new Str("delta"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(deltaIdx.hasNext(), "Rev2: 'delta' should be indexed");
-          
+
           // Original values still present
-          var alphaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/data/[]/value"), new Str("alpha"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var alphaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(alphaIdx.hasNext(), "Rev2: 'alpha' still indexed");
         }
 
@@ -2288,9 +2188,8 @@ class HOTIndexIntegrationTest {
         // Verify Rev 3: 2 'alpha' entries
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          var alphaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef,
-              readController.createCASFilter(Set.of("/data/[]/value"), new Str("alpha"),
-                  SearchMode.EQUAL, new JsonPCRCollector(rtx)));
+          var alphaIdx = readController.openCASIndex(rtx.getPageTrx(), casIndexDef, readController.createCASFilter(
+              Set.of("/data/[]/value"), new Str("alpha"), SearchMode.EQUAL, new JsonPCRCollector(rtx)));
           assertTrue(alphaIdx.hasNext());
           assertEquals(2, alphaIdx.next().getNodeKeys().getLongCardinality(), "Rev3: 2 'alpha' entries");
         }
@@ -2300,7 +2199,7 @@ class HOTIndexIntegrationTest {
 
   // ===== PATH Index Corner Cases =====
   // Note: HOT is enabled by default at class level (@BeforeAll)
-  
+
   @Nested
   @DisplayName("PATH Index Corner Cases")
   class PATHIndexCornerCaseTests {
@@ -2327,41 +2226,41 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
-        
+
         // Create 3 separate indexes for each path
         final var namePath = parse("/users/[]/name", PathParser.Type.JSON);
         final var emailPath = parse("/users/[]/email", PathParser.Type.JSON);
         final var rolePath = parse("/users/[]/role", PathParser.Type.JSON);
-        
+
         final var nameIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(namePath), 0, IndexDef.DbType.JSON);
         final var emailIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(emailPath), 1, IndexDef.DbType.JSON);
         final var roleIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(rolePath), 2, IndexDef.DbType.JSON);
-        
+
         indexController.createIndexes(Set.of(nameIndexDef, emailIndexDef, roleIndexDef), wtx);
 
         // Insert data matching all paths
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "{\"users\": [{\"name\": \"Alice\", \"email\": \"alice@test.com\", \"role\": \"admin\"}, " +
-            "{\"name\": \"Bob\", \"email\": \"bob@test.com\", \"role\": \"user\"}]}"));
+            "{\"users\": [{\"name\": \"Alice\", \"email\": \"alice@test.com\", \"role\": \"admin\"}, "
+                + "{\"name\": \"Bob\", \"email\": \"bob@test.com\", \"role\": \"user\"}]}"));
         wtx.commit();
 
         // Verify all paths are indexed
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          
+
           // Check name path
           var nameIdx = readController.openPathIndex(rtx.getPageTrx(), nameIndexDef, null);
           assertTrue(nameIdx.hasNext(), "Path /users/[]/name should be indexed");
           assertEquals(2, nameIdx.next().getNodeKeys().getLongCardinality(), "Should have 2 name nodes");
-          
+
           // Check email path
           var emailIdx = readController.openPathIndex(rtx.getPageTrx(), emailIndexDef, null);
           assertTrue(emailIdx.hasNext(), "Path /users/[]/email should be indexed");
           assertEquals(2, emailIdx.next().getNodeKeys().getLongCardinality(), "Should have 2 email nodes");
-          
+
           // Check role path
           var roleIdx = readController.openPathIndex(rtx.getPageTrx(), roleIndexDef, null);
           assertTrue(roleIdx.hasNext(), "Path /users/[]/role should be indexed");
@@ -2381,17 +2280,15 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
         final var idPath = parse("/items/[]/id", PathParser.Type.JSON);
-        final var pathIndexDef = IndexDefs.createPathIdxDef(
-            Collections.singleton(idPath), 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(idPath), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(pathIndexDef), wtx);
 
         // Rev 1: Insert 2 items
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "{\"items\": [{\"id\": 1}, {\"id\": 2}]}"));
+        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"items\": [{\"id\": 1}, {\"id\": 2}]}"));
         wtx.commit();
 
         // Rev 2: Insert 2 more items
@@ -2435,16 +2332,15 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
         final var valuePath = parse("/data/value", PathParser.Type.JSON);
-        final var pathIndexDef = IndexDefs.createPathIdxDef(
-            Collections.singleton(valuePath), 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(valuePath), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(pathIndexDef), wtx);
 
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "{\"data\": {\"value\": \"test\", \"other\": \"keep\"}}"));
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader("{\"data\": {\"value\": \"test\", \"other\": \"keep\"}}"));
         wtx.commit();
 
         // Verify indexed
@@ -2484,12 +2380,11 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
         final var deepPath = parse("/container/nested/deep/value", PathParser.Type.JSON);
-        final var pathIndexDef = IndexDefs.createPathIdxDef(
-            Collections.singleton(deepPath), 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(deepPath), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(pathIndexDef), wtx);
 
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
@@ -2534,10 +2429,9 @@ class HOTIndexIntegrationTest {
 
       // Transaction 1: Create index and insert
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
-        pathIndexDef = IndexDefs.createPathIdxDef(
-            Collections.singleton(keyPath), 0, IndexDef.DbType.JSON);
+        pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(keyPath), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(pathIndexDef), wtx);
 
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"data\": {\"key\": \"value\"}}"));
@@ -2546,7 +2440,7 @@ class HOTIndexIntegrationTest {
 
       // Transaction 2: Verify key is still indexed after reopening
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
         var idx = readController.openPathIndex(rtx.getPageTrx(), pathIndexDef, null);
         assertTrue(idx.hasNext(), "Transaction 2: path should be indexed after reopen");
@@ -2555,7 +2449,7 @@ class HOTIndexIntegrationTest {
 
       // Transaction 3: Delete the key
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
         wtx.moveToFirstChild(); // "data"
@@ -2567,7 +2461,7 @@ class HOTIndexIntegrationTest {
 
       // Transaction 4: Verify deletion persisted
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
         var idx = readController.openPathIndex(rtx.getPageTrx(), pathIndexDef, null);
         assertFalse(idx.hasNext(), "Transaction 4: deletion should persist across transactions");
@@ -2585,12 +2479,11 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
         final var statusPath = parse("/users/[]/status", PathParser.Type.JSON);
-        final var pathIndexDef = IndexDefs.createPathIdxDef(
-            Collections.singleton(statusPath), 0, IndexDef.DbType.JSON);
+        final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.singleton(statusPath), 0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(pathIndexDef), wtx);
 
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
@@ -2628,9 +2521,8 @@ class HOTIndexIntegrationTest {
     /**
      * PATH-TC7: Deep nesting deletion (5+ levels)
      * 
-     * Scenario: Delete ancestor at level 2 in a 6-level deep structure.
-     * All descendant paths should be removed from index.
-     * Expected: Nested path entries are removed.
+     * Scenario: Delete ancestor at level 2 in a 6-level deep structure. All descendant paths should be
+     * removed from index. Expected: Nested path entries are removed.
      */
     @Test
     @DisplayName("PATH-TC7: Deep nesting ancestor deletion (6 levels)")
@@ -2638,7 +2530,7 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
         // Index a 6-level deep path
@@ -2681,7 +2573,7 @@ class HOTIndexIntegrationTest {
 
   // ===== NAME Index Corner Cases =====
   // Note: HOT is enabled by default at class level (@BeforeAll)
-  
+
   @Nested
   @DisplayName("NAME Index Corner Cases")
   class NAMEIndexCornerCaseTests {
@@ -2708,7 +2600,7 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
         // Create name index for ALL names (filtering done at query time)
@@ -2717,24 +2609,24 @@ class HOTIndexIntegrationTest {
 
         // Insert data with multiple object keys
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "{\"users\": [{\"name\": \"Alice\", \"email\": \"a@test.com\", \"role\": \"admin\"}, " +
-            "{\"name\": \"Bob\", \"email\": \"b@test.com\", \"role\": \"user\"}]}"));
+            "{\"users\": [{\"name\": \"Alice\", \"email\": \"a@test.com\", \"role\": \"admin\"}, "
+                + "{\"name\": \"Bob\", \"email\": \"b@test.com\", \"role\": \"user\"}]}"));
         wtx.commit();
 
         // Verify names can be queried with filter
         try (final var rtx = manager.beginNodeReadOnlyTrx()) {
           var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
-          
+
           var nameIdx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
               readController.createNameFilter(Set.of("name")));
           assertTrue(nameIdx.hasNext(), "Name 'name' should be indexed");
           assertEquals(2, nameIdx.next().getNodeKeys().getLongCardinality(), "Should have 2 'name' keys");
-          
+
           var emailIdx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
               readController.createNameFilter(Set.of("email")));
           assertTrue(emailIdx.hasNext(), "Name 'email' should be indexed");
           assertEquals(2, emailIdx.next().getNodeKeys().getLongCardinality(), "Should have 2 'email' keys");
-          
+
           var roleIdx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
               readController.createNameFilter(Set.of("role")));
           assertTrue(roleIdx.hasNext(), "Name 'role' should be indexed");
@@ -2754,15 +2646,15 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
         final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(nameIndexDef), wtx);
 
         // Rev 1: Insert 2 items with "status"
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "{\"items\": [{\"status\": \"new\"}, {\"status\": \"old\"}]}"));
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader("{\"items\": [{\"status\": \"new\"}, {\"status\": \"old\"}]}"));
         wtx.commit();
 
         // Verify 2 "status" names indexed
@@ -2807,15 +2699,15 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
         final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(nameIndexDef), wtx);
 
         // Insert with 2 "target" keys to test deletion
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "{\"items\": [{\"target\": \"a\"}, {\"target\": \"b\"}]}"));
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader("{\"items\": [{\"target\": \"a\"}, {\"target\": \"b\"}]}"));
         wtx.commit();
 
         // Verify 2 "target" keys indexed
@@ -2858,7 +2750,7 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
         final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
@@ -2911,19 +2803,19 @@ class HOTIndexIntegrationTest {
 
       // Transaction 1: Create index and insert with 2 "key" names
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
         nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
         indexController.createIndexes(Set.of(nameIndexDef), wtx);
 
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
-            "{\"items\": [{\"key\": \"a\"}, {\"key\": \"b\"}]}"));
+        wtx.insertSubtreeAsFirstChild(
+            JsonShredder.createStringReader("{\"items\": [{\"key\": \"a\"}, {\"key\": \"b\"}]}"));
         wtx.commit();
       }
 
       // Transaction 2: Verify 2 "key" names indexed
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
         var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
             readController.createNameFilter(Set.of("key")));
@@ -2933,7 +2825,7 @@ class HOTIndexIntegrationTest {
 
       // Transaction 3: Delete one item
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild(); // root object
         wtx.moveToFirstChild(); // "items" key
@@ -2945,7 +2837,7 @@ class HOTIndexIntegrationTest {
 
       // Transaction 4: Verify 1 "key" name remains
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var rtx = manager.beginNodeReadOnlyTrx()) {
+          final var rtx = manager.beginNodeReadOnlyTrx()) {
         var readController = manager.getRtxIndexController(rtx.getRevisionNumber());
         var idx = readController.openNameIndex(rtx.getPageTrx(), nameIndexDef,
             readController.createNameFilter(Set.of("key")));
@@ -2965,7 +2857,7 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
         final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
@@ -3008,9 +2900,8 @@ class HOTIndexIntegrationTest {
     /**
      * NAME-TC7: Deep nesting deletion (6 levels)
      * 
-     * Scenario: Delete ancestor at level 2 in a 6-level deep structure.
-     * All descendant names should be removed from index.
-     * Expected: Nested name entries are removed.
+     * Scenario: Delete ancestor at level 2 in a 6-level deep structure. All descendant names should be
+     * removed from index. Expected: Nested name entries are removed.
      */
     @Test
     @DisplayName("NAME-TC7: Deep nesting ancestor deletion (6 levels)")
@@ -3018,7 +2909,7 @@ class HOTIndexIntegrationTest {
       final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
 
       try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-           final var wtx = manager.beginNodeTrx()) {
+          final var wtx = manager.beginNodeTrx()) {
 
         var indexController = manager.getWtxIndexController(wtx.getRevisionNumber());
         final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);

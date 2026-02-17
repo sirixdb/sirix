@@ -33,22 +33,19 @@ import io.sirix.query.compiler.XQExt;
 
 /**
  * @author Sebastian Baechle
- * -----------------------------------------------------------------------------------------------
- * The purpose of this class is to optimize Query expressions
- * by combining consecutive child steps into a single multistep expression.
- * The class is a part of the Sirix Query compiler optimizer
- * and is responsible for merging multiple consecutive child steps in an Query path expression
- * into a more efficient multistep expression.
- * ---------------------------------------------------------------------------------------------------
- * In XQuery, path expressions are used to navigate XML data,
- * and they consist of a sequence of steps separated by slashes.
- * In some cases, consecutive child steps can be combined
- * to reduce the number of individual steps in the path, leading to improved query performance.
+ *         -----------------------------------------------------------------------------------------------
+ *         The purpose of this class is to optimize Query expressions by combining consecutive child
+ *         steps into a single multistep expression. The class is a part of the Sirix Query compiler
+ *         optimizer and is responsible for merging multiple consecutive child steps in an Query
+ *         path expression into a more efficient multistep expression.
+ *         ---------------------------------------------------------------------------------------------------
+ *         In XQuery, path expressions are used to navigate XML data, and they consist of a sequence
+ *         of steps separated by slashes. In some cases, consecutive child steps can be combined to
+ *         reduce the number of individual steps in the path, leading to improved query performance.
  */
 public class MultiChildStep extends Walker {
 
-  private static final int MIN_CHILD_STEP_LENGTH =
-      Cfg.asInt("org.sirix.xquery.optimize.multichild.length", 3);
+  private static final int MIN_CHILD_STEP_LENGTH = Cfg.asInt("org.sirix.xquery.optimize.multichild.length", 3);
 
   public MultiChildStep(StaticContext sctx) {
     super(sctx);
@@ -117,8 +114,7 @@ public class MultiChildStep extends Walker {
   }
 
   public static void main(String[] args) {
-     new Query(new CompileChain(null, null),
-                "let $a := <x/> return $a/b/c/d//e/x/y/z//u/v/w");
+    new Query(new CompileChain(null, null), "let $a := <x/> return $a/b/c/d//e/x/y/z//u/v/w");
     // new Query(new DBCompileChain(null, null),
     // "let $a := <x/> return $a/b/@aha");
   }

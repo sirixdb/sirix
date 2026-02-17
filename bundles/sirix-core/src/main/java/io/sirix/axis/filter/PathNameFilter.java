@@ -44,19 +44,21 @@ public final class PathNameFilter extends AbstractFilter<PathSummaryReader> {
   /**
    * Default constructor.
    *
-   * @param rtx  the node trx/node cursor this filter is bound to
+   * @param rtx the node trx/node cursor this filter is bound to
    * @param name name to check
    */
   public PathNameFilter(final PathSummaryReader rtx, final QNm name) {
     super(rtx);
-    prefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty()) ? -1 : rtx.keyForName(name.getPrefix());
+    prefixKey = (name.getPrefix() == null || name.getPrefix().isEmpty())
+        ? -1
+        : rtx.keyForName(name.getPrefix());
     localNameKey = rtx.keyForName(name.getLocalName());
   }
 
   /**
    * Default constructor.
    *
-   * @param rtx  {@link PathSummaryReader} this filter is bound to
+   * @param rtx {@link PathSummaryReader} this filter is bound to
    * @param name name to check
    */
   public PathNameFilter(final PathSummaryReader rtx, final String name) {

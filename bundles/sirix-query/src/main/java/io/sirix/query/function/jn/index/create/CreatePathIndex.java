@@ -90,8 +90,8 @@ public final class CreatePathIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef pathIdxDef =
-        IndexDefs.createPathIdxDef(paths, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH), IndexDef.DbType.JSON);
+    final IndexDef pathIdxDef = IndexDefs.createPathIdxDef(paths,
+        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH), IndexDef.DbType.JSON);
     try {
       controller.createIndexes(ImmutableSet.of(pathIdxDef), wtx);
     } catch (final SirixIOException e) {

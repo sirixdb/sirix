@@ -44,11 +44,11 @@ public final class ItemHistoryTest {
     }
 
     // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-                                                        .build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       // Use Query to load a JSON database/resource.
       final String openQuery = "sdb:item-history(sdb:select-item(jn:doc('json-path1','mydoc.jn', 1), 2))";
 
@@ -77,11 +77,11 @@ public final class ItemHistoryTest {
     }
 
     // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-                                                        .build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       // Use Query to load a JSON database/resource.
       final String openQuery = "sdb:item-history(sdb:select-item(jn:doc('json-path1','mydoc2.jn'), 12))";
 

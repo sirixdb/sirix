@@ -41,7 +41,7 @@ public class Function {
     final List<Axis> param = new ArrayList<Axis>();
     param.add(axis);
     final AbstractAxis bAxis = new FNBoolean(axis.asXmlNodeReadTrx(), param, ebv.getMin(), ebv.getMax(),
-                                             axis.asXmlNodeReadTrx().keyForName(ebv.getReturnType()));
+        axis.asXmlNodeReadTrx().keyForName(ebv.getReturnType()));
     if (bAxis.hasNext()) {
       bAxis.next();
       final boolean result = Boolean.parseBoolean(bAxis.asXmlNodeReadTrx().getValue());
@@ -63,8 +63,7 @@ public class Function {
     return true;
   }
 
-  public static boolean exactlyOne(final XmlNodeReadOnlyTrx rtx, final AbstractAxis axis)
-      throws SirixXPathException {
+  public static boolean exactlyOne(final XmlNodeReadOnlyTrx rtx, final AbstractAxis axis) throws SirixXPathException {
 
     if (axis.hasNext()) {
       if (axis.hasNext()) {
@@ -98,10 +97,10 @@ public class Function {
    * <ul>
    * <li>If its operand is an empty sequence, fn:boolean returns false.</li>
    * <li>If its operand is a sequence whose first item is a node, fn:boolean returns true.</li>
-   * <li>If its operand is a singleton value of type xs:boolean or derived from xs:boolean,
-   * fn:boolean returns the value of its operand unchanged.</li>
-   * <li>If its operand is a singleton value of type xs:string, xs:anyURI, xs:untypedAtomic, or a
-   * type derived from one of these, fn:boolean returns false if the operand value has zero length;
+   * <li>If its operand is a singleton value of type xs:boolean or derived from xs:boolean, fn:boolean
+   * returns the value of its operand unchanged.</li>
+   * <li>If its operand is a singleton value of type xs:string, xs:anyURI, xs:untypedAtomic, or a type
+   * derived from one of these, fn:boolean returns false if the operand value has zero length;
    * otherwise it returns true.</li>
    * <li>If its operand is a singleton value of any numeric type or derived from a numeric type,
    * fn:boolean returns false if the operand value is NaN or is numerically equal to zero; otherwise
@@ -114,8 +113,7 @@ public class Function {
    * @return true if successful, false otherwise
    * @throws SirixXPathException
    */
-  public static boolean fnBoolean(final XmlNodeReadOnlyTrx rtx, final AbstractAxis axis)
-      throws SirixXPathException {
+  public static boolean fnBoolean(final XmlNodeReadOnlyTrx rtx, final AbstractAxis axis) throws SirixXPathException {
 
     final boolean ebv = ebv(axis);
     final int itemKey = rtx.getItemList().addItem(new AtomicValue(ebv));
@@ -124,10 +122,10 @@ public class Function {
   }
 
   /**
-   * fn:data takes a sequence of items and returns a sequence of atomic values. The result of
-   * fn:data is the sequence of atomic values produced by applying the following rules to each item
-   * in the input sequence: If the item is an atomic value, it is returned. If the item is a node,
-   * its typed value is returned (err:FOTY0012 is raised if the node has no typed value.)
+   * fn:data takes a sequence of items and returns a sequence of atomic values. The result of fn:data
+   * is the sequence of atomic values produced by applying the following rules to each item in the
+   * input sequence: If the item is an atomic value, it is returned. If the item is a node, its typed
+   * value is returned (err:FOTY0012 is raised if the node has no typed value.)
    * 
    * @param rtx the transaction to operate on
    * @param axis The sequence to atomize.
@@ -142,8 +140,7 @@ public class Function {
         // if has no typed value
         // TODO // throw new XPathError(FOTY0012);
 
-        final int itemKey =
-            rtx.getItemList().addItem(new AtomicValue(rtx.getValue().getBytes(), rtx.getTypeKey()));
+        final int itemKey = rtx.getItemList().addItem(new AtomicValue(rtx.getValue().getBytes(), rtx.getTypeKey()));
         rtx.moveTo(itemKey);
         return true;
       } else {
@@ -162,8 +159,8 @@ public class Function {
    * fn:nilled($arg as node()?) as xs:boolean?
    * </p>
    * <p>
-   * Returns an xs:boolean indicating whether the argument node is "nilled". If the argument is not
-   * an element node, returns the empty sequence. If the argument is the empty sequence, returns the
+   * Returns an xs:boolean indicating whether the argument node is "nilled". If the argument is not an
+   * element node, returns the empty sequence. If the argument is the empty sequence, returns the
    * empty sequence.
    * </p>
    * 
@@ -188,8 +185,8 @@ public class Function {
    * fn:node-name($arg as node()?) as xs:QName?
    * </p>
    * <p>
-   * Returns an expanded-QName for node kinds that can have names. For other kinds of nodes it
-   * returns the empty sequence. If $arg is the empty sequence, the empty sequence is returned.
+   * Returns an expanded-QName for node kinds that can have names. For other kinds of nodes it returns
+   * the empty sequence. If $arg is the empty sequence, the empty sequence is returned.
    * <p>
    * 
    * @param rtx the transaction to operate on
@@ -235,8 +232,7 @@ public class Function {
   public static boolean fnnumber(final XmlNodeReadOnlyTrx rtx) {
 
     // TODO: add error handling
-    final AtomicValue item =
-        new AtomicValue(rtx.getValue().getBytes(), rtx.keyForName("xs:double"));
+    final AtomicValue item = new AtomicValue(rtx.getValue().getBytes(), rtx.keyForName("xs:double"));
     final int itemKey = rtx.getItemList().addItem(item);
     rtx.moveTo(itemKey);
 
@@ -248,8 +244,7 @@ public class Function {
     return new AtomicValue(!Boolean.parseBoolean(new String(mValue.getRawValue())));
   }
 
-  public static boolean oneOrMore(final XmlNodeReadOnlyTrx rtx, final AbstractAxis axis)
-      throws SirixXPathException {
+  public static boolean oneOrMore(final XmlNodeReadOnlyTrx rtx, final AbstractAxis axis) throws SirixXPathException {
 
     if (!axis.hasNext()) {
       throw EXPathError.FORG0004.getEncapsulatedException();
@@ -274,8 +269,7 @@ public class Function {
     return true;
   }
 
-  public static boolean sum(final XmlNodeReadOnlyTrx rtx, final AbstractAxis axis,
-      final AbstractAxis mZero) {
+  public static boolean sum(final XmlNodeReadOnlyTrx rtx, final AbstractAxis axis, final AbstractAxis mZero) {
 
     Double value = 0.0;
     if (!axis.hasNext()) {
@@ -292,8 +286,7 @@ public class Function {
     return true;
   }
 
-  public static boolean zeroOrOne(final XmlNodeReadOnlyTrx rtx, final AbstractAxis axis)
-      throws SirixXPathException {
+  public static boolean zeroOrOne(final XmlNodeReadOnlyTrx rtx, final AbstractAxis axis) throws SirixXPathException {
 
     final boolean result = true;
 

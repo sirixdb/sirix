@@ -514,7 +514,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
       db.createResource(ResourceConfiguration.newBuilder("shredded").build());
 
       try (final XmlResourceSession resMgr = db.beginResourceSession("shredded");
-           final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
+          final FileOutputStream outputStream = new FileOutputStream(target.toFile())) {
         final XmlSerializer serializer = XmlSerializer.newBuilder(resMgr, outputStream).emitXMLDeclaration().build();
         serializer.call();
       }

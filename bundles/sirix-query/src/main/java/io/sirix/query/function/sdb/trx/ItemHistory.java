@@ -26,8 +26,8 @@ import java.util.List;
 
 /**
  * <p>
- * Function for getting the item in all revisions in which it has been changed (order ascending). Supported
- * signature is:
+ * Function for getting the item in all revisions in which it has been changed (order ascending).
+ * Supported signature is:
  * </p>
  * <ul>
  * <li><code>sdb:item-history($item as xs:structured-item) as xs:structured-item+</code></li>
@@ -45,7 +45,7 @@ public final class ItemHistory extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the name of the function
+   * @param name the name of the function
    * @param signature the signature of the function
    */
   public ItemHistory(final QNm name, final Signature signature) {
@@ -101,8 +101,8 @@ public final class ItemHistory extends AbstractFunction {
           } else if (rtxInRevision instanceof JsonNodeReadOnlyTrx) {
             assert item instanceof JsonDBItem;
             final JsonDBItem jsonItem = (JsonDBItem) item;
-            sequences.add(new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtxInRevision,
-                                                            jsonItem.getCollection()));
+            sequences.add(
+                new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtxInRevision, jsonItem.getCollection()));
           }
         } else {
           sequences.add(null);

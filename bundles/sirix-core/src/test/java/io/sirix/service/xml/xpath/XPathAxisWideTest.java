@@ -43,8 +43,7 @@ public class XPathAxisWideTest {
   public void setUp() throws Exception {
     XmlTestHelper.deleteEverything();
     // Setup parsed session.
-    XmlShredder.main(
-        XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
+    XmlShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
 
   }
 
@@ -59,19 +58,16 @@ public class XPathAxisWideTest {
     final Holder holder = Holder.generateRtx();
     holder.getXmlNodeReadTrx().moveToDocumentRoot();
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), "/mondial/continent[@id]"),
+    AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "/mondial/continent[@id]"),
         new long[] {2L, 5L, 8L, 11L, 14L});
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), "mondial/continent[@name]"),
+    AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "mondial/continent[@name]"),
         new long[] {2L, 5L, 8L, 11L, 14L});
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), "mondial/continent[@id=\"f0_119\"]"), new long[] {2L});
+    AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "mondial/continent[@id=\"f0_119\"]"),
+        new long[] {2L});
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), "/mondial/continent[@name = \"Africa\"]"),
+    AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "/mondial/continent[@name = \"Africa\"]"),
         new long[] {14L});
 
     final AbstractAxis axis5 = new XPathAxis(holder.getXmlNodeReadTrx(), "mondial/lake/node()");
@@ -82,16 +78,14 @@ public class XPathAxisWideTest {
     // assertEquals(29891L, axis5.next());
     assertEquals(false, axis5.hasNext());
 
-    final AbstractAxis axis6 =
-        new XPathAxis(holder.getXmlNodeReadTrx(), "mondial/country/religions/node()");
+    final AbstractAxis axis6 = new XPathAxis(holder.getXmlNodeReadTrx(), "mondial/country/religions/node()");
     for (int i = 0; i < 446; i++) {
       assertEquals(true, axis6.hasNext());
       axis6.next();
     }
     assertEquals(false, axis6.hasNext());
 
-    final AbstractAxis axis7 =
-        new XPathAxis(holder.getXmlNodeReadTrx(), "child::mondial/child::lake/child::node()");
+    final AbstractAxis axis7 = new XPathAxis(holder.getXmlNodeReadTrx(), "child::mondial/child::lake/child::node()");
     for (int i = 0; i < 60; i++) {
       assertEquals(true, axis7.hasNext());
       axis7.next();
@@ -108,8 +102,7 @@ public class XPathAxisWideTest {
     }
     assertEquals(false, axis8.hasNext());
 
-    final AbstractAxis axis9 =
-        new XPathAxis(holder.getXmlNodeReadTrx(), "/mondial/country/attribute::car_code");
+    final AbstractAxis axis9 = new XPathAxis(holder.getXmlNodeReadTrx(), "/mondial/country/attribute::car_code");
     for (int i = 0; i < 194; i++) {
       assertEquals(true, axis9.hasNext());
       axis9.next();

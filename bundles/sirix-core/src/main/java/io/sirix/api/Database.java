@@ -38,8 +38,8 @@ import java.util.List;
  * </p>
  *
  * <p>
- * Furthermore, databases are created by {@link DatabaseConfiguration}s. After creation, the settings
- * of a database cannot be changed.
+ * Furthermore, databases are created by {@link DatabaseConfiguration}s. After creation, the
+ * settings of a database cannot be changed.
  * </p>
  *
  * @author Sebastian Graf, University of Konstanz

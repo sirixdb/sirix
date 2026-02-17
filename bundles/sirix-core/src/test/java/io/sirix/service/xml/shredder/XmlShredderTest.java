@@ -110,10 +110,10 @@ public class XmlShredderTest {
   @Test
   public void testShredIntoExisting() throws Exception {
     try (final XmlNodeTrx wtx = holder.getXmlNodeTrx();
-         final FileInputStream fis1 = new FileInputStream(XML.toFile());
-         final FileInputStream fis2 = new FileInputStream(XML.toFile())) {
+        final FileInputStream fis1 = new FileInputStream(XML.toFile());
+        final FileInputStream fis2 = new FileInputStream(XML.toFile())) {
       final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1),
-                                                           InsertPosition.AS_FIRST_CHILD).includeComments(true).commitAfterwards().build();
+          InsertPosition.AS_FIRST_CHILD).includeComments(true).commitAfterwards().build();
       shredder.call();
       Assert.assertEquals(2, wtx.getRevisionNumber());
       wtx.moveToDocumentRoot();
@@ -129,7 +129,7 @@ public class XmlShredderTest {
     final var database2 = XmlTestHelper.getDatabase(PATHS.PATH2.getFile());
 
     try (final XmlResourceSession manager = database2.beginResourceSession(XmlTestHelper.RESOURCE);
-         final XmlNodeTrx expectedTrx = manager.beginNodeTrx()) {
+        final XmlNodeTrx expectedTrx = manager.beginNodeTrx()) {
       XmlDocumentCreator.create(expectedTrx);
       expectedTrx.commit();
       expectedTrx.moveToDocumentRoot();
@@ -162,8 +162,8 @@ public class XmlShredderTest {
     final var database2 = XmlTestHelper.getDatabase(PATHS.PATH2.getFile());
 
     try (final var manager2 = database2.beginResourceSession(XmlTestHelper.RESOURCE);
-         final XmlNodeTrx wtx = manager2.beginNodeTrx();
-         final FileInputStream fis = new FileInputStream(XML2.toFile())) {
+        final XmlNodeTrx wtx = manager2.beginNodeTrx();
+        final FileInputStream fis = new FileInputStream(XML2.toFile())) {
       final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis),
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
@@ -186,7 +186,7 @@ public class XmlShredderTest {
             }
           }
         }
-        //noinspection ResultOfMethodCallIgnored
+        // noinspection ResultOfMethodCallIgnored
         attributes.hasNext();
 
         Assert.assertEquals(expectedAttributes.hasNext(), attributes.hasNext());
@@ -200,8 +200,8 @@ public class XmlShredderTest {
   public void testShreddingLargeText() throws Exception {
     final var database = XmlTestHelper.getDatabase(PATHS.PATH2.getFile());
     try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
-         final FileInputStream fis1 = new FileInputStream(XML3.toFile());
-         final FileInputStream fis2 = new FileInputStream(XML3.toFile())) {
+        final FileInputStream fis1 = new FileInputStream(XML3.toFile());
+        final FileInputStream fis2 = new FileInputStream(XML3.toFile())) {
       try (final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createFileReader(fis1),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();

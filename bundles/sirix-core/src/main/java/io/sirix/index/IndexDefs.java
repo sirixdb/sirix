@@ -25,14 +25,16 @@ public final class IndexDefs {
   /**
    * Create a CAS {@link IndexDef} instance.
    *
-   * @param unique  determine if it's unique
+   * @param unique determine if it's unique
    * @param optType an optional type
-   * @param paths   the paths to index
+   * @param paths the paths to index
    * @return a new {@link IndexDef} instance
    */
   public static IndexDef createCASIdxDef(final boolean unique, final Type optType, final Set<Path<QNm>> paths,
       final int indexDefNo, final IndexDef.DbType dbType) {
-    final Type type = optType == null ? Type.STR : optType;
+    final Type type = optType == null
+        ? Type.STR
+        : optType;
     return new IndexDef(type, paths, unique, indexDefNo, dbType);
   }
 
@@ -49,14 +51,10 @@ public final class IndexDefs {
 
   public static IndexDef createNameIdxDef(final int indexDefNo, final IndexDef.DbType dbType) {
     return switch (dbType) {
-      case JSON -> new IndexDef(ImmutableSet.of(),
-                                ImmutableSet.of(),
-                                PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo,
-                                dbType);
-      case XML -> new IndexDef(ImmutableSet.of(),
-                               ImmutableSet.of(),
-                               PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo,
-                               dbType);
+      case JSON ->
+        new IndexDef(ImmutableSet.of(), ImmutableSet.of(), PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo, dbType);
+      case XML ->
+        new IndexDef(ImmutableSet.of(), ImmutableSet.of(), PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo, dbType);
     };
   }
 

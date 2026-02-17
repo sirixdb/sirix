@@ -39,8 +39,7 @@ public final class PICommentTest {
   public void testPI() throws SirixException {
     final ByteArrayOutputStream out = new ByteArrayOutputStream();
     final XmlSerializer serializer =
-        new XmlSerializer.XmlSerializerBuilder(holder.getResourceSession(),
-                                               out).emitXMLDeclaration().build();
+        new XmlSerializer.XmlSerializerBuilder(holder.getResourceSession(), out).emitXMLDeclaration().build();
     serializer.call();
     assertEquals(XmlDocumentCreator.COMMENTPIXML, out.toString());
   }

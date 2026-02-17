@@ -72,7 +72,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   /**
    * The session management instance.
    *
-   * <p>Instances of this class are responsible for registering themselves in the pool (in
+   * <p>
+   * Instances of this class are responsible for registering themselves in the pool (in
    * {@link #LocalDatabase(TransactionManager, DatabaseConfiguration, PathBasedPool, ResourceStore, WriteLocksRegistry, PathBasedPool)}),
    * as well as de-registering themselves (in {@link #close()}).
    */
@@ -99,11 +100,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * Constructor.
    *
    * @param transactionManager A manager for database transactions.
-   * @param dbConfig           {@link ResourceConfiguration} reference to configure the {@link Database}
-   * @param sessions           The database sessions management instance.
-   * @param resourceStore      The resource store used by this database.
-   * @param writeLocks         Manages the locks for resource managers.
-   * @param resourceSessions   The pool for resource managers.
+   * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
+   * @param sessions The database sessions management instance.
+   * @param resourceStore The resource store used by this database.
+   * @param writeLocks Manages the locks for resource managers.
+   * @param resourceSessions The pool for resource managers.
    */
   public LocalDatabase(final TransactionManager transactionManager, final DatabaseConfiguration dbConfig,
       final PathBasedPool<Database<?>> sessions, final ResourceStore<T> resourceStore,
@@ -128,7 +129,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     if (!Files.exists(resourcePath)) {
       throw new SirixUsageException("Resource could not be opened (since it was not created?) at location",
-                                    resourcePath.toString());
+          resourcePath.toString());
     }
 
     if (resourceStore.hasOpenResourceSession(resourcePath)) {
@@ -234,7 +235,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   private boolean bootstrapResource(ResourceConfiguration resConfig) {
     try (final T resourceTrxManager = beginResourceSession(resConfig.getResource().getFileName().toString());
-         final W wtx = resourceTrxManager.beginNodeTrx(AfterCommitState.CLOSE)) {
+        final W wtx = resourceTrxManager.beginNodeTrx(AfterCommitState.CLOSE)) {
       final var useCustomCommitTimestamps = resConfig.customCommitTimestamps();
       if (useCustomCommitTimestamps) {
         wtx.commit(null, Instant.ofEpochMilli(0));
@@ -274,7 +275,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         final var resourceConfig = ResourceConfiguration.deserialize(resourceFile);
         long databaseId = dbConfig.getDatabaseId();
         long resourceId = resourceConfig.getID();
-        
+
         if (bufferManager != null) {
           bufferManager.clearCachesForResource(databaseId, resourceId);
         }
@@ -282,7 +283,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
         // If deserialization fails, resource config might be corrupt - continue with deletion
         logger.warn("Could not deserialize resource config for cache clearing: {}", e.getMessage());
       }
-      
+
       // Instantiate the database for deletion.
       SirixFiles.recursiveRemove(resourceFile);
 
@@ -290,14 +291,14 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
       // Construct the path used as key in the cache repositories
       // This matches StorageType.getIntegerRevisionFileDataAsyncCache and getRevisionIndexHolder
-      final var cacheKey = resourceFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
-                                       .resolve(IOStorage.FILENAME);
-      
+      final var cacheKey =
+          resourceFile.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath()).resolve(IOStorage.FILENAME);
+
       final var cache = StorageType.CACHE_REPOSITORY.remove(cacheKey);
       if (cache != null) {
         cache.synchronous().invalidateAll();
       }
-      
+
       // Clear the optimized revision index for this resource
       StorageType.REVISION_INDEX_REPOSITORY.remove(cacheKey);
     }
@@ -340,8 +341,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public List<Path> listResources() {
     assertNotClosed();
-    try (final Stream<Path> stream = Files.list(dbConfig.getDatabaseFile()
-                                                        .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
+    try (final Stream<Path> stream =
+        Files.list(dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()))) {
       return stream.toList();
     } catch (final IOException e) {
       throw new SirixIOException(e);

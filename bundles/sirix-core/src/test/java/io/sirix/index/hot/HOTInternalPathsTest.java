@@ -65,12 +65,11 @@ class HOTInternalPathsTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create PATH index
@@ -80,7 +79,8 @@ class HOTInternalPathsTest {
           // Create 1000 unique paths
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 1000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"path_").append(String.format("%04d", i)).append("\": ").append(i);
           }
           json.append("}");
@@ -101,12 +101,11 @@ class HOTInternalPathsTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create NAME index
@@ -116,7 +115,8 @@ class HOTInternalPathsTest {
           // Create 500 unique object keys
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 500; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"name_").append(String.format("%03d", i)).append("\": ").append(i);
           }
           json.append("}");
@@ -128,13 +128,14 @@ class HOTInternalPathsTest {
           var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.NAME);
           if (indexDef != null) {
             var nameIndex = indexController.openNameIndex(wtx.getPageTrx(), indexDef, null);
-            
+
             int count = 0;
             while (nameIndex.hasNext()) {
               NodeReferences refs = nameIndex.next();
               assertNotNull(refs);
               count++;
-              if (count > 1000) break;
+              if (count > 1000)
+                break;
             }
             assertTrue(count > 0, "Should iterate over name index entries");
           }
@@ -153,21 +154,8 @@ class HOTInternalPathsTest {
       PathKeySerializer serializer = PathKeySerializer.INSTANCE;
 
       // Test boundary values
-      long[] testValues = {
-          Long.MIN_VALUE,
-          Long.MIN_VALUE + 1,
-          -1_000_000_000L,
-          -1_000_000L,
-          -1000L,
-          -1L,
-          0L,
-          1L,
-          1000L,
-          1_000_000L,
-          1_000_000_000L,
-          Long.MAX_VALUE - 1,
-          Long.MAX_VALUE
-      };
+      long[] testValues = {Long.MIN_VALUE, Long.MIN_VALUE + 1, -1_000_000_000L, -1_000_000L, -1000L, -1L, 0L, 1L, 1000L,
+          1_000_000L, 1_000_000_000L, Long.MAX_VALUE - 1, Long.MAX_VALUE};
 
       for (long value : testValues) {
         byte[] buf = new byte[8];
@@ -208,12 +196,11 @@ class HOTInternalPathsTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create PATH index
@@ -243,13 +230,13 @@ class HOTInternalPathsTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(5)
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(5)
+                                                     .build());
 
         // Create initial data with index
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.emptySet(), 0, IndexDef.DbType.JSON);
@@ -262,17 +249,17 @@ class HOTInternalPathsTest {
         // 20 revisions with updates
         for (int rev = 1; rev <= 20; rev++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild();
             wtx.remove();
-            
+
             StringBuilder json = new StringBuilder("{\"counter\": ").append(rev);
             for (int i = 0; i < rev * 5; i++) {
               json.append(", \"field_").append(i).append("\": ").append(i);
             }
             json.append("}");
-            
+
             wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
             wtx.commit();
           }
@@ -301,12 +288,11 @@ class HOTInternalPathsTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var pathIndexDef = IndexDefs.createPathIdxDef(Collections.emptySet(), 0, IndexDef.DbType.JSON);
@@ -335,12 +321,11 @@ class HOTInternalPathsTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
@@ -351,7 +336,7 @@ class HOTInternalPathsTest {
 
           var nameIdx = indexController.getIndexes().getIndexDef(0, IndexType.NAME);
           if (nameIdx != null) {
-            var nameIter = indexController.openNameIndex(wtx.getPageTrx(), nameIdx, 
+            var nameIter = indexController.openNameIndex(wtx.getPageTrx(), nameIdx,
                 indexController.createNameFilter(Set.of("single")));
             assertTrue(nameIter.hasNext(), "Should find 'single' key");
             NodeReferences refs = nameIter.next();
@@ -367,12 +352,11 @@ class HOTInternalPathsTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
@@ -381,7 +365,8 @@ class HOTInternalPathsTest {
           // Create keys with increasing lengths
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 50; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             StringBuilder keyName = new StringBuilder("key_");
             for (int j = 0; j < i + 1; j++) {
               keyName.append("a");

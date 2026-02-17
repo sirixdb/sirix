@@ -112,8 +112,9 @@ public final class EditScript implements Iterator<DiffTuple>, Iterable<DiffTuple
    */
   public DiffTuple add(final DiffTuple change) {
     assert change != null;
-    final long nodeKey =
-        change.getDiff() == DiffType.DELETED ? change.getOldNodeKey() : change.getNewNodeKey();
+    final long nodeKey = change.getDiff() == DiffType.DELETED
+        ? change.getOldNodeKey()
+        : change.getNewNodeKey();
     if (mChangeByNode.containsKey(nodeKey)) {
       return change;
     }

@@ -29,12 +29,8 @@ class KeyValueLeafPageTest {
     arena = Arena.ofConfined();
     long recordPageKey = 1L;
 
-    keyValueLeafPage = new KeyValueLeafPage(recordPageKey,
-                                            IndexType.DOCUMENT,
-                                            new ResourceConfiguration.Builder("testResource").build(),
-                                            1,
-                                            arena.allocate(SIXTYFOUR_KB),
-                                            null);
+    keyValueLeafPage = new KeyValueLeafPage(recordPageKey, IndexType.DOCUMENT,
+        new ResourceConfiguration.Builder("testResource").build(), 1, arena.allocate(SIXTYFOUR_KB), null);
   }
 
   @AfterEach
@@ -52,7 +48,7 @@ class KeyValueLeafPageTest {
 
   @Test
   void testLastSlotIndexAfterSingleInsertion() {
-    byte[] data = new byte[] { 1, 2, 3, 4 };
+    byte[] data = new byte[] {1, 2, 3, 4};
     keyValueLeafPage.setSlot(data, 0);
 
     assertEquals(0, keyValueLeafPage.getLastSlotIndex(), "The last slot index should be 0 after inserting one slot.");
@@ -60,8 +56,8 @@ class KeyValueLeafPageTest {
 
   @Test
   void testLastSlotIndexAfterMultipleInsertions() {
-    byte[] data1 = new byte[] { 1, 2, 3, 4 };
-    byte[] data2 = new byte[] { 5, 6, 7, 8 };
+    byte[] data1 = new byte[] {1, 2, 3, 4};
+    byte[] data2 = new byte[] {5, 6, 7, 8};
 
     keyValueLeafPage.setSlot(data1, 0);
     keyValueLeafPage.setSlot(data2, 1);
@@ -71,26 +67,25 @@ class KeyValueLeafPageTest {
 
   @Test
   void testLastSlotIndexAfterMiddleSlotUpdate() {
-    byte[] data1 = new byte[] { 1, 2, 3, 4 };
-    byte[] data2 = new byte[] { 5, 6, 7, 8 };
-    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+    byte[] data1 = new byte[] {1, 2, 3, 4};
+    byte[] data2 = new byte[] {5, 6, 7, 8};
+    byte[] data3 = new byte[] {9, 10, 11, 12};
 
     keyValueLeafPage.setSlot(data1, 0);
     keyValueLeafPage.setSlot(data2, 1);
     keyValueLeafPage.setSlot(data3, 2);
 
-    keyValueLeafPage.setSlot(new byte[] { 13, 14 }, 1); // Update the second slot
+    keyValueLeafPage.setSlot(new byte[] {13, 14}, 1); // Update the second slot
 
-    assertEquals(2,
-                 keyValueLeafPage.getLastSlotIndex(),
-                 "The last slot index should remain 2 after updating the middle slot.");
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+        "The last slot index should remain 2 after updating the middle slot.");
   }
 
   @Test
   void testLastSlotIndexAfterSequentialInsertions() {
-    byte[] data1 = new byte[] { 1, 2, 3, 4 };
-    byte[] data2 = new byte[] { 5, 6, 7, 8 };
-    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+    byte[] data1 = new byte[] {1, 2, 3, 4};
+    byte[] data2 = new byte[] {5, 6, 7, 8};
+    byte[] data3 = new byte[] {9, 10, 11, 12};
 
     keyValueLeafPage.setSlot(data1, 0);
     assertEquals(0, keyValueLeafPage.getLastSlotIndex(), "The last slot index should be 0 after the first insertion.");
@@ -104,75 +99,69 @@ class KeyValueLeafPageTest {
 
   @Test
   void testLastSlotIndexWithGapsInInsertions() {
-    byte[] data1 = new byte[] { 1, 2, 3, 4 };
-    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+    byte[] data1 = new byte[] {1, 2, 3, 4};
+    byte[] data3 = new byte[] {9, 10, 11, 12};
 
     keyValueLeafPage.setSlot(data1, 0);
     assertEquals(0, keyValueLeafPage.getLastSlotIndex(), "The last slot index should be 0 after inserting at index 0.");
 
     keyValueLeafPage.setSlot(data3, 2);
-    assertEquals(2,
-                 keyValueLeafPage.getLastSlotIndex(),
-                 "The last slot index should be 2 after inserting at index 2, with a gap at index 1.");
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+        "The last slot index should be 2 after inserting at index 2, with a gap at index 1.");
   }
 
   @Test
   void testLastSlotIndexAfterOutOfOrderInsertions() {
-    byte[] data1 = new byte[] { 1, 2, 3, 4 };
-    byte[] data2 = new byte[] { 5, 6, 7, 8 };
-    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+    byte[] data1 = new byte[] {1, 2, 3, 4};
+    byte[] data2 = new byte[] {5, 6, 7, 8};
+    byte[] data3 = new byte[] {9, 10, 11, 12};
 
     // Insert data at different indices
     keyValueLeafPage.setSlot(data3, 2);
     assertEquals(2, keyValueLeafPage.getLastSlotIndex(), "The last slot index should be 2 after inserting at index 2.");
 
     keyValueLeafPage.setSlot(data1, 0);
-    assertEquals(0,
-                 keyValueLeafPage.getLastSlotIndex(),
-                 "The last slot index should be updated to 0 after inserting at index 0.");
+    assertEquals(0, keyValueLeafPage.getLastSlotIndex(),
+        "The last slot index should be updated to 0 after inserting at index 0.");
 
     keyValueLeafPage.setSlot(data2, 2);
-    assertEquals(0,
-                 keyValueLeafPage.getLastSlotIndex(),
-                 "The last slot index should remain 0 after setting a new slot at index 2.");
+    assertEquals(0, keyValueLeafPage.getLastSlotIndex(),
+        "The last slot index should remain 0 after setting a new slot at index 2.");
 
     // Insert at a new higher index
-    keyValueLeafPage.setSlot(new byte[] { 21, 22, 23, 24 }, 3);
+    keyValueLeafPage.setSlot(new byte[] {21, 22, 23, 24}, 3);
     assertEquals(3, keyValueLeafPage.getLastSlotIndex(), "The last slot index should be 3 after inserting at index 3.");
   }
 
   @Test
   void testLastSlotIndexAfterUpdates() {
-    byte[] data1 = new byte[] { 1, 2, 3, 4 };
-    byte[] data2 = new byte[] { 5, 6, 7, 8 };
-    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+    byte[] data1 = new byte[] {1, 2, 3, 4};
+    byte[] data2 = new byte[] {5, 6, 7, 8};
+    byte[] data3 = new byte[] {9, 10, 11, 12};
 
     keyValueLeafPage.setSlot(data1, 0);
     keyValueLeafPage.setSlot(data2, 1);
     keyValueLeafPage.setSlot(data3, 2);
 
-    assertEquals(2,
-                 keyValueLeafPage.getLastSlotIndex(),
-                 "The last slot index should be 2 after three sequential insertions.");
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+        "The last slot index should be 2 after three sequential insertions.");
 
     // Update the slot at index 0
-    keyValueLeafPage.setSlot(new byte[] { 13, 14, 15, 16 }, 0);
-    assertEquals(2,
-                 keyValueLeafPage.getLastSlotIndex(),
-                 "The last slot index should remain 2 after updating the slot at index 0.");
+    keyValueLeafPage.setSlot(new byte[] {13, 14, 15, 16}, 0);
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+        "The last slot index should remain 2 after updating the slot at index 0.");
 
     // Update the slot at index 2
-    keyValueLeafPage.setSlot(new byte[] { 17, 18, 19, 20 }, 2);
-    assertEquals(2,
-                 keyValueLeafPage.getLastSlotIndex(),
-                 "The last slot index should remain 2 after updating the slot at index 2.");
+    keyValueLeafPage.setSlot(new byte[] {17, 18, 19, 20}, 2);
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+        "The last slot index should remain 2 after updating the slot at index 2.");
   }
 
   @Test
   void testLastSlotIndexAfterInserts() {
-    byte[] data1 = new byte[] { 1, 2, 3, 4 };
-    byte[] data2 = new byte[] { 5, 6, 7, 8 };
-    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+    byte[] data1 = new byte[] {1, 2, 3, 4};
+    byte[] data2 = new byte[] {5, 6, 7, 8};
+    byte[] data3 = new byte[] {9, 10, 11, 12};
 
     // Insert slots sequentially at indices 0, 1, and 2
     keyValueLeafPage.setSlot(data1, 0);
@@ -185,61 +174,57 @@ class KeyValueLeafPageTest {
     assertEquals(2, keyValueLeafPage.getLastSlotIndex(), "The last slot index should be 2 after inserting at index 2.");
 
     // Insert a new slot at index 3
-    byte[] data4 = new byte[] { 13, 14, 15, 16 };
+    byte[] data4 = new byte[] {13, 14, 15, 16};
     keyValueLeafPage.setSlot(data4, 3);
     assertEquals(3, keyValueLeafPage.getLastSlotIndex(), "The last slot index should be 3 after inserting at index 3.");
 
     // Update the slot at index 2
-    byte[] updatedData3 = new byte[] { 17, 18, 19, 20 };
+    byte[] updatedData3 = new byte[] {17, 18, 19, 20};
     keyValueLeafPage.setSlot(updatedData3, 2);
-    assertEquals(3,
-                 keyValueLeafPage.getLastSlotIndex(),
-                 "The last slot index should remain 3 after updating the slot at index 2.");
+    assertEquals(3, keyValueLeafPage.getLastSlotIndex(),
+        "The last slot index should remain 3 after updating the slot at index 2.");
 
     // Insert another slot at index 4
-    byte[] data5 = new byte[] { 21, 22, 23, 24 };
+    byte[] data5 = new byte[] {21, 22, 23, 24};
     keyValueLeafPage.setSlot(data5, 4);
     assertEquals(4, keyValueLeafPage.getLastSlotIndex(), "The last slot index should be 4 after inserting at index 4.");
   }
 
   @Test
   void testLastSlotIndexWithMultipleUpdates() {
-    byte[] data1 = new byte[] { 1, 2, 3, 4 };
-    byte[] data2 = new byte[] { 5, 6, 7, 8 };
-    byte[] data3 = new byte[] { 9, 10, 11, 12 };
+    byte[] data1 = new byte[] {1, 2, 3, 4};
+    byte[] data2 = new byte[] {5, 6, 7, 8};
+    byte[] data3 = new byte[] {9, 10, 11, 12};
 
     keyValueLeafPage.setSlot(data1, 0);
     keyValueLeafPage.setSlot(data2, 1);
     keyValueLeafPage.setSlot(data3, 2);
 
-    assertEquals(2,
-                 keyValueLeafPage.getLastSlotIndex(),
-                 "The last slot index should be 2 after inserting three slots.");
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+        "The last slot index should be 2 after inserting three slots.");
 
     // Update all slots
-    keyValueLeafPage.setSlot(new byte[] { 13, 14, 15, 16 }, 0);
-    keyValueLeafPage.setSlot(new byte[] { 17, 18, 19, 20 }, 1);
-    keyValueLeafPage.setSlot(new byte[] { 21, 22, 23, 24 }, 2);
+    keyValueLeafPage.setSlot(new byte[] {13, 14, 15, 16}, 0);
+    keyValueLeafPage.setSlot(new byte[] {17, 18, 19, 20}, 1);
+    keyValueLeafPage.setSlot(new byte[] {21, 22, 23, 24}, 2);
 
-    assertEquals(2,
-                 keyValueLeafPage.getLastSlotIndex(),
-                 "The last slot index should remain 2 after updating all slots.");
+    assertEquals(2, keyValueLeafPage.getLastSlotIndex(),
+        "The last slot index should remain 2 after updating all slots.");
   }
 
   @Test
   void testLastSlotIndexAfterInsertionAtHighIndex() {
-    byte[] data1 = new byte[] { 1, 2, 3, 4 };
+    byte[] data1 = new byte[] {1, 2, 3, 4};
 
     keyValueLeafPage.setSlot(data1, 10);
 
-    assertEquals(10,
-                 keyValueLeafPage.getLastSlotIndex(),
-                 "The last slot index should be 10 after inserting at index 10.");
+    assertEquals(10, keyValueLeafPage.getLastSlotIndex(),
+        "The last slot index should be 10 after inserting at index 10.");
   }
 
   @Test
   void testSetSlotWithoutShifting() {
-    byte[] data = new byte[] { 1, 2, 3, 4 };
+    byte[] data = new byte[] {1, 2, 3, 4};
     keyValueLeafPage.setSlot(data, 0);
 
     MemorySegment slot = keyValueLeafPage.getSlot(0);
@@ -250,8 +235,8 @@ class KeyValueLeafPageTest {
 
   @Test
   void testSetSlotWithShiftingRight() {
-    byte[] data1 = new byte[] { 1, 2, 3, 4 };
-    byte[] data2 = new byte[] { 5, 6, 7, 8, 9, 10 };
+    byte[] data1 = new byte[] {1, 2, 3, 4};
+    byte[] data2 = new byte[] {5, 6, 7, 8, 9, 10};
 
     keyValueLeafPage.setSlot(data1, 0);
     keyValueLeafPage.setSlot(data2, 1);
@@ -268,9 +253,9 @@ class KeyValueLeafPageTest {
 
   @Test
   void testSetSlotWithShiftingLeft() {
-    byte[] data1 = new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 };
-    byte[] data2 = new byte[] { 9, 10 };
-    byte[] data3 = new byte[] { 11, 12, 13 };
+    byte[] data1 = new byte[] {1, 2, 3, 4, 5, 6, 7, 8};
+    byte[] data2 = new byte[] {9, 10};
+    byte[] data3 = new byte[] {11, 12, 13};
 
     keyValueLeafPage.setSlot(data1, 0);
     keyValueLeafPage.setSlot(data2, 1);
@@ -301,19 +286,15 @@ class KeyValueLeafPageTest {
 
   @Test
   void testDeweyIdOperations() {
-    byte[] deweyId1 = new byte[] { 1, 2, 3 };
-    byte[] deweyId2 = new byte[] { 4, 5 };
+    byte[] deweyId1 = new byte[] {1, 2, 3};
+    byte[] deweyId2 = new byte[] {4, 5};
 
     try (var deweyIdArena = Arena.ofConfined()) {
       long recordPageKey = 1L;
       // Use local variable instead of overwriting the field
-      KeyValueLeafPage deweyIdPage = new KeyValueLeafPage(recordPageKey,
-                                              IndexType.DOCUMENT,
-                                              new ResourceConfiguration.Builder("testResource").useDeweyIDs(true)
-                                                                                               .build(),
-                                              1,
-                                              deweyIdArena.allocate(SIXTYFOUR_KB),
-                                              deweyIdArena.allocate(SIXTYFOUR_KB));
+      KeyValueLeafPage deweyIdPage = new KeyValueLeafPage(recordPageKey, IndexType.DOCUMENT,
+          new ResourceConfiguration.Builder("testResource").useDeweyIDs(true).build(), 1,
+          deweyIdArena.allocate(SIXTYFOUR_KB), deweyIdArena.allocate(SIXTYFOUR_KB));
 
       deweyIdPage.setDeweyId(deweyId1, 0);
       deweyIdPage.setDeweyId(deweyId2, 1);
@@ -355,7 +336,7 @@ class KeyValueLeafPageTest {
       keyValueLeafPage.setSlotMemory(memory);
       keyValueLeafPage.setSlot(recordData, 0);
       assertTrue(keyValueLeafPage.hasEnoughSpace(offsets, memory, 50),
-                 "There should be enough space for the new data.");
+          "There should be enough space for the new data.");
     }
   }
 
@@ -375,7 +356,7 @@ class KeyValueLeafPageTest {
 
       // Check that there's exactly enough space left.
       assertTrue(keyValueLeafPage.hasEnoughSpace(offsets, memory, 50),
-                 "There should be exactly enough space for the new data.");
+          "There should be exactly enough space for the new data.");
     }
   }
 
@@ -395,7 +376,7 @@ class KeyValueLeafPageTest {
 
       // Check that there's not enough space for new data.
       assertFalse(keyValueLeafPage.hasEnoughSpace(offsets, memory, 100),
-                  "There should not be enough space for the new data.");
+          "There should not be enough space for the new data.");
     }
   }
 
@@ -403,7 +384,7 @@ class KeyValueLeafPageTest {
   void testHasEnoughSpaceWithLargeOffset() {
     // Simulate a situation with large offset values and small memory.
     byte[] recordData = new byte[20];
-    int[] offsets = new int[] { 0, 24, -1 };
+    int[] offsets = new int[] {0, 24, -1};
 
     try (Arena arena = Arena.ofConfined()) {
       MemorySegment memory = arena.allocate(50); // Small memory segment.
@@ -416,7 +397,7 @@ class KeyValueLeafPageTest {
 
       // Check that there's not enough space.
       assertFalse(keyValueLeafPage.hasEnoughSpace(offsets, memory, 50),
-                  "There should not be enough space due to the small memory segment and large offsets.");
+          "There should not be enough space due to the small memory segment and large offsets.");
     }
   }
 
@@ -432,7 +413,7 @@ class KeyValueLeafPageTest {
       keyValueLeafPage.setSlotMemory(memory);
       // Check that there's not enough space.
       assertFalse(keyValueLeafPage.hasEnoughSpace(offsets, memory, 1),
-                  "There should not be enough space with an empty memory segment.");
+          "There should not be enough space with an empty memory segment.");
     }
   }
 
@@ -457,28 +438,20 @@ class KeyValueLeafPageTest {
 
       // Check that there's enough space after resizing.
       assertTrue(keyValueLeafPage.hasEnoughSpace(offsets, resizedMemory, 50),
-                 "There should be enough space after resizing the memory segment.");
+          "There should be enough space after resizing the memory segment.");
     }
   }
 
   @Test
   void testAddReferencesCopiesOnlyMarkedPreservationSlots() {
-    byte[] preserved = new byte[] { 42, 43, 44 };
+    byte[] preserved = new byte[] {42, 43, 44};
 
     try (var localArena = Arena.ofConfined()) {
       ResourceConfiguration config = new ResourceConfiguration.Builder("testResource").build();
-      KeyValueLeafPage completePage = new KeyValueLeafPage(1L,
-                                                           IndexType.DOCUMENT,
-                                                           config,
-                                                           1,
-                                                           localArena.allocate(SIXTYFOUR_KB),
-                                                           null);
-      KeyValueLeafPage modifiedPage = new KeyValueLeafPage(1L,
-                                                           IndexType.DOCUMENT,
-                                                           config,
-                                                           1,
-                                                           localArena.allocate(SIXTYFOUR_KB),
-                                                           null);
+      KeyValueLeafPage completePage =
+          new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, localArena.allocate(SIXTYFOUR_KB), null);
+      KeyValueLeafPage modifiedPage =
+          new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, localArena.allocate(SIXTYFOUR_KB), null);
 
       completePage.setSlot(preserved, 7);
       modifiedPage.markSlotForPreservation(7);
@@ -497,23 +470,15 @@ class KeyValueLeafPageTest {
 
   @Test
   void testAddReferencesDoesNotOverwriteExistingModifiedSlot() {
-    byte[] completeValue = new byte[] { 1, 2, 3 };
-    byte[] modifiedValue = new byte[] { 9, 8, 7 };
+    byte[] completeValue = new byte[] {1, 2, 3};
+    byte[] modifiedValue = new byte[] {9, 8, 7};
 
     try (var localArena = Arena.ofConfined()) {
       ResourceConfiguration config = new ResourceConfiguration.Builder("testResource").build();
-      KeyValueLeafPage completePage = new KeyValueLeafPage(1L,
-                                                           IndexType.DOCUMENT,
-                                                           config,
-                                                           1,
-                                                           localArena.allocate(SIXTYFOUR_KB),
-                                                           null);
-      KeyValueLeafPage modifiedPage = new KeyValueLeafPage(1L,
-                                                           IndexType.DOCUMENT,
-                                                           config,
-                                                           1,
-                                                           localArena.allocate(SIXTYFOUR_KB),
-                                                           null);
+      KeyValueLeafPage completePage =
+          new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, localArena.allocate(SIXTYFOUR_KB), null);
+      KeyValueLeafPage modifiedPage =
+          new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, localArena.allocate(SIXTYFOUR_KB), null);
 
       completePage.setSlot(completeValue, 11);
       modifiedPage.setSlot(modifiedValue, 11);
@@ -534,25 +499,17 @@ class KeyValueLeafPageTest {
   @Test
   void testAddReferencesCopiesPreservedSlotData() {
     final long nodeKey = 7L;
-    final int offset = (int) (nodeKey
-        - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+    final int offset =
+        (int) (nodeKey - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
     final BooleanNode node =
         new BooleanNode(nodeKey, 5L, 2, 3, 11L, 13L, 17L, true, LongHashFunction.xx3(), (byte[]) null);
 
     try (var localArena = Arena.ofConfined()) {
       final ResourceConfiguration config = new ResourceConfiguration.Builder("testResource").build();
-      final KeyValueLeafPage completePage = new KeyValueLeafPage(1L,
-                                                                 IndexType.DOCUMENT,
-                                                                 config,
-                                                                 1,
-                                                                 localArena.allocate(SIXTYFOUR_KB),
-                                                                 null);
-      final KeyValueLeafPage modifiedPage = new KeyValueLeafPage(1L,
-                                                                 IndexType.DOCUMENT,
-                                                                 config,
-                                                                 1,
-                                                                 localArena.allocate(SIXTYFOUR_KB),
-                                                                 null);
+      final KeyValueLeafPage completePage =
+          new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, localArena.allocate(SIXTYFOUR_KB), null);
+      final KeyValueLeafPage modifiedPage =
+          new KeyValueLeafPage(1L, IndexType.DOCUMENT, config, 1, localArena.allocate(SIXTYFOUR_KB), null);
 
       completePage.setRecord(node);
       completePage.addReferences(config);
@@ -575,8 +532,8 @@ class KeyValueLeafPageTest {
   @Test
   void testSetRecordDefersSlotMaterializationUntilAddReferences() {
     final long nodeKey = 1L;
-    final int offset = (int) (nodeKey
-        - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+    final int offset =
+        (int) (nodeKey - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
     final BooleanNode node =
         new BooleanNode(nodeKey, 7L, 3, 4, 9L, 11L, 13L, true, LongHashFunction.xx3(), (byte[]) null);
 
@@ -592,25 +549,25 @@ class KeyValueLeafPageTest {
   @Test
   void testRawSlotWriteWithoutMaterializedRecord() {
     final long nodeKey = 1L;
-    final int offset = (int) (nodeKey
-        - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+    final int offset =
+        (int) (nodeKey - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
     final BooleanNode node =
         new BooleanNode(nodeKey, 2L, 3, 4, 5L, 6L, 7L, false, LongHashFunction.xx3(), (byte[]) null);
 
     keyValueLeafPage.setRecord(node);
 
     keyValueLeafPage.records()[offset] = null;
-    keyValueLeafPage.setSlot(new byte[] { 1, 2, 3 }, offset);
+    keyValueLeafPage.setSlot(new byte[] {1, 2, 3}, offset);
 
     final MemorySegment slot = keyValueLeafPage.getSlot(offset);
     assertNotNull(slot);
-    assertArrayEquals(new byte[] { 1, 2, 3 }, slot.toArray(ValueLayout.JAVA_BYTE));
+    assertArrayEquals(new byte[] {1, 2, 3}, slot.toArray(ValueLayout.JAVA_BYTE));
   }
 
   @Test
   void testFixedSlotFormatMarkersRoundTrip() {
     final int slot = 13;
-    keyValueLeafPage.setSlot(new byte[] { 7, 8, 9 }, slot);
+    keyValueLeafPage.setSlot(new byte[] {7, 8, 9}, slot);
 
     assertFalse(keyValueLeafPage.isFixedSlotFormat(slot));
     assertNull(keyValueLeafPage.getFixedSlotNodeKind(slot));
@@ -627,7 +584,7 @@ class KeyValueLeafPageTest {
   @Test
   void testResetClearsFixedSlotFormatMetadata() {
     final int slot = 17;
-    keyValueLeafPage.setSlot(new byte[] { 1, 2 }, slot);
+    keyValueLeafPage.setSlot(new byte[] {1, 2}, slot);
     keyValueLeafPage.markSlotAsFixedFormat(slot, NodeKind.OBJECT);
 
     assertTrue(keyValueLeafPage.isFixedSlotFormat(slot));

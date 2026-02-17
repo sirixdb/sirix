@@ -62,7 +62,9 @@ import java.lang.foreign.MemorySegment;
 /**
  * JSON String node.
  *
- * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
+ * <p>
+ * Uses primitive fields for efficient storage with delta+varint encoding.
+ * </p>
  * 
  * @author Johannes Lichtenberger
  */
@@ -70,25 +72,25 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
-  
+
   // Mutable structural fields
   private long parentKey;
   private long rightSiblingKey;
   private long leftSiblingKey;
-  
+
   // Mutable revision tracking
   private int previousRevision;
   private int lastModifiedRevision;
-  
+
   // Mutable hash (computed on demand for value nodes)
   private long hash;
-  
+
   // String value (stored as bytes)
   private byte[] value;
-  
+
   // Hash function for computing node hashes (mutable for singleton reuse)
   private LongHashFunction hashFunction;
-  
+
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
@@ -103,40 +105,38 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
 
   // Lazy parsing state (for singleton reuse optimization)
   // Two-stage lazy parsing: metadata (cheap) vs value (expensive byte[] allocation)
-  private Object lazySource;            // Source for lazy parsing (MemorySegment or byte[])
-  private long lazyOffset;              // Offset where lazy metadata fields start
-  private boolean metadataParsed;       // Whether prevRev, lastModRev, hash are parsed
-  private boolean valueParsed;          // Whether value byte[] is parsed
-  private boolean hasHash;              // Whether hash is stored (from config)
-  private long valueOffset;             // Offset where value starts (after metadata)
+  private Object lazySource; // Source for lazy parsing (MemorySegment or byte[])
+  private long lazyOffset; // Offset where lazy metadata fields start
+  private boolean metadataParsed; // Whether prevRev, lastModRev, hash are parsed
+  private boolean valueParsed; // Whether value byte[] is parsed
+  private boolean hasHash; // Whether hash is stored (from config)
+  private long valueOffset; // Offset where value starts (after metadata)
 
   // Fixed-slot value encoding state (for read path via populateSingletonFromFixedSlot)
-  private boolean fixedValueEncoding;   // Whether value comes from fixed-slot inline payload
-  private int fixedValueLength;         // Length of inline payload bytes
+  private boolean fixedValueEncoding; // Whether value comes from fixed-slot inline payload
+  private int fixedValueLength; // Length of inline payload bytes
   private boolean fixedValueCompressed; // Whether inline payload is FSST compressed
 
   // Fixed-slot lazy metadata support
   private NodeKindLayout fixedSlotLayout;
 
   /**
-   * Primary constructor with all primitive fields.
-   * All fields are already parsed - no lazy loading needed.
+   * Primary constructor with all primitive fields. All fields are already parsed - no lazy loading
+   * needed.
    */
-  public StringNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      byte[] value, LongHashFunction hashFunction, byte[] deweyID) {
-    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey,
-        leftSiblingKey, hash, value, hashFunction, deweyID, false, null);
+  public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, byte[] deweyID) {
+    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey, hash, value,
+        hashFunction, deweyID, false, null);
   }
 
   /**
-   * Primary constructor with all primitive fields and compression support.
-   * All fields are already parsed - no lazy loading needed.
+   * Primary constructor with all primitive fields and compression support. All fields are already
+   * parsed - no lazy loading needed.
    */
-  public StringNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      byte[] value, LongHashFunction hashFunction, byte[] deweyID,
-      boolean isCompressed, byte[] fsstSymbolTable) {
+  public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, byte[] deweyID, boolean isCompressed,
+      byte[] fsstSymbolTable) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -155,23 +155,21 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   }
 
   /**
-   * Constructor with SirixDeweyID instead of byte array.
-   * All fields are already parsed - no lazy loading needed.
+   * Constructor with SirixDeweyID instead of byte array. All fields are already parsed - no lazy
+   * loading needed.
    */
-  public StringNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
-    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey,
-        leftSiblingKey, hash, value, hashFunction, deweyID, false, null);
+  public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
+    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey, hash, value,
+        hashFunction, deweyID, false, null);
   }
 
   /**
-   * Constructor with SirixDeweyID and compression support.
-   * All fields are already parsed - no lazy loading needed.
+   * Constructor with SirixDeweyID and compression support. All fields are already parsed - no lazy
+   * loading needed.
    */
-  public StringNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID,
+  public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID,
       boolean isCompressed, byte[] fsstSymbolTable) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -204,7 +202,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public long getParentKey() {
     return parentKey;
   }
-  
+
   public void setParentKey(final long parentKey) {
     this.parentKey = parentKey;
   }
@@ -256,12 +254,9 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   @Override
   public long computeHash(final BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(getNodeKey())
-         .writeLong(getParentKey())
-         .writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
 
-    bytes.writeLong(getLeftSiblingKey())
-         .writeLong(getRightSiblingKey());
+    bytes.writeLong(getLeftSiblingKey()).writeLong(getRightSiblingKey());
 
     bytes.writeUtf8(getValue());
 
@@ -272,7 +267,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public long getRightSiblingKey() {
     return rightSiblingKey;
   }
-  
+
   public void setRightSiblingKey(final long rightSibling) {
     this.rightSiblingKey = rightSibling;
   }
@@ -281,7 +276,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public long getLeftSiblingKey() {
     return leftSiblingKey;
   }
-  
+
   public void setLeftSiblingKey(final long leftSibling) {
     this.leftSiblingKey = leftSibling;
   }
@@ -290,7 +285,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public long getFirstChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setFirstChildKey(final long firstChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -299,7 +294,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public long getLastChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setLastChildKey(final long lastChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -308,7 +303,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public long getChildCount() {
     return 0;
   }
-  
+
   public void setChildCount(final long childCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -317,7 +312,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public long getDescendantCount() {
     return 0;
   }
-  
+
   public void setDescendantCount(final long descendantCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -331,12 +326,14 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     if (isCompressed && decodedValue == null && value != null) {
       decodedValue = FSSTCompressor.decode(value, fsstSymbolTable);
     }
-    return isCompressed ? decodedValue : value;
+    return isCompressed
+        ? decodedValue
+        : value;
   }
 
   /**
-   * Get the raw (possibly compressed) value bytes without FSST decoding.
-   * Use this for serialization to preserve compression.
+   * Get the raw (possibly compressed) value bytes without FSST decoding. Use this for serialization
+   * to preserve compression.
    * 
    * @return the raw bytes as stored, possibly FSST compressed
    */
@@ -486,22 +483,22 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   }
 
   /**
-   * Populate this node from a BytesIn source for singleton reuse.
-   * LAZY OPTIMIZATION: Only parses structural fields immediately.
-   * Two-stage lazy parsing: metadata (cheap) vs value (expensive byte[] allocation).
+   * Populate this node from a BytesIn source for singleton reuse. LAZY OPTIMIZATION: Only parses
+   * structural fields immediately. Two-stage lazy parsing: metadata (cheap) vs value (expensive
+   * byte[] allocation).
    */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
-    
+
     // STRUCTURAL FIELDS - parse immediately (NEW ORDER)
     this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    
+
     // Store state for lazy parsing - DON'T parse remaining fields yet
     this.lazySource = source.getSource();
     this.lazyOffset = source.position();
@@ -509,18 +506,18 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     this.valueParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
     this.valueOffset = 0;
-    
+
     // Initialize lazy fields to defaults (will be populated on demand)
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.hash = 0;
     this.value = null;
   }
-  
+
   /**
-   * Populate this singleton from fixed-slot inline payload (zero allocation).
-   * Sets up lazy value parsing from the fixed-slot MemorySegment.
-   * CRITICAL: Resets hash to 0 — caller MUST call setHash() AFTER this method.
+   * Populate this singleton from fixed-slot inline payload (zero allocation). Sets up lazy value
+   * parsing from the fixed-slot MemorySegment. CRITICAL: Resets hash to 0 — caller MUST call
+   * setHash() AFTER this method.
    *
    * @param source the slot data (MemorySegment) containing inline payload
    * @param valueOffset byte offset within source where payload bytes start
@@ -548,8 +545,8 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   }
 
   /**
-   * Parse metadata fields on demand (cheap - just varints and optionally a long).
-   * Called by getters that access prevRev, lastModRev, or hash.
+   * Parse metadata fields on demand (cheap - just varints and optionally a long). Called by getters
+   * that access prevRev, lastModRev, or hash.
    */
   private void parseMetadataFields() {
     if (metadataParsed) {
@@ -583,10 +580,10 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     this.valueOffset = bytesIn.position();
     this.metadataParsed = true;
   }
-  
+
   /**
-   * Parse value field on demand (expensive - allocates byte[]).
-   * Called by getValue() and getRawValue().
+   * Parse value field on demand (expensive - allocates byte[]). Called by getValue() and
+   * getRawValue().
    */
   private void parseValueField() {
     if (valueParsed) {
@@ -625,7 +622,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     bytesIn.read(this.value);
     this.valueParsed = true;
   }
-  
+
   /**
    * Create a BytesIn for reading from the lazy source at the given offset.
    */
@@ -644,8 +641,8 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   }
 
   /**
-   * Create a deep copy snapshot of this node.
-   * Forces parsing of all lazy fields since snapshot must be independent.
+   * Create a deep copy snapshot of this node. Forces parsing of all lazy fields since snapshot must
+   * be independent.
    */
   public StringNode toSnapshot() {
     // Force parse all lazy fields for snapshot (must be complete and independent)
@@ -655,12 +652,16 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     if (!valueParsed) {
       parseValueField();
     }
-    return new StringNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, hash,
-        value != null ? value.clone() : null,
-        hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null,
-        isCompressed, fsstSymbolTable != null ? fsstSymbolTable.clone() : null);
+    return new StringNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
+        hash, value != null
+            ? value.clone()
+            : null,
+        hashFunction, deweyIDBytes != null
+            ? deweyIDBytes.clone()
+            : null,
+        isCompressed, fsstSymbolTable != null
+            ? fsstSymbolTable.clone()
+            : null);
   }
 
   @Override
@@ -707,8 +708,6 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     if (!(obj instanceof final StringNode other))
       return false;
 
-    return nodeKey == other.nodeKey
-        && parentKey == other.parentKey
-        && Objects.equal(getValue(), other.getValue());
+    return nodeKey == other.nodeKey && parentKey == other.parentKey && Objects.equal(getValue(), other.getValue());
   }
 }

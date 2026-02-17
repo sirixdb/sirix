@@ -28,7 +28,7 @@ public final class JsonNodeTrxGetPreviousRevisionNumberTest {
   public void testPreviousRevisionOfNodes() {
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final JsonResourceSession manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+        final JsonNodeTrx wtx = manager.beginNodeTrx()) {
       JsonDocumentCreator.create(wtx);
       wtx.commit();
 

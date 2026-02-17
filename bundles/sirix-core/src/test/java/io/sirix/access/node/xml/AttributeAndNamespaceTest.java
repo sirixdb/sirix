@@ -57,8 +57,7 @@ public class AttributeAndNamespaceTest {
     holder.getXmlNodeReadTrx().moveTo(9L);
     assertEquals(1, holder.getXmlNodeReadTrx().getAttributeCount());
     holder.getXmlNodeReadTrx().moveToAttribute(0);
-    assertEquals(
-        "p:x",
+    assertEquals("p:x",
         holder.getXmlNodeReadTrx().getName().getPrefix() + ":" + holder.getXmlNodeReadTrx().getName().getLocalName());
     assertEquals("ns", holder.getXmlNodeReadTrx().getName().getNamespaceURI());
   }

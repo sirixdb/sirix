@@ -63,7 +63,9 @@ import java.lang.foreign.MemorySegment;
 /**
  * Comment node implementation using primitive fields.
  *
- * <p>Uses primitive fields for efficient storage.</p>
+ * <p>
+ * Uses primitive fields for efficient storage.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -101,10 +103,9 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   /**
    * Primary constructor with all primitive fields.
    */
-  public CommentNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey,
-      long hash, byte[] value, boolean isCompressed,
-      LongHashFunction hashFunction, byte[] deweyID) {
+  public CommentNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, byte[] value, boolean isCompressed, LongHashFunction hashFunction,
+      byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -121,10 +122,9 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   /**
    * Constructor with SirixDeweyID instead of byte array.
    */
-  public CommentNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey,
-      long hash, byte[] value, boolean isCompressed,
-      LongHashFunction hashFunction, SirixDeweyID deweyID) {
+  public CommentNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, byte[] value, boolean isCompressed, LongHashFunction hashFunction,
+      SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -197,7 +197,8 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
 
   @Override
   public int getPreviousRevisionNumber() {
-    if (!metadataParsed) parseMetadataFields();
+    if (!metadataParsed)
+      parseMetadataFields();
     return previousRevision;
   }
 
@@ -208,7 +209,8 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
 
   @Override
   public int getLastModifiedRevisionNumber() {
-    if (!metadataParsed) parseMetadataFields();
+    if (!metadataParsed)
+      parseMetadataFields();
     return lastModifiedRevision;
   }
 
@@ -219,7 +221,8 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
 
   @Override
   public long getHash() {
-    if (!metadataParsed) parseMetadataFields();
+    if (!metadataParsed)
+      parseMetadataFields();
     if (hash == 0L && hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
@@ -393,8 +396,8 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   /**
    * Populate this node from a BytesIn source for singleton reuse.
    */
-  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
-      LongHashFunction hashFunction, ResourceConfiguration config) {
+  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId, LongHashFunction hashFunction,
+      ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
@@ -452,8 +455,8 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   }
 
   /**
-   * Returns the raw value bytes without triggering decompression.
-   * Used by the fixed-slot projector to preserve the original compressed bytes.
+   * Returns the raw value bytes without triggering decompression. Used by the fixed-slot projector to
+   * preserve the original compressed bytes.
    */
   public byte[] getRawValueWithoutDecompression() {
     if (!valueParsed) {
@@ -473,9 +476,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
     }
 
     bytes.clear();
-    bytes.writeLong(nodeKey)
-         .writeLong(parentKey)
-         .writeByte(NodeKind.COMMENT.getId());
+    bytes.writeLong(nodeKey).writeLong(parentKey).writeByte(NodeKind.COMMENT.getId());
 
     bytes.writeLong(leftSiblingKey).writeLong(rightSiblingKey);
     bytes.writeUtf8(new String(getRawValue(), Constants.DEFAULT_ENCODING));
@@ -512,13 +513,16 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   }
 
   public CommentNode toSnapshot() {
-    if (!metadataParsed) parseMetadataFields();
+    if (!metadataParsed)
+      parseMetadataFields();
     final byte[] rawValue = getRawValue();
-    return new CommentNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, hash,
-        rawValue != null ? rawValue.clone() : null, isCompressed,
-        hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+    return new CommentNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
+        hash, rawValue != null
+            ? rawValue.clone()
+            : null,
+        isCompressed, hashFunction, deweyIDBytes != null
+            ? deweyIDBytes.clone()
+            : null);
   }
 
   @Override
@@ -534,8 +538,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   @Override
   public boolean equals(@Nullable Object obj) {
     if (obj instanceof CommentNode other) {
-      return nodeKey == other.nodeKey
-          && parentKey == other.parentKey
+      return nodeKey == other.nodeKey && parentKey == other.parentKey
           && java.util.Arrays.equals(getRawValue(), other.getRawValue());
     }
     return false;

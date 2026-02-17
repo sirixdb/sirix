@@ -89,8 +89,8 @@ public final class CreatePathIndex extends AbstractFunction {
       }
     }
 
-    final IndexDef idxDef =
-        IndexDefs.createPathIdxDef(paths, controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH), IndexDef.DbType.XML);
+    final IndexDef idxDef = IndexDefs.createPathIdxDef(paths,
+        controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH), IndexDef.DbType.XML);
     try {
       controller.createIndexes(ImmutableSet.of(idxDef), wtx);
     } catch (final SirixIOException e) {

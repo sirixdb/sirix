@@ -87,7 +87,7 @@ public final class DiffTest {
     try (final var database = Databases.openXmlDatabase(databasePath)) {
       database.createResource(ResourceConfiguration.newBuilder(XmlTestHelper.RESOURCE).build());
       try (final XmlResourceSession manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
-           final XmlNodeTrx wtx = manager.beginNodeTrx()) {
+          final XmlNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));
         wtx.moveTo(3);
         wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader("<xml>foo<bar/></xml>"));

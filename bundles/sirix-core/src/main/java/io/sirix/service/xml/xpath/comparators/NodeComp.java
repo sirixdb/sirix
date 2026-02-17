@@ -44,8 +44,7 @@ public class NodeComp extends AbstractComparator {
    * @param mOperand2 Second value of the comparison
    * @param mComp comparison kind
    */
-  public NodeComp(final XmlNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2,
-      final CompKind mComp) {
+  public NodeComp(final XmlNodeReadOnlyTrx rtx, final Axis mOperand1, final Axis mOperand2, final CompKind mComp) {
 
     super(rtx, mOperand1, mOperand2, mComp);
   }
@@ -55,8 +54,8 @@ public class NodeComp extends AbstractComparator {
 
     final XmlNodeReadOnlyTrx rtx = asXmlNodeReadTrx();
     // store item key as atomic value
-    final AtomicValue mAtomized = new AtomicValue(
-        TypedValue.getBytes(((Long) rtx.getNodeKey()).toString()), rtx.keyForName("xs:integer"));
+    final AtomicValue mAtomized =
+        new AtomicValue(TypedValue.getBytes(((Long) rtx.getNodeKey()).toString()), rtx.keyForName("xs:integer"));
     final AtomicValue[] op = {mAtomized};
 
     // the operands must be singletons in case of a node comparison
@@ -83,14 +82,12 @@ public class NodeComp extends AbstractComparator {
    * 
    */
   @Override
-  protected boolean compare(final AtomicValue[] mOperand1, final AtomicValue[] mOperand2)
-      throws SirixXPathException {
+  protected boolean compare(final AtomicValue[] mOperand1, final AtomicValue[] mOperand2) throws SirixXPathException {
 
     final String op1 = new String(mOperand1[0].getRawValue());
     final String op2 = new String(mOperand2[0].getRawValue());
 
-    return getCompKind().compare(
-        op1, op2, getType(mOperand1[0].getTypeKey(), mOperand2[0].getTypeKey()));
+    return getCompKind().compare(op1, op2, getType(mOperand1[0].getTypeKey(), mOperand2[0].getTypeKey()));
   }
 
 }

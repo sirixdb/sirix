@@ -44,14 +44,17 @@ import io.sirix.node.immutable.json.ImmutableStringNode;
  *
  * <h2>Usage Examples:</h2>
  *
- * <pre><code>
+ * <pre>
+ * <code>
  * final Visitor visitor = new NamespaceChangeVisitor(session);
  * for (final long nodeKey : new DescendantAxis.Builder(rtx).includeSelf().build()) {
  *      rtx.acceptVisitor(visitor);
  * }
- * </code></pre>
+ * </code>
+ * </pre>
  *
- * <pre><code>
+ * <pre>
+ * <code>
  * // MyVisitor extends AbstractVisitor.
  * final Visitor visitor = new MyVisitor(rtx) {
  *   public void visit(final ImmutableObjectKey node) {
@@ -63,7 +66,8 @@ import io.sirix.node.immutable.json.ImmutableStringNode;
  * for (final long nodeKey : new DescendantAxis(rtx);) {
  *   rtx.acceptVisitor(visitor);
  * }
- * </code></pre>
+ * </code>
+ * </pre>
  *
  * @author Johannes Lichtenberger, University of Konstanz
  *

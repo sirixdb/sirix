@@ -34,38 +34,32 @@ public final class PageCache implements Cache<PageReference, Page> {
         // CRITICAL: Check guard count before closing
         if (keyValueLeafPage.getGuardCount() > 0) {
           // Page is actively guarded - DO NOT close
-          LOGGER.trace("PageCache: Page {} has active guards ({}), skipping close (cause={})",
-              key.getKey(), keyValueLeafPage.getGuardCount(), cause);
+          LOGGER.trace("PageCache: Page {} has active guards ({}), skipping close (cause={})", key.getKey(),
+              keyValueLeafPage.getGuardCount(), cause);
           return;
         }
 
         // Page handles its own cleanup
-        LOGGER.trace("PageCache: Closing page {} and releasing segments, cause={}",
-                    key.getKey(), cause);
+        LOGGER.trace("PageCache: Closing page {} and releasing segments, cause={}", key.getKey(), cause);
         LOGGER.debug("PageCache EVICT: closing page {} cause={}", keyValueLeafPage.getPageKey(), cause);
         keyValueLeafPage.close();
       }
     };
 
-    cache = Caffeine.newBuilder()
-                    .maximumWeight(maxWeight)
-                    .weigher((PageReference key, Page value) -> {
-                      if (value instanceof KeyValueLeafPage keyValueLeafPage) {
-                        // Guarded pages have zero weight (won't be evicted)
-                        if (keyValueLeafPage.getGuardCount() > 0) {
-                          return 0;
-                        }
-                        // Return weight as int (Caffeine Weigher interface requires int)
-                        // For very large pages (>2GB), cap at Integer.MAX_VALUE
-                        long size = keyValueLeafPage.getActualMemorySize();
-                        return (int) Math.min(size, Integer.MAX_VALUE);
-                      } else {
-                        return 1000; // Other page types use fixed weight
-                      }
-                    })
-                    .removalListener(removalListener)
-                    .recordStats()
-                    .build();
+    cache = Caffeine.newBuilder().maximumWeight(maxWeight).weigher((PageReference key, Page value) -> {
+      if (value instanceof KeyValueLeafPage keyValueLeafPage) {
+        // Guarded pages have zero weight (won't be evicted)
+        if (keyValueLeafPage.getGuardCount() > 0) {
+          return 0;
+        }
+        // Return weight as int (Caffeine Weigher interface requires int)
+        // For very large pages (>2GB), cap at Integer.MAX_VALUE
+        long size = keyValueLeafPage.getActualMemorySize();
+        return (int) Math.min(size, Integer.MAX_VALUE);
+      } else {
+        return 1000; // Other page types use fixed weight
+      }
+    }).removalListener(removalListener).recordStats().build();
 
     LOGGER.info("PageCache created with maxWeight: {} MB", maxWeight / (1024 * 1024));
   }
@@ -100,13 +94,14 @@ public final class PageCache implements Cache<PageReference, Page> {
   @Override
   public void put(PageReference key, Page value) {
     assert !(value instanceof KeyValueLeafPage);
-    
+
     // PageCache is for metadata/indirect pages ONLY, not KeyValueLeafPages
     // KeyValueLeafPages should go in RecordPageCache or RecordPageFragmentCache
     if (value instanceof KeyValueLeafPage) {
-      throw new IllegalArgumentException("KeyValueLeafPages must not be stored in PageCache! Use RecordPageCache instead.");
+      throw new IllegalArgumentException(
+          "KeyValueLeafPages must not be stored in PageCache! Use RecordPageCache instead.");
     }
-    
+
     if (!(value instanceof RevisionRootPage) && !(value instanceof PathSummaryPage) && !(value instanceof PathPage)
         && !(value instanceof CASPage) && !(value instanceof NamePage)) {
       assert key.getKey() != Constants.NULL_ID_LONG;
@@ -140,18 +135,17 @@ public final class PageCache implements Cache<PageReference, Page> {
   }
 
   @Override
-  public void close() {
-  }
-  
+  public void close() {}
+
   /**
    * Get cache statistics for diagnostics.
    */
   public CacheStatistics getStatistics() {
     com.github.benmanes.caffeine.cache.stats.CacheStats caffeineStats = cache.stats();
-    
+
     int totalPages = 0;
     long totalWeight = 0;
-    
+
     for (Page page : cache.asMap().values()) {
       if (page instanceof KeyValueLeafPage kvPage) {
         totalPages++;
@@ -161,46 +155,26 @@ public final class PageCache implements Cache<PageReference, Page> {
       }
     }
 
-    return new CacheStatistics(
-        totalPages,
-        0, // pinnedPages
-        totalPages,
-        totalWeight,
-        0, // pinnedWeight
-        totalWeight,
-        caffeineStats.hitCount(),
-        caffeineStats.missCount(),
-        caffeineStats.evictionCount()
-    );
+    return new CacheStatistics(totalPages, 0, // pinnedPages
+        totalPages, totalWeight, 0, // pinnedWeight
+        totalWeight, caffeineStats.hitCount(), caffeineStats.missCount(), caffeineStats.evictionCount());
   }
-  
+
   /**
    * Cache statistics for diagnostics.
    */
-  public record CacheStatistics(
-      int totalPages,
-      int pinnedPages,
-      int unpinnedPages,
-      long totalWeightBytes,
-      long pinnedWeightBytes,
-      long unpinnedWeightBytes,
-      long hitCount,
-      long missCount,
-      long evictionCount
-  ) {
+  public record CacheStatistics(int totalPages, int pinnedPages, int unpinnedPages, long totalWeightBytes,
+      long pinnedWeightBytes, long unpinnedWeightBytes, long hitCount, long missCount, long evictionCount) {
     @Override
     public String toString() {
       return String.format(
-          "CacheStats[pages=%d (pinned=%d, unpinned=%d), " +
-          "weight=%.2fMB (pinned=%.2fMB, unpinned=%.2fMB), " +
-          "hits=%d, misses=%d, evictions=%d, hit-rate=%.1f%%]",
-          totalPages, pinnedPages, unpinnedPages,
-          totalWeightBytes / (1024.0 * 1024.0),
-          pinnedWeightBytes / (1024.0 * 1024.0),
-          unpinnedWeightBytes / (1024.0 * 1024.0),
-          hitCount, missCount, evictionCount,
-          (hitCount + missCount) > 0 ? 100.0 * hitCount / (hitCount + missCount) : 0.0
-      );
+          "CacheStats[pages=%d (pinned=%d, unpinned=%d), " + "weight=%.2fMB (pinned=%.2fMB, unpinned=%.2fMB), "
+              + "hits=%d, misses=%d, evictions=%d, hit-rate=%.1f%%]",
+          totalPages, pinnedPages, unpinnedPages, totalWeightBytes / (1024.0 * 1024.0),
+          pinnedWeightBytes / (1024.0 * 1024.0), unpinnedWeightBytes / (1024.0 * 1024.0), hitCount, missCount,
+          evictionCount, (hitCount + missCount) > 0
+              ? 100.0 * hitCount / (hitCount + missCount)
+              : 0.0);
     }
   }
 }

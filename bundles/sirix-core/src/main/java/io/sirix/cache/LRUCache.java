@@ -93,8 +93,8 @@ public final class LRUCache<K, V> implements Cache<K, V> {
    * The retrieved entry becomes the MRU (most recently used) entry.
    *
    * @param key the key whose associated value is to be returned.
-   * @return the value associated to this key, or {@code null} if no value with this key exists in
-   *         the cache
+   * @return the value associated to this key, or {@code null} if no value with this key exists in the
+   *         cache
    */
   @Override
   public V get(final K key) {
@@ -150,10 +150,7 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("First Cache", map)
-                      .add("Second Cache", secondCache)
-                      .toString();
+    return MoreObjects.toStringHelper(this).add("First Cache", map).add("Second Cache", secondCache).toString();
   }
 
   @Override

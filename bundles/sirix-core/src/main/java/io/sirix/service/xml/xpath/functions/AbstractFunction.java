@@ -89,8 +89,8 @@ public abstract class AbstractFunction extends AbstractExpression {
    * @param returnType the type that the function's result will have
    * @throws SirixXPathException if the verify process is failing.
    */
-  public AbstractFunction(final XmlNodeReadOnlyTrx rtx, final List<Axis> args, final int min,
-      final int max, final int returnType) throws SirixXPathException {
+  public AbstractFunction(final XmlNodeReadOnlyTrx rtx, final List<Axis> args, final int min, final int max,
+      final int returnType) throws SirixXPathException {
 
     super(rtx);
     mArgs = args;
@@ -155,6 +155,7 @@ public abstract class AbstractFunction extends AbstractExpression {
 
   /**
    * Get all the arguments provided to the function
+   * 
    * @return the list of function arguments
    */
   protected List<Axis> getArgs() {

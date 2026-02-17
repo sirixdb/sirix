@@ -176,21 +176,20 @@ public class LinuxMemorySegmentAllocatorTest {
       allocator.release(segment);
     }
   }
-  
+
   /**
-   * Verify that a segment is usable up to the requested size.
-   * Since allocate() reinterprets to Long.MAX_VALUE for performance,
-   * we can't check byteSize() but we can verify read/write works.
+   * Verify that a segment is usable up to the requested size. Since allocate() reinterprets to
+   * Long.MAX_VALUE for performance, we can't check byteSize() but we can verify read/write works.
    */
   private void verifySegmentUsable(MemorySegment segment, int requestedSize) {
     // Write to first byte
     segment.set(ValueLayout.JAVA_BYTE, 0, (byte) 42);
     assertEquals((byte) 42, segment.get(ValueLayout.JAVA_BYTE, 0), "First byte should be readable");
-    
+
     // Write to last byte of requested size
     segment.set(ValueLayout.JAVA_BYTE, requestedSize - 1, (byte) 99);
     assertEquals((byte) 99, segment.get(ValueLayout.JAVA_BYTE, requestedSize - 1), "Last byte should be readable");
-    
+
     // Write a long at offset 0 (if size >= 8)
     if (requestedSize >= 8) {
       segment.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, 0x123456789ABCDEFL);
@@ -199,57 +198,55 @@ public class LinuxMemorySegmentAllocatorTest {
   }
 
   /**
-   * Test that memory accounting uses actual segment size, not requested size.
-   * This is critical to prevent drift where allocate tracks requested size but
-   * release tracks actual segment size.
+   * Test that memory accounting uses actual segment size, not requested size. This is critical to
+   * prevent drift where allocate tracks requested size but release tracks actual segment size.
    * 
-   * For example, requesting 100KB rounds up to 128KB segment:
-   * - allocate() should add 128KB to physicalMemoryBytes
-   * - release() subtracts segment.byteSize() = 128KB
-   * - No accounting drift!
+   * For example, requesting 100KB rounds up to 128KB segment: - allocate() should add 128KB to
+   * physicalMemoryBytes - release() subtracts segment.byteSize() = 128KB - No accounting drift!
    */
   @Test
   public void testMemoryAccountingUsesActualSegmentSize() {
     // Request sizes that round up to next power of two
     long[][] testCases = {
         // {requestedSize, expectedActualSize}
-        {5000, 8192},      // Rounds up from 5KB to 8KB
-        {10000, 16384},    // Rounds up from ~10KB to 16KB
-        {50000, 65536},    // Rounds up from ~50KB to 64KB
-        {100000, 131072},  // Rounds up from ~100KB to 128KB
-        {200000, 262144},  // Rounds up from ~200KB to 256KB
+        {5000, 8192}, // Rounds up from 5KB to 8KB
+        {10000, 16384}, // Rounds up from ~10KB to 16KB
+        {50000, 65536}, // Rounds up from ~50KB to 64KB
+        {100000, 131072}, // Rounds up from ~100KB to 128KB
+        {200000, 262144}, // Rounds up from ~200KB to 256KB
     };
-    
+
     for (long[] testCase : testCases) {
       long requestedSize = testCase[0];
       long expectedActualSize = testCase[1];
-      
+
       // Allocate and immediately release multiple times
       // If accounting is wrong, drift will accumulate
       for (int i = 0; i < 100; i++) {
         MemorySegment segment = allocator.allocate(requestedSize);
         assertNotNull(segment, "Segment should not be null for requested size " + requestedSize);
-        assertEquals(expectedActualSize, segment.byteSize(), 
+        assertEquals(expectedActualSize, segment.byteSize(),
             "Segment size should be rounded up to " + expectedActualSize);
         allocator.release(segment);
       }
     }
-    
+
     // After all allocate/release cycles, there should be no accounting warnings
     // and the test should complete without any memory drift
   }
 
   /**
-   * Stress test: Verify lock-free allocate/release under high contention.
-   * This test exercises the CAS-based memory reservation and the concurrent
-   * data structures (ConcurrentLinkedDeque, ConcurrentHashMap.newKeySet()).
+   * Stress test: Verify lock-free allocate/release under high contention. This test exercises the
+   * CAS-based memory reservation and the concurrent data structures (ConcurrentLinkedDeque,
+   * ConcurrentHashMap.newKeySet()).
    * 
-   * <p>The test verifies:
+   * <p>
+   * The test verifies:
    * <ul>
-   *   <li>No segment is allocated to multiple threads simultaneously</li>
-   *   <li>Memory accounting remains consistent (no negative values, no leaks)</li>
-   *   <li>No deadlocks or livelocks under contention</li>
-   *   <li>Double-release is handled correctly</li>
+   * <li>No segment is allocated to multiple threads simultaneously</li>
+   * <li>Memory accounting remains consistent (no negative values, no leaks)</li>
+   * <li>No deadlocks or livelocks under contention</li>
+   * <li>Double-release is handled correctly</li>
    * </ul>
    */
   @Test
@@ -257,51 +254,51 @@ public class LinuxMemorySegmentAllocatorTest {
     final int threadCount = Runtime.getRuntime().availableProcessors() * 2;
     final int operationsPerThread = 1000;
     final int[] sizes = {4096, 8192, 16384, 32768, 65536, 131072, 262144};
-    
+
     ExecutorService executor = Executors.newFixedThreadPool(threadCount);
     CountDownLatch startLatch = new CountDownLatch(1);
     CountDownLatch doneLatch = new CountDownLatch(threadCount);
-    
+
     AtomicInteger successfulAllocations = new AtomicInteger(0);
     AtomicInteger successfulReleases = new AtomicInteger(0);
     AtomicInteger errors = new AtomicInteger(0);
-    
+
     // Track all allocated segments to verify uniqueness
     ConcurrentLinkedQueue<Long> allAllocatedAddresses = new ConcurrentLinkedQueue<>();
-    
+
     for (int t = 0; t < threadCount; t++) {
       final int threadId = t;
       executor.submit(() -> {
         try {
           startLatch.await(); // Wait for all threads to be ready
-          
+
           List<MemorySegment> heldSegments = new ArrayList<>();
-          
+
           for (int i = 0; i < operationsPerThread; i++) {
             // Pick a random size
             int size = sizes[(threadId + i) % sizes.length];
-            
+
             try {
               // Allocate
               MemorySegment segment = allocator.allocate(size);
               successfulAllocations.incrementAndGet();
-              
+
               // Verify the segment is usable
               long addr = segment.address();
               segment.set(ValueLayout.JAVA_LONG_UNALIGNED, 0, addr); // Write address as marker
-              
+
               // Track address for uniqueness verification
               allAllocatedAddresses.add(addr);
-              
+
               heldSegments.add(segment);
-              
+
               // Randomly release some segments to create churn
               if (heldSegments.size() > 5 || Math.random() < 0.5) {
                 MemorySegment toRelease = heldSegments.remove(0);
                 allocator.release(toRelease);
                 successfulReleases.incrementAndGet();
               }
-              
+
             } catch (OutOfMemoryError e) {
               // Memory limit reached - this is expected under heavy load
               // Release all held segments to free up memory
@@ -315,13 +312,13 @@ public class LinuxMemorySegmentAllocatorTest {
               LOGGER.error("Thread {} error: {}", threadId, e.getMessage());
             }
           }
-          
+
           // Release remaining held segments
           for (MemorySegment seg : heldSegments) {
             allocator.release(seg);
             successfulReleases.incrementAndGet();
           }
-          
+
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
         } finally {
@@ -329,48 +326,47 @@ public class LinuxMemorySegmentAllocatorTest {
         }
       });
     }
-    
+
     // Start all threads simultaneously
     startLatch.countDown();
-    
+
     // Wait for completion with timeout
     boolean completed = doneLatch.await(60, TimeUnit.SECONDS);
     executor.shutdown();
-    
+
     assertTrue(completed, "Test should complete within 60 seconds");
     assertEquals(0, errors.get(), "No errors should occur during concurrent operations");
-    assertEquals(successfulAllocations.get(), successfulReleases.get(), 
-        "All allocated segments should be released");
-    
-    LOGGER.info("Concurrent test completed: Threads={}, Allocations={}, Releases={}, UniqueAddresses={}",
-                threadCount, successfulAllocations.get(), successfulReleases.get(), allAllocatedAddresses.size());
+    assertEquals(successfulAllocations.get(), successfulReleases.get(), "All allocated segments should be released");
+
+    LOGGER.info("Concurrent test completed: Threads={}, Allocations={}, Releases={}, UniqueAddresses={}", threadCount,
+        successfulAllocations.get(), successfulReleases.get(), allAllocatedAddresses.size());
   }
 
   /**
-   * Test that double-release is handled correctly in concurrent scenarios.
-   * Multiple threads attempt to release the same segment simultaneously.
+   * Test that double-release is handled correctly in concurrent scenarios. Multiple threads attempt
+   * to release the same segment simultaneously.
    */
   @Test
   public void testConcurrentDoubleRelease() throws InterruptedException {
     final int threadCount = 8;
     final int segmentsToTest = 100;
-    
+
     ExecutorService executor = Executors.newFixedThreadPool(threadCount);
     AtomicInteger doubleReleaseAttempts = new AtomicInteger(0);
     AtomicInteger successfulReleases = new AtomicInteger(0);
-    
+
     for (int s = 0; s < segmentsToTest; s++) {
       MemorySegment segment = allocator.allocate(4096);
       CountDownLatch releaseLatch = new CountDownLatch(threadCount);
       CountDownLatch doneLatch = new CountDownLatch(threadCount);
-      
+
       // Multiple threads try to release the same segment
       for (int t = 0; t < threadCount; t++) {
         executor.submit(() -> {
           try {
             releaseLatch.countDown();
             releaseLatch.await(); // Wait for all threads to be ready
-            
+
             try {
               allocator.release(segment);
               successfulReleases.incrementAndGet();
@@ -385,54 +381,54 @@ public class LinuxMemorySegmentAllocatorTest {
           }
         });
       }
-      
+
       doneLatch.await();
     }
-    
+
     executor.shutdown();
     executor.awaitTermination(30, TimeUnit.SECONDS);
-    
+
     // Exactly one release per segment should succeed
     // Note: Our implementation silently ignores double-releases (returns early),
     // so successfulReleases will equal segmentsToTest * threadCount but most are no-ops
     LOGGER.info("Double-release test completed: SegmentsTested={}, ThreadsPerSegment={}, SuccessfulReleases={}",
-                segmentsToTest, threadCount, successfulReleases.get());
+        segmentsToTest, threadCount, successfulReleases.get());
   }
 
   /**
-   * Test memory limit enforcement under concurrent load.
-   * Verifies that the CAS-based reservation correctly enforces limits.
+   * Test memory limit enforcement under concurrent load. Verifies that the CAS-based reservation
+   * correctly enforces limits.
    */
   @Test
   public void testConcurrentMemoryLimitEnforcement() throws InterruptedException {
     // Use a smaller limit for this test
     allocator.init(100 * 1024 * 1024); // 100MB limit
-    
+
     final int threadCount = Runtime.getRuntime().availableProcessors();
     final int operationsPerThread = 500;
-    
+
     ExecutorService executor = Executors.newFixedThreadPool(threadCount);
     CountDownLatch startLatch = new CountDownLatch(1);
     CountDownLatch doneLatch = new CountDownLatch(threadCount);
-    
+
     AtomicLong totalAllocated = new AtomicLong(0);
     AtomicLong totalReleased = new AtomicLong(0);
     AtomicInteger oomCount = new AtomicInteger(0);
-    
+
     for (int t = 0; t < threadCount; t++) {
       executor.submit(() -> {
         try {
           startLatch.await();
-          
+
           List<MemorySegment> held = new ArrayList<>();
-          
+
           for (int i = 0; i < operationsPerThread; i++) {
             try {
               // Allocate 256KB segments
               MemorySegment seg = allocator.allocate(262144);
               totalAllocated.addAndGet(262144);
               held.add(seg);
-              
+
               // Release half of held segments periodically
               if (held.size() >= 10) {
                 for (int j = 0; j < 5; j++) {
@@ -451,13 +447,13 @@ public class LinuxMemorySegmentAllocatorTest {
               held.clear();
             }
           }
-          
+
           // Cleanup
           for (MemorySegment seg : held) {
             allocator.release(seg);
             totalReleased.addAndGet(262144);
           }
-          
+
         } catch (InterruptedException e) {
           Thread.currentThread().interrupt();
         } finally {
@@ -465,17 +461,16 @@ public class LinuxMemorySegmentAllocatorTest {
         }
       });
     }
-    
+
     startLatch.countDown();
     doneLatch.await(60, TimeUnit.SECONDS);
     executor.shutdown();
-    
-    assertEquals(totalAllocated.get(), totalReleased.get(), 
-        "All allocated memory should be released");
-    
+
+    assertEquals(totalAllocated.get(), totalReleased.get(), "All allocated memory should be released");
+
     LOGGER.info("Memory limit enforcement test completed: TotalAllocated={} MB, OOMEvents={}",
-                totalAllocated.get() / (1024 * 1024), oomCount.get());
-    
+        totalAllocated.get() / (1024 * 1024), oomCount.get());
+
     // Reset to larger limit for other tests
     allocator.init(8L * 1024 * 1024 * 1024);
   }

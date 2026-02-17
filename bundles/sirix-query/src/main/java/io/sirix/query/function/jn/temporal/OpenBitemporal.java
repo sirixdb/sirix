@@ -25,23 +25,27 @@ import java.time.Instant;
 
 /**
  * <p>
- * Function for bitemporal queries combining transaction time and valid time.
- * Opens the resource at a specific transaction time, filtered to records valid
- * at the specified valid time. Supported signatures are:
+ * Function for bitemporal queries combining transaction time and valid time. Opens the resource at
+ * a specific transaction time, filtered to records valid at the specified valid time. Supported
+ * signatures are:
  * </p>
  * <ul>
  * <li><code>jn:open-bitemporal($coll as xs:string, $res as xs:string,
  *     $transactionTime as xs:dateTime, $validTime as xs:dateTime) as json-item()*</code></li>
  * </ul>
  *
- * <p>This function enables true bitemporal queries by combining:</p>
+ * <p>
+ * This function enables true bitemporal queries by combining:
+ * </p>
  * <ul>
- *   <li><b>Transaction time</b>: When the data was recorded (managed by SirixDB via revisions)</li>
- *   <li><b>Valid time</b>: When the data is/was/will be true in the real world</li>
+ * <li><b>Transaction time</b>: When the data was recorded (managed by SirixDB via revisions)</li>
+ * <li><b>Valid time</b>: When the data is/was/will be true in the real world</li>
  * </ul>
  *
- * <p>The resource must be configured with valid time paths via
- * {@link io.sirix.access.ResourceConfiguration.Builder#validTimePaths(String, String)}.</p>
+ * <p>
+ * The resource must be configured with valid time paths via
+ * {@link io.sirix.access.ResourceConfiguration.Builder#validTimePaths(String, String)}.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -57,7 +61,7 @@ public final class OpenBitemporal extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the name of the function
+   * @param name the name of the function
    * @param signature the signature of the function
    */
   public OpenBitemporal(final QNm name, final Signature signature) {
@@ -70,8 +74,7 @@ public final class OpenBitemporal extends AbstractFunction {
       throw new QueryException(new QNm("Expected 4 arguments: collection, resource, transactionTime, validTime"));
     }
 
-    final JsonDBCollection collection = (JsonDBCollection) ctx.getJsonItemStore()
-        .lookup(((Str) args[0]).stringValue());
+    final JsonDBCollection collection = (JsonDBCollection) ctx.getJsonItemStore().lookup(((Str) args[0]).stringValue());
 
     if (collection == null) {
       throw new QueryException(new QNm("Collection not found: " + ((Str) args[0]).stringValue()));
@@ -95,8 +98,8 @@ public final class OpenBitemporal extends AbstractFunction {
     final ValidTimeConfig validTimeConfig = resourceSession.getResourceConfig().getValidTimeConfig();
 
     if (validTimeConfig == null) {
-      throw new QueryException(new QNm("Resource does not have valid time configuration. " +
-          "Configure valid time paths when creating the resource."));
+      throw new QueryException(new QNm("Resource does not have valid time configuration. "
+          + "Configure valid time paths when creating the resource."));
     }
 
     // Return a lazy sequence that filters by valid time

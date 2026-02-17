@@ -38,8 +38,7 @@ public interface DiffObserver {
    * @param oldNodeKey node key of node in old revision
    * @param depth current {@link DiffDepth} instance
    */
-  void diffListener(DiffFactory.DiffType diffType, long newNodeKey, long oldNodeKey,
-      @NonNull DiffDepth depth);
+  void diffListener(DiffFactory.DiffType diffType, long newNodeKey, long oldNodeKey, @NonNull DiffDepth depth);
 
   /** Signals that the diff calculation is done. */
   void diffDone();

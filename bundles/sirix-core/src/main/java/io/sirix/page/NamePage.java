@@ -49,7 +49,8 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 
 /**
- * The name page holds all names and their keys for a revision. Furthermore, it has references to name indexes.
+ * The name page holds all names and their keys for a revision. Furthermore, it has references to
+ * name indexes.
  */
 public final class NamePage extends AbstractForwardingPage {
 
@@ -138,6 +139,7 @@ public final class NamePage extends AbstractForwardingPage {
     currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap();
     numberOfArrays = 0;
   }
+
   /**
    * Constructor when is deserialized data
    *
@@ -146,8 +148,8 @@ public final class NamePage extends AbstractForwardingPage {
    * @param currentMaxLevelsOfIndirectPages Current maximum levels of indirect pages in the tree.
    * @param numberOfArrays The number of arrays stored.
    */
-  NamePage(final Page delegate, final Int2LongMap maxNodeKeys,
-           final Int2IntMap currentMaxLevelsOfIndirectPages, final int numberOfArrays){
+  NamePage(final Page delegate, final Int2LongMap maxNodeKeys, final Int2IntMap currentMaxLevelsOfIndirectPages,
+      final int numberOfArrays) {
     this.delegate = delegate;
     this.maxNodeKeys = maxNodeKeys;
     this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
@@ -206,11 +208,8 @@ public final class NamePage extends AbstractForwardingPage {
     }
 
     final Cache<NamesCacheKey, Names> namesCache = pageRtx.getBufferManager().getNamesCache();
-    final NamesCacheKey namesCacheKey = new NamesCacheKey(
-        pageRtx.getDatabaseId(),
-        pageRtx.getResourceId(),
-        pageRtx.getRevisionNumber(),
-        offset);
+    final NamesCacheKey namesCacheKey =
+        new NamesCacheKey(pageRtx.getDatabaseId(), pageRtx.getResourceId(), pageRtx.getRevisionNumber(), offset);
     return namesCache.get(namesCacheKey, (_, _) -> Names.copy(Names.fromStorage(pageRtx, offset, maxNodeKey)));
   }
 
@@ -304,7 +303,7 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Create name key given a name.
    *
-   * @param name     name to create key for
+   * @param name name to create key for
    * @param nodeKind kind of node
    * @return the created key
    */
@@ -347,9 +346,10 @@ public final class NamePage extends AbstractForwardingPage {
 
   /**
    * Get the size of CurrentMaxLevelOfIndirectPage to Serialize
+   * 
    * @return int Size of CurrentMaxLevelOfIndirectPage
    */
-  public int getCurrentMaxLevelOfIndirectPagesSize(){
+  public int getCurrentMaxLevelOfIndirectPagesSize() {
     return currentMaxLevelsOfIndirectPages.size();
   }
 
@@ -417,12 +417,12 @@ public final class NamePage extends AbstractForwardingPage {
    * Initialize name index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx  {@link StorageEngineReader} instance
-   * @param index        the index number
-   * @param log          the transaction intent log
+   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param index the index number
+   * @param log the transaction intent log
    */
-  public void createNameIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx, final int index,
-      final TransactionIntentLog log) {
+  public void createNameIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
+      final int index, final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
       delegate = new BitmapReferencesPage(Constants.INP_REFERENCE_COUNT, (ReferencesPage4) delegate());
@@ -443,11 +443,13 @@ public final class NamePage extends AbstractForwardingPage {
   /**
    * Initialize HOT (Height Optimized Trie) name index tree.
    *
-   * <p>Creates a cache-friendly HOT index instead of the traditional RBTree-based index.</p>
+   * <p>
+   * Creates a cache-friendly HOT index instead of the traditional RBTree-based index.
+   * </p>
    *
    * @param pageReadTrx {@link StorageEngineReader} instance
-   * @param index       the index number
-   * @param log         the transaction intent log
+   * @param index the index number
+   * @param log the transaction intent log
    */
   public void createHOTNameIndexTree(final StorageEngineReader pageReadTrx, final int index,
       final TransactionIntentLog log) {
@@ -477,6 +479,7 @@ public final class NamePage extends AbstractForwardingPage {
   public PageReference getIndirectPageReference(final int offset) {
     return getOrCreateReference(offset);
   }
+
   public int getNumberOfArrays() {
     return numberOfArrays;
   }
@@ -493,9 +496,10 @@ public final class NamePage extends AbstractForwardingPage {
 
   /**
    * Get the size of MaxNodeKey to Serialize
+   * 
    * @return int Size of MaxNodeKey
    */
-  public int getMaxNodeKeySize(){
+  public int getMaxNodeKeySize() {
     return maxNodeKeys.size();
   }
 

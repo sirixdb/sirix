@@ -32,22 +32,28 @@ import java.lang.foreign.ValueLayout;
 import java.util.Arrays;
 
 /**
- * Generic interface for serializing index keys to byte arrays.
- * Used for object keys like {@code CASValue} and {@code QNm}.
+ * Generic interface for serializing index keys to byte arrays. Used for object keys like
+ * {@code CASValue} and {@code QNm}.
  *
- * <p>For primitive long keys (e.g., PATH index), use {@link HOTLongKeySerializer}
- * to avoid boxing overhead.</p>
+ * <p>
+ * For primitive long keys (e.g., PATH index), use {@link HOTLongKeySerializer} to avoid boxing
+ * overhead.
+ * </p>
  *
  * <h2>Order Preservation</h2>
- * <p>Implementations MUST ensure that the byte representation preserves
- * the natural ordering of keys:</p>
+ * <p>
+ * Implementations MUST ensure that the byte representation preserves the natural ordering of keys:
+ * </p>
+ * 
  * <pre>
  * ∀ a, b: a.compareTo(b) &lt; 0  ⟺  compare(serialize(a), serialize(b)) &lt; 0
  * </pre>
  *
  * <h2>Zero Allocation</h2>
- * <p>The {@code serialize} method writes to a caller-provided buffer to avoid
- * allocations on the hot path. Callers should use thread-local buffers.</p>
+ * <p>
+ * The {@code serialize} method writes to a caller-provided buffer to avoid allocations on the hot
+ * path. Callers should use thread-local buffers.
+ * </p>
  *
  * @param <K> the key type
  * @author Johannes Lichtenberger
@@ -57,11 +63,13 @@ public interface HOTKeySerializer<K> {
   /**
    * Serializes the key into the destination buffer.
    *
-   * <p>This method is designed for zero-allocation operation on the hot path.
-   * The caller provides a reusable buffer (typically from a ThreadLocal).</p>
+   * <p>
+   * This method is designed for zero-allocation operation on the hot path. The caller provides a
+   * reusable buffer (typically from a ThreadLocal).
+   * </p>
    *
-   * @param key    the key to serialize (must not be null)
-   * @param dest   the destination buffer
+   * @param key the key to serialize (must not be null)
+   * @param dest the destination buffer
    * @param offset the offset in the destination buffer to start writing
    * @return the number of bytes written
    * @throws IllegalArgumentException if key is null or serializes to empty
@@ -72,9 +80,11 @@ public interface HOTKeySerializer<K> {
   /**
    * Deserializes a key from bytes.
    *
-   * <p>This is less performance-critical than serialization, so allocation is acceptable.</p>
+   * <p>
+   * This is less performance-critical than serialization, so allocation is acceptable.
+   * </p>
    *
-   * @param bytes  the byte array containing the serialized key
+   * @param bytes the byte array containing the serialized key
    * @param offset the offset to start reading from
    * @param length the number of bytes to read
    * @return the deserialized key
@@ -84,12 +94,14 @@ public interface HOTKeySerializer<K> {
   /**
    * Compares two serialized keys lexicographically (unsigned byte comparison).
    *
-   * <p>Default implementation uses {@link Arrays#compareUnsigned(byte[], int, int, byte[], int, int)}.</p>
+   * <p>
+   * Default implementation uses {@link Arrays#compareUnsigned(byte[], int, int, byte[], int, int)}.
+   * </p>
    *
-   * @param a    first key bytes
+   * @param a first key bytes
    * @param aOff offset in first array
    * @param aLen length of first key
-   * @param b    second key bytes
+   * @param b second key bytes
    * @param bOff offset in second array
    * @param bLen length of second key
    * @return negative if a &lt; b, zero if equal, positive if a &gt; b
@@ -101,11 +113,13 @@ public interface HOTKeySerializer<K> {
   /**
    * Serializes directly to a MemorySegment for maximum performance.
    *
-   * <p>Default implementation uses the byte array method. Override for
-   * direct MemorySegment writes when possible.</p>
+   * <p>
+   * Default implementation uses the byte array method. Override for direct MemorySegment writes when
+   * possible.
+   * </p>
    *
-   * @param key    the key to serialize
-   * @param dest   the destination MemorySegment
+   * @param key the key to serialize
+   * @param dest the destination MemorySegment
    * @param offset the offset in the segment
    * @return the number of bytes written
    */

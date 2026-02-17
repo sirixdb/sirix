@@ -8,15 +8,15 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 
 public class Paths {
-  private Paths() {
-  }
+  private Paths() {}
 
   public static boolean isPathNodeNotAQueryResult(final Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes,
       final PathSummaryReader pathSummary, final long pathNodeKey) {
     final var currentPathSegmentNames = new ArrayDeque<QueryPathSegment>();
     pathSegmentNamesToArrayIndexes.forEach(pathSegmentNameToArrayIndex -> {
       final var currentIndexes = new ArrayDeque<>(pathSegmentNameToArrayIndex.arrayIndexes());
-      currentPathSegmentNames.addLast(new QueryPathSegment(pathSegmentNameToArrayIndex.pathSegmentName(), currentIndexes));
+      currentPathSegmentNames.addLast(
+          new QueryPathSegment(pathSegmentNameToArrayIndex.pathSegmentName(), currentIndexes));
     });
     pathSummary.moveTo(pathNodeKey);
     var candidatePath = pathSummary.getPath();

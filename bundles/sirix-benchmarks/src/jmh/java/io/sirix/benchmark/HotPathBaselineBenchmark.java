@@ -32,7 +32,9 @@ import java.util.concurrent.TimeUnit;
 /**
  * Baseline hot-path benchmark for JSON/XML insert, update, traversal and commit operations.
  *
- * <p>Run with:
+ * <p>
+ * Run with:
+ * 
  * <pre>
  * ./gradlew :sirix-benchmarks:jmh
  * </pre>
@@ -41,11 +43,8 @@ import java.util.concurrent.TimeUnit;
 @OutputTimeUnit(TimeUnit.SECONDS)
 @Warmup(iterations = 2, time = 1)
 @Measurement(iterations = 3, time = 1)
-@Fork(value = 1, jvmArgs = {
-    "--add-modules=jdk.incubator.vector",
-    "--enable-preview",
-    "--enable-native-access=ALL-UNNAMED"
-})
+@Fork(value = 1,
+    jvmArgs = {"--add-modules=jdk.incubator.vector", "--enable-preview", "--enable-native-access=ALL-UNNAMED"})
 public class HotPathBaselineBenchmark {
 
   private static final String JSON_RESOURCE = "jsonResource";
@@ -82,8 +81,7 @@ public class HotPathBaselineBenchmark {
       database = Databases.openJsonDatabase(databasePath);
       database.createResource(ResourceConfiguration.newBuilder(JSON_RESOURCE).build());
 
-      try (var session = database.beginResourceSession(JSON_RESOURCE);
-           JsonNodeTrx wtx = session.beginNodeTrx()) {
+      try (var session = database.beginResourceSession(JSON_RESOURCE); JsonNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertArrayAsFirstChild();
         for (int i = 0; i < SEED_CHILD_COUNT; i++) {
           wtx.insertNumberValueAsFirstChild(cachedValues[i & (UPDATE_VALUE_VARIANTS - 1)]);
@@ -128,8 +126,7 @@ public class HotPathBaselineBenchmark {
       database = Databases.openXmlDatabase(databasePath);
       database.createResource(ResourceConfiguration.newBuilder(XML_RESOURCE).build());
 
-      try (var session = database.beginResourceSession(XML_RESOURCE);
-           XmlNodeTrx wtx = session.beginNodeTrx()) {
+      try (var session = database.beginResourceSession(XML_RESOURCE); XmlNodeTrx wtx = session.beginNodeTrx()) {
         wtx.insertElementAsFirstChild(XML_ROOT);
         for (int i = 0; i < SEED_CHILD_COUNT; i++) {
           wtx.insertElementAsFirstChild(XML_CHILD);
@@ -158,8 +155,7 @@ public class HotPathBaselineBenchmark {
 
   @Benchmark
   public void jsonInsertCommit(final JsonState state) {
-    try (var session = state.database.beginResourceSession(JSON_RESOURCE);
-         JsonNodeTrx wtx = session.beginNodeTrx()) {
+    try (var session = state.database.beginResourceSession(JSON_RESOURCE); JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       if (!wtx.moveToFirstChild()) {
         wtx.insertArrayAsFirstChild();
@@ -171,8 +167,7 @@ public class HotPathBaselineBenchmark {
 
   @Benchmark
   public void jsonUpdateCommit(final JsonState state) {
-    try (var session = state.database.beginResourceSession(JSON_RESOURCE);
-         JsonNodeTrx wtx = session.beginNodeTrx()) {
+    try (var session = state.database.beginResourceSession(JSON_RESOURCE); JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       if (!wtx.moveToFirstChild()) {
         wtx.insertArrayAsFirstChild();
@@ -191,8 +186,7 @@ public class HotPathBaselineBenchmark {
     long checksum = 0L;
     int traversed = 0;
 
-    try (var session = state.database.beginResourceSession(JSON_RESOURCE);
-         var rtx = session.beginNodeReadOnlyTrx()) {
+    try (var session = state.database.beginResourceSession(JSON_RESOURCE); var rtx = session.beginNodeReadOnlyTrx()) {
       rtx.moveToDocumentRoot();
       if (rtx.moveToFirstChild() && rtx.moveToFirstChild()) {
         do {
@@ -208,8 +202,7 @@ public class HotPathBaselineBenchmark {
 
   @Benchmark
   public void xmlInsertCommit(final XmlState state) {
-    try (var session = state.database.beginResourceSession(XML_RESOURCE);
-         XmlNodeTrx wtx = session.beginNodeTrx()) {
+    try (var session = state.database.beginResourceSession(XML_RESOURCE); XmlNodeTrx wtx = session.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       if (!wtx.moveToFirstChild()) {
         wtx.insertElementAsFirstChild(XML_ROOT);
@@ -222,8 +215,7 @@ public class HotPathBaselineBenchmark {
 
   @Benchmark
   public void xmlUpdateCommit(final XmlState state) {
-    try (var session = state.database.beginResourceSession(XML_RESOURCE);
-         XmlNodeTrx wtx = session.beginNodeTrx()) {
+    try (var session = state.database.beginResourceSession(XML_RESOURCE); XmlNodeTrx wtx = session.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       if (!wtx.moveToFirstChild()) {
         wtx.insertElementAsFirstChild(XML_ROOT);
@@ -242,8 +234,7 @@ public class HotPathBaselineBenchmark {
     long checksum = 0L;
     int traversed = 0;
 
-    try (var session = state.database.beginResourceSession(XML_RESOURCE);
-         var rtx = session.beginNodeReadOnlyTrx()) {
+    try (var session = state.database.beginResourceSession(XML_RESOURCE); var rtx = session.beginNodeReadOnlyTrx()) {
       rtx.moveToDocumentRoot();
       if (rtx.moveToFirstChild() && rtx.moveToFirstChild()) {
         do {

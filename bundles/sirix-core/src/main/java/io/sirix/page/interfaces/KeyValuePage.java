@@ -17,7 +17,7 @@ import java.util.Set;
  * @author Johannes Lichtenberger
  *
  */
-public interface KeyValuePage<V extends DataRecord> extends Page  {
+public interface KeyValuePage<V extends DataRecord> extends Page {
 
   /**
    * All available records.
@@ -76,9 +76,9 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
   boolean isClosed();
 
   /**
-   * Store or overwrite a single reference associated with a key for overlong entries. That is
-   * entries which are larger than a predefined threshold are written to OverflowPages and thus are
-   * just referenced and not deserialized during the deserialization of a page.
+   * Store or overwrite a single reference associated with a key for overlong entries. That is entries
+   * which are larger than a predefined threshold are written to OverflowPages and thus are just
+   * referenced and not deserialized during the deserialization of a page.
    *
    * @param key key to store
    * @param reference reference to store
@@ -103,8 +103,8 @@ public interface KeyValuePage<V extends DataRecord> extends Page  {
    * @param pageReadTrx transaction to read pages
    * @return a new {@link KeyValuePage} instance
    */
-  <C extends KeyValuePage<V>> C newInstance(@NonNegative long recordPageKey,
-      @NonNull IndexType indexType, @NonNull StorageEngineReader pageReadTrx);
+  <C extends KeyValuePage<V>> C newInstance(@NonNegative long recordPageKey, @NonNull IndexType indexType,
+      @NonNull StorageEngineReader pageReadTrx);
 
   /**
    * Get the index type.

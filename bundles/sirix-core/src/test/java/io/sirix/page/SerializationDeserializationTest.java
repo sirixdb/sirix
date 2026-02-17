@@ -33,8 +33,8 @@ public final class SerializationDeserializationTest {
   @org.junit.jupiter.api.BeforeAll
   public static void setUpClass() {
     // Use the global singleton allocator - don't call init()/free() as that conflicts with other tests
-    allocator = OS.isWindows() 
-        ? LinuxMemorySegmentAllocator.getInstance()  // TODO: Should be WindowsMemorySegmentAllocator
+    allocator = OS.isWindows()
+        ? LinuxMemorySegmentAllocator.getInstance() // TODO: Should be WindowsMemorySegmentAllocator
         : LinuxMemorySegmentAllocator.getInstance();
     // Initialize with large limit to accommodate accumulated memory from previous tests
     // (allocator is a singleton that tracks memory across all tests)
@@ -70,39 +70,30 @@ public final class SerializationDeserializationTest {
 
   @Test
   public void testPermutedSlotInsertions() {
-    KeyValueLeafPage originalPage = new KeyValueLeafPage(1,
-                                                         0,
-                                                         IndexType.DOCUMENT,
-                                                         config,
-                                                         false,
-                                                         null,
-                                                         new LinkedHashMap<>(),
-                                                         allocator.allocate(10_000),
-                                                         null,
-                                                         0,
-                                                         0);
+    KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
+        new LinkedHashMap<>(), allocator.allocate(10_000), null, 0, 0);
     KeyValueLeafPage deserializedPage = null;
 
     try {
       // Predefined slot numbers for permutation
-      int[] slotNumbers = { 0, 5, 10, 15, 20 };
+      int[] slotNumbers = {0, 5, 10, 15, 20};
 
       // Expected data for verification after serialization and deserialization
       byte[][] expectedData = new byte[Constants.NDP_NODE_COUNT][];
 
       // Insert data into slots
       for (int slotNumber : slotNumbers) {
-        byte[] data = new byte[] { 1, 2, 3 }; // Example data
+        byte[] data = new byte[] {1, 2, 3}; // Example data
         originalPage.setSlot(data, slotNumber);
         expectedData[slotNumber] = data;
       }
 
       // Overwrite some slots with different data sizes
-      byte[] newData = new byte[] { 4, 5, 6, 7 }; // New data for slot 5
+      byte[] newData = new byte[] {4, 5, 6, 7}; // New data for slot 5
       originalPage.setSlot(newData, 5);
       expectedData[5] = newData;
 
-      newData = new byte[] { 8 }; // New data for slot 15
+      newData = new byte[] {8}; // New data for slot 15
       originalPage.setSlot(newData, 15);
       expectedData[15] = newData;
 
@@ -114,21 +105,18 @@ public final class SerializationDeserializationTest {
       // Deserialize the page
       BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      deserializedPage =
-          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, type);
+      deserializedPage = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, type);
 
       // Verify the deserialized data matches the original
       for (int slotNumber : slotNumbers) {
-        assertArrayEquals(expectedData[slotNumber],
-                          deserializedPage.getSlotAsByteArray(slotNumber),
-                          "Mismatch at slot " + slotNumber);
+        assertArrayEquals(expectedData[slotNumber], deserializedPage.getSlotAsByteArray(slotNumber),
+            "Mismatch at slot " + slotNumber);
       }
 
       // Verify the overwritten slots
-      assertArrayEquals(new byte[] { 4, 5, 6, 7 },
-                        deserializedPage.getSlotAsByteArray(5),
-                        "Mismatch at overwritten slot 5");
-      assertArrayEquals(new byte[] { 8 }, deserializedPage.getSlotAsByteArray(15), "Mismatch at overwritten slot 15");
+      assertArrayEquals(new byte[] {4, 5, 6, 7}, deserializedPage.getSlotAsByteArray(5),
+          "Mismatch at overwritten slot 5");
+      assertArrayEquals(new byte[] {8}, deserializedPage.getSlotAsByteArray(15), "Mismatch at overwritten slot 15");
     } finally {
       originalPage.close();
       if (deserializedPage != null) {
@@ -139,17 +127,8 @@ public final class SerializationDeserializationTest {
 
   @RepeatedTest(100)
   public void testRandomSlotInsertions() {
-    KeyValueLeafPage originalPage = new KeyValueLeafPage(1,
-                                                         0,
-                                                         IndexType.DOCUMENT,
-                                                         config,
-                                                         false,
-                                                         null,
-                                                         new LinkedHashMap<>(),
-                                                         allocator.allocate(110_000),
-                                                         null,
-                                                         -1,
-                                                         -1);
+    KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
+        new LinkedHashMap<>(), allocator.allocate(110_000), null, -1, -1);
     KeyValueLeafPage deserializedPage = null;
 
     try {
@@ -186,8 +165,7 @@ public final class SerializationDeserializationTest {
       // Deserialize the page
       BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      deserializedPage =
-          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, type);
+      deserializedPage = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, type);
 
       // Verify the deserialized data matches the original
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
@@ -203,17 +181,8 @@ public final class SerializationDeserializationTest {
 
   @Test
   public void testBasicSerialization() {
-    KeyValueLeafPage originalPage = new KeyValueLeafPage(1,
-                                                         0,
-                                                         IndexType.DOCUMENT,
-                                                         config,
-                                                         false,
-                                                         null,
-                                                         new LinkedHashMap<>(),
-                                                         allocator.allocate(1),
-                                                         null,
-                                                         -1,
-                                                         -1);
+    KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
+        new LinkedHashMap<>(), allocator.allocate(1), null, -1, -1);
     KeyValueLeafPage deserializedPage = null;
 
     try {
@@ -223,8 +192,7 @@ public final class SerializationDeserializationTest {
 
       BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      deserializedPage =
-          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, type);
+      deserializedPage = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, type);
 
       assertEquals(originalPage.getPageKey(), deserializedPage.getPageKey());
       assertEquals(originalPage.getRevision(), deserializedPage.getRevision());
@@ -239,23 +207,14 @@ public final class SerializationDeserializationTest {
 
   @Test
   public void testSlotsSerialization() {
-    KeyValueLeafPage originalPage = new KeyValueLeafPage(1,
-                                                         0,
-                                                         IndexType.DOCUMENT,
-                                                         config,
-                                                         false,
-                                                         null,
-                                                         new LinkedHashMap<>(),
-                                                         allocator.allocate(1000),
-                                                         null,
-                                                         -1,
-                                                         -1);
+    KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
+        new LinkedHashMap<>(), allocator.allocate(1000), null, -1, -1);
     KeyValueLeafPage deserializedPage = null;
 
     try {
-      originalPage.setSlot(new byte[] { 1, 2, 3 }, 1);
-      originalPage.setSlot(new byte[] { 4, 5, 6 }, 10);
-      originalPage.setSlot(new byte[] { 7, 8, 9 }, 100);
+      originalPage.setSlot(new byte[] {1, 2, 3}, 1);
+      originalPage.setSlot(new byte[] {4, 5, 6}, 10);
+      originalPage.setSlot(new byte[] {7, 8, 9}, 100);
 
       BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
       SerializationType type = SerializationType.DATA;
@@ -263,8 +222,7 @@ public final class SerializationDeserializationTest {
 
       BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      deserializedPage =
-          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, type);
+      deserializedPage = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, type);
 
       assertArrayEquals(originalPage.getSlotAsByteArray(1), deserializedPage.getSlotAsByteArray(1));
       assertArrayEquals(originalPage.getSlotAsByteArray(10), deserializedPage.getSlotAsByteArray(10));
@@ -280,22 +238,13 @@ public final class SerializationDeserializationTest {
   @Test
   public void testDeweyIdSerialization() {
     ResourceConfiguration configWithDeweyIDs = createResourceConfigurationWithDeweyIDs();
-    KeyValueLeafPage originalPage = new KeyValueLeafPage(1,
-                                                         0,
-                                                         IndexType.DOCUMENT,
-                                                         configWithDeweyIDs,
-                                                         true,
-                                                         new NodeSerializerImpl(),
-                                                         new LinkedHashMap<>(),
-                                                         allocator.allocate(1000),
-                                                         allocator.allocate(1000),
-                                                         -1,
-                                                         -1);
+    KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, configWithDeweyIDs, true,
+        new NodeSerializerImpl(), new LinkedHashMap<>(), allocator.allocate(1000), allocator.allocate(1000), -1, -1);
     KeyValueLeafPage deserializedPage = null;
 
     try {
-      originalPage.setDeweyId(new byte[] { 0, 1, 2 }, 2);
-      originalPage.setDeweyId(new byte[] { 3, 4, 5 }, 4);
+      originalPage.setDeweyId(new byte[] {0, 1, 2}, 2);
+      originalPage.setDeweyId(new byte[] {3, 4, 5}, 4);
 
       BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
       SerializationType type = SerializationType.DATA;
@@ -303,8 +252,7 @@ public final class SerializationDeserializationTest {
 
       BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      deserializedPage =
-          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(configWithDeweyIDs, source, type);
+      deserializedPage = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(configWithDeweyIDs, source, type);
 
       assertArrayEquals(originalPage.getDeweyIdAsByteArray(2), deserializedPage.getDeweyIdAsByteArray(2));
       assertArrayEquals(originalPage.getDeweyIdAsByteArray(4), deserializedPage.getDeweyIdAsByteArray(4));
@@ -318,17 +266,8 @@ public final class SerializationDeserializationTest {
 
   @Test
   public void testEmptyPageSerialization() {
-    KeyValueLeafPage originalPage = new KeyValueLeafPage(1,
-                                                         0,
-                                                         IndexType.DOCUMENT,
-                                                         config,
-                                                         false,
-                                                         null,
-                                                         new LinkedHashMap<>(),
-                                                         allocator.allocate(1),
-                                                         null,
-                                                         -1,
-                                                         -1);
+    KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
+        new LinkedHashMap<>(), allocator.allocate(1), null, -1, -1);
     KeyValueLeafPage deserializedPage = null;
 
     try {
@@ -338,8 +277,7 @@ public final class SerializationDeserializationTest {
 
       BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      deserializedPage =
-          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, type);
+      deserializedPage = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, type);
 
       assertEquals(originalPage.getPageKey(), deserializedPage.getPageKey());
       assertEquals(originalPage.getRevision(), deserializedPage.getRevision());
@@ -354,22 +292,13 @@ public final class SerializationDeserializationTest {
 
   @Test
   public void testMaxSlotsSerialization() {
-    KeyValueLeafPage originalPage = new KeyValueLeafPage(1,
-                                                         0,
-                                                         IndexType.DOCUMENT,
-                                                         config,
-                                                         false,
-                                                         null,
-                                                         new LinkedHashMap<>(),
-                                                         allocator.allocate(10000),
-                                                         null,
-                                                         0,
-                                                         0);
+    KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
+        new LinkedHashMap<>(), allocator.allocate(10000), null, 0, 0);
     KeyValueLeafPage deserializedPage = null;
 
     try {
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-        originalPage.setSlot(new byte[] { (byte) i }, i);
+        originalPage.setSlot(new byte[] {(byte) i}, i);
       }
 
       BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
@@ -378,8 +307,7 @@ public final class SerializationDeserializationTest {
 
       BytesIn<?> source = sink.bytesForRead();
       source.readByte();
-      deserializedPage =
-          (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, type);
+      deserializedPage = (KeyValueLeafPage) PageKind.KEYVALUELEAFPAGE.deserializePage(config, source, type);
 
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
         assertArrayEquals(originalPage.getSlotAsByteArray(i), deserializedPage.getSlotAsByteArray(i));

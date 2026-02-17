@@ -31,18 +31,18 @@ public class GetPathTest {
   public void test() throws IOException {
     JsonTestHelper.createTestDocument();
     try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(JsonTestHelper.PATHS.PATH1.getFile());
-         final var resourceManager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = resourceManager.beginNodeTrx()) {
+        final var resourceManager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = resourceManager.beginNodeTrx()) {
       wtx.moveTo(6);
       wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"foo\":[]}"));
     }
 
     // Initialize query context and store.
-    try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-                                                        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
-                                                        .build();
-         final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
-         final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (
+        final BasicJsonDBStore store =
+            BasicJsonDBStore.newBuilder().location(JsonTestHelper.PATHS.PATH1.getFile().getParent()).build();
+        final SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
+        final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store)) {
       final String firstPathQuery = "sdb:path(sdb:select-item(jn:doc('json-path1','shredded'), 25))";
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {

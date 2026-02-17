@@ -28,8 +28,8 @@ public final class PathSummaryTest {
   @Test
   public void testInsertedTestDocument() {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var pathSummary = manager.openPathSummary()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var pathSummary = manager.openPathSummary()) {
       final var pathSummaryAxis = new DescendantAxis(pathSummary);
 
       while (pathSummaryAxis.hasNext()) {

@@ -62,22 +62,22 @@ public final class XPathWriteTransactionTest {
 
     // Verify.
     var database = XmlTestHelper.getDatabase(PATHS.PATH1.getFile());
-    //database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
+    // database.createResource(new ResourceConfiguration.Builder(RESOURCE).build());
     manager = database.beginResourceSession(XmlTestHelper.RESOURCE);
     wtx = manager.beginNodeTrx();
   }
 
   @Test
   public void test() throws SirixXPathException {
-//    wtx.moveToDocumentRoot();
-//    // final XPathAxis xpa =
-//    // new XPathAxis(wtx, "//revision[./parent::page/title/text() = '"
-//    // + "AmericanSamoa"
-//    // + "']");
-//    final XPathAxis xpa = new XPathAxis(wtx, "//revision");
-//    if (!xpa.hasNext()) {
-//      fail();
-//    }
+    // wtx.moveToDocumentRoot();
+    // // final XPathAxis xpa =
+    // // new XPathAxis(wtx, "//revision[./parent::page/title/text() = '"
+    // // + "AmericanSamoa"
+    // // + "']");
+    // final XPathAxis xpa = new XPathAxis(wtx, "//revision");
+    // if (!xpa.hasNext()) {
+    // fail();
+    // }
 
   }
 

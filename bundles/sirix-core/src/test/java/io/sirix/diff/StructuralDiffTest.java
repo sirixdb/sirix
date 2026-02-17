@@ -81,32 +81,28 @@ public final class StructuralDiffTest {
   }
 
   @Test
-  public void testStructuralDiffSecond()
-      throws SirixException, IOException, XMLStreamException {
+  public void testStructuralDiffSecond() throws SirixException, IOException, XMLStreamException {
     DiffTestHelper.setUpSecond(holder);
     DiffTestHelper.checkStructuralDiff(holder, observer, DiffOptimized.NO);
     DiffTestHelper.verifyDiffSecond(observer);
   }
 
   @Test
-  public void testStructuralDiffOptimizedSecond()
-      throws SirixException, IOException, XMLStreamException {
+  public void testStructuralDiffOptimizedSecond() throws SirixException, IOException, XMLStreamException {
     DiffTestHelper.setUpSecond(holder);
     DiffTestHelper.checkStructuralDiff(holder, observer, DiffOptimized.HASHED);
     DiffTestHelper.verifyOptimizedSecond(observer);
   }
 
   @Test
-  public void testStructuralDiffThird()
-      throws SirixException, IOException {
+  public void testStructuralDiffThird() throws SirixException, IOException {
     DiffTestHelper.setUpThird(holder);
     DiffTestHelper.checkStructuralDiff(holder, observer, DiffOptimized.NO);
     DiffTestHelper.verifyDiffThird(observer);
   }
 
   @Test
-  public void testStructuralDiffOptimizedThird()
-      throws SirixException, IOException {
+  public void testStructuralDiffOptimizedThird() throws SirixException, IOException {
     DiffTestHelper.setUpThird(holder);
     DiffTestHelper.checkStructuralDiff(holder, observer, DiffOptimized.HASHED);
     DiffTestHelper.verifyOptimizedThird(observer);

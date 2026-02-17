@@ -75,25 +75,16 @@ public class DocumentRootNodeTest {
   public void testDocumentRootNode() {
 
     // Create empty node.
-    final XmlDocumentRootNode node = new XmlDocumentRootNode(
-        Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Fixed.NULL_NODE_KEY.getStandardProperty(),
-        0,
-        0,
-        LongHashFunction.xx3(),
-        SirixDeweyID.newRootID());
+    final XmlDocumentRootNode node = new XmlDocumentRootNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0,
+        LongHashFunction.xx3(), SirixDeweyID.newRootID());
     check(node);
 
     // Serialize and deserialize node.
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
     final XmlDocumentRootNode node2 = (XmlDocumentRootNode) NodeKind.XML_DOCUMENT.deserialize(data.asBytesIn(),
-                                                                                              node.getNodeKey(),
-                                                                                              node.getDeweyID()
-                                                                                                  .toBytes(),
-                                                                                              pageReadTrx.getResourceSession()
-                                                                                                         .getResourceConfig());
+        node.getNodeKey(), node.getDeweyID().toBytes(), pageReadTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 

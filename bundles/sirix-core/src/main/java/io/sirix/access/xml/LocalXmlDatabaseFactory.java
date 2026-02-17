@@ -20,27 +20,23 @@ import javax.inject.Singleton;
 @Singleton
 public class LocalXmlDatabaseFactory implements LocalDatabaseFactory<XmlResourceSession> {
 
-    /**
-     * Logger for {@link LocalXmlDatabaseFactory}.
-     */
-    private static final Logger logger = LoggerFactory.getLogger(LocalXmlDatabaseFactory.class);
+  /**
+   * Logger for {@link LocalXmlDatabaseFactory}.
+   */
+  private static final Logger logger = LoggerFactory.getLogger(LocalXmlDatabaseFactory.class);
 
-    private final Provider<XmlLocalDatabaseComponent.Builder> subcomponentBuilder;
+  private final Provider<XmlLocalDatabaseComponent.Builder> subcomponentBuilder;
 
-    @Inject
-    LocalXmlDatabaseFactory(final Provider<XmlLocalDatabaseComponent.Builder> subcomponentBuilder) {
+  @Inject
+  LocalXmlDatabaseFactory(final Provider<XmlLocalDatabaseComponent.Builder> subcomponentBuilder) {
 
-        this.subcomponentBuilder = subcomponentBuilder;
-    }
+    this.subcomponentBuilder = subcomponentBuilder;
+  }
 
-    @Override
-    public Database<XmlResourceSession> createDatabase(final DatabaseConfiguration configuration, final User user) {
-        logger.trace("Creating new local XML database instance (open)");
+  @Override
+  public Database<XmlResourceSession> createDatabase(final DatabaseConfiguration configuration, final User user) {
+    logger.trace("Creating new local XML database instance (open)");
 
-        return this.subcomponentBuilder.get()
-                .databaseConfiguration(configuration)
-                .user(user)
-                .build()
-                .database();
-    }
+    return this.subcomponentBuilder.get().databaseConfiguration(configuration).user(user).build().database();
+  }
 }

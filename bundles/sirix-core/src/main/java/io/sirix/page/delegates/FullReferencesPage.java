@@ -49,7 +49,7 @@ public final class FullReferencesPage implements Page {
   /**
    * Constructor to read from durable storage.
    *
-   * @param in   input stream to read from
+   * @param in input stream to read from
    * @param type the serialization type
    */
   public FullReferencesPage(final BytesIn<?> in, final SerializationType type) {
@@ -102,7 +102,7 @@ public final class FullReferencesPage implements Page {
     return Arrays.asList(references);
   }
 
-  public PageReference[] getReferencesArray(){
+  public PageReference[] getReferencesArray() {
     return this.references;
   }
 

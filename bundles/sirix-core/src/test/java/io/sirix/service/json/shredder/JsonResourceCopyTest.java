@@ -38,9 +38,9 @@ public final class JsonResourceCopyTest {
     final var databaseForReads = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final var databaseForWrites = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH2.getFile());
     try (final var sessionForReads = databaseForReads.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var sessionForWrites = databaseForWrites.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var rtx = sessionForReads.beginNodeReadOnlyTrx();
-         final var wtx = sessionForWrites.beginNodeTrx()) {
+        final var sessionForWrites = databaseForWrites.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var rtx = sessionForReads.beginNodeReadOnlyTrx();
+        final var wtx = sessionForWrites.beginNodeTrx()) {
       new JsonResourceCopy.Builder(wtx, rtx, InsertPosition.AS_FIRST_CHILD).commitAfterwards().build().call();
 
       rtx.moveToDocumentRoot();
@@ -97,9 +97,9 @@ public final class JsonResourceCopyTest {
     }
 
     try (final var sessionForReads = rtxDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var rtx = sessionForReads.beginNodeReadOnlyTrx(1);
-         final var sessionForWrites = wtxDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = sessionForWrites.beginNodeTrx()) {
+        final var rtx = sessionForReads.beginNodeReadOnlyTrx(1);
+        final var sessionForWrites = wtxDatabase.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = sessionForWrites.beginNodeTrx()) {
       new JsonResourceCopy.Builder(wtx, rtx, InsertPosition.AS_FIRST_CHILD).commitAfterwards()
                                                                            .copyAllRevisionsUpToMostRecent()
                                                                            .build()

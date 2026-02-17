@@ -17,8 +17,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests for {@link DiscriminativeBitComputer}.
  * 
- * <p>Verifies correctness of the discriminative bit computation algorithm
- * as specified in Binna's thesis and the reference implementation.</p>
+ * <p>
+ * Verifies correctness of the discriminative bit computation algorithm as specified in Binna's
+ * thesis and the reference implementation.
+ * </p>
  */
 @DisplayName("DiscriminativeBitComputer Tests")
 class DiscriminativeBitComputerTest {
@@ -36,18 +38,15 @@ class DiscriminativeBitComputerTest {
     @Test
     @DisplayName("CC-1: One empty key returns 0")
     void testOneEmptyKey() {
-      assertEquals(0, DiscriminativeBitComputer.computeDifferingBit(new byte[0], new byte[]{0x01}));
-      assertEquals(0, DiscriminativeBitComputer.computeDifferingBit(new byte[]{0x01}, new byte[0]));
+      assertEquals(0, DiscriminativeBitComputer.computeDifferingBit(new byte[0], new byte[] {0x01}));
+      assertEquals(0, DiscriminativeBitComputer.computeDifferingBit(new byte[] {0x01}, new byte[0]));
     }
 
     @Test
     @DisplayName("CC-2: 0x00 vs 0xFF - MSB differs first (bit 0)")
     void testMaximalBitDifference() {
       // Reference: 0x00 XOR 0xFF = 0xFF, clz(0xFF) = 24, 24-24 = 0
-      int result = DiscriminativeBitComputer.computeDifferingBit(
-          new byte[]{0x00},
-          new byte[]{(byte) 0xFF}
-      );
+      int result = DiscriminativeBitComputer.computeDifferingBit(new byte[] {0x00}, new byte[] {(byte) 0xFF});
       assertEquals(0, result, "First differing bit should be bit 0 (MSB)");
     }
 
@@ -55,10 +54,7 @@ class DiscriminativeBitComputerTest {
     @DisplayName("CC-2: 0x80 vs 0x00 - MSB differs (bit 0)")
     void testMSBDifference() {
       // 0x80 XOR 0x00 = 0x80, clz(0x80) = 24, 24-24 = 0
-      int result = DiscriminativeBitComputer.computeDifferingBit(
-          new byte[]{(byte) 0x80},
-          new byte[]{0x00}
-      );
+      int result = DiscriminativeBitComputer.computeDifferingBit(new byte[] {(byte) 0x80}, new byte[] {0x00});
       assertEquals(0, result);
     }
 
@@ -66,10 +62,7 @@ class DiscriminativeBitComputerTest {
     @DisplayName("0x40 vs 0x00 - second bit differs (bit 1)")
     void testSecondBitDifference() {
       // 0x40 XOR 0x00 = 0x40, clz(0x40) = 25, 25-24 = 1
-      int result = DiscriminativeBitComputer.computeDifferingBit(
-          new byte[]{0x40},
-          new byte[]{0x00}
-      );
+      int result = DiscriminativeBitComputer.computeDifferingBit(new byte[] {0x40}, new byte[] {0x00});
       assertEquals(1, result);
     }
 
@@ -77,10 +70,7 @@ class DiscriminativeBitComputerTest {
     @DisplayName("0x01 vs 0x00 - LSB differs (bit 7)")
     void testLSBDifference() {
       // 0x01 XOR 0x00 = 0x01, clz(0x01) = 31, 31-24 = 7
-      int result = DiscriminativeBitComputer.computeDifferingBit(
-          new byte[]{0x01},
-          new byte[]{0x00}
-      );
+      int result = DiscriminativeBitComputer.computeDifferingBit(new byte[] {0x01}, new byte[] {0x00});
       assertEquals(7, result);
     }
 
@@ -114,26 +104,22 @@ class DiscriminativeBitComputerTest {
     @DisplayName("Each bit position correctly identified")
     void testBitPositions() {
       // Test each bit position from 0 (MSB) to 7 (LSB)
-      int[][] testCases = {
-          {0x00, 0x80, 0},   // MSB differs
-          {0x00, 0x40, 1},   // Bit 1 differs
-          {0x00, 0x20, 2},   // Bit 2 differs
-          {0x00, 0x10, 3},   // Bit 3 differs
-          {0x00, 0x08, 4},   // Bit 4 differs
-          {0x00, 0x04, 5},   // Bit 5 differs
-          {0x00, 0x02, 6},   // Bit 6 differs
-          {0x00, 0x01, 7}    // Bit 7 (LSB) differs
+      int[][] testCases = {{0x00, 0x80, 0}, // MSB differs
+          {0x00, 0x40, 1}, // Bit 1 differs
+          {0x00, 0x20, 2}, // Bit 2 differs
+          {0x00, 0x10, 3}, // Bit 3 differs
+          {0x00, 0x08, 4}, // Bit 4 differs
+          {0x00, 0x04, 5}, // Bit 5 differs
+          {0x00, 0x02, 6}, // Bit 6 differs
+          {0x00, 0x01, 7} // Bit 7 (LSB) differs
       };
-      
+
       for (int[] testCase : testCases) {
         byte b1 = (byte) testCase[0];
         byte b2 = (byte) testCase[1];
         int expectedBitPos = testCase[2];
-        int result = DiscriminativeBitComputer.computeDifferingBit(
-            new byte[]{b1},
-            new byte[]{b2}
-        );
-        assertEquals(expectedBitPos, result, 
+        int result = DiscriminativeBitComputer.computeDifferingBit(new byte[] {b1}, new byte[] {b2});
+        assertEquals(expectedBitPos, result,
             String.format("0x%02X vs 0x%02X should differ at bit %d", testCase[0], testCase[1], expectedBitPos));
       }
     }
@@ -185,8 +171,8 @@ class DiscriminativeBitComputerTest {
     @DisplayName("Bit in second byte")
     void testBitInSecondByte() {
       byte[] key = {0x00, (byte) 0x80};
-      assertFalse(DiscriminativeBitComputer.isBitSet(key, 0));  // First byte, bit 0
-      assertTrue(DiscriminativeBitComputer.isBitSet(key, 8));   // Second byte, bit 0
+      assertFalse(DiscriminativeBitComputer.isBitSet(key, 0)); // First byte, bit 0
+      assertTrue(DiscriminativeBitComputer.isBitSet(key, 8)); // Second byte, bit 0
     }
 
     @Test
@@ -212,7 +198,7 @@ class DiscriminativeBitComputerTest {
     @Test
     @DisplayName("Single key returns empty mask")
     void testSingleKey() {
-      byte[][] keys = {new byte[]{0x12}};
+      byte[][] keys = {new byte[] {0x12}};
       long mask = DiscriminativeBitComputer.computeDiscriminativeMask(keys, 0, 8);
       assertEquals(0L, mask);
     }
@@ -220,10 +206,7 @@ class DiscriminativeBitComputerTest {
     @Test
     @DisplayName("Two keys differing in MSB")
     void testTwoKeysDifferingInMSB() {
-      byte[][] keys = {
-          new byte[]{0x00},
-          new byte[]{(byte) 0x80}
-      };
+      byte[][] keys = {new byte[] {0x00}, new byte[] {(byte) 0x80}};
       long mask = DiscriminativeBitComputer.computeDiscriminativeMask(keys, 0, 8);
       // Bit 0 (MSB) should be set in the mask
       // In 64-bit mask, byte 0 goes to bits 56-63
@@ -246,8 +229,8 @@ class DiscriminativeBitComputerTest {
     @Test
     @DisplayName("Extract single bit")
     void testExtractSingleBit() {
-      byte[] key = {(byte) 0x80};  // 10000000
-      long mask = 1L << 63;  // MSB only
+      byte[] key = {(byte) 0x80}; // 10000000
+      long mask = 1L << 63; // MSB only
       int partialKey = DiscriminativeBitComputer.extractPartialKey(key, mask, 0);
       assertEquals(1, partialKey);
     }

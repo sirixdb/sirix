@@ -31,8 +31,8 @@ public final class RevisionReferencesNodeTest {
 
   @Test
   public void test() throws IOException {
-    final var node = new RevisionReferencesNode(1, new int[] { 3, 7, 8 } );
-    assertArrayEquals(new int[] { 3, 7, 8 }, node.getRevisions());
+    final var node = new RevisionReferencesNode(1, new int[] {3, 7, 8});
+    assertArrayEquals(new int[] {3, 7, 8}, node.getRevisions());
     node.addRevision(13);
     checkNode(node);
 
@@ -40,20 +40,22 @@ public final class RevisionReferencesNodeTest {
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
     final RevisionReferencesNode node2 =
-        (RevisionReferencesNode) node.getKind().deserialize(data.asBytesIn(), node.getNodeKey(), null, pageTrx.getResourceSession().getResourceConfig());
+        (RevisionReferencesNode) node.getKind()
+                                     .deserialize(data.asBytesIn(), node.getNodeKey(), null,
+                                         pageTrx.getResourceSession().getResourceConfig());
     checkNode(node2);
   }
 
   private void checkNode(RevisionReferencesNode node) {
     assertEquals(NodeKind.REVISION_REFERENCES_NODE, node.getKind());
     assertEquals(1, node.getNodeKey());
-    assertArrayEquals(new int[] { 3, 7, 8, 13 }, node.getRevisions());
+    assertArrayEquals(new int[] {3, 7, 8, 13}, node.getRevisions());
 
-    final var otherNode = new RevisionReferencesNode(1, new int[] { 3, 7, 8, 13});
+    final var otherNode = new RevisionReferencesNode(1, new int[] {3, 7, 8, 13});
     assertEquals(node, otherNode);
     assertEquals(otherNode, node);
 
-    final var otherUnequalNodeDueToValue = new RevisionReferencesNode(1, new int[] { 3, 7, 8 });
+    final var otherUnequalNodeDueToValue = new RevisionReferencesNode(1, new int[] {3, 7, 8});
     assertNotEquals(node, otherUnequalNodeDueToValue);
     assertNotEquals(otherUnequalNodeDueToValue, node);
   }

@@ -28,43 +28,44 @@ package io.sirix.io;
 /**
  * Thread-safe holder for {@link RevisionIndex} supporting N readers + 1 writer pattern.
  * 
- * <p><b>Concurrency Model:</b>
+ * <p>
+ * <b>Concurrency Model:</b>
  * <ul>
- *   <li>Multiple readers can call {@link #get()} concurrently</li>
- *   <li>Single writer calls {@link #update(RevisionIndex)} during commit</li>
- *   <li>Readers see a consistent snapshot from when they acquired the reference</li>
+ * <li>Multiple readers can call {@link #get()} concurrently</li>
+ * <li>Single writer calls {@link #update(RevisionIndex)} during commit</li>
+ * <li>Readers see a consistent snapshot from when they acquired the reference</li>
  * </ul>
  * 
- * <p><b>Memory Ordering:</b>
- * The volatile field ensures:
+ * <p>
+ * <b>Memory Ordering:</b> The volatile field ensures:
  * <ol>
- *   <li>Visibility: readers see the latest index after volatile read</li>
- *   <li>Ordering: all writes to index arrays happen-before the volatile write</li>
- *   <li>Atomicity: reference assignment is atomic</li>
+ * <li>Visibility: readers see the latest index after volatile read</li>
+ * <li>Ordering: all writes to index arrays happen-before the volatile write</li>
+ * <li>Atomicity: reference assignment is atomic</li>
  * </ol>
  * 
- * <p>In-flight readers on an old index will complete safely since {@link RevisionIndex}
- * is immutable. They simply won't see newly committed revisions, which is consistent
- * with snapshot isolation semantics.
+ * <p>
+ * In-flight readers on an old index will complete safely since {@link RevisionIndex} is immutable.
+ * They simply won't see newly committed revisions, which is consistent with snapshot isolation
+ * semantics.
  * 
  * @author Johannes Lichtenberger
  * @since 1.0.0
  */
 public final class RevisionIndexHolder {
-  
+
   /**
-   * Volatile reference to current index.
-   * Ensures visibility and ordering across threads.
+   * Volatile reference to current index. Ensures visibility and ordering across threads.
    */
   private volatile RevisionIndex index;
-  
+
   /**
    * Create a new holder with an empty index.
    */
   public RevisionIndexHolder() {
     this.index = RevisionIndex.EMPTY;
   }
-  
+
   /**
    * Create a new holder with the given index.
    * 
@@ -77,30 +78,30 @@ public final class RevisionIndexHolder {
     }
     this.index = index;
   }
-  
+
   /**
    * Get the current revision index.
    * 
-   * <p>This is a volatile read, ensuring the caller sees the most recently
-   * published index. The returned index is immutable and safe to use even
-   * if another thread updates the holder.
+   * <p>
+   * This is a volatile read, ensuring the caller sees the most recently published index. The returned
+   * index is immutable and safe to use even if another thread updates the holder.
    * 
    * @return current RevisionIndex (never null)
    */
   public RevisionIndex get() {
     return index;
   }
-  
+
   /**
    * Update the revision index.
    * 
-   * <p>This is a volatile write, ensuring the new index is visible to all
-   * subsequent readers. Should only be called by the commit thread while
-   * holding the commit lock.
+   * <p>
+   * This is a volatile write, ensuring the new index is visible to all subsequent readers. Should
+   * only be called by the commit thread while holding the commit lock.
    * 
-   * <p><b>Thread Safety:</b> This method is NOT synchronized. The caller
-   * (commit code) must ensure single-writer semantics via external locking
-   * (e.g., commitLock in AbstractResourceSession).
+   * <p>
+   * <b>Thread Safety:</b> This method is NOT synchronized. The caller (commit code) must ensure
+   * single-writer semantics via external locking (e.g., commitLock in AbstractResourceSession).
    * 
    * @param newIndex the new index to publish (must not be null)
    * @throws NullPointerException if newIndex is null
@@ -109,14 +110,15 @@ public final class RevisionIndexHolder {
     if (newIndex == null) {
       throw new NullPointerException("newIndex must not be null");
     }
-    this.index = newIndex;  // Volatile write
+    this.index = newIndex; // Volatile write
   }
-  
+
   /**
    * Atomically update the index by adding a new revision.
    * 
-   * <p>Convenience method that combines {@link RevisionIndex#withNewRevision(long, long)}
-   * with {@link #update(RevisionIndex)}. The caller must still hold the commit lock.
+   * <p>
+   * Convenience method that combines {@link RevisionIndex#withNewRevision(long, long)} with
+   * {@link #update(RevisionIndex)}. The caller must still hold the commit lock.
    * 
    * @param offset file offset of the new revision
    * @param timestamp commit timestamp of the new revision (epoch millis)
@@ -124,7 +126,7 @@ public final class RevisionIndexHolder {
   public void addRevision(long offset, long timestamp) {
     RevisionIndex current = this.index;
     RevisionIndex updated = current.withNewRevision(offset, timestamp);
-    this.index = updated;  // Volatile write
+    this.index = updated; // Volatile write
   }
 }
 

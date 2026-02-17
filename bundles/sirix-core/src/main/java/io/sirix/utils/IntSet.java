@@ -80,8 +80,7 @@ public class IntSet extends ASet {
   }
 
   /**
-   * Returns the key with the specified id.
-   * All ids starts with {@code 1} instead of {@code 0}.
+   * Returns the key with the specified id. All ids starts with {@code 1} instead of {@code 0}.
    *
    * @param id id of the key to return
    * @return key
@@ -91,8 +90,8 @@ public class IntSet extends ASet {
   }
 
   /**
-   * Stores the specified key and returns its id, or returns the negative id if the
-   * key has already been stored.
+   * Stores the specified key and returns its id, or returns the negative id if the key has already
+   * been stored.
    *
    * @param key key to be found
    * @return id, or negative id if key has already been stored

@@ -5,12 +5,7 @@ import java.util.Objects;
 /**
  * Pointer metadata embedded in a fixed slot for out-of-line payload blocks.
  */
-public record PayloadRef(
-    String name,
-    PayloadRefKind kind,
-    int pointerOffset,
-    int lengthOffset,
-    int flagsOffset) {
+public record PayloadRef(String name, PayloadRefKind kind, int pointerOffset, int lengthOffset, int flagsOffset) {
 
   public static final int POINTER_WIDTH_BYTES = Long.BYTES;
   public static final int LENGTH_WIDTH_BYTES = Integer.BYTES;

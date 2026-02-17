@@ -66,8 +66,8 @@ public final class ScanCASIndexRange extends AbstractScanIndex {
 
     if (indexDef == null) {
       throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND, "Index no %s for collection %s and document %s not found.",
-                               idx, document.getCollection().getName(),
-                               document.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
+          idx, document.getCollection().getName(),
+          document.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
     if (indexDef.getType() != IndexType.CAS) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,

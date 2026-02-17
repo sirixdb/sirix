@@ -46,7 +46,7 @@ public final class DiffTest {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     assert database != null;
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
@@ -71,12 +71,11 @@ public final class DiffTest {
     }
 
     // Initialize query context and store.
-    try (final var store = BasicJsonDBStore.newBuilder()
-                                           .location(PATHS.PATH1.getFile().getParent())
-                                           .storeDeweyIds(true)
-                                           .build();
-         final var ctx = SirixQueryContext.createWithJsonStore(store);
-         final var chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).storeDeweyIds(true).build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
       // Use Query to store a JSON string into the store.
       final var databaseName = PATHS.PATH1.getFile().getName(PATHS.PATH1.getFile().getNameCount() - 1).toString();
       final var resourceName = JsonTestHelper.RESOURCE;
@@ -129,7 +128,7 @@ public final class DiffTest {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     assert database != null;
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("newKey", new StringValue("newValue"));
@@ -137,12 +136,11 @@ public final class DiffTest {
     }
 
     // Initialize query context and store.
-    try (final var store = BasicJsonDBStore.newBuilder()
-                                           .location(PATHS.PATH1.getFile().getParent())
-                                           .storeDeweyIds(true)
-                                           .build();
-         final var ctx = SirixQueryContext.createWithJsonStore(store);
-         final var chain = SirixCompileChain.createWithJsonStore(store)) {
+    try (
+        final var store =
+            BasicJsonDBStore.newBuilder().location(PATHS.PATH1.getFile().getParent()).storeDeweyIds(true).build();
+        final var ctx = SirixQueryContext.createWithJsonStore(store);
+        final var chain = SirixCompileChain.createWithJsonStore(store)) {
 
       final var databaseName = PATHS.PATH1.getFile().getName(PATHS.PATH1.getFile().getNameCount() - 1).toString();
       final var resourceName = JsonTestHelper.RESOURCE;
@@ -171,8 +169,7 @@ public final class DiffTest {
 
       // The key assertion: the first element should be an object, not a string
       // Before the fix, this would fail because the diff was serialized as a quoted string
-      assertTrue("Diff should be a JSON object, not a quoted string",
-          restArray.get(0).isJsonObject());
+      assertTrue("Diff should be a JSON object, not a quoted string", restArray.get(0).isJsonObject());
 
       // Verify the diff object has expected fields
       final var diffObject = restArray.get(0).getAsJsonObject();

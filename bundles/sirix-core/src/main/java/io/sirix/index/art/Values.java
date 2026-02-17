@@ -9,43 +9,43 @@ import java.util.Iterator;
 // provides certain primitive methods (getEntry, successor, predecessor, etc)
 
 class Values<K, V> extends AbstractCollection<V> {
-	private final AdaptiveRadixTree<K, V> m;
+  private final AdaptiveRadixTree<K, V> m;
 
-	Values(AdaptiveRadixTree<K, V> m){
-		this.m = m;
-	}
+  Values(AdaptiveRadixTree<K, V> m) {
+    this.m = m;
+  }
 
-	@Override
-	public Iterator<V> iterator() {
-		return m.valueIterator();
-	}
+  @Override
+  public Iterator<V> iterator() {
+    return m.valueIterator();
+  }
 
-	@Override
-	public int size() {
-		return m.size();
-	}
+  @Override
+  public int size() {
+    return m.size();
+  }
 
-	@Override
-	public boolean contains(Object o) {
-		return m.containsValue(o);
-	}
+  @Override
+  public boolean contains(Object o) {
+    return m.containsValue(o);
+  }
 
-	@Override
-	public boolean remove(Object o) {
-		for (LeafNode<K,V> e = m.getFirstEntry(); e != null; e = AdaptiveRadixTree.successor(e)) {
-			if (AdaptiveRadixTree.valEquals(e.getValue(), o)) {
-				m.deleteEntry(e);
-				return true;
-			}
-		}
-		return false;
-	}
+  @Override
+  public boolean remove(Object o) {
+    for (LeafNode<K, V> e = m.getFirstEntry(); e != null; e = AdaptiveRadixTree.successor(e)) {
+      if (AdaptiveRadixTree.valEquals(e.getValue(), o)) {
+        m.deleteEntry(e);
+        return true;
+      }
+    }
+    return false;
+  }
 
-	@Override
-	public void clear() {
-		m.clear();
-	}
+  @Override
+  public void clear() {
+    m.clear();
+  }
 
-	// TODO: implement Spliterator
+  // TODO: implement Spliterator
 }
 

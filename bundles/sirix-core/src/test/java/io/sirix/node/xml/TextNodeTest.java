@@ -76,20 +76,19 @@ public class TextNodeTest {
   @Test
   public void testTextRootNode() {
     // Create empty node.
-    final byte[] value = { (byte) 17, (byte) 18 };
-    
+    final byte[] value = {(byte) 17, (byte) 18};
+
     // Create TextNode with primitive fields
-    final TextNode node = new TextNode(
-        13L,                                         // nodeKey
-        14L,                                         // parentKey
-        Constants.NULL_REVISION_NUMBER,              // previousRevision
-        0,                                           // lastModifiedRevision
-        16L,                                         // rightSiblingKey
-        15L,                                         // leftSiblingKey
-        0,                                           // hash
-        value,                                       // value
-        false,                                       // isCompressed
-        LongHashFunction.xx3(),                      // hashFunction
+    final TextNode node = new TextNode(13L, // nodeKey
+        14L, // parentKey
+        Constants.NULL_REVISION_NUMBER, // previousRevision
+        0, // lastModifiedRevision
+        16L, // rightSiblingKey
+        15L, // leftSiblingKey
+        0, // hash
+        value, // value
+        false, // isCompressed
+        LongHashFunction.xx3(), // hashFunction
         SirixDeweyID.newRootID());
     var hashBytes = Bytes.elasticOffHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
@@ -98,10 +97,8 @@ public class TextNodeTest {
     // Serialize and deserialize node.
     final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
     node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(data2.asBytesIn(),
-                                                                node.getNodeKey(),
-                                                                node.getDeweyID().toBytes(),
-                                                                pageReadTrx.getResourceSession().getResourceConfig());
+    final TextNode node2 = (TextNode) NodeKind.TEXT.deserialize(data2.asBytesIn(), node.getNodeKey(),
+        node.getDeweyID().toBytes(), pageReadTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 

@@ -71,8 +71,7 @@ final class SlotLayoutAccessorsTest {
     final NodeKindLayout layout = NodeKindLayouts.layoutFor(NodeKind.STRING_VALUE);
     try (Arena arena = Arena.ofConfined()) {
       final MemorySegment slot = arena.allocate(layout.fixedSlotSizeInBytes());
-      assertThrows(IllegalArgumentException.class,
-          () -> SlotLayoutAccessors.readPayloadPointer(slot, layout, 1));
+      assertThrows(IllegalArgumentException.class, () -> SlotLayoutAccessors.readPayloadPointer(slot, layout, 1));
     }
   }
 

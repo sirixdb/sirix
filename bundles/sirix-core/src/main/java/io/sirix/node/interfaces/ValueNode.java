@@ -51,6 +51,7 @@ public interface ValueNode extends Node {
 
   /**
    * Get the value as a String
+   * 
    * @return the value
    */
   String getValue();

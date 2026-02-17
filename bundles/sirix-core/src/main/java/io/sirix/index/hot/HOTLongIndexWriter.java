@@ -42,14 +42,16 @@ import static java.util.Objects.requireNonNull;
 /**
  * Primitive-specialized HOT index writer for long keys (PATH index).
  *
- * <p>Uses primitive {@code long} keys to avoid boxing overhead.
- * This is the high-performance variant for PATH index operations.</p>
+ * <p>
+ * Uses primitive {@code long} keys to avoid boxing overhead. This is the high-performance variant
+ * for PATH index operations.
+ * </p>
  *
  * <h2>Zero Allocation Design</h2>
  * <ul>
- *   <li>Primitive long parameters (no boxing)</li>
- *   <li>Thread-local byte buffers for serialization</li>
- *   <li>No Optional - uses @Nullable returns</li>
+ * <li>Primitive long parameters (no boxing)</li>
+ * <li>Thread-local byte buffers for serialization</li>
+ * <li>No Optional - uses @Nullable returns</li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -61,30 +63,29 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
   /**
    * Thread-local buffer for key serialization (8 bytes for long).
    */
-  private static final ThreadLocal<byte[]> KEY_BUFFER =
-      ThreadLocal.withInitial(() -> new byte[8]);
+  private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[8]);
 
   private final HOTLongKeySerializer keySerializer;
 
   /**
    * Private constructor.
    *
-   * @param pageTrx       the storage engine writer
+   * @param pageTrx the storage engine writer
    * @param keySerializer the key serializer
-   * @param indexType     the index type (should be PATH)
-   * @param indexNumber   the index number
+   * @param indexType the index type (should be PATH)
+   * @param indexNumber the index number
    */
-  private HOTLongIndexWriter(StorageEngineWriter pageTrx, HOTLongKeySerializer keySerializer,
-                             IndexType indexType, int indexNumber) {
+  private HOTLongIndexWriter(StorageEngineWriter pageTrx, HOTLongKeySerializer keySerializer, IndexType indexType,
+      int indexNumber) {
     super(pageTrx, indexType, indexNumber);
     this.keySerializer = requireNonNull(keySerializer);
-    
+
     // HOTLongIndexWriter is specialized for PATH indexes only.
     if (indexType != IndexType.PATH) {
       throw new IllegalArgumentException(
           "HOTLongIndexWriter only supports PATH indexes, use HOTIndexWriter for " + indexType);
     }
-    
+
     // Initialize HOT index tree
     initializePathIndex();
   }
@@ -92,28 +93,31 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
   /**
    * Creates a new HOTLongIndexWriter for PATH index.
    *
-   * @param pageTrx     the storage engine writer
-   * @param indexType   the index type (should be PATH)
+   * @param pageTrx the storage engine writer
+   * @param indexType the index type (should be PATH)
    * @param indexNumber the index number
    * @return a new HOTLongIndexWriter instance
    */
-  public static HOTLongIndexWriter create(StorageEngineWriter pageTrx,
-                                          IndexType indexType, int indexNumber) {
+  public static HOTLongIndexWriter create(StorageEngineWriter pageTrx, IndexType indexType, int indexNumber) {
     return new HOTLongIndexWriter(pageTrx, PathKeySerializer.INSTANCE, indexType, indexNumber);
   }
 
   /**
    * Index a primitive long key with NodeReferences.
    *
-   * <p>If the key already exists, merges the NodeReferences (OR operation).
-   * Uses primitive long to avoid boxing.</p>
+   * <p>
+   * If the key already exists, merges the NodeReferences (OR operation). Uses primitive long to avoid
+   * boxing.
+   * </p>
    *
-   * <p><b>Split Handling:</b> When a leaf page is full, the page is split
-   * to accommodate new entries. This allows the index to grow beyond 512 entries.</p>
+   * <p>
+   * <b>Split Handling:</b> When a leaf page is full, the page is split to accommodate new entries.
+   * This allows the index to grow beyond 512 entries.
+   * </p>
    *
-   * @param key   the index key (primitive long, no boxing)
+   * @param key the index key (primitive long, no boxing)
    * @param value the node references
-   * @param move  cursor movement mode (ignored for HOT)
+   * @param move cursor movement mode (ignored for HOT)
    * @return the indexed value
    */
   public NodeReferences index(long key, NodeReferences value, RBTreeReader.MoveCursor move) {
@@ -137,9 +141,11 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
   /**
    * Get the NodeReferences for a primitive long key.
    *
-   * <p>Uses primitive long to avoid boxing.</p>
+   * <p>
+   * Uses primitive long to avoid boxing.
+   * </p>
    *
-   * @param key  the index key (primitive long)
+   * @param key the index key (primitive long)
    * @param mode the search mode
    * @return the node references, or null if not found
    */
@@ -160,7 +166,7 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
   /**
    * Remove a node key from the NodeReferences for a primitive long key.
    *
-   * @param key     the index key (primitive long)
+   * @param key the index key (primitive long)
    * @param nodeKey the node key to remove
    * @return true if the node key was removed
    */

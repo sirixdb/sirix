@@ -71,8 +71,7 @@ public class PostOrderTest {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
     rtx.moveToDocumentRoot();
-    AbsAxisTest.testAxisConventions(
-        new PostOrderAxis(rtx), new long[] {4L, 6L, 7L, 5L, 8L, 11L, 12L, 9L, 13L, 1L, 0L});
+    AbsAxisTest.testAxisConventions(new PostOrderAxis(rtx), new long[] {4L, 6L, 7L, 5L, 8L, 11L, 12L, 9L, 13L, 1L, 0L});
     new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
         ImmutableList.of(4L, 6L, 7L, 5L, 8L, 11L, 12L, 9L, 13L, 1L, 0L), null) {
       @Override
@@ -90,8 +89,7 @@ public class PostOrderTest {
 
     rtx.moveTo(5L);
     AbsAxisTest.testAxisConventions(new PostOrderAxis(rtx), new long[] {6L, 7L});
-    new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(6L, 7L),
-        null) {
+    new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(6L, 7L), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
         final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
@@ -107,8 +105,7 @@ public class PostOrderTest {
 
     rtx.moveTo(8L);
     AbsAxisTest.testAxisConventions(new PostOrderAxis(rtx), new long[] {});
-    new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, Collections.emptyList(),
-        null) {
+    new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, Collections.emptyList(), null) {
       @Override
       protected Iterator<Long> newTargetIterator() {
         final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
@@ -122,12 +119,10 @@ public class PostOrderTest {
   public void testIterateDocumentFirst() throws SirixException, IOException, XMLStreamException {
     try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx()) {
       wtx.moveTo(9);
-      wtx.insertSubtreeAsFirstChild(
-          XmlShredder.createStringReader(XmlDocumentCreator.XML_WITHOUT_XMLDECL));
+      wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(XmlDocumentCreator.XML_WITHOUT_XMLDECL));
       wtx.commit();
       final long key = wtx.getNodeKey();
-      AbsAxisTest.testAxisConventions(
-          new PostOrderAxis(wtx), new long[] {17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L});
+      AbsAxisTest.testAxisConventions(new PostOrderAxis(wtx), new long[] {17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L});
       new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
           ImmutableList.of(17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L), null) {
         @Override
@@ -137,8 +132,7 @@ public class PostOrderTest {
         }
       }.test();
       wtx.moveTo(14L);
-      AbsAxisTest.testAxisConventions(
-          new PostOrderAxis(wtx, IncludeSelf.YES),
+      AbsAxisTest.testAxisConventions(new PostOrderAxis(wtx, IncludeSelf.YES),
           new long[] {17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L});
       new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
           ImmutableList.of(17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L), null) {
@@ -149,13 +143,10 @@ public class PostOrderTest {
         }
       }.test();
       wtx.moveToDocumentRoot();
-      AbsAxisTest.testAxisConventions(
-          new PostOrderAxis(wtx), new long[] {4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L,
-              22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L});
+      AbsAxisTest.testAxisConventions(new PostOrderAxis(wtx),
+          new long[] {4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L});
       new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(
-              4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L,
-              13L, 1L),
+          ImmutableList.of(4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L),
           null) {
         @Override
         protected Iterator<Long> newTargetIterator() {
@@ -164,14 +155,10 @@ public class PostOrderTest {
         }
       }.test();
       wtx.moveToDocumentRoot();
-      AbsAxisTest.testAxisConventions(
-          new PostOrderAxis(wtx, IncludeSelf.YES), new long[] {4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L,
-              18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L, 0L});
-      new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(
-              4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L,
-              13L, 1L, 0L),
-          null) {
+      AbsAxisTest.testAxisConventions(new PostOrderAxis(wtx, IncludeSelf.YES),
+          new long[] {4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L, 0L});
+      new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(4L, 6L, 7L, 5L, 8L, 17L, 19L,
+          20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L, 0L), null) {
         @Override
         protected Iterator<Long> newTargetIterator() {
           wtx.moveToDocumentRoot();
@@ -185,19 +172,15 @@ public class PostOrderTest {
   public void testIterateDocumentSecond() throws SirixException, IOException, XMLStreamException {
     try (final XmlNodeTrx wtx = holder.getResourceSession().beginNodeTrx()) {
       wtx.moveTo(11);
-      wtx.insertSubtreeAsFirstChild(
-          XmlShredder.createStringReader(XmlDocumentCreator.XML_WITHOUT_XMLDECL));
+      wtx.insertSubtreeAsFirstChild(XmlShredder.createStringReader(XmlDocumentCreator.XML_WITHOUT_XMLDECL));
       wtx.commit();
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       final long key = wtx.getNodeKey();
-      AbsAxisTest.testAxisConventions(
-          new PostOrderAxis(wtx, IncludeSelf.YES), new long[] {4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L,
-              18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L});
+      AbsAxisTest.testAxisConventions(new PostOrderAxis(wtx, IncludeSelf.YES),
+          new long[] {4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L});
       new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(
-              4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L,
-              13L, 1L),
+          ImmutableList.of(4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L, 1L),
           null) {
         @Override
         protected Iterator<Long> newTargetIterator() {
@@ -209,13 +192,10 @@ public class PostOrderTest {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       final long secondKey = wtx.getNodeKey();
-      AbsAxisTest.testAxisConventions(
-          new PostOrderAxis(wtx), new long[] {4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L,
-              22L, 26L, 14L, 11L, 12L, 9L, 13L});
+      AbsAxisTest.testAxisConventions(new PostOrderAxis(wtx),
+          new long[] {4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L});
       new IteratorTester<Long>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(
-              4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L,
-              13L),
+          ImmutableList.of(4L, 6L, 7L, 5L, 8L, 17L, 19L, 20L, 18L, 21L, 24L, 25L, 22L, 26L, 14L, 11L, 12L, 9L, 13L),
           null) {
         @Override
         protected Iterator<Long> newTargetIterator() {

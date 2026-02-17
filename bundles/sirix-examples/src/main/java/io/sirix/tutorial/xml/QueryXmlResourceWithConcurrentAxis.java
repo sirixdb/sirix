@@ -22,8 +22,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
- * Note that this simple example shows, that the higher level XQuery-API is much more user-friendly, when chaining
- * axis is required.
+ * Note that this simple example shows, that the higher level XQuery-API is much more user-friendly,
+ * when chaining axis is required.
  */
 public class QueryXmlResourceWithConcurrentAxis {
 
@@ -46,13 +46,11 @@ public class QueryXmlResourceWithConcurrentAxis {
     final var dbConfig = new DatabaseConfiguration(DATABASE_PATH);
     Databases.createXmlDatabase(dbConfig);
     try (final var database = Databases.openXmlDatabase(DATABASE_PATH)) {
-      database.createResource(ResourceConfiguration.newBuilder("resource")
-                                                   .useTextCompression(false)
-                                                   .useDeweyIDs(true)
-                                                   .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder("resource").useTextCompression(false).useDeweyIDs(true).build());
       try (final var manager = database.beginResourceSession("resource");
-           final var wtx = manager.beginNodeTrx();
-           final var fis = new FileInputStream(pathToXmlFile.toFile())) {
+          final var wtx = manager.beginNodeTrx();
+          final var fis = new FileInputStream(pathToXmlFile.toFile())) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createFileReader(fis));
         wtx.commit();
       }
@@ -61,28 +59,24 @@ public class QueryXmlResourceWithConcurrentAxis {
 
   static void queryXmlDatabase() {
     try (final var database = Databases.openXmlDatabase(DATABASE_PATH);
-         final var manager = database.beginResourceSession("resource");
-         final var firstConcurrRtx = manager.beginNodeReadOnlyTrx();
-         final var secondConcurrRtx = manager.beginNodeReadOnlyTrx();
-         final var thirdConcurrRtx = manager.beginNodeReadOnlyTrx();
-         final var firstRtx = manager.beginNodeReadOnlyTrx();
-         final var secondRtx = manager.beginNodeReadOnlyTrx();
-         final var thirdRtx = manager.beginNodeReadOnlyTrx()) {
+        final var manager = database.beginResourceSession("resource");
+        final var firstConcurrRtx = manager.beginNodeReadOnlyTrx();
+        final var secondConcurrRtx = manager.beginNodeReadOnlyTrx();
+        final var thirdConcurrRtx = manager.beginNodeReadOnlyTrx();
+        final var firstRtx = manager.beginNodeReadOnlyTrx();
+        final var secondRtx = manager.beginNodeReadOnlyTrx();
+        final var thirdRtx = manager.beginNodeReadOnlyTrx()) {
 
       /* query: //regions/africa//location */
-      final Axis axis = new NestedAxis(new NestedAxis(new ConcurrentAxis<>(firstConcurrRtx,
-                                                                           new FilterAxis<>(new DescendantAxis(firstRtx,
-                                                                                                               IncludeSelf.YES),
-                                                                                            new XmlNameFilter(firstRtx,
-                                                                                                              "regions"))),
-                                                      new ConcurrentAxis<>(secondConcurrRtx,
-                                                                           new FilterAxis<>(new ChildAxis(secondRtx),
-                                                                                            new XmlNameFilter(secondRtx,
-                                                                                                              "africa")))),
-                                       new ConcurrentAxis<>(thirdConcurrRtx,
-                                                            new FilterAxis<>(new DescendantAxis(thirdRtx,
-                                                                                                IncludeSelf.YES),
-                                                                             new XmlNameFilter(thirdRtx, "location"))));
+      final Axis axis = new NestedAxis(
+          new NestedAxis(
+              new ConcurrentAxis<>(firstConcurrRtx,
+                  new FilterAxis<>(new DescendantAxis(firstRtx, IncludeSelf.YES),
+                      new XmlNameFilter(firstRtx, "regions"))),
+              new ConcurrentAxis<>(secondConcurrRtx,
+                  new FilterAxis<>(new ChildAxis(secondRtx), new XmlNameFilter(secondRtx, "africa")))),
+          new ConcurrentAxis<>(thirdConcurrRtx, new FilterAxis<>(new DescendantAxis(thirdRtx, IncludeSelf.YES),
+              new XmlNameFilter(thirdRtx, "location"))));
 
       while (axis.hasNext()) {
         axis.nextLong();

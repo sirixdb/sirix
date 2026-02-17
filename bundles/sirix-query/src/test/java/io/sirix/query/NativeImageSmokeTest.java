@@ -20,19 +20,18 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 
 /**
- * Smoke tests for GraalVM native image compilation.
- * These tests verify that the query engine and FFM-based native memory
- * allocation work correctly when compiled to native image.
+ * Smoke tests for GraalVM native image compilation. These tests verify that the query engine and
+ * FFM-based native memory allocation work correctly when compiled to native image.
  *
- * <p>Run with: {@code ./gradlew :sirix-query:nativeSmokeTest}
+ * <p>
+ * Run with: {@code ./gradlew :sirix-query:nativeSmokeTest}
  */
 @Tag("native-image")
 @DisplayName("Native Image Smoke Tests")
 public class NativeImageSmokeTest {
 
   private String evaluate(String queryStr) {
-    try (final var ctx = SirixQueryContext.create();
-         final var chain = SirixCompileChain.create()) {
+    try (final var ctx = SirixQueryContext.create(); final var chain = SirixCompileChain.create()) {
       final var seq = new Query(chain, queryStr).evaluate(ctx);
       assertNotNull(seq);
       final var buf = IOUtils.createBuffer();
@@ -92,34 +91,29 @@ public class NativeImageSmokeTest {
   }
 
   /**
-   * Tests FFM downcall stubs registered in reachability-metadata.json.
-   * Calls mmap/munmap directly via FFM to verify the native image has
-   * the required downcall stubs for LinuxMemorySegmentAllocator.
+   * Tests FFM downcall stubs registered in reachability-metadata.json. Calls mmap/munmap directly via
+   * FFM to verify the native image has the required downcall stubs for LinuxMemorySegmentAllocator.
    *
-   * <p>Uses direct FFM calls instead of importing LinuxMemorySegmentAllocator
-   * to avoid pulling its large dependency graph into the native image.
+   * <p>
+   * Uses direct FFM calls instead of importing LinuxMemorySegmentAllocator to avoid pulling its large
+   * dependency graph into the native image.
    */
   @Test
   @DisplayName("FFM downcall - mmap/munmap")
   void testFfmMmapMunmap() throws Throwable {
-    Assumptions.assumeTrue(
-        System.getProperty("os.name").toLowerCase().contains("linux"),
-        "mmap/munmap requires Linux");
+    Assumptions.assumeTrue(System.getProperty("os.name").toLowerCase().contains("linux"), "mmap/munmap requires Linux");
 
     var linker = Linker.nativeLinker();
 
     // Same FunctionDescriptors as LinuxMemorySegmentAllocator
-    var mmap = linker.downcallHandle(
-        linker.defaultLookup().find("mmap").orElseThrow(),
+    var mmap = linker.downcallHandle(linker.defaultLookup().find("mmap").orElseThrow(),
         FunctionDescriptor.of(ADDRESS, ADDRESS, JAVA_LONG, JAVA_INT, JAVA_INT, JAVA_INT, JAVA_LONG));
 
-    var munmap = linker.downcallHandle(
-        linker.defaultLookup().find("munmap").orElseThrow(),
+    var munmap = linker.downcallHandle(linker.defaultLookup().find("munmap").orElseThrow(),
         FunctionDescriptor.of(JAVA_INT, ADDRESS, JAVA_LONG));
 
     // mmap(NULL, 4096, PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0)
-    MemorySegment addr = (MemorySegment) mmap.invokeExact(
-        MemorySegment.NULL, 4096L, 0x1 | 0x2, 0x02 | 0x20, -1, 0L);
+    MemorySegment addr = (MemorySegment) mmap.invokeExact(MemorySegment.NULL, 4096L, 0x1 | 0x2, 0x02 | 0x20, -1, 0L);
     assertNotNull(addr);
     assertNotEquals(0L, addr.address());
 
@@ -134,19 +128,15 @@ public class NativeImageSmokeTest {
   }
 
   /**
-   * Tests sysconf downcall stub - used by LinuxMemorySegmentAllocator
-   * to detect the system page size.
+   * Tests sysconf downcall stub - used by LinuxMemorySegmentAllocator to detect the system page size.
    */
   @Test
   @DisplayName("FFM downcall - sysconf page size")
   void testFfmSysconf() throws Throwable {
-    Assumptions.assumeTrue(
-        System.getProperty("os.name").toLowerCase().contains("linux"),
-        "sysconf requires Linux");
+    Assumptions.assumeTrue(System.getProperty("os.name").toLowerCase().contains("linux"), "sysconf requires Linux");
 
     var linker = Linker.nativeLinker();
-    var sysconf = linker.downcallHandle(
-        linker.defaultLookup().find("sysconf").orElseThrow(),
+    var sysconf = linker.downcallHandle(linker.defaultLookup().find("sysconf").orElseThrow(),
         FunctionDescriptor.of(JAVA_LONG, JAVA_INT));
 
     // _SC_PAGESIZE = 30 on Linux
@@ -159,8 +149,7 @@ public class NativeImageSmokeTest {
   @Test
   @DisplayName("LinuxMemorySegmentAllocator mmap/munmap via FFM")
   void testLinuxMemorySegmentAllocator() {
-    Assumptions.assumeTrue(
-        System.getProperty("os.name").toLowerCase().contains("linux"),
+    Assumptions.assumeTrue(System.getProperty("os.name").toLowerCase().contains("linux"),
         "LinuxMemorySegmentAllocator requires Linux");
 
     var allocator = LinuxMemorySegmentAllocator.getInstance();

@@ -128,12 +128,12 @@ public final class UberPage implements Page {
     isBootstrap = bootstrap;
   }
 
-  //  @Override
-  //  public void serialize(final StorageEngineReader pageReadOnlyTrx, final BytesOut<?> out,
-  //      final SerializationType type) {
-  //    out.writeInt(revisionCount);
-  //    isBootstrap = false;
-  //  }
+  // @Override
+  // public void serialize(final StorageEngineReader pageReadOnlyTrx, final BytesOut<?> out,
+  // final SerializationType type) {
+  // out.writeInt(revisionCount);
+  // isBootstrap = false;
+  // }
 
   @Override
   public List<PageReference> getReferences() {
@@ -186,7 +186,7 @@ public final class UberPage implements Page {
     return switch (indexType) {
       case PATH_SUMMARY -> Constants.PATHINP_LEVEL_PAGE_COUNT_EXPONENT;
       case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, DEWEYID_TO_RECORDID, PATH, CAS, NAME ->
-          Constants.INP_LEVEL_PAGE_COUNT_EXPONENT;
+        Constants.INP_LEVEL_PAGE_COUNT_EXPONENT;
       case REVISIONS -> Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT;
       // $CASES-OMITTED$
     };

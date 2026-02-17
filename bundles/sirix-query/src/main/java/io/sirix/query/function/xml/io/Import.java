@@ -80,10 +80,8 @@ public final class Import extends AbstractFunction {
     try {
       doc = coll.getDocument(resName);
 
-      try (final XmlNodeTrx wtx = doc.getTrx()
-                                     .getResourceSession()
-                                     .getNodeTrx()
-                                     .orElse(doc.getTrx().getResourceSession().beginNodeTrx())) {
+      try (final XmlNodeTrx wtx =
+          doc.getTrx().getResourceSession().getNodeTrx().orElse(doc.getTrx().getResourceSession().beginNodeTrx())) {
         final Path pathOfResToImport = Paths.get(resToImport);
         final Path newRevTarget = Files.createTempDirectory(pathOfResToImport.getFileName().toString());
         if (Files.exists(newRevTarget)) {
@@ -93,9 +91,9 @@ public final class Import extends AbstractFunction {
         new FMSEImport().shredder(requireNonNull(pathOfResToImport), newRevTarget);
 
         try (final var databaseNew = Databases.openXmlDatabase(newRevTarget);
-             final XmlResourceSession resourceNew = databaseNew.beginResourceSession("shredded");
-             final XmlNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
-             final FMSE fmes = FMSE.createInstance(new DefaultNodeComparisonFactory())) {
+            final XmlResourceSession resourceNew = databaseNew.beginResourceSession("shredded");
+            final XmlNodeReadOnlyTrx rtx = resourceNew.beginNodeReadOnlyTrx();
+            final FMSE fmes = FMSE.createInstance(new DefaultNodeComparisonFactory())) {
           fmes.diff(wtx, rtx);
         }
       } catch (final IOException e) {

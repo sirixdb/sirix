@@ -60,7 +60,9 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 /**
  * JSON Boolean node.
  *
- * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
+ * <p>
+ * Uses primitive fields for efficient storage with delta+varint encoding.
+ * </p>
  * 
  * @author Johannes Lichtenberger
  */
@@ -68,25 +70,25 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
-  
+
   // Mutable structural fields
   private long parentKey;
   private long rightSiblingKey;
   private long leftSiblingKey;
-  
+
   // Mutable revision tracking
   private int previousRevision;
   private int lastModifiedRevision;
-  
+
   // Mutable hash
   private long hash;
-  
+
   // Boolean value
   private boolean value;
-  
+
   // Hash function for computing node hashes (mutable for singleton reuse)
   private LongHashFunction hashFunction;
-  
+
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
@@ -103,9 +105,8 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   /**
    * Primary constructor with all primitive fields.
    */
-  public BooleanNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      boolean value, LongHashFunction hashFunction, byte[] deweyID) {
+  public BooleanNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, boolean value, LongHashFunction hashFunction, byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -122,9 +123,8 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   /**
    * Constructor with SirixDeweyID instead of byte array.
    */
-  public BooleanNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      boolean value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
+  public BooleanNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, boolean value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -152,7 +152,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   public long getParentKey() {
     return parentKey;
   }
-  
+
   public void setParentKey(final long parentKey) {
     this.parentKey = parentKey;
   }
@@ -209,9 +209,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   @Override
   public long computeHash(final BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(getNodeKey())
-         .writeLong(getParentKey())
-         .writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
 
     bytes.writeLong(getChildCount())
          .writeLong(getDescendantCount())
@@ -232,7 +230,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   public long getRightSiblingKey() {
     return rightSiblingKey;
   }
-  
+
   public void setRightSiblingKey(final long rightSibling) {
     this.rightSiblingKey = rightSibling;
   }
@@ -241,7 +239,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   public long getLeftSiblingKey() {
     return leftSiblingKey;
   }
-  
+
   public void setLeftSiblingKey(final long leftSibling) {
     this.leftSiblingKey = leftSibling;
   }
@@ -250,7 +248,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   public long getFirstChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setFirstChildKey(final long firstChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -259,7 +257,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   public long getLastChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setLastChildKey(final long lastChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -268,7 +266,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   public long getChildCount() {
     return 0;
   }
-  
+
   public void setChildCount(final long childCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -277,7 +275,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   public long getDescendantCount() {
     return 0;
   }
-  
+
   public void setDescendantCount(final long descendantCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -359,29 +357,29 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   }
 
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
-    
+
     // STRUCTURAL FIELDS
     this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    
+
     // Store for lazy parsing
     this.lazySource = source.getSource();
     this.lazyOffset = source.position();
     this.lazyFieldsParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
-    
+
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.value = false;
     this.hash = 0;
   }
-  
+
   public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
     this.lazySource = slotData;
     this.fixedSlotLayout = layout;
@@ -433,9 +431,10 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return new BooleanNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, hash, value, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+    return new BooleanNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
+        hash, value, hashFunction, deweyIDBytes != null
+            ? deweyIDBytes.clone()
+            : null);
   }
 
   @Override
@@ -482,8 +481,6 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
     if (!(obj instanceof final BooleanNode other))
       return false;
 
-    return nodeKey == other.nodeKey
-        && parentKey == other.parentKey
-        && value == other.value;
+    return nodeKey == other.nodeKey && parentKey == other.parentKey && value == other.value;
   }
 }

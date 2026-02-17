@@ -1,9 +1,8 @@
 package io.sirix.cache;
 
 /**
- * Composite cache key for NamesCache to support global BufferManager.
- * Includes database ID and resource ID to uniquely identify names data
- * across all databases and resources.
+ * Composite cache key for NamesCache to support global BufferManager. Includes database ID and
+ * resource ID to uniquely identify names data across all databases and resources.
  *
  * @param databaseId the unique database ID
  * @param resourceId the unique resource ID within the database

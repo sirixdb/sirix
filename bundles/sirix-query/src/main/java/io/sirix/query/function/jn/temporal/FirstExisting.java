@@ -14,8 +14,8 @@ import io.sirix.query.json.JsonItemFactory;
 
 /**
  * <p>
- * Function for selecting a node in the revision it first existed. The parameter is the context node. Supported
- * signature is:
+ * Function for selecting a node in the revision it first existed. The parameter is the context
+ * node. Supported signature is:
  * </p>
  * <ul>
  * <li><code>jn:first-existing($doc as json-item()) as json-item()*</code></li>
@@ -33,7 +33,7 @@ public final class FirstExisting extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the name of the function
+   * @param name the name of the function
    * @param signature the signature of the function
    */
   public FirstExisting(final QNm name, final Signature signature) {

@@ -213,7 +213,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
     // 2. Iterate over new shreddered file
     for (final Axis axis =
-         new LevelOrderAxis.Builder(rtx).includeSelf().includeNonStructuralNodes().build(); axis.hasNext();) {
+        new LevelOrderAxis.Builder(rtx).includeSelf().includeNonStructuralNodes().build(); axis.hasNext();) {
       axis.nextLong();
       final long nodeKey = axis.asXmlNodeReadTrx().getNodeKey();
       doFirstFSMEStep(wtx, rtx);
@@ -255,7 +255,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
       w = emitInsert(x, z, k, wtx, rtx);
     } else if (x != wtx.getNodeKey()) {
       // 2(c) not the root (x has a partner in M').
-      //noinspection SuspiciousNameCombination
+      // noinspection SuspiciousNameCombination
       if (wtx.moveTo(w) && rtx.moveTo(x) && wtx.getKind() == rtx.getKind()
           && (!nodeComparisonUtils.nodeValuesEqual(w, x, wtx, rtx)
               || (rtx.isAttribute() && !rtx.getValue().equals(wtx.getValue())))) {
@@ -300,7 +300,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     assert wtx != null;
     assert rtx != null;
     wtx.moveTo(oldStartKey);
-    //noinspection StatementWithEmptyBody
+    // noinspection StatementWithEmptyBody
     for (@SuppressWarnings("unused")
     final long nodeKey : VisitorDescendantAxis.newBuilder(wtx)
                                               .includeSelf()
@@ -420,7 +420,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
   /**
    * Emits the move of node "child" to the pos-th child of node "parent".
-   *  @param child child node to move
+   * 
+   * @param child child node to move
    * @param parent node where to insert the moved subtree
    * @param pos position among the childs to move to
    * @param wtx {@link XmlNodeTrx} implementation reference on old revision
@@ -672,15 +673,15 @@ public final class FMSE implements ImportDiff, AutoCloseable {
               // $CASES-OMITTED$
               default ->
                 // Already inserted.
-                  throw new IllegalStateException("Child should be already inserted!");
+                throw new IllegalStateException("Child should be already inserted!");
             };
           }
 
           // Mark all nodes in subtree as inserted.
           wtx.moveTo(oldKey);
           rtx.moveTo(child);
-          for (final Axis oldAxis = new DescendantAxis(wtx, IncludeSelf.YES), newAxis =
-               new DescendantAxis(rtx, IncludeSelf.YES); oldAxis.hasNext() && newAxis.hasNext(); ) {
+          for (final Axis oldAxis = new DescendantAxis(wtx, IncludeSelf.YES),
+              newAxis = new DescendantAxis(rtx, IncludeSelf.YES); oldAxis.hasNext() && newAxis.hasNext();) {
             oldAxis.nextLong();
             newAxis.nextLong();
             final XmlNodeReadOnlyTrx oldRtx = oldAxis.asXmlNodeReadTrx();
@@ -709,10 +710,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                   rtx.moveToNamespace(i);
                   for (int j = 0, oldNspCount = oldRtx.getNamespaceCount(); j < oldNspCount; j++) {
                     wtx.moveToNamespace(j);
-                    if (wtx.getName().getNamespaceURI().equals(rtx.getName().getNamespaceURI()) && wtx.getName()
-                                                                                                      .getPrefix()
-                                                                                                      .equals(wtx.getName()
-                                                                                                                 .getPrefix())) {
+                    if (wtx.getName().getNamespaceURI().equals(rtx.getName().getNamespaceURI())
+                        && wtx.getName().getPrefix().equals(wtx.getName().getPrefix())) {
                       process(wtx.getNodeKey(), rtx.getNodeKey());
                       break;
                     }
@@ -867,8 +866,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     assert wtx != null;
     assert rtx != null;
 
-    final FMSENodeComparisonUtils nodeComparisonUtils =
-        new FMSENodeComparisonUtils(oldStartKey, newStartKey, wtx, rtx);
+    final FMSENodeComparisonUtils nodeComparisonUtils = new FMSENodeComparisonUtils(oldStartKey, newStartKey, wtx, rtx);
 
     // Chain all nodes with a given label l in tree T together.
     getLabels(wtx, labelOldRevVisitor);
@@ -878,7 +876,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     final Matching matching = new Matching(wtx, rtx);
     matching.reset();
     match(labelOldRevVisitor.getLeafLabels(), labelNewRevVisitor.getLeafLabels(), matching,
-          new LeafNodeComparator(idName, this.wtx, this.rtx, oldPathSummary, newPathSummary, nodeComparisonUtils));
+        new LeafNodeComparator(idName, this.wtx, this.rtx, oldPathSummary, newPathSummary, nodeComparisonUtils));
 
     // Remove roots ('/') from labels and append them to mapping.
     final Map<NodeKind, List<Long>> oldLabels = labelOldRevVisitor.getLabels();
@@ -894,9 +892,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
     final NodeComparator<Long> innerNodeComparator =
         nodeComparisonFactory.createInnerNodeEqualityChecker(idName, matching, wtx, rtx,
-                                                             new FMSENodeComparisonUtils(oldStartKey,
-                                                                                          newStartKey, wtx, rtx),
-                                                             descendantsOldRev, descendantsNewRev);
+            new FMSENodeComparisonUtils(oldStartKey, newStartKey, wtx, rtx), descendantsOldRev, descendantsNewRev);
 
     match(oldLabels, newLabels, matching, innerNodeComparator);
 

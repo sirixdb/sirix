@@ -67,8 +67,7 @@ public class UnionAxisTest {
         new long[] {1L, 4L, 5L, 8L, 9L, 13L});
 
     AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(),
-            "child::node()/parent::node() | child::node() | self::node()"),
+        new XPathAxis(holder.getXmlNodeReadTrx(), "child::node()/parent::node() | child::node() | self::node()"),
         new long[] {1L, 4L, 5L, 8L, 9L, 13L});
 
     AbsAxisTest.testAxisConventions(
@@ -80,8 +79,7 @@ public class UnionAxisTest {
         new XPathAxis(holder.getXmlNodeReadTrx(), "b/preceding::node() union text() | descendant::node()"),
         new long[] {4L, 8L, 7L, 6L, 5L, 13L, 9L, 11L, 12L});
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), "//c/ancestor::node() | //node()"),
+    AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "//c/ancestor::node() | //node()"),
         new long[] {5L, 1L, 9L, 4L, 8L, 13L, 6L, 7L, 11L, 12L});
 
   }

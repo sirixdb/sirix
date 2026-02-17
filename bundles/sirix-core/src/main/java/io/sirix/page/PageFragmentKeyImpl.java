@@ -3,8 +3,8 @@ package io.sirix.page;
 import io.sirix.page.interfaces.PageFragmentKey;
 
 /**
- * The page fragment key implementation (simple immutable record/data class).
- * Includes database and resource IDs for global BufferManager support.
+ * The page fragment key implementation (simple immutable record/data class). Includes database and
+ * resource IDs for global BufferManager support.
  *
  * @author Johannes Lichtenberger
  */

@@ -33,11 +33,11 @@ public interface NameIndex<B, L extends ChangeListener> {
     if (isHOTEnabled(pageRtx)) {
       return openHOTIndex(pageRtx, indexDef, filter);
     }
-    
+
     // Use RBTree (default)
     return openRBTreeIndex(pageRtx, indexDef, filter);
   }
-  
+
   /**
    * Checks if HOT indexes should be used for reading.
    */
@@ -47,19 +47,19 @@ public interface NameIndex<B, L extends ChangeListener> {
     if (sysProp != null) {
       return Boolean.parseBoolean(sysProp);
     }
-    
+
     // Fall back to resource configuration
     final var resourceConfig = pageRtx.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;
   }
-  
+
   /**
    * Open HOT-based name index.
    */
   private Iterator<NodeReferences> openHOTIndex(StorageEngineReader pageRtx, IndexDef indexDef, NameFilter filter) {
-    final HOTIndexReader<QNm> reader = HOTIndexReader.create(
-        pageRtx, NameKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
-    
+    final HOTIndexReader<QNm> reader =
+        HOTIndexReader.create(pageRtx, NameKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
+
     if (filter.getIncludes().size() == 1 && filter.getExcludes().isEmpty()) {
       // Single name lookup
       QNm name = filter.getIncludes().iterator().next();
@@ -73,10 +73,10 @@ public interface NameIndex<B, L extends ChangeListener> {
       final Set<QNm> includes = filter.getIncludes();
       final Set<QNm> excludes = filter.getExcludes();
       final Iterator<Map.Entry<QNm, NodeReferences>> entryIterator = reader.iterator();
-      
+
       return new Iterator<>() {
         private NodeReferences next = null;
-        
+
         @Override
         public boolean hasNext() {
           if (next != null) {
@@ -85,7 +85,7 @@ public interface NameIndex<B, L extends ChangeListener> {
           while (entryIterator.hasNext()) {
             Map.Entry<QNm, NodeReferences> entry = entryIterator.next();
             QNm name = entry.getKey();
-            
+
             // Check includes/excludes
             if ((includes.isEmpty() || includes.contains(name)) && !excludes.contains(name)) {
               next = entry.getValue();
@@ -94,7 +94,7 @@ public interface NameIndex<B, L extends ChangeListener> {
           }
           return false;
         }
-        
+
         @Override
         public NodeReferences next() {
           if (!hasNext()) {
@@ -107,24 +107,20 @@ public interface NameIndex<B, L extends ChangeListener> {
       };
     }
   }
-  
+
   /**
    * Open RBTree-based name index (default).
    */
   private Iterator<NodeReferences> openRBTreeIndex(StorageEngineReader pageRtx, IndexDef indexDef, NameFilter filter) {
-    final RBTreeReader<QNm, NodeReferences> reader =
-        RBTreeReader.getInstance(pageRtx.getResourceSession().getIndexCache(),
-                                 pageRtx,
-                                 indexDef.getType(),
-                                 indexDef.getID());
+    final RBTreeReader<QNm, NodeReferences> reader = RBTreeReader.getInstance(
+        pageRtx.getResourceSession().getIndexCache(), pageRtx, indexDef.getType(), indexDef.getID());
 
     if (filter.getIncludes().size() == 1 && filter.getExcludes().isEmpty()) {
       final Optional<NodeReferences> optionalNodeReferences =
           reader.get(filter.getIncludes().iterator().next(), SearchMode.EQUAL);
       return Iterators.forArray(optionalNodeReferences.orElse(new NodeReferences()));
     } else {
-      final Iterator<RBNodeKey<QNm>> iter =
-          reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+      final Iterator<RBNodeKey<QNm>> iter = reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
       final Set<Filter> setFilter = ImmutableSet.of(filter);
 
       return new IndexFilterAxis<>(reader, iter, setFilter);

@@ -72,14 +72,14 @@ public final class StorageEngineWriterFactory {
   /**
    * Create a page write trx.
    *
-   * @param resourceManager    {@link XmlResourceSessionImpl} this page write trx is bound to
-   * @param uberPage           root of revision
-   * @param writer             writer where this transaction should write to
-   * @param trxId              the transaction ID
-   * @param representRevision  revision represent
+   * @param resourceManager {@link XmlResourceSessionImpl} this page write trx is bound to
+   * @param uberPage root of revision
+   * @param writer writer where this transaction should write to
+   * @param trxId the transaction ID
+   * @param representRevision revision represent
    * @param lastStoredRevision last stored revision
-   * @param isBoundToNodeTrx   {@code true} if this page write trx will be bound to a node trx,
-   *                           {@code false} otherwise
+   * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
+   *        {@code false} otherwise
    */
   public StorageEngineWriter createPageTrx(
       final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
@@ -95,9 +95,8 @@ public final class StorageEngineWriterFactory {
     final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(newRevisionNumber);
 
     // Deserialize index definitions.
-    final Path indexes =
-        resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
-                                   .resolve(lastStoredRevision + ".xml");
+    final Path indexes = resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
+                                                    .resolve(lastStoredRevision + ".xml");
     if (Files.exists(indexes)) {
       try (final InputStream in = new FileInputStream(indexes.toFile())) {
         indexController.getIndexes().init(IndexController.deserialize(in).getFirstChild());
@@ -115,25 +114,21 @@ public final class StorageEngineWriterFactory {
     }
 
     // Page read trx.
-    final NodeStorageEngineReader pageRtx = new NodeStorageEngineReader(trxId,
-                                                                resourceManager,
-                                                                uberPage,
-                                                                representRevision,
-                                                                writer,
-                                                                bufferManager,
-                                                                new RevisionRootPageReader(),
-                                                                log);
+    final NodeStorageEngineReader pageRtx = new NodeStorageEngineReader(trxId, resourceManager, uberPage,
+        representRevision, writer, bufferManager, new RevisionRootPageReader(), log);
 
     // Create new revision root page.
     final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRevision);
-    // Use temporary IndirectPageTrieWriter to prepare revision root (moved into NodeStorageEngineWriter in Phase 1)
+    // Use temporary IndirectPageTrieWriter to prepare revision root (moved into NodeStorageEngineWriter
+    // in Phase 1)
     final var tempTrieWriter = new NodeStorageEngineWriter.TrieWriter();
     final RevisionRootPage newRevisionRootPage =
         tempTrieWriter.preparePreviousRevisionRootPage(uberPage, pageRtx, log, representRevision, lastStoredRevision);
     newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
     newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
     if (resourceConfig.storeNodeHistory()) {
-      newRevisionRootPage.setMaxNodeKeyInRecordToRevisionsIndex(lastCommitedRoot.getMaxNodeKeyInRecordToRevisionsIndex());
+      newRevisionRootPage.setMaxNodeKeyInRecordToRevisionsIndex(
+          lastCommitedRoot.getMaxNodeKeyInRecordToRevisionsIndex());
     }
 
     // First create revision tree if needed.
@@ -192,20 +187,14 @@ public final class StorageEngineWriterFactory {
         log.put(newRevisionRootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
       }
 
-      final var revisionRootPageReference = new PageReference()
-          .setDatabaseId(pageRtx.getDatabaseId())
-          .setResourceId(pageRtx.getResourceId());
+      final var revisionRootPageReference =
+          new PageReference().setDatabaseId(pageRtx.getDatabaseId()).setResourceId(pageRtx.getResourceId());
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
       uberPage.setRevisionRootPageReference(revisionRootPageReference);
       uberPage.setRevisionRootPage(newRevisionRootPage);
     }
 
-    return new NodeStorageEngineWriter(writer,
-                           log,
-                           newRevisionRootPage,
-                           pageRtx,
-                           indexController,
-                           representRevision,
-                           isBoundToNodeTrx);
+    return new NodeStorageEngineWriter(writer, log, newRevisionRootPage, pageRtx, indexController, representRevision,
+        isBoundToNodeTrx);
   }
 }

@@ -104,12 +104,10 @@ public enum Type {
     @Override
     public String getFacet() {
 
-      return "-?P(((([0-9]+Y([0-9]+M)?)"
-          + "|(([0-9]+M)))(([0-9]+D(T(([0-9]+H([0-9]+M)?([0-9]+(\\.[0-9]+)?S)?)"
+      return "-?P(((([0-9]+Y([0-9]+M)?)" + "|(([0-9]+M)))(([0-9]+D(T(([0-9]+H([0-9]+M)?([0-9]+(\\.[0-9]+)?S)?)"
           + "|(([0-9]+M) ([0-9]+(\\.[0-9]+)?S)?)" + "|(([0-9]+(\\.[0-9]+)?S))))?)"
           + "|((T(([0-9]+H([0-9]+M)?([0-9]+(\\.[0-9]+)?S)?)|(([0-9]+M) " + "([0-9]+(\\.[0-9]+)?S)?)"
-          + "|(([0-9]+(\\.[0-9]+)?S))))))?)"
-          + "|((([0-9]+D(T(([0-9]+H([0-9]+M)?([0-9]+(\\.[0-9]+)?S)?)"
+          + "|(([0-9]+(\\.[0-9]+)?S))))))?)" + "|((([0-9]+D(T(([0-9]+H([0-9]+M)?([0-9]+(\\.[0-9]+)?S)?)"
           + "|(([0-9]+M)([0-9]+(\\.[0-9]+)?S)?)" + "|(([0-9]+(\\.[0-9]+)?S))))?)"
           + "|((T(([0-9]+H([0-9]+M)?([0-9]+(\\.[0-9]+)?S)?)|(([0-9]+M)([0-9]+" + "(\\.[0-9]+)?S)?)"
           + "|(([0-9]+(\\.[0-9]+)?S))))))))";
@@ -121,8 +119,8 @@ public enum Type {
     @Override
     public boolean castsTo(final Type mTargetType) {
 
-      return (this == mTargetType || YEAR_MONTH_DURATION == mTargetType
-          || DAY_TIME_DURATION == mTargetType || STRING == mTargetType || derivesFrom(mTargetType));
+      return (this == mTargetType || YEAR_MONTH_DURATION == mTargetType || DAY_TIME_DURATION == mTargetType
+          || STRING == mTargetType || derivesFrom(mTargetType));
     }
   },
 
@@ -160,8 +158,8 @@ public enum Type {
 
   /**
    * XML Schema type 'dateTime'. dateTime values may be viewed as objects with integer-valued year,
-   * month, day, hour and minute properties, a decimal-valued second property, and a boolean
-   * timezoned property.
+   * month, day, hour and minute properties, a decimal-valued second property, and a boolean timezoned
+   * property.
    */
   DATE_TIME(ANY_ATOMIC_TYPE, "xs:dateTime", 4, true) {
 
@@ -171,10 +169,10 @@ public enum Type {
     @Override
     public boolean castsTo(final Type mTargetType) {
 
-      return (this == mTargetType || TIME == mTargetType || DATE == mTargetType
-          || G_DAY == mTargetType || G_MONTH == mTargetType || G_MONTH_DAY == mTargetType
-          || G_YEAR == mTargetType || G_YEAR_MONTH == mTargetType || UNTYPED_ATOMIC == mTargetType
-          || STRING == mTargetType || derivesFrom(mTargetType));
+      return (this == mTargetType || TIME == mTargetType || DATE == mTargetType || G_DAY == mTargetType
+          || G_MONTH == mTargetType || G_MONTH_DAY == mTargetType || G_YEAR == mTargetType
+          || G_YEAR_MONTH == mTargetType || UNTYPED_ATOMIC == mTargetType || STRING == mTargetType
+          || derivesFrom(mTargetType));
     }
   },
 
@@ -189,8 +187,7 @@ public enum Type {
     @Override
     public String getFacet() {
 
-      return "(((([01][0-9])|(2[0-3])):([0-5][0-9])"
-          + ":(([0-5][0-9])(\\.[0-9]+)?))|(24:00:00(\\.0+)?))"
+      return "(((([01][0-9])|(2[0-3])):([0-5][0-9])" + ":(([0-5][0-9])(\\.[0-9]+)?))|(24:00:00(\\.0+)?))"
           + "(Z|((\\+|-)(0[0-9]|1[0-4]):[0-5][0-9]))?";
     }
 
@@ -218,8 +215,8 @@ public enum Type {
     @Override
     public String getFacet() {
 
-      return "-?(([1-9][0-9][0-9][0-9]+)|(0[0-9][0-9][0-9]))"
-          + "-((0[1-9])|(1[0-2]))-(([0-2][0-9])|(3[01]))" + "((\\+|-)(0[0-9]|1[0-4]):[0-5][0-9])?";
+      return "-?(([1-9][0-9][0-9][0-9]+)|(0[0-9][0-9][0-9]))" + "-((0[1-9])|(1[0-2]))-(([0-2][0-9])|(3[01]))"
+          + "((\\+|-)(0[0-9]|1[0-4]):[0-5][0-9])?";
 
     }
 
@@ -229,9 +226,9 @@ public enum Type {
     @Override
     public boolean castsTo(final Type mTargetType) {
 
-      return (this == mTargetType || DATE_TIME == mTargetType || G_DAY == mTargetType
-          || G_MONTH == mTargetType || G_MONTH_DAY == mTargetType || G_YEAR == mTargetType
-          || G_YEAR_MONTH == mTargetType || UNTYPED_ATOMIC == mTargetType || STRING == mTargetType);
+      return (this == mTargetType || DATE_TIME == mTargetType || G_DAY == mTargetType || G_MONTH == mTargetType
+          || G_MONTH_DAY == mTargetType || G_YEAR == mTargetType || G_YEAR_MONTH == mTargetType
+          || UNTYPED_ATOMIC == mTargetType || STRING == mTargetType);
     }
   },
 
@@ -274,8 +271,7 @@ public enum Type {
     @Override
     public String getFacet() {
 
-      return "-?(([1-9][0-9][0-9][0-9]+)|(0[0-9][0-9][0-9])"
-          + ")((\\+|\\-)(0[0-9]|1[0-4]):[0-5][0-9])?";
+      return "-?(([1-9][0-9][0-9][0-9]+)|(0[0-9][0-9][0-9])" + ")((\\+|\\-)(0[0-9]|1[0-4]):[0-5][0-9])?";
 
     }
 
@@ -291,8 +287,8 @@ public enum Type {
   },
 
   /**
-   * XML Schema type 'gMonthDay'. gMonthDay is a gregorian date that recurs, specifically a day of
-   * the year such as the third of May.
+   * XML Schema type 'gMonthDay'. gMonthDay is a gregorian date that recurs, specifically a day of the
+   * year such as the third of May.
    */
   G_MONTH_DAY(ANY_ATOMIC_TYPE, "xs:gMonthDay", 4, true) {
 
@@ -302,8 +298,7 @@ public enum Type {
     @Override
     public String getFacet() {
 
-      return "--((0[1-9])|(1[0-2]))-(([0-2][0-9])|(3[01]))"
-          + "((\\+|-)(0[0-9]|1[0-4]):[0-5][0-9])?";
+      return "--((0[1-9])|(1[0-2]))-(([0-2][0-9])|(3[01]))" + "((\\+|-)(0[0-9]|1[0-4]):[0-5][0-9])?";
     }
 
     /**
@@ -318,8 +313,8 @@ public enum Type {
   },
 
   /**
-   * XML Schema type 'gDay'. gDay is a gregorian day that recurs, specifically a day of the month
-   * such as the 5th of the month.
+   * XML Schema type 'gDay'. gDay is a gregorian day that recurs, specifically a day of the month such
+   * as the 5th of the month.
    */
   G_DAY(ANY_ATOMIC_TYPE, "xs:gDay", 4, true) {
 
@@ -389,9 +384,9 @@ public enum Type {
     @Override
     public boolean castsTo(final Type mTargetType) {
 
-      return (this == mTargetType || FLOAT == mTargetType || DOUBLE == mTargetType
-          || DECIMAL == mTargetType || INTEGER == mTargetType || UNTYPED_ATOMIC == mTargetType
-          || STRING == mTargetType || derivesFrom(mTargetType));
+      return (this == mTargetType || FLOAT == mTargetType || DOUBLE == mTargetType || DECIMAL == mTargetType
+          || INTEGER == mTargetType || UNTYPED_ATOMIC == mTargetType || STRING == mTargetType
+          || derivesFrom(mTargetType));
     }
 
   },
@@ -407,8 +402,7 @@ public enum Type {
     @Override
     public String getFacet() {
 
-      return "((([A-Za-z0-9+/] ?){4})*(([A-Za-z0-9+/] ?){3}"
-          + "[A-Za-z0-9+/]|([A-Za-z0-9+/] ?){2}[AEIMQUYcgkosw048] ?="
+      return "((([A-Za-z0-9+/] ?){4})*(([A-Za-z0-9+/] ?){3}" + "[A-Za-z0-9+/]|([A-Za-z0-9+/] ?){2}[AEIMQUYcgkosw048] ?="
           + "|[A-Za-z0-9+/] ?[AQgw] ?= ?=))?";
     }
 
@@ -418,8 +412,8 @@ public enum Type {
     @Override
     public boolean castsTo(final Type mTargetType) {
 
-      return (this == mTargetType || HEX_BINARY == mTargetType || UNTYPED_ATOMIC == mTargetType
-          || STRING == mTargetType || derivesFrom(mTargetType));
+      return (this == mTargetType || HEX_BINARY == mTargetType || UNTYPED_ATOMIC == mTargetType || STRING == mTargetType
+          || derivesFrom(mTargetType));
     }
   },
 
@@ -481,8 +475,8 @@ public enum Type {
   },
 
   /**
-   * XML Schema type 'NOTATION'. NOTATION represents the NOTATION attribute type from [XML 1.0
-   * (Second Edition)].
+   * XML Schema type 'NOTATION'. NOTATION represents the NOTATION attribute type from [XML 1.0 (Second
+   * Edition)].
    */
   NOTATION(ANY_ATOMIC_TYPE, "xs:NOTATION", 4, true) {
 
@@ -498,8 +492,8 @@ public enum Type {
 
   /* NUMBERICS */
   /**
-   * XML Schema type 'float'. float is patterned after the IEEE single-precision 32-bit floating
-   * point type [IEEE 754-1985].
+   * XML Schema type 'float'. float is patterned after the IEEE single-precision 32-bit floating point
+   * type [IEEE 754-1985].
    */
   FLOAT(ANY_ATOMIC_TYPE, "xs:float", 4, true) {
 
@@ -518,9 +512,9 @@ public enum Type {
     @Override
     public boolean castsTo(final Type mTargetType) {
 
-      return (this == mTargetType || DOUBLE == mTargetType || DECIMAL == mTargetType
-          || INTEGER == mTargetType || BOOLEAN == mTargetType || UNTYPED_ATOMIC == mTargetType
-          || STRING == mTargetType || derivesFrom(mTargetType));
+      return (this == mTargetType || DOUBLE == mTargetType || DECIMAL == mTargetType || INTEGER == mTargetType
+          || BOOLEAN == mTargetType || UNTYPED_ATOMIC == mTargetType || STRING == mTargetType
+          || derivesFrom(mTargetType));
     }
 
   },
@@ -546,9 +540,9 @@ public enum Type {
     @Override
     public boolean castsTo(final Type mTargetType) {
 
-      return (this == mTargetType || FLOAT == mTargetType || DECIMAL == mTargetType
-          || INTEGER == mTargetType || BOOLEAN == mTargetType || UNTYPED_ATOMIC == mTargetType
-          || STRING == mTargetType || derivesFrom(mTargetType));
+      return (this == mTargetType || FLOAT == mTargetType || DECIMAL == mTargetType || INTEGER == mTargetType
+          || BOOLEAN == mTargetType || UNTYPED_ATOMIC == mTargetType || STRING == mTargetType
+          || derivesFrom(mTargetType));
     }
 
   },
@@ -591,18 +585,17 @@ public enum Type {
     @Override
     public boolean castsTo(final Type targetType) {
 
-      return (this == targetType || FLOAT == targetType || DOUBLE == targetType
-          || INTEGER == targetType || BOOLEAN == targetType || UNTYPED_ATOMIC == targetType
-          || STRING == targetType || derivesFrom(targetType));
+      return (this == targetType || FLOAT == targetType || DOUBLE == targetType || INTEGER == targetType
+          || BOOLEAN == targetType || UNTYPED_ATOMIC == targetType || STRING == targetType || derivesFrom(targetType));
     }
 
   },
 
   /* --------- derived types -------------- */
   /**
-   * XML Schema type 'integer'. integer is derived from decimal by fixing the value of
-   * fractionDigits to be 0 and disallowing the trailing decimal point. This results in the standard
-   * mathematical concept of the integer numbers. The value space of integer is the infinite set
+   * XML Schema type 'integer'. integer is derived from decimal by fixing the value of fractionDigits
+   * to be 0 and disallowing the trailing decimal point. This results in the standard mathematical
+   * concept of the integer numbers. The value space of integer is the infinite set
    * {...,-2,-1,0,1,2,...}.
    */
   INTEGER(DECIMAL, "xs:integer", 5, false) {
@@ -622,16 +615,16 @@ public enum Type {
     @Override
     public boolean castsTo(final Type mTargetType) {
 
-      return (this == mTargetType || FLOAT == mTargetType || DOUBLE == mTargetType
-          || DECIMAL == mTargetType || BOOLEAN == mTargetType || UNTYPED_ATOMIC == mTargetType
-          || STRING == mTargetType || derivesFrom(mTargetType));
+      return (this == mTargetType || FLOAT == mTargetType || DOUBLE == mTargetType || DECIMAL == mTargetType
+          || BOOLEAN == mTargetType || UNTYPED_ATOMIC == mTargetType || STRING == mTargetType
+          || derivesFrom(mTargetType));
     }
 
   },
 
   /**
-   * XML Schema type 'long'. long is "derived" from integer by setting the value of "maxInclusive"
-   * to be 9223372036854775807 and "minInclusive" to be -9223372036854775808.
+   * XML Schema type 'long'. long is "derived" from integer by setting the value of "maxInclusive" to
+   * be 9223372036854775807 and "minInclusive" to be -9223372036854775808.
    */
   LONG(INTEGER, "xs:long", 6, false),
 
@@ -642,22 +635,21 @@ public enum Type {
   INT(LONG, "xs:int", 7, false),
 
   /**
-   * XML Schema type 'short'. short is "derived" from int by setting the value of "maxInclusive" to
-   * be 32767 and "minInclusive" to be -32768.
+   * XML Schema type 'short'. short is "derived" from int by setting the value of "maxInclusive" to be
+   * 32767 and "minInclusive" to be -32768.
    */
   SHORT(INT, "xs:short", 8, false),
 
   /**
-   * XML Schema type 'byte'. byte is "derived" from short by setting the value of "maxInclusive" to
-   * be 127 and "minInclusive" to be -128.
+   * XML Schema type 'byte'. byte is "derived" from short by setting the value of "maxInclusive" to be
+   * 127 and "minInclusive" to be -128.
    */
   BYTE(SHORT, "xs:byte", 9, false),
 
   /**
-   * XML Schema type 'nonPositiveInteger'. nonPositiveInteger is "derived" from integer by setting
-   * the value of "maxInclusive" to be 0. This results in the standard mathematical concept of the
-   * non-positive integers. The "value space" of nonPositiveInteger is the infinite set
-   * {...,-2,-1,0}.
+   * XML Schema type 'nonPositiveInteger'. nonPositiveInteger is "derived" from integer by setting the
+   * value of "maxInclusive" to be 0. This results in the standard mathematical concept of the
+   * non-positive integers. The "value space" of nonPositiveInteger is the infinite set {...,-2,-1,0}.
    */
   NON_POSITIVE_INTEGER(INTEGER, "xs:nonPositiveInteger", 6, false),
 
@@ -669,41 +661,40 @@ public enum Type {
   NEGATIVE_INTEGER(NON_POSITIVE_INTEGER, "xs:negativeInteger", 7, false),
 
   /**
-   * XML Schema type 'nonNegativeInteger'. nonNegativeInteger is "derived" from integer by setting
-   * the value of "minInclusive" to be 0. This results in the standard mathematical concept of the
+   * XML Schema type 'nonNegativeInteger'. nonNegativeInteger is "derived" from integer by setting the
+   * value of "minInclusive" to be 0. This results in the standard mathematical concept of the
    * non-negative integers. The "value space" of nonNegativeInteger is the infinite set {0,1,2,...}.
    */
   NON_NEGATIVE_INTERGER(INTEGER, "xs:nonNegativeInteger", 6, false),
 
   /**
    * XML Schema type 'positiveInteger'. positiveInteger is "derived" from nonNegativeInteger by
-   * setting the value of "minInclusive" to be 1. This results in the standard mathematical concept
-   * of the positive integer numbers. The "value space" of positiveInteger is the infinite set
-   * {1,2,...}.
+   * setting the value of "minInclusive" to be 1. This results in the standard mathematical concept of
+   * the positive integer numbers. The "value space" of positiveInteger is the infinite set {1,2,...}.
    */
   POSITIVE_INTEGER(NON_NEGATIVE_INTERGER, "xs:positiveInteger", 7, false),
 
   /**
-   * XML Schema type 'unsignedLong'. unsignedLong is "derived" from nonNegativeInteger by setting
-   * the value of "maxInclusive" to be 18446744073709551615.
+   * XML Schema type 'unsignedLong'. unsignedLong is "derived" from nonNegativeInteger by setting the
+   * value of "maxInclusive" to be 18446744073709551615.
    */
   UNSIGNED_LONG(NON_NEGATIVE_INTERGER, "xs:unsignedLong", 7, false),
 
   /**
-   * XML Schema type 'unsignedInt'. unsignedInt is "derived" from unsignedLong by setting the value
-   * of "maxInclusive" to be 4294967295.
+   * XML Schema type 'unsignedInt'. unsignedInt is "derived" from unsignedLong by setting the value of
+   * "maxInclusive" to be 4294967295.
    */
   UNSIGNED_INT(UNSIGNED_LONG, "xs:unsignedInt", 8, false),
 
   /**
-   * XML Schema type 'unsignedShort'. unsignedShort is "derived" from unsignedInt by setting the
-   * value of "maxInclusive" to be 65535.
+   * XML Schema type 'unsignedShort'. unsignedShort is "derived" from unsignedInt by setting the value
+   * of "maxInclusive" to be 65535.
    */
   UNSIGNED_SHORT(UNSIGNED_INT, "xs:unsignedShort", 9, false),
 
   /**
-   * XML Schema type 'unsignedByte'. unsignedByte is "derived" from unsignedShort by setting the
-   * value of "maxInclusive" to be 255.
+   * XML Schema type 'unsignedByte'. unsignedByte is "derived" from unsignedShort by setting the value
+   * of "maxInclusive" to be 255.
    */
   UNSIGNED_BYTE(UNSIGNED_SHORT, "xs:unsignedByte", 10, false),
 
@@ -719,10 +710,10 @@ public enum Type {
   /**
    * XML Schema type 'token'. token represents tokenized strings. The "value space" of token is the
    * set of strings that do not contain the carriage return (#xD), line feed (#xA) nor tab (#x9)
-   * characters, that have no leading or trailing spaces (#x20) and that have no internal sequences
-   * of two or more spaces. The "lexical space" of token is the set of strings that do not contain
-   * the carriage return (#xD), line feed (#xA) nor tab (#x9) characters, that have no leading or
-   * trailing spaces (#x20) and that have no internal sequences of two or more spaces.
+   * characters, that have no leading or trailing spaces (#x20) and that have no internal sequences of
+   * two or more spaces. The "lexical space" of token is the set of strings that do not contain the
+   * carriage return (#xD), line feed (#xA) nor tab (#x9) characters, that have no leading or trailing
+   * spaces (#x20) and that have no internal sequences of two or more spaces.
    */
   TOKEN(NORMALIZED_STRING, "xs:token", 6, false),
 
@@ -768,9 +759,9 @@ public enum Type {
   /**
    * XML Schema type 'ENTITY'. ENTITY represents the ENTITY attribute type from XML 1.0 (Second
    * Edition). The "value space" of ENTITY is the set of all strings that "match" the NCName
-   * production in [Namespaces in XML] and have been declared as an unparsed entity in a document
-   * type definition. The "lexical space" of ENTITY is the set of all strings that "match" the
-   * NCName production in [Namespaces in XML].
+   * production in [Namespaces in XML] and have been declared as an unparsed entity in a document type
+   * definition. The "lexical space" of ENTITY is the set of all strings that "match" the NCName
+   * production in [Namespaces in XML].
    */
   ENTITY(NCNAME, "xs:ENTITY", 9, false),
 
@@ -782,8 +773,8 @@ public enum Type {
    * XML Schema type 'ENTITIES'. ENTITIES(ANY_SIMPLE_TYPE, "xs:ENTITIES", 3) , /** XML Schema type
    * 'NMTOKEN'. NMTOKEN represents the NMTOKEN attribute type from XML 1.0 (2nd Edition). The "value
    * space" of NMTOKEN is the set of tokens that "match" the Nmtoken production in XML 1.0 (2nd
-   * Edition). The "lexical space" of NMTOKEN is the set of strings that match the Nmtoken
-   * production in XML 1.0 (2nd Edition).
+   * Edition). The "lexical space" of NMTOKEN is the set of strings that match the Nmtoken production
+   * in XML 1.0 (2nd Edition).
    */
   NMTOKEN(TOKEN, "xs:NMTOKEN", 7, false),
 
@@ -842,8 +833,7 @@ public enum Type {
    * @param mPrec precedence of the type
    * @param mPrimitive true, of type is a primitive type
    */
-  private Type(final Type mBaseType, final String mRepresentation, final int mPrec,
-      final boolean mPrimitive) {
+  private Type(final Type mBaseType, final String mRepresentation, final int mPrec, final boolean mPrimitive) {
 
     mDerivedFrom = mBaseType;
     mStringRepr = mRepresentation;
@@ -979,12 +969,10 @@ public enum Type {
    * @return true, if the source value is castable to the target type.
    * @throws SirixXPathException if casts fails
    */
-  public boolean isCastableTo(final Type mTargetType, final String mValue)
-      throws SirixXPathException {
+  public boolean isCastableTo(final Type mTargetType, final String mValue) throws SirixXPathException {
 
     // casting to or from NOTATION or anySimpleType is not possible
-    if (mTargetType == NOTATION || this == NOTATION || mTargetType == ANY_SIMPLE_TYPE
-        || this == ANY_SIMPLE_TYPE) {
+    if (mTargetType == NOTATION || this == NOTATION || mTargetType == ANY_SIMPLE_TYPE || this == ANY_SIMPLE_TYPE) {
       throw EXPathError.XPST0080.getEncapsulatedException();
     }
 

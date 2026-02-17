@@ -32,29 +32,39 @@ import io.sirix.access.ResourceConfiguration;
 /**
  * Service Provider Interface (SPI) for pluggable storage backends.
  *
- * <p>Enterprise or third-party storage implementations can register themselves
- * via Java's {@link java.util.ServiceLoader} mechanism by:
+ * <p>
+ * Enterprise or third-party storage implementations can register themselves via Java's
+ * {@link java.util.ServiceLoader} mechanism by:
  * <ol>
- *   <li>Implementing this interface</li>
- *   <li>Creating a file {@code META-INF/services/io.sirix.io.StorageProvider}</li>
- *   <li>Listing the fully-qualified implementation class name in that file</li>
+ * <li>Implementing this interface</li>
+ * <li>Creating a file {@code META-INF/services/io.sirix.io.StorageProvider}</li>
+ * <li>Listing the fully-qualified implementation class name in that file</li>
  * </ol>
  *
- * <p>Example usage in sirix-enterprise:
- * <pre>{@code
- * public class FFMIOUringStorageProvider implements StorageProvider {
- *     @Override
- *     public String getName() { return "IO_URING_FFM"; }
+ * <p>
+ * Example usage in sirix-enterprise:
+ * 
+ * <pre>
+ * {
+ *   &#64;code
+ *   public class FFMIOUringStorageProvider implements StorageProvider {
+ *     &#64;Override
+ *     public String getName() {
+ *       return "IO_URING_FFM";
+ *     }
  *
- *     @Override
- *     public boolean isAvailable() { return FFIIOUring.isAvailable(); }
+ *     &#64;Override
+ *     public boolean isAvailable() {
+ *       return FFIIOUring.isAvailable();
+ *     }
  *
  *     @Override
  *     public IOStorage createStorage(ResourceConfiguration config) {
- *         return new FFMIOUringStorage(config);
+ *       return new FFMIOUringStorage(config);
  *     }
+ *   }
  * }
- * }</pre>
+ * </pre>
  *
  * @author Johannes Lichtenberger
  * @since 2.0.0
@@ -64,8 +74,9 @@ public interface StorageProvider {
   /**
    * Get the unique name of this storage provider.
    *
-   * <p>This name is used to select the provider via configuration.
-   * Convention: uppercase with underscores (e.g., "IO_URING_FFM", "SPDK").
+   * <p>
+   * This name is used to select the provider via configuration. Convention: uppercase with
+   * underscores (e.g., "IO_URING_FFM", "SPDK").
    *
    * @return the provider name, never null
    */
@@ -74,12 +85,13 @@ public interface StorageProvider {
   /**
    * Check if this storage provider is available on the current system.
    *
-   * <p>Implementations should check for:
+   * <p>
+   * Implementations should check for:
    * <ul>
-   *   <li>Required native libraries (e.g., liburing for io_uring)</li>
-   *   <li>OS compatibility (e.g., Linux-only features)</li>
-   *   <li>Hardware requirements</li>
-   *   <li>License validation for commercial providers</li>
+   * <li>Required native libraries (e.g., liburing for io_uring)</li>
+   * <li>OS compatibility (e.g., Linux-only features)</li>
+   * <li>Hardware requirements</li>
+   * <li>License validation for commercial providers</li>
    * </ul>
    *
    * @return true if this provider can be used, false otherwise
@@ -89,7 +101,8 @@ public interface StorageProvider {
   /**
    * Get a human-readable description of why this provider is unavailable.
    *
-   * <p>Only called when {@link #isAvailable()} returns false.
+   * <p>
+   * Only called when {@link #isAvailable()} returns false.
    *
    * @return description of unavailability reason, or null if available
    */
@@ -109,9 +122,9 @@ public interface StorageProvider {
   /**
    * Get the priority of this provider.
    *
-   * <p>When multiple providers with the same name are available,
-   * the one with the highest priority wins. Default is 0.
-   * Enterprise providers should use higher priorities (e.g., 100).
+   * <p>
+   * When multiple providers with the same name are available, the one with the highest priority wins.
+   * Default is 0. Enterprise providers should use higher priorities (e.g., 100).
    *
    * @return the provider priority
    */
@@ -122,7 +135,8 @@ public interface StorageProvider {
   /**
    * Check if this is an enterprise/commercial provider.
    *
-   * <p>Used for logging and diagnostics.
+   * <p>
+   * Used for logging and diagnostics.
    *
    * @return true if this is an enterprise feature
    */

@@ -8,8 +8,7 @@ import java.lang.foreign.ValueLayout;
  */
 public final class MemorySegmentUtils {
 
-  private MemorySegmentUtils() {
-  }
+  private MemorySegmentUtils() {}
 
   /**
    * Helper class to track current offset position during sequential reads from MemorySegment.
@@ -48,8 +47,8 @@ public final class MemorySegmentUtils {
   }
 
   /**
-   * Read a variable-length long value from MemorySegment using stop-bit encoding.
-   * This mimics Chronicle Bytes' readStopBit() functionality.
+   * Read a variable-length long value from MemorySegment using stop-bit encoding. This mimics
+   * Chronicle Bytes' readStopBit() functionality.
    *
    * @param memorySegment the MemorySegment to read from
    * @param offset the offset to start reading from
@@ -66,10 +65,10 @@ public final class MemorySegmentUtils {
 
       // Stop-bit encoding: if MSB is 0, this is the last byte
       if ((b & 0x80) == 0) {
-        value |= (long)(b & 0x7F) << shift;
+        value |= (long) (b & 0x7F) << shift;
         break;
       } else {
-        value |= (long)(b & 0x7F) << shift;
+        value |= (long) (b & 0x7F) << shift;
         shift += 7;
       }
     }
@@ -80,8 +79,8 @@ public final class MemorySegmentUtils {
   /**
    * Read a variable-length long value from MemorySegment, advancing the offset tracker.
    * <p>
-   * This is the zero-allocation variant that updates the offset in-place instead of
-   * returning a result object. Use this on hot paths where allocation must be avoided.
+   * This is the zero-allocation variant that updates the offset in-place instead of returning a
+   * result object. Use this on hot paths where allocation must be avoided.
    * </p>
    *
    * @param memorySegment the MemorySegment to read from
@@ -98,10 +97,10 @@ public final class MemorySegmentUtils {
 
       // Stop-bit encoding: if MSB is 0, this is the last byte
       if ((b & 0x80) == 0) {
-        value |= (long)(b & 0x7F) << shift;
+        value |= (long) (b & 0x7F) << shift;
         break;
       } else {
-        value |= (long)(b & 0x7F) << shift;
+        value |= (long) (b & 0x7F) << shift;
         shift += 7;
       }
     }
@@ -113,8 +112,8 @@ public final class MemorySegmentUtils {
   /**
    * Read a variable-length int value from MemorySegment, advancing the offset tracker.
    * <p>
-   * Optimized for reading values that fit in an int. Use this when you know
-   * the value won't exceed Integer.MAX_VALUE.
+   * Optimized for reading values that fit in an int. Use this when you know the value won't exceed
+   * Integer.MAX_VALUE.
    * </p>
    *
    * @param memorySegment the MemorySegment to read from
@@ -200,16 +199,15 @@ public final class MemorySegmentUtils {
   public static byte[] readByteArray(final MemorySegment memorySegment, final long offset, final int length) {
     byte[] result = new byte[length];
     // Bulk copy is significantly faster than byte-by-byte iteration
-    MemorySegment.copy(memorySegment, ValueLayout.JAVA_BYTE, offset,
-                       result, 0, length);
+    MemorySegment.copy(memorySegment, ValueLayout.JAVA_BYTE, offset, result, 0, length);
     return result;
   }
 
   /**
    * Read a byte array from MemorySegment into an existing array (zero-allocation read).
    * <p>
-   * Uses bulk copy for optimal performance. Caller provides the destination array
-   * to avoid allocation on hot paths.
+   * Uses bulk copy for optimal performance. Caller provides the destination array to avoid allocation
+   * on hot paths.
    * </p>
    *
    * @param memorySegment the MemorySegment to read from
@@ -218,10 +216,9 @@ public final class MemorySegmentUtils {
    * @param destOffset the offset in the destination array
    * @param length the number of bytes to read
    */
-  public static void readByteArrayInto(final MemorySegment memorySegment, final long offset,
-                                       final byte[] dest, final int destOffset, final int length) {
-    MemorySegment.copy(memorySegment, ValueLayout.JAVA_BYTE, offset,
-                       dest, destOffset, length);
+  public static void readByteArrayInto(final MemorySegment memorySegment, final long offset, final byte[] dest,
+      final int destOffset, final int length) {
+    MemorySegment.copy(memorySegment, ValueLayout.JAVA_BYTE, offset, dest, destOffset, length);
   }
 
   /**
@@ -247,8 +244,8 @@ public final class MemorySegmentUtils {
   }
 
   /**
-   * Write a variable-length long value to MemorySegment using stop-bit encoding.
-   * This mimics Chronicle Bytes' writeStopBit() functionality.
+   * Write a variable-length long value to MemorySegment using stop-bit encoding. This mimics
+   * Chronicle Bytes' writeStopBit() functionality.
    *
    * @param memorySegment the MemorySegment to write to
    * @param offset the offset to start writing at
@@ -258,16 +255,16 @@ public final class MemorySegmentUtils {
   public static int writeVarLong(final MemorySegment memorySegment, final long offset, final long value) {
     long val = value;
     int bytesWritten = 0;
-    
+
     while (val >= 0x80) {
       memorySegment.set(ValueLayout.JAVA_BYTE, offset + bytesWritten, (byte) (val | 0x80));
       val >>>= 7;
       bytesWritten++;
     }
-    
+
     memorySegment.set(ValueLayout.JAVA_BYTE, offset + bytesWritten, (byte) val);
     bytesWritten++;
-    
+
     return bytesWritten;
   }
 
@@ -342,8 +339,8 @@ public final class MemorySegmentUtils {
    * @param srcOffset the offset in the source array
    * @param length the number of bytes to write
    */
-  public static void writeByteArray(final MemorySegment memorySegment, final long offset,
-                                    final byte[] value, final int srcOffset, final int length) {
+  public static void writeByteArray(final MemorySegment memorySegment, final long offset, final byte[] value,
+      final int srcOffset, final int length) {
     MemorySegment.copy(value, srcOffset, memorySegment, ValueLayout.JAVA_BYTE, offset, length);
   }
 

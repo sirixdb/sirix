@@ -62,8 +62,8 @@ public final class MMFileReader extends AbstractReader {
   private final Cache<Integer, RevisionFileData> cache;
 
   /**
-   * Arena for memory-mapped segments. May be null if the arena is managed externally
-   * (e.g., by MMStorage for shared segments).
+   * Arena for memory-mapped segments. May be null if the arena is managed externally (e.g., by
+   * MMStorage for shared segments).
    */
   @Nullable
   private final Arena arena;
@@ -82,13 +82,13 @@ public final class MMFileReader extends AbstractReader {
   /**
    * Constructor for standalone reader with its own arena.
    *
-   * @param dataFileSegment     memory-mapped segment for the data file
+   * @param dataFileSegment memory-mapped segment for the data file
    * @param revisionFileSegment memory-mapped segment for the revisions file
-   * @param byteHandler         {@link ByteHandler} instance
-   * @param type                serialization type
-   * @param pagePersister       page persister
-   * @param cache               revision file data cache
-   * @param arena               arena managing the segments, or null if managed externally
+   * @param byteHandler {@link ByteHandler} instance
+   * @param type serialization type
+   * @param pagePersister page persister
+   * @param cache revision file data cache
+   * @param arena arena managing the segments, or null if managed externally
    */
   public MMFileReader(final MemorySegment dataFileSegment, final MemorySegment revisionFileSegment,
       final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersister,
@@ -99,14 +99,14 @@ public final class MMFileReader extends AbstractReader {
   /**
    * Constructor for reader managed by MMStorage with reference counting.
    *
-   * @param dataFileSegment     memory-mapped segment for the data file
+   * @param dataFileSegment memory-mapped segment for the data file
    * @param revisionFileSegment memory-mapped segment for the revisions file
-   * @param byteHandler         {@link ByteHandler} instance
-   * @param type                serialization type
-   * @param pagePersister       page persister
-   * @param cache               revision file data cache
-   * @param generation          arena generation for reference counting
-   * @param storage             storage for releasing the generation
+   * @param byteHandler {@link ByteHandler} instance
+   * @param type serialization type
+   * @param pagePersister page persister
+   * @param cache revision file data cache
+   * @param generation arena generation for reference counting
+   * @param storage storage for releasing the generation
    */
   public MMFileReader(final MemorySegment dataFileSegment, final MemorySegment revisionFileSegment,
       final ByteHandler byteHandler, final SerializationType type, final PagePersister pagePersister,
@@ -116,13 +116,14 @@ public final class MMFileReader extends AbstractReader {
     this.dataFileSegment = requireNonNull(dataFileSegment);
     this.revisionsOffsetFileSegment = requireNonNull(revisionFileSegment);
     this.cache = requireNonNull(cache);
-    this.arena = null;  // Not used when managed by MMStorage
+    this.arena = null; // Not used when managed by MMStorage
     this.generation = generation;
     this.storage = storage;
   }
 
   @Override
-  public Page read(final @NonNull PageReference reference, final @Nullable ResourceConfiguration resourceConfiguration) {
+  public Page read(final @NonNull PageReference reference,
+      final @Nullable ResourceConfiguration resourceConfiguration) {
     try {
       final long offset = reference.getKey() + LAYOUT_INT.byteSize();
       final int dataLength = dataFileSegment.get(LAYOUT_INT, reference.getKey());
@@ -154,7 +155,7 @@ public final class MMFileReader extends AbstractReader {
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
     try {
-      //noinspection DataFlowIssue
+      // noinspection DataFlowIssue
       final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
       final int dataLength = dataFileSegment.get(LAYOUT_INT, dataFileOffset);
@@ -178,7 +179,7 @@ public final class MMFileReader extends AbstractReader {
 
   @Override
   public Instant readRevisionRootPageCommitTimestamp(int revision) {
-    //noinspection DataFlowIssue
+    // noinspection DataFlowIssue
     return cache.get(revision, (unused) -> getRevisionFileData(revision)).timestamp();
   }
 

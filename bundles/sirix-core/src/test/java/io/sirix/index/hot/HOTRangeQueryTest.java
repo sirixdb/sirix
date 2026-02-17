@@ -70,18 +70,17 @@ class HOTRangeQueryTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           // Create CAS index on /items/[]/value
           final var pathToValue = parse("/items/[]/value", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
@@ -101,12 +100,8 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for values GREATER than 25
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/items/[]/value"),
-                  new Int32(25),
-                  SearchMode.GREATER,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/items/[]/value"), new Int32(25), SearchMode.GREATER, new JsonPCRCollector(wtx)));
 
           int count = 0;
           while (casIndex.hasNext()) {
@@ -124,17 +119,16 @@ class HOTRangeQueryTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var pathToValue = parse("/items/[]/value", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
@@ -153,12 +147,8 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for values LESS than 35
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/items/[]/value"),
-                  new Int32(35),
-                  SearchMode.LOWER,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/items/[]/value"), new Int32(35), SearchMode.LOWER, new JsonPCRCollector(wtx)));
 
           int count = 0;
           while (casIndex.hasNext()) {
@@ -176,17 +166,16 @@ class HOTRangeQueryTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var pathToValue = parse("/items/[]/value", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
@@ -205,12 +194,8 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for values GREATER_OR_EQUAL to 30
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/items/[]/value"),
-                  new Int32(30),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/items/[]/value"), new Int32(30), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
           while (casIndex.hasNext()) {
@@ -228,17 +213,16 @@ class HOTRangeQueryTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var pathToValue = parse("/items/[]/value", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
@@ -257,12 +241,8 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for values LESS_OR_EQUAL to 30
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/items/[]/value"),
-                  new Int32(30),
-                  SearchMode.LOWER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/items/[]/value"), new Int32(30), SearchMode.LOWER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
           while (casIndex.hasNext()) {
@@ -285,17 +265,16 @@ class HOTRangeQueryTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var pathToName = parse("/users/[]/name", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
@@ -314,12 +293,8 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for names GREATER than "C" (should find Charlie, David, Eve)
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/users/[]/name"),
-                  new Str("C"),
-                  SearchMode.GREATER,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/users/[]/name"), new Str("C"), SearchMode.GREATER, new JsonPCRCollector(wtx)));
 
           int count = 0;
           while (casIndex.hasNext()) {
@@ -337,17 +312,16 @@ class HOTRangeQueryTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var pathToName = parse("/users/[]/name", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.STR,
-              Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
@@ -366,12 +340,8 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for names LESS than "D" (should find Alice, Bob, Charlie)
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/users/[]/name"),
-                  new Str("D"),
-                  SearchMode.LOWER,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/users/[]/name"), new Str("D"), SearchMode.LOWER, new JsonPCRCollector(wtx)));
 
           int count = 0;
           while (casIndex.hasNext()) {
@@ -394,24 +364,24 @@ class HOTRangeQueryTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
 
           final var pathToValue = parse("/items/[]/value", io.brackit.query.util.path.PathParser.Type.JSON);
-          final var casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
-              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          final var casIndexDef =
+              IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
 
           indexController.createIndexes(Set.of(casIndexDef), wtx);
 
           // Create 100 items with values 0-99
           StringBuilder json = new StringBuilder("{\"items\": [");
           for (int i = 0; i < 100; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("{\"value\": ").append(i).append("}");
           }
           json.append("]}");
@@ -420,12 +390,8 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for values in range [25, 75]
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef,
-              indexController.createCASFilter(
-                  Set.of("/items/[]/value"),
-                  new Int32(25),
-                  SearchMode.GREATER_OR_EQUAL,
-                  new JsonPCRCollector(wtx)));
+          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+              Set.of("/items/[]/value"), new Int32(25), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
           while (casIndex.hasNext()) {

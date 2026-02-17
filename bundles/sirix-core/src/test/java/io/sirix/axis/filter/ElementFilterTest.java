@@ -90,10 +90,8 @@ public class ElementFilterTest {
   public void testFluentIterable() throws SirixException {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
-    final Iterator<Long> results = FluentIterable.from(new DescendantAxis(rtx))
-                                                 .filter(new ElementFilter(rtx))
-                                                 .limit(2)
-                                                 .iterator();
+    final Iterator<Long> results =
+        FluentIterable.from(new DescendantAxis(rtx)).filter(new ElementFilter(rtx)).limit(2).iterator();
     AbsAxisTest.testIterable(results, new long[] {1, 5});
   }
 

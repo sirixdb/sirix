@@ -137,7 +137,10 @@ subprojects {
     spotless {
         enforceCheck false
         java {
-            licenseHeaderFile "${rootDir}/LICENSE"
+            targetExclude "**/index/art/Abstract*Test.java",
+                          "**/index/art/NavigableKeySetStringTest.java",
+                          "**/index/art/acc/**"
+            eclipse().configFile("${rootDir}/eclipse/sirix-formatter.xml")
         }
     }
 

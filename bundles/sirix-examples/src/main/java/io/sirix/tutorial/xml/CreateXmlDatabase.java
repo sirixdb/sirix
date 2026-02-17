@@ -32,13 +32,11 @@ public final class CreateXmlDatabase {
     final var dbConfig = new DatabaseConfiguration(databaseFile);
     Databases.createXmlDatabase(dbConfig);
     try (final var database = Databases.openXmlDatabase(databaseFile)) {
-      database.createResource(ResourceConfiguration.newBuilder("resource")
-                                                   .useTextCompression(false)
-                                                   .useDeweyIDs(true)
-                                                   .build());
+      database.createResource(
+          ResourceConfiguration.newBuilder("resource").useTextCompression(false).useDeweyIDs(true).build());
       try (final var manager = database.beginResourceSession("resource");
-           final var wtx = manager.beginNodeTrx();
-           final var fis = new FileInputStream(pathToXmlFile.toFile())) {
+          final var wtx = manager.beginNodeTrx();
+          final var fis = new FileInputStream(pathToXmlFile.toFile())) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createFileReader(fis));
         wtx.commit();
       }

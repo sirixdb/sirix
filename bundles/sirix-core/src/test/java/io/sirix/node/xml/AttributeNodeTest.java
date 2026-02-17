@@ -75,22 +75,21 @@ public class AttributeNodeTest {
 
   @Test
   public void testAttributeNode() {
-    final byte[] value = { (byte) 17, (byte) 18 };
+    final byte[] value = {(byte) 17, (byte) 18};
 
     // Create AttributeNode with primitive fields
-    final AttributeNode node = new AttributeNode(
-        99L,                                             // nodeKey
-        13L,                                             // parentKey
-        Constants.NULL_REVISION_NUMBER,                  // previousRevision
-        0,                                               // lastModifiedRevision
-        1L,                                              // pathNodeKey
-        14,                                              // prefixKey
-        15,                                              // localNameKey
-        13,                                              // uriKey
-        0,                                               // hash
-        value,                                           // value
-        LongHashFunction.xx3(),                          // hashFunction
-        SirixDeweyID.newRootID(),                        // deweyID
+    final AttributeNode node = new AttributeNode(99L, // nodeKey
+        13L, // parentKey
+        Constants.NULL_REVISION_NUMBER, // previousRevision
+        0, // lastModifiedRevision
+        1L, // pathNodeKey
+        14, // prefixKey
+        15, // localNameKey
+        13, // uriKey
+        0, // hash
+        value, // value
+        LongHashFunction.xx3(), // hashFunction
+        SirixDeweyID.newRootID(), // deweyID
         new QNm("ns", "a", "p"));
     var hashBytes = Bytes.elasticOffHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
@@ -104,10 +103,8 @@ public class AttributeNodeTest {
     node.getKind().serialize(data, node, pageReadOnlyTrx.getResourceSession().getResourceConfig());
     var bytesIn = data.asBytesIn();
     bytesIn.readByte(); // Skip NodeKind byte
-    final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(bytesIn,
-                                                                               node.getNodeKey(),
-                                                                               node.getDeweyID().toBytes(),
-                                                                               pageReadOnlyTrx.getResourceSession().getResourceConfig());
+    final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(bytesIn, node.getNodeKey(),
+        node.getDeweyID().toBytes(), pageReadOnlyTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 

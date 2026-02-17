@@ -36,19 +36,25 @@ import static java.util.Objects.requireNonNull;
 /**
  * Serializer for NAME index keys (qualified names as {@link QNm}).
  *
- * <p>Serializes QNm to bytes using UTF-8 encoding of the local name.
- * UTF-8 is already lexicographically ordered, so no special encoding is needed.</p>
+ * <p>
+ * Serializes QNm to bytes using UTF-8 encoding of the local name. UTF-8 is already
+ * lexicographically ordered, so no special encoding is needed.
+ * </p>
  *
- * <p>Format: {@code [nsPrefix:N][0x00][localName:M]}</p>
+ * <p>
+ * Format: {@code [nsPrefix:N][0x00][localName:M]}
+ * </p>
  * <ul>
- *   <li>Namespace prefix (UTF-8, variable length)</li>
- *   <li>Separator byte (0x00)</li>
- *   <li>Local name (UTF-8, variable length)</li>
+ * <li>Namespace prefix (UTF-8, variable length)</li>
+ * <li>Separator byte (0x00)</li>
+ * <li>Local name (UTF-8, variable length)</li>
  * </ul>
  *
  * <h2>Zero Allocation</h2>
- * <p>All methods write to caller-provided buffers. String.getBytes() is the only
- * allocation, which is unavoidable for variable-length strings.</p>
+ * <p>
+ * All methods write to caller-provided buffers. String.getBytes() is the only allocation, which is
+ * unavoidable for variable-length strings.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */

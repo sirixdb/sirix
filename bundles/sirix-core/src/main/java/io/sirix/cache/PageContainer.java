@@ -110,8 +110,8 @@ public final class PageContainer {
   }
 
   /**
-   * Get the complete page as a KeyValuePage (interface).
-   * Works with both KeyValueLeafPage and HOTLeafPage.
+   * Get the complete page as a KeyValuePage (interface). Works with both KeyValueLeafPage and
+   * HOTLeafPage.
    *
    * @return the complete page as KeyValuePage
    */
@@ -121,8 +121,8 @@ public final class PageContainer {
   }
 
   /**
-   * Get the modified page as a KeyValuePage (interface).
-   * Works with both KeyValueLeafPage and HOTLeafPage.
+   * Get the modified page as a KeyValuePage (interface). Works with both KeyValueLeafPage and
+   * HOTLeafPage.
    *
    * @return the modified page as KeyValuePage
    */
@@ -133,6 +133,7 @@ public final class PageContainer {
 
   /**
    * Get the complete page as KeyValueLeafPage (concrete class).
+   * 
    * @deprecated Use {@link #getCompleteAsKeyValuePage()} for HOT compatibility
    */
   @Deprecated
@@ -142,6 +143,7 @@ public final class PageContainer {
 
   /**
    * Get the modified page as KeyValueLeafPage (concrete class).
+   * 
    * @deprecated Use {@link #getModifiedAsKeyValuePage()} for HOT compatibility
    */
   @Deprecated
@@ -164,9 +166,6 @@ public final class PageContainer {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("complete page", complete)
-                      .add("modified page", modified)
-                      .toString();
+    return MoreObjects.toStringHelper(this).add("complete page", complete).add("modified page", modified).toString();
   }
 }

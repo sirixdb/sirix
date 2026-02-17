@@ -10,8 +10,7 @@ import io.sirix.node.BytesOut;
  */
 public final class Utils {
 
-  private Utils() {
-  }
+  private Utils() {}
 
   /**
    * Store a "compressed" variable-length long value.
@@ -29,7 +28,7 @@ public final class Utils {
    * @param input {@link ByteArrayDataInput} reference
    * @return long value
    */
-  public static long getVarLong(final BytesIn<?> input)  {
+  public static long getVarLong(final BytesIn<?> input) {
     return input.readStopBit();
   }
 }

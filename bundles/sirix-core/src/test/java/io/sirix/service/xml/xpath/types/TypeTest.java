@@ -32,10 +32,9 @@ import io.sirix.exception.SirixXPathException;
 
 public class TypeTest {
 
-  Type anyType, anySimpleType, anyAtomicType, untypedAtomic, untyped, string, duration, dateTime,
-      time, date, yearMonth, month, monthDay, year, day, bool, base64, hex, anyURI, notation,
-      floatT, doubleT, integerT, longT, intT, qName, pDecimal, decimal, shortT, byteT, nPosInt,
-      posInt, unsignedLong, name, token, language;
+  Type anyType, anySimpleType, anyAtomicType, untypedAtomic, untyped, string, duration, dateTime, time, date, yearMonth,
+      month, monthDay, year, day, bool, base64, hex, anyURI, notation, floatT, doubleT, integerT, longT, intT, qName,
+      pDecimal, decimal, shortT, byteT, nPosInt, posInt, unsignedLong, name, token, language;
 
   @Before
   public void setUp() throws Exception {
@@ -350,30 +349,21 @@ public class TypeTest {
       string.isCastableTo(Type.INTEGER, "hallo welt!");
       fail();
     } catch (final SirixXPathException exc) {
-      assertThat(
-          exc.getMessage(),
-          is(
-              "err:XPTY0004 The type is not appropriate the expression or the "
-                  + "typedoes not match a required type as specified by the matching rules."));
+      assertThat(exc.getMessage(), is("err:XPTY0004 The type is not appropriate the expression or the "
+          + "typedoes not match a required type as specified by the matching rules."));
     }
     try {
       string.isCastableTo(Type.BOOLEAN, "13");
       fail();
     } catch (final SirixXPathException exc) {
-      assertThat(
-          exc.getMessage(),
-          is(
-              "err:XPTY0004 The type is not appropriate the expression or the "
-                  + "typedoes not match a required type as specified by the matching rules."));
+      assertThat(exc.getMessage(), is("err:XPTY0004 The type is not appropriate the expression or the "
+          + "typedoes not match a required type as specified by the matching rules."));
     }
     try {
       string.isCastableTo(Type.NOTATION, "\"");
     } catch (final SirixXPathException exc) {
-      assertThat(
-          exc.getMessage(),
-          is(
-              "err:XPST0080 Target type of a cast or castable expression "
-                  + "must not be xs:NOTATION or xs:anyAtomicType."));
+      assertThat(exc.getMessage(), is("err:XPST0080 Target type of a cast or castable expression "
+          + "must not be xs:NOTATION or xs:anyAtomicType."));
     }
     assertEquals(true, integerT.isCastableTo(Type.DOUBLE, "12345"));
     assertEquals(true, integerT.isCastableTo(Type.FLOAT, "-12345"));

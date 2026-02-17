@@ -85,10 +85,12 @@ public class RangeAxis extends AbstractAxis {
 
     if (mFirst) {
       mFirst = false;
-      if (mFrom.hasNext() && Type.getType(((XmlNodeReadOnlyTrx) mFrom.asXmlNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
+      if (mFrom.hasNext()
+          && Type.getType(((XmlNodeReadOnlyTrx) mFrom.asXmlNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
         mStart = Integer.parseInt(((XmlNodeReadOnlyTrx) mFrom.asXmlNodeReadTrx()).getValue());
 
-        if (mTo.hasNext() && Type.getType(((XmlNodeReadOnlyTrx) mTo.asXmlNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
+        if (mTo.hasNext()
+            && Type.getType(((XmlNodeReadOnlyTrx) mTo.asXmlNodeReadTrx()).getTypeKey()).derivesFrom(Type.INTEGER)) {
 
           mEnd = Integer.parseInt(((XmlNodeReadOnlyTrx) mTo.asXmlNodeReadTrx()).getValue());
 
@@ -107,7 +109,7 @@ public class RangeAxis extends AbstractAxis {
     if (mStart <= mEnd) {
       final int itemKey = asXmlNodeReadTrx().getItemList()
                                             .addItem(new AtomicValue(TypedValue.getBytes(Integer.toString(mStart)),
-                                                                     asXmlNodeReadTrx().keyForName("xs:integer")));
+                                                asXmlNodeReadTrx().keyForName("xs:integer")));
       key = itemKey;
       mStart++;
       return true;

@@ -66,17 +66,13 @@ public class CastableExprTest {
     assertEquals(true, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    final AbstractAxis axis2 =
-        new XPathAxis(holder.getXmlNodeReadTrx(), "10.0 castable as xs:anyAtomicType");
+    final AbstractAxis axis2 = new XPathAxis(holder.getXmlNodeReadTrx(), "10.0 castable as xs:anyAtomicType");
     try {
       assertEquals(true, axis2.hasNext());
       axis2.next();
     } catch (XPathError e) {
-      assertThat(
-          e.getMessage(),
-          is(
-              "err:XPST0080 " + "Target type of a cast or castable expression must not be "
-                  + "xs:NOTATION or xs:anyAtomicType."));
+      assertThat(e.getMessage(), is("err:XPST0080 " + "Target type of a cast or castable expression must not be "
+          + "xs:NOTATION or xs:anyAtomicType."));
     }
 
     // Token is not implemented yet.

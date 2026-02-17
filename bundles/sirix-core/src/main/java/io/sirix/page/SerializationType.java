@@ -55,8 +55,7 @@ public enum SerializationType {
    */
   DATA {
     @Override
-    public void serializeBitmapReferencesPage(BytesOut<?> out, List<PageReference> pageReferences,
-        BitSet bitmap) {
+    public void serializeBitmapReferencesPage(BytesOut<?> out, List<PageReference> pageReferences, BitSet bitmap) {
       assert out != null;
       assert pageReferences != null;
 
@@ -73,8 +72,7 @@ public enum SerializationType {
     }
 
     @Override
-    public void serializeReferencesPage4(BytesOut<?> out, List<PageReference> pageReferences,
-        List<Short> offsets) {
+    public void serializeReferencesPage4(BytesOut<?> out, List<PageReference> pageReferences, List<Short> offsets) {
       try {
         out.writeByte((byte) pageReferences.size());
         for (final PageReference pageReference : pageReferences) {
@@ -239,9 +237,9 @@ public enum SerializationType {
   /**
    * Serialize all page references.
    *
-   * @param out            the output
+   * @param out the output
    * @param pageReferences the page references
-   * @param bitmap         the bitmap
+   * @param bitmap the bitmap
    * @throws SirixIOException if an I/O error occurs.
    */
   public abstract void serializeBitmapReferencesPage(BytesOut<?> out, List<PageReference> pageReferences,
@@ -250,9 +248,9 @@ public enum SerializationType {
   /**
    * Serialize all page references.
    *
-   * @param out            the output
+   * @param out the output
    * @param pageReferences the page references
-   * @param offsets        the offset indexes
+   * @param offsets the offset indexes
    * @throws SirixIOException if an I/O error occurs.
    */
   public abstract void serializeReferencesPage4(BytesOut<?> out, List<PageReference> pageReferences,
@@ -262,7 +260,7 @@ public enum SerializationType {
    * Deserialize all page references.
    *
    * @param referenceCount the number of references
-   * @param in             the input
+   * @param in the input
    * @return the in-memory instances
    */
   public abstract DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@NonNegative int referenceCount,
@@ -279,7 +277,7 @@ public enum SerializationType {
   /**
    * Serialize all page references.
    *
-   * @param out            the output
+   * @param out the output
    * @param pageReferences the page references
    * @throws SirixIOException if an I/O error occurs.
    */

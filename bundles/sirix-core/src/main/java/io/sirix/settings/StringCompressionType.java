@@ -31,14 +31,16 @@ package io.sirix.settings;
 /**
  * Compression type for string values in nodes (StringNode, ObjectStringNode, TextNode, etc.).
  * 
- * <p>Controls how string content is compressed when stored on disk:
+ * <p>
+ * Controls how string content is compressed when stored on disk:
  * <ul>
- *   <li>{@link #NONE} - No per-string compression; rely on page-level LZ4 only</li>
- *   <li>{@link #FSST} - Fast Static Symbol Table compression; best for similar strings</li>
+ * <li>{@link #NONE} - No per-string compression; rely on page-level LZ4 only</li>
+ * <li>{@link #FSST} - Fast Static Symbol Table compression; best for similar strings</li>
  * </ul>
  * 
- * <p>Note: Page-level compression (e.g., LZ4) still applies regardless of this setting.
- * This setting controls additional per-string or columnar compression.
+ * <p>
+ * Note: Page-level compression (e.g., LZ4) still applies regardless of this setting. This setting
+ * controls additional per-string or columnar compression.
  * 
  * @author Johannes Lichtenberger
  */
@@ -47,19 +49,21 @@ public enum StringCompressionType {
   /**
    * No per-string compression.
    * <p>
-   * Strings are stored as raw bytes. Page-level LZ4 compression still applies.
-   * This is the default and safest option.
+   * Strings are stored as raw bytes. Page-level LZ4 compression still applies. This is the default
+   * and safest option.
    * 
-   * <p>Pros:
+   * <p>
+   * Pros:
    * <ul>
-   *   <li>No CPU overhead for encode/decode</li>
-   *   <li>True zero-copy reads (no decompression step)</li>
-   *   <li>Best for already-compressed or high-entropy content</li>
+   * <li>No CPU overhead for encode/decode</li>
+   * <li>True zero-copy reads (no decompression step)</li>
+   * <li>Best for already-compressed or high-entropy content</li>
    * </ul>
    * 
-   * <p>Cons:
+   * <p>
+   * Cons:
    * <ul>
-   *   <li>Larger on-disk size for compressible text</li>
+   * <li>Larger on-disk size for compressible text</li>
    * </ul>
    */
   NONE((byte) 0),
@@ -67,21 +71,23 @@ public enum StringCompressionType {
   /**
    * Fast Static Symbol Table (FSST) compression.
    * <p>
-   * Builds a symbol table from similar strings (e.g., JSON values on a page)
-   * and replaces common byte sequences with 1-byte codes.
+   * Builds a symbol table from similar strings (e.g., JSON values on a page) and replaces common byte
+   * sequences with 1-byte codes.
    * 
-   * <p>Pros:
+   * <p>
+   * Pros:
    * <ul>
-   *   <li>Very fast decompression (~1-2 GB/s)</li>
-   *   <li>Works well for repetitive/similar strings (JSON, XML text)</li>
-   *   <li>Synergizes with page-level LZ4 for better overall compression</li>
+   * <li>Very fast decompression (~1-2 GB/s)</li>
+   * <li>Works well for repetitive/similar strings (JSON, XML text)</li>
+   * <li>Synergizes with page-level LZ4 for better overall compression</li>
    * </ul>
    * 
-   * <p>Cons:
+   * <p>
+   * Cons:
    * <ul>
-   *   <li>Requires decompression on read (not true zero-copy)</li>
-   *   <li>Symbol table overhead (stored per page)</li>
-   *   <li>Less effective for random/high-entropy content</li>
+   * <li>Requires decompression on read (not true zero-copy)</li>
+   * <li>Symbol table overhead (stored per page)</li>
+   * <li>Less effective for random/high-entropy content</li>
    * </ul>
    */
   FSST((byte) 1);

@@ -35,8 +35,8 @@ public class BinaryComparables {
   }
 
   /**
-   * Uses {@link String#getBytes(Charset)} to get bytes in the lexicographic order of Unicode code points,
-   * as defined in {@link String#compareTo(String)} <br>
+   * Uses {@link String#getBytes(Charset)} to get bytes in the lexicographic order of Unicode code
+   * points, as defined in {@link String#compareTo(String)} <br>
    * Note: Use Collators if you want locale dependent comparisons
    *
    * @see <a href="https://docs.oracle.com/javase/tutorial/i18n/text/collationintro.html">Collator</a>
@@ -53,12 +53,12 @@ public class BinaryComparables {
       (key) -> BinaryComparableUtils.unsigned(ByteBuffer.allocate(Short.BYTES).putShort(key).array());
   private static final BinaryComparable<Byte> BYTE =
       (key) -> BinaryComparableUtils.unsigned(ByteBuffer.allocate(Byte.BYTES).put(key).array());
-	/*
-	 extract from https://docs.oracle.com/javase/tutorial/i18n/text/collationintro.html:
-	 If your application audience is limited to people who speak English,
-	 you can probably perform string comparisons with the String.compareTo method.
-	 The String.compareTo method performs a binary comparison of the Unicode characters within the two strings.
-	 For most languages, however, this binary comparison cannot be relied on to sort strings,
-	 because the Unicode values do not correspond to the relative order of the characters.
-	 */
+  /*
+   * extract from https://docs.oracle.com/javase/tutorial/i18n/text/collationintro.html: If your
+   * application audience is limited to people who speak English, you can probably perform string
+   * comparisons with the String.compareTo method. The String.compareTo method performs a binary
+   * comparison of the Unicode characters within the two strings. For most languages, however, this
+   * binary comparison cannot be relied on to sort strings, because the Unicode values do not
+   * correspond to the relative order of the characters.
+   */
 }

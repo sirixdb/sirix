@@ -40,7 +40,10 @@ import java.util.Objects;
 /**
  * Serializer for {@link ChunkDirectory}.
  *
- * <p><b>Binary Format:</b></p>
+ * <p>
+ * <b>Binary Format:</b>
+ * </p>
+ * 
  * <pre>
  * ┌─────────────────────────────────────────────────────────────────────────┐
  * │ [4 bytes] chunkCount                                                    │
@@ -90,8 +93,8 @@ public final class ChunkDirectorySerializer {
   /**
    * Serialize a ChunkDirectory to a byte array.
    *
-   * @param dir    the directory
-   * @param dest   the destination buffer
+   * @param dir the directory
+   * @param dest the destination buffer
    * @param offset the offset to write at
    * @return the number of bytes written
    */
@@ -108,7 +111,7 @@ public final class ChunkDirectorySerializer {
   /**
    * Serialize a ChunkDirectory to a ByteBuffer.
    *
-   * @param dir    the directory
+   * @param dir the directory
    * @param buffer the buffer
    * @return the number of bytes written
    */
@@ -127,11 +130,14 @@ public final class ChunkDirectorySerializer {
       PageReference ref = dir.getChunkRefAtPosition(i);
 
       buffer.putInt(chunkIndex);
-      buffer.putLong(ref != null ? ref.getKey() : -1);
+      buffer.putLong(ref != null
+          ? ref.getKey()
+          : -1);
 
       // Write page fragments
-      List<io.sirix.page.interfaces.PageFragmentKey> fragments = 
-          ref != null ? ref.getPageFragments() : List.of();
+      List<io.sirix.page.interfaces.PageFragmentKey> fragments = ref != null
+          ? ref.getPageFragments()
+          : List.of();
       buffer.putInt(fragments.size());
       for (io.sirix.page.interfaces.PageFragmentKey fragment : fragments) {
         buffer.putInt(fragment.revision());
@@ -147,7 +153,7 @@ public final class ChunkDirectorySerializer {
   /**
    * Deserialize a ChunkDirectory from a byte array.
    *
-   * @param bytes  the source bytes
+   * @param bytes the source bytes
    * @param offset the offset to read from
    * @param length the number of bytes to read
    * @return the deserialized ChunkDirectory
@@ -214,10 +220,10 @@ public final class ChunkDirectorySerializer {
   }
 
   /**
-   * Check if a byte array contains a valid ChunkDirectory tombstone marker.
-   * A tombstone is represented by an empty ChunkDirectory (chunkCount = 0).
+   * Check if a byte array contains a valid ChunkDirectory tombstone marker. A tombstone is
+   * represented by an empty ChunkDirectory (chunkCount = 0).
    *
-   * @param bytes  the bytes
+   * @param bytes the bytes
    * @param offset the offset
    * @param length the length
    * @return true if this is a tombstone

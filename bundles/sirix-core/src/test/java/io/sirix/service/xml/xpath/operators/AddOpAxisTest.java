@@ -82,116 +82,70 @@ public class AddOpAxisTest {
     AbstractAxis op2 = new SequenceAxis(holder.getXmlNodeReadTrx());
     AbstractObAxis axis = new AddOpAxis(holder.getXmlNodeReadTrx(), op1, op2);
 
-    assertEquals(
-        Type.DOUBLE,
-        axis.getReturnType(
-            holder.getXmlNodeReadTrx().keyForName("xs:double"),
-            holder.getXmlNodeReadTrx().keyForName("xs:double")));
-    assertEquals(
-        Type.DOUBLE,
-        axis.getReturnType(
-            holder.getXmlNodeReadTrx().keyForName("xs:decimal"),
-            holder.getXmlNodeReadTrx().keyForName("xs:double")));
-    assertEquals(
-        Type.FLOAT,
-        axis.getReturnType(
-            holder.getXmlNodeReadTrx().keyForName("xs:float"),
-            holder.getXmlNodeReadTrx().keyForName("xs:decimal")));
-    assertEquals(
-        Type.DECIMAL,
-        axis.getReturnType(
-            holder.getXmlNodeReadTrx().keyForName("xs:decimal"),
-            holder.getXmlNodeReadTrx().keyForName("xs:integer")));
+    assertEquals(Type.DOUBLE, axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:double"),
+        holder.getXmlNodeReadTrx().keyForName("xs:double")));
+    assertEquals(Type.DOUBLE, axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:decimal"),
+        holder.getXmlNodeReadTrx().keyForName("xs:double")));
+    assertEquals(Type.FLOAT, axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:float"),
+        holder.getXmlNodeReadTrx().keyForName("xs:decimal")));
+    assertEquals(Type.DECIMAL, axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:decimal"),
+        holder.getXmlNodeReadTrx().keyForName("xs:integer")));
     // assertEquals(Type.INTEGER,
     // axis.getReturnType(holder.getRtx().keyForName("xs:integer"),
     // holder.getRtx().keyForName("xs:integer")));
 
-    assertEquals(
-        Type.YEAR_MONTH_DURATION,
-        axis.getReturnType(
-            holder.getXmlNodeReadTrx().keyForName("xs:yearMonthDuration"),
+    assertEquals(Type.YEAR_MONTH_DURATION,
+        axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:yearMonthDuration"),
             holder.getXmlNodeReadTrx().keyForName("xs:yearMonthDuration")));
-    assertEquals(
-        Type.DAY_TIME_DURATION,
-        axis.getReturnType(
-            holder.getXmlNodeReadTrx().keyForName("xs:dayTimeDuration"),
-            holder.getXmlNodeReadTrx().keyForName("xs:dayTimeDuration")));
+    assertEquals(Type.DAY_TIME_DURATION, axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:dayTimeDuration"),
+        holder.getXmlNodeReadTrx().keyForName("xs:dayTimeDuration")));
 
-    assertEquals(
-        Type.DATE,
-        axis.getReturnType(
-            holder.getXmlNodeReadTrx().keyForName("xs:date"),
-            holder.getXmlNodeReadTrx().keyForName("xs:yearMonthDuration")));
-    assertEquals(
-        Type.DATE,
-        axis.getReturnType(
-            holder.getXmlNodeReadTrx().keyForName("xs:date"),
-            holder.getXmlNodeReadTrx().keyForName("xs:dayTimeDuration")));
-    assertEquals(
-        Type.TIME,
-        axis.getReturnType(
-            holder.getXmlNodeReadTrx().keyForName("xs:time"),
-            holder.getXmlNodeReadTrx().keyForName("xs:dayTimeDuration")));
-    assertEquals(
-        Type.DATE_TIME,
-        axis.getReturnType(
-            holder.getXmlNodeReadTrx().keyForName("xs:dateTime"),
-            holder.getXmlNodeReadTrx().keyForName("xs:yearMonthDuration")));
-    assertEquals(
-        Type.DATE_TIME,
-        axis.getReturnType(
-            holder.getXmlNodeReadTrx().keyForName("xs:dateTime"),
-            holder.getXmlNodeReadTrx().keyForName("xs:dayTimeDuration")));
+    assertEquals(Type.DATE, axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:date"),
+        holder.getXmlNodeReadTrx().keyForName("xs:yearMonthDuration")));
+    assertEquals(Type.DATE, axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:date"),
+        holder.getXmlNodeReadTrx().keyForName("xs:dayTimeDuration")));
+    assertEquals(Type.TIME, axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:time"),
+        holder.getXmlNodeReadTrx().keyForName("xs:dayTimeDuration")));
+    assertEquals(Type.DATE_TIME, axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:dateTime"),
+        holder.getXmlNodeReadTrx().keyForName("xs:yearMonthDuration")));
+    assertEquals(Type.DATE_TIME, axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:dateTime"),
+        holder.getXmlNodeReadTrx().keyForName("xs:dayTimeDuration")));
 
     try {
-      axis.getReturnType(
-          holder.getXmlNodeReadTrx().keyForName("xs:dateTime"),
+      axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:dateTime"),
           holder.getXmlNodeReadTrx().keyForName("xs:dateTime"));
       fail("Expected an XPathError-Exception.");
     } catch (final SirixXPathException e) {
-      assertThat(
-          e.getMessage(),
-          is(
-              "err:XPTY0004 The type is not appropriate the expression or the "
-                  + "typedoes not match a required type as specified by the matching rules."));
+      assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate the expression or the "
+          + "typedoes not match a required type as specified by the matching rules."));
     }
 
     try {
-      axis.getReturnType(
-          holder.getXmlNodeReadTrx().keyForName("xs:dateTime"), holder.getXmlNodeReadTrx().keyForName("xs:double"));
+      axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:dateTime"),
+          holder.getXmlNodeReadTrx().keyForName("xs:double"));
       fail("Expected an XPathError-Exception.");
     } catch (final SirixXPathException e) {
-      assertThat(
-          e.getMessage(),
-          is(
-              "err:XPTY0004 The type is not appropriate the expression or the "
-                  + "typedoes not match a required type as specified by the matching rules."));
+      assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate the expression or the "
+          + "typedoes not match a required type as specified by the matching rules."));
     }
 
     try {
-      axis.getReturnType(
-          holder.getXmlNodeReadTrx().keyForName("xs:string"),
+      axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:string"),
           holder.getXmlNodeReadTrx().keyForName("xs:yearMonthDuration"));
       fail("Expected an XPathError-Exception.");
     } catch (final SirixXPathException e) {
-      assertThat(
-          e.getMessage(),
-          is(
-              "err:XPTY0004 The type is not appropriate the expression or the "
-                  + "typedoes not match a required type as specified by the matching rules."));
+      assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate the expression or the "
+          + "typedoes not match a required type as specified by the matching rules."));
     }
 
     try {
 
-      axis.getReturnType(
-          holder.getXmlNodeReadTrx().keyForName("xs:dateTime"), holder.getXmlNodeReadTrx().keyForName("xs:IDREF"));
+      axis.getReturnType(holder.getXmlNodeReadTrx().keyForName("xs:dateTime"),
+          holder.getXmlNodeReadTrx().keyForName("xs:IDREF"));
       fail("Expected an XPathError-Exception.");
     } catch (final SirixXPathException e) {
-      assertThat(
-          e.getMessage(),
-          is(
-              "err:XPTY0004 The type is not appropriate the expression or the "
-                  + "typedoes not match a required type as specified by the matching rules."));
+      assertThat(e.getMessage(), is("err:XPTY0004 The type is not appropriate the expression or the "
+          + "typedoes not match a required type as specified by the matching rules."));
     }
 
   }

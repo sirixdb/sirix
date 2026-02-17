@@ -35,11 +35,15 @@ import static java.util.Objects.requireNonNull;
 /**
  * Configuration for valid time support in bitemporal queries.
  *
- * <p>Valid time represents when data is/was/will be true in the real world,
- * as opposed to transaction time (when data was recorded in the database).</p>
+ * <p>
+ * Valid time represents when data is/was/will be true in the real world, as opposed to transaction
+ * time (when data was recorded in the database).
+ * </p>
  *
- * <p>This configuration specifies the JSON paths where valid time boundaries
- * are stored, enabling optimized bitemporal queries.</p>
+ * <p>
+ * This configuration specifies the JSON paths where valid time boundaries are stored, enabling
+ * optimized bitemporal queries.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -59,7 +63,7 @@ public final class ValidTimeConfig {
    * Creates a new valid time configuration.
    *
    * @param validFromPath JSON path to the validFrom field (e.g., "$.validFrom" or "validFrom")
-   * @param validToPath   JSON path to the validTo field (e.g., "$.validTo" or "validTo")
+   * @param validToPath JSON path to the validTo field (e.g., "$.validTo" or "validTo")
    * @throws NullPointerException if any argument is null
    */
   public ValidTimeConfig(String validFromPath, String validToPath) {
@@ -70,7 +74,9 @@ public final class ValidTimeConfig {
   /**
    * Creates a valid time configuration using convention-based field names.
    *
-   * <p>This uses the standard field names "_validFrom" and "_validTo".</p>
+   * <p>
+   * This uses the standard field names "_validFrom" and "_validTo".
+   * </p>
    *
    * @return a new ValidTimeConfig using convention-based paths
    */
@@ -82,7 +88,7 @@ public final class ValidTimeConfig {
    * Creates a valid time configuration with custom paths.
    *
    * @param validFromPath JSON path to the validFrom field
-   * @param validToPath   JSON path to the validTo field
+   * @param validToPath JSON path to the validTo field
    * @return a new ValidTimeConfig
    */
   public static ValidTimeConfig withPaths(String validFromPath, String validToPath) {
@@ -140,10 +146,11 @@ public final class ValidTimeConfig {
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (!(o instanceof ValidTimeConfig that)) return false;
-    return Objects.equals(validFromPath, that.validFromPath)
-        && Objects.equals(validToPath, that.validToPath);
+    if (this == o)
+      return true;
+    if (!(o instanceof ValidTimeConfig that))
+      return false;
+    return Objects.equals(validFromPath, that.validFromPath) && Objects.equals(validToPath, that.validToPath);
   }
 
   @Override
@@ -153,9 +160,6 @@ public final class ValidTimeConfig {
 
   @Override
   public String toString() {
-    return "ValidTimeConfig{" +
-        "validFromPath='" + validFromPath + '\'' +
-        ", validToPath='" + validToPath + '\'' +
-        '}';
+    return "ValidTimeConfig{" + "validFromPath='" + validFromPath + '\'' + ", validToPath='" + validToPath + '\'' + '}';
   }
 }

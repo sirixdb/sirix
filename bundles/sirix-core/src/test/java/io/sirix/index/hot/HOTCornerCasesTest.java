@@ -43,14 +43,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 /**
  * Comprehensive corner case tests for HOT (Height Optimized Trie) implementation.
  * 
- * <p>Tests are organized by corner case ID from the implementation plan:</p>
+ * <p>
+ * Tests are organized by corner case ID from the implementation plan:
+ * </p>
  * <ul>
- *   <li>CC-1 to CC-4: Key edge cases (empty, max diff, length diff, long keys)</li>
- *   <li>CC-5 to CC-6: Node structure changes (BiNode collapse, SpanNode overflow)</li>
- *   <li>CC-7 to CC-9: Key pattern edge cases (duplicates, common prefix, alternating)</li>
- *   <li>CC-10 to CC-12: Concurrent and range operations</li>
- *   <li>CC-13 to CC-15: Bit mask and value edge cases</li>
- *   <li>CC-16 to CC-21: Versioning and COW edge cases</li>
+ * <li>CC-1 to CC-4: Key edge cases (empty, max diff, length diff, long keys)</li>
+ * <li>CC-5 to CC-6: Node structure changes (BiNode collapse, SpanNode overflow)</li>
+ * <li>CC-7 to CC-9: Key pattern edge cases (duplicates, common prefix, alternating)</li>
+ * <li>CC-10 to CC-12: Concurrent and range operations</li>
+ * <li>CC-13 to CC-15: Bit mask and value edge cases</li>
+ * <li>CC-16 to CC-21: Versioning and COW edge cases</li>
  * </ul>
  * 
  * @see DiscriminativeBitComputer
@@ -97,14 +99,14 @@ class HOTCornerCasesTest {
     @Test
     @DisplayName("One empty key returns 0 (differs at first bit)")
     void testOneEmptyKey() {
-      assertEquals(0, DiscriminativeBitComputer.computeDifferingBit(new byte[0], new byte[]{0x01}));
-      assertEquals(0, DiscriminativeBitComputer.computeDifferingBit(new byte[]{0x01}, new byte[0]));
+      assertEquals(0, DiscriminativeBitComputer.computeDifferingBit(new byte[0], new byte[] {0x01}));
+      assertEquals(0, DiscriminativeBitComputer.computeDifferingBit(new byte[] {0x01}, new byte[0]));
     }
 
     @Test
     @DisplayName("Empty key vs 0x00 returns 0 (length difference)")
     void testEmptyVsZeroByte() {
-      assertEquals(0, DiscriminativeBitComputer.computeDifferingBit(new byte[0], new byte[]{0x00}));
+      assertEquals(0, DiscriminativeBitComputer.computeDifferingBit(new byte[0], new byte[] {0x00}));
     }
 
     @Test
@@ -127,8 +129,7 @@ class HOTCornerCasesTest {
     @DisplayName("0x00 vs 0xFF - MSB is first differing bit (bit 0)")
     void testZeroVsFF() {
       // XOR = 0xFF, clz(0xFF as int) = 24, 24-24 = 0
-      int result = DiscriminativeBitComputer.computeDifferingBit(
-          new byte[]{0x00}, new byte[]{(byte) 0xFF});
+      int result = DiscriminativeBitComputer.computeDifferingBit(new byte[] {0x00}, new byte[] {(byte) 0xFF});
       assertEquals(0, result);
     }
 
@@ -136,8 +137,7 @@ class HOTCornerCasesTest {
     @DisplayName("0x80 vs 0x7F - bit 0 differs (MSB)")
     void test80vs7F() {
       // 0x80 = 10000000, 0x7F = 01111111, XOR = 0xFF
-      int result = DiscriminativeBitComputer.computeDifferingBit(
-          new byte[]{(byte) 0x80}, new byte[]{0x7F});
+      int result = DiscriminativeBitComputer.computeDifferingBit(new byte[] {(byte) 0x80}, new byte[] {0x7F});
       assertEquals(0, result);
     }
 
@@ -145,8 +145,7 @@ class HOTCornerCasesTest {
     @DisplayName("0xF0 vs 0x0F - bit 0 differs")
     void testF0vs0F() {
       // 0xF0 XOR 0x0F = 0xFF
-      int result = DiscriminativeBitComputer.computeDifferingBit(
-          new byte[]{(byte) 0xF0}, new byte[]{0x0F});
+      int result = DiscriminativeBitComputer.computeDifferingBit(new byte[] {(byte) 0xF0}, new byte[] {0x0F});
       assertEquals(0, result);
     }
   }
@@ -252,9 +251,9 @@ class HOTCornerCasesTest {
       leftRef.setKey(100);
       PageReference rightRef = new PageReference();
       rightRef.setKey(200);
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1, 1, 0, leftRef, rightRef);
-      
+
       // Normal BiNode with 2 children is not collapsible
       assertFalse(SiblingMerger.canCollapseBiNode(biNode));
     }
@@ -294,8 +293,7 @@ class HOTCornerCasesTest {
     @Test
     @DisplayName("33 children throws exception")
     void test33ChildrenThrows() {
-      assertThrows(IllegalArgumentException.class, 
-          () -> NodeUpgradeManager.determineNodeType(33));
+      assertThrows(IllegalArgumentException.class, () -> NodeUpgradeManager.determineNodeType(33));
     }
   }
 
@@ -320,8 +318,9 @@ class HOTCornerCasesTest {
       byte[] key = {(byte) 0xAA}; // 10101010
       for (int i = 0; i < 8; i++) {
         boolean expected = (i % 2 == 0); // bits 0,2,4,6 are set
-        assertEquals(expected, DiscriminativeBitComputer.isBitSet(key, i),
-            "Bit " + i + " should be " + (expected ? "set" : "unset"));
+        assertEquals(expected, DiscriminativeBitComputer.isBitSet(key, i), "Bit " + i + " should be " + (expected
+            ? "set"
+            : "unset"));
       }
     }
   }
@@ -376,18 +375,14 @@ class HOTCornerCasesTest {
     @DisplayName("0xAA vs 0x55 - all bits differ, MSB first")
     void testAAVs55() {
       // 0xAA = 10101010, 0x55 = 01010101, XOR = 0xFF
-      int result = DiscriminativeBitComputer.computeDifferingBit(
-          new byte[]{(byte) 0xAA}, new byte[]{0x55});
+      int result = DiscriminativeBitComputer.computeDifferingBit(new byte[] {(byte) 0xAA}, new byte[] {0x55});
       assertEquals(0, result);
     }
 
     @Test
     @DisplayName("Discriminative mask captures all differing bits")
     void testDiscriminativeMask() {
-      byte[][] keys = {
-          new byte[]{(byte) 0xAA},
-          new byte[]{0x55}
-      };
+      byte[][] keys = {new byte[] {(byte) 0xAA}, new byte[] {0x55}};
       long mask = DiscriminativeBitComputer.computeDiscriminativeMask(keys, 0, 1);
       // All 8 bits differ, mask should have all 8 bits of first byte set
       // In 64-bit mask, byte 0 is at bits 56-63
@@ -417,30 +412,26 @@ class HOTCornerCasesTest {
     void testConcurrentReadDuringSplit() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-            .useHOTIndexes()
-            .versioningApproach(VersioningType.FULL)
-            .build());
+                                               .useHOTIndexes()
+                                               .versioningApproach(VersioningType.FULL)
+                                               .build());
 
         // Create initial data - revision 1
-        try (var session = db.beginResourceSession("resource");
-             var wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2,3,4,5]"), 
-              JsonNodeTrx.Commit.NO);
+        try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2,3,4,5]"), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         // Create second revision
-        try (var session = db.beginResourceSession("resource");
-             var wtx = session.beginNodeTrx()) {
+        try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
           wtx.moveTo(1L);
           wtx.moveToLastChild();
           wtx.insertNumberValueAsRightSibling(6);
           wtx.commit();
         }
-        
+
         // Read revision 1 - should see 5 elements
-        try (var session = db.beginResourceSession("resource");
-             var rtx = session.beginNodeReadOnlyTrx(1)) {
+        try (var session = db.beginResourceSession("resource"); var rtx = session.beginNodeReadOnlyTrx(1)) {
           rtx.moveTo(1L);
           int count = 0;
           if (rtx.moveToFirstChild()) {
@@ -450,10 +441,9 @@ class HOTCornerCasesTest {
           }
           assertEquals(5, count, "Reader on revision 1 should see 5 elements");
         }
-        
+
         // Read revision 2 - should see 6 elements
-        try (var session = db.beginResourceSession("resource");
-             var rtx = session.beginNodeReadOnlyTrx(2)) {
+        try (var session = db.beginResourceSession("resource"); var rtx = session.beginNodeReadOnlyTrx(2)) {
           rtx.moveTo(1L);
           int count = 0;
           if (rtx.moveToFirstChild()) {
@@ -479,23 +469,22 @@ class HOTCornerCasesTest {
     void testRangeQueryAcrossSplit() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-            .useHOTIndexes()
-            .versioningApproach(VersioningType.FULL)
-            .build());
+                                               .useHOTIndexes()
+                                               .versioningApproach(VersioningType.FULL)
+                                               .build());
 
         // Create data that will span multiple pages
-        try (var session = db.beginResourceSession("resource");
-             var wtx = session.beginNodeTrx()) {
+        try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 100; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append(i);
           }
           json.append("]");
-          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), 
-              JsonNodeTrx.Commit.NO);
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
-          
+
           // Count all elements
           wtx.moveTo(1L);
           int count = 0;
@@ -504,7 +493,7 @@ class HOTCornerCasesTest {
               count++;
             } while (wtx.moveToRightSibling());
           }
-          
+
           assertEquals(100, count, "Should have 100 array elements");
         }
       }
@@ -526,7 +515,7 @@ class HOTCornerCasesTest {
       int leftChildren = 2;
       int rightChildren = 2;
       int total = leftChildren + rightChildren;
-      
+
       assertTrue(total <= SiblingMerger.MAX_ENTRIES_PER_NODE);
       assertEquals(NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(total));
     }
@@ -575,7 +564,7 @@ class HOTCornerCasesTest {
       byte[] key = new byte[16];
       key[8] = (byte) 0x80; // Bit 64
       key[15] = 0x01; // Bit 127
-      
+
       assertTrue(DiscriminativeBitComputer.isBitSet(key, 64));
       assertTrue(DiscriminativeBitComputer.isBitSet(key, 127));
       assertFalse(DiscriminativeBitComputer.isBitSet(key, 65));
@@ -596,10 +585,10 @@ class HOTCornerCasesTest {
       leftRef.setKey(100);
       PageReference rightRef = new PageReference();
       rightRef.setKey(200);
-      
+
       HOTIndirectPage original = HOTIndirectPage.createBiNode(1, 1, 5, leftRef, rightRef);
       HOTIndirectPage copy = original.copyWithNewPageKey(2, 2);
-      
+
       assertEquals(1, original.getPageKey());
       assertEquals(2, copy.getPageKey());
       assertEquals(1, original.getRevision());
@@ -613,13 +602,13 @@ class HOTCornerCasesTest {
       leftRef.setKey(100);
       PageReference rightRef = new PageReference();
       rightRef.setKey(200);
-      
+
       HOTIndirectPage original = HOTIndirectPage.createBiNode(1, 1, 5, leftRef, rightRef);
-      
+
       PageReference newChildRef = new PageReference();
       newChildRef.setKey(300);
       HOTIndirectPage updated = original.copyWithUpdatedChild(0, newChildRef);
-      
+
       // Original unchanged
       assertEquals(100, original.getChildReference(0).getKey());
       // Updated has new child
@@ -646,7 +635,9 @@ class HOTCornerCasesTest {
     @DisplayName("Null-safe value length check")
     void testNullSafeValueLength() {
       byte[] value = null;
-      short valueLen = (value == null) ? 0 : (short) value.length;
+      short valueLen = (value == null)
+          ? 0
+          : (short) value.length;
       assertEquals(0, valueLen);
     }
   }
@@ -663,22 +654,19 @@ class HOTCornerCasesTest {
     void testSplitWithIncrementalVersioning() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-            .useHOTIndexes()
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(5)
-            .build());
+                                               .useHOTIndexes()
+                                               .versioningApproach(VersioningType.INCREMENTAL)
+                                               .maxNumberOfRevisionsToRestore(5)
+                                               .build());
 
         // Create initial data - note: insertSubtreeAsFirstChild may auto-commit
-        try (var session = db.beginResourceSession("resource");
-             var wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\":1,\"b\":2}"), 
-              JsonNodeTrx.Commit.NO);
+        try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"a\":1,\"b\":2}"), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         // Read back - just verify data is accessible
-        try (var session = db.beginResourceSession("resource");
-             var rtx = session.beginNodeReadOnlyTrx()) {
+        try (var session = db.beginResourceSession("resource"); var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveTo(1L);
           int count = 0;
           if (rtx.moveToFirstChild()) {
@@ -691,8 +679,7 @@ class HOTCornerCasesTest {
         }
 
         // Create another revision
-        try (var session = db.beginResourceSession("resource");
-             var wtx = session.beginNodeTrx()) {
+        try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
           wtx.moveTo(1L);
           wtx.moveToFirstChild();
           // Just traverse to verify
@@ -700,8 +687,7 @@ class HOTCornerCasesTest {
         }
 
         // Verify data still accessible after multiple revisions
-        try (var session = db.beginResourceSession("resource");
-             var rtx = session.beginNodeReadOnlyTrx()) {
+        try (var session = db.beginResourceSession("resource"); var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveTo(1L);
           int count = 0;
           if (rtx.moveToFirstChild()) {
@@ -727,21 +713,18 @@ class HOTCornerCasesTest {
     void testHistoricalRevisionRead() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-            .useHOTIndexes()
-            .versioningApproach(VersioningType.FULL)
-            .build());
+                                               .useHOTIndexes()
+                                               .versioningApproach(VersioningType.FULL)
+                                               .build());
 
         // Create initial data
-        try (var session = db.beginResourceSession("resource");
-             var wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2,3]"), 
-              JsonNodeTrx.Commit.NO);
+        try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2,3]"), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         // Add more data
-        try (var session = db.beginResourceSession("resource");
-             var wtx = session.beginNodeTrx()) {
+        try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
           wtx.moveTo(1L);
           wtx.moveToLastChild();
           wtx.insertNumberValueAsRightSibling(4);
@@ -749,8 +732,7 @@ class HOTCornerCasesTest {
         }
 
         // Read historical revision 1
-        try (var session = db.beginResourceSession("resource");
-             var rtx = session.beginNodeReadOnlyTrx(1)) {
+        try (var session = db.beginResourceSession("resource"); var rtx = session.beginNodeReadOnlyTrx(1)) {
           rtx.moveTo(1L);
           int count = 0;
           if (rtx.moveToFirstChild()) {
@@ -762,8 +744,7 @@ class HOTCornerCasesTest {
         }
 
         // Read current revision 2
-        try (var session = db.beginResourceSession("resource");
-             var rtx = session.beginNodeReadOnlyTrx()) {
+        try (var session = db.beginResourceSession("resource"); var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveTo(1L);
           int count = 0;
           if (rtx.moveToFirstChild()) {
@@ -789,27 +770,25 @@ class HOTCornerCasesTest {
     void testRootSplitThenNewRevision() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-            .useHOTIndexes()
-            .versioningApproach(VersioningType.FULL)
-            .build());
+                                               .useHOTIndexes()
+                                               .versioningApproach(VersioningType.FULL)
+                                               .build());
 
         // Create large initial data (may cause root split)
-        try (var session = db.beginResourceSession("resource");
-             var wtx = session.beginNodeTrx()) {
+        try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 100; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"key").append(String.format("%03d", i)).append("\":").append(i);
           }
           json.append("}");
-          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), 
-              JsonNodeTrx.Commit.NO);
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         // New revision modifies data
-        try (var session = db.beginResourceSession("resource");
-             var wtx = session.beginNodeTrx()) {
+        try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
           wtx.moveTo(1L);
           wtx.moveToFirstChild();
           // Just traverse to verify structure is intact
@@ -817,7 +796,7 @@ class HOTCornerCasesTest {
           do {
             count++;
           } while (wtx.moveToRightSibling());
-          
+
           assertEquals(100, count, "Should still have 100 keys after revision change");
         }
       }
@@ -836,18 +815,16 @@ class HOTCornerCasesTest {
     void testFragmentThreshold() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-            .useHOTIndexes()
-            .versioningApproach(VersioningType.DIFFERENTIAL)
-            .maxNumberOfRevisionsToRestore(3)
-            .build());
+                                               .useHOTIndexes()
+                                               .versioningApproach(VersioningType.DIFFERENTIAL)
+                                               .maxNumberOfRevisionsToRestore(3)
+                                               .build());
 
         // Create 5 revisions
         for (int rev = 1; rev <= 5; rev++) {
-          try (var session = db.beginResourceSession("resource");
-               var wtx = session.beginNodeTrx()) {
+          try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
             if (rev == 1) {
-              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1]"), 
-                  JsonNodeTrx.Commit.NO);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1]"), JsonNodeTrx.Commit.NO);
             } else {
               wtx.moveTo(1L);
               wtx.moveToLastChild();
@@ -858,8 +835,7 @@ class HOTCornerCasesTest {
         }
 
         // Verify all data accessible
-        try (var session = db.beginResourceSession("resource");
-             var rtx = session.beginNodeReadOnlyTrx()) {
+        try (var session = db.beginResourceSession("resource"); var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveTo(1L);
           int count = 0;
           if (rtx.moveToFirstChild()) {
@@ -885,24 +861,21 @@ class HOTCornerCasesTest {
     void testReaderIsolationDuringCOW() throws Exception {
       try (var db = Databases.openJsonDatabase(TEST_PATH)) {
         db.createResource(ResourceConfiguration.newBuilder("resource")
-            .useHOTIndexes()
-            .versioningApproach(VersioningType.FULL)
-            .build());
+                                               .useHOTIndexes()
+                                               .versioningApproach(VersioningType.FULL)
+                                               .build());
 
         // Create initial data
-        try (var session = db.beginResourceSession("resource");
-             var wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2,3,4,5]"), 
-              JsonNodeTrx.Commit.NO);
+        try (var session = db.beginResourceSession("resource"); var wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1,2,3,4,5]"), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         int readerCount = 0;
-        
+
         // Open reader on revision 1
-        try (var session = db.beginResourceSession("resource");
-             var rtx = session.beginNodeReadOnlyTrx(1)) {
-          
+        try (var session = db.beginResourceSession("resource"); var rtx = session.beginNodeReadOnlyTrx(1)) {
+
           rtx.moveTo(1L);
           if (rtx.moveToFirstChild()) {
             do {
@@ -934,8 +907,7 @@ class HOTCornerCasesTest {
         partialKeys[i] = (byte) i;
       }
 
-      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(
-          1, 1, (byte) 0, 0x0FL, partialKeys, refs);
+      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1, 1, (byte) 0, 0x0FL, partialKeys, refs);
 
       assertEquals(4, spanNode.getNumChildren());
       for (int i = 0; i < 4; i++) {
@@ -951,9 +923,9 @@ class HOTCornerCasesTest {
       leftRef.setKey(100);
       PageReference rightRef = new PageReference();
       rightRef.setKey(200);
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1, 1, 0, leftRef, rightRef);
-      
+
       // Verify BiNode has both children
       assertEquals(2, biNode.getNumChildren());
       assertEquals(100, biNode.getChildReference(0).getKey());
@@ -974,13 +946,12 @@ class HOTCornerCasesTest {
       for (int i = 0; i < 256; i++) {
         byte[] key1 = {(byte) i};
         byte[] key2 = {(byte) ((i + 1) % 256)};
-        
+
         int result = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
-        
+
         // Unless identical, should find a differing bit
         if (i != (i + 1) % 256) {
-          assertTrue(result >= 0 && result < 8,
-              "Byte " + i + " vs " + ((i + 1) % 256) + " should differ in bits 0-7");
+          assertTrue(result >= 0 && result < 8, "Byte " + i + " vs " + ((i + 1) % 256) + " should differ in bits 0-7");
         }
       }
     }
@@ -1006,14 +977,13 @@ class HOTCornerCasesTest {
       for (int bitPos = 0; bitPos < 64; bitPos++) {
         int bytePos = bitPos / 8;
         int bitInByte = bitPos % 8;
-        
+
         byte[] key1 = new byte[bytePos + 1];
         byte[] key2 = new byte[bytePos + 1];
         key2[bytePos] = (byte) (0x80 >> bitInByte);
 
         int result = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
-        assertEquals(bitPos, result, 
-            "Bit position " + bitPos + " should be correctly identified");
+        assertEquals(bitPos, result, "Bit position " + bitPos + " should be correctly identified");
       }
     }
 
@@ -1021,13 +991,13 @@ class HOTCornerCasesTest {
     @DisplayName("extractPartialKey handles various masks")
     void testExtractPartialKeyVariousMasks() {
       byte[] key = {(byte) 0xFF}; // All bits set
-      
+
       // Extract MSB only
       assertEquals(1, DiscriminativeBitComputer.extractPartialKey(key, 1L << 63, 0));
-      
+
       // Extract LSB only
       assertEquals(1, DiscriminativeBitComputer.extractPartialKey(key, 1L << 56, 0));
-      
+
       // Extract bits 0 and 7 (MSB and LSB of first byte)
       long mask = (1L << 63) | (1L << 56);
       int result = DiscriminativeBitComputer.extractPartialKey(key, mask, 0);

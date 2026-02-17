@@ -48,8 +48,7 @@ public class NodeDelegate implements Node {
   private static final int TYPE_KEY = NamePageHash.generateHashForString("xs:untyped");
 
   /**
-   * Key of the current node. Must be unique for all nodes.
-   * Non-final to support singleton node reuse.
+   * Key of the current node. Must be unique for all nodes. Non-final to support singleton node reuse.
    */
   private long nodeKey;
 
@@ -79,8 +78,8 @@ public class NodeDelegate implements Node {
   private int lastModifiedRevision;
 
   /**
-   * {@link SirixDeweyID} (needs to be deserialized).
-   * Volatile for safe double-checked locking in getDeweyID().
+   * {@link SirixDeweyID} (needs to be deserialized). Volatile for safe double-checked locking in
+   * getDeweyID().
    */
   private volatile SirixDeweyID sirixDeweyID;
 
@@ -92,12 +91,12 @@ public class NodeDelegate implements Node {
   /**
    * Constructor.
    *
-   * @param nodeKey              node key
-   * @param parentKey            parent node key
-   * @param hashFunction         the hash function used to compute hash codes
-   * @param previousRevision     previous revision, when the node has changed
+   * @param nodeKey node key
+   * @param parentKey parent node key
+   * @param hashFunction the hash function used to compute hash codes
+   * @param previousRevision previous revision, when the node has changed
    * @param lastModifiedRevision the revision, when the node has been last modified
-   * @param deweyID              optional DeweyID
+   * @param deweyID optional DeweyID
    */
   public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final LongHashFunction hashFunction,
       final int previousRevision, final int lastModifiedRevision, final SirixDeweyID deweyID) {
@@ -114,12 +113,12 @@ public class NodeDelegate implements Node {
   /**
    * Constructor.
    *
-   * @param nodeKey              node key
-   * @param parentKey            parent node key
-   * @param hashFunction         the hash function used to compute hash codes
-   * @param previousRevision     previous previousRevision, when the node has changed
+   * @param nodeKey node key
+   * @param parentKey parent node key
+   * @param hashFunction the hash function used to compute hash codes
+   * @param previousRevision previous previousRevision, when the node has changed
    * @param lastModifiedRevision the previousRevision, when the node has been last modified
-   * @param deweyID              optional DeweyID
+   * @param deweyID optional DeweyID
    */
   public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final LongHashFunction hashFunction,
       final int previousRevision, final int lastModifiedRevision, final byte[] deweyID) {
@@ -188,8 +187,8 @@ public class NodeDelegate implements Node {
     if (!(otherObj instanceof final NodeDelegate other))
       return false;
 
-    return Objects.equal(nodeKey, other.nodeKey) && Objects.equal(typeKey, other.typeKey) && Objects.equal(parentKey,
-                                                                                                           other.parentKey);
+    return Objects.equal(nodeKey, other.nodeKey) && Objects.equal(typeKey, other.typeKey)
+        && Objects.equal(parentKey, other.parentKey);
   }
 
   @Override

@@ -36,44 +36,45 @@ public final class NodeSerializerImpl implements DeweyIdSerializer {
   /**
    * Deserialize a DeweyID using delta encoding.
    * 
-   * <p>Optimized to avoid intermediate allocations:
-   * - Single allocation for result array (instead of 3 allocations in original)
-   * - Uses System.arraycopy instead of Arrays.copyOfRange + ByteBuffer
-   * - Reads suffix directly into result array at correct offset
+   * <p>
+   * Optimized to avoid intermediate allocations: - Single allocation for result array (instead of 3
+   * allocations in original) - Uses System.arraycopy instead of Arrays.copyOfRange + ByteBuffer -
+   * Reads suffix directly into result array at correct offset
    * 
-   * <p>For delta-encoded DeweyIDs: stores [cutOffSize][suffixSize][suffix bytes]
-   * where the full ID = previousDeweyID[0..cutOffSize] + suffix
+   * <p>
+   * For delta-encoded DeweyIDs: stores [cutOffSize][suffixSize][suffix bytes] where the full ID =
+   * previousDeweyID[0..cutOffSize] + suffix
    */
   @Override
   public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
     if (!resourceConfig.areDeweyIDsStored) {
       return null;
     }
-    
+
     if (previousDeweyID != null) {
       // Delta-encoded: combine prefix from previous + suffix from source
       final int cutOffSize = source.readByte() & 0xFF;
       final int suffixSize = source.readByte() & 0xFF;
-      
+
       // Single allocation for result (becomes previousDeweyID for next iteration)
       final byte[] result = new byte[cutOffSize + suffixSize];
-      
+
       // Copy prefix from previous DeweyID (no intermediate array)
       System.arraycopy(previousDeweyID, 0, result, 0, cutOffSize);
-      
+
       // Read suffix directly into result at correct offset (no intermediate array)
       // MemorySegmentBytesIn.read() already uses MemorySegment.copy() internally
       source.read(result, cutOffSize, suffixSize);
-      
+
       return result;
     } else {
       // First DeweyID: no delta encoding
       final int deweyIDLength = source.readByte() & 0xFF;
       final byte[] result = new byte[deweyIDLength];
-      
+
       // Read directly into result array
       source.read(result, 0, deweyIDLength);
-      
+
       return result;
     }
   }
@@ -84,7 +85,7 @@ public final class NodeSerializerImpl implements DeweyIdSerializer {
     if (resourceConfig.areDeweyIDsStored) {
       if (nextDeweyID != null) {
 
-        //assert deweyIDBytes.length <= nextDeweyIDBytes.length;
+        // assert deweyIDBytes.length <= nextDeweyIDBytes.length;
 
         int i = 0;
         for (; i < deweyID.length && i < nextDeweyID.length; i++) {

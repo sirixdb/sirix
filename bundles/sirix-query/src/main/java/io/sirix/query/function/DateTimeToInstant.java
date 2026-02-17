@@ -7,8 +7,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 
 public class DateTimeToInstant {
-  public DateTimeToInstant() {
-  }
+  public DateTimeToInstant() {}
 
   public Instant convert(DateTime dateTime) {
     final int seconds = dateTime.getMicros() / 1000000;

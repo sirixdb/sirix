@@ -41,17 +41,20 @@ import java.util.Objects;
 /**
  * Fast Static Symbol Table (FSST) compression for string values.
  * 
- * <p>FSST is a lightweight compression algorithm designed for short strings that:
+ * <p>
+ * FSST is a lightweight compression algorithm designed for short strings that:
  * <ul>
- *   <li>Builds a symbol table from sample strings to find common byte sequences</li>
- *   <li>Replaces common sequences with 1-byte codes (up to 255 symbols)</li>
- *   <li>Enables very fast decompression (~1-2 GB/s, vectorizable)</li>
- *   <li>Works well for similar strings (e.g., JSON values from same page)</li>
+ * <li>Builds a symbol table from sample strings to find common byte sequences</li>
+ * <li>Replaces common sequences with 1-byte codes (up to 255 symbols)</li>
+ * <li>Enables very fast decompression (~1-2 GB/s, vectorizable)</li>
+ * <li>Works well for similar strings (e.g., JSON values from same page)</li>
  * </ul>
  * 
- * <p>This implementation is optimized for zero-copy integration with MemorySegments.
+ * <p>
+ * This implementation is optimized for zero-copy integration with MemorySegments.
  * 
  * <h2>Formal Correctness Properties</h2>
+ * 
  * <pre>
  * P1: ∀ string s, table t: decode(encode(s, t), t) == s  (roundtrip correctness)
  * P2: ∀ input i: encode(i, emptyTable) == escape(i)     (graceful degradation)
@@ -93,14 +96,14 @@ public final class FSSTCompressor {
   public static final int MAX_SYMBOL_LENGTH = 8;
 
   /**
-   * Minimum samples needed to build a useful symbol table.
-   * Higher values ensure we only build tables when there's enough data for good patterns.
+   * Minimum samples needed to build a useful symbol table. Higher values ensure we only build tables
+   * when there's enough data for good patterns.
    */
   public static final int MIN_SAMPLES_FOR_TABLE = 64;
 
   /**
-   * Minimum total bytes across all samples to attempt compression.
-   * Ensures we have enough data to justify the symbol table overhead.
+   * Minimum total bytes across all samples to attempt compression. Ensures we have enough data to
+   * justify the symbol table overhead.
    */
   public static final int MIN_TOTAL_BYTES_FOR_TABLE = 4096;
 
@@ -110,19 +113,20 @@ public final class FSSTCompressor {
   public static final int MAX_SAMPLES_TO_ANALYZE = 128;
 
   /**
-   * Header bytes in serialized symbol table: [numSymbols(1)][symbolLengths(numSymbols)][symbolData...]
+   * Header bytes in serialized symbol table:
+   * [numSymbols(1)][symbolLengths(numSymbols)][symbolData...]
    */
   private static final int TABLE_HEADER_SIZE = 1;
 
   /**
-   * Minimum compression ratio required to use FSST.
-   * 0.15 means we need at least 15% size reduction to justify the overhead.
+   * Minimum compression ratio required to use FSST. 0.15 means we need at least 15% size reduction to
+   * justify the overhead.
    */
   public static final double MIN_COMPRESSION_RATIO = 0.15;
 
   /**
-   * Maximum size of the bounded buffer pool.
-   * Uses 2x CPU cores to handle concurrent virtual threads without explosion.
+   * Maximum size of the bounded buffer pool. Uses 2x CPU cores to handle concurrent virtual threads
+   * without explosion.
    */
   private static final int BUFFER_POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
 
@@ -132,8 +136,8 @@ public final class FSSTCompressor {
   private static final int DEFAULT_BUFFER_SIZE = 64 * 1024;
 
   /**
-   * Bounded buffer pool for encode/decode operations.
-   * Loom-friendly: fixed size pool instead of unbounded ThreadLocal.
+   * Bounded buffer pool for encode/decode operations. Loom-friendly: fixed size pool instead of
+   * unbounded ThreadLocal.
    */
   private static final java.util.ArrayDeque<byte[]> BUFFER_POOL = new java.util.ArrayDeque<>(BUFFER_POOL_SIZE);
 
@@ -174,8 +178,8 @@ public final class FSSTCompressor {
   }
 
   /**
-   * Check if compression is beneficial by trial-encoding a sample of strings.
-   * This prevents applying FSST when the overhead exceeds the savings.
+   * Check if compression is beneficial by trial-encoding a sample of strings. This prevents applying
+   * FSST when the overhead exceeds the savings.
    *
    * @param samples list of sample byte arrays to test
    * @param symbolTable the symbol table to use for trial compression
@@ -213,8 +217,9 @@ public final class FSSTCompressor {
   /**
    * Build a symbol table from sample strings.
    * 
-   * <p>Analyzes the samples to find frequently occurring byte sequences (1-8 bytes)
-   * and creates a lookup table for compression.
+   * <p>
+   * Analyzes the samples to find frequently occurring byte sequences (1-8 bytes) and creates a lookup
+   * table for compression.
    * 
    * @param samples list of sample byte arrays to analyze
    * @return symbol table bytes, or empty array if compression not beneficial
@@ -236,7 +241,7 @@ public final class FSSTCompressor {
         totalBytes += sample.length;
       }
     }
-    
+
     // Need enough samples AND enough total bytes
     if (eligibleSamples < MIN_SAMPLES_FOR_TABLE || totalBytes < MIN_TOTAL_BYTES_FOR_TABLE) {
       return new byte[0];
@@ -244,7 +249,7 @@ public final class FSSTCompressor {
 
     // Count frequency of all byte sequences (1 to MAX_SYMBOL_LENGTH bytes)
     final Object2IntOpenHashMap<ByteSequence> frequencyMap = new Object2IntOpenHashMap<>();
-    
+
     int sampleCount = 0;
     for (final byte[] sample : samples) {
       // Only analyze strings that are long enough to potentially benefit
@@ -254,7 +259,7 @@ public final class FSSTCompressor {
       if (++sampleCount > MAX_SAMPLES_TO_ANALYZE) {
         break;
       }
-      
+
       countSequences(sample, frequencyMap);
     }
 
@@ -264,7 +269,7 @@ public final class FSSTCompressor {
 
     // Select best symbols (highest frequency * length score)
     final List<ByteSequence> sortedSymbols = selectBestSymbols(frequencyMap);
-    
+
     if (sortedSymbols.isEmpty()) {
       return new byte[0];
     }
@@ -281,7 +286,7 @@ public final class FSSTCompressor {
    */
   public static byte[] buildSymbolTable(final List<MemorySegment> segments, boolean isSegment) {
     Objects.requireNonNull(segments, "segments must not be null");
-    
+
     final List<byte[]> samples = new ArrayList<>(Math.min(segments.size(), MAX_SAMPLES_TO_ANALYZE));
     for (final MemorySegment segment : segments) {
       if (segment != null && segment.byteSize() > 0) {
@@ -299,7 +304,7 @@ public final class FSSTCompressor {
    */
   private static void countSequences(final byte[] sample, final Object2IntOpenHashMap<ByteSequence> frequencyMap) {
     final int len = sample.length;
-    
+
     for (int symbolLen = 2; symbolLen <= Math.min(MAX_SYMBOL_LENGTH, len); symbolLen++) {
       for (int i = 0; i <= len - symbolLen; i++) {
         final ByteSequence seq = new ByteSequence(sample, i, symbolLen);
@@ -309,14 +314,14 @@ public final class FSSTCompressor {
   }
 
   /**
-   * Select the best symbols based on frequency and length.
-   * Longer symbols that occur frequently provide better compression.
+   * Select the best symbols based on frequency and length. Longer symbols that occur frequently
+   * provide better compression.
    */
   private static List<ByteSequence> selectBestSymbols(final Object2IntOpenHashMap<ByteSequence> frequencyMap) {
-    // Score = frequency * (length - 1)  (savings per occurrence)
-    final List<it.unimi.dsi.fastutil.objects.Object2IntMap.Entry<ByteSequence>> entries = 
+    // Score = frequency * (length - 1) (savings per occurrence)
+    final List<it.unimi.dsi.fastutil.objects.Object2IntMap.Entry<ByteSequence>> entries =
         new ArrayList<>(frequencyMap.object2IntEntrySet());
-    
+
     // Sort by score descending
     entries.sort((a, b) -> {
       int scoreA = a.getIntValue() * (a.getKey().length() - 1);
@@ -330,32 +335,32 @@ public final class FSSTCompressor {
       if (selected.size() >= MAX_SYMBOLS) {
         break;
       }
-      
+
       final ByteSequence candidate = entry.getKey();
       final int freq = entry.getIntValue();
-      
+
       // Skip if frequency too low (at least 2 occurrences for benefit)
       if (freq < 2) {
         continue;
       }
-      
+
       // Skip single bytes (escape overhead negates benefit)
       if (candidate.length() < 2) {
         continue;
       }
-      
+
       selected.add(candidate);
     }
 
     // Sort selected by length descending for greedy matching during encode
     selected.sort(Comparator.comparingInt(ByteSequence::length).reversed());
-    
+
     return selected;
   }
 
   /**
-   * Serialize symbol table to bytes.
-   * Format: [numSymbols:1][len1:1][len2:1]...[symbol1:len1][symbol2:len2]...
+   * Serialize symbol table to bytes. Format:
+   * [numSymbols:1][len1:1][len2:1]...[symbol1:len1][symbol2:len2]...
    */
   private static byte[] serializeSymbolTable(final List<ByteSequence> symbols) {
     // Calculate total size
@@ -397,7 +402,7 @@ public final class FSSTCompressor {
 
     int pos = 0;
     final int numSymbols = tableBytes[pos++] & 0xFF;
-    
+
     if (numSymbols == 0 || pos + numSymbols > tableBytes.length) {
       return new byte[0][];
     }
@@ -425,14 +430,16 @@ public final class FSSTCompressor {
   /**
    * Encode a byte array using the symbol table.
    * 
-   * <p>Uses greedy matching: tries longest symbols first.
-   * Unmatched bytes are escaped with ESCAPE_BYTE prefix.
+   * <p>
+   * Uses greedy matching: tries longest symbols first. Unmatched bytes are escaped with ESCAPE_BYTE
+   * prefix.
    * 
-   * <p>Encoding scheme:
+   * <p>
+   * Encoding scheme:
    * <ul>
-   *   <li>Bytes 0 to (numSymbols-1): symbol codes</li>
-   *   <li>Byte 0xFF: escape marker, next byte is literal</li>
-   *   <li>All literals are escaped to avoid confusion with symbol codes</li>
+   * <li>Bytes 0 to (numSymbols-1): symbol codes</li>
+   * <li>Byte 0xFF: escape marker, next byte is literal</li>
+   * <li>All literals are escaped to avoid confusion with symbol codes</li>
    * </ul>
    * 
    * @param input data to compress
@@ -452,7 +459,7 @@ public final class FSSTCompressor {
     if (symbols.length == 0) {
       return input.clone();
     }
-    
+
     // If input too small, return with raw header
     if (input.length < MIN_COMPRESSION_SIZE) {
       return markAsRaw(input);
@@ -567,7 +574,7 @@ public final class FSSTCompressor {
       // Data is raw, just strip the header
       return Arrays.copyOfRange(encoded, 1, encoded.length);
     }
-    
+
     if (header != HEADER_COMPRESSED) {
       // Unknown header - treat as legacy raw data
       return encoded.clone();
@@ -636,7 +643,7 @@ public final class FSSTCompressor {
         totalBytes += sample.length;
       }
     }
-    
+
     // Need enough samples AND enough total bytes
     if (eligibleSamples < MIN_SAMPLES_FOR_TABLE || totalBytes < MIN_TOTAL_BYTES_FOR_TABLE) {
       return false;
@@ -653,7 +660,7 @@ public final class FSSTCompressor {
       if (++sampleCount > 32) { // Quick sample
         break;
       }
-      
+
       // Count 2-byte sequences only for quick check
       for (int i = 0; i < sample.length - 1; i++) {
         final ByteSequence seq = new ByteSequence(sample, i, 2);
@@ -669,7 +676,7 @@ public final class FSSTCompressor {
       }
     }
 
-    return frequentPatterns >= 8;  // Require more frequent patterns
+    return frequentPatterns >= 8; // Require more frequent patterns
   }
 
   /**
@@ -678,7 +685,7 @@ public final class FSSTCompressor {
   private static final class ByteSequence {
     private final byte[] data;
     private final int length;
-    
+
     ByteSequence(byte[] source, int offset, int length) {
       this.data = Arrays.copyOfRange(source, offset, offset + length);
       this.length = length;
@@ -694,8 +701,10 @@ public final class FSSTCompressor {
 
     @Override
     public boolean equals(Object o) {
-      if (this == o) return true;
-      if (!(o instanceof ByteSequence that)) return false;
+      if (this == o)
+        return true;
+      if (!(o instanceof ByteSequence that))
+        return false;
       return Arrays.equals(data, that.data);
     }
 

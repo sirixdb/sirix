@@ -37,20 +37,17 @@ import java.util.Set;
  * @author Johannes Lichtenberger
  */
 @FunctionAnnotation(description = "Scans the given CAS index for matching nodes.",
-    parameters = { "$doc", "$idx-no", "$key", "$search-mode", "$paths" })
+    parameters = {"$doc", "$idx-no", "$key", "$search-mode", "$paths"})
 public final class ScanCASIndex extends AbstractScanIndex {
 
   public final static QNm DEFAULT_NAME = new QNm(JSONFun.JSON_NSURI, JSONFun.JSON_PREFIX, "scan-cas-index");
 
   public ScanCASIndex() {
     super(DEFAULT_NAME,
-          new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrMany),
-                        SequenceType.NODE,
-                        new SequenceType(AtomicType.INR, Cardinality.One),
-                        new SequenceType(AtomicType.ANA, Cardinality.One),
-                        new SequenceType(AtomicType.STR, Cardinality.One),
-                        new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)),
-          true);
+        new Signature(new SequenceType(AnyJsonItemType.ANY_JSON_ITEM, Cardinality.ZeroOrMany), SequenceType.NODE,
+            new SequenceType(AtomicType.INR, Cardinality.One), new SequenceType(AtomicType.ANA, Cardinality.One),
+            new SequenceType(AtomicType.STR, Cardinality.One), new SequenceType(AtomicType.STR, Cardinality.ZeroOrOne)),
+        true);
   }
 
   @Override
@@ -68,33 +65,19 @@ public final class ScanCASIndex extends AbstractScanIndex {
     final IndexDef indexDef = controller.getIndexes().getIndexDef(idx, IndexType.CAS);
 
     if (indexDef == null) {
-      throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND,
-                               "Index no %s for collection %s and document %s not found.",
-                               idx,
-                               document.getCollection().getName(),
-                               document.getTrx()
-                                  .getResourceSession()
-                                  .getResourceConfig()
-                                  .getResource()
-                                  .getFileName()
-                                  .toString());
+      throw new QueryException(SDBFun.ERR_INDEX_NOT_FOUND, "Index no %s for collection %s and document %s not found.",
+          idx, document.getCollection().getName(),
+          document.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
     if (indexDef.getType() != IndexType.CAS) {
       throw new QueryException(SDBFun.ERR_INVALID_INDEX_TYPE,
-                               "Index no %s for collection %s and document %s is not a CAS index.",
-                               idx,
-                               document.getCollection().getName(),
-                               document.getTrx()
-                                  .getResourceSession()
-                                  .getResourceConfig()
-                                  .getResource()
-                                  .getFileName()
-                                  .toString());
+          "Index no %s for collection %s and document %s is not a CAS index.", idx, document.getCollection().getName(),
+          document.getTrx().getResourceSession().getResourceConfig().getResource().getFileName().toString());
     }
 
     final Type keyType = indexDef.getContentType();
     final Atomic key = Cast.cast(sctx, (Atomic) args[2], keyType, true);
-    final String[] searchModes = { "<", "<=", "==", ">", ">=" };
+    final String[] searchModes = {"<", "<=", "==", ">", ">="};
     final String searchMode = FunUtil.getString(args, 3, "$search-mode", "==", searchModes, true);
 
     final SearchMode mode = switch (searchMode) {
@@ -105,7 +88,7 @@ public final class ScanCASIndex extends AbstractScanIndex {
       case ">=" -> SearchMode.GREATER_OR_EQUAL;
       default ->
         // May never happen.
-          SearchMode.EQUAL;
+        SearchMode.EQUAL;
     };
 
     final String paths = FunUtil.getString(args, 4, "$paths", null, null, false);

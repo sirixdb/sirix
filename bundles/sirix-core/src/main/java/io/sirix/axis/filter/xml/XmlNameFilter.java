@@ -28,10 +28,11 @@ import io.sirix.axis.filter.AbstractFilter;
 
 /**
  * //todo duplicate description as to that of
+ * 
  * @see PathNameFilter
- * <p>
- * Match qname of ELEMENT or ATTRIBUTE by key.
- * </p>
+ *      <p>
+ *      Match qname of ELEMENT or ATTRIBUTE by key.
+ *      </p>
  */
 public final class XmlNameFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
 

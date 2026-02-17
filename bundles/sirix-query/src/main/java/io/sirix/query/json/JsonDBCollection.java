@@ -58,7 +58,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   /**
    * Constructor.
    *
-   * @param name     collection name
+   * @param name collection name
    * @param database Sirix {@link Database} reference
    */
   public JsonDBCollection(final String name, final Database<JsonResourceSession> database) {
@@ -70,7 +70,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   /**
    * Constructor.
    *
-   * @param name     collection name
+   * @param name collection name
    * @param database Sirix {@link Database} reference
    */
   public JsonDBCollection(final String name, final Database<JsonResourceSession> database,
@@ -165,7 +165,9 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
 
   private JsonDBItem getDocumentInternal(final String resName, final int revision) {
     final JsonResourceSession resource = database.beginResourceSession(resName);
-    final int version = revision == -1 ? resource.getMostRecentRevisionNumber() : revision;
+    final int version = revision == -1
+        ? resource.getMostRecentRevisionNumber()
+        : revision;
 
     final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx(version);
 
@@ -202,7 +204,9 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
     }
     try {
       final JsonResourceSession manager = database.beginResourceSession(resources.get(0).getFileName().toString());
-      final int version = revision == -1 ? manager.getMostRecentRevisionNumber() : revision;
+      final int version = revision == -1
+          ? manager.getMostRecentRevisionNumber()
+          : revision;
       final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
 
       return getItem(rtx);

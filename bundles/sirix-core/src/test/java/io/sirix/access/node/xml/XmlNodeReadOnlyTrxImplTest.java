@@ -67,7 +67,7 @@ public final class XmlNodeReadOnlyTrxImplTest {
     try (final var db = Databases.openXmlDatabase(PATHS.PATH2.getFile())) {
       db.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).build());
       try (final XmlResourceSession resMgr = db.beginResourceSession(XmlTestHelper.RESOURCE);
-           final XmlNodeReadOnlyTrx rtx = resMgr.beginNodeReadOnlyTrx()) {
+          final XmlNodeReadOnlyTrx rtx = resMgr.beginNodeReadOnlyTrx()) {
         Assert.assertEquals(0, rtx.getRevisionNumber());
       }
     }

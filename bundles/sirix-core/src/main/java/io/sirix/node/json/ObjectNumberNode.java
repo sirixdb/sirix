@@ -63,7 +63,9 @@ import java.math.BigInteger;
 /**
  * JSON Object Number node (direct child of ObjectKeyNode, no siblings).
  *
- * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
+ * <p>
+ * Uses primitive fields for efficient storage with delta+varint encoding.
+ * </p>
  * 
  * @author Johannes Lichtenberger
  */
@@ -71,23 +73,23 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
-  
+
   // Mutable structural fields (only parent, no siblings for object values)
   private long parentKey;
-  
+
   // Mutable revision tracking
   private int previousRevision;
   private int lastModifiedRevision;
-  
+
   // Mutable hash
   private long hash;
-  
+
   // Number value
   private Number value;
-  
+
   // Hash function for computing node hashes (mutable for singleton reuse)
   private LongHashFunction hashFunction;
-  
+
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
@@ -101,8 +103,8 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
   private long valueOffset;
 
   // Fixed-slot value encoding state (for read path via populateSingletonFromFixedSlot)
-  private boolean fixedValueEncoding;   // Whether value comes from fixed-slot inline payload
-  private int fixedValueLength;         // Length of inline payload bytes
+  private boolean fixedValueEncoding; // Whether value comes from fixed-slot inline payload
+  private int fixedValueLength; // Length of inline payload bytes
 
   // Fixed-slot lazy metadata support
   private NodeKindLayout fixedSlotLayout;
@@ -110,9 +112,8 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
   /**
    * Primary constructor with all primitive fields.
    */
-  public ObjectNumberNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long hash, Number value,
-      LongHashFunction hashFunction, byte[] deweyID) {
+  public ObjectNumberNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long hash,
+      Number value, LongHashFunction hashFunction, byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -128,9 +129,8 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
   /**
    * Constructor with SirixDeweyID instead of byte array.
    */
-  public ObjectNumberNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long hash, Number value,
-      LongHashFunction hashFunction, SirixDeweyID deweyID) {
+  public ObjectNumberNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long hash,
+      Number value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -157,7 +157,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
   public long getParentKey() {
     return parentKey;
   }
-  
+
   public void setParentKey(final long parentKey) {
     this.parentKey = parentKey;
   }
@@ -207,9 +207,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
   @Override
   public long computeHash(final BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(getNodeKey())
-         .writeLong(getParentKey())
-         .writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
 
     final Number number = getValue();
     switch (number) {
@@ -229,42 +227,42 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
   public long getRightSiblingKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setRightSiblingKey(final long rightSibling) {}
 
   @Override
   public long getLeftSiblingKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setLeftSiblingKey(final long leftSibling) {}
 
   @Override
   public long getFirstChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setFirstChildKey(final long firstChild) {}
 
   @Override
   public long getLastChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setLastChildKey(final long lastChild) {}
 
   @Override
   public long getChildCount() {
     return 0;
   }
-  
+
   public void setChildCount(final long childCount) {}
 
   @Override
   public long getDescendantCount() {
     return 0;
   }
-  
+
   public void setDescendantCount(final long descendantCount) {}
 
   public Number getValue() {
@@ -343,15 +341,15 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
   }
 
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
-    
+
     // STRUCTURAL FIELD - parse immediately
     this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    
+
     // Store state for lazy parsing
     this.lazySource = source.getSource();
     this.lazyOffset = source.position();
@@ -359,17 +357,17 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     this.valueParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
     this.valueOffset = 0;
-    
+
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.hash = 0;
     this.value = null;
   }
-  
+
   /**
-   * Populate this singleton from fixed-slot inline payload (zero allocation).
-   * Sets up lazy value parsing from the fixed-slot MemorySegment.
-   * CRITICAL: Resets hash to 0 — caller MUST call setHash() AFTER this method.
+   * Populate this singleton from fixed-slot inline payload (zero allocation). Sets up lazy value
+   * parsing from the fixed-slot MemorySegment. CRITICAL: Resets hash to 0 — caller MUST call
+   * setHash() AFTER this method.
    *
    * @param source the slot data (MemorySegment) containing inline payload
    * @param valueOffset byte offset within source where payload bytes start
@@ -422,7 +420,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     this.valueOffset = bytesIn.position();
     this.metadataParsed = true;
   }
-  
+
   private void parseValueField() {
     if (valueParsed) {
       return;
@@ -453,7 +451,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     this.value = NodeKind.deserializeNumber(bytesIn);
     this.valueParsed = true;
   }
-  
+
   private BytesIn<?> createBytesIn(long offset) {
     if (lazySource instanceof MemorySegment segment) {
       var bytesIn = new MemorySegmentBytesIn(segment);
@@ -475,9 +473,10 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     if (!valueParsed) {
       parseValueField();
     }
-    return new ObjectNumberNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        hash, value, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+    return new ObjectNumberNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, hash, value, hashFunction,
+        deweyIDBytes != null
+            ? deweyIDBytes.clone()
+            : null);
   }
 
   @Override
@@ -522,8 +521,6 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     if (!(obj instanceof final ObjectNumberNode other))
       return false;
 
-    return nodeKey == other.nodeKey
-        && parentKey == other.parentKey
-        && Objects.equal(value, other.value);
+    return nodeKey == other.nodeKey && parentKey == other.parentKey && Objects.equal(value, other.value);
   }
 }

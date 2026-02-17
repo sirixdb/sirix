@@ -5,31 +5,34 @@ import java.lang.foreign.MemorySegment;
 /**
  * High-performance page checksum computation and verification.
  * 
- * <p>Design principles (aligned with financial/HFT systems):
+ * <p>
+ * Design principles (aligned with financial/HFT systems):
  * <ul>
- *   <li><b>Zero allocation in hot paths:</b> Use {@code long}-based methods for verification</li>
- *   <li><b>Zero-copy:</b> Native memory segments are hashed directly via address</li>
- *   <li><b>No ByteBuffer:</b> Direct bit manipulation for conversions</li>
- *   <li><b>Primitive comparison:</b> Long equality instead of Arrays.equals()</li>
+ * <li><b>Zero allocation in hot paths:</b> Use {@code long}-based methods for verification</li>
+ * <li><b>Zero-copy:</b> Native memory segments are hashed directly via address</li>
+ * <li><b>No ByteBuffer:</b> Direct bit manipulation for conversions</li>
+ * <li><b>Primitive comparison:</b> Long equality instead of Arrays.equals()</li>
  * </ul>
  * </p>
  * 
- * <p>Default algorithm: XXH3 (~15 GB/s throughput)</p>
+ * <p>
+ * Default algorithm: XXH3 (~15 GB/s throughput)
+ * </p>
  */
 public final class PageHasher {
 
   /** Default hash algorithm for pages. */
   public static final HashAlgorithm DEFAULT_ALGORITHM = HashAlgorithm.XXH3;
-  
+
   /** Hash length in bytes for the default algorithm. */
   public static final int HASH_LENGTH = DEFAULT_ALGORITHM.getHashLength();
 
   private PageHasher() {
     // Utility class
   }
-  
+
   // ==================== Convenience API: Default XXH3 algorithm ====================
-  
+
   /**
    * Compute hash using default XXH3 algorithm.
    *
@@ -39,7 +42,7 @@ public final class PageHasher {
   public static byte[] compute(byte[] data) {
     return DEFAULT_ALGORITHM.computeHash(data);
   }
-  
+
   /**
    * Compute hash as long using default XXH3 algorithm (zero allocation).
    *
@@ -55,7 +58,7 @@ public final class PageHasher {
   /**
    * Compute hash as long (zero allocation - preferred for writes).
    *
-   * @param data          the data to hash
+   * @param data the data to hash
    * @param hashAlgorithm the algorithm to use
    * @return hash as long
    */
@@ -66,9 +69,9 @@ public final class PageHasher {
   /**
    * Compute hash of range as long (zero allocation).
    *
-   * @param data          the data to hash
-   * @param offset        start offset
-   * @param length        number of bytes to hash
+   * @param data the data to hash
+   * @param offset start offset
+   * @param length number of bytes to hash
    * @param hashAlgorithm the algorithm to use
    * @return hash as long
    */
@@ -79,7 +82,7 @@ public final class PageHasher {
   /**
    * Compute hash of MemorySegment as long (zero-copy for native segments).
    *
-   * @param segment       the memory segment to hash
+   * @param segment the memory segment to hash
    * @param hashAlgorithm the algorithm to use
    * @return hash as long
    */
@@ -90,8 +93,8 @@ public final class PageHasher {
   /**
    * Verify data against expected hash (zero allocation).
    *
-   * @param data          the data to verify
-   * @param expectedHash  the expected hash as long
+   * @param data the data to verify
+   * @param expectedHash the expected hash as long
    * @param hashAlgorithm the algorithm to use
    * @return true if hash matches
    */
@@ -102,8 +105,8 @@ public final class PageHasher {
   /**
    * Verify MemorySegment against expected hash (zero-copy for native segments).
    *
-   * @param segment       the memory segment to verify
-   * @param expectedHash  the expected hash as long
+   * @param segment the memory segment to verify
+   * @param expectedHash the expected hash as long
    * @param hashAlgorithm the algorithm to use
    * @return true if hash matches
    */
@@ -116,7 +119,7 @@ public final class PageHasher {
   /**
    * Compute hash of byte array.
    *
-   * @param data          the data to hash
+   * @param data the data to hash
    * @param hashAlgorithm the algorithm to use
    * @return hash bytes
    */
@@ -127,9 +130,9 @@ public final class PageHasher {
   /**
    * Compute hash of byte array range.
    *
-   * @param data          the data to hash
-   * @param offset        start offset
-   * @param length        number of bytes to hash
+   * @param data the data to hash
+   * @param offset start offset
+   * @param length number of bytes to hash
    * @param hashAlgorithm the algorithm to use
    * @return hash bytes
    */
@@ -140,7 +143,7 @@ public final class PageHasher {
   /**
    * Compute hash of a MemorySegment (zero-copy for native segments).
    *
-   * @param segment       the memory segment to hash
+   * @param segment the memory segment to hash
    * @param hashAlgorithm the algorithm to use
    * @return hash bytes
    */
@@ -151,8 +154,8 @@ public final class PageHasher {
   /**
    * Verify data against expected hash.
    *
-   * @param data          the data to verify
-   * @param expectedHash  the expected hash (may be null)
+   * @param data the data to verify
+   * @param expectedHash the expected hash (may be null)
    * @param hashAlgorithm the algorithm to use
    * @return true if hash matches or verification is skipped
    * @throws IllegalArgumentException if expectedHash length does not match algorithm's hash length
@@ -173,8 +176,8 @@ public final class PageHasher {
   /**
    * Verify MemorySegment against expected hash (zero-copy for native segments).
    *
-   * @param segment       the memory segment to verify
-   * @param expectedHash  the expected hash (may be null)
+   * @param segment the memory segment to verify
+   * @param expectedHash the expected hash (may be null)
    * @param hashAlgorithm the algorithm to use
    * @return true if hash matches or verification is skipped
    * @throws IllegalArgumentException if expectedHash length does not match algorithm's hash length
@@ -195,16 +198,15 @@ public final class PageHasher {
   /**
    * Verify data range against expected hash.
    *
-   * @param data          the data array
-   * @param offset        start offset
-   * @param length        number of bytes to verify
-   * @param expectedHash  the expected hash (may be null)
+   * @param data the data array
+   * @param offset start offset
+   * @param length number of bytes to verify
+   * @param expectedHash the expected hash (may be null)
    * @param hashAlgorithm the algorithm to use
    * @return true if hash matches or verification is skipped
    * @throws IllegalArgumentException if expectedHash length does not match algorithm's hash length
    */
-  public static boolean verify(byte[] data, int offset, int length, byte[] expectedHash,
-      HashAlgorithm hashAlgorithm) {
+  public static boolean verify(byte[] data, int offset, int length, byte[] expectedHash, HashAlgorithm hashAlgorithm) {
     if (expectedHash == null || expectedHash.length == 0) {
       return true;
     }
@@ -224,7 +226,7 @@ public final class PageHasher {
   /**
    * Compute actual hash for error reporting.
    *
-   * @param data          the data that was hashed
+   * @param data the data that was hashed
    * @param hashAlgorithm the algorithm to use
    * @return the computed hash
    */
@@ -235,7 +237,7 @@ public final class PageHasher {
   /**
    * Compute actual hash from MemorySegment for error reporting.
    *
-   * @param segment       the segment that was hashed
+   * @param segment the segment that was hashed
    * @param hashAlgorithm the algorithm to use
    * @return the computed hash
    */
@@ -279,8 +281,6 @@ public final class PageHasher {
   }
 
   // Lookup table for hex conversion (faster than String.format)
-  private static final char[] HEX_CHARS = {
-      '0', '1', '2', '3', '4', '5', '6', '7',
-      '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'
-  };
+  private static final char[] HEX_CHARS =
+      {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
 }

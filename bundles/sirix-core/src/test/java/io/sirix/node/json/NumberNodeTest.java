@@ -43,8 +43,7 @@ public class NumberNodeTest {
   @Test
   public void test() throws IOException {
     final var hashFunction = LongHashFunction.xx3();
-    final NumberNode node = new NumberNode(
-        13L, // nodeKey
+    final NumberNode node = new NumberNode(13L, // nodeKey
         14L, // parentKey
         Constants.NULL_REVISION_NUMBER, // previousRevision
         0, // lastModifiedRevision
@@ -52,21 +51,17 @@ public class NumberNodeTest {
         15L, // leftSiblingKey
         0, // hash
         42.5, // value
-        hashFunction,
-        (byte[]) null // deweyID
+        hashFunction, (byte[]) null // deweyID
     );
     check(node);
 
-    final var config = ResourceConfiguration.newBuilder("test")
-        .hashKind(HashType.NONE)
-        .build();
+    final var config = ResourceConfiguration.newBuilder("test").hashKind(HashType.NONE).build();
 
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     NodeKind.NUMBER_VALUE.serialize(data, node, config);
-    
+
     var bytesIn = data.asBytesIn();
-    final NumberNode node2 = (NumberNode) NodeKind.NUMBER_VALUE.deserialize(
-        bytesIn, node.getNodeKey(), null, config);
+    final NumberNode node2 = (NumberNode) NodeKind.NUMBER_VALUE.deserialize(bytesIn, node.getNodeKey(), null, config);
     check(node2);
   }
 

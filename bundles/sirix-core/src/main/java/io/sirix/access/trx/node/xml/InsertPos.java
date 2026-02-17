@@ -342,8 +342,8 @@ public enum InsertPos {
    * Process movement of a subtree.
    *
    * @param fromNode root of subtree to move
-   * @param toNode   determines where the subtree has to be inserted
-   * @param wtx      write-transaction which implements the {@link XmlNodeTrx} interface
+   * @param toNode determines where the subtree has to be inserted
+   * @param wtx write-transaction which implements the {@link XmlNodeTrx} interface
    * @throws SirixException if an I/O error occurs
    */
   abstract void processMove(final StructNode fromNode, final StructNode toNode, final XmlNodeTrx wtx)

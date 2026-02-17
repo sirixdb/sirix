@@ -65,7 +65,9 @@ public final class AtomicUtil {
       return Calc.fromString(atomic.stringValue());
     }
     if (type.instanceOf(Type.BOOL)) {
-      return atomic.booleanValue() ? new byte[] { (byte) 1 } : new byte[] { (byte) 0 };
+      return atomic.booleanValue()
+          ? new byte[] {(byte) 1}
+          : new byte[] {(byte) 0};
     }
     if (type.isNumeric()) {
       if (type.instanceOf(Type.DBL)) {

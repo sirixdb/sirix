@@ -78,30 +78,33 @@ public class PINodeTest {
 
   @Test
   public void testProcessInstructionNode() {
-    final byte[] value = { (byte) 17, (byte) 18 };
+    final byte[] value = {(byte) 17, (byte) 18};
     final var config = pageReadTrx.getResourceSession().getResourceConfig();
-    
+
     // Create PINode with primitive fields
-    final PINode node = new PINode(
-        99L,                                           // nodeKey
-        13L,                                           // parentKey
-        Constants.NULL_REVISION_NUMBER,                // previousRevision
-        0,                                             // lastModifiedRevision
-        16L,                                           // rightSiblingKey
-        22L,                                           // leftSiblingKey
-        17L,                                           // firstChildKey
-        17L,                                           // lastChildKey
-        config.storeChildCount() ? 1L : 0L,            // childCount
-        config.hashType != HashType.NONE ? 1L : 0L, // descendantCount
-        0L,                                            // hash
-        1L,                                            // pathNodeKey
-        14,                                            // prefixKey
-        15,                                            // localNameKey
-        13,                                            // uriKey
-        value,                                         // value
-        false,                                         // isCompressed
-        LongHashFunction.xx3(),                        // hashFunction
-        SirixDeweyID.newRootID(),                      // deweyID
+    final PINode node = new PINode(99L, // nodeKey
+        13L, // parentKey
+        Constants.NULL_REVISION_NUMBER, // previousRevision
+        0, // lastModifiedRevision
+        16L, // rightSiblingKey
+        22L, // leftSiblingKey
+        17L, // firstChildKey
+        17L, // lastChildKey
+        config.storeChildCount()
+            ? 1L
+            : 0L, // childCount
+        config.hashType != HashType.NONE
+            ? 1L
+            : 0L, // descendantCount
+        0L, // hash
+        1L, // pathNodeKey
+        14, // prefixKey
+        15, // localNameKey
+        13, // uriKey
+        value, // value
+        false, // isCompressed
+        LongHashFunction.xx3(), // hashFunction
+        SirixDeweyID.newRootID(), // deweyID
         new io.brackit.query.atomic.QNm(""));
     var hashBytes = Bytes.elasticOffHeapByteBuffer();
     node.setHash(node.computeHash(hashBytes));
@@ -112,11 +115,8 @@ public class PINodeTest {
     // Serialize and deserialize node.
     final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
     node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
-    final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(data2.asBytesIn(),
-                                                                              node.getNodeKey(),
-                                                                              node.getDeweyID().toBytes(),
-                                                                              pageReadTrx.getResourceSession()
-                                                                                         .getResourceConfig());
+    final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(data2.asBytesIn(), node.getNodeKey(),
+        node.getDeweyID().toBytes(), pageReadTrx.getResourceSession().getResourceConfig());
     check(node2);
   }
 

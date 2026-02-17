@@ -22,7 +22,8 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param rightSibKey right sibling key
    * @param pathNodeKey the path node key
    */
-  ArrayNode createJsonArrayNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey, SirixDeweyID id);
+  ArrayNode createJsonArrayNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
+      SirixDeweyID id);
 
   /**
    * Create a {@link ObjectNode}.
@@ -66,7 +67,8 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param rightSibKey right sibling key
    * @param boolValue the boolean value
    */
-  BooleanNode createJsonBooleanNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey, boolean boolValue, SirixDeweyID id);
+  BooleanNode createJsonBooleanNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey, boolean boolValue,
+      SirixDeweyID id);
 
   /**
    * Create a {@link NumberNode}.
@@ -76,7 +78,8 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param rightSibKey right sibling key
    * @param value the number value
    */
-  NumberNode createJsonNumberNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey, Number value, SirixDeweyID id);
+  NumberNode createJsonNumberNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey, Number value,
+      SirixDeweyID id);
 
   /**
    * Create a {@link NullNode}.
@@ -94,8 +97,8 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param value the value to store
    * @param isCompressed {@code true}, if the value is compressed, {@code false} otherwise
    */
-  ObjectStringNode createJsonObjectStringNode(@NonNegative long parentKey, byte[] value,
-      boolean isCompressed, SirixDeweyID id);
+  ObjectStringNode createJsonObjectStringNode(@NonNegative long parentKey, byte[] value, boolean isCompressed,
+      SirixDeweyID id);
 
   /**
    * Create a {@link ObjectBooleanNode}.

@@ -63,7 +63,9 @@ import java.math.BigInteger;
 /**
  * JSON Number node.
  *
- * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
+ * <p>
+ * Uses primitive fields for efficient storage with delta+varint encoding.
+ * </p>
  * 
  * @author Johannes Lichtenberger
  */
@@ -71,52 +73,51 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
-  
+
   // Mutable structural fields
   private long parentKey;
   private long rightSiblingKey;
   private long leftSiblingKey;
-  
+
   // Mutable revision tracking
   private int previousRevision;
   private int lastModifiedRevision;
-  
+
   // Mutable hash (computed on demand for value nodes)
   private long hash;
-  
+
   // Number value
   private Number value;
-  
+
   // Hash function for computing node hashes (mutable for singleton reuse)
   private LongHashFunction hashFunction;
-  
+
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
 
   // Lazy parsing state (for singleton reuse optimization)
   // Two-stage lazy parsing: metadata (cheap) vs value (expensive Number allocation)
-  private Object lazySource;            // Source for lazy parsing (MemorySegment or byte[])
-  private long lazyOffset;              // Offset where lazy metadata fields start
-  private boolean metadataParsed;       // Whether prevRev, lastModRev, hash are parsed
-  private boolean valueParsed;          // Whether Number value is parsed
-  private boolean hasHash;              // Whether hash is stored (from config)
-  private long valueOffset;             // Offset where value starts (after metadata)
+  private Object lazySource; // Source for lazy parsing (MemorySegment or byte[])
+  private long lazyOffset; // Offset where lazy metadata fields start
+  private boolean metadataParsed; // Whether prevRev, lastModRev, hash are parsed
+  private boolean valueParsed; // Whether Number value is parsed
+  private boolean hasHash; // Whether hash is stored (from config)
+  private long valueOffset; // Offset where value starts (after metadata)
 
   // Fixed-slot value encoding state (for read path via populateSingletonFromFixedSlot)
-  private boolean fixedValueEncoding;   // Whether value comes from fixed-slot inline payload
-  private int fixedValueLength;         // Length of inline payload bytes
+  private boolean fixedValueEncoding; // Whether value comes from fixed-slot inline payload
+  private int fixedValueLength; // Length of inline payload bytes
 
   // Fixed-slot lazy metadata support
   private NodeKindLayout fixedSlotLayout;
 
   /**
-   * Primary constructor with all primitive fields.
-   * All fields are already parsed - no lazy loading needed.
+   * Primary constructor with all primitive fields. All fields are already parsed - no lazy loading
+   * needed.
    */
-  public NumberNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      Number value, LongHashFunction hashFunction, byte[] deweyID) {
+  public NumberNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, Number value, LongHashFunction hashFunction, byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -133,12 +134,11 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   }
 
   /**
-   * Constructor with SirixDeweyID instead of byte array.
-   * All fields are already parsed - no lazy loading needed.
+   * Constructor with SirixDeweyID instead of byte array. All fields are already parsed - no lazy
+   * loading needed.
    */
-  public NumberNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
-      Number value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
+  public NumberNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long hash, Number value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -168,7 +168,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   public long getParentKey() {
     return parentKey;
   }
-  
+
   public void setParentKey(final long parentKey) {
     this.parentKey = parentKey;
   }
@@ -220,9 +220,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   @Override
   public long computeHash(final BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(getNodeKey())
-         .writeLong(getParentKey())
-         .writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
 
     bytes.writeLong(getChildCount())
          .writeLong(getDescendantCount())
@@ -252,7 +250,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   public long getRightSiblingKey() {
     return rightSiblingKey;
   }
-  
+
   public void setRightSiblingKey(final long rightSibling) {
     this.rightSiblingKey = rightSibling;
   }
@@ -261,7 +259,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   public long getLeftSiblingKey() {
     return leftSiblingKey;
   }
-  
+
   public void setLeftSiblingKey(final long leftSibling) {
     this.leftSiblingKey = leftSibling;
   }
@@ -270,7 +268,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   public long getFirstChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setFirstChildKey(final long firstChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -279,7 +277,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   public long getLastChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-  
+
   public void setLastChildKey(final long lastChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -288,7 +286,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   public long getChildCount() {
     return 0;
   }
-  
+
   public void setChildCount(final long childCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -297,7 +295,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   public long getDescendantCount() {
     return 0;
   }
-  
+
   public void setDescendantCount(final long descendantCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -386,22 +384,22 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   }
 
   /**
-   * Populate this node from a BytesIn source for singleton reuse.
-   * LAZY OPTIMIZATION: Only parses structural fields immediately.
-   * Two-stage lazy parsing: metadata (cheap) vs value (expensive Number allocation).
+   * Populate this node from a BytesIn source for singleton reuse. LAZY OPTIMIZATION: Only parses
+   * structural fields immediately. Two-stage lazy parsing: metadata (cheap) vs value (expensive
+   * Number allocation).
    */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
-    
+
     // STRUCTURAL FIELDS - parse immediately (NEW ORDER)
     this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    
+
     // Store state for lazy parsing - DON'T parse remaining fields yet
     this.lazySource = source.getSource();
     this.lazyOffset = source.position();
@@ -409,18 +407,18 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     this.valueParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
     this.valueOffset = 0;
-    
+
     // Initialize lazy fields to defaults (will be populated on demand)
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.hash = 0;
     this.value = null;
   }
-  
+
   /**
-   * Populate this singleton from fixed-slot inline payload (zero allocation).
-   * Sets up lazy value parsing from the fixed-slot MemorySegment.
-   * CRITICAL: Resets hash to 0 — caller MUST call setHash() AFTER this method.
+   * Populate this singleton from fixed-slot inline payload (zero allocation). Sets up lazy value
+   * parsing from the fixed-slot MemorySegment. CRITICAL: Resets hash to 0 — caller MUST call
+   * setHash() AFTER this method.
    *
    * @param source the slot data (MemorySegment) containing inline payload
    * @param valueOffset byte offset within source where payload bytes start
@@ -473,7 +471,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     this.valueOffset = bytesIn.position();
     this.metadataParsed = true;
   }
-  
+
   /**
    * Parse value field on demand (expensive - may allocate BigDecimal/BigInteger).
    */
@@ -507,7 +505,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     this.value = NodeKind.deserializeNumber(bytesIn);
     this.valueParsed = true;
   }
-  
+
   private BytesIn<?> createBytesIn(long offset) {
     if (lazySource instanceof MemorySegment segment) {
       var bytesIn = new MemorySegmentBytesIn(segment);
@@ -523,8 +521,8 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   }
 
   /**
-   * Create a deep copy snapshot of this node.
-   * Forces parsing of all lazy fields since snapshot must be independent.
+   * Create a deep copy snapshot of this node. Forces parsing of all lazy fields since snapshot must
+   * be independent.
    */
   public NumberNode toSnapshot() {
     // Force parse all lazy fields for snapshot (must be complete and independent)
@@ -534,9 +532,10 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     if (!valueParsed) {
       parseValueField();
     }
-    return new NumberNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, hash, value, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+    return new NumberNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
+        hash, value, hashFunction, deweyIDBytes != null
+            ? deweyIDBytes.clone()
+            : null);
   }
 
   @Override
@@ -583,8 +582,6 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     if (!(obj instanceof final NumberNode other))
       return false;
 
-    return nodeKey == other.nodeKey
-        && parentKey == other.parentKey
-        && Objects.equal(value, other.value);
+    return nodeKey == other.nodeKey && parentKey == other.parentKey && Objects.equal(value, other.value);
   }
 }

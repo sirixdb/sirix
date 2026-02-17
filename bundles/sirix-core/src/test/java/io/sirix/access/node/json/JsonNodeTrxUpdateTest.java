@@ -41,8 +41,8 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocumentWithDeweyIdsEnabled();
 
     try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var rtx = manager.beginNodeReadOnlyTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var rtx = manager.beginNodeReadOnlyTrx()) {
       new DescendantAxis(rtx).forEach(nodeKey -> {
         if (rtx.isObjectKey()) {
           System.out.print("name:" + rtx.getName() + " ");
@@ -62,8 +62,8 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(2);
 
       assertEquals(new QNm("foo"), wtx.getName());
@@ -92,8 +92,8 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(4);
 
       assertEquals("bar", wtx.getValue());
@@ -122,8 +122,8 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(6);
 
       assertEquals(2.33, wtx.getNumberValue());
@@ -152,8 +152,8 @@ public class JsonNodeTrxUpdateTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(12);
 
       assertTrue(wtx.getBooleanValue());
@@ -184,7 +184,7 @@ public class JsonNodeTrxUpdateTest {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
@@ -223,7 +223,7 @@ public class JsonNodeTrxUpdateTest {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));

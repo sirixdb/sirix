@@ -33,8 +33,8 @@ import org.checkerframework.checker.nullness.qual.NonNull;
  */
 interface DiffObservable {
   /**
-   * Fire a diff for exactly one node comparsion. Must call the diffListener(EDiff) method defined
-   * in the {@link DiffObserver} interface.
+   * Fire a diff for exactly one node comparsion. Must call the diffListener(EDiff) method defined in
+   * the {@link DiffObserver} interface.
    * 
    * @param diff the encountered diff
    * @param newNodeKey node key of current node in new revision
@@ -52,8 +52,8 @@ interface DiffObservable {
   void done() throws SirixException;
 
   /**
-   * Add an observer. This means add an instance of a class which implements the
-   * {@link DiffObserver} interface.
+   * Add an observer. This means add an instance of a class which implements the {@link DiffObserver}
+   * interface.
    * 
    * @param observer instance of the class which implements {@link DiffObserver}
    */

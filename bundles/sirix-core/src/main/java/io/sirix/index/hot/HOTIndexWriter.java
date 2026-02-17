@@ -42,14 +42,16 @@ import static java.util.Objects.requireNonNull;
 /**
  * Generic HOT index writer for object keys (CASValue, QNm).
  *
- * <p>Replaces {@link io.sirix.index.redblacktree.RBTreeWriter} for HOT-based secondary indexes.
- * Uses thread-local buffers for zero-allocation key serialization.</p>
+ * <p>
+ * Replaces {@link io.sirix.index.redblacktree.RBTreeWriter} for HOT-based secondary indexes. Uses
+ * thread-local buffers for zero-allocation key serialization.
+ * </p>
  *
  * <h2>Zero Allocation Design</h2>
  * <ul>
- *   <li>Thread-local byte buffers for key/value serialization</li>
- *   <li>No Optional - uses @Nullable returns</li>
- *   <li>Pre-allocated traversal state</li>
+ * <li>Thread-local byte buffers for key/value serialization</li>
+ * <li>No Optional - uses @Nullable returns</li>
+ * <li>Pre-allocated traversal state</li>
  * </ul>
  *
  * @param <K> the key type (must implement Comparable)
@@ -60,24 +62,23 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   /**
    * Thread-local buffer for key serialization (256 bytes default).
    */
-  private static final ThreadLocal<byte[]> KEY_BUFFER =
-      ThreadLocal.withInitial(() -> new byte[256]);
+  private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[256]);
 
   private final HOTKeySerializer<K> keySerializer;
 
   /**
    * Private constructor.
    *
-   * @param pageTrx       the storage engine writer
+   * @param pageTrx the storage engine writer
    * @param keySerializer the key serializer
-   * @param indexType     the index type (PATH, CAS, NAME)
-   * @param indexNumber   the index number
+   * @param indexType the index type (PATH, CAS, NAME)
+   * @param indexNumber the index number
    */
-  private HOTIndexWriter(StorageEngineWriter pageTrx, HOTKeySerializer<K> keySerializer,
-                         IndexType indexType, int indexNumber) {
+  private HOTIndexWriter(StorageEngineWriter pageTrx, HOTKeySerializer<K> keySerializer, IndexType indexType,
+      int indexNumber) {
     super(pageTrx, indexType, indexNumber);
     this.keySerializer = requireNonNull(keySerializer);
-    
+
     // Initialize HOT index tree based on type
     initializeHOTIndex();
   }
@@ -97,37 +98,39 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   /**
    * Creates a new HOTIndexWriter.
    *
-   * @param pageTrx       the storage engine writer
+   * @param pageTrx the storage engine writer
    * @param keySerializer the key serializer
-   * @param indexType     the index type
-   * @param indexNumber   the index number
-   * @param <K>           the key type
+   * @param indexType the index type
+   * @param indexNumber the index number
+   * @param <K> the key type
    * @return a new HOTIndexWriter instance
    */
-  public static <K extends Comparable<? super K>> HOTIndexWriter<K> create(
-      StorageEngineWriter pageTrx, HOTKeySerializer<K> keySerializer,
-      IndexType indexType, int indexNumber) {
+  public static <K extends Comparable<? super K>> HOTIndexWriter<K> create(StorageEngineWriter pageTrx,
+      HOTKeySerializer<K> keySerializer, IndexType indexType, int indexNumber) {
     return new HOTIndexWriter<>(pageTrx, keySerializer, indexType, indexNumber);
   }
 
   /**
    * Index a key-value pair.
    *
-   * <p>If the key already exists, merges the NodeReferences (OR operation).</p>
+   * <p>
+   * If the key already exists, merges the NodeReferences (OR operation).
+   * </p>
    *
-   * <p><b>Edge Case Handling:</b> When many identical keys are merged, the value
-   * can grow very large. If the value becomes too large for a single page and
-   * the page has only 1 entry (so it can't be split), this method handles it by:
+   * <p>
+   * <b>Edge Case Handling:</b> When many identical keys are merged, the value can grow very large. If
+   * the value becomes too large for a single page and the page has only 1 entry (so it can't be
+   * split), this method handles it by:
    * <ol>
-   *   <li>Attempting to compact the page to reclaim fragmented space</li>
-   *   <li>Retrying the insert operation after compaction</li>
-   *   <li>If still failing after retries, throwing an informative exception</li>
+   * <li>Attempting to compact the page to reclaim fragmented space</li>
+   * <li>Retrying the insert operation after compaction</li>
+   * <li>If still failing after retries, throwing an informative exception</li>
    * </ol>
    * </p>
    *
-   * @param key   the index key
+   * @param key the index key
    * @param value the node references
-   * @param move  cursor movement mode (ignored for HOT)
+   * @param move cursor movement mode (ignored for HOT)
    * @return the indexed value
    */
   public NodeReferences index(K key, NodeReferences value, RBTreeReader.MoveCursor move) {
@@ -158,7 +161,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   /**
    * Get the NodeReferences for a key.
    *
-   * @param key  the index key
+   * @param key the index key
    * @param mode the search mode
    * @return the node references, or null if not found
    */
@@ -170,7 +173,9 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     int keyLen = keySerializer.serialize(key, keyBuf, 0);
 
     // Get HOT leaf page
-    byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
+    byte[] keySlice = keyLen == keyBuf.length
+        ? keyBuf
+        : Arrays.copyOf(keyBuf, keyLen);
     HOTLeafPage leaf = getLeafForRead(keySlice);
     if (leaf == null) {
       return null;
@@ -182,9 +187,11 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   /**
    * Remove a node key from the NodeReferences for a key.
    *
-   * <p>If the NodeReferences becomes empty, sets a tombstone.</p>
+   * <p>
+   * If the NodeReferences becomes empty, sets a tombstone.
+   * </p>
    *
-   * @param key     the index key
+   * @param key the index key
    * @param nodeKey the node key to remove
    * @return true if the node key was removed
    */
@@ -196,7 +203,9 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     int keyLen = keySerializer.serialize(key, keyBuf, 0);
 
     // Navigate to leaf with path tracking
-    byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
+    byte[] keySlice = keyLen == keyBuf.length
+        ? keyBuf
+        : Arrays.copyOf(keyBuf, keyLen);
     LeafNavigationResult navResult = getLeafWithPath(rootReference, keySlice, keyLen);
     HOTLeafPage leaf = navResult.leaf();
     if (leaf == null) {

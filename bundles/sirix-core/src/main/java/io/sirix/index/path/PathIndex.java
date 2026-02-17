@@ -30,16 +30,16 @@ public interface PathIndex<B, L extends ChangeListener> {
 
   default Iterator<NodeReferences> openIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
       final PathFilter filter) {
-    
+
     // Check if HOT is enabled (system property takes precedence, then resource config)
     if (isHOTEnabled(pageRtx)) {
       return openHOTIndex(pageRtx, indexDef, filter);
     }
-    
+
     // Use RBTree (default)
     return openRBTreeIndex(pageRtx, indexDef, filter);
   }
-  
+
   /**
    * Checks if HOT indexes should be used for reading.
    */
@@ -49,19 +49,19 @@ public interface PathIndex<B, L extends ChangeListener> {
     if (sysProp != null) {
       return Boolean.parseBoolean(sysProp);
     }
-    
+
     // Fall back to resource configuration
     final var resourceConfig = pageRtx.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;
   }
-  
+
   /**
    * Open HOT-based path index.
    */
   private Iterator<NodeReferences> openHOTIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
       final PathFilter filter) {
     final HOTLongIndexReader reader = HOTLongIndexReader.create(pageRtx, indexDef.getType(), indexDef.getID());
-    
+
     if (filter != null && filter.getPCRs().size() == 1) {
       // Single PCR lookup
       long pcr = filter.getPCRs().iterator().next();
@@ -72,12 +72,14 @@ public interface PathIndex<B, L extends ChangeListener> {
       return Collections.emptyIterator();
     } else {
       // Iterate over all entries and apply filter
-      final Set<Long> pcrsRequested = filter != null ? filter.getPCRs() : Set.of();
+      final Set<Long> pcrsRequested = filter != null
+          ? filter.getPCRs()
+          : Set.of();
       final Iterator<Map.Entry<Long, NodeReferences>> entryIterator = reader.iterator();
-      
+
       return new Iterator<>() {
         private NodeReferences next = null;
-        
+
         @Override
         public boolean hasNext() {
           if (next != null) {
@@ -92,7 +94,7 @@ public interface PathIndex<B, L extends ChangeListener> {
           }
           return false;
         }
-        
+
         @Override
         public NodeReferences next() {
           if (!hasNext()) {
@@ -105,26 +107,23 @@ public interface PathIndex<B, L extends ChangeListener> {
       };
     }
   }
-  
+
   /**
    * Open RBTree-based path index (default).
    */
   private Iterator<NodeReferences> openRBTreeIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
       final PathFilter filter) {
-    final RBTreeReader<Long, NodeReferences> reader =
-        RBTreeReader.getInstance(pageRtx.getResourceSession().getIndexCache(),
-                                 pageRtx,
-                                 indexDef.getType(),
-                                 indexDef.getID());
+    final RBTreeReader<Long, NodeReferences> reader = RBTreeReader.getInstance(
+        pageRtx.getResourceSession().getIndexCache(), pageRtx, indexDef.getType(), indexDef.getID());
 
     if (filter != null && filter.getPCRs().size() == 1) {
-      final var optionalNodeReferences =
-          reader.get(filter.getPCRs().iterator().next(), SearchMode.EQUAL);
+      final var optionalNodeReferences = reader.get(filter.getPCRs().iterator().next(), SearchMode.EQUAL);
       return Iterators.forArray(optionalNodeReferences.orElse(new NodeReferences()));
     } else {
-      final Iterator<RBNodeKey<Long>> iter =
-          reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-      final Set<Filter> setFilter = filter == null ? ImmutableSet.of() : ImmutableSet.of(filter);
+      final Iterator<RBNodeKey<Long>> iter = reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
+      final Set<Filter> setFilter = filter == null
+          ? ImmutableSet.of()
+          : ImmutableSet.of(filter);
 
       return new IndexFilterAxis<>(reader, iter, setFilter);
     }

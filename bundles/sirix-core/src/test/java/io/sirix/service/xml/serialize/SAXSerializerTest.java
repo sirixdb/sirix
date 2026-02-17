@@ -72,8 +72,8 @@ public class SAXSerializerTest extends XMLTestCase {
       }
 
       @Override
-      public void startElement(final String uri, final String localName, final String qName,
-          final Attributes atts) throws SAXException {
+      public void startElement(final String uri, final String localName, final String qName, final Attributes atts)
+          throws SAXException {
         sbuf.append("<" + qName);
 
         for (int i = 0; i < atts.getLength(); i++) {
@@ -90,14 +90,12 @@ public class SAXSerializerTest extends XMLTestCase {
       // };
 
       @Override
-      public void endElement(final String uri, final String localName, final String qName)
-          throws SAXException {
+      public void endElement(final String uri, final String localName, final String qName) throws SAXException {
         sbuf.append("</" + qName + ">");
       }
 
       @Override
-      public void characters(final char[] ch, final int start, final int length)
-          throws SAXException {
+      public void characters(final char[] ch, final int start, final int length) throws SAXException {
         for (int i = start; i < start + length; i++) {
           sbuf.append(ch[i]);
         }
@@ -105,7 +103,7 @@ public class SAXSerializerTest extends XMLTestCase {
     };
 
     final SAXSerializer serializer = new SAXSerializer(holder.getResourceSession(), contHandler,
-                                                       holder.getResourceSession().getMostRecentRevisionNumber());
+        holder.getResourceSession().getMostRecentRevisionNumber());
     serializer.call();
     assertXMLEqual(XmlDocumentCreator.XML, sbuf.toString());
   }

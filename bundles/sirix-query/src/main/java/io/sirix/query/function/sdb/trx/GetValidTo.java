@@ -24,8 +24,10 @@ import java.time.format.DateTimeFormatter;
  * <li><code>sdb:valid-to($node as json-item()) as xs:dateTime?</code></li>
  * </ul>
  *
- * <p>Returns the validTo timestamp from the node, or empty sequence if the
- * node doesn't have valid time fields or the resource is not configured for valid time.</p>
+ * <p>
+ * Returns the validTo timestamp from the node, or empty sequence if the node doesn't have valid
+ * time fields or the resource is not configured for valid time.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -39,7 +41,7 @@ public final class GetValidTo extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the name of the function
+   * @param name the name of the function
    * @param signature the signature of the function
    */
   public GetValidTo(final QNm name, final Signature signature) {
@@ -58,8 +60,7 @@ public final class GetValidTo extends AbstractFunction {
     }
 
     // Get the valid time configuration
-    final ValidTimeConfig validTimeConfig = item.getTrx().getResourceSession()
-        .getResourceConfig().getValidTimeConfig();
+    final ValidTimeConfig validTimeConfig = item.getTrx().getResourceSession().getResourceConfig().getValidTimeConfig();
 
     if (validTimeConfig == null) {
       // No valid time configuration, return empty sequence

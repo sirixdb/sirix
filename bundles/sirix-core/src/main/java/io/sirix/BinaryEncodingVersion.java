@@ -36,8 +36,8 @@ package io.sirix;
 public enum BinaryEncodingVersion {
 
   /**
-   * Zero-copy format: slot offsets array + raw slotMemory blob.
-   * Enables direct buffer slice as page storage without copying.
+   * Zero-copy format: slot offsets array + raw slotMemory blob. Enables direct buffer slice as page
+   * storage without copying.
    */
   V0((byte) 0);
 

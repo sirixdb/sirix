@@ -9,13 +9,13 @@ import java.util.Objects;
 /**
  * Lightweight V1 page-level compact encoding helpers.
  *
- * <p>The methods here are intentionally allocation-minimal and operate directly on primitive vectors.
+ * <p>
+ * The methods here are intentionally allocation-minimal and operate directly on primitive vectors.
  */
 public final class CompactPageEncoder {
   private static final int MAX_RELATIONSHIP_VECTOR_LENGTH = 1 << 20;
 
-  private CompactPageEncoder() {
-  }
+  private CompactPageEncoder() {}
 
   public static void encodeSlotHeader(final BytesOut<?> sink, final SlotHeader slotHeader) {
     Objects.requireNonNull(slotHeader, "slotHeader must not be null");
@@ -28,7 +28,8 @@ public final class CompactPageEncoder {
   public static SlotHeader decodeSlotHeader(final BytesIn<?> source) {
     final MutableSlotHeader header = new MutableSlotHeader();
     decodeSlotHeader(source, header);
-    return new SlotHeader(header.nodeKey(), header.nodeKind(), header.fixedSlotSizeInBytes(), header.payloadSizeInBytes());
+    return new SlotHeader(header.nodeKey(), header.nodeKind(), header.fixedSlotSizeInBytes(),
+        header.payloadSizeInBytes());
   }
 
   /**
@@ -82,7 +83,8 @@ public final class CompactPageEncoder {
    *
    * @return number of decoded entries written into {@code targetBuffer}
    */
-  public static int decodeRelationshipVector(final BytesIn<?> source, final long baseNodeKey, final long[] targetBuffer) {
+  public static int decodeRelationshipVector(final BytesIn<?> source, final long baseNodeKey,
+      final long[] targetBuffer) {
     Objects.requireNonNull(targetBuffer, "targetBuffer must not be null");
     final int length = CompactFieldCodec.decodeNonNegativeInt(source);
     if (length > MAX_RELATIONSHIP_VECTOR_LENGTH) {

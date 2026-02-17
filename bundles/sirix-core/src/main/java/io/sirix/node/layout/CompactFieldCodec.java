@@ -10,8 +10,7 @@ import java.util.Objects;
  * Shared codec primitives used by compact commit encoders.
  */
 public final class CompactFieldCodec {
-  private CompactFieldCodec() {
-  }
+  private CompactFieldCodec() {}
 
   public static void encodeNodeKeyDelta(final BytesOut<?> sink, final long baseNodeKey, final long targetNodeKey) {
     DeltaVarIntCodec.encodeDelta(Objects.requireNonNull(sink), targetNodeKey, baseNodeKey);
@@ -47,8 +46,7 @@ public final class CompactFieldCodec {
   public static int decodeNonNegativeInt(final BytesIn<?> source, final String fieldName) {
     final int value = decodeSignedInt(source);
     if (value < 0) {
-      throw new IllegalStateException(
-          "Decoded negative value for " + Objects.requireNonNull(fieldName) + ": " + value);
+      throw new IllegalStateException("Decoded negative value for " + Objects.requireNonNull(fieldName) + ": " + value);
     }
     return value;
   }

@@ -129,24 +129,26 @@ public interface IOStorage {
    * @return byte handler pipeline
    */
   ByteHandler getByteHandler();
-  
+
   /**
    * Get the RevisionIndexHolder for fast timestamp-based revision lookups.
    * 
-   * <p>The holder provides thread-safe access to the immutable RevisionIndex.
-   * Multiple readers can search concurrently while a single writer updates
-   * the index during commits.
+   * <p>
+   * The holder provides thread-safe access to the immutable RevisionIndex. Multiple readers can
+   * search concurrently while a single writer updates the index during commits.
    *
    * @return the RevisionIndexHolder for this storage
    */
-  @NonNull RevisionIndexHolder getRevisionIndexHolder();
-  
+  @NonNull
+  RevisionIndexHolder getRevisionIndexHolder();
+
   /**
    * Build and load the RevisionIndex from disk.
    * 
-   * <p>Called during storage initialization to populate the RevisionIndex
-   * with all existing revisions. The index is then updated incrementally
-   * during commits via {@link RevisionIndexHolder#addRevision(long, long)}.
+   * <p>
+   * Called during storage initialization to populate the RevisionIndex with all existing revisions.
+   * The index is then updated incrementally during commits via
+   * {@link RevisionIndexHolder#addRevision(long, long)}.
    *
    * @param holder the holder to populate
    */
@@ -154,32 +156,32 @@ public interface IOStorage {
     if (!exists()) {
       return;
     }
-    
+
     try (final Reader reader = createReader()) {
       final PageReference firstRef = reader.readUberPageReference();
       final UberPage uberPage = (UberPage) firstRef.getPage();
-      
+
       if (uberPage == null) {
         return;
       }
-      
+
       final int lastRevisionNumber = uberPage.getRevisionNumber();
       if (lastRevisionNumber < 0) {
         return;
       }
-      
+
       // Build arrays from revision 0 to lastRevisionNumber (inclusive)
       // getRevisionNumber() returns the last revision index (0-indexed)
       final int revisionCount = lastRevisionNumber + 1;
       final long[] timestamps = new long[revisionCount];
       final long[] offsets = new long[revisionCount];
-      
+
       for (int i = 0; i < revisionCount; i++) {
         final RevisionFileData data = reader.getRevisionFileData(i);
         timestamps[i] = data.timestamp().toEpochMilli();
         offsets[i] = data.offset();
       }
-      
+
       final RevisionIndex index = RevisionIndex.create(timestamps, offsets);
       holder.update(index);
     }

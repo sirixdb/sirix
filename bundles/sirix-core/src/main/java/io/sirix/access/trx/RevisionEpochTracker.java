@@ -5,11 +5,11 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
 /**
  * Tracks the minimum active revision across all transactions (epoch-based MVCC).
  * <p>
- * This enables safe page eviction: a page can only be evicted when its revision is
- * less than the minimum active revision (no transaction needs it anymore).
+ * This enables safe page eviction: a page can only be evicted when its revision is less than the
+ * minimum active revision (no transaction needs it anymore).
  * <p>
- * Inspired by LeanStore/CedarDB epoch-based reclamation, adapted to Sirix's
- * revision-based MVCC model.
+ * Inspired by LeanStore/CedarDB epoch-based reclamation, adapted to Sirix's revision-based MVCC
+ * model.
  *
  * @author Johannes Lichtenberger
  */
@@ -29,8 +29,8 @@ public final class RevisionEpochTracker {
   }
 
   /**
-   * Ticket returned when registering a transaction.
-   * Used to efficiently deregister the transaction later.
+   * Ticket returned when registering a transaction. Used to efficiently deregister the transaction
+   * later.
    */
   public static final class Ticket {
     private final int slotIndex;
@@ -63,8 +63,8 @@ public final class RevisionEpochTracker {
   }
 
   /**
-   * Register a transaction at the given revision.
-   * Returns a ticket that must be used to deregister later.
+   * Register a transaction at the given revision. Returns a ticket that must be used to deregister
+   * later.
    *
    * @param revision the revision number the transaction is reading
    * @return ticket for deregistration
@@ -84,10 +84,9 @@ public final class RevisionEpochTracker {
         }
       }
     }
-    
-    throw new IllegalStateException(
-        "No free slots in RevisionEpochTracker (max=" + slotCount + "). " +
-        "Too many concurrent transactions. Consider increasing slot count.");
+
+    throw new IllegalStateException("No free slots in RevisionEpochTracker (max=" + slotCount + "). "
+        + "Too many concurrent transactions. Consider increasing slot count.");
   }
 
   /**
@@ -99,7 +98,7 @@ public final class RevisionEpochTracker {
     if (ticket == null) {
       return;
     }
-    
+
     Slot slot = slots.get(ticket.slotIndex);
     synchronized (slot) {
       slot.active = false;
@@ -110,11 +109,11 @@ public final class RevisionEpochTracker {
   /**
    * Get the minimum active revision across all registered transactions.
    * <p>
-   * Returns the oldest revision that any active transaction is currently reading.
-   * If no transactions are active, returns the last committed revision.
+   * Returns the oldest revision that any active transaction is currently reading. If no transactions
+   * are active, returns the last committed revision.
    * <p>
-   * This is the watermark for safe eviction: pages with revision < minActiveRevision
-   * are no longer needed by any active transaction.
+   * This is the watermark for safe eviction: pages with revision < minActiveRevision are no longer
+   * needed by any active transaction.
    *
    * @return minimum active revision, or lastCommittedRevision if none active
    */
@@ -130,12 +129,13 @@ public final class RevisionEpochTracker {
       }
     }
 
-    return anyActive ? min : lastCommittedRevision;
+    return anyActive
+        ? min
+        : lastCommittedRevision;
   }
 
   /**
-   * Update the last committed revision.
-   * Should be called after each successful commit.
+   * Update the last committed revision. Should be called after each successful commit.
    *
    * @param revision the newly committed revision number
    */
@@ -172,11 +172,10 @@ public final class RevisionEpochTracker {
     }
 
     if (activeCount == 0) {
-      return String.format("RevisionEpochTracker: no active transactions (lastCommitted=%d)",
-          lastCommittedRevision);
+      return String.format("RevisionEpochTracker: no active transactions (lastCommitted=%d)", lastCommittedRevision);
     } else {
-      return String.format("RevisionEpochTracker: %d active txns, revisions [%d..%d], lastCommitted=%d",
-          activeCount, minRev, maxRev, lastCommittedRevision);
+      return String.format("RevisionEpochTracker: %d active txns, revisions [%d..%d], lastCommitted=%d", activeCount,
+          minRev, maxRev, lastCommittedRevision);
     }
   }
 }

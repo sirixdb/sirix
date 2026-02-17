@@ -81,8 +81,8 @@ public final class PrecedingAxis extends AbstractAxis {
     if (cursor.hasLeftSibling()) {
       cursor.moveToLeftSibling();
       /*
-       * Because this axis return the precedings in reverse document order, we need to iterate to
-       * the node in the subtree, that comes last in document order.
+       * Because this axis return the precedings in reverse document order, we need to iterate to the node
+       * in the subtree, that comes last in document order.
        */
       getLastChild();
       final long nodeKey = cursor.getNodeKey();
@@ -108,8 +108,8 @@ public final class PrecedingAxis extends AbstractAxis {
 
   /**
    * Moves the transaction to the node in the current subtree, that is last in document order and
-   * pushes all other node key on a stack. At the end the stack contains all node keys except for
-   * the last one in reverse document order.
+   * pushes all other node key on a stack. At the end the stack contains all node keys except for the
+   * last one in reverse document order.
    */
   private void getLastChild() {
     final NodeCursor cursor = getCursor();
@@ -118,8 +118,7 @@ public final class PrecedingAxis extends AbstractAxis {
     final long parent = cursor.getNodeKey();
 
     /*
-     * Traverse tree in pre order to the leftmost leaf of the subtree and push all nodes to the
-     * stack
+     * Traverse tree in pre order to the leftmost leaf of the subtree and push all nodes to the stack
      */
     if (cursor.hasFirstChild()) {
       while (cursor.hasFirstChild()) {
@@ -128,8 +127,8 @@ public final class PrecedingAxis extends AbstractAxis {
       }
 
       /*
-       * Traverse all the siblings of the leftmost leave and all their descendants and push all of
-       * them to the stack
+       * Traverse all the siblings of the leftmost leave and all their descendants and push all of them to
+       * the stack
        */
       while (cursor.hasRightSibling()) {
         mStack.push(cursor.getNodeKey());
@@ -138,8 +137,8 @@ public final class PrecedingAxis extends AbstractAxis {
       }
 
       /*
-       * Step up the path till the root of the current subtree and process all right siblings and
-       * their descendants on each step.
+       * Step up the path till the root of the current subtree and process all right siblings and their
+       * descendants on each step.
        */
       if (cursor.hasParent() && (cursor.getParentKey() != parent)) {
         mStack.push(cursor.getNodeKey());
@@ -147,8 +146,8 @@ public final class PrecedingAxis extends AbstractAxis {
           cursor.moveToParent();
 
           /*
-           * Traverse all the siblings of the leftmost leave and all their descendants and push all
-           * of them to the stack
+           * Traverse all the siblings of the leftmost leave and all their descendants and push all of them to
+           * the stack
            */
           while (cursor.hasRightSibling()) {
             cursor.moveToRightSibling();

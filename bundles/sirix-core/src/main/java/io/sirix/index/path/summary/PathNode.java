@@ -74,13 +74,13 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   /**
    * Constructor.
    *
-   * @param name          the full qualified name
-   * @param nodeDel       {@link NodeDelegate} instance
+   * @param name the full qualified name
+   * @param nodeDel {@link NodeDelegate} instance
    * @param structNodeDel {@link StructNodeDelegate} instance
-   * @param nameNodeDel   {@link NameNodeDelegate} instance
-   * @param kind          kind of node to index
-   * @param references    number of references to this path node
-   * @param level         level of this path node
+   * @param nameNodeDel {@link NameNodeDelegate} instance
+   * @param kind kind of node to index
+   * @param references number of references to this path node
+   * @param level level of this path node
    */
   public PathNode(final QNm name, final NodeDelegate nodeDel, @NonNull final StructNodeDelegate structNodeDel,
       @NonNull final NameNodeDelegate nameNodeDel, @NonNull final NodeKind kind, @NonNegative final int references,
@@ -106,6 +106,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   /**
    * Set the path.
+   * 
    * @param path path to set
    * @return this path instance
    */

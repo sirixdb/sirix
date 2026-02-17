@@ -23,7 +23,7 @@ public final class ByteHandlerPipeline implements ByteHandler {
 
   /** Pipeline for all byte handlers. */
   private final List<ByteHandler> byteHandlers;
-  
+
   /** Cached result of supportsMemorySegments check. */
   private final boolean memorySegmentSupport;
 
@@ -54,17 +54,17 @@ public final class ByteHandlerPipeline implements ByteHandler {
     }
     this.memorySegmentSupport = checkMemorySegmentSupport();
   }
-  
+
   /**
-   * Check if this pipeline is empty (no handlers).
-   * An empty pipeline acts as identity - no transformation is applied.
+   * Check if this pipeline is empty (no handlers). An empty pipeline acts as identity - no
+   * transformation is applied.
    * 
    * @return true if no handlers are configured
    */
   public boolean isEmpty() {
     return byteHandlers.isEmpty();
   }
-  
+
   private boolean checkMemorySegmentSupport() {
     // Empty pipeline = identity operation, supports MemorySegments (Umbra-style)
     if (byteHandlers.isEmpty()) {
@@ -96,23 +96,23 @@ public final class ByteHandlerPipeline implements ByteHandler {
     }
     return pipeData;
   }
-  
+
   @Override
   public boolean supportsMemorySegments() {
     return memorySegmentSupport;
   }
-  
+
   @Override
   public MemorySegment compress(MemorySegment source) {
     // Empty pipeline = identity (Umbra-style: no transformation needed)
     if (byteHandlers.isEmpty()) {
       return source;
     }
-    
+
     if (!memorySegmentSupport) {
       throw new UnsupportedOperationException("MemorySegment compression not supported - not all handlers support it");
     }
-    
+
     // Apply handlers in order (compression pipeline)
     MemorySegment result = source;
     for (final ByteHandler handler : byteHandlers) {
@@ -120,18 +120,19 @@ public final class ByteHandlerPipeline implements ByteHandler {
     }
     return result;
   }
-  
+
   @Override
   public MemorySegment decompress(MemorySegment compressed) {
     // Empty pipeline = identity (Umbra-style: no transformation needed)
     if (byteHandlers.isEmpty()) {
       return compressed;
     }
-    
+
     if (!memorySegmentSupport) {
-      throw new UnsupportedOperationException("MemorySegment decompression not supported - not all handlers support it");
+      throw new UnsupportedOperationException(
+          "MemorySegment decompression not supported - not all handlers support it");
     }
-    
+
     // Apply handlers in reverse order (decompression pipeline)
     MemorySegment result = compressed;
     for (int i = byteHandlers.size() - 1; i >= 0; i--) {
@@ -139,7 +140,7 @@ public final class ByteHandlerPipeline implements ByteHandler {
     }
     return result;
   }
-  
+
   @Override
   public DecompressionResult decompressScoped(MemorySegment compressed) {
     // Empty pipeline = identity, but we MUST copy to a buffer the page can own!
@@ -148,49 +149,42 @@ public final class ByteHandlerPipeline implements ByteHandler {
     // a reference to slotMemory, so we need a buffer the page can safely own.
     if (byteHandlers.isEmpty()) {
       int size = (int) compressed.byteSize();
-      
+
       // Try to use pooled allocator if available, otherwise fall back to heap
-      MemorySegmentAllocator allocator = OS.isWindows() 
-          ? WindowsMemorySegmentAllocator.getInstance() 
+      MemorySegmentAllocator allocator = OS.isWindows()
+          ? WindowsMemorySegmentAllocator.getInstance()
           : LinuxMemorySegmentAllocator.getInstance();
-      
+
       if (allocator.isInitialized()) {
         // Use pooled buffer - optimal path
         MemorySegment buffer = allocator.allocate(size);
         MemorySegment.copy(compressed, 0, buffer, 0, size);
-        
+
         // Return buffer with proper releaser so it's returned to pool when page is evicted
-        return new DecompressionResult(
-            buffer.asSlice(0, size),  // segment (correctly sized view)
-            buffer,                    // backingBuffer (full allocation for release)
-            () -> allocator.release(buffer),
-            new AtomicBoolean(false)
-        );
+        return new DecompressionResult(buffer.asSlice(0, size), // segment (correctly sized view)
+            buffer, // backingBuffer (full allocation for release)
+            () -> allocator.release(buffer), new AtomicBoolean(false));
       } else {
         // Fallback: use heap-backed segment (for tests or when allocator not initialized)
         byte[] data = new byte[size];
         MemorySegment.copy(compressed, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, data, 0, size);
         MemorySegment heapSegment = MemorySegment.ofArray(data);
-        
+
         // No-op releaser since heap memory is GC'd
-        return new DecompressionResult(
-            heapSegment,
-            heapSegment,
-            () -> {},
-            new AtomicBoolean(false)
-        );
+        return new DecompressionResult(heapSegment, heapSegment, () -> {
+        }, new AtomicBoolean(false));
       }
     }
-    
+
     if (!memorySegmentSupport) {
       throw new UnsupportedOperationException("Scoped decompression not supported - not all handlers support it");
     }
-    
+
     // For single-handler case (common), delegate directly
     if (byteHandlers.size() == 1) {
       return byteHandlers.getFirst().decompressScoped(compressed);
     }
-    
+
     // Multi-handler chaining: decompress in reverse order while reusing buffers.
     // We only return the final buffer; intermediates are released immediately.
     MemorySegment current = compressed;
@@ -200,12 +194,12 @@ public final class ByteHandlerPipeline implements ByteHandler {
     for (int i = byteHandlers.size() - 1; i >= 0; i--) {
       ByteHandler handler = byteHandlers.get(i);
       DecompressionResult result = handler.decompressScoped(current);
-      
+
       // Release previous buffer (if any), keep the latest
       if (releaser != null) {
         releaser.run();
       }
-      
+
       current = result.segment();
       backingBuffer = result.backingBuffer();
       releaser = result.releaser();
@@ -213,11 +207,10 @@ public final class ByteHandlerPipeline implements ByteHandler {
 
     final Runnable finalReleaser = releaser;
     final MemorySegment finalBackingBuffer = backingBuffer;
-    return new DecompressionResult(
-        current,                      // segment
-        finalBackingBuffer,           // backingBuffer (for zero-copy ownership transfer)
-        finalReleaser,                // releaser
-        new AtomicBoolean(false)      // ownershipTransferred
+    return new DecompressionResult(current, // segment
+        finalBackingBuffer, // backingBuffer (for zero-copy ownership transfer)
+        finalReleaser, // releaser
+        new AtomicBoolean(false) // ownershipTransferred
     );
   }
 

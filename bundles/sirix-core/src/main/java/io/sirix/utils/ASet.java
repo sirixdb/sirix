@@ -3,8 +3,8 @@ package io.sirix.utils;
 import java.util.Arrays;
 
 /**
- * This is the basic structure of an efficient and memory-saving hash set.
- * The first entry of the token set (offset 0) will always be kept empty.
+ * This is the basic structure of an efficient and memory-saving hash set. The first entry of the
+ * token set (offset 0) will always be kept empty.
  *
  * @author BaseX Team 2005-22, BSD License
  * @author Christian Gruen
@@ -26,8 +26,7 @@ public abstract class ASet {
   /**
    * Empty constructor.
    */
-  protected ASet() {
-  }
+  protected ASet() {}
 
   /**
    * Constructor with initial capacity.
@@ -52,8 +51,8 @@ public abstract class ASet {
   }
 
   /**
-   * Returns the number of entries.
-   * The actual number of keys may be smaller if keys have been deleted.
+   * Returns the number of entries. The actual number of keys may be smaller if keys have been
+   * deleted.
    *
    * @return number of entries
    */
@@ -132,7 +131,7 @@ public abstract class ASet {
   /**
    * Returns a string representation of the set or map.
    *
-   * @param keys   hash keys
+   * @param keys hash keys
    * @param values hash values or {@code null}
    * @return string
    */

@@ -49,9 +49,9 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   /**
    * Constructor.
    *
-   * @param resourceConfig  the resource configuration
+   * @param resourceConfig the resource configuration
    * @param nodeReadOnlyTrx the internal read-only node trx
-   * @param pageTrx         the page trx
+   * @param pageTrx the page trx
    */
   protected AbstractNodeHashing(final ResourceConfiguration resourceConfig, final T nodeReadOnlyTrx,
       final StorageEngineWriter pageTrx) {
@@ -233,8 +233,12 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     // calls, which may return the same write-path singleton and overwrite startNode's fields.
     final long startParentKey = startNode.getParentKey();
     final boolean startNodeIsStruct = startNode instanceof StructNode;
-    final long startDescendantCount = startNodeIsStruct ? ((StructNode) startNode).getDescendantCount() : 0;
-    long hashToRemove = startNode.getHash() == 0L ? startNode.computeHash(bytes) : startNode.getHash();
+    final long startDescendantCount = startNodeIsStruct
+        ? ((StructNode) startNode).getDescendantCount()
+        : 0;
+    long hashToRemove = startNode.getHash() == 0L
+        ? startNode.computeHash(bytes)
+        : startNode.getHash();
     long hashToAdd = 0;
     long newHash;
     // go the path to the root — track position via local key to avoid moveTo allocations
@@ -296,7 +300,9 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     final NodeKind startNodeKind = startNode.getKind();
     final boolean startIsStruct = startNode instanceof StructNode;
     final long oldDescendantCount = getStructuralNode().getDescendantCount();
-    final long descendantCount = oldDescendantCount == 0 ? 1 : oldDescendantCount + 1;
+    final long descendantCount = oldDescendantCount == 0
+        ? 1
+        : oldDescendantCount + 1;
     bytes.clear();
     long hashToAdd;
     long newHash;
@@ -354,21 +360,20 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   }
 
   private static boolean isValueNode(final NodeKind kind) {
-    return kind == NodeKind.STRING_VALUE || kind == NodeKind.OBJECT_STRING_VALUE
-        || kind == NodeKind.BOOLEAN_VALUE || kind == NodeKind.OBJECT_BOOLEAN_VALUE
-        || kind == NodeKind.NUMBER_VALUE || kind == NodeKind.OBJECT_NUMBER_VALUE
-        || kind == NodeKind.NULL_VALUE || kind == NodeKind.OBJECT_NULL_VALUE
+    return kind == NodeKind.STRING_VALUE || kind == NodeKind.OBJECT_STRING_VALUE || kind == NodeKind.BOOLEAN_VALUE
+        || kind == NodeKind.OBJECT_BOOLEAN_VALUE || kind == NodeKind.NUMBER_VALUE
+        || kind == NodeKind.OBJECT_NUMBER_VALUE || kind == NodeKind.NULL_VALUE || kind == NodeKind.OBJECT_NULL_VALUE
         || kind == NodeKind.ATTRIBUTE || kind == NodeKind.TEXT || kind == NodeKind.COMMENT
         || kind == NodeKind.PROCESSING_INSTRUCTION;
   }
 
   /**
-   * Add a hash and descendant count from a pre-captured start node to the current parent.
-   * Values are pre-captured to avoid singleton aliasing — the start node's singleton may be
-   * overwritten by prepareRecordForModification for the parent.
+   * Add a hash and descendant count from a pre-captured start node to the current parent. Values are
+   * pre-captured to avoid singleton aliasing — the start node's singleton may be overwritten by
+   * prepareRecordForModification for the parent.
    *
-   * @param hashToAdd          pre-computed hash of the start node
-   * @param startIsStruct      whether the start node is a StructNode
+   * @param hashToAdd pre-computed hash of the start node
+   * @param startIsStruct whether the start node is a StructNode
    * @param startDescendantCount descendant count of the start node (only used if startIsStruct)
    */
   public void addParentHash(final long hashToAdd, final boolean startIsStruct, final long startDescendantCount) {
@@ -379,8 +384,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         final long hash = parentNode.getHash();
         parentNode.setHash(hash + hashToAdd * PRIME);
         if (startIsStruct && parentNode instanceof StructNode parentStruct) {
-          parentStruct.setDescendantCount(
-              parentStruct.getDescendantCount() + startDescendantCount + 1);
+          parentStruct.setDescendantCount(parentStruct.getDescendantCount() + startDescendantCount + 1);
         }
         persistNode(parentNode);
         break;
@@ -392,14 +396,15 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   }
 
   /**
-   * Add a hash and the descendant count.
-   * Called during postorder traversal to compute hashes from leaves to root.
+   * Add a hash and the descendant count. Called during postorder traversal to compute hashes from
+   * leaves to root.
    */
   public void addHashAndDescendantCount() {
     switch (hashType) {
       case ROLLING -> {
         // Setup.
-        final Node startNode = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+        final Node startNode =
+            pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         final long startNodeKey = startNode.getNodeKey();
         // Capture all needed values from startNode before any subsequent prepareRecordForModification
         // calls, which may return the same write-path singleton and overwrite startNode's fields.
@@ -407,7 +412,9 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         final long startParentKey = startNode.getParentKey();
         final boolean startIsStruct = startNode instanceof StructNode;
         final long oldDescendantCount = getStructuralNode().getDescendantCount();
-        final long descendantCount = oldDescendantCount == 0 ? 1 : oldDescendantCount + 1;
+        final long descendantCount = oldDescendantCount == 0
+            ? 1
+            : oldDescendantCount + 1;
 
         // Set start node's hash.
         // If hash is already set (from child processing), use it as-is.
@@ -415,7 +422,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         // If hash is 0 (leaf node), compute it now.
         long hashToAdd = startNode.getHash() == 0L
             ? startNode.computeHash(bytes)
-            : startNode.getHash();  // Already includes own data hash from child processing
+            : startNode.getHash(); // Already includes own data hash from child processing
         Node node = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setHash(hashToAdd);
         persistNode(node);
@@ -427,7 +434,9 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
           final long currentNodeHash = node.getHash();
           // If parent's hash is 0, initialize with its own data hash.
           // Otherwise, use existing hash (which already includes parent's data hash).
-          long hash = currentNodeHash == 0L ? node.computeHash(bytes) : currentNodeHash;
+          long hash = currentNodeHash == 0L
+              ? node.computeHash(bytes)
+              : currentNodeHash;
           node.setHash(hash + hashToAdd * PRIME);
 
           setAddDescendants(startIsStruct, node, descendantCount);
@@ -444,8 +453,8 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   /**
    * Set new descendant count of ancestor after an add-operation.
    *
-   * @param startIsStruct   whether the start node is a StructNode (pre-captured as local)
-   * @param nodeToModify    node to modify
+   * @param startIsStruct whether the start node is a StructNode (pre-captured as local)
+   * @param nodeToModify node to modify
    * @param descendantCount the descendantCount to add
    */
   private static void setAddDescendants(final boolean startIsStruct, final Node nodeToModify,
@@ -458,8 +467,8 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   }
 
   /**
-   * Returns the shared bytes buffer used for hash computation.
-   * Exposed for callers that need to pre-compute hashes before traversal.
+   * Returns the shared bytes buffer used for hash computation. Exposed for callers that need to
+   * pre-compute hashes before traversal.
    */
   public BytesOut<?> getBytes() {
     return bytes;

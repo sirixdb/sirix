@@ -20,7 +20,9 @@ import java.util.Set;
 /**
  * Listener for PATH index changes.
  * 
- * <p>Supports both traditional RBTree and high-performance HOT index backends.</p>
+ * <p>
+ * Supports both traditional RBTree and high-performance HOT index backends.
+ * </p>
  */
 public final class PathIndexListener {
 
@@ -62,9 +64,8 @@ public final class PathIndexListener {
     pathSummaryReader.moveTo(pathNodeKey);
     try {
       // If paths is empty, index ALL paths (same logic as PathIndexBuilder)
-      final boolean shouldProcess = paths.isEmpty() 
-          || pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey);
-      
+      final boolean shouldProcess = paths.isEmpty() || pathSummaryReader.getPCRsForPaths(paths).contains(pathNodeKey);
+
       switch (type) {
         case INSERT -> {
           if (shouldProcess) {
@@ -115,14 +116,12 @@ public final class PathIndexListener {
     }
   }
 
-  private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references,
-      final long pathNodeKey) {
+  private void setNodeReferencesRBTree(final long nodeKey, final NodeReferences references, final long pathNodeKey) {
     assert rbTreeWriter != null;
     rbTreeWriter.index(pathNodeKey, references.addNodeKey(nodeKey), MoveCursor.NO_MOVE);
   }
 
-  private void setNodeReferencesHOT(final long nodeKey, final NodeReferences references,
-      final long pathNodeKey) {
+  private void setNodeReferencesHOT(final long nodeKey, final NodeReferences references, final long pathNodeKey) {
     assert hotWriter != null;
     // HOT writer uses primitive long - no boxing!
     hotWriter.index(pathNodeKey, references.addNodeKey(nodeKey), MoveCursor.NO_MOVE);

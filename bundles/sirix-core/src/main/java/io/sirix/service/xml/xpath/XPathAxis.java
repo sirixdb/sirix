@@ -45,6 +45,7 @@ import static java.util.Objects.requireNonNull;
  * be started on it. (For more information how to do that, see the sirix documentation.) Then the
  * <code>XPathAxis</code> can be used like this:
  * </p>
+ * 
  * <pre>
  *   ...
  *   IReadTransaction rtx = session.beginReadTransaction(new ItemList());

@@ -63,17 +63,17 @@ public final class DeweyIDPage extends AbstractForwardingPage {
     currentMaxLevelOfIndirectPages = 1;
   }
 
-/**
-   *  Constructor to set deserialized data.
+  /**
+   * Constructor to set deserialized data.
    *
    * @param delegate The references page delegate instance.
    * @param maxNodeKey Maximum node key.
    * @param currentMaxLevelOfIndirectPages Current maximum levels of indirect pages in the tree.
    */
-  public DeweyIDPage(final Page delegate,final long maxNodeKey, final int currentMaxLevelOfIndirectPages){
+  public DeweyIDPage(final Page delegate, final long maxNodeKey, final int currentMaxLevelOfIndirectPages) {
     this.delegate = delegate;
     this.maxNodeKey = maxNodeKey;
-    this.currentMaxLevelOfIndirectPages=currentMaxLevelOfIndirectPages;
+    this.currentMaxLevelOfIndirectPages = currentMaxLevelOfIndirectPages;
   }
 
   public int getCurrentMaxLevelOfIndirectPages() {
@@ -96,7 +96,7 @@ public final class DeweyIDPage extends AbstractForwardingPage {
    * Initialize dewey id index tree.
    *
    * @param pageReadTrx {@link StorageEngineReader} instance
-   * @param log         the transaction intent log
+   * @param log the transaction intent log
    */
   public void createIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
       final TransactionIntentLog log) {

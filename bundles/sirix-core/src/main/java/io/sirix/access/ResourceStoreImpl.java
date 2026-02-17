@@ -26,7 +26,7 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
   private final ResourceSessionFactory<R> resourceSessionFactory;
 
   public ResourceStoreImpl(final PathBasedPool<ResourceSession<?, ?>> allResourceSessions,
-                           final ResourceSessionFactory<R> resourceSessionFactory) {
+      final ResourceSessionFactory<R> resourceSessionFactory) {
 
     this.resourceSessions = new ConcurrentHashMap<>();
     this.allResourceSessions = allResourceSessions;
@@ -35,8 +35,7 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
 
   @Override
   public R beginResourceSession(final @NonNull ResourceConfiguration resourceConfig,
-                        final @NonNull BufferManager bufferManager,
-                        final @NonNull Path resourceFile) {
+      final @NonNull BufferManager bufferManager, final @NonNull Path resourceFile) {
     return this.resourceSessions.computeIfAbsent(resourceFile, k -> {
       final var resourceSession = this.resourceSessionFactory.create(resourceConfig, bufferManager, resourceFile);
       this.allResourceSessions.putObject(resourceFile, resourceSession);

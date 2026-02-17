@@ -37,13 +37,12 @@ import java.util.Arrays;
  */
 public final class FunUtil {
 
-  public static int getInt(Sequence[] params, int pos, String parameterName, int defaultValue,
-      int[] allowedValues, boolean required) throws QueryException {
+  public static int getInt(Sequence[] params, int pos, String parameterName, int defaultValue, int[] allowedValues,
+      boolean required) throws QueryException {
     if (pos >= params.length || params[pos] == null) {
       if (required) {
-        throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT,
-                                 "Invalid integer parameter %s. Expected %s", parameterName,
-                                 Arrays.toString(allowedValues));
+        throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT, "Invalid integer parameter %s. Expected %s",
+            parameterName, Arrays.toString(allowedValues));
       }
 
       return defaultValue;
@@ -61,16 +60,15 @@ public final class FunUtil {
       }
     }
 
-    throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT,
-        "Invalid integer parameter %s. Expected %s", parameterName, Arrays.toString(allowedValues));
+    throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT, "Invalid integer parameter %s. Expected %s", parameterName,
+        Arrays.toString(allowedValues));
   }
 
-  public static long getLong(Sequence[] params, int pos, String parameterName, long defaultValue,
-      long[] allowedValues, boolean required) throws QueryException {
+  public static long getLong(Sequence[] params, int pos, String parameterName, long defaultValue, long[] allowedValues,
+      boolean required) throws QueryException {
     if (pos >= params.length || params[pos] == null) {
       if (required) {
-        throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT,
-            "Invalid long parameter %s. Expected %s", parameterName,
+        throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT, "Invalid long parameter %s. Expected %s", parameterName,
             Arrays.toString(allowedValues));
       }
 
@@ -89,16 +87,15 @@ public final class FunUtil {
       }
     }
 
-    throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT, "Invalid long parameter %s. Expected %s",
-        parameterName, Arrays.toString(allowedValues));
+    throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT, "Invalid long parameter %s. Expected %s", parameterName,
+        Arrays.toString(allowedValues));
   }
 
-  public static boolean getBoolean(Sequence[] params, int pos, String parameterName,
-      boolean defaultValue, boolean required) throws QueryException {
+  public static boolean getBoolean(Sequence[] params, int pos, String parameterName, boolean defaultValue,
+      boolean required) throws QueryException {
     if (pos >= params.length || params[pos] == null) {
       if (required) {
-        throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT, "Invalid empty boolean parameter %s.",
-            parameterName);
+        throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT, "Invalid empty boolean parameter %s.", parameterName);
       }
 
       return defaultValue;
@@ -107,12 +104,12 @@ public final class FunUtil {
     return ((Bool) params[pos]).bool;
   }
 
-  public static String getString(Sequence[] params, int pos, String parameterName,
-      String defaultValue, String[] allowedValues, boolean required) throws QueryException {
+  public static String getString(Sequence[] params, int pos, String parameterName, String defaultValue,
+      String[] allowedValues, boolean required) throws QueryException {
     if (pos >= params.length || params[pos] == null) {
       if (required) {
-        throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT, "Invalid parameter %s. Expected %s",
-            parameterName, Arrays.toString(allowedValues));
+        throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT, "Invalid parameter %s. Expected %s", parameterName,
+            Arrays.toString(allowedValues));
       }
 
       return defaultValue;
@@ -130,7 +127,7 @@ public final class FunUtil {
       }
     }
 
-    throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT,
-        "Invalid string parameter %s. Expected %s", parameterName, Arrays.toString(allowedValues));
+    throw new QueryException(SDBFun.ERR_INVALID_ARGUMENT, "Invalid string parameter %s. Expected %s", parameterName,
+        Arrays.toString(allowedValues));
   }
 }

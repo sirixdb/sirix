@@ -31,8 +31,8 @@ package io.sirix.node;
 import io.sirix.node.json.JsonNodeSerializer;
 
 /**
- * Helper class for node tests. Provides convenience methods for writing test data
- * in the correct serialization format for both JSON and XML nodes.
+ * Helper class for node tests. Provides convenience methods for writing test data in the correct
+ * serialization format for both JSON and XML nodes.
  */
 public final class NodeTestHelper {
 
@@ -41,9 +41,9 @@ public final class NodeTestHelper {
   }
 
   /**
-   * Write the full serialization header for test data: NodeKind byte, size placeholder (4 bytes),
-   * and 3 bytes padding. This makes the total header 8 bytes (1 NodeKind + 4 size + 3 padding)
-   * for 8-byte alignment.
+   * Write the full serialization header for test data: NodeKind byte, size placeholder (4 bytes), and
+   * 3 bytes padding. This makes the total header 8 bytes (1 NodeKind + 4 size + 3 padding) for 8-byte
+   * alignment.
    * 
    * @param data the output buffer
    * @param nodeKind the NodeKind enum value

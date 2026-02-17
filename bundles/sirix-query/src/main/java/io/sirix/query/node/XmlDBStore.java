@@ -52,7 +52,8 @@ public interface XmlDBStore extends NodeStore, AutoCloseable {
 
   XmlDBCollection create(String collName, String optionalResourceName, NodeSubtreeParser parser);
 
-  XmlDBCollection create(String collName, String optionalResourceName, NodeSubtreeParser parser, String commitMessage, Instant commitTimestamp);
+  XmlDBCollection create(String collName, String optionalResourceName, NodeSubtreeParser parser, String commitMessage,
+      Instant commitTimestamp);
 
   @Override
   XmlDBCollection create(String collName, Stream<NodeSubtreeParser> parsers);

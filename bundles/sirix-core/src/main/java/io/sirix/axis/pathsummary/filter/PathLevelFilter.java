@@ -35,6 +35,7 @@ import java.util.function.Predicate;
 
 /**
  * Filters path nodes based on a level.
+ * 
  * @param level the level to match
  *
  * @author Johannes Lichtenberger

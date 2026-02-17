@@ -87,10 +87,7 @@ public final class CASValue implements Comparable<CASValue> {
     Atomic thisAtomic = value.asType(type);
     Atomic otherAtomic = other.value.asType(other.type);
 
-    return ComparisonChain.start()
-                          .compare(pathNodeKey, other.pathNodeKey)
-                          .compare(thisAtomic, otherAtomic)
-                          .result();
+    return ComparisonChain.start().compare(pathNodeKey, other.pathNodeKey).compare(thisAtomic, otherAtomic).result();
   }
 
   @Override
@@ -118,10 +115,7 @@ public final class CASValue implements Comparable<CASValue> {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("value", value)
-                      .add("pathNodeKey", pathNodeKey)
-                      .toString();
+    return MoreObjects.toStringHelper(this).add("value", value).add("pathNodeKey", pathNodeKey).toString();
   }
 
   public Type getType() {

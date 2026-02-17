@@ -48,7 +48,7 @@ public class NodeCompTest {
     XmlTestHelper.createTestDocument();
     holder = Holder.generateRtx();
     comparator = new NodeComp(holder.getXmlNodeReadTrx(), new LiteralExpr(holder.getXmlNodeReadTrx(), -2),
-                              new LiteralExpr(holder.getXmlNodeReadTrx(), -1), CompKind.IS);
+        new LiteralExpr(holder.getXmlNodeReadTrx(), -1), CompKind.IS);
   }
 
   @After
@@ -69,7 +69,7 @@ public class NodeCompTest {
 
     try {
       comparator = new NodeComp(holder.getXmlNodeReadTrx(), new LiteralExpr(holder.getXmlNodeReadTrx(), -2),
-                                new LiteralExpr(holder.getXmlNodeReadTrx(), -1), CompKind.PRE);
+          new LiteralExpr(holder.getXmlNodeReadTrx(), -1), CompKind.PRE);
       comparator.compare(op1, op2);
       fail("Expexcted not yet implemented exception.");
     } catch (IllegalStateException e) {
@@ -78,7 +78,7 @@ public class NodeCompTest {
 
     try {
       comparator = new NodeComp(holder.getXmlNodeReadTrx(), new LiteralExpr(holder.getXmlNodeReadTrx(), -2),
-                                new LiteralExpr(holder.getXmlNodeReadTrx(), -1), CompKind.FO);
+          new LiteralExpr(holder.getXmlNodeReadTrx(), -1), CompKind.FO);
       comparator.compare(op1, op2);
       fail("Expexcted not yet implemented exception.");
     } catch (IllegalStateException e) {
@@ -102,10 +102,8 @@ public class NodeCompTest {
       axis.hasNext();
       comparator.atomize(axis);
     } catch (SirixXPathException e) {
-      assertEquals(
-          "err:XPTY0004 The type is not appropriate the expression or"
-              + " the typedoes not match a required type as specified by the " + "matching rules.",
-          e.getMessage());
+      assertEquals("err:XPTY0004 The type is not appropriate the expression or"
+          + " the typedoes not match a required type as specified by the " + "matching rules.", e.getMessage());
     }
 
   }

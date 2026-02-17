@@ -166,7 +166,9 @@ public final class VisitorDescendantAxis extends AbstractAxis {
     // Determines if first call to hasNext().
     if (isFirstCall) {
       isFirstCall = false;
-      return includeSelf() == IncludeSelf.YES ? cursor.getNodeKey() : cursor.getFirstChildKey();
+      return includeSelf() == IncludeSelf.YES
+          ? cursor.getNodeKey()
+          : cursor.getFirstChildKey();
     }
 
     // If visitor is present and the the right sibling stack must be adapted.
@@ -174,15 +176,16 @@ public final class VisitorDescendantAxis extends AbstractAxis {
       rightSiblingKeyStack.pop();
     }
 
-    // If visitor is present and result is not VisitResult.SKIPSUBTREE/VisitResult.SKIPSUBTREEPOPSTACK or visitor is
+    // If visitor is present and result is not VisitResult.SKIPSUBTREE/VisitResult.SKIPSUBTREEPOPSTACK
+    // or visitor is
     // not present.
     if (result != VisitResultType.SKIPSUBTREE && result != LocalVisitResult.SKIPSUBTREEPOPSTACK) {
       // Always follow first child if there is one.
       if (cursor.hasFirstChild()) {
         final long key = cursor.getFirstChildKey();
         final long rightSiblNodeKey = cursor.getRightSiblingKey();
-        if (cursor.hasRightSibling() && (rightSiblingKeyStack.isEmpty()
-            || rightSiblingKeyStack.peek() != rightSiblNodeKey)) {
+        if (cursor.hasRightSibling()
+            && (rightSiblingKeyStack.isEmpty() || rightSiblingKeyStack.peek() != rightSiblNodeKey)) {
           rightSiblingKeyStack.push(rightSiblNodeKey);
         }
         return key;
@@ -240,10 +243,11 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   }
 
   /*
-   * Determines if next node is not a right sibling of the current node. If it is, the returned nodeKey will deliver
-   * the special null node key, to signal, that the traversal will end.
+   * Determines if next node is not a right sibling of the current node. If it is, the returned
+   * nodeKey will deliver the special null node key, to signal, that the traversal will end.
    *
    * @param nextKey node key of the next node on the following axis (in a preorder traversal)
+   * 
    * @param currKey node key of current node
    */
   private long getNextNodeKey(final @NonNegative long nextKey, final @NonNegative long currKey) {

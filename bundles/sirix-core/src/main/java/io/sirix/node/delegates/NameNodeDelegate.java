@@ -77,11 +77,11 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
   /**
    * Constructor.
    *
-   * @param delegate     page delegator
-   * @param uriKey       uriKey to be stored
-   * @param prefixKey    prefixKey to be stored
+   * @param delegate page delegator
+   * @param uriKey uriKey to be stored
+   * @param prefixKey prefixKey to be stored
    * @param localNameKey localNameKey to be stored
-   * @param pathNodeKey  path node key associated with node
+   * @param pathNodeKey path node key associated with node
    */
   public NameNodeDelegate(final NodeDelegate delegate, final int uriKey, final int prefixKey, final int localNameKey,
       final @NonNegative long pathNodeKey) {
@@ -176,9 +176,8 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
     if (!(obj instanceof final NameNodeDelegate other))
       return false;
 
-    return Objects.equal(uriKey, other.uriKey) && Objects.equal(prefixKey, other.prefixKey) && Objects.equal(
-        localNameKey,
-        other.localNameKey);
+    return Objects.equal(uriKey, other.uriKey) && Objects.equal(prefixKey, other.prefixKey)
+        && Objects.equal(localNameKey, other.localNameKey);
   }
 
   @Override

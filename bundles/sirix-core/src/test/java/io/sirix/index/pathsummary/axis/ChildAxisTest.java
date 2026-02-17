@@ -26,8 +26,8 @@ public final class ChildAxisTest {
   @Test
   public void testInsertedTestDocument() {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var pathSummary = manager.openPathSummary()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var pathSummary = manager.openPathSummary()) {
       pathSummary.moveToFirstChild();
       var axis = new ChildAxis(pathSummary.getPathNode());
       checkPathNodesForNodeKey7(pathSummary, axis);
@@ -38,8 +38,7 @@ public final class ChildAxisTest {
     }
   }
 
-  private static void checkPathNodesForNodeKey7(PathSummaryReader pathSummary,
-      ChildAxis axis) {
+  private static void checkPathNodesForNodeKey7(PathSummaryReader pathSummary, ChildAxis axis) {
     checkPathNode(pathSummary, axis, 8, "/tada/[]", 1, 2);
     assertFalse(axis.hasNext());
   }
@@ -51,8 +50,8 @@ public final class ChildAxisTest {
     assertFalse(axis.hasNext());
   }
 
-  private static void checkPathNode(PathSummaryReader pathSummary,
-      ChildAxis pathSummaryAxis, long nodeKey, String path, int references, int level) {
+  private static void checkPathNode(PathSummaryReader pathSummary, ChildAxis pathSummaryAxis, long nodeKey, String path,
+      int references, int level) {
     PathNode node = pathSummaryAxis.next();
     pathSummary.moveTo(node.getNodeKey());
     assertEquals(nodeKey, node.getNodeKey());

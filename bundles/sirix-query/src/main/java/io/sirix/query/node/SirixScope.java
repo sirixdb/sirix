@@ -49,8 +49,7 @@ public final class SirixScope implements Scope {
       }
 
       @Override
-      public void close() {
-      }
+      public void close() {}
     };
   }
 

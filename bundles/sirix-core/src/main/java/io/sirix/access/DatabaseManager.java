@@ -10,7 +10,8 @@ import io.sirix.api.xml.XmlResourceSession;
 import javax.inject.Singleton;
 
 /**
- * The Dagger component that manages database dependencies. This class is internal and managed by {@link Databases}.
+ * The Dagger component that manages database dependencies. This class is internal and managed by
+ * {@link Databases}.
  *
  * @author Joao Sousa
  */
@@ -21,9 +22,10 @@ public interface DatabaseManager {
   /**
    * Creates a new Json database subcomponent.
    *
-   * <p>This method is declared here in order to create a link between this component and
-   * {@link JsonLocalDatabaseComponent}, as parent component and subcomponent, respectively.
-   * Hence, it should not be called. Use {@link #jsonDatabaseFactory()} instead.
+   * <p>
+   * This method is declared here in order to create a link between this component and
+   * {@link JsonLocalDatabaseComponent}, as parent component and subcomponent, respectively. Hence, it
+   * should not be called. Use {@link #jsonDatabaseFactory()} instead.
    *
    * @return A builder, used to create a new json database subcomponent.
    */
@@ -33,9 +35,10 @@ public interface DatabaseManager {
   /**
    * Creates a new Json database subcomponent.
    *
-   * <p>This method is declared here in order to create a link between this component and
-   * {@link XmlLocalDatabaseComponent}, as parent component and subcomponent, respectively.
-   * Hence, it should not be called. Use {@link #xmlDatabaseFactory()} instead.
+   * <p>
+   * This method is declared here in order to create a link between this component and
+   * {@link XmlLocalDatabaseComponent}, as parent component and subcomponent, respectively. Hence, it
+   * should not be called. Use {@link #xmlDatabaseFactory()} instead.
    *
    * @return A builder, used to create a new json database subcomponent.
    */

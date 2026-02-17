@@ -52,8 +52,8 @@ public class FNSum extends AbstractFunction {
    * @param returnType the type that the function's result will have
    * @throws SirixXPathException if function check fails
    */
-  public FNSum(final XmlNodeReadOnlyTrx rtx, final List<Axis> args, final int min, final int max,
-      final int returnType) throws SirixXPathException {
+  public FNSum(final XmlNodeReadOnlyTrx rtx, final List<Axis> args, final int min, final int max, final int returnType)
+      throws SirixXPathException {
 
     super(rtx, args, min, max, returnType);
   }

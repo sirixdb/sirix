@@ -115,10 +115,9 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   /**
    * Primary constructor with all primitive fields.
    */
-  public PINode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision,
-      long rightSiblingKey, long leftSiblingKey, long firstChildKey, long lastChildKey,
-      long childCount, long descendantCount, long hash, long pathNodeKey,
-      int prefixKey, int localNameKey, int uriKey, byte[] value, boolean isCompressed,
+  public PINode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long firstChildKey, long lastChildKey, long childCount, long descendantCount, long hash,
+      long pathNodeKey, int prefixKey, int localNameKey, int uriKey, byte[] value, boolean isCompressed,
       LongHashFunction hashFunction, byte[] deweyID, QNm qNm) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -145,10 +144,9 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   /**
    * Constructor with SirixDeweyID.
    */
-  public PINode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision,
-      long rightSiblingKey, long leftSiblingKey, long firstChildKey, long lastChildKey,
-      long childCount, long descendantCount, long hash, long pathNodeKey,
-      int prefixKey, int localNameKey, int uriKey, byte[] value, boolean isCompressed,
+  public PINode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long firstChildKey, long lastChildKey, long childCount, long descendantCount, long hash,
+      long pathNodeKey, int prefixKey, int localNameKey, int uriKey, byte[] value, boolean isCompressed,
       LongHashFunction hashFunction, SirixDeweyID deweyID, QNm qNm) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -178,113 +176,212 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   }
 
   @Override
-  public long getNodeKey() { return nodeKey; }
+  public long getNodeKey() {
+    return nodeKey;
+  }
 
   @Override
-  public void setNodeKey(long nodeKey) { this.nodeKey = nodeKey; }
+  public void setNodeKey(long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
 
   @Override
-  public long getParentKey() { return parentKey; }
+  public long getParentKey() {
+    return parentKey;
+  }
 
-  public void setParentKey(long parentKey) { this.parentKey = parentKey; }
-
-  @Override
-  public boolean hasParent() { return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
-
-  @Override
-  public long getRightSiblingKey() { return rightSiblingKey; }
-
-  public void setRightSiblingKey(long key) { this.rightSiblingKey = key; }
+  public void setParentKey(long parentKey) {
+    this.parentKey = parentKey;
+  }
 
   @Override
-  public boolean hasRightSibling() { return rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
+  public boolean hasParent() {
+    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 
   @Override
-  public long getLeftSiblingKey() { return leftSiblingKey; }
+  public long getRightSiblingKey() {
+    return rightSiblingKey;
+  }
 
-  public void setLeftSiblingKey(long key) { this.leftSiblingKey = key; }
-
-  @Override
-  public boolean hasLeftSibling() { return leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
-
-  @Override
-  public long getFirstChildKey() { return firstChildKey; }
-
-  public void setFirstChildKey(long key) { this.firstChildKey = key; }
+  public void setRightSiblingKey(long key) {
+    this.rightSiblingKey = key;
+  }
 
   @Override
-  public boolean hasFirstChild() { return firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
+  public boolean hasRightSibling() {
+    return rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 
   @Override
-  public long getLastChildKey() { if (!lazyFieldsParsed) parseLazyFields(); return lastChildKey; }
+  public long getLeftSiblingKey() {
+    return leftSiblingKey;
+  }
 
-  public void setLastChildKey(long key) { this.lastChildKey = key; }
-
-  @Override
-  public boolean hasLastChild() { if (!lazyFieldsParsed) parseLazyFields(); return lastChildKey != Fixed.NULL_NODE_KEY.getStandardProperty(); }
-
-  @Override
-  public long getChildCount() { if (!lazyFieldsParsed) parseLazyFields(); return childCount; }
-
-  public void setChildCount(long childCount) { this.childCount = childCount; }
+  public void setLeftSiblingKey(long key) {
+    this.leftSiblingKey = key;
+  }
 
   @Override
-  public void incrementChildCount() { if (!lazyFieldsParsed) parseLazyFields(); childCount++; }
+  public boolean hasLeftSibling() {
+    return leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 
   @Override
-  public void decrementChildCount() { if (!lazyFieldsParsed) parseLazyFields(); childCount--; }
+  public long getFirstChildKey() {
+    return firstChildKey;
+  }
+
+  public void setFirstChildKey(long key) {
+    this.firstChildKey = key;
+  }
 
   @Override
-  public long getDescendantCount() { if (!lazyFieldsParsed) parseLazyFields(); return descendantCount; }
+  public boolean hasFirstChild() {
+    return firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 
   @Override
-  public void setDescendantCount(long descendantCount) { this.descendantCount = descendantCount; }
+  public long getLastChildKey() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    return lastChildKey;
+  }
+
+  public void setLastChildKey(long key) {
+    this.lastChildKey = key;
+  }
 
   @Override
-  public void incrementDescendantCount() { if (!lazyFieldsParsed) parseLazyFields(); descendantCount++; }
+  public boolean hasLastChild() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    return lastChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
 
   @Override
-  public void decrementDescendantCount() { if (!lazyFieldsParsed) parseLazyFields(); descendantCount--; }
+  public long getChildCount() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    return childCount;
+  }
+
+  public void setChildCount(long childCount) {
+    this.childCount = childCount;
+  }
 
   @Override
-  public long getPathNodeKey() { if (!lazyFieldsParsed) parseLazyFields(); return pathNodeKey; }
+  public void incrementChildCount() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    childCount++;
+  }
 
   @Override
-  public void setPathNodeKey(@NonNegative long pathNodeKey) { this.pathNodeKey = pathNodeKey; }
+  public void decrementChildCount() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    childCount--;
+  }
 
   @Override
-  public int getPrefixKey() { return prefixKey; }
+  public long getDescendantCount() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    return descendantCount;
+  }
 
   @Override
-  public void setPrefixKey(int prefixKey) { this.prefixKey = prefixKey; }
+  public void setDescendantCount(long descendantCount) {
+    this.descendantCount = descendantCount;
+  }
 
   @Override
-  public int getLocalNameKey() { return localNameKey; }
+  public void incrementDescendantCount() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    descendantCount++;
+  }
 
   @Override
-  public void setLocalNameKey(int localNameKey) { this.localNameKey = localNameKey; }
+  public void decrementDescendantCount() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    descendantCount--;
+  }
 
   @Override
-  public int getURIKey() { if (!lazyFieldsParsed) parseLazyFields(); return uriKey; }
+  public long getPathNodeKey() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    return pathNodeKey;
+  }
 
   @Override
-  public void setURIKey(int uriKey) { this.uriKey = uriKey; }
+  public void setPathNodeKey(@NonNegative long pathNodeKey) {
+    this.pathNodeKey = pathNodeKey;
+  }
 
   @Override
-  public int getPreviousRevisionNumber() { if (!lazyFieldsParsed) parseLazyFields(); return previousRevision; }
+  public int getPrefixKey() {
+    return prefixKey;
+  }
 
   @Override
-  public void setPreviousRevision(int revision) { this.previousRevision = revision; }
+  public void setPrefixKey(int prefixKey) {
+    this.prefixKey = prefixKey;
+  }
 
   @Override
-  public int getLastModifiedRevisionNumber() { if (!lazyFieldsParsed) parseLazyFields(); return lastModifiedRevision; }
+  public int getLocalNameKey() {
+    return localNameKey;
+  }
 
   @Override
-  public void setLastModifiedRevision(int revision) { this.lastModifiedRevision = revision; }
+  public void setLocalNameKey(int localNameKey) {
+    this.localNameKey = localNameKey;
+  }
+
+  @Override
+  public int getURIKey() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    return uriKey;
+  }
+
+  @Override
+  public void setURIKey(int uriKey) {
+    this.uriKey = uriKey;
+  }
+
+  @Override
+  public int getPreviousRevisionNumber() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    return previousRevision;
+  }
+
+  @Override
+  public void setPreviousRevision(int revision) {
+    this.previousRevision = revision;
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    if (!lazyFieldsParsed)
+      parseLazyFields();
+    return lastModifiedRevision;
+  }
+
+  @Override
+  public void setLastModifiedRevision(int revision) {
+    this.lastModifiedRevision = revision;
+  }
 
   @Override
   public long getHash() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     if (hash == 0L && hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
@@ -292,7 +389,9 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   }
 
   @Override
-  public void setHash(long hash) { this.hash = hash; }
+  public void setHash(long hash) {
+    this.hash = hash;
+  }
 
   @Override
   public byte[] getRawValue() {
@@ -330,16 +429,24 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   }
 
   @Override
-  public String getValue() { return value != null ? new String(value, Constants.DEFAULT_ENCODING) : ""; }
+  public String getValue() {
+    return value != null
+        ? new String(value, Constants.DEFAULT_ENCODING)
+        : "";
+  }
 
   @Override
-  public QNm getName() { return qNm; }
+  public QNm getName() {
+    return qNm;
+  }
 
-  public void setName(QNm name) { this.qNm = name; }
+  public void setName(QNm name) {
+    this.qNm = name;
+  }
 
   /**
-   * Returns the raw value bytes without triggering decompression.
-   * Used by the fixed-slot projector to preserve the original compressed bytes.
+   * Returns the raw value bytes without triggering decompression. Used by the fixed-slot projector to
+   * preserve the original compressed bytes.
    */
   public byte[] getRawValueWithoutDecompression() {
     if (!valueParsed) {
@@ -348,23 +455,32 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     return value;
   }
 
-  public boolean isCompressed() { return isCompressed; }
+  public boolean isCompressed() {
+    return isCompressed;
+  }
 
   public void setCompressed(boolean compressed) {
     this.isCompressed = compressed;
   }
 
   @Override
-  public boolean isSameItem(@Nullable Node other) { return other != null && other.getNodeKey() == nodeKey; }
+  public boolean isSameItem(@Nullable Node other) {
+    return other != null && other.getNodeKey() == nodeKey;
+  }
 
   @Override
-  public int getTypeKey() { return NamePageHash.generateHashForString("xs:untyped"); }
+  public int getTypeKey() {
+    return NamePageHash.generateHashForString("xs:untyped");
+  }
 
   @Override
-  public void setTypeKey(int typeKey) { }
+  public void setTypeKey(int typeKey) {}
 
   @Override
-  public void setDeweyID(SirixDeweyID id) { this.sirixDeweyID = id; this.deweyIDBytes = null; }
+  public void setDeweyID(SirixDeweyID id) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = null;
+  }
 
   public void setDeweyIDBytes(byte[] deweyIDBytes) {
     this.deweyIDBytes = deweyIDBytes;
@@ -387,13 +503,15 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     return deweyIDBytes;
   }
 
-  public LongHashFunction getHashFunction() { return hashFunction; }
+  public LongHashFunction getHashFunction() {
+    return hashFunction;
+  }
 
   /**
    * Populate this node from a BytesIn source for singleton reuse.
    */
-  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId,
-      LongHashFunction hashFunction, ResourceConfiguration config) {
+  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId, LongHashFunction hashFunction,
+      ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
@@ -411,7 +529,9 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     this.previousRevision = DeltaVarIntCodec.decodeSigned(source);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(source);
 
-    this.childCount = config.storeChildCount() ? DeltaVarIntCodec.decodeSigned(source) : 0L;
+    this.childCount = config.storeChildCount()
+        ? DeltaVarIntCodec.decodeSigned(source)
+        : 0L;
     if (config.hashType != HashType.NONE) {
       this.hash = source.readLong();
       this.descendantCount = DeltaVarIntCodec.decodeSigned(source);
@@ -464,11 +584,14 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   @Override
   public long computeHash(BytesOut<?> bytes) {
-    if (hashFunction == null) return 0L;
+    if (hashFunction == null)
+      return 0L;
     bytes.clear();
     bytes.writeLong(nodeKey).writeLong(parentKey).writeByte(getKind().getId());
-    bytes.writeLong(childCount).writeLong(descendantCount)
-         .writeLong(leftSiblingKey).writeLong(rightSiblingKey)
+    bytes.writeLong(childCount)
+         .writeLong(descendantCount)
+         .writeLong(leftSiblingKey)
+         .writeLong(rightSiblingKey)
          .writeLong(firstChildKey);
     if (lastChildKey != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
       bytes.writeLong(lastChildKey);
@@ -512,33 +635,45 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   }
 
   public PINode toSnapshot() {
-    if (!lazyFieldsParsed) parseLazyFields();
+    if (!lazyFieldsParsed)
+      parseLazyFields();
     final byte[] rawValue = getRawValue();
-    return new PINode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
-        childCount, descendantCount, hash, pathNodeKey, prefixKey, localNameKey, uriKey,
-        rawValue != null ? rawValue.clone() : null, isCompressed, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null, qNm);
+    return new PINode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
+        firstChildKey, lastChildKey, childCount, descendantCount, hash, pathNodeKey, prefixKey, localNameKey, uriKey,
+        rawValue != null
+            ? rawValue.clone()
+            : null,
+        isCompressed, hashFunction, deweyIDBytes != null
+            ? deweyIDBytes.clone()
+            : null,
+        qNm);
   }
 
   @Override
-  public VisitResult acceptVisitor(XmlNodeVisitor visitor) { return visitor.visit(ImmutablePI.of(this)); }
+  public VisitResult acceptVisitor(XmlNodeVisitor visitor) {
+    return visitor.visit(ImmutablePI.of(this));
+  }
 
   @Override
-  public int hashCode() { return Objects.hashCode(nodeKey, parentKey, prefixKey, localNameKey, uriKey); }
+  public int hashCode() {
+    return Objects.hashCode(nodeKey, parentKey, prefixKey, localNameKey, uriKey);
+  }
 
   @Override
   public boolean equals(Object obj) {
-    if (!(obj instanceof PINode other)) return false;
-    return nodeKey == other.nodeKey && parentKey == other.parentKey
-        && prefixKey == other.prefixKey && localNameKey == other.localNameKey && uriKey == other.uriKey;
+    if (!(obj instanceof PINode other))
+      return false;
+    return nodeKey == other.nodeKey && parentKey == other.parentKey && prefixKey == other.prefixKey
+        && localNameKey == other.localNameKey && uriKey == other.uriKey;
   }
 
   @Override
   public @NonNull String toString() {
     return MoreObjects.toStringHelper(this)
-        .add("nodeKey", nodeKey).add("parentKey", parentKey)
-        .add("qNm", qNm).add("value", getValue())
-        .toString();
+                      .add("nodeKey", nodeKey)
+                      .add("parentKey", parentKey)
+                      .add("qNm", qNm)
+                      .add("value", getValue())
+                      .toString();
   }
 }

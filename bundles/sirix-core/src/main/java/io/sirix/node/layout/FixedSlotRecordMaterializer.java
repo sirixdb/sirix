@@ -36,28 +36,33 @@ import java.lang.foreign.MemorySegment;
 /**
  * Materializes {@link DataRecord} instances from fixed-slot in-memory layouts.
  *
- * <p>Supports both payload-free node kinds and inline-payload node kinds (strings, numbers).
- * Each call allocates a fresh Java object. This is required because the write path
- * (e.g. {@code adaptForInsert}, {@code rollingAdd}) holds live references to multiple
- * records of the same kind simultaneously — singletons would cause aliasing corruption.</p>
+ * <p>
+ * Supports both payload-free node kinds and inline-payload node kinds (strings, numbers). Each call
+ * allocates a fresh Java object. This is required because the write path (e.g.
+ * {@code adaptForInsert}, {@code rollingAdd}) holds live references to multiple records of the same
+ * kind simultaneously — singletons would cause aliasing corruption.
+ * </p>
  */
 public final class FixedSlotRecordMaterializer {
   private static final QNm EMPTY_QNM = new QNm("");
 
-  private FixedSlotRecordMaterializer() {
-  }
+  private FixedSlotRecordMaterializer() {}
 
   /**
-   * Populate an existing DataRecord singleton from fixed-slot bytes at the given offset
-   * within {@code data} (zero allocation — avoids {@code asSlice()}).
+   * Populate an existing DataRecord singleton from fixed-slot bytes at the given offset within
+   * {@code data} (zero allocation — avoids {@code asSlice()}).
    *
-   * <p>This method reads structural fields, metadata, and inline payloads from the fixed-slot
+   * <p>
+   * This method reads structural fields, metadata, and inline payloads from the fixed-slot
    * MemorySegment into the existing object's setters. For payload-bearing nodes (strings, numbers),
-   * uses lazy value loading via {@code setLazyRawValue}/{@code setLazyNumberValue} to defer
-   * byte[] allocation until the value is actually accessed.</p>
+   * uses lazy value loading via {@code setLazyRawValue}/{@code setLazyNumberValue} to defer byte[]
+   * allocation until the value is actually accessed.
+   * </p>
    *
-   * <p><b>CRITICAL:</b> For payload-bearing nodes, {@code setLazyRawValue}/{@code setLazyNumberValue}
-   * resets hash to 0. Therefore hash must be set AFTER the lazy value call.</p>
+   * <p>
+   * <b>CRITICAL:</b> For payload-bearing nodes, {@code setLazyRawValue}/{@code setLazyNumberValue}
+   * resets hash to 0. Therefore hash must be set AFTER the lazy value call.
+   * </p>
    *
    * @param existing the singleton to populate (must be the correct type for nodeKind)
    * @param nodeKind the node kind
@@ -69,9 +74,9 @@ public final class FixedSlotRecordMaterializer {
    * @param resourceConfig resource configuration (unused but kept for API consistency)
    * @return true if the singleton was populated, false if the node kind is unsupported
    */
-  public static boolean populateExisting(final DataRecord existing, final NodeKind nodeKind,
-      final long nodeKey, final MemorySegment data, final long dataOffset, final int dataLength,
-      final byte[] deweyIdBytes, final ResourceConfiguration resourceConfig) {
+  public static boolean populateExisting(final DataRecord existing, final NodeKind nodeKind, final long nodeKey,
+      final MemorySegment data, final long dataOffset, final int dataLength, final byte[] deweyIdBytes,
+      final ResourceConfiguration resourceConfig) {
     if (existing == null || nodeKind == null || data == null) {
       return false;
     }
@@ -100,10 +105,13 @@ public final class FixedSlotRecordMaterializer {
           yield false;
         }
         node.setNodeKey(nodeKey);
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LAST_CHILD_KEY));
+        node.setFirstChildKey(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setLastChildKey(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LAST_CHILD_KEY));
         node.setChildCount(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
+        node.setDescendantCount(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
         node.setHash(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
         yield true;
@@ -134,14 +142,20 @@ public final class FixedSlotRecordMaterializer {
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PARENT_KEY));
         node.setPathNodeKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PATH_NODE_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setPreviousRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setRightSiblingKey(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setFirstChildKey(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.FIRST_CHILD_KEY));
         node.setNameKey(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.NAME_KEY));
         node.clearCachedName();
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
+        node.setDescendantCount(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
         node.setHash(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
         yield true;
@@ -170,8 +184,10 @@ public final class FixedSlotRecordMaterializer {
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setPreviousRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setHash(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.HASH));
         node.setValue(SlotLayoutAccessors.readBooleanField(data, dataOffset, layout, StructuralField.BOOLEAN_VALUE));
         node.setDeweyIDBytes(deweyIdBytes);
@@ -183,8 +199,10 @@ public final class FixedSlotRecordMaterializer {
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setPreviousRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setHash(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.HASH));
         node.setDeweyIDBytes(deweyIdBytes);
         yield true;
@@ -195,11 +213,14 @@ public final class FixedSlotRecordMaterializer {
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setPreviousRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setPathNodeKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREFIX_KEY));
-        node.setLocalNameKey(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LOCAL_NAME_KEY));
+        node.setLocalNameKey(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LOCAL_NAME_KEY));
         node.setURIKey(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.URI_KEY));
         node.setHash(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.HASH));
         node.setName(EMPTY_QNM);
@@ -212,18 +233,26 @@ public final class FixedSlotRecordMaterializer {
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LAST_CHILD_KEY));
+        node.setRightSiblingKey(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setFirstChildKey(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setLastChildKey(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LAST_CHILD_KEY));
         node.setPathNodeKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREFIX_KEY));
-        node.setLocalNameKey(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LOCAL_NAME_KEY));
+        node.setLocalNameKey(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LOCAL_NAME_KEY));
         node.setURIKey(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.URI_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setPreviousRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setChildCount(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
+        node.setDescendantCount(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
         node.setHash(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.HASH));
         readInlineVectorPayload(node, data, dataOffset, layout, 0, true);
         readInlineVectorPayload(node, data, dataOffset, layout, 1, false);
@@ -266,8 +295,10 @@ public final class FixedSlotRecordMaterializer {
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setPreviousRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
         // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
         final long objStrPointer = SlotLayoutAccessors.readPayloadPointer(data, dataOffset, layout, 0);
         final int objStrLength = SlotLayoutAccessors.readPayloadLength(data, dataOffset, layout, 0);
@@ -283,8 +314,10 @@ public final class FixedSlotRecordMaterializer {
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PARENT_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setPreviousRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
         // setLazyNumberValue BEFORE setHash — setLazyNumberValue resets hash to 0
         final long objNumPointer = SlotLayoutAccessors.readPayloadPointer(data, dataOffset, layout, 0);
         final int objNumLength = SlotLayoutAccessors.readPayloadLength(data, dataOffset, layout, 0);
@@ -331,10 +364,13 @@ public final class FixedSlotRecordMaterializer {
         node.setParentKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PARENT_KEY));
         node.setPathNodeKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREFIX_KEY));
-        node.setLocalNameKey(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LOCAL_NAME_KEY));
+        node.setLocalNameKey(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LOCAL_NAME_KEY));
         node.setURIKey(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.URI_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setPreviousRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
         // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
         final long attrPointer = SlotLayoutAccessors.readPayloadPointer(data, dataOffset, layout, 0);
         final int attrLength = SlotLayoutAccessors.readPayloadLength(data, dataOffset, layout, 0);
@@ -350,18 +386,26 @@ public final class FixedSlotRecordMaterializer {
         }
         node.setNodeKey(nodeKey);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LAST_CHILD_KEY));
+        node.setRightSiblingKey(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setFirstChildKey(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setLastChildKey(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LAST_CHILD_KEY));
         node.setPathNodeKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREFIX_KEY));
-        node.setLocalNameKey(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LOCAL_NAME_KEY));
+        node.setLocalNameKey(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LOCAL_NAME_KEY));
         node.setURIKey(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.URI_KEY));
-        node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setPreviousRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setChildCount(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.CHILD_COUNT));
-        node.setDescendantCount(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
+        node.setDescendantCount(
+            SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
         // setLazyRawValue BEFORE setHash — setLazyRawValue resets hash to 0
         final long piPointer = SlotLayoutAccessors.readPayloadPointer(data, dataOffset, layout, 0);
         final int piLength = SlotLayoutAccessors.readPayloadLength(data, dataOffset, layout, 0);
@@ -379,34 +423,44 @@ public final class FixedSlotRecordMaterializer {
   /**
    * Populate common structural fields for an ObjectNode.
    */
-  private static void populateObjectFields(final ObjectNode node, final MemorySegment data,
-      final long dataOffset, final NodeKindLayout layout) {
+  private static void populateObjectFields(final ObjectNode node, final MemorySegment data, final long dataOffset,
+      final NodeKindLayout layout) {
     node.setParentKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PARENT_KEY));
-    node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
-    node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
-    node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-    node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
+    node.setPreviousRevision(
+        SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
+    node.setLastModifiedRevision(
+        SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
+    node.setRightSiblingKey(
+        SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+    node.setLeftSiblingKey(
+        SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
     node.setFirstChildKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.FIRST_CHILD_KEY));
     node.setLastChildKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LAST_CHILD_KEY));
     node.setChildCount(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.CHILD_COUNT));
-    node.setDescendantCount(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
+    node.setDescendantCount(
+        SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
     node.setHash(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.HASH));
   }
 
   /**
    * Populate common structural fields for an ArrayNode.
    */
-  private static void populateArrayFields(final ArrayNode node, final MemorySegment data,
-      final long dataOffset, final NodeKindLayout layout) {
+  private static void populateArrayFields(final ArrayNode node, final MemorySegment data, final long dataOffset,
+      final NodeKindLayout layout) {
     node.setParentKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PARENT_KEY));
-    node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
-    node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
-    node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-    node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
+    node.setPreviousRevision(
+        SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
+    node.setLastModifiedRevision(
+        SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
+    node.setRightSiblingKey(
+        SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+    node.setLeftSiblingKey(
+        SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
     node.setFirstChildKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.FIRST_CHILD_KEY));
     node.setLastChildKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LAST_CHILD_KEY));
     node.setChildCount(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.CHILD_COUNT));
-    node.setDescendantCount(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
+    node.setDescendantCount(
+        SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
     node.setHash(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.HASH));
   }
 
@@ -421,7 +475,8 @@ public final class FixedSlotRecordMaterializer {
     node.setFirstChildKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.FIRST_CHILD_KEY));
     node.setLastChildKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LAST_CHILD_KEY));
     node.setChildCount(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.CHILD_COUNT));
-    node.setDescendantCount(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
+    node.setDescendantCount(
+        SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.DESCENDANT_COUNT));
     node.setHash(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.HASH));
     node.setPreviousRevision(0);
     node.setLastModifiedRevision(0);
@@ -430,26 +485,34 @@ public final class FixedSlotRecordMaterializer {
   /**
    * Populate common fields for leaf nodes with siblings.
    */
-  private static void populateLeafNodeFields(final StructNode node, final MemorySegment data,
-      final long dataOffset, final NodeKindLayout layout) {
+  private static void populateLeafNodeFields(final StructNode node, final MemorySegment data, final long dataOffset,
+      final NodeKindLayout layout) {
     node.setParentKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PARENT_KEY));
-    node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
-    node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
-    node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-    node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
+    node.setPreviousRevision(
+        SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
+    node.setLastModifiedRevision(
+        SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
+    node.setRightSiblingKey(
+        SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+    node.setLeftSiblingKey(
+        SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
     node.setHash(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.HASH));
   }
 
   /**
    * Populate fields for a BooleanNode (has siblings + boolean value).
    */
-  private static void populateBooleanNodeFields(final BooleanNode node, final MemorySegment data,
-      final long dataOffset, final NodeKindLayout layout) {
+  private static void populateBooleanNodeFields(final BooleanNode node, final MemorySegment data, final long dataOffset,
+      final NodeKindLayout layout) {
     node.setParentKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.PARENT_KEY));
-    node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
-    node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
-    node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-    node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
+    node.setPreviousRevision(
+        SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.PREVIOUS_REVISION));
+    node.setLastModifiedRevision(
+        SlotLayoutAccessors.readIntField(data, dataOffset, layout, StructuralField.LAST_MODIFIED_REVISION));
+    node.setRightSiblingKey(
+        SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+    node.setLeftSiblingKey(
+        SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.LEFT_SIBLING_KEY));
     node.setHash(SlotLayoutAccessors.readLongField(data, dataOffset, layout, StructuralField.HASH));
     node.setValue(SlotLayoutAccessors.readBooleanField(data, dataOffset, layout, StructuralField.BOOLEAN_VALUE));
   }
@@ -512,7 +575,8 @@ public final class FixedSlotRecordMaterializer {
         final ObjectNode node = new ObjectNode(nodeKey, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction, deweyIdBytes);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.FIRST_CHILD_KEY));
@@ -527,7 +591,8 @@ public final class FixedSlotRecordMaterializer {
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setPathNodeKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PATH_NODE_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.FIRST_CHILD_KEY));
@@ -542,7 +607,8 @@ public final class FixedSlotRecordMaterializer {
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setPathNodeKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PATH_NODE_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setFirstChildKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.FIRST_CHILD_KEY));
@@ -556,7 +622,8 @@ public final class FixedSlotRecordMaterializer {
         final BooleanNode node = new BooleanNode(nodeKey, 0, 0, 0, 0, 0, 0, false, hashFunction, deweyIdBytes);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setHash(SlotLayoutAccessors.readLongField(data, layout, StructuralField.HASH));
@@ -567,7 +634,8 @@ public final class FixedSlotRecordMaterializer {
         final NullNode node = new NullNode(nodeKey, 0, 0, 0, 0, 0, 0, hashFunction, deweyIdBytes);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setHash(SlotLayoutAccessors.readLongField(data, layout, StructuralField.HASH));
@@ -577,7 +645,8 @@ public final class FixedSlotRecordMaterializer {
         final ObjectBooleanNode node = new ObjectBooleanNode(nodeKey, 0, 0, 0, 0, false, hashFunction, deweyIdBytes);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setHash(SlotLayoutAccessors.readLongField(data, layout, StructuralField.HASH));
         node.setValue(SlotLayoutAccessors.readBooleanField(data, layout, StructuralField.BOOLEAN_VALUE));
         yield node;
@@ -586,15 +655,18 @@ public final class FixedSlotRecordMaterializer {
         final ObjectNullNode node = new ObjectNullNode(nodeKey, 0, 0, 0, 0, hashFunction, deweyIdBytes);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setHash(SlotLayoutAccessors.readLongField(data, layout, StructuralField.HASH));
         yield node;
       }
       case NAMESPACE -> {
-        final NamespaceNode node = new NamespaceNode(nodeKey, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction, deweyIdBytes, EMPTY_QNM);
+        final NamespaceNode node =
+            new NamespaceNode(nodeKey, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction, deweyIdBytes, EMPTY_QNM);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setPathNodeKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREFIX_KEY));
         node.setLocalNameKey(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LOCAL_NAME_KEY));
@@ -604,8 +676,8 @@ public final class FixedSlotRecordMaterializer {
         yield node;
       }
       case ELEMENT -> {
-        final ElementNode node = new ElementNode(nodeKey, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, hashFunction, deweyIdBytes, null, null, EMPTY_QNM);
+        final ElementNode node = new ElementNode(nodeKey, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction,
+            deweyIdBytes, null, null, EMPTY_QNM);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.LEFT_SIBLING_KEY));
@@ -616,7 +688,8 @@ public final class FixedSlotRecordMaterializer {
         node.setLocalNameKey(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LOCAL_NAME_KEY));
         node.setURIKey(SlotLayoutAccessors.readIntField(data, layout, StructuralField.URI_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setChildCount(SlotLayoutAccessors.readLongField(data, layout, StructuralField.CHILD_COUNT));
         node.setDescendantCount(SlotLayoutAccessors.readLongField(data, layout, StructuralField.DESCENDANT_COUNT));
         node.setHash(SlotLayoutAccessors.readLongField(data, layout, StructuralField.HASH));
@@ -631,7 +704,8 @@ public final class FixedSlotRecordMaterializer {
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setHash(SlotLayoutAccessors.readLongField(data, layout, StructuralField.HASH));
         readInlineStringPayload(node, data, layout, 0);
         yield node;
@@ -642,16 +716,19 @@ public final class FixedSlotRecordMaterializer {
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setHash(SlotLayoutAccessors.readLongField(data, layout, StructuralField.HASH));
         readInlineNumberPayload(node, data, layout, 0);
         yield node;
       }
       case OBJECT_STRING_VALUE -> {
-        final ObjectStringNode node = new ObjectStringNode(nodeKey, 0, 0, 0, 0, new byte[0], hashFunction, deweyIdBytes);
+        final ObjectStringNode node =
+            new ObjectStringNode(nodeKey, 0, 0, 0, 0, new byte[0], hashFunction, deweyIdBytes);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setHash(SlotLayoutAccessors.readLongField(data, layout, StructuralField.HASH));
         readInlineObjectStringPayload(node, data, layout, 0);
         yield node;
@@ -660,7 +737,8 @@ public final class FixedSlotRecordMaterializer {
         final ObjectNumberNode node = new ObjectNumberNode(nodeKey, 0, 0, 0, 0, 0, hashFunction, deweyIdBytes);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setHash(SlotLayoutAccessors.readLongField(data, layout, StructuralField.HASH));
         readInlineNumberPayloadForObject(node, data, layout, 0);
         yield node;
@@ -671,33 +749,38 @@ public final class FixedSlotRecordMaterializer {
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         // setRawValue BEFORE setHash — setRawValue resets hash to 0
         readInlineXmlValuePayload(node, data, layout, 0);
         node.setHash(SlotLayoutAccessors.readLongField(data, layout, StructuralField.HASH));
         yield node;
       }
       case COMMENT -> {
-        final CommentNode node = new CommentNode(nodeKey, 0, 0, 0, 0, 0, 0, new byte[0], false, hashFunction, deweyIdBytes);
+        final CommentNode node =
+            new CommentNode(nodeKey, 0, 0, 0, 0, 0, 0, new byte[0], false, hashFunction, deweyIdBytes);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         // setRawValue BEFORE setHash — setRawValue resets hash to 0
         readInlineXmlValuePayload(node, data, layout, 0);
         node.setHash(SlotLayoutAccessors.readLongField(data, layout, StructuralField.HASH));
         yield node;
       }
       case ATTRIBUTE -> {
-        final AttributeNode node = new AttributeNode(nodeKey, 0, 0, 0, 0, 0, 0, 0, 0, new byte[0], hashFunction, deweyIdBytes, EMPTY_QNM);
+        final AttributeNode node =
+            new AttributeNode(nodeKey, 0, 0, 0, 0, 0, 0, 0, 0, new byte[0], hashFunction, deweyIdBytes, EMPTY_QNM);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setPathNodeKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PATH_NODE_KEY));
         node.setPrefixKey(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREFIX_KEY));
         node.setLocalNameKey(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LOCAL_NAME_KEY));
         node.setURIKey(SlotLayoutAccessors.readIntField(data, layout, StructuralField.URI_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         // setRawValue BEFORE setHash — setRawValue resets hash to 0
         readInlineXmlValuePayload(node, data, layout, 0);
         node.setHash(SlotLayoutAccessors.readLongField(data, layout, StructuralField.HASH));
@@ -705,8 +788,8 @@ public final class FixedSlotRecordMaterializer {
         yield node;
       }
       case PROCESSING_INSTRUCTION -> {
-        final PINode node = new PINode(nodeKey, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            new byte[0], false, hashFunction, deweyIdBytes, EMPTY_QNM);
+        final PINode node = new PINode(nodeKey, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, new byte[0], false,
+            hashFunction, deweyIdBytes, EMPTY_QNM);
         node.setParentKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.PARENT_KEY));
         node.setRightSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.RIGHT_SIBLING_KEY));
         node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(data, layout, StructuralField.LEFT_SIBLING_KEY));
@@ -717,7 +800,8 @@ public final class FixedSlotRecordMaterializer {
         node.setLocalNameKey(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LOCAL_NAME_KEY));
         node.setURIKey(SlotLayoutAccessors.readIntField(data, layout, StructuralField.URI_KEY));
         node.setPreviousRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.PREVIOUS_REVISION));
-        node.setLastModifiedRevision(SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
+        node.setLastModifiedRevision(
+            SlotLayoutAccessors.readIntField(data, layout, StructuralField.LAST_MODIFIED_REVISION));
         node.setChildCount(SlotLayoutAccessors.readLongField(data, layout, StructuralField.CHILD_COUNT));
         node.setDescendantCount(SlotLayoutAccessors.readLongField(data, layout, StructuralField.DESCENDANT_COUNT));
         // setRawValue BEFORE setHash — setRawValue resets hash to 0
@@ -807,13 +891,17 @@ public final class FixedSlotRecordMaterializer {
   }
 
   /**
-   * Read inline vector payload (attribute keys or namespace keys) from fixed-slot data
-   * and populate the ElementNode's lists.
+   * Read inline vector payload (attribute keys or namespace keys) from fixed-slot data and populate
+   * the ElementNode's lists.
    *
-   * <p>Each vector entry is stored as an uncompressed 8-byte long in the inline payload area.
-   * The count is derived from {@code length / Long.BYTES}.</p>
+   * <p>
+   * Each vector entry is stored as an uncompressed 8-byte long in the inline payload area. The count
+   * is derived from {@code length / Long.BYTES}.
+   * </p>
    *
-   * <p>This overload uses zero-based addressing (for slices or materialize cold path).</p>
+   * <p>
+   * This overload uses zero-based addressing (for slices or materialize cold path).
+   * </p>
    *
    * @param node the ElementNode to populate
    * @param data fixed-slot bytes
@@ -836,8 +924,8 @@ public final class FixedSlotRecordMaterializer {
    * @param payloadRefIndex 0 for attributes, 1 for namespaces
    * @param isAttributes true to populate attribute keys, false for namespace keys
    */
-  public static void readInlineVectorPayload(final ElementNode node, final MemorySegment data,
-      final long dataOffset, final NodeKindLayout layout, final int payloadRefIndex, final boolean isAttributes) {
+  public static void readInlineVectorPayload(final ElementNode node, final MemorySegment data, final long dataOffset,
+      final NodeKindLayout layout, final int payloadRefIndex, final boolean isAttributes) {
     final long pointer = SlotLayoutAccessors.readPayloadPointer(data, dataOffset, layout, payloadRefIndex);
     final int length = SlotLayoutAccessors.readPayloadLength(data, dataOffset, layout, payloadRefIndex);
     final int count = length / Long.BYTES;
@@ -855,9 +943,9 @@ public final class FixedSlotRecordMaterializer {
   }
 
   /**
-   * Read inline value payload from the fixed-slot data and set it on an XML ValueNode.
-   * Handles TextNode, CommentNode, PINode, and AttributeNode.
-   * If the compressed flag is set, the node's compressed state is updated accordingly.
+   * Read inline value payload from the fixed-slot data and set it on an XML ValueNode. Handles
+   * TextNode, CommentNode, PINode, and AttributeNode. If the compressed flag is set, the node's
+   * compressed state is updated accordingly.
    */
   private static void readInlineXmlValuePayload(final ValueNode node, final MemorySegment data,
       final NodeKindLayout layout, final int payloadRefIndex) {

@@ -49,8 +49,10 @@ public class SirixOptimizer extends TopDownOptimizer {
   /**
    * Add an optimization stage at a specific position.
    *
-   * <p>This method allows subclasses (e.g., sirix-enterprise) to inject
-   * custom optimization stages at any position in the optimization pipeline.</p>
+   * <p>
+   * This method allows subclasses (e.g., sirix-enterprise) to inject custom optimization stages at
+   * any position in the optimization pipeline.
+   * </p>
    *
    * @param index Position to insert the stage (0-based)
    * @param stage The optimization stage to add
@@ -62,8 +64,10 @@ public class SirixOptimizer extends TopDownOptimizer {
   /**
    * Add an optimization stage before the index matching stage (at the end).
    *
-   * <p>This is a convenience method for adding stages that should run
-   * after all other optimizations but before index matching.</p>
+   * <p>
+   * This is a convenience method for adding stages that should run after all other optimizations but
+   * before index matching.
+   * </p>
    *
    * @param stage The optimization stage to add
    */
@@ -80,7 +84,9 @@ public class SirixOptimizer extends TopDownOptimizer {
   /**
    * Add an optimization stage at the beginning of the pipeline.
    *
-   * <p>Stages added here will run first, before any other optimization.</p>
+   * <p>
+   * Stages added here will run first, before any other optimization.
+   * </p>
    *
    * @param stage The optimization stage to add
    */

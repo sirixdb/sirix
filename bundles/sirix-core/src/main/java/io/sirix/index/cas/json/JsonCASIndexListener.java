@@ -44,7 +44,7 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
     }
     switch (nodeKind) {
       case STRING_VALUE, OBJECT_STRING_VALUE, BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE, NUMBER_VALUE, OBJECT_NUMBER_VALUE ->
-          indexListenerDelegate.listen(type, nodeKey, pathNodeKey, value);
+        indexListenerDelegate.listen(type, nodeKey, pathNodeKey, value);
       default -> {
       }
     }
@@ -73,7 +73,9 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
         } else {
           throw new IllegalStateException("Unexpected node type for boolean value: " + node.getClass());
         }
-        return boolValue ? STR_TRUE : STR_FALSE;
+        return boolValue
+            ? STR_TRUE
+            : STR_FALSE;
       }
       case OBJECT_BOOLEAN_VALUE -> {
         final boolean objBoolValue;
@@ -84,7 +86,9 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
         } else {
           throw new IllegalStateException("Unexpected node type for object boolean value: " + node.getClass());
         }
-        return objBoolValue ? STR_TRUE : STR_FALSE;
+        return objBoolValue
+            ? STR_TRUE
+            : STR_FALSE;
       }
       case NUMBER_VALUE -> {
         final Number numValue;

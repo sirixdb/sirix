@@ -41,8 +41,8 @@ class WriteLocksRegistryTest {
   }
 
   /**
-   * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} on
-   * an empty {@link WriteLocksRegistry} will still return a valid lock.
+   * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} on an empty
+   * {@link WriteLocksRegistry} will still return a valid lock.
    */
   @Test
   public final void getOnEmptyRegistryReturnsLock() {
@@ -50,8 +50,8 @@ class WriteLocksRegistryTest {
   }
 
   /**
-   * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} multiple
-   * times for the same resource path outputs the same object.
+   * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} multiple times for the same
+   * resource path outputs the same object.
    */
   @Test
   public final void multipleGetsOnSamePathReturnSameLock() {
@@ -62,8 +62,8 @@ class WriteLocksRegistryTest {
   }
 
   /**
-   * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} with different
-   * resource paths will lead to different locks.
+   * Tests that calling {@link WriteLocksRegistry#getWriteLock(Path)} with different resource paths
+   * will lead to different locks.
    */
   @Test
   public final void differentPathsCreateDifferentLocks() {

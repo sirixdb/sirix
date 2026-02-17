@@ -47,8 +47,8 @@ public final class CASFilterRange implements Filter {
    * @param incMax include the maximum value
    * @param pcrCollector the PCR collector used
    */
-  public CASFilterRange(final Set<Path<QNm>> paths, final Atomic min, final Atomic max,
-      final boolean incMin, final boolean incMax, final PCRCollector pcrCollector) {
+  public CASFilterRange(final Set<Path<QNm>> paths, final Atomic min, final Atomic max, final boolean incMin,
+      final boolean incMax, final PCRCollector pcrCollector) {
     this.pathFilter = new PathFilter(requireNonNull(paths), pcrCollector);
     this.min = requireNonNull(min);
     this.max = requireNonNull(max);
@@ -58,6 +58,7 @@ public final class CASFilterRange implements Filter {
 
   /**
    * Get the set of path class records (PCRs) for filtering.
+   * 
    * @return set of PCRs from the path filter
    */
   public Set<Long> getPCRs() {
@@ -79,12 +80,17 @@ public final class CASFilterRange implements Filter {
 
   /**
    * Check if an atomic value is within the range bounds.
+   * 
    * @param key the atomic value to check
    * @return true if in range, false otherwise
    */
   public boolean inRange(Atomic key) {
-    final int minKeyCompare = (min != null) ? min.compareTo(key) : -1;
-    final int maxKeyCompare = (max != null) ? max.compareTo(key) : 1;
+    final int minKeyCompare = (min != null)
+        ? min.compareTo(key)
+        : -1;
+    final int maxKeyCompare = (max != null)
+        ? max.compareTo(key)
+        : 1;
 
     final boolean lowerBoundValid = ((minKeyCompare == 0) && (incMin)) || (minKeyCompare < 0);
     final boolean upperBoundValid = ((maxKeyCompare == 0) && (incMax)) || (maxKeyCompare > 0);

@@ -38,6 +38,7 @@ public final class ParentAxis extends AbstractAxis {
    * Constructor initializing internal state.
    *
    * //todo update descriptions of the cursor
+   * 
    * @param cursor exclusive (immutable) trx to iterate with.
    */
   public ParentAxis(final NodeCursor cursor) {

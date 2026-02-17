@@ -55,7 +55,8 @@ import java.time.Instant;
 import static java.util.Objects.requireNonNull;
 
 /**
- * File Reader. Used for {@link StorageEngineReader} to provide read only access on a RandomAccessFile.
+ * File Reader. Used for {@link StorageEngineReader} to provide read only access on a
+ * RandomAccessFile.
  *
  * @author Marc Kramis, Seabix
  * @author Sebastian Graf, University of Konstanz
@@ -98,9 +99,9 @@ public final class FileReader implements Reader {
   /**
    * Constructor.
    *
-   * @param dataFile            the data file
+   * @param dataFile the data file
    * @param revisionsOffsetFile the file, which holds pointers to the revision root pages
-   * @param byteHandler         {@link ByteHandler} instance
+   * @param byteHandler {@link ByteHandler} instance
    * @throws SirixIOException if something bad happens
    */
   public FileReader(final RandomAccessFile dataFile, final RandomAccessFile revisionsOffsetFile,
@@ -109,7 +110,9 @@ public final class FileReader implements Reader {
     hashFunction = Hashing.sha256();
     this.dataFile = requireNonNull(dataFile);
 
-    this.revisionsOffsetFile = serializationType == SerializationType.DATA ? requireNonNull(revisionsOffsetFile) : null;
+    this.revisionsOffsetFile = serializationType == SerializationType.DATA
+        ? requireNonNull(revisionsOffsetFile)
+        : null;
     this.byteHandler = requireNonNull(byteHandler);
     this.serializationType = requireNonNull(serializationType);
     this.pagePersiter = requireNonNull(pagePersister);
@@ -123,7 +126,7 @@ public final class FileReader implements Reader {
       // Read page from file.
       dataFile.seek(reference.getKey());
       final int dataLength = dataFile.readInt();
-      //      reference.setLength(dataLength + FileReader.OTHER_BEACON);
+      // reference.setLength(dataLength + FileReader.OTHER_BEACON);
       final byte[] page = new byte[dataLength];
       dataFile.read(page);
 
@@ -140,7 +143,7 @@ public final class FileReader implements Reader {
    * Verify page checksum on compressed data (all page types).
    */
   private void verifyChecksumIfNeeded(byte[] compressedData, PageReference reference,
-                                       ResourceConfiguration resourceConfig) {
+      ResourceConfiguration resourceConfig) {
     if (resourceConfig == null || !resourceConfig.verifyChecksumsOnRead) {
       return;
     }
@@ -158,19 +161,20 @@ public final class FileReader implements Reader {
   }
 
   @NonNull
-  private Page getPage(ResourceConfiguration resourceConfiguration, byte[] page, 
-                       PageReference reference) throws IOException {
+  private Page getPage(ResourceConfiguration resourceConfiguration, byte[] page, PageReference reference)
+      throws IOException {
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));
     byte[] uncompressedBytes = inputStream.readAllBytes();
-    
+
     final BytesIn<?> input = Bytes.wrapForRead(uncompressedBytes);
     final var deserializedPage = pagePersiter.deserializePage(resourceConfiguration, input, serializationType);
-    
+
     // CRITICAL: Set database and resource IDs on all PageReferences in the deserialized page
     if (resourceConfiguration != null) {
-      PageUtils.fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(), resourceConfiguration.getID());
+      PageUtils.fixupPageReferenceIds(deserializedPage, resourceConfiguration.getDatabaseId(),
+          resourceConfiguration.getID());
     }
-    
+
     return deserializedPage;
   }
 
@@ -207,8 +211,7 @@ public final class FileReader implements Reader {
       dataFile.read(page);
 
       // Perform byte operations.
-      final BytesIn<?> input =
-          Bytes.wrapForRead(ByteBuffer.wrap(page)); //byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
+      final BytesIn<?> input = Bytes.wrapForRead(ByteBuffer.wrap(page)); // byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
 
       // Return reader required to instantiate and deserialize page.
       return (RevisionRootPage) pagePersiter.deserializePage(resourceConfiguration, input, serializationType);

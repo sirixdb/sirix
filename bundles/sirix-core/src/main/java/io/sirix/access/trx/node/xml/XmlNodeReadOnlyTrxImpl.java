@@ -57,20 +57,20 @@ import java.util.List;
  * Node reading transaction with single-threaded cursor semantics. Each reader is bound to a given
  * revision.
  */
-public final class XmlNodeReadOnlyTrxImpl
-    extends AbstractNodeReadOnlyTrx<XmlNodeReadOnlyTrx, XmlNodeTrx, ImmutableXmlNode>
-    implements InternalXmlNodeReadOnlyTrx {
+public final class XmlNodeReadOnlyTrxImpl extends
+    AbstractNodeReadOnlyTrx<XmlNodeReadOnlyTrx, XmlNodeTrx, ImmutableXmlNode> implements InternalXmlNodeReadOnlyTrx {
 
   /**
    * Constructor.
    *
-   * @param resourceManager     the current {@link ResourceSession} the reader is bound to
-   * @param trxId               ID of the reader
+   * @param resourceManager the current {@link ResourceSession} the reader is bound to
+   * @param trxId ID of the reader
    * @param pageReadTransaction {@link StorageEngineReader} to interact with the page layer
-   * @param documentNode        the document node
+   * @param documentNode the document node
    */
   XmlNodeReadOnlyTrxImpl(final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
-      final @NonNegative int trxId, final StorageEngineReader pageReadTransaction, final ImmutableXmlNode documentNode) {
+      final @NonNegative int trxId, final StorageEngineReader pageReadTransaction,
+      final ImmutableXmlNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());
   }
 
@@ -150,9 +150,13 @@ public final class XmlNodeReadOnlyTrxImpl
       final NodeKind kind = getKind();
       final String uri = pageReadOnlyTrx.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
       final int prefixKey = nameNode.getPrefixKey();
-      final String prefix = prefixKey == -1 ? "" : pageReadOnlyTrx.getName(prefixKey, kind);
+      final String prefix = prefixKey == -1
+          ? ""
+          : pageReadOnlyTrx.getName(prefixKey, kind);
       final int localNameKey = nameNode.getLocalNameKey();
-      final String localName = localNameKey == -1 ? "" : pageReadOnlyTrx.getName(localNameKey, kind);
+      final String localName = localNameKey == -1
+          ? ""
+          : pageReadOnlyTrx.getName(localNameKey, kind);
       return new QNm(uri, prefix, localName);
     }
 

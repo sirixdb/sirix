@@ -206,7 +206,7 @@ public final class DiffFactory {
     transient boolean skipSubtrees = false;
 
     /** The maximum depth. */
-      transient long oldMaxDepth;
+    transient long oldMaxDepth;
 
     /**
      * Constructor.

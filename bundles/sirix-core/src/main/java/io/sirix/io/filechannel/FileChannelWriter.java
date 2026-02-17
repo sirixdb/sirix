@@ -76,7 +76,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   private final PagePersister pagePersister;
 
   private final AsyncCache<Integer, RevisionFileData> cache;
-  
+
   private final RevisionIndexHolder revisionIndexHolder;
 
   private boolean isFirstUberPage;
@@ -86,13 +86,14 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   /**
    * Constructor.
    *
-   * @param dataFileChannel            the data file channel
-   * @param revisionsOffsetFileChannel the channel to the file, which holds pointers to the revision root pages
-   * @param serializationType          the serialization type (for the transaction log or the data file)
-   * @param pagePersister              transforms in-memory pages into byte-arrays and back
-   * @param cache                      the revision file data cache
-   * @param revisionIndexHolder        the holder for the optimized revision index
-   * @param reader                     the reader delegate
+   * @param dataFileChannel the data file channel
+   * @param revisionsOffsetFileChannel the channel to the file, which holds pointers to the revision
+   *        root pages
+   * @param serializationType the serialization type (for the transaction log or the data file)
+   * @param pagePersister transforms in-memory pages into byte-arrays and back
+   * @param cache the revision file data cache
+   * @param revisionIndexHolder the holder for the optimized revision index
+   * @param reader the reader delegate
    */
   public FileChannelWriter(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final SerializationType serializationType, final PagePersister pagePersister,
@@ -106,15 +107,15 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     this.revisionIndexHolder = requireNonNull(revisionIndexHolder);
     this.reader = requireNonNull(reader);
   }
-  
+
   /**
    * Constructor (backward compatibility).
    */
   public FileChannelWriter(final FileChannel dataFileChannel, final FileChannel revisionsOffsetFileChannel,
       final SerializationType serializationType, final PagePersister pagePersister,
       final AsyncCache<Integer, RevisionFileData> cache, final FileChannelReader reader) {
-    this(dataFileChannel, revisionsOffsetFileChannel, serializationType, pagePersister, 
-         cache, new RevisionIndexHolder(), reader);
+    this(dataFileChannel, revisionsOffsetFileChannel, serializationType, pagePersister, cache,
+        new RevisionIndexHolder(), reader);
   }
 
   @Override
@@ -165,7 +166,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     return offset;
   }
 
-  private byte[] buildSerializedPage(final ResourceConfiguration resourceConfiguration, final Page page) throws IOException {
+  private byte[] buildSerializedPage(final ResourceConfiguration resourceConfiguration, final Page page)
+      throws IOException {
     final BytesIn<?> uncompressedBytes = byteBufferBytes.bytesForRead();
 
     if (page instanceof KeyValueLeafPage keyValueLeafPage && keyValueLeafPage.getBytes() != null) {
@@ -187,7 +189,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     final byte[] byteArray = uncompressedBytes.toByteArray();
 
     try (final ByteArrayOutputStream output = new ByteArrayOutputStream(byteArray.length);
-         final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
+        final DataOutputStream dataOutput = new DataOutputStream(reader.getByteHandler().serialize(output))) {
       dataOutput.write(byteArray);
       dataOutput.flush();
       return output.toByteArray();
@@ -220,8 +222,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           offsetToAdd = (int) (REVISION_ROOT_PAGE_BYTE_ALIGN - (offset & (REVISION_ROOT_PAGE_BYTE_ALIGN - 1)));
           offset += offsetToAdd;
         } else if (offset % PAGE_FRAGMENT_BYTE_ALIGN != 0) {
-          offsetToAdd = (int) (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN
-              - 1)));//(offset % PAGE_FRAGMENT_BYTE_ALIGN));
+          offsetToAdd = (int) (PAGE_FRAGMENT_BYTE_ALIGN - (offset & (PAGE_FRAGMENT_BYTE_ALIGN - 1)));// (offset %
+                                                                                                     // PAGE_FRAGMENT_BYTE_ALIGN));
           offset += offsetToAdd;
         }
       }
@@ -264,9 +266,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           revisionsFileChannel.write(buffer, revisionsFileOffset);
           final long currOffset = offset;
           final long currTimestamp = revisionRootPage.getRevisionTimestamp();
-          cache.put(revisionRootPage.getRevision(),
-                    CompletableFuture.supplyAsync(() -> new RevisionFileData(currOffset,
-                                                                             Instant.ofEpochMilli(currTimestamp))));
+          cache.put(revisionRootPage.getRevision(), CompletableFuture.supplyAsync(
+              () -> new RevisionFileData(currOffset, Instant.ofEpochMilli(currTimestamp))));
           // Update the optimized revision index
           revisionIndexHolder.addRevision(currOffset, currTimestamp);
         } else if (page instanceof UberPage && isFirstUberPage) {
@@ -322,7 +323,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       isFirstUberPage = false;
       writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
 
-      @SuppressWarnings("DataFlowIssue") final var buffer = ((ByteBuffer) bufferedBytes.underlyingObject()).rewind();
+      @SuppressWarnings("DataFlowIssue")
+      final var buffer = ((ByteBuffer) bufferedBytes.underlyingObject()).rewind();
       buffer.limit((int) bufferedBytes.readLimit());
       dataFileChannel.write(buffer, 0L);
       // NOTE: force() removed here - now called via forceAll() at end of commit for single barrier
@@ -359,7 +361,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       offset = fileSize;
     }
 
-    @SuppressWarnings("DataFlowIssue") final var buffer = ((ByteBuffer) bufferedBytes.underlyingObject()).rewind();
+    @SuppressWarnings("DataFlowIssue")
+    final var buffer = ((ByteBuffer) bufferedBytes.underlyingObject()).rewind();
     buffer.limit((int) bufferedBytes.readLimit());
     dataFileChannel.write(buffer, offset);
     bufferedBytes.clear();

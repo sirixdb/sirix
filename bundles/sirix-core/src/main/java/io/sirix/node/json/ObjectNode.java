@@ -59,8 +59,10 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 /**
  * JSON Object node.
  *
- * <p>Uses primitive fields for efficient storage with delta+varint encoding.
- * This eliminates MemorySegment/VarHandle overhead and enables compact serialization.</p>
+ * <p>
+ * Uses primitive fields for efficient storage with delta+varint encoding. This eliminates
+ * MemorySegment/VarHandle overhead and enables compact serialization.
+ * </p>
  * 
  * @author Johannes Lichtenberger
  */
@@ -68,28 +70,28 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
-  
+
   // Mutable structural fields (updated during tree modifications)
   private long parentKey;
   private long rightSiblingKey;
   private long leftSiblingKey;
   private long firstChildKey;
   private long lastChildKey;
-  
+
   // Mutable revision tracking
   private int previousRevision;
   private int lastModifiedRevision;
-  
+
   // Mutable counters
   private long childCount;
   private long descendantCount;
-  
+
   // Mutable hash
   private long hash;
-  
+
   // Hash function for computing node hashes (mutable for singleton reuse)
   private LongHashFunction hashFunction;
-  
+
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
@@ -105,12 +107,11 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
   private NodeKindLayout fixedSlotLayout;
 
   /**
-   * Primary constructor with all primitive fields.
-   * Used by deserialization (NodeKind.OBJECT.deserialize).
+   * Primary constructor with all primitive fields. Used by deserialization
+   * (NodeKind.OBJECT.deserialize).
    */
-  public ObjectNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long firstChildKey,
-      long lastChildKey, long childCount, long descendantCount, long hash,
+  public ObjectNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long firstChildKey, long lastChildKey, long childCount, long descendantCount, long hash,
       LongHashFunction hashFunction, byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -129,12 +130,11 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
   }
 
   /**
-   * Constructor with SirixDeweyID instead of byte array.
-   * Used by factory methods when creating new nodes.
+   * Constructor with SirixDeweyID instead of byte array. Used by factory methods when creating new
+   * nodes.
    */
-  public ObjectNode(long nodeKey, long parentKey, int previousRevision,
-      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long firstChildKey,
-      long lastChildKey, long childCount, long descendantCount, long hash,
+  public ObjectNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
+      long leftSiblingKey, long firstChildKey, long lastChildKey, long childCount, long descendantCount, long hash,
       LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -166,7 +166,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
   public long getParentKey() {
     return parentKey;
   }
-  
+
   public void setParentKey(final long parentKey) {
     this.parentKey = parentKey;
   }
@@ -223,9 +223,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
   @Override
   public long computeHash(final BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(getNodeKey())
-         .writeLong(getParentKey())
-         .writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
 
     bytes.writeLong(getChildCount())
          .writeLong(getDescendantCount())
@@ -244,7 +242,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
   public long getRightSiblingKey() {
     return rightSiblingKey;
   }
-  
+
   public void setRightSiblingKey(final long rightSibling) {
     this.rightSiblingKey = rightSibling;
   }
@@ -253,7 +251,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
   public long getLeftSiblingKey() {
     return leftSiblingKey;
   }
-  
+
   public void setLeftSiblingKey(final long leftSibling) {
     this.leftSiblingKey = leftSibling;
   }
@@ -262,7 +260,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
   public long getFirstChildKey() {
     return firstChildKey;
   }
-  
+
   public void setFirstChildKey(final long firstChild) {
     this.firstChildKey = firstChild;
   }
@@ -286,7 +284,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
     }
     return childCount;
   }
-  
+
   public void setChildCount(final long childCount) {
     this.childCount = childCount;
   }
@@ -298,7 +296,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
     }
     return descendantCount;
   }
-  
+
   public void setDescendantCount(final long descendantCount) {
     this.descendantCount = descendantCount;
   }
@@ -372,96 +370,94 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
   }
 
   /**
-   * Populate this node from a BytesIn source for singleton reuse.
-   * LAZY OPTIMIZATION: Only parses structural fields immediately (NEW ORDER).
+   * Populate this node from a BytesIn source for singleton reuse. LAZY OPTIMIZATION: Only parses
+   * structural fields immediately (NEW ORDER).
    */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
-    
+
     // STRUCTURAL FIELDS - parse immediately (NEW ORDER)
     this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.firstChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     this.lastChildKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
-    
+
     // Store for lazy parsing
     this.lazySource = source.getSource();
     this.lazyOffset = source.position();
     this.lazyFieldsParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
     this.storeChildCount = config.storeChildCount();
-    
+
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.childCount = 0;
     this.hash = 0;
     this.descendantCount = 0;
   }
-  
+
   /**
-   * Populate this node directly from a MemorySegment, bypassing BytesIn overhead.
-   * ZERO ALLOCATION - reads directly from memory segment.
+   * Populate this node directly from a MemorySegment, bypassing BytesIn overhead. ZERO ALLOCATION -
+   * reads directly from memory segment.
    * 
-   * @param segment     the MemorySegment containing the serialized node data (after kind byte)
+   * @param segment the MemorySegment containing the serialized node data (after kind byte)
    * @param startOffset the byte offset within the segment to start reading
-   * @param nodeKey     the node key
-   * @param deweyId     the DeweyID bytes (may be null)
+   * @param nodeKey the node key
+   * @param deweyId the DeweyID bytes (may be null)
    * @param hashFunction the hash function
-   * @param config      the resource configuration
+   * @param config the resource configuration
    * @return the byte offset after reading all structural fields (for lazy field position)
    */
   public int readFromSegment(final MemorySegment segment, final int startOffset, final long nodeKey,
-                              final byte[] deweyId, final LongHashFunction hashFunction,
-                              final ResourceConfiguration config) {
+      final byte[] deweyId, final LongHashFunction hashFunction, final ResourceConfiguration config) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
-    
+
     int offset = startOffset;
-    
+
     // STRUCTURAL FIELDS - read directly from segment (no BytesIn overhead)
     this.parentKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
     offset += DeltaVarIntCodec.deltaLength(segment, offset);
-    
+
     this.rightSiblingKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
     offset += DeltaVarIntCodec.deltaLength(segment, offset);
-    
+
     this.leftSiblingKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
     offset += DeltaVarIntCodec.deltaLength(segment, offset);
-    
+
     this.firstChildKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
     offset += DeltaVarIntCodec.deltaLength(segment, offset);
-    
+
     this.lastChildKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
     offset += DeltaVarIntCodec.deltaLength(segment, offset);
-    
+
     // Store for lazy parsing
     this.lazySource = segment;
     this.lazyOffset = offset;
     this.lazyFieldsParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
     this.storeChildCount = config.storeChildCount();
-    
+
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.childCount = 0;
     this.hash = 0;
     this.descendantCount = 0;
-    
+
     return offset;
   }
-  
+
   /**
-   * Bind this singleton for fixed-slot lazy cold-field reading.
-   * Hot fields (parentKey, siblings, firstChildKey) must already be set.
-   * Cold fields (hash, childCount, descendantCount, lastChildKey, prevRev, lastModRev)
-   * will be read on demand via parseLazyFields().
+   * Bind this singleton for fixed-slot lazy cold-field reading. Hot fields (parentKey, siblings,
+   * firstChildKey) must already be set. Cold fields (hash, childCount, descendantCount, lastChildKey,
+   * prevRev, lastModRev) will be read on demand via parseLazyFields().
    */
   public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
     this.lazySource = slotData;
@@ -506,7 +502,9 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
 
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
-    this.childCount = storeChildCount ? DeltaVarIntCodec.decodeSigned(bytesIn) : 0;
+    this.childCount = storeChildCount
+        ? DeltaVarIntCodec.decodeSigned(bytesIn)
+        : 0;
     if (hasHash) {
       this.hash = bytesIn.readLong();
       this.descendantCount = DeltaVarIntCodec.decodeSigned(bytesIn);
@@ -515,17 +513,17 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
   }
 
   /**
-   * Create a deep copy snapshot of this node.
-   * Forces parsing of all lazy fields since snapshot must be independent.
+   * Create a deep copy snapshot of this node. Forces parsing of all lazy fields since snapshot must
+   * be independent.
    */
   public ObjectNode toSnapshot() {
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return new ObjectNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
-        rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey, childCount,
-        descendantCount, hash, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+    return new ObjectNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
+        firstChildKey, lastChildKey, childCount, descendantCount, hash, hashFunction, deweyIDBytes != null
+            ? deweyIDBytes.clone()
+            : null);
   }
 
   @Override
@@ -576,7 +574,6 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Reusable
     if (!(obj instanceof final ObjectNode other))
       return false;
 
-    return nodeKey == other.nodeKey
-        && parentKey == other.parentKey;
+    return nodeKey == other.nodeKey && parentKey == other.parentKey;
   }
 }

@@ -35,8 +35,8 @@ public final class ResourceTransactionUsage {
       database.createResource(new ResourceConfiguration.Builder("resource").build());
 
       try (var session = database.beginResourceSession("resource");
-           var wtx = session.beginNodeTrx();
-           var fis = new FileInputStream(LOCATION.resolve("input.xml").toFile())) {
+          var wtx = session.beginNodeTrx();
+          var fis = new FileInputStream(LOCATION.resolve("input.xml").toFile())) {
         wtx.insertSubtreeAsFirstChild(XmlShredder.createFileReader(fis));
         wtx.moveTo(2);
         wtx.moveSubtreeToFirstChild(4).commit();

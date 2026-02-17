@@ -29,11 +29,8 @@ import java.util.concurrent.TimeUnit;
 @State(Scope.Thread)
 @Warmup(iterations = 2, time = 1)
 @Measurement(iterations = 3, time = 2)
-@Fork(value = 1, jvmArgs = {
-    "--add-modules=jdk.incubator.vector",
-    "--enable-preview",
-    "--enable-native-access=ALL-UNNAMED"
-})
+@Fork(value = 1,
+    jvmArgs = {"--add-modules=jdk.incubator.vector", "--enable-preview", "--enable-native-access=ALL-UNNAMED"})
 public class RevisionIndexThroughputBenchmark {
 
   @Param({"64", "128", "256", "1000"})
@@ -48,15 +45,15 @@ public class RevisionIndexThroughputBenchmark {
   public void setup() {
     timestamps = new long[size];
     long[] offsets = new long[size];
-    
+
     long baseTime = System.currentTimeMillis();
     for (int i = 0; i < size; i++) {
       timestamps[i] = baseTime + (i * 1000L);
       offsets[i] = i * 4096L;
     }
-    
+
     revisionIndex = RevisionIndex.create(timestamps, offsets);
-    
+
     Random random = new Random(12345);
     randomTargets = new long[1024];
     for (int i = 0; i < randomTargets.length; i++) {

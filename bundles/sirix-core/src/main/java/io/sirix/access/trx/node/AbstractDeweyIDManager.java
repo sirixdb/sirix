@@ -12,6 +12,7 @@ public abstract class AbstractDeweyIDManager<W extends NodeTrx & NodeCursor> {
 
   /**
    * Constructor.
+   * 
    * @param nodeTrx the node transaction
    */
   protected AbstractDeweyIDManager(W nodeTrx) {

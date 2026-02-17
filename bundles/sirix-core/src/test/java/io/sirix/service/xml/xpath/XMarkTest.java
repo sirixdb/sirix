@@ -49,8 +49,7 @@ public class XMarkTest {
   public void setUp() throws Exception {
     XmlTestHelper.deleteEverything();
     // Build simple test tree.
-    XmlShredder.main(
-        XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
+    XmlShredder.main(XML.toAbsolutePath().toString(), PATHS.PATH1.getFile().toAbsolutePath().toString());
     holder = Holder.generateRtx();
   }
 
@@ -85,8 +84,7 @@ public class XMarkTest {
     // Q5 How many sold items cost more than 40?
     XPathStringChecker.testIAxisConventions(
         new XPathAxis(holder.getXmlNodeReadTrx(),
-            "fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] "
-                + "return $i/price)"),
+            "fn:count(for $i in /site/closed_auctions/closed_auction[price/text() >= 40] " + "return $i/price)"),
         new String[] {"75"});
   }
 

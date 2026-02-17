@@ -24,9 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Tests for {@link FSSTCompressor}.
  * 
- * Verifies the formal correctness properties:
- * P1: ∀ string s, table t: decode(encode(s, t), t) == s  (roundtrip correctness)
- * P2: ∀ input i: encode(i, emptyTable) == escape(i)     (graceful degradation)
+ * Verifies the formal correctness properties: P1: ∀ string s, table t: decode(encode(s, t), t) == s
+ * (roundtrip correctness) P2: ∀ input i: encode(i, emptyTable) == escape(i) (graceful degradation)
  */
 class FSSTCompressorTest {
 
@@ -37,7 +36,8 @@ class FSSTCompressorTest {
     final List<byte[]> samples = new ArrayList<>();
     for (int i = 0; i < 100; i++) {
       // Each string is ~50 bytes, well over MIN_COMPRESSION_SIZE of 32
-      samples.add(("{\"name\":\"Person" + i + "\",\"age\":" + (20 + i % 50) + ",\"city\":\"City" + i + "\"}").getBytes(StandardCharsets.UTF_8));
+      samples.add(("{\"name\":\"Person" + i + "\",\"age\":" + (20 + i % 50) + ",\"city\":\"City" + i + "\"}").getBytes(
+          StandardCharsets.UTF_8));
     }
 
     // When: building symbol table
@@ -55,12 +55,11 @@ class FSSTCompressorTest {
   @Test
   void testRoundtripCorrectness() {
     // Given: similar strings to build table
-    final List<byte[]> samples = Arrays.asList(
-        "The quick brown fox jumps over the lazy dog".getBytes(StandardCharsets.UTF_8),
-        "The quick brown cat jumps over the lazy dog".getBytes(StandardCharsets.UTF_8),
-        "The slow brown fox walks over the lazy dog".getBytes(StandardCharsets.UTF_8),
-        "The quick brown fox runs over the lazy cat".getBytes(StandardCharsets.UTF_8)
-    );
+    final List<byte[]> samples =
+        Arrays.asList("The quick brown fox jumps over the lazy dog".getBytes(StandardCharsets.UTF_8),
+            "The quick brown cat jumps over the lazy dog".getBytes(StandardCharsets.UTF_8),
+            "The slow brown fox walks over the lazy dog".getBytes(StandardCharsets.UTF_8),
+            "The quick brown fox runs over the lazy cat".getBytes(StandardCharsets.UTF_8));
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
 
     // When: encoding and decoding each sample
@@ -69,7 +68,7 @@ class FSSTCompressorTest {
       final byte[] decoded = FSSTCompressor.decode(encoded, symbolTable);
 
       // Then: P1 holds - roundtrip correctness
-      assertArrayEquals(original, decoded, 
+      assertArrayEquals(original, decoded,
           "Roundtrip should preserve original data: " + new String(original, StandardCharsets.UTF_8));
     }
   }
@@ -77,12 +76,10 @@ class FSSTCompressorTest {
   @Test
   void testRoundtripWithNewString() {
     // Given: table built from samples
-    final List<byte[]> samples = Arrays.asList(
-        "{\"id\":123,\"value\":\"test\"}".getBytes(StandardCharsets.UTF_8),
+    final List<byte[]> samples = Arrays.asList("{\"id\":123,\"value\":\"test\"}".getBytes(StandardCharsets.UTF_8),
         "{\"id\":456,\"value\":\"data\"}".getBytes(StandardCharsets.UTF_8),
         "{\"id\":789,\"value\":\"info\"}".getBytes(StandardCharsets.UTF_8),
-        "{\"id\":101,\"value\":\"more\"}".getBytes(StandardCharsets.UTF_8)
-    );
+        "{\"id\":101,\"value\":\"more\"}".getBytes(StandardCharsets.UTF_8));
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
 
     // When: encoding a new string (not in samples but with similar patterns)
@@ -97,12 +94,9 @@ class FSSTCompressorTest {
   @Test
   void testEmptyStringRoundtrip() {
     // Given: table and empty string
-    final List<byte[]> samples = Arrays.asList(
-        "test1".getBytes(StandardCharsets.UTF_8),
-        "test2".getBytes(StandardCharsets.UTF_8),
-        "test3".getBytes(StandardCharsets.UTF_8),
-        "test4".getBytes(StandardCharsets.UTF_8)
-    );
+    final List<byte[]> samples =
+        Arrays.asList("test1".getBytes(StandardCharsets.UTF_8), "test2".getBytes(StandardCharsets.UTF_8),
+            "test3".getBytes(StandardCharsets.UTF_8), "test4".getBytes(StandardCharsets.UTF_8));
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
 
     // When: encoding empty string
@@ -144,24 +138,17 @@ class FSSTCompressorTest {
   @Test
   void testUnicodeRoundtrip() {
     // Test various unicode strings
-    final String[] inputs = {
-        "Hello, World!",
-        "こんにちは世界",  // Japanese
-        "🎉🚀🔥",        // Emoji
-        "Ñoño señor",    // Spanish with accents
-        "Mixed 日本語 and English",
-        "\u0000\u0001\u00FF"  // Edge case bytes
+    final String[] inputs = {"Hello, World!", "こんにちは世界", // Japanese
+        "🎉🚀🔥", // Emoji
+        "Ñoño señor", // Spanish with accents
+        "Mixed 日本語 and English", "\u0000\u0001\u00FF" // Edge case bytes
     };
 
     for (final String input : inputs) {
       // Given: unicode string and a table
       final byte[] inputBytes = input.getBytes(StandardCharsets.UTF_8);
-      final List<byte[]> samples = Arrays.asList(
-          inputBytes,
-          (input + " copy").getBytes(StandardCharsets.UTF_8),
-          (input + " another").getBytes(StandardCharsets.UTF_8),
-          (input + " more").getBytes(StandardCharsets.UTF_8)
-      );
+      final List<byte[]> samples = Arrays.asList(inputBytes, (input + " copy").getBytes(StandardCharsets.UTF_8),
+          (input + " another").getBytes(StandardCharsets.UTF_8), (input + " more").getBytes(StandardCharsets.UTF_8));
       final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
 
       // When: encoding and decoding
@@ -181,19 +168,21 @@ class FSSTCompressorTest {
     final List<byte[]> samples = new ArrayList<>();
     for (int i = 0; i < 100; i++) {
       // Each string is ~60 bytes with repetitive patterns
-      samples.add(("{\"type\":\"event\",\"id\":" + i + ",\"data\":\"common_value_pattern_" + i + "\"}").getBytes(StandardCharsets.UTF_8));
+      samples.add(("{\"type\":\"event\",\"id\":" + i + ",\"data\":\"common_value_pattern_" + i + "\"}").getBytes(
+          StandardCharsets.UTF_8));
     }
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
     assertNotNull(symbolTable);
     assertTrue(symbolTable.length > 0, "Symbol table should be built for sufficient data");
 
     // When: encoding a similar string (must be 32+ bytes)
-    final byte[] input = "{\"type\":\"event\",\"id\":999,\"data\":\"common_value_pattern_999\"}".getBytes(StandardCharsets.UTF_8);
+    final byte[] input =
+        "{\"type\":\"event\",\"id\":999,\"data\":\"common_value_pattern_999\"}".getBytes(StandardCharsets.UTF_8);
     final byte[] encoded = FSSTCompressor.encode(input, symbolTable);
 
     // Then: encoded should be smaller than input (compression beneficial)
-    assertTrue(encoded.length < input.length, 
-        "Compression should reduce size for repetitive data. Original: " + input.length + ", Encoded: " + encoded.length);
+    assertTrue(encoded.length < input.length, "Compression should reduce size for repetitive data. Original: "
+        + input.length + ", Encoded: " + encoded.length);
 
     // And: roundtrip should work
     final byte[] decoded = FSSTCompressor.decode(encoded, symbolTable);
@@ -207,7 +196,8 @@ class FSSTCompressorTest {
     final List<byte[]> samples = new ArrayList<>();
     for (int i = 0; i < 100; i++) {
       // Each string is 50+ bytes with common prefix/suffix patterns (100 * 50 = 5KB > 4KB)
-      samples.add(("prefix_common_pattern_" + String.format("%03d", i) + "_suffix_end_with_more_data").getBytes(StandardCharsets.UTF_8));
+      samples.add(("prefix_common_pattern_" + String.format("%03d", i) + "_suffix_end_with_more_data").getBytes(
+          StandardCharsets.UTF_8));
     }
 
     // When/Then
@@ -233,10 +223,8 @@ class FSSTCompressorTest {
   @Test
   void testTooFewSamples() {
     // Given: too few samples
-    final List<byte[]> samples = Arrays.asList(
-        "one".getBytes(StandardCharsets.UTF_8),
-        "two".getBytes(StandardCharsets.UTF_8)
-    );
+    final List<byte[]> samples =
+        Arrays.asList("one".getBytes(StandardCharsets.UTF_8), "two".getBytes(StandardCharsets.UTF_8));
 
     // When: building table
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
@@ -248,12 +236,10 @@ class FSSTCompressorTest {
   @Test
   void testMemorySegmentEncode() {
     // Given: memory segment and table
-    final List<byte[]> samples = Arrays.asList(
-        "memory segment test one".getBytes(StandardCharsets.UTF_8),
+    final List<byte[]> samples = Arrays.asList("memory segment test one".getBytes(StandardCharsets.UTF_8),
         "memory segment test two".getBytes(StandardCharsets.UTF_8),
         "memory segment test three".getBytes(StandardCharsets.UTF_8),
-        "memory segment test four".getBytes(StandardCharsets.UTF_8)
-    );
+        "memory segment test four".getBytes(StandardCharsets.UTF_8));
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
 
     final byte[] input = "memory segment test five".getBytes(StandardCharsets.UTF_8);
@@ -270,12 +256,10 @@ class FSSTCompressorTest {
   @Test
   void testMemorySegmentDecode() {
     // Given: encoded data as memory segment
-    final List<byte[]> samples = Arrays.asList(
-        "decode from segment one".getBytes(StandardCharsets.UTF_8),
+    final List<byte[]> samples = Arrays.asList("decode from segment one".getBytes(StandardCharsets.UTF_8),
         "decode from segment two".getBytes(StandardCharsets.UTF_8),
         "decode from segment three".getBytes(StandardCharsets.UTF_8),
-        "decode from segment four".getBytes(StandardCharsets.UTF_8)
-    );
+        "decode from segment four".getBytes(StandardCharsets.UTF_8));
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
 
     final byte[] input = "decode from segment five".getBytes(StandardCharsets.UTF_8);
@@ -292,12 +276,10 @@ class FSSTCompressorTest {
   @Test
   void testParseSymbolTableRoundtrip() {
     // Given: samples to build table
-    final List<byte[]> samples = Arrays.asList(
-        "symbol table parse test".getBytes(StandardCharsets.UTF_8),
+    final List<byte[]> samples = Arrays.asList("symbol table parse test".getBytes(StandardCharsets.UTF_8),
         "symbol table parse another".getBytes(StandardCharsets.UTF_8),
         "symbol table parse more".getBytes(StandardCharsets.UTF_8),
-        "symbol table parse data".getBytes(StandardCharsets.UTF_8)
-    );
+        "symbol table parse data".getBytes(StandardCharsets.UTF_8));
 
     // When: building and parsing table
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
@@ -316,13 +298,9 @@ class FSSTCompressorTest {
   @Test
   void testEscapeByteHandling() {
     // Given: input containing 0xFF bytes
-    final byte[] input = new byte[]{0x00, (byte) 0xFF, 0x01, (byte) 0xFF, (byte) 0xFF, 0x02};
-    final List<byte[]> samples = Arrays.asList(
-        input,
-        new byte[]{(byte) 0xFF, (byte) 0xFF, (byte) 0xFF},
-        input,
-        new byte[]{0x00, (byte) 0xFF, 0x00, (byte) 0xFF}
-    );
+    final byte[] input = new byte[] {0x00, (byte) 0xFF, 0x01, (byte) 0xFF, (byte) 0xFF, 0x02};
+    final List<byte[]> samples = Arrays.asList(input, new byte[] {(byte) 0xFF, (byte) 0xFF, (byte) 0xFF}, input,
+        new byte[] {0x00, (byte) 0xFF, 0x00, (byte) 0xFF});
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
 
     // When: encoding and decoding
@@ -362,7 +340,8 @@ class FSSTCompressorTest {
     final List<byte[]> samples = new ArrayList<>();
     for (int i = 0; i < 100; i++) {
       // Each string is ~70 bytes with very repetitive patterns
-      samples.add(("{\"type\":\"event\",\"action\":\"click\",\"target\":\"button_" + i + "\"}").getBytes(StandardCharsets.UTF_8));
+      samples.add(("{\"type\":\"event\",\"action\":\"click\",\"target\":\"button_" + i + "\"}").getBytes(
+          StandardCharsets.UTF_8));
     }
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
 
@@ -395,10 +374,8 @@ class FSSTCompressorTest {
   @Test
   void testIsCompressionBeneficialWithNullSymbolTable() {
     // Given: null symbol table
-    final List<byte[]> samples = Arrays.asList(
-        "test data one".getBytes(StandardCharsets.UTF_8),
-        "test data two".getBytes(StandardCharsets.UTF_8)
-    );
+    final List<byte[]> samples = Arrays.asList("test data one".getBytes(StandardCharsets.UTF_8),
+        "test data two".getBytes(StandardCharsets.UTF_8));
 
     // When: checking with null table
     boolean beneficial = FSSTCompressor.isCompressionBeneficial(samples, null);
@@ -410,10 +387,8 @@ class FSSTCompressorTest {
   @Test
   void testIsCompressionBeneficialWithEmptySymbolTable() {
     // Given: empty symbol table
-    final List<byte[]> samples = Arrays.asList(
-        "test data one".getBytes(StandardCharsets.UTF_8),
-        "test data two".getBytes(StandardCharsets.UTF_8)
-    );
+    final List<byte[]> samples = Arrays.asList("test data one".getBytes(StandardCharsets.UTF_8),
+        "test data two".getBytes(StandardCharsets.UTF_8));
 
     // When: checking with empty table
     boolean beneficial = FSSTCompressor.isCompressionBeneficial(samples, new byte[0]);
@@ -426,7 +401,7 @@ class FSSTCompressorTest {
   void testIsCompressionBeneficialWithEmptySamples() {
     // Given: empty samples list
     final List<byte[]> samples = new ArrayList<>();
-    final byte[] symbolTable = new byte[]{1, 2, 3}; // Dummy table
+    final byte[] symbolTable = new byte[] {1, 2, 3}; // Dummy table
 
     // When: checking with empty samples
     boolean beneficial = FSSTCompressor.isCompressionBeneficial(samples, symbolTable);
@@ -442,7 +417,8 @@ class FSSTCompressorTest {
     final List<byte[]> samples = new ArrayList<>();
     for (int i = 0; i < 150; i++) {
       // Each sample is ~50 bytes, 150 samples = 7500 bytes > 4096
-      samples.add(("{\"id\":" + i + ",\"value\":\"test_data_item_number_" + i + "\"}").getBytes(StandardCharsets.UTF_8));
+      samples.add(
+          ("{\"id\":" + i + ",\"value\":\"test_data_item_number_" + i + "\"}").getBytes(StandardCharsets.UTF_8));
     }
     final byte[] symbolTable = FSSTCompressor.buildSymbolTable(samples);
     assertNotNull(symbolTable, "Symbol table should not be null with 150 samples");

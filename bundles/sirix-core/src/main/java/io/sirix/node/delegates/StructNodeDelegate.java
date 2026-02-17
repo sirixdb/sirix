@@ -89,11 +89,11 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   /**
    * Constructor.
    *
-   * @param nodeDelegate    {@link NodeDelegate} instance
-   * @param firstChild      first child key
-   * @param rightSibling    right sibling key
-   * @param leftSibling     left sibling key
-   * @param childCount      number of children of the node
+   * @param nodeDelegate {@link NodeDelegate} instance
+   * @param firstChild first child key
+   * @param rightSibling right sibling key
+   * @param leftSibling left sibling key
+   * @param childCount number of children of the node
    * @param descendantCount number of descendants of the node
    */
   public StructNodeDelegate(final NodeDelegate nodeDelegate, final long firstChild, final long rightSibling,
@@ -111,12 +111,12 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   /**
    * Constructor.
    *
-   * @param nodeDelegate    {@link NodeDelegate} instance
-   * @param firstChild      first child key
-   * @param lastChild       last child key
-   * @param rightSibling    right sibling key
-   * @param leftSibling     left sibling key
-   * @param childCount      number of children of the node
+   * @param nodeDelegate {@link NodeDelegate} instance
+   * @param firstChild first child key
+   * @param lastChild last child key
+   * @param rightSibling right sibling key
+   * @param leftSibling left sibling key
+   * @param childCount number of children of the node
    * @param descendantCount number of descendants of the node
    */
   public StructNodeDelegate(final NodeDelegate nodeDelegate, final long firstChild, final long lastChild,
@@ -218,19 +218,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   @Override
   public int hashCode() {
     return lastChild == Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()
-        ? Objects.hashCode(childCount,
-                           nodeDelegate,
-                           firstChild,
-                           leftSibling,
-                           rightSibling,
-                           descendantCount)
-        : Objects.hashCode(childCount,
-                           nodeDelegate,
-                           firstChild,
-                           lastChild,
-                           leftSibling,
-                           rightSibling,
-                           descendantCount);
+        ? Objects.hashCode(childCount, nodeDelegate, firstChild, leftSibling, rightSibling, descendantCount)
+        : Objects.hashCode(childCount, nodeDelegate, firstChild, lastChild, leftSibling, rightSibling, descendantCount);
   }
 
   @Override
@@ -254,10 +243,9 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
       return false;
 
     return Objects.equal(childCount, other.childCount) && Objects.equal(nodeDelegate, other.nodeDelegate)
-        && Objects.equal(firstChild, other.firstChild) && Objects.equal(lastChild, other.lastChild) && Objects.equal(
-        leftSibling,
-        other.leftSibling) && Objects.equal(rightSibling, other.rightSibling) && Objects.equal(descendantCount,
-                                                                                               other.descendantCount);
+        && Objects.equal(firstChild, other.firstChild) && Objects.equal(lastChild, other.lastChild)
+        && Objects.equal(leftSibling, other.leftSibling) && Objects.equal(rightSibling, other.rightSibling)
+        && Objects.equal(descendantCount, other.descendantCount);
   }
 
   @Override

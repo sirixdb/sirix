@@ -99,10 +99,8 @@ public class MultipleCommitTest {
     final AbstractAxis postorderAxis = new PostOrderAxis(holder.getXmlNodeTrx());
     while (postorderAxis.hasNext()) {
       postorderAxis.nextLong();
-      if (holder.getXmlNodeTrx().getKind() == NodeKind.ELEMENT
-          && holder.getXmlNodeTrx().getAttributeCount() > 0) {
-        for (int i = 0, attrCount =
-             holder.getXmlNodeTrx().getAttributeCount(); i < attrCount; i++) {
+      if (holder.getXmlNodeTrx().getKind() == NodeKind.ELEMENT && holder.getXmlNodeTrx().getAttributeCount() > 0) {
+        for (int i = 0, attrCount = holder.getXmlNodeTrx().getAttributeCount(); i < attrCount; i++) {
           holder.getXmlNodeTrx().moveToAttribute(i);
           holder.getXmlNodeTrx().remove();
         }
@@ -116,8 +114,7 @@ public class MultipleCommitTest {
     while (descAxis.hasNext()) {
       descAxis.nextLong();
       if (holder.getXmlNodeTrx().getKind() == NodeKind.ELEMENT) {
-        for (int i = 0, attrCount =
-             holder.getXmlNodeTrx().getAttributeCount(); i < attrCount; i++) {
+        for (int i = 0, attrCount = holder.getXmlNodeTrx().getAttributeCount(); i < attrCount; i++) {
           if (holder.getXmlNodeTrx().moveToAttribute(i)) {
             attrTouch++;
           } else {

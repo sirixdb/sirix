@@ -58,17 +58,17 @@ public class DubFilterTest {
 
     holder.getXmlNodeReadTrx().moveTo(1L);
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), "child::node()/parent::node()"), new long[] {1L});
+    AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "child::node()/parent::node()"),
+        new long[] {1L});
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), "b/following-sibling::node()"), new long[] {8L, 9L, 13L});
+    AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "b/following-sibling::node()"),
+        new long[] {8L, 9L, 13L});
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), "b/preceding::node()"), new long[] {4L, 8L, 7L, 6L, 5L});
+    AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "b/preceding::node()"),
+        new long[] {4L, 8L, 7L, 6L, 5L});
 
-    AbsAxisTest.testAxisConventions(
-        new XPathAxis(holder.getXmlNodeReadTrx(), "//c/ancestor::node()"), new long[] {5L, 1L, 9L});
+    AbsAxisTest.testAxisConventions(new XPathAxis(holder.getXmlNodeReadTrx(), "//c/ancestor::node()"),
+        new long[] {5L, 1L, 9L});
 
   }
 

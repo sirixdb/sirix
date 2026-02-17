@@ -37,7 +37,7 @@ public final class GetPath extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the name of the function
+   * @param name the name of the function
    * @param signature the signature of the function
    */
   public GetPath(final QNm name, final Signature signature) {
@@ -51,8 +51,8 @@ public final class GetPath extends AbstractFunction {
     final NodeReadOnlyTrx rtx = document.getTrx();
 
     if (rtx.getResourceSession().getResourceConfig().withPathSummary) {
-      try (final PathSummaryReader pathSummaryReader = rtx.getResourceSession()
-                                                          .openPathSummary(rtx.getRevisionNumber())) {
+      try (final PathSummaryReader pathSummaryReader =
+          rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber())) {
         if (!pathSummaryReader.moveTo(rtx.getPathNodeKey())) {
           return null;
         }

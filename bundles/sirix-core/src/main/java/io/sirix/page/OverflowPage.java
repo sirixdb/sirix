@@ -52,8 +52,8 @@ public final class OverflowPage implements Page {
   }
 
   /**
-   * Get the data as a MemorySegment (for compatibility with existing code).
-   * Returns a heap segment backed by the byte array.
+   * Get the data as a MemorySegment (for compatibility with existing code). Returns a heap segment
+   * backed by the byte array.
    */
   public MemorySegment getData() {
     return MemorySegment.ofArray(data);

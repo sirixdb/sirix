@@ -40,10 +40,9 @@ class SiblingMergerTest {
         children[i].setKey(100 + i);
         partialKeys[i] = (byte) i;
       }
-      
-      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(
-          1L, 1, (byte) 0, 0b11L, partialKeys, children);
-      
+
+      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b11L, partialKeys, children);
+
       // 2/16 = 12.5% < 25% threshold
       assertTrue(SiblingMerger.shouldMerge(spanNode));
     }
@@ -59,10 +58,9 @@ class SiblingMergerTest {
         children[i].setKey(100 + i);
         partialKeys[i] = (byte) i;
       }
-      
-      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(
-          1L, 1, (byte) 0, 0b11111111L, partialKeys, children);
-      
+
+      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b11111111L, partialKeys, children);
+
       // 8/16 = 50% > 25% threshold
       assertFalse(SiblingMerger.shouldMerge(spanNode));
     }
@@ -79,15 +77,15 @@ class SiblingMergerTest {
       PageReference rightRef = new PageReference();
       leftRef.setKey(100);
       rightRef.setKey(101);
-      
+
       PageReference leftRef2 = new PageReference();
       PageReference rightRef2 = new PageReference();
       leftRef2.setKey(200);
       rightRef2.setKey(201);
-      
+
       HOTIndirectPage left = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
       HOTIndirectPage right = HOTIndirectPage.createBiNode(2L, 1, 4, leftRef2, rightRef2);
-      
+
       assertTrue(SiblingMerger.canMerge(left, right), "Siblings at same height should merge");
     }
 
@@ -99,22 +97,20 @@ class SiblingMergerTest {
       PageReference[] children2 = new PageReference[16];
       byte[] partialKeys1 = new byte[16];
       byte[] partialKeys2 = new byte[16];
-      
+
       for (int i = 0; i < 16; i++) {
         children1[i] = new PageReference();
         children1[i].setKey(100 + i);
         partialKeys1[i] = (byte) i;
-        
+
         children2[i] = new PageReference();
         children2[i].setKey(200 + i);
         partialKeys2[i] = (byte) (i + 16);
       }
-      
-      HOTIndirectPage left = HOTIndirectPage.createSpanNode(
-          1L, 1, (byte) 0, 0xFFFFL, partialKeys1, children1);
-      HOTIndirectPage right = HOTIndirectPage.createSpanNode(
-          2L, 1, (byte) 0, 0xFFFFL, partialKeys2, children2);
-      
+
+      HOTIndirectPage left = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0xFFFFL, partialKeys1, children1);
+      HOTIndirectPage right = HOTIndirectPage.createSpanNode(2L, 1, (byte) 0, 0xFFFFL, partialKeys2, children2);
+
       // 16 + 16 = 32, which equals MAX but should still fit
       assertTrue(SiblingMerger.canMerge(left, right));
     }
@@ -131,17 +127,17 @@ class SiblingMergerTest {
       PageReference rightRef1 = new PageReference();
       leftRef1.setKey(100);
       rightRef1.setKey(101);
-      
+
       PageReference leftRef2 = new PageReference();
       PageReference rightRef2 = new PageReference();
       leftRef2.setKey(200);
       rightRef2.setKey(201);
-      
+
       HOTIndirectPage left = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef1, rightRef1);
       HOTIndirectPage right = HOTIndirectPage.createBiNode(2L, 1, 4, leftRef2, rightRef2);
-      
+
       SiblingMerger.MergeResult result = SiblingMerger.mergeSiblings(left, right, 3L, 1);
-      
+
       assertTrue(result.success());
       assertNotNull(result.mergedNode());
       // 2 + 2 = 4 children → SpanNode
@@ -156,7 +152,7 @@ class SiblingMergerTest {
       PageReference rightRef = new PageReference();
       leftRef.setKey(100);
       rightRef.setKey(101);
-      
+
       // Create nodes at different heights (simulate by using different max children)
       PageReference[] children = new PageReference[16];
       byte[] partialKeys = new byte[16];
@@ -165,14 +161,14 @@ class SiblingMergerTest {
         children[i].setKey(200 + i);
         partialKeys[i] = (byte) i;
       }
-      
+
       HOTIndirectPage left = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
       // Create another SpanNode with 16 children at different height
-      HOTIndirectPage right = HOTIndirectPage.createSpanNode(
-          2L, 1, (byte) 0, 0xFFFFL, partialKeys, children, 5); // Height 5
-      
+      HOTIndirectPage right = HOTIndirectPage.createSpanNode(2L, 1, (byte) 0, 0xFFFFL, partialKeys, children, 5); // Height
+                                                                                                                  // 5
+
       SiblingMerger.MergeResult result = SiblingMerger.mergeSiblings(left, right, 3L, 1);
-      
+
       assertFalse(result.success(), "Merge should fail for different heights");
     }
   }
@@ -188,9 +184,9 @@ class SiblingMergerTest {
       PageReference rightRef = new PageReference();
       leftRef.setKey(100);
       rightRef.setKey(200);
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       assertFalse(SiblingMerger.canCollapseBiNode(biNode));
     }
 
@@ -204,10 +200,9 @@ class SiblingMergerTest {
         children[i].setKey(100 + i);
         partialKeys[i] = (byte) i;
       }
-      
-      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(
-          1L, 1, (byte) 0, 0b1111L, partialKeys, children);
-      
+
+      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b1111L, partialKeys, children);
+
       assertFalse(SiblingMerger.canCollapseBiNode(spanNode));
     }
 
@@ -218,11 +213,10 @@ class SiblingMergerTest {
       PageReference rightRef = new PageReference();
       leftRef.setKey(100);
       rightRef.setKey(200);
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
-      assertThrows(IllegalStateException.class,
-          () -> SiblingMerger.getCollapsedChild(biNode));
+
+      assertThrows(IllegalStateException.class, () -> SiblingMerger.getCollapsedChild(biNode));
     }
   }
 
@@ -237,11 +231,10 @@ class SiblingMergerTest {
       PageReference rightRef = new PageReference();
       leftRef.setKey(100);
       rightRef.setKey(200);
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
-      assertEquals(1.0, SiblingMerger.getFillFactor(biNode), 0.001,
-          "BiNode with 2/2 children should be 100% full");
+
+      assertEquals(1.0, SiblingMerger.getFillFactor(biNode), 0.001, "BiNode with 2/2 children should be 100% full");
     }
 
     @Test
@@ -254,12 +247,10 @@ class SiblingMergerTest {
         children[i].setKey(100 + i);
         partialKeys[i] = (byte) i;
       }
-      
-      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(
-          1L, 1, (byte) 0, 0b11111111L, partialKeys, children);
-      
-      assertEquals(0.5, SiblingMerger.getFillFactor(spanNode), 0.001,
-          "SpanNode with 8/16 children should be 50% full");
+
+      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b11111111L, partialKeys, children);
+
+      assertEquals(0.5, SiblingMerger.getFillFactor(spanNode), 0.001, "SpanNode with 8/16 children should be 50% full");
     }
   }
 
@@ -274,12 +265,11 @@ class SiblingMergerTest {
       PageReference rightRef = new PageReference();
       leftRef.setKey(100);
       rightRef.setKey(200);
-      
+
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
-      SiblingMerger.MergeResult result = SiblingMerger.handleDeletionWithMerge(
-          biNode, null, 2L, 1);
-      
+
+      SiblingMerger.MergeResult result = SiblingMerger.handleDeletionWithMerge(biNode, null, 2L, 1);
+
       assertFalse(result.success());
     }
   }
@@ -292,7 +282,7 @@ class SiblingMergerTest {
     @DisplayName("Failure result has expected values")
     void testFailureResult() {
       SiblingMerger.MergeResult failure = SiblingMerger.MergeResult.failure();
-      
+
       assertFalse(failure.success());
       assertEquals(null, failure.mergedNode());
       assertFalse(failure.replacesLeft());
@@ -305,11 +295,11 @@ class SiblingMergerTest {
       PageReference rightRef = new PageReference();
       leftRef.setKey(100);
       rightRef.setKey(200);
-      
+
       HOTIndirectPage node = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
-      
+
       SiblingMerger.MergeResult success = SiblingMerger.MergeResult.success(node, true);
-      
+
       assertTrue(success.success());
       assertNotNull(success.mergedNode());
       assertTrue(success.replacesLeft());

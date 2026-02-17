@@ -40,20 +40,20 @@ import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
-public final class JsonNodeReadOnlyTrxImpl
-    extends AbstractNodeReadOnlyTrx<JsonNodeReadOnlyTrx, JsonNodeTrx, ImmutableNode>
-    implements InternalJsonNodeReadOnlyTrx {
+public final class JsonNodeReadOnlyTrxImpl extends
+    AbstractNodeReadOnlyTrx<JsonNodeReadOnlyTrx, JsonNodeTrx, ImmutableNode> implements InternalJsonNodeReadOnlyTrx {
 
   /**
    * Constructor.
    *
-   * @param resourceManager     the current {@link ResourceSession} the reader is bound to
-   * @param trxId               ID of the reader
+   * @param resourceManager the current {@link ResourceSession} the reader is bound to
+   * @param trxId ID of the reader
    * @param pageReadTransaction {@link StorageEngineReader} to interact with the page layer
-   * @param documentNode        the document node
+   * @param documentNode the document node
    */
   JsonNodeReadOnlyTrxImpl(final InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
-      final @NonNegative int trxId, final StorageEngineReader pageReadTransaction, final ImmutableJsonNode documentNode) {
+      final @NonNegative int trxId, final StorageEngineReader pageReadTransaction,
+      final ImmutableJsonNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());
   }
 
@@ -80,13 +80,14 @@ public final class JsonNodeReadOnlyTrxImpl
 
   @Override
   public List<JsonObject> getUpdateOperations() {
-    final var revisionNumber = pageReadOnlyTrx instanceof StorageEngineWriter ? getRevisionNumber() - 1 : getRevisionNumber();
-    final var updateOperationsFile = resourceSession.getResourceConfig()
-                                                    .getResource()
-                                                    .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
-                                                    .resolve(
-                                                        "diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber
-                                                            + ".json");
+    final var revisionNumber = pageReadOnlyTrx instanceof StorageEngineWriter
+        ? getRevisionNumber() - 1
+        : getRevisionNumber();
+    final var updateOperationsFile =
+        resourceSession.getResourceConfig()
+                       .getResource()
+                       .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
+                       .resolve("diffFromRev" + (revisionNumber - 1) + "toRev" + revisionNumber + ".json");
 
     final var diffTuples = new ArrayList<JsonObject>();
 
@@ -200,7 +201,7 @@ public final class JsonNodeReadOnlyTrxImpl
     // $CASES-OMITTED$
     return switch (getKind()) {
       case OBJECT_STRING_VALUE, STRING_VALUE ->
-          new String(((ValueNode) getStructuralNode()).getRawValue(), Constants.DEFAULT_ENCODING);
+        new String(((ValueNode) getStructuralNode()).getRawValue(), Constants.DEFAULT_ENCODING);
       case OBJECT_BOOLEAN_VALUE -> String.valueOf(((ObjectBooleanNode) getStructuralNode()).getValue());
       case BOOLEAN_VALUE -> String.valueOf(((BooleanNode) getStructuralNode()).getValue());
       case OBJECT_NULL_VALUE, NULL_VALUE -> "null";
@@ -333,7 +334,9 @@ public final class JsonNodeReadOnlyTrxImpl
       }
 
       final int nameKey = currentObjectKeyNode.getNameKey();
-      final String localName = nameKey == -1 ? "" : pageReadOnlyTrx.getName(nameKey, NodeKind.OBJECT_KEY);
+      final String localName = nameKey == -1
+          ? ""
+          : pageReadOnlyTrx.getName(nameKey, NodeKind.OBJECT_KEY);
       currentObjectKeyNode.setName(localName);
       return new QNm(localName);
     }

@@ -12,16 +12,19 @@ import java.util.concurrent.atomic.AtomicLong;
 /**
  * Background clock sweeper for page eviction using the second-chance algorithm.
  * <p>
- * This component implements LeanStore/Umbra-style cache eviction with the following characteristics:
+ * This component implements LeanStore/Umbra-style cache eviction with the following
+ * characteristics:
  * <ul>
- *   <li><b>Clock-based scanning:</b> Pages are scanned in circular order, minimizing overhead</li>
- *   <li><b>Second-chance algorithm:</b> HOT pages (recently accessed) get a second chance before eviction</li>
- *   <li><b>Revision watermark:</b> Pages needed by active transactions are protected from eviction</li>
- *   <li><b>Guard protection:</b> Pages with active guards (in-use) cannot be evicted</li>
+ * <li><b>Clock-based scanning:</b> Pages are scanned in circular order, minimizing overhead</li>
+ * <li><b>Second-chance algorithm:</b> HOT pages (recently accessed) get a second chance before
+ * eviction</li>
+ * <li><b>Revision watermark:</b> Pages needed by active transactions are protected from
+ * eviction</li>
+ * <li><b>Guard protection:</b> Pages with active guards (in-use) cannot be evicted</li>
  * </ul>
  * <p>
- * The sweeper runs as a daemon thread and performs incremental scans (10% of cache per cycle)
- * to avoid long pauses. This follows the PostgreSQL bgwriter pattern for background maintenance.
+ * The sweeper runs as a daemon thread and performs incremental scans (10% of cache per cycle) to
+ * avoid long pauses. This follows the PostgreSQL bgwriter pattern for background maintenance.
  * <p>
  * <b>Thread Safety:</b> The sweeper uses an eviction lock to coordinate with cache operations.
  * Individual page evictions are protected by ConcurrentHashMap's compute() atomicity.
@@ -61,7 +64,7 @@ public final class ClockSweeper implements Runnable {
    * @param resourceId resource ID to filter pages
    */
   public ClockSweeper(ShardedPageCache.Shard shard, ShardedPageCache cache, RevisionEpochTracker epochTracker,
-                      int sweepIntervalMs, int shardIndex, long databaseId, long resourceId) {
+      int sweepIntervalMs, int shardIndex, long databaseId, long resourceId) {
     this.shard = shard;
     this.cache = cache;
     this.epochTracker = epochTracker;
@@ -99,11 +102,10 @@ public final class ClockSweeper implements Runnable {
   }
 
   /**
-   * Perform one sweep cycle.
-   * Scans a fraction of pages (e.g., 10%) per cycle to avoid long pauses.
+   * Perform one sweep cycle. Scans a fraction of pages (e.g., 10%) per cycle to avoid long pauses.
    * <p>
-   * Optimized to iterate directly over the map's entrySet instead of copying
-   * all keys to an ArrayList, eliminating allocation overhead on each cycle.
+   * Optimized to iterate directly over the map's entrySet instead of copying all keys to an
+   * ArrayList, eliminating allocation overhead on each cycle.
    * </p>
    */
   private void sweep() {
@@ -137,7 +139,7 @@ public final class ClockSweeper implements Runnable {
         }
 
         PageReference ref = entry.getKey();
-        
+
         // Filter by resource if not global (databaseId=0 and resourceId=0 means GLOBAL)
         boolean isGlobalSweeper = (databaseId == 0 && resourceId == 0);
         if (!isGlobalSweeper && (ref.getDatabaseId() != databaseId || ref.getResourceId() != resourceId)) {
@@ -145,7 +147,7 @@ public final class ClockSweeper implements Runnable {
           scanned++; // Count towards scan limit even if skipped
           continue;
         }
-        
+
         // CRITICAL: Use compute() to atomically check guards and evict
         // This prevents TOCTOU race where getAndGuard() could acquire guard
         // between our guardCount check and page.reset()
@@ -156,30 +158,30 @@ public final class ClockSweeper implements Runnable {
           }
 
           // All checks and eviction must be atomic within compute()
-          
+
           // Check if page is HOT
           if (page.isHot()) {
             page.clearHot(); // Give second chance
             pagesSkippedByHot.incrementAndGet();
             return page; // Keep in cache
           }
-          
+
           // ATOMIC: Check guard count (PRIMARY protection)
           if (page.getGuardCount() > 0) {
             if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && LOGGER.isDebugEnabled()) {
-              LOGGER.debug("ClockSweeper[{}] skip guarded page key={} type={} rev={} guards={}",
-                  shardIndex, page.getPageKey(), page.getIndexType(), page.getRevision(), page.getGuardCount());
+              LOGGER.debug("ClockSweeper[{}] skip guarded page key={} type={} rev={} guards={}", shardIndex,
+                  page.getPageKey(), page.getIndexType(), page.getRevision(), page.getGuardCount());
             }
             pagesSkippedByGuard.incrementAndGet();
             return page; // Keep in cache
           }
-          
+
           // Check revision watermark
           if (!isGlobalSweeper && page.getRevision() >= minActiveRev) {
             pagesSkippedByWatermark.incrementAndGet();
             return page; // Keep in cache
           }
-          
+
           // Evict page atomically within compute() while holding per-key lock
           try {
             long pageWeight = cache.weightOf(page);
@@ -219,9 +221,10 @@ public final class ClockSweeper implements Runnable {
    * @return diagnostic string
    */
   public String getStatistics() {
-    return String.format("ClockSweeper[db=%d,res=%d,shard=%d]: evicted=%d, skipped(hot=%d, watermark=%d, guard=%d, ownership=%d)",
-        databaseId, resourceId, shardIndex, pagesEvicted.get(), pagesSkippedByHot.get(),
-        pagesSkippedByWatermark.get(), pagesSkippedByGuard.get(), pagesSkippedByOwnership.get());
+    return String.format(
+        "ClockSweeper[db=%d,res=%d,shard=%d]: evicted=%d, skipped(hot=%d, watermark=%d, guard=%d, ownership=%d)",
+        databaseId, resourceId, shardIndex, pagesEvicted.get(), pagesSkippedByHot.get(), pagesSkippedByWatermark.get(),
+        pagesSkippedByGuard.get(), pagesSkippedByOwnership.get());
   }
 }
 

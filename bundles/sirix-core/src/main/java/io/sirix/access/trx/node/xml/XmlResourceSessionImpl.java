@@ -68,25 +68,21 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
   /**
    * Package private constructor.
    *
-   * @param resourceStore  the resource store with which this manager has been created
-   * @param resourceConf   {@link DatabaseConfiguration} for general setting about the storage
-   * @param bufferManager  the cache of in-memory pages shared amongst all node transactions
-   * @param storage        the storage itself, used for I/O
-   * @param uberPage       the UberPage, which is the main entry point into a resource
-   * @param writeLock      the write lock, which ensures, that only a single read-write transaction is
-   *                       opened on a resource
-   * @param user           a user, which interacts with SirixDB, might be {@code null}
+   * @param resourceStore the resource store with which this manager has been created
+   * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
+   * @param bufferManager the cache of in-memory pages shared amongst all node transactions
+   * @param storage the storage itself, used for I/O
+   * @param uberPage the UberPage, which is the main entry point into a resource
+   * @param writeLock the write lock, which ensures, that only a single read-write transaction is
+   *        opened on a resource
+   * @param user a user, which interacts with SirixDB, might be {@code null}
    * @param pageTrxFactory A factory that creates new {@link StorageEngineWriter} instances.
    */
   @Inject
   XmlResourceSessionImpl(final ResourceStore<XmlResourceSession> resourceStore,
-                         final ResourceConfiguration resourceConf,
-                         final BufferManager bufferManager,
-                         final IOStorage storage,
-                         final UberPage uberPage,
-                         final Semaphore writeLock,
-                         final User user,
-                         final StorageEngineWriterFactory pageTrxFactory) {
+      final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
+      final UberPage uberPage, final Semaphore writeLock, final User user,
+      final StorageEngineWriterFactory pageTrxFactory) {
 
     super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
 
@@ -101,12 +97,8 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
   }
 
   @Override
-  public XmlNodeTrx createNodeReadWriteTrx(int nodeTrxId,
-                                           StorageEngineWriter pageTrx,
-                                           int maxNodeCount,
-                                           Duration autoCommitDelay,
-                                           Node documentNode,
-                                           AfterCommitState afterCommitState) {
+  public XmlNodeTrx createNodeReadWriteTrx(int nodeTrxId, StorageEngineWriter pageTrx, int maxNodeCount,
+      Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
     final InternalXmlNodeReadOnlyTrx nodeReadTrx =
         new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageTrx, (ImmutableXmlNode) documentNode);
@@ -124,19 +116,13 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
     }
     // Synchronize commit and other public methods if needed.
     final var isAutoCommitting = maxNodeCount > 0 || !autoCommitDelay.isZero();
-    final var transactionLock = isAutoCommitting ? new ReentrantLock() : null;
+    final var transactionLock = isAutoCommitting
+        ? new ReentrantLock()
+        : null;
     final var resourceConfig = getResourceConfig();
-    return new XmlNodeTrxImpl(this,
-            nodeReadTrx,
-            pathSummaryWriter,
-            maxNodeCount,
-            transactionLock,
-            autoCommitDelay,
-            new XmlNodeHashing(resourceConfig, nodeReadTrx, pageTrx),
-            nodeFactory,
-            afterCommitState,
-            new RecordToRevisionsIndex(pageTrx)
-    );
+    return new XmlNodeTrxImpl(this, nodeReadTrx, pathSummaryWriter, maxNodeCount, transactionLock, autoCommitDelay,
+        new XmlNodeHashing(resourceConfig, nodeReadTrx, pageTrx), nodeFactory, afterCommitState,
+        new RecordToRevisionsIndex(pageTrx));
   }
 
   @SuppressWarnings("unchecked")

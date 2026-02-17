@@ -96,8 +96,8 @@ public abstract class AbstractComparator extends AbstractAxis {
       }
 
       /*
-       * Evaluates the comparison. First atomizes both operands and then executes the comparison on
-       * them. At the end, the transaction is set to the retrieved result item.
+       * Evaluates the comparison. First atomizes both operands and then executes the comparison on them.
+       * At the end, the transaction is set to the retrieved result item.
        */
       if (operand1.hasNext()) {
         key = operand1.nextLong();
@@ -150,8 +150,8 @@ public abstract class AbstractComparator extends AbstractAxis {
    * @param paramOperandTwo second comparison operand.
    * @return the result of the comparison
    */
-  protected abstract boolean compare(final AtomicValue[] paramOperandOne,
-      final AtomicValue[] paramOperandTwo) throws SirixXPathException;
+  protected abstract boolean compare(final AtomicValue[] paramOperandOne, final AtomicValue[] paramOperandTwo)
+      throws SirixXPathException;
 
   /**
    * Atomizes an operand according to the rules specified in the XPath specification.
@@ -191,14 +191,13 @@ public abstract class AbstractComparator extends AbstractAxis {
    * @param paramVal string value to estimate
    * @return AbsComparator the comparator of two axis
    */
-  public static final AbstractComparator getComparator(final XmlNodeReadOnlyTrx paramRtx,
-      final Axis paramOperandOne, final Axis paramOperandTwo, final CompKind paramKind,
-      final String paramVal) {
-    if ("eq".equals(paramVal) || "lt".equals(paramVal) || "le".equals(paramVal)
-        || "gt".equals(paramVal) || "ge".equals(paramVal)) {
+  public static final AbstractComparator getComparator(final XmlNodeReadOnlyTrx paramRtx, final Axis paramOperandOne,
+      final Axis paramOperandTwo, final CompKind paramKind, final String paramVal) {
+    if ("eq".equals(paramVal) || "lt".equals(paramVal) || "le".equals(paramVal) || "gt".equals(paramVal)
+        || "ge".equals(paramVal)) {
       return new ValueComp(paramRtx, paramOperandOne, paramOperandTwo, paramKind);
-    } else if ("=".equals(paramVal) || "!=".equals(paramVal) || "<".equals(paramVal)
-        || "<=".equals(paramVal) || ">".equals(paramVal) || ">=".equals(paramVal)) {
+    } else if ("=".equals(paramVal) || "!=".equals(paramVal) || "<".equals(paramVal) || "<=".equals(paramVal)
+        || ">".equals(paramVal) || ">=".equals(paramVal)) {
       return new GeneralComp(paramRtx, paramOperandOne, paramOperandTwo, paramKind);
     } else if ("is".equals(paramVal) || "<<".equals(paramVal) || ">>".equals(paramVal)) {
       new NodeComp(paramRtx, paramOperandOne, paramOperandTwo, paramKind);

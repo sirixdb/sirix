@@ -87,8 +87,8 @@ final class InnerNodeComparator implements NodeComparator<Long> {
 
     boolean retVal = false;
 
-    if (idName != null && oldRtx.isElement() && newRtx.isElement()
-        && oldRtx.moveToAttributeByName(idName) && newRtx.moveToAttributeByName(idName)) {
+    if (idName != null && oldRtx.isElement() && newRtx.isElement() && oldRtx.moveToAttributeByName(idName)
+        && newRtx.moveToAttributeByName(idName)) {
       retVal = newRtx.getValue().equals(oldRtx.getValue());
     } else if ((oldRtx.hasFirstChild() || oldRtx.hasAttributes() || oldRtx.hasNamespaces())
         && (newRtx.hasFirstChild() || newRtx.hasAttributes() || newRtx.hasNamespaces())) {

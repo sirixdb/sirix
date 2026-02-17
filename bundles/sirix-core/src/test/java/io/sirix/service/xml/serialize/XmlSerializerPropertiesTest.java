@@ -50,8 +50,7 @@ public class XmlSerializerPropertiesTest {
   public void testXMLSerializerProp() {
     final XmlSerializerProperties props = new XmlSerializerProperties();
 
-    final ConcurrentHashMap<String, Object> map =
-        (ConcurrentHashMap<String, Object>) props.getProps();
+    final ConcurrentHashMap<String, Object> map = (ConcurrentHashMap<String, Object>) props.getProps();
     final Enumeration<String> keys = map.keys();
 
     assertNotNull(keys);

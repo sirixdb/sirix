@@ -45,17 +45,24 @@ import java.util.Objects;
 /**
  * Bitmap chunk page for versioned NodeReferences storage in HOT indexes.
  *
- * <p>Each BitmapChunkPage stores a range of document node keys [rangeStart, rangeEnd)
- * as a Roaring64Bitmap. Supports both full mode (complete bitmap) and delta mode
- * (additions/removals from a base snapshot).</p>
+ * <p>
+ * Each BitmapChunkPage stores a range of document node keys [rangeStart, rangeEnd) as a
+ * Roaring64Bitmap. Supports both full mode (complete bitmap) and delta mode (additions/removals
+ * from a base snapshot).
+ * </p>
  *
- * <p><b>Versioning Modes:</b></p>
+ * <p>
+ * <b>Versioning Modes:</b>
+ * </p>
  * <ul>
- *   <li><b>Full mode</b>: Complete bitmap for the range (used for snapshots)</li>
- *   <li><b>Delta mode</b>: Only additions and removals since base (for incremental)</li>
+ * <li><b>Full mode</b>: Complete bitmap for the range (used for snapshots)</li>
+ * <li><b>Delta mode</b>: Only additions and removals since base (for incremental)</li>
  * </ul>
  *
- * <p><b>Chunk Range:</b></p>
+ * <p>
+ * <b>Chunk Range:</b>
+ * </p>
+ * 
  * <pre>
  * CHUNK_SIZE = 65536 (64K document keys per chunk)
  * Chunk 0: [0, 65536)
@@ -99,101 +106,93 @@ public final class BitmapChunkPage implements Page {
   /**
    * Create a new full (snapshot) BitmapChunkPage.
    *
-   * @param pageKey    the page key
-   * @param revision   the revision number
-   * @param indexType  the index type
+   * @param pageKey the page key
+   * @param revision the revision number
+   * @param indexType the index type
    * @param rangeStart start of document key range (inclusive)
-   * @param rangeEnd   end of document key range (exclusive)
-   * @param bitmap     the complete bitmap for this range
+   * @param rangeEnd end of document key range (exclusive)
+   * @param bitmap the complete bitmap for this range
    * @return new full BitmapChunkPage
    */
-  public static BitmapChunkPage createFull(long pageKey, int revision, IndexType indexType,
-                                            long rangeStart, long rangeEnd,
-                                            @NonNull Roaring64Bitmap bitmap) {
+  public static BitmapChunkPage createFull(long pageKey, int revision, IndexType indexType, long rangeStart,
+      long rangeEnd, @NonNull Roaring64Bitmap bitmap) {
     Objects.requireNonNull(bitmap, "bitmap must not be null for full mode");
-    return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd,
-        bitmap, null, null, false, false);
+    return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd, bitmap, null, null, false, false);
   }
 
   /**
    * Create a new delta BitmapChunkPage.
    *
-   * @param pageKey    the page key
-   * @param revision   the revision number
-   * @param indexType  the index type
+   * @param pageKey the page key
+   * @param revision the revision number
+   * @param indexType the index type
    * @param rangeStart start of document key range (inclusive)
-   * @param rangeEnd   end of document key range (exclusive)
-   * @param additions  keys added since base
-   * @param removals   keys removed since base
+   * @param rangeEnd end of document key range (exclusive)
+   * @param additions keys added since base
+   * @param removals keys removed since base
    * @return new delta BitmapChunkPage
    */
-  public static BitmapChunkPage createDelta(long pageKey, int revision, IndexType indexType,
-                                             long rangeStart, long rangeEnd,
-                                             @NonNull Roaring64Bitmap additions,
-                                             @NonNull Roaring64Bitmap removals) {
+  public static BitmapChunkPage createDelta(long pageKey, int revision, IndexType indexType, long rangeStart,
+      long rangeEnd, @NonNull Roaring64Bitmap additions, @NonNull Roaring64Bitmap removals) {
     Objects.requireNonNull(additions, "additions must not be null for delta mode");
     Objects.requireNonNull(removals, "removals must not be null for delta mode");
-    return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd,
-        null, additions, removals, true, false);
+    return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd, null, additions, removals, true,
+        false);
   }
 
   /**
    * Create an empty delta BitmapChunkPage for modification.
    *
-   * @param pageKey    the page key
-   * @param revision   the revision number
-   * @param indexType  the index type
+   * @param pageKey the page key
+   * @param revision the revision number
+   * @param indexType the index type
    * @param rangeStart start of document key range (inclusive)
-   * @param rangeEnd   end of document key range (exclusive)
+   * @param rangeEnd end of document key range (exclusive)
    * @return new empty delta BitmapChunkPage
    */
-  public static BitmapChunkPage createEmptyDelta(long pageKey, int revision, IndexType indexType,
-                                                  long rangeStart, long rangeEnd) {
-    return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd,
-        null, new Roaring64Bitmap(), new Roaring64Bitmap(), true, false);
+  public static BitmapChunkPage createEmptyDelta(long pageKey, int revision, IndexType indexType, long rangeStart,
+      long rangeEnd) {
+    return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd, null, new Roaring64Bitmap(),
+        new Roaring64Bitmap(), true, false);
   }
 
   /**
    * Create an empty full BitmapChunkPage.
    *
-   * @param pageKey    the page key
-   * @param revision   the revision number
-   * @param indexType  the index type
+   * @param pageKey the page key
+   * @param revision the revision number
+   * @param indexType the index type
    * @param rangeStart start of document key range (inclusive)
-   * @param rangeEnd   end of document key range (exclusive)
+   * @param rangeEnd end of document key range (exclusive)
    * @return new empty full BitmapChunkPage
    */
-  public static BitmapChunkPage createEmptyFull(long pageKey, int revision, IndexType indexType,
-                                                 long rangeStart, long rangeEnd) {
-    return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd,
-        new Roaring64Bitmap(), null, null, false, false);
+  public static BitmapChunkPage createEmptyFull(long pageKey, int revision, IndexType indexType, long rangeStart,
+      long rangeEnd) {
+    return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd, new Roaring64Bitmap(), null, null,
+        false, false);
   }
 
   /**
    * Create a tombstone BitmapChunkPage (marks entire chunk as deleted).
    *
-   * @param pageKey    the page key
-   * @param revision   the revision number
-   * @param indexType  the index type
+   * @param pageKey the page key
+   * @param revision the revision number
+   * @param indexType the index type
    * @param rangeStart start of document key range (inclusive)
-   * @param rangeEnd   end of document key range (exclusive)
+   * @param rangeEnd end of document key range (exclusive)
    * @return tombstone BitmapChunkPage
    */
-  public static BitmapChunkPage createTombstone(long pageKey, int revision, IndexType indexType,
-                                                 long rangeStart, long rangeEnd) {
-    return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd,
-        null, null, null, false, true);
+  public static BitmapChunkPage createTombstone(long pageKey, int revision, IndexType indexType, long rangeStart,
+      long rangeEnd) {
+    return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd, null, null, null, false, true);
   }
 
   /**
    * Private constructor.
    */
-  private BitmapChunkPage(long pageKey, int revision, IndexType indexType,
-                          long rangeStart, long rangeEnd,
-                          @Nullable Roaring64Bitmap bitmap,
-                          @Nullable Roaring64Bitmap additions,
-                          @Nullable Roaring64Bitmap removals,
-                          boolean isDelta, boolean isDeleted) {
+  private BitmapChunkPage(long pageKey, int revision, IndexType indexType, long rangeStart, long rangeEnd,
+      @Nullable Roaring64Bitmap bitmap, @Nullable Roaring64Bitmap additions, @Nullable Roaring64Bitmap removals,
+      boolean isDelta, boolean isDeleted) {
     if (rangeStart < 0) {
       throw new IllegalArgumentException("rangeStart must be non-negative: " + rangeStart);
     }
@@ -314,8 +313,8 @@ public final class BitmapChunkPage implements Page {
   // ===== Modification methods =====
 
   /**
-   * Add a document node key to this chunk.
-   * For full mode, adds to bitmap. For delta mode, adds to additions and removes from removals.
+   * Add a document node key to this chunk. For full mode, adds to bitmap. For delta mode, adds to
+   * additions and removes from removals.
    *
    * @param documentNodeKey the key to add
    * @throws IllegalArgumentException if key is outside this chunk's range
@@ -339,8 +338,8 @@ public final class BitmapChunkPage implements Page {
   }
 
   /**
-   * Remove a document node key from this chunk.
-   * For full mode, removes from bitmap. For delta mode, adds to removals and removes from additions.
+   * Remove a document node key from this chunk. For full mode, removes from bitmap. For delta mode,
+   * adds to removals and removes from additions.
    *
    * @param documentNodeKey the key to remove
    * @throws IllegalArgumentException if key is outside this chunk's range
@@ -364,8 +363,8 @@ public final class BitmapChunkPage implements Page {
   }
 
   /**
-   * Check if this chunk contains the given document node key.
-   * For full mode, checks bitmap. For delta mode, returns false (need to combine first).
+   * Check if this chunk contains the given document node key. For full mode, checks bitmap. For delta
+   * mode, returns false (need to combine first).
    *
    * @param documentNodeKey the key to check
    * @return true if contained (for full mode only)
@@ -390,16 +389,18 @@ public final class BitmapChunkPage implements Page {
   // ===== Copy methods =====
 
   /**
-   * Create a copy of this page as a full snapshot.
-   * If this is a delta, the bitmap will be null (need to combine first).
+   * Create a copy of this page as a full snapshot. If this is a delta, the bitmap will be null (need
+   * to combine first).
    *
    * @param newRevision the new revision number
    * @return a copy as full snapshot
    */
   public BitmapChunkPage copyAsFull(int newRevision) {
-    Roaring64Bitmap newBitmap = bitmap != null ? bitmap.clone() : new Roaring64Bitmap();
-    return new BitmapChunkPage(pageKey, newRevision, indexType, rangeStart, rangeEnd,
-        newBitmap, null, null, false, false);
+    Roaring64Bitmap newBitmap = bitmap != null
+        ? bitmap.clone()
+        : new Roaring64Bitmap();
+    return new BitmapChunkPage(pageKey, newRevision, indexType, rangeStart, rangeEnd, newBitmap, null, null, false,
+        false);
   }
 
   /**
@@ -409,13 +410,16 @@ public final class BitmapChunkPage implements Page {
    * @return a copy of this page
    */
   public BitmapChunkPage copy(int newRevision) {
-    return new BitmapChunkPage(
-        pageKey, newRevision, indexType, rangeStart, rangeEnd,
-        bitmap != null ? bitmap.clone() : null,
-        additions != null ? additions.clone() : null,
-        removals != null ? removals.clone() : null,
-        isDelta, isDeleted
-    );
+    return new BitmapChunkPage(pageKey, newRevision, indexType, rangeStart, rangeEnd, bitmap != null
+        ? bitmap.clone()
+        : null,
+        additions != null
+            ? additions.clone()
+            : null,
+        removals != null
+            ? removals.clone()
+            : null,
+        isDelta, isDeleted);
   }
 
   // ===== Serialization =====
@@ -429,8 +433,10 @@ public final class BitmapChunkPage implements Page {
   public void serialize(DataOutput out) throws IOException {
     // Flags
     byte flags = 0;
-    if (isDelta) flags |= FLAG_IS_DELTA;
-    if (isDeleted) flags |= FLAG_IS_DELETED;
+    if (isDelta)
+      flags |= FLAG_IS_DELTA;
+    if (isDeleted)
+      flags |= FLAG_IS_DELETED;
     out.writeByte(flags);
 
     // Range
@@ -475,7 +481,7 @@ public final class BitmapChunkPage implements Page {
   /**
    * Deserialize a BitmapChunkPage from a DataInput.
    *
-   * @param in      the input stream
+   * @param in the input stream
    * @param pageKey the page key
    * @return the deserialized page
    * @throws IOException if an I/O error occurs
@@ -511,8 +517,8 @@ public final class BitmapChunkPage implements Page {
       }
     }
 
-    return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd,
-        bitmap, additions, removals, isDelta, isDeleted);
+    return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd, bitmap, additions, removals, isDelta,
+        isDeleted);
   }
 
   private static Roaring64Bitmap deserializeBitmap(DataInput in) throws IOException {
@@ -546,30 +552,26 @@ public final class BitmapChunkPage implements Page {
 
   @Override
   public String toString() {
-    return "BitmapChunkPage{" +
-        "pageKey=" + pageKey +
-        ", revision=" + revision +
-        ", indexType=" + indexType +
-        ", range=[" + rangeStart + ", " + rangeEnd + ")" +
-        ", isDelta=" + isDelta +
-        ", isDeleted=" + isDeleted +
-        ", size=" + (bitmap != null ? bitmap.getLongCardinality() :
-            (additions != null ? "+" + additions.getLongCardinality() + "/-" + removals.getLongCardinality() : 0)) +
-        '}';
+    return "BitmapChunkPage{" + "pageKey=" + pageKey + ", revision=" + revision + ", indexType=" + indexType
+        + ", range=[" + rangeStart + ", " + rangeEnd + ")" + ", isDelta=" + isDelta + ", isDeleted=" + isDeleted
+        + ", size=" + (bitmap != null
+            ? bitmap.getLongCardinality()
+            : (additions != null
+                ? "+" + additions.getLongCardinality() + "/-" + removals.getLongCardinality()
+                : 0))
+        + '}';
   }
 
   @Override
   public boolean equals(Object o) {
-    if (this == o) return true;
-    if (o == null || getClass() != o.getClass()) return false;
+    if (this == o)
+      return true;
+    if (o == null || getClass() != o.getClass())
+      return false;
     BitmapChunkPage that = (BitmapChunkPage) o;
-    return pageKey == that.pageKey &&
-        revision == that.revision &&
-        rangeStart == that.rangeStart &&
-        rangeEnd == that.rangeEnd &&
-        isDelta == that.isDelta &&
-        isDeleted == that.isDeleted &&
-        indexType == that.indexType;
+    return pageKey == that.pageKey && revision == that.revision && rangeStart == that.rangeStart
+        && rangeEnd == that.rangeEnd && isDelta == that.isDelta && isDeleted == that.isDeleted
+        && indexType == that.indexType;
   }
 
   @Override

@@ -97,8 +97,8 @@ public final class JsonItemShredder implements Callable<Long> {
     /**
      * Constructor.
      *
-     * @param wtx    {@link JsonNodeTrx} implementation
-     * @param item   {@link Item} implementation
+     * @param wtx {@link JsonNodeTrx} implementation
+     * @param item {@link Item} implementation
      * @param insert insertion position
      * @throws NullPointerException if one of the arguments is {@code null}
      */
@@ -163,8 +163,7 @@ public final class JsonItemShredder implements Callable<Long> {
     return revision;
   }
 
-  private void json(Sequence parent, Sequence sequence, String objectField,
-      boolean nextTokenIsParent) {
+  private void json(Sequence parent, Sequence sequence, String objectField, boolean nextTokenIsParent) {
     switch (sequence) {
       case Atomic atomic -> {
         if (atomic instanceof Numeric) {
@@ -240,10 +239,8 @@ public final class JsonItemShredder implements Callable<Long> {
         }
         for (int i = 0; i < object.len(); i++) {
           final var value = object.value(i);
-          json(object,
-               value,
-               object.name(i).stringValue(),
-               i + 1 == object.len() || !(value instanceof Array) && !(value instanceof Object));
+          json(object, value, object.name(i).stringValue(),
+              i + 1 == object.len() || !(value instanceof Array) && !(value instanceof Object));
         }
         level--;
         if (!(level == 0 && skipRootJson)) {
@@ -292,7 +289,7 @@ public final class JsonItemShredder implements Callable<Long> {
       }
       case AS_LEFT_SIBLING -> key = wtx.insertStringValueAsLeftSibling(value).getNodeKey();
       case AS_RIGHT_SIBLING -> key = wtx.insertStringValueAsRightSibling(value).getNodeKey();
-      default -> throw new AssertionError();//Should not happen
+      default -> throw new AssertionError();// Should not happen
     }
 
     adaptTrxPosAndStack(nextTokenIsParent, key);
@@ -320,7 +317,7 @@ public final class JsonItemShredder implements Callable<Long> {
       }
       case AS_LEFT_SIBLING -> key = wtx.insertBooleanValueAsLeftSibling(boolValue).getNodeKey();
       case AS_RIGHT_SIBLING -> key = wtx.insertBooleanValueAsRightSibling(boolValue).getNodeKey();
-      default -> throw new AssertionError();//Should not happen
+      default -> throw new AssertionError();// Should not happen
     }
 
     adaptTrxPosAndStack(nextTokenIsParent, key);
@@ -350,7 +347,7 @@ public final class JsonItemShredder implements Callable<Long> {
       }
       case AS_LEFT_SIBLING -> key = wtx.insertNumberValueAsLeftSibling(value).getNodeKey();
       case AS_RIGHT_SIBLING -> key = wtx.insertNumberValueAsRightSibling(value).getNodeKey();
-      default -> throw new AssertionError();//Should not happen
+      default -> throw new AssertionError();// Should not happen
     }
 
     adaptTrxPosAndStack(nextTokenIsParent, key);
@@ -387,7 +384,7 @@ public final class JsonItemShredder implements Callable<Long> {
       }
       case AS_LEFT_SIBLING -> key = wtx.insertNullValueAsLeftSibling().getNodeKey();
       case AS_RIGHT_SIBLING -> key = wtx.insertNullValueAsRightSibling().getNodeKey();
-      default -> throw new AssertionError();//Should not happen
+      default -> throw new AssertionError();// Should not happen
     }
 
     adaptTrxPosAndStack(nextTokenIsParent, key);
@@ -510,7 +507,7 @@ public final class JsonItemShredder implements Callable<Long> {
       }
       case AS_LEFT_SIBLING -> key = wtx.insertObjectRecordAsLeftSibling(name, value).getNodeKey();
       case AS_RIGHT_SIBLING -> key = wtx.insertObjectRecordAsRightSibling(name, value).getNodeKey();
-      default -> throw new AssertionError();//Should not happen
+      default -> throw new AssertionError();// Should not happen
     }
 
     parents.popLong();

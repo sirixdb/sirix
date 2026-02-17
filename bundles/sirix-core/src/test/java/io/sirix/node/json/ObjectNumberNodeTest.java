@@ -43,28 +43,24 @@ public class ObjectNumberNodeTest {
   @Test
   public void test() throws IOException {
     final var hashFunction = LongHashFunction.xx3();
-    final ObjectNumberNode node = new ObjectNumberNode(
-        13L, // nodeKey
+    final ObjectNumberNode node = new ObjectNumberNode(13L, // nodeKey
         14L, // parentKey
         Constants.NULL_REVISION_NUMBER, // previousRevision
         0, // lastModifiedRevision
         0, // hash
         42.5, // value
-        hashFunction,
-        (byte[]) null // deweyID
+        hashFunction, (byte[]) null // deweyID
     );
     check(node);
 
-    final var config = ResourceConfiguration.newBuilder("test")
-        .hashKind(HashType.NONE)
-        .build();
+    final var config = ResourceConfiguration.newBuilder("test").hashKind(HashType.NONE).build();
 
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     NodeKind.OBJECT_NUMBER_VALUE.serialize(data, node, config);
-    
+
     var bytesIn = data.asBytesIn();
-    final ObjectNumberNode node2 = (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(
-        bytesIn, node.getNodeKey(), null, config);
+    final ObjectNumberNode node2 =
+        (ObjectNumberNode) NodeKind.OBJECT_NUMBER_VALUE.deserialize(bytesIn, node.getNodeKey(), null, config);
     check(node2);
   }
 

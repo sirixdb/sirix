@@ -103,8 +103,7 @@ final class XmlStructuralDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTr
 
   @Override
   void emitNonStructuralDiff(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx, final DiffDepth depth,
-      final DiffType diff) {
-  }
+      final DiffType diff) {}
 
   protected boolean checkNamesForEquality(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx) {
     return newRtx.getURIKey() == oldRtx.getURIKey() && newRtx.getLocalNameKey() == oldRtx.getLocalNameKey()

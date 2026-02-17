@@ -17,9 +17,9 @@ import io.sirix.query.json.JsonDBCollection;
  * Function for determining if a database exists or not. Supported signature is:
  * </p>
  * <ul>
- * <li><code>jn:exists-database($coll as xs:string) as xs:boolean</code>
- * </li>
+ * <li><code>jn:exists-database($coll as xs:string) as xs:boolean</code></li>
  * </ul>
+ * 
  * @author Johannes Lichtenberger
  *
  */
@@ -46,6 +46,8 @@ public final class ExistsDatabase extends AbstractFunction {
 
     final JsonDBCollection collection = (JsonDBCollection) ctx.getJsonItemStore().lookup(((Str) args[0]).stringValue());
 
-    return collection != null ? Bool.TRUE : Bool.FALSE;
+    return collection != null
+        ? Bool.TRUE
+        : Bool.FALSE;
   }
 }

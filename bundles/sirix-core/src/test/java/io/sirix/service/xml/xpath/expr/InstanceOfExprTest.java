@@ -63,32 +63,28 @@ public class InstanceOfExprTest {
     assertEquals(true, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis1.hasNext());
 
-    final AbstractAxis axis2 =
-        new XPathAxis(holder.getXmlNodeReadTrx(), "\"hallo\" instance of xs:integer");
+    final AbstractAxis axis2 = new XPathAxis(holder.getXmlNodeReadTrx(), "\"hallo\" instance of xs:integer");
     assertEquals(true, axis2.hasNext());
     axis2.next();
     assertEquals(holder.getXmlNodeReadTrx().keyForName("xs:boolean"), holder.getXmlNodeReadTrx().getTypeKey());
     assertEquals(false, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis2.hasNext());
 
-    final AbstractAxis axis3 =
-        new XPathAxis(holder.getXmlNodeReadTrx(), "\"hallo\" instance of xs:string ?");
+    final AbstractAxis axis3 = new XPathAxis(holder.getXmlNodeReadTrx(), "\"hallo\" instance of xs:string ?");
     assertEquals(true, axis3.hasNext());
     axis3.next();
     assertEquals(holder.getXmlNodeReadTrx().keyForName("xs:boolean"), holder.getXmlNodeReadTrx().getTypeKey());
     assertEquals(true, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis3.hasNext());
 
-    final AbstractAxis axis4 =
-        new XPathAxis(holder.getXmlNodeReadTrx(), "\"hallo\" instance of xs:string +");
+    final AbstractAxis axis4 = new XPathAxis(holder.getXmlNodeReadTrx(), "\"hallo\" instance of xs:string +");
     assertEquals(true, axis4.hasNext());
     axis4.next();
     assertEquals(holder.getXmlNodeReadTrx().keyForName("xs:boolean"), holder.getXmlNodeReadTrx().getTypeKey());
     assertEquals(true, Boolean.parseBoolean(holder.getXmlNodeReadTrx().getValue()));
     assertEquals(false, axis4.hasNext());
 
-    final AbstractAxis axis5 =
-        new XPathAxis(holder.getXmlNodeReadTrx(), "\"hallo\" instance of xs:string *");
+    final AbstractAxis axis5 = new XPathAxis(holder.getXmlNodeReadTrx(), "\"hallo\" instance of xs:string *");
     assertEquals(true, axis5.hasNext());
     axis5.next();
     assertEquals(holder.getXmlNodeReadTrx().keyForName("xs:boolean"), holder.getXmlNodeReadTrx().getTypeKey());

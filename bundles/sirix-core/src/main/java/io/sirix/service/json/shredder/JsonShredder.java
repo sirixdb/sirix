@@ -41,7 +41,7 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes Lichtenberger, University of Konstanz
  *
  */
-@SuppressWarnings({ "DuplicatedCode", "ConstantConditions" })
+@SuppressWarnings({"DuplicatedCode", "ConstantConditions"})
 public final class JsonShredder implements Callable<Long> {
 
   /** {@link LogWrapper} reference. */
@@ -327,7 +327,7 @@ public final class JsonShredder implements Callable<Long> {
         key = wtx.insertStringValueAsRightSibling(value).getNodeKey();
         break;
       default:
-        throw new AssertionError();//Should not happen
+        throw new AssertionError();// Should not happen
     }
 
     adaptTrxPosAndStack(nextTokenIsParent, key);
@@ -360,7 +360,7 @@ public final class JsonShredder implements Callable<Long> {
         key = wtx.insertBooleanValueAsRightSibling(boolValue).getNodeKey();
         break;
       default:
-        throw new AssertionError();//Should not happen
+        throw new AssertionError();// Should not happen
     }
 
     adaptTrxPosAndStack(nextTokenIsParent, key);
@@ -395,7 +395,7 @@ public final class JsonShredder implements Callable<Long> {
         key = wtx.insertNumberValueAsRightSibling(value).getNodeKey();
         break;
       default:
-        throw new AssertionError();//Should not happen
+        throw new AssertionError();// Should not happen
     }
 
     adaptTrxPosAndStack(nextTokenIsParent, key);
@@ -437,7 +437,7 @@ public final class JsonShredder implements Callable<Long> {
         key = wtx.insertNullValueAsRightSibling().getNodeKey();
         break;
       default:
-        throw new AssertionError();//Should not happen
+        throw new AssertionError();// Should not happen
     }
 
     adaptTrxPosAndStack(nextTokenIsParent, key);
@@ -465,8 +465,8 @@ public final class JsonShredder implements Callable<Long> {
       case AS_LEFT_SIBLING:
         if (wtx.getKind() == NodeKind.JSON_DOCUMENT
             || wtx.getParentKey() == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
-              throw new IllegalStateException(
-                  "Subtree can not be inserted as sibling of document root or the root-object/array/whatever!");
+          throw new IllegalStateException(
+              "Subtree can not be inserted as sibling of document root or the root-object/array/whatever!");
         }
         key = wtx.insertArrayAsLeftSibling().getNodeKey();
         insert = InsertPosition.AS_FIRST_CHILD;
@@ -568,7 +568,7 @@ public final class JsonShredder implements Callable<Long> {
         key = wtx.insertObjectRecordAsRightSibling(name, value).getNodeKey();
         break;
       default:
-        throw new AssertionError();//Should not happen
+        throw new AssertionError();// Should not happen
     }
 
     parents.popLong();

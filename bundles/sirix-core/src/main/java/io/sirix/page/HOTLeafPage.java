@@ -56,19 +56,26 @@ import java.util.concurrent.atomic.AtomicInteger;
 /**
  * HOT (Height Optimized Trie) leaf page for cache-friendly secondary indexes.
  * 
- * <p>Stores sorted key-value entries with off-heap MemorySegment storage.
- * Implements KeyValuePage for versioning compatibility with existing infrastructure.</p>
+ * <p>
+ * Stores sorted key-value entries with off-heap MemorySegment storage. Implements KeyValuePage for
+ * versioning compatibility with existing infrastructure.
+ * </p>
  * 
- * <p><b>Key Features:</b></p>
+ * <p>
+ * <b>Key Features:</b>
+ * </p>
  * <ul>
- *   <li>Off-heap storage via MemorySegment (zero-copy deserialization)</li>
- *   <li>Sorted entries for O(log n) binary search within page</li>
- *   <li>Guard-based lifetime management (LeanStore/Umbra pattern)</li>
- *   <li>No sibling pointers (COW-compatible)</li>
- *   <li>SIMD-optimized key comparison via MemorySegment.mismatch()</li>
+ * <li>Off-heap storage via MemorySegment (zero-copy deserialization)</li>
+ * <li>Sorted entries for O(log n) binary search within page</li>
+ * <li>Guard-based lifetime management (LeanStore/Umbra pattern)</li>
+ * <li>No sibling pointers (COW-compatible)</li>
+ * <li>SIMD-optimized key comparison via MemorySegment.mismatch()</li>
  * </ul>
  * 
- * <p><b>Memory Layout:</b></p>
+ * <p>
+ * <b>Memory Layout:</b>
+ * </p>
+ * 
  * <pre>
  * ┌─────────────────────────────────────────────────────────────────────────────┐
  * │ Entry format: [u16 keyLen][key bytes][u16 valueLen][value bytes]            │
@@ -84,31 +91,31 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
   /** Sentinel value for "not found" in binary search. */
   public static final int NOT_FOUND = -1;
-  
+
   /** Default page size for off-heap allocation (64KB). */
   public static final int DEFAULT_SIZE = 64 * 1024;
-  
+
   /** Maximum entries per page before split. */
   public static final int MAX_ENTRIES = 512;
-  
+
   /**
-   * Unaligned short layout for zero-copy deserialization.
-   * When slotMemory is a slice, it may not be 2-byte aligned.
+   * Unaligned short layout for zero-copy deserialization. When slotMemory is a slice, it may not be
+   * 2-byte aligned.
    */
   private static final ValueLayout.OfShort JAVA_SHORT_UNALIGNED = ValueLayout.JAVA_SHORT.withByteAlignment(1);
-  
+
   // ===== Page identity =====
   private final long recordPageKey;
   private final int revision;
   private final IndexType indexType;
-  
+
   // ===== Off-heap storage =====
   private final MemorySegment slotMemory;
   private final Runnable releaser;
   private final int[] slotOffsets;
   private int entryCount;
   private int usedSlotMemorySize;
-  
+
   // ===== Guard-based lifetime management (LeanStore/Umbra pattern) =====
   // Note: For production, consider using @Contended annotation to avoid false sharing
   // Padding fields prevent false sharing on guardCount AtomicInteger
@@ -119,18 +126,18 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   private long p8, p9, p10, p11, p12, p13, p14; // Cache line padding (56 bytes after)
   private volatile boolean closed = false;
   private volatile boolean isOrphaned = false;
-  
+
   // ===== Version for detecting page reuse =====
   private final AtomicInteger version = new AtomicInteger(0);
   private volatile boolean hot = false;
-  
+
   // ===== Page references for overflow entries =====
   private final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<PageReference> pageReferences;
-  
+
   // ===== Diagnostic tracking =====
   @SuppressWarnings("unused")
   private static final boolean DEBUG_MEMORY_LEAKS = DiagnosticSettings.MEMORY_LEAK_TRACKING;
-  
+
   /**
    * Create a new HOTLeafPage with allocated off-heap memory.
    *
@@ -142,20 +149,20 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = Objects.requireNonNull(indexType);
-    
+
     // Allocate off-heap memory
-    MemorySegmentAllocator allocator = OS.isWindows() 
-        ? WindowsMemorySegmentAllocator.getInstance() 
+    MemorySegmentAllocator allocator = OS.isWindows()
+        ? WindowsMemorySegmentAllocator.getInstance()
         : LinuxMemorySegmentAllocator.getInstance();
     this.slotMemory = allocator.allocate(DEFAULT_SIZE);
     this.releaser = () -> allocator.release(slotMemory);
-    
+
     this.slotOffsets = new int[MAX_ENTRIES];
     this.entryCount = 0;
     this.usedSlotMemorySize = 0;
     this.pageReferences = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>();
   }
-  
+
   /**
    * Create a HOTLeafPage with provided memory segment (for deserialization).
    *
@@ -168,9 +175,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    * @param entryCount the number of entries
    * @param usedSlotMemorySize the used slot memory size
    */
-  public HOTLeafPage(long recordPageKey, int revision, @NonNull IndexType indexType,
-                     @NonNull MemorySegment slotMemory, @Nullable Runnable releaser,
-                     int[] slotOffsets, int entryCount, int usedSlotMemorySize) {
+  public HOTLeafPage(long recordPageKey, int revision, @NonNull IndexType indexType, @NonNull MemorySegment slotMemory,
+      @Nullable Runnable releaser, int[] slotOffsets, int entryCount, int usedSlotMemorySize) {
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = Objects.requireNonNull(indexType);
@@ -181,12 +187,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     this.usedSlotMemorySize = usedSlotMemorySize;
     this.pageReferences = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>();
   }
-  
+
   // ===== Binary Search with SIMD-optimized comparison =====
-  
+
   /**
-   * Find entry index for key using binary search.
-   * Uses branchless comparison for better branch prediction.
+   * Find entry index for key using binary search. Uses branchless comparison for better branch
+   * prediction.
    *
    * @param key the search key
    * @return index if found, or -(insertionPoint + 1) if not found
@@ -195,20 +201,24 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     Objects.requireNonNull(key);
     int low = 0;
     int high = entryCount;
-    
+
     while (low < high) {
       int mid = (low + high) >>> 1;
       int cmp = compareKeysSimd(getKeySlice(mid), key);
       // Branchless update (cmov-friendly)
-      low = cmp < 0 ? mid + 1 : low;
-      high = cmp > 0 ? mid : high;
+      low = cmp < 0
+          ? mid + 1
+          : low;
+      high = cmp > 0
+          ? mid
+          : high;
       if (cmp == 0) {
         return mid;
       }
     }
     return -(low + 1);
   }
-  
+
   /**
    * SIMD-optimized key comparison using MemorySegment.mismatch().
    *
@@ -228,14 +238,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     if (mismatch == bSeg.byteSize()) {
       return 1;
     }
-    return Byte.compareUnsigned(
-        a.get(ValueLayout.JAVA_BYTE, mismatch),
-        bSeg.get(ValueLayout.JAVA_BYTE, mismatch)
-    );
+    return Byte.compareUnsigned(a.get(ValueLayout.JAVA_BYTE, mismatch), bSeg.get(ValueLayout.JAVA_BYTE, mismatch));
   }
-  
+
   // ===== Zero-copy key/value access =====
-  
+
   /**
    * Get key slice from off-heap segment (zero-copy).
    *
@@ -248,7 +255,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     int keyLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
     return slotMemory.asSlice(offset + 2, keyLen);
   }
-  
+
   /**
    * Get value slice from off-heap segment (zero-copy).
    *
@@ -263,7 +270,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     int valueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueOffset));
     return slotMemory.asSlice(valueOffset + 2, valueLen);
   }
-  
+
   /**
    * Get key as byte array (copies data).
    *
@@ -276,7 +283,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     MemorySegment.copy(slice, ValueLayout.JAVA_BYTE, 0, key, 0, key.length);
     return key;
   }
-  
+
   /**
    * Get value as byte array (copies data).
    *
@@ -289,9 +296,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     MemorySegment.copy(slice, ValueLayout.JAVA_BYTE, 0, value, 0, value.length);
     return value;
   }
-  
+
   // ===== Insert/Update operations =====
-  
+
   /**
    * Insert or update an entry.
    *
@@ -302,19 +309,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public boolean put(byte[] key, byte[] value) {
     Objects.requireNonNull(key);
     Objects.requireNonNull(value);
-    
+
     int index = findEntry(key);
     if (index >= 0) {
       // Update existing entry - for now, just mark as updated
       // A more sophisticated implementation would handle in-place updates
       return false;
     }
-    
+
     // Insert new entry
     int insertPos = -(index + 1);
     return insertAt(insertPos, key, value);
   }
-  
+
   /**
    * Insert entry at specified position.
    *
@@ -327,23 +334,23 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     if (entryCount >= MAX_ENTRIES) {
       return false; // Page full, needs split
     }
-    
+
     // Calculate entry size: [u16 keyLen][key][u16 valueLen][value]
     int entrySize = 2 + key.length + 2 + value.length;
-    
+
     if (usedSlotMemorySize + entrySize > slotMemory.byteSize()) {
       return false; // No space left
     }
-    
+
     // Shift offsets to make room
     if (pos < entryCount) {
       System.arraycopy(slotOffsets, pos, slotOffsets, pos + 1, entryCount - pos);
     }
-    
+
     // Write entry to slotMemory
     int offset = usedSlotMemorySize;
     slotOffsets[pos] = offset;
-    
+
     slotMemory.set(JAVA_SHORT_UNALIGNED, offset, (short) key.length);
     offset += 2;
     MemorySegment.copy(key, 0, slotMemory, ValueLayout.JAVA_BYTE, offset, key.length);
@@ -351,18 +358,16 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     slotMemory.set(JAVA_SHORT_UNALIGNED, offset, (short) value.length);
     offset += 2;
     MemorySegment.copy(value, 0, slotMemory, ValueLayout.JAVA_BYTE, offset, value.length);
-    
+
     usedSlotMemorySize += entrySize;
     entryCount++;
-    
+
     return true;
   }
-  
+
   /**
-   * Check if the page needs to be split.
-   * This returns true if either:
-   * - Entry count has reached the maximum, or
-   * - Slot memory is nearly full (less than MIN_ENTRY_SPACE remaining)
+   * Check if the page needs to be split. This returns true if either: - Entry count has reached the
+   * maximum, or - Slot memory is nearly full (less than MIN_ENTRY_SPACE remaining)
    *
    * @return true if page is full and needs splitting
    */
@@ -370,29 +375,30 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     // Minimum space needed for a typical entry (key + value)
     // This should be conservative enough to trigger splits before insertAt fails
     final int MIN_ENTRY_SPACE = 128; // 2 + 32 (key) + 2 + 92 (value) typical
-    
+
     if (entryCount >= MAX_ENTRIES) {
       return true;
     }
-    
+
     // Also need to split if slot memory is nearly full
     long remainingSpace = slotMemory.byteSize() - usedSlotMemorySize;
     return remainingSpace < MIN_ENTRY_SPACE;
   }
-  
+
   /**
    * Check if this page can be split (has at least 2 entries).
    *
-   * <p>A page with only 1 entry cannot be split using the normal splitting
-   * algorithm. This typically happens when many identical keys are merged
-   * into a single entry with a very large value.</p>
+   * <p>
+   * A page with only 1 entry cannot be split using the normal splitting algorithm. This typically
+   * happens when many identical keys are merged into a single entry with a very large value.
+   * </p>
    *
    * @return true if the page can be split (has >= 2 entries)
    */
   public boolean canSplit() {
     return entryCount >= 2;
   }
-  
+
   /**
    * Check if an entry with the given key and value would fit in this page.
    *
@@ -404,12 +410,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     if (entryCount >= MAX_ENTRIES) {
       return false;
     }
-    
+
     // Calculate entry size: [u16 keyLen][key][u16 valueLen][value]
     int entrySize = 2 + key.length + 2 + value.length;
     return usedSlotMemorySize + entrySize <= slotMemory.byteSize();
   }
-  
+
   /**
    * Get the remaining space in this page's slot memory.
    *
@@ -418,13 +424,14 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public long getRemainingSpace() {
     return slotMemory.byteSize() - usedSlotMemorySize;
   }
-  
+
   /**
    * Compact the page by removing fragmentation.
    *
-   * <p>When values are updated in place with smaller values, or entries are
-   * deleted, the page can become fragmented. This method rebuilds the page
-   * with all entries packed contiguously, freeing up space.</p>
+   * <p>
+   * When values are updated in place with smaller values, or entries are deleted, the page can become
+   * fragmented. This method rebuilds the page with all entries packed contiguously, freeing up space.
+   * </p>
    *
    * @return the amount of space reclaimed
    */
@@ -434,29 +441,29 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       usedSlotMemorySize = 0;
       return reclaimed;
     }
-    
+
     // Allocate temporary storage
     byte[][] keys = new byte[entryCount][];
     byte[][] values = new byte[entryCount][];
-    
+
     // Extract all entries
     for (int i = 0; i < entryCount; i++) {
       keys[i] = getKey(i);
       values[i] = getValue(i);
     }
-    
+
     // Clear and reinsert
     int oldUsed = usedSlotMemorySize;
     usedSlotMemorySize = 0;
     entryCount = 0;
-    
+
     for (int i = 0; i < keys.length; i++) {
       insertAt(i, keys[i], values[i]);
     }
-    
+
     return oldUsed - usedSlotMemorySize;
   }
-  
+
   /**
    * Get entry count.
    *
@@ -465,13 +472,15 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public int getEntryCount() {
     return entryCount;
   }
-  
+
   // ===== Merge, Update, and Copy operations for HOT index =====
-  
+
   /**
    * Update the value at a given index.
    *
-   * <p>This is used for merging NodeReferences - the new value replaces the old.</p>
+   * <p>
+   * This is used for merging NodeReferences - the new value replaces the old.
+   * </p>
    *
    * @param index the entry index
    * @param newValue the new value
@@ -480,47 +489,49 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public boolean updateValue(int index, byte[] newValue) {
     Objects.checkIndex(index, entryCount);
     Objects.requireNonNull(newValue);
-    
+
     // Get old entry info
     int offset = slotOffsets[index];
     int keyLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
     int valueOffset = offset + 2 + keyLen;
     int oldValueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueOffset));
-    
+
     // If new value same size or smaller, update in-place
     if (newValue.length <= oldValueLen) {
       slotMemory.set(JAVA_SHORT_UNALIGNED, valueOffset, (short) newValue.length);
       MemorySegment.copy(newValue, 0, slotMemory, ValueLayout.JAVA_BYTE, valueOffset + 2, newValue.length);
       return true;
     }
-    
+
     // New value is larger - need to append and update offset
     int newEntrySize = 2 + keyLen + 2 + newValue.length;
     if (usedSlotMemorySize + newEntrySize > slotMemory.byteSize()) {
       return false; // No space for larger value
     }
-    
+
     // Copy key and new value to end of used space
     int newOffset = usedSlotMemorySize;
     byte[] key = getKey(index);
-    
+
     slotMemory.set(JAVA_SHORT_UNALIGNED, newOffset, (short) keyLen);
     MemorySegment.copy(key, 0, slotMemory, ValueLayout.JAVA_BYTE, newOffset + 2, keyLen);
     slotMemory.set(JAVA_SHORT_UNALIGNED, newOffset + 2 + keyLen, (short) newValue.length);
     MemorySegment.copy(newValue, 0, slotMemory, ValueLayout.JAVA_BYTE, newOffset + 2 + keyLen + 2, newValue.length);
-    
+
     // Update offset pointer
     slotOffsets[index] = newOffset;
     usedSlotMemorySize += newEntrySize;
-    
+
     return true;
   }
-  
+
   /**
    * Merge a value with existing entry using NodeReferences OR semantics.
    *
-   * <p>If key exists, merges the NodeReferences (OR operation on bitmaps).
-   * If key doesn't exist, inserts new entry.</p>
+   * <p>
+   * If key exists, merges the NodeReferences (OR operation on bitmaps). If key doesn't exist, inserts
+   * new entry.
+   * </p>
    *
    * @param key the key bytes
    * @param keyLen the key length
@@ -531,94 +542,102 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public boolean mergeWithNodeRefs(byte[] key, int keyLen, byte[] value, int valueLen) {
     Objects.requireNonNull(key);
     Objects.requireNonNull(value);
-    
+
     // Search for existing key
-    byte[] keySlice = keyLen == key.length ? key : java.util.Arrays.copyOf(key, keyLen);
+    byte[] keySlice = keyLen == key.length
+        ? key
+        : java.util.Arrays.copyOf(key, keyLen);
     int index = findEntry(keySlice);
-    
+
     if (index >= 0) {
       // Key exists - merge NodeReferences
       byte[] existingValue = getValue(index);
-      
+
       // Deserialize both and merge
       var existingRefs = NodeReferencesSerializer.deserialize(existingValue);
       var newRefs = NodeReferencesSerializer.deserialize(value, 0, valueLen);
-      
+
       // Check for tombstone in new value
       if (!newRefs.hasNodeKeys()) {
         // Tombstone - set empty value
-        return updateValue(index, new byte[] { (byte) 0xFE }); // TOMBSTONE_FORMAT
+        return updateValue(index, new byte[] {(byte) 0xFE}); // TOMBSTONE_FORMAT
       }
-      
+
       // Merge bitmaps (OR operation)
       NodeReferencesSerializer.merge(existingRefs, newRefs);
-      
+
       // Serialize merged result
       byte[] mergedBytes = NodeReferencesSerializer.serialize(existingRefs);
       return updateValue(index, mergedBytes);
     } else {
       // Key doesn't exist - insert new entry
-      byte[] valueSlice = valueLen == value.length ? value : java.util.Arrays.copyOf(value, valueLen);
+      byte[] valueSlice = valueLen == value.length
+          ? value
+          : java.util.Arrays.copyOf(value, valueLen);
       int insertPos = -(index + 1);
       return insertAt(insertPos, keySlice, valueSlice);
     }
   }
-  
+
   /**
    * Create a deep copy of this page for COW (Copy-on-Write).
    *
-   * <p>The copy has its own off-heap memory segment and independent state.</p>
+   * <p>
+   * The copy has its own off-heap memory segment and independent state.
+   * </p>
    *
    * @return a new HOTLeafPage with copied data
    */
   public HOTLeafPage copy() {
     // Allocate new off-heap memory
-    MemorySegmentAllocator allocator = OS.isWindows() 
-        ? WindowsMemorySegmentAllocator.getInstance() 
+    MemorySegmentAllocator allocator = OS.isWindows()
+        ? WindowsMemorySegmentAllocator.getInstance()
         : LinuxMemorySegmentAllocator.getInstance();
     MemorySegment newSlotMemory = allocator.allocate(DEFAULT_SIZE);
     Runnable newReleaser = () -> allocator.release(newSlotMemory);
-    
+
     // Bulk copy off-heap data
     MemorySegment.copy(slotMemory, 0, newSlotMemory, 0, usedSlotMemorySize);
-    
+
     // Deep copy on-heap arrays
     int[] newSlotOffsets = java.util.Arrays.copyOf(slotOffsets, slotOffsets.length);
-    
+
     // Create new page with copied data
-    HOTLeafPage copy = new HOTLeafPage(
-        recordPageKey, revision, indexType,
-        newSlotMemory, newReleaser, newSlotOffsets, entryCount, usedSlotMemorySize);
-    
+    HOTLeafPage copy = new HOTLeafPage(recordPageKey, revision, indexType, newSlotMemory, newReleaser, newSlotOffsets,
+        entryCount, usedSlotMemorySize);
+
     // Deep copy page references (for overflow entries)
     for (var entry : pageReferences.long2ObjectEntrySet()) {
       copy.pageReferences.put(entry.getLongKey(), entry.getValue());
     }
-    
+
     return copy;
   }
-  
+
   /**
    * Split this page, moving the right half of entries to another page.
    *
-   * <p>After split:</p>
+   * <p>
+   * After split:
+   * </p>
    * <ul>
-   *   <li>This page keeps entries [0, splitPoint)</li>
-   *   <li>Target page gets entries [splitPoint, entryCount)</li>
+   * <li>This page keeps entries [0, splitPoint)</li>
+   * <li>Target page gets entries [splitPoint, entryCount)</li>
    * </ul>
    *
-   * <p><b>Edge Case Handling:</b> When the page has only 1 entry (common with
-   * many identical keys that get merged), this method returns {@code null} instead
-   * of throwing an exception. The caller should handle this by using overflow
-   * pages or other strategies.</p>
+   * <p>
+   * <b>Edge Case Handling:</b> When the page has only 1 entry (common with many identical keys that
+   * get merged), this method returns {@code null} instead of throwing an exception. The caller should
+   * handle this by using overflow pages or other strategies.
+   * </p>
    *
    * @param target the page to receive the right half of entries
-   * @return the first key in the target page (split key for parent navigation),
-   *         or {@code null} if the page cannot be split (e.g., only 1 entry)
+   * @return the first key in the target page (split key for parent navigation), or {@code null} if
+   *         the page cannot be split (e.g., only 1 entry)
    */
   public @Nullable byte[] splitTo(@NonNull HOTLeafPage target) {
     Objects.requireNonNull(target);
-    
+
     if (entryCount < 2) {
       // Cannot split a page with less than 2 entries.
       // This happens when many identical keys are merged into a single large value.
@@ -626,15 +645,15 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       // (e.g., using overflow pages for large values).
       return null;
     }
-    
+
     // Split at midpoint
     int splitPoint = entryCount / 2;
-    
+
     // Copy right half to target
     for (int i = splitPoint; i < entryCount; i++) {
       byte[] key = getKey(i);
       byte[] value = getValue(i);
-      
+
       boolean inserted = target.insertAt(target.entryCount, key, value);
       if (!inserted) {
         // Target page full - this shouldn't happen with a fresh page
@@ -648,35 +667,35 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
         break;
       }
     }
-    
+
     // Ensure target has at least one entry
     if (target.entryCount == 0) {
       return null;
     }
-    
+
     // Get the split key (first key in target)
     byte[] splitKey = target.getKey(0);
-    
+
     // Truncate this page to keep only left half
     entryCount = splitPoint;
-    
+
     // Recalculate used slot memory size for remaining entries
     // This is important to allow new inserts after the split
     recalculateUsedMemory();
-    
+
     return splitKey;
   }
-  
+
   /**
-   * Recalculate the used slot memory size based on actual entries.
-   * Called after split to allow new inserts on the truncated page.
+   * Recalculate the used slot memory size based on actual entries. Called after split to allow new
+   * inserts on the truncated page.
    */
   private void recalculateUsedMemory() {
     if (entryCount == 0) {
       usedSlotMemorySize = 0;
       return;
     }
-    
+
     // Find the maximum offset + entry size to determine actual used memory
     int maxEndOffset = 0;
     for (int i = 0; i < entryCount; i++) {
@@ -692,7 +711,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     }
     usedSlotMemorySize = maxEndOffset;
   }
-  
+
   /**
    * Get the first (minimum) key in this page.
    *
@@ -704,7 +723,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     }
     return getKey(0);
   }
-  
+
   /**
    * Get the last (maximum) key in this page.
    *
@@ -720,7 +739,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Get all keys in this page as an array.
    *
-   * <p>Keys are returned in sorted order.</p>
+   * <p>
+   * Keys are returned in sorted order.
+   * </p>
    *
    * @return array of all keys (never null, may be empty)
    */
@@ -735,40 +756,41 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Merge another HOTLeafPage into this one.
    *
-   * <p>Used for versioning - combines entries from multiple page fragments.
-   * Newer entries take precedence. NodeReferences are OR-merged.</p>
+   * <p>
+   * Used for versioning - combines entries from multiple page fragments. Newer entries take
+   * precedence. NodeReferences are OR-merged.
+   * </p>
    *
    * @param other the page to merge from
    * @return true if all entries merged successfully
    */
   public boolean mergeFrom(HOTLeafPage other) {
     Objects.requireNonNull(other);
-    
+
     for (int i = 0; i < other.entryCount; i++) {
       byte[] key = other.getKey(i);
       byte[] value = other.getValue(i);
-      
+
       if (!mergeWithNodeRefs(key, key.length, value, value.length)) {
         return false; // Page full
       }
     }
     return true;
   }
-  
+
   // ===== Guard-based lifetime management =====
-  
+
   /**
-   * Acquire a guard (increment reference count).
-   * Pages with guards cannot be evicted.
+   * Acquire a guard (increment reference count). Pages with guards cannot be evicted.
    */
   public void acquireGuard() {
     guardCount.incrementAndGet();
     hot = true;
   }
-  
+
   /**
-   * Release a guard (decrement reference count).
-   * If orphaned and guard count reaches zero, close the page.
+   * Release a guard (decrement reference count). If orphaned and guard count reaches zero, close the
+   * page.
    */
   public void releaseGuard() {
     int remaining = guardCount.decrementAndGet();
@@ -779,7 +801,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       close();
     }
   }
-  
+
   /**
    * Get current guard count.
    *
@@ -788,7 +810,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public int getGuardCount() {
     return guardCount.get();
   }
-  
+
   /**
    * Mark page as orphaned (removed from cache but still guarded).
    */
@@ -798,7 +820,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       close();
     }
   }
-  
+
   /**
    * Check if page is orphaned.
    *
@@ -807,7 +829,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public boolean isOrphaned() {
     return isOrphaned;
   }
-  
+
   /**
    * Close the page and release off-heap memory.
    */
@@ -816,49 +838,49 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       return;
     }
     closed = true;
-    
+
     if (releaser != null) {
       releaser.run();
     }
   }
-  
+
   // ===== KeyValuePage interface implementation =====
-  
+
   @Override
   public long getPageKey() {
     return recordPageKey;
   }
-  
+
   @Override
   public IndexType getIndexType() {
     return indexType;
   }
-  
+
   @Override
   public int getRevision() {
     return revision;
   }
-  
+
   @Override
   public int size() {
     return entryCount;
   }
-  
+
   @Override
   public boolean isClosed() {
     return closed;
   }
-  
+
   @Override
   public MemorySegment slots() {
     return slotMemory;
   }
-  
+
   @Override
   public int getUsedSlotsSize() {
     return usedSlotMemorySize;
   }
-  
+
   @Override
   public MemorySegment getSlot(int slotNumber) {
     if (slotNumber < 0 || slotNumber >= entryCount) {
@@ -871,7 +893,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     int totalLen = 2 + keyLen + 2 + valueLen;
     return slotMemory.asSlice(offset, totalLen);
   }
-  
+
   @Override
   public byte[] getSlotAsByteArray(int slotNumber) {
     MemorySegment slot = getSlot(slotNumber);
@@ -882,64 +904,64 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     MemorySegment.copy(slot, ValueLayout.JAVA_BYTE, 0, data, 0, data.length);
     return data;
   }
-  
+
   @Override
   public void setSlot(MemorySegment data, int slotNumber) {
     // For HOTLeafPage, this is handled by put()
     throw new UnsupportedOperationException("Use put() for HOTLeafPage");
   }
-  
+
   @Override
   public void setSlot(byte[] recordData, int offset) {
     // For HOTLeafPage, this is handled by put()
     throw new UnsupportedOperationException("Use put() for HOTLeafPage");
   }
-  
+
   @Override
   public MemorySegment deweyIds() {
     return null; // HOTLeafPage doesn't use Dewey IDs
   }
-  
+
   @Override
   public int getUsedDeweyIdSize() {
     return 0;
   }
-  
+
   @Override
   public byte[] getDeweyIdAsByteArray(int offset) {
     return null;
   }
-  
+
   @Override
   public MemorySegment getDeweyId(int offset) {
     return null;
   }
-  
+
   @Override
   public void setDeweyId(byte[] deweyId, int offset) {
     // Not supported
   }
-  
+
   @Override
   public void setDeweyId(MemorySegment deweyId, int offset) {
     // Not supported
   }
-  
+
   @Override
   public void setRecord(@NonNull DataRecord record) {
     throw new UnsupportedOperationException("HOTLeafPage uses put() instead of setRecord()");
   }
-  
+
   @Override
   public DataRecord[] records() {
     return null; // HOTLeafPage stores raw key-value pairs, not DataRecords
   }
-  
+
   @Override
   public DataRecord getRecord(int offset) {
     return null;
   }
-  
+
   @Override
   @SuppressWarnings("unchecked")
   public <I extends Iterable<DataRecord>> I values() {
@@ -947,17 +969,17 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     List<DataRecord> emptyList = Collections.emptyList();
     return (I) emptyList;
   }
-  
+
   @Override
   public void setPageReference(long key, @NonNull PageReference reference) {
     pageReferences.put(key, reference);
   }
-  
+
   @Override
   public PageReference getPageReference(long key) {
     return pageReferences.get(key);
   }
-  
+
   @Override
   public Set<Map.Entry<Long, PageReference>> referenceEntrySet() {
     // Convert fastutil entry set to standard Set<Map.Entry>
@@ -967,35 +989,35 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     }
     return result;
   }
-  
+
   @Override
   @SuppressWarnings("unchecked")
   public <C extends KeyValuePage<DataRecord>> C newInstance(@NonNegative long recordPageKey,
       @NonNull IndexType indexType, @NonNull StorageEngineReader pageReadTrx) {
     return (C) new HOTLeafPage(recordPageKey, pageReadTrx.getRevisionNumber(), indexType);
   }
-  
+
   // ===== Page interface =====
-  
+
   @Override
   public List<PageReference> getReferences() {
     // HOTLeafPage doesn't have child page references in the traditional sense
     // Return the overflow page references
     return new ArrayList<>(pageReferences.values());
   }
-  
+
   @Override
   public PageReference getOrCreateReference(int offset) {
     return null; // HOTLeafPage doesn't have child references
   }
-  
+
   @Override
   public boolean setOrCreateReference(int offset, PageReference pageReference) {
     return false;
   }
-  
+
   // ===== Utility methods =====
-  
+
   /**
    * Get the hot flag for clock-based eviction.
    *
@@ -1004,14 +1026,14 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public boolean isHot() {
     return hot;
   }
-  
+
   /**
    * Clear the hot flag (called by clock sweeper).
    */
   public void clearHot() {
     hot = false;
   }
-  
+
   /**
    * Increment version (called when page is reused).
    *
@@ -1020,7 +1042,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public int incrementVersion() {
     return version.incrementAndGet();
   }
-  
+
   /**
    * Get current version.
    *
@@ -1029,18 +1051,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public int getVersion() {
     return version.get();
   }
-  
+
   @Override
   public String toString() {
-    return "HOTLeafPage{" +
-        "pageKey=" + recordPageKey +
-        ", revision=" + revision +
-        ", indexType=" + indexType +
-        ", entryCount=" + entryCount +
-        ", usedSlotMemorySize=" + usedSlotMemorySize +
-        ", guardCount=" + guardCount.get() +
-        ", closed=" + closed +
-        '}';
+    return "HOTLeafPage{" + "pageKey=" + recordPageKey + ", revision=" + revision + ", indexType=" + indexType
+        + ", entryCount=" + entryCount + ", usedSlotMemorySize=" + usedSlotMemorySize + ", guardCount="
+        + guardCount.get() + ", closed=" + closed + '}';
   }
 }
 

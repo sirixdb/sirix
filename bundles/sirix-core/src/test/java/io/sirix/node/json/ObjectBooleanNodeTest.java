@@ -43,28 +43,24 @@ public class ObjectBooleanNodeTest {
   @Test
   public void test() throws IOException {
     final var hashFunction = LongHashFunction.xx3();
-    final ObjectBooleanNode node = new ObjectBooleanNode(
-        13L, // nodeKey
+    final ObjectBooleanNode node = new ObjectBooleanNode(13L, // nodeKey
         14L, // parentKey
         Constants.NULL_REVISION_NUMBER, // previousRevision
         0, // lastModifiedRevision
         0, // hash
         true, // value
-        hashFunction,
-        (byte[]) null // deweyID
+        hashFunction, (byte[]) null // deweyID
     );
     check(node);
 
-    final var config = ResourceConfiguration.newBuilder("test")
-        .hashKind(HashType.NONE)
-        .build();
+    final var config = ResourceConfiguration.newBuilder("test").hashKind(HashType.NONE).build();
 
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     NodeKind.OBJECT_BOOLEAN_VALUE.serialize(data, node, config);
-    
+
     var bytesIn = data.asBytesIn();
-    final ObjectBooleanNode node2 = (ObjectBooleanNode) NodeKind.OBJECT_BOOLEAN_VALUE.deserialize(
-        bytesIn, node.getNodeKey(), null, config);
+    final ObjectBooleanNode node2 =
+        (ObjectBooleanNode) NodeKind.OBJECT_BOOLEAN_VALUE.deserialize(bytesIn, node.getNodeKey(), null, config);
     check(node2);
   }
 

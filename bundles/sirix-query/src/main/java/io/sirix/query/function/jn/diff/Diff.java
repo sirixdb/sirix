@@ -61,7 +61,7 @@ import io.sirix.query.json.JsonDBCollection;
  * @author Johannes Lichtenberger
  */
 @FunctionAnnotation(description = "Diffing of two versions of a resource.",
-    parameters = { "$coll, $res, $rev1, $rev2, $startNodeKey, $maxLevel" })
+    parameters = {"$coll, $res, $rev1, $rev2, $startNodeKey, $maxLevel"})
 public final class Diff extends AbstractFunction {
 
   /**
@@ -72,7 +72,7 @@ public final class Diff extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the name of the function
+   * @param name the name of the function
    * @param signature the signature of the function
    */
   public Diff(final QNm name, final Signature signature) {
@@ -101,24 +101,24 @@ public final class Diff extends AbstractFunction {
     final var resourceSession = document.getResourceSession();
 
     if (resourceSession.getResourceConfig().areDeweyIDsStored && oldRevision == newRevision - 1) {
-      return readDiffFromFileAndCalculateViaDeweyIDs(databaseName,
-                                                     resourceName,
-                                                     oldRevision,
-                                                     newRevision,
-                                                     startNodeKey,
-                                                     maxLevel == 0 ? Integer.MAX_VALUE : maxLevel,
-                                                     resourceSession);
+      return readDiffFromFileAndCalculateViaDeweyIDs(databaseName, resourceName, oldRevision, newRevision, startNodeKey,
+          maxLevel == 0
+              ? Integer.MAX_VALUE
+              : maxLevel,
+          resourceSession);
     }
 
     final JsonDiff jsonDiff = new BasicJsonDiff(collection.getDatabase().getName());
-    final String diffJson = jsonDiff.generateDiff(document.getResourceSession(), oldRevision, newRevision, startNodeKey, maxLevel);
+    final String diffJson =
+        jsonDiff.generateDiff(document.getResourceSession(), oldRevision, newRevision, startNodeKey, maxLevel);
 
     return parseJsonToBrackitItem(diffJson);
   }
 
   private Item readDiffFromFileAndCalculateViaDeweyIDs(String databaseName, String resourceName, int oldRevision,
       int newRevision, int startNodeKey, int maxLevel, JsonResourceSession resourceSession) {
-    // Fast track... just read the info from a file and use dewey IDs to determine changes in the desired subtree.
+    // Fast track... just read the info from a file and use dewey IDs to determine changes in the
+    // desired subtree.
     try (final var rtx = resourceSession.beginNodeReadOnlyTrx(newRevision)) {
       rtx.moveTo(startNodeKey);
 

@@ -39,11 +39,11 @@ final class TransactionIntentLogFactoryImpl implements TransactionIntentLogFacto
   /**
    * Package private constructor.
    */
-  public TransactionIntentLogFactoryImpl() {
-  }
+  public TransactionIntentLogFactoryImpl() {}
 
   @Override
-  public TransactionIntentLog createTrxIntentLog(final BufferManager bufferManager, final ResourceConfiguration resourceConfig) {
+  public TransactionIntentLog createTrxIntentLog(final BufferManager bufferManager,
+      final ResourceConfiguration resourceConfig) {
     return new TransactionIntentLog(bufferManager, 1 << 12);
   }
 }

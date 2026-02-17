@@ -39,7 +39,9 @@ public final class BooleanValue implements ObjectRecordValue<Boolean> {
   }
 
   public static BooleanValue of(boolean value) {
-    return value ? TRUE : FALSE;
+    return value
+        ? TRUE
+        : FALSE;
   }
 
   @Override

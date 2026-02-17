@@ -28,8 +28,8 @@ public class JsonNodeTrxRemoveTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(2);
 
       wtx.remove();
@@ -69,8 +69,8 @@ public class JsonNodeTrxRemoveTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(15);
 
       wtx.remove();
@@ -111,8 +111,8 @@ public class JsonNodeTrxRemoveTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(2);
 
       wtx.remove();
@@ -153,8 +153,8 @@ public class JsonNodeTrxRemoveTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(7);
 
       wtx.remove();
@@ -201,8 +201,8 @@ public class JsonNodeTrxRemoveTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(17);
 
       wtx.remove();
@@ -224,8 +224,8 @@ public class JsonNodeTrxRemoveTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(25);
 
       wtx.remove();
@@ -247,8 +247,8 @@ public class JsonNodeTrxRemoveTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(17);
 
       wtx.remove();
@@ -270,8 +270,8 @@ public class JsonNodeTrxRemoveTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(20);
 
       wtx.remove();
@@ -293,8 +293,8 @@ public class JsonNodeTrxRemoveTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(24);
 
       wtx.remove();
@@ -316,8 +316,8 @@ public class JsonNodeTrxRemoveTest {
     JsonTestHelper.createTestDocument();
 
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-         final var wtx = manager.beginNodeTrx()) {
+        final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = manager.beginNodeTrx()) {
       wtx.moveTo(25);
 
       wtx.remove();

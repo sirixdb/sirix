@@ -105,7 +105,8 @@ public final class JsonDescendantAxis extends AbstractAxis {
     }
 
     // Then follow right sibling if there is one.
-    // PERF: Avoid calling hasRightSibling() + getRightSiblingKey() (reads the same flyweight field twice).
+    // PERF: Avoid calling hasRightSibling() + getRightSiblingKey() (reads the same flyweight field
+    // twice).
     final long rightSiblingKey = cursor.getRightSiblingKey();
     if (rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty()) {
       key = rightSiblingKey;

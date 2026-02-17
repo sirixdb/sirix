@@ -38,13 +38,16 @@ import static java.util.Objects.requireNonNull;
 /**
  * Serializer for {@link NodeReferences} (node key bitmaps).
  *
- * <p>Uses a hybrid format optimized for both small and large sets:</p>
+ * <p>
+ * Uses a hybrid format optimized for both small and large sets:
+ * </p>
  * <ul>
- *   <li><b>Small sets (&lt; 64 entries):</b> Packed format - more compact, lower overhead</li>
- *   <li><b>Large sets:</b> Roaring64Bitmap native serialization - compressed, efficient</li>
+ * <li><b>Small sets (&lt; 64 entries):</b> Packed format - more compact, lower overhead</li>
+ * <li><b>Large sets:</b> Roaring64Bitmap native serialization - compressed, efficient</li>
  * </ul>
  *
  * <h2>Format</h2>
+ * 
  * <pre>
  * Packed format:  [0x00][count:1][nodeKey0:8][nodeKey1:8]...[nodeKeyN:8]
  * Roaring format: [0xFF][roaring bitmap bytes...]
@@ -91,7 +94,7 @@ public final class NodeReferencesSerializer {
 
     // Tombstone check
     if (bitmap.isEmpty()) {
-      return new byte[] { TOMBSTONE_FORMAT };
+      return new byte[] {TOMBSTONE_FORMAT};
     }
 
     long cardinality = bitmap.getLongCardinality();
@@ -106,8 +109,8 @@ public final class NodeReferencesSerializer {
   /**
    * Serializes to a caller-provided buffer, returning bytes written.
    *
-   * @param refs   the node references to serialize
-   * @param dest   destination buffer
+   * @param refs the node references to serialize
+   * @param dest destination buffer
    * @param offset offset to write at
    * @return number of bytes written
    */
@@ -143,7 +146,7 @@ public final class NodeReferencesSerializer {
   /**
    * Deserializes NodeReferences from a byte range.
    *
-   * @param bytes  the byte array
+   * @param bytes the byte array
    * @param offset offset to start reading
    * @param length number of bytes to read
    * @return the deserialized NodeReferences
@@ -170,7 +173,7 @@ public final class NodeReferencesSerializer {
   /**
    * Checks if the serialized data represents a tombstone (deletion).
    *
-   * @param bytes  the serialized bytes
+   * @param bytes the serialized bytes
    * @param offset offset to check
    * @param length length of data
    * @return true if tombstone
@@ -255,15 +258,10 @@ public final class NodeReferencesSerializer {
 
     int pos = offset + 1;
     for (int i = 0; i < count; i++) {
-      long key =
-          ((long) (bytes[pos]     & 0xFF) << 56) |
-          ((long) (bytes[pos + 1] & 0xFF) << 48) |
-          ((long) (bytes[pos + 2] & 0xFF) << 40) |
-          ((long) (bytes[pos + 3] & 0xFF) << 32) |
-          ((long) (bytes[pos + 4] & 0xFF) << 24) |
-          ((long) (bytes[pos + 5] & 0xFF) << 16) |
-          ((long) (bytes[pos + 6] & 0xFF) << 8)  |
-          ((long) (bytes[pos + 7] & 0xFF));
+      long key = ((long) (bytes[pos] & 0xFF) << 56) | ((long) (bytes[pos + 1] & 0xFF) << 48)
+          | ((long) (bytes[pos + 2] & 0xFF) << 40) | ((long) (bytes[pos + 3] & 0xFF) << 32)
+          | ((long) (bytes[pos + 4] & 0xFF) << 24) | ((long) (bytes[pos + 5] & 0xFF) << 16)
+          | ((long) (bytes[pos + 6] & 0xFF) << 8) | ((long) (bytes[pos + 7] & 0xFF));
       bitmap.add(key);
       pos += 8;
     }

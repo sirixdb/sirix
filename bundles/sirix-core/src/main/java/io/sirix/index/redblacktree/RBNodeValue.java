@@ -19,8 +19,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @author Johannes Lichtenberger
  */
-public final class RBNodeValue<V> extends AbstractForwardingNode
-    implements MutableRBNodeValue<V> {
+public final class RBNodeValue<V> extends AbstractForwardingNode implements MutableRBNodeValue<V> {
   /** The value. */
   private V value;
 
@@ -96,10 +95,7 @@ public final class RBNodeValue<V> extends AbstractForwardingNode
 
   @Override
   public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
-                      .add("node delegate", nodeDelegate)
-                      .add("value", value)
-                      .toString();
+    return MoreObjects.toStringHelper(this).add("node delegate", nodeDelegate).add("value", value).toString();
   }
 
   @Override

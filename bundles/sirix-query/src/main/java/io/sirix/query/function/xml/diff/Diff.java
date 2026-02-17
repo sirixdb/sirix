@@ -80,8 +80,7 @@ import java.util.stream.Collectors;
  *
  * @author Johannes Lichtenberger
  */
-@FunctionAnnotation(description = "Diffing of two versions of a resource.", parameters = {
-    "$coll, $res, $rev1, $rev2" })
+@FunctionAnnotation(description = "Diffing of two versions of a resource.", parameters = {"$coll, $res, $rev1, $rev2"})
 public final class Diff extends AbstractFunction implements DiffObserver {
 
   /**
@@ -100,7 +99,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
   /**
    * Constructor.
    *
-   * @param name      the name of the function
+   * @param name the name of the function
    * @param signature the signature of the function
    */
   public Diff(final QNm name, final Signature signature) {
@@ -133,14 +132,11 @@ public final class Diff extends AbstractFunction implements DiffObserver {
     latch = new CountDownLatch(1);
 
     try (final XmlResourceSession resourceSession = doc.getTrx().getResourceSession()) {
-      pool.submit(() -> DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<>(resourceSession,
-                                                                                revision2,
-                                                                                revision1,
-                                                                                resourceSession.getResourceConfig().hashType
-                                                                                    == HashType.NONE
-                                                                                    ? DiffOptimized.NO
-                                                                                    : DiffOptimized.HASHED,
-                                                                                ImmutableSet.of(this)).skipSubtrees(true)));
+      pool.submit(() -> DiffFactory.invokeFullXmlDiff(new DiffFactory.Builder<>(resourceSession, revision2, revision1,
+          resourceSession.getResourceConfig().hashType == HashType.NONE
+              ? DiffOptimized.NO
+              : DiffOptimized.HASHED,
+          ImmutableSet.of(this)).skipSubtrees(true)));
 
       try {
         latch.await(100000, TimeUnit.SECONDS);
@@ -148,22 +144,22 @@ public final class Diff extends AbstractFunction implements DiffObserver {
         throw new QueryException(new QNm("Interrupted exception"), e);
       }
 
-      if (diffs.size() == 1 && (diffs.get(0).getDiff() == DiffType.SAMEHASH
-          || diffs.get(0).getDiff() == DiffType.SAME)) {
+      if (diffs.size() == 1
+          && (diffs.get(0).getDiff() == DiffType.SAMEHASH || diffs.get(0).getDiff() == DiffType.SAME)) {
         return null;
       }
 
-      final Set<Long> nodeKeysOfInserts = diffs.stream()
-                                               .filter(tuple -> tuple.getDiff() == DiffType.INSERTED
-                                                   || tuple.getDiff() == DiffType.REPLACEDNEW)
-                                               .map(DiffTuple::getNewNodeKey)
-                                               .collect(Collectors.toSet());
+      final Set<Long> nodeKeysOfInserts =
+          diffs.stream()
+               .filter(tuple -> tuple.getDiff() == DiffType.INSERTED || tuple.getDiff() == DiffType.REPLACEDNEW)
+               .map(DiffTuple::getNewNodeKey)
+               .collect(Collectors.toSet());
 
-      final Set<Long> nodeKeysOfDeletes = diffs.stream()
-                                               .filter(tuple -> tuple.getDiff() == DiffType.DELETED
-                                                   || tuple.getDiff() == DiffType.REPLACEDOLD)
-                                               .map(DiffTuple::getOldNodeKey)
-                                               .collect(Collectors.toSet());
+      final Set<Long> nodeKeysOfDeletes =
+          diffs.stream()
+               .filter(tuple -> tuple.getDiff() == DiffType.DELETED || tuple.getDiff() == DiffType.REPLACEDOLD)
+               .map(DiffTuple::getOldNodeKey)
+               .collect(Collectors.toSet());
 
       buffer.append("let $doc := ");
       createDocString(args, revision1);
@@ -172,7 +168,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
       buffer.append(System.getProperty("line.separator"));
 
       try (final XmlNodeReadOnlyTrx oldRtx = resourceSession.beginNodeReadOnlyTrx(revision1);
-           final XmlNodeReadOnlyTrx newRtx = resourceSession.beginNodeReadOnlyTrx(revision2)) {
+          final XmlNodeReadOnlyTrx newRtx = resourceSession.beginNodeReadOnlyTrx(revision2)) {
 
         final Iterator<DiffTuple> iter = diffs.iterator();
         while (iter.hasNext()) {

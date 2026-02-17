@@ -15,24 +15,17 @@ import sun.misc.Unsafe;
 public final class TestSerialisationPerf {
   public static final int REPETITIONS = 1 * 1000 * 1000;
 
-  private static ObjectToBeSerialised ITEM = new ObjectToBeSerialised(1010L,
-                                                                      true, 777, 99, new double[] { 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7,
-      0.8, 0.9, 1.0 },
-                                                                      new long[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 });
+  private static ObjectToBeSerialised ITEM = new ObjectToBeSerialised(1010L, true, 777, 99,
+      new double[] {0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0}, new long[] {1, 2, 3, 4, 5, 6, 7, 8, 9, 10});
 
   public static void main(final String[] arg) throws Exception {
     for (final PerformanceTestCase testCase : testCases) {
       for (int i = 0; i < 5; i++) {
         testCase.performTest();
 
-        System.out.format(
-            "%d %s\twrite=%,dns read=%,dns total=%,dns\n",
-            i,
-            testCase.getName(),
-            testCase.getWriteTimeNanos(),
-            testCase.getReadTimeNanos(),
-            testCase.getWriteTimeNanos()
-                + testCase.getReadTimeNanos());
+        System.out.format("%d %s\twrite=%,dns read=%,dns total=%,dns\n", i, testCase.getName(),
+            testCase.getWriteTimeNanos(), testCase.getReadTimeNanos(),
+            testCase.getWriteTimeNanos() + testCase.getReadTimeNanos());
 
         if (!ITEM.equals(testCase.getTestOutput())) {
           throw new IllegalStateException("Objects do not match");
@@ -44,42 +37,38 @@ public final class TestSerialisationPerf {
     }
   }
 
-  private static final PerformanceTestCase[] testCases = {
-      new PerformanceTestCase("Serialisation", REPETITIONS, ITEM) {
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+  private static final PerformanceTestCase[] testCases = {new PerformanceTestCase("Serialisation", REPETITIONS, ITEM) {
+    ByteArrayOutputStream baos = new ByteArrayOutputStream();
 
-        @Override
-        public void testWrite(ObjectToBeSerialised item)
-            throws Exception {
-          for (int i = 0; i < REPETITIONS; i++) {
-            baos.reset();
+    @Override
+    public void testWrite(ObjectToBeSerialised item) throws Exception {
+      for (int i = 0; i < REPETITIONS; i++) {
+        baos.reset();
 
-            ObjectOutputStream oos = new ObjectOutputStream(baos);
-            oos.writeObject(item);
-            oos.close();
-          }
-        }
+        ObjectOutputStream oos = new ObjectOutputStream(baos);
+        oos.writeObject(item);
+        oos.close();
+      }
+    }
 
-        @Override
-        public ObjectToBeSerialised testRead() throws Exception {
-          ObjectToBeSerialised object = null;
-          for (int i = 0; i < REPETITIONS; i++) {
-            ByteArrayInputStream bais = new ByteArrayInputStream(
-                baos.toByteArray());
-            ObjectInputStream ois = new ObjectInputStream(bais);
-            object = (ObjectToBeSerialised) ois.readObject();
-          }
+    @Override
+    public ObjectToBeSerialised testRead() throws Exception {
+      ObjectToBeSerialised object = null;
+      for (int i = 0; i < REPETITIONS; i++) {
+        ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
+        ObjectInputStream ois = new ObjectInputStream(bais);
+        object = (ObjectToBeSerialised) ois.readObject();
+      }
 
-          return object;
-        }
-      },
+      return object;
+    }
+  },
 
       new PerformanceTestCase("ByteBuffer", REPETITIONS, ITEM) {
         ByteBuffer byteBuffer = ByteBuffer.allocate(1024);
 
         @Override
-        public void testWrite(ObjectToBeSerialised item)
-            throws Exception {
+        public void testWrite(ObjectToBeSerialised item) throws Exception {
           for (int i = 0; i < REPETITIONS; i++) {
             byteBuffer.clear();
             item.write(byteBuffer);
@@ -100,12 +89,10 @@ public final class TestSerialisationPerf {
 
       new PerformanceTestCase("ByteBufferImproved", REPETITIONS, ITEM) {
         // Native order
-        ByteBuffer byteBuffer = ByteBuffer.allocateDirect(1024).order(
-            ByteOrder.nativeOrder());
+        ByteBuffer byteBuffer = ByteBuffer.allocateDirect(1024).order(ByteOrder.nativeOrder());
 
         @Override
-        public void testWrite(ObjectToBeSerialised item)
-            throws Exception {
+        public void testWrite(ObjectToBeSerialised item) throws Exception {
           for (int i = 0; i < REPETITIONS; i++) {
             byteBuffer.clear();
             item.writeImproved(byteBuffer);
@@ -128,8 +115,7 @@ public final class TestSerialisationPerf {
         UnsafeMemory buffer = new UnsafeMemory(new byte[1024]);
 
         @Override
-        public void testWrite(ObjectToBeSerialised item)
-            throws Exception {
+        public void testWrite(ObjectToBeSerialised item) throws Exception {
           for (int i = 0; i < REPETITIONS; i++) {
             buffer.reset();
             item.write(buffer);
@@ -146,8 +132,9 @@ public final class TestSerialisationPerf {
 
           return object;
         }
-      }, };
+      },};
 }
+
 
 abstract class PerformanceTestCase {
   private final String name;
@@ -157,8 +144,7 @@ abstract class PerformanceTestCase {
   private long writeTimeNanos;
   private long readTimeNanos;
 
-  public PerformanceTestCase(final String name, final int repetitions,
-      final ObjectToBeSerialised testInput) {
+  public PerformanceTestCase(final String name, final int repetitions, final ObjectToBeSerialised testInput) {
     this.name = name;
     this.repetitions = repetitions;
     this.testInput = testInput;
@@ -195,6 +181,7 @@ abstract class PerformanceTestCase {
   public abstract ObjectToBeSerialised testRead() throws Exception;
 }
 
+
 class ObjectToBeSerialised implements Serializable {
   private static final long serialVersionUID = 10275539472837495L;
 
@@ -205,9 +192,8 @@ class ObjectToBeSerialised implements Serializable {
   private final double[] prices;
   private final long[] quantities;
 
-  public ObjectToBeSerialised(final long sourceId, final boolean special,
-      final int orderCode, final int priority, final double[] prices,
-      final long[] quantities) {
+  public ObjectToBeSerialised(final long sourceId, final boolean special, final int orderCode, final int priority,
+      final double[] prices, final long[] quantities) {
     this.sourceId = sourceId;
     this.special = special;
     this.orderCode = orderCode;
@@ -218,7 +204,9 @@ class ObjectToBeSerialised implements Serializable {
 
   public void write(final ByteBuffer byteBuffer) {
     byteBuffer.putLong(sourceId);
-    byteBuffer.put((byte) (special ? 1 : 0));
+    byteBuffer.put((byte) (special
+        ? 1
+        : 0));
     byteBuffer.putInt(orderCode);
     byteBuffer.putInt(priority);
 
@@ -235,7 +223,9 @@ class ObjectToBeSerialised implements Serializable {
 
   public void writeImproved(final ByteBuffer byteBuffer) {
     byteBuffer.putLong(sourceId);
-    byteBuffer.put((byte) (special ? 1 : 0));
+    byteBuffer.put((byte) (special
+        ? 1
+        : 0));
     byteBuffer.putInt(orderCode);
     byteBuffer.putInt(priority);
 
@@ -266,8 +256,7 @@ class ObjectToBeSerialised implements Serializable {
       quantities[i] = byteBuffer.getLong();
     }
 
-    return new ObjectToBeSerialised(sourceId, special, orderCode, priority,
-                                    prices, quantities);
+    return new ObjectToBeSerialised(sourceId, special, orderCode, priority, prices, quantities);
   }
 
   public static ObjectToBeSerialised readImproved(final ByteBuffer byteBuffer) {
@@ -286,8 +275,7 @@ class ObjectToBeSerialised implements Serializable {
     byteBuffer.asLongBuffer().get(quantities);
     byteBuffer.position(byteBuffer.position() + quantitiesSize * 8);
 
-    return new ObjectToBeSerialised(sourceId, special, orderCode, priority,
-                                    prices, quantities);
+    return new ObjectToBeSerialised(sourceId, special, orderCode, priority, prices, quantities);
   }
 
   public void write(final UnsafeMemory buffer) {
@@ -307,8 +295,7 @@ class ObjectToBeSerialised implements Serializable {
     final double[] prices = buffer.getDoubleArray();
     final long[] quantities = buffer.getLongArray();
 
-    return new ObjectToBeSerialised(sourceId, special, orderCode, priority,
-                                    prices, quantities);
+    return new ObjectToBeSerialised(sourceId, special, orderCode, priority, prices, quantities);
   }
 
   @Override
@@ -345,6 +332,7 @@ class ObjectToBeSerialised implements Serializable {
   }
 }
 
+
 class UnsafeMemory {
   private static final Unsafe unsafe;
   static {
@@ -357,12 +345,9 @@ class UnsafeMemory {
     }
   }
 
-  private static final long byteArrayOffset = unsafe
-      .arrayBaseOffset(byte[].class);
-  private static final long longArrayOffset = unsafe
-      .arrayBaseOffset(long[].class);
-  private static final long doubleArrayOffset = unsafe
-      .arrayBaseOffset(double[].class);
+  private static final long byteArrayOffset = unsafe.arrayBaseOffset(byte[].class);
+  private static final long longArrayOffset = unsafe.arrayBaseOffset(long[].class);
+  private static final long doubleArrayOffset = unsafe.arrayBaseOffset(double[].class);
 
   private static final int SIZE_OF_BOOLEAN = 1;
   private static final int SIZE_OF_INT = 4;
@@ -423,8 +408,7 @@ class UnsafeMemory {
     putInt(values.length);
 
     long bytesToCopy = values.length << 3;
-    unsafe.copyMemory(values, longArrayOffset, buffer, byteArrayOffset
-        + pos, bytesToCopy);
+    unsafe.copyMemory(values, longArrayOffset, buffer, byteArrayOffset + pos, bytesToCopy);
     pos += bytesToCopy;
   }
 
@@ -433,8 +417,7 @@ class UnsafeMemory {
     long[] values = new long[arraySize];
 
     long bytesToCopy = values.length << 3;
-    unsafe.copyMemory(buffer, byteArrayOffset + pos, values,
-                      longArrayOffset, bytesToCopy);
+    unsafe.copyMemory(buffer, byteArrayOffset + pos, values, longArrayOffset, bytesToCopy);
     pos += bytesToCopy;
 
     return values;
@@ -444,8 +427,7 @@ class UnsafeMemory {
     putInt(values.length);
 
     long bytesToCopy = values.length << 3;
-    unsafe.copyMemory(values, doubleArrayOffset, buffer, byteArrayOffset
-        + pos, bytesToCopy);
+    unsafe.copyMemory(values, doubleArrayOffset, buffer, byteArrayOffset + pos, bytesToCopy);
     pos += bytesToCopy;
   }
 
@@ -454,8 +436,7 @@ class UnsafeMemory {
     double[] values = new double[arraySize];
 
     long bytesToCopy = values.length << 3;
-    unsafe.copyMemory(buffer, byteArrayOffset + pos, values,
-                      doubleArrayOffset, bytesToCopy);
+    unsafe.copyMemory(buffer, byteArrayOffset + pos, values, doubleArrayOffset, bytesToCopy);
     pos += bytesToCopy;
 
     return values;

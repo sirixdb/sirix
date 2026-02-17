@@ -34,14 +34,17 @@ import io.sirix.node.BytesOut;
 /**
  * Utility class for JSON node serialization with size prefix and padding for 8-byte alignment.
  * 
- * <p>The serialization format ensures that node data starts at 8-byte aligned offsets for efficient
+ * <p>
+ * The serialization format ensures that node data starts at 8-byte aligned offsets for efficient
  * MemorySegment access with VarHandles:
+ * 
  * <pre>
  * [4-byte size][3-byte padding][node data...][end padding]
  * </pre>
  * 
- * <p>The total header (size + padding) is 7 bytes, but when combined with the 1-byte NodeKind
- * that precedes it, the total is 8 bytes, ensuring the node data starts at an 8-byte boundary.
+ * <p>
+ * The total header (size + padding) is 7 bytes, but when combined with the 1-byte NodeKind that
+ * precedes it, the total is 8 bytes, ensuring the node data starts at an 8-byte boundary.
  */
 public final class JsonNodeSerializer {
 
@@ -50,9 +53,9 @@ public final class JsonNodeSerializer {
   }
 
   /**
-   * Write a placeholder for the node size (4 bytes), plus 3 bytes padding.
-   * When combined with the 1-byte NodeKind that precedes this, the total header is 8 bytes,
-   * ensuring node data starts at an 8-byte aligned offset.
+   * Write a placeholder for the node size (4 bytes), plus 3 bytes padding. When combined with the
+   * 1-byte NodeKind that precedes this, the total header is 8 bytes, ensuring node data starts at an
+   * 8-byte aligned offset.
    * 
    * @param sink the output sink
    * @return the position where size was written so it can be updated later
@@ -96,8 +99,8 @@ public final class JsonNodeSerializer {
   }
 
   /**
-   * Write padding bytes at the end to make total node size a multiple of 8.
-   * This ensures the NEXT node will also be 8-byte aligned.
+   * Write padding bytes at the end to make total node size a multiple of 8. This ensures the NEXT
+   * node will also be 8-byte aligned.
    * 
    * @param sink the output sink
    * @param startPos the position after writing the size prefix where node data started
@@ -105,7 +108,7 @@ public final class JsonNodeSerializer {
   public static void writeEndPadding(final BytesOut<?> sink, final long startPos) {
     long currentPos = sink.writePosition();
     long nodeDataSize = currentPos - startPos;
-    int remainder = (int)(nodeDataSize % 8);
+    int remainder = (int) (nodeDataSize % 8);
     if (remainder != 0) {
       int padding = 8 - remainder;
       for (int i = 0; i < padding; i++) {
@@ -121,7 +124,9 @@ public final class JsonNodeSerializer {
    * @return number of padding bytes needed (0-7)
    */
   public static int calculateEndPadding(final long size) {
-    int remainder = (int)(size % 8);
-    return remainder == 0 ? 0 : 8 - remainder;
+    int remainder = (int) (size % 8);
+    return remainder == 0
+        ? 0
+        : 8 - remainder;
   }
 }

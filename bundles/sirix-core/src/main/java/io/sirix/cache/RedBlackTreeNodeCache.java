@@ -55,9 +55,9 @@ public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, Node> {
   }
 
   /**
-   * Zero-allocation lookup using any object with compatible hashCode/equals.
-   * Uses asMap().get() which accepts Object per the Java Map contract,
-   * enabling use of mutable {@link RBIndexKeyLookup} for cache lookups without allocation.
+   * Zero-allocation lookup using any object with compatible hashCode/equals. Uses asMap().get() which
+   * accepts Object per the Java Map contract, enabling use of mutable {@link RBIndexKeyLookup} for
+   * cache lookups without allocation.
    *
    * @param key the lookup key (must have compatible hashCode/equals with RBIndexKey)
    * @return the node, or null if not present
@@ -93,6 +93,5 @@ public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, Node> {
   }
 
   @Override
-  public void close() {
-  }
+  public void close() {}
 }

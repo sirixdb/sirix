@@ -53,11 +53,8 @@ public final class XmlNodeFactoryImplTest {
 
   @Test
   public void testFactoryReusesAttributeNodeProxy() {
-    final AttributeNode first = factory.createAttributeNode(5L,
-                                                            new QNm("urn:first", "p1", "att1"),
-                                                            "v1".getBytes(StandardCharsets.UTF_8),
-                                                            11L,
-                                                            null);
+    final AttributeNode first = factory.createAttributeNode(5L, new QNm("urn:first", "p1", "att1"),
+        "v1".getBytes(StandardCharsets.UTF_8), 11L, null);
     final long firstNodeKey = first.getNodeKey();
 
     final QNm secondName = new QNm("urn:second", "p2", "att2");
@@ -90,14 +87,8 @@ public final class XmlNodeFactoryImplTest {
   @Test
   public void testFactoryReusesPINodeProxy() {
     final byte[] firstContent = "01234567890-pi".getBytes(StandardCharsets.UTF_8);
-    final PINode first = factory.createPINode(1L,
-                                              10L,
-                                              20L,
-                                              new QNm("urn:first", "p1", "target1"),
-                                              firstContent,
-                                              true,
-                                              111L,
-                                              null);
+    final PINode first =
+        factory.createPINode(1L, 10L, 20L, new QNm("urn:first", "p1", "target1"), firstContent, true, 111L, null);
     final long firstNodeKey = first.getNodeKey();
     final boolean firstWasCompressed = first.isCompressed();
 
@@ -134,7 +125,8 @@ public final class XmlNodeFactoryImplTest {
     assertEquals("Right sibling key should be rebound", 40L, second.getRightSiblingKey());
     assertEquals("Path node key should be rebound", 222L, second.getPathNodeKey());
     assertEquals("Element name should be rebound", secondName, second.getName());
-    assertEquals("First child key should be reset", Fixed.NULL_NODE_KEY.getStandardProperty(), second.getFirstChildKey());
+    assertEquals("First child key should be reset", Fixed.NULL_NODE_KEY.getStandardProperty(),
+        second.getFirstChildKey());
     assertEquals("Last child key should be reset", Fixed.NULL_NODE_KEY.getStandardProperty(), second.getLastChildKey());
     assertEquals("Attribute list must be cleared on rebind", 0, second.getAttributeCount());
     assertEquals("Namespace list must be cleared on rebind", 0, second.getNamespaceCount());
@@ -142,12 +134,8 @@ public final class XmlNodeFactoryImplTest {
 
   @Test
   public void testFactoryReusesTextNodeProxy() {
-    final TextNode first = factory.createTextNode(4L,
-                                                  1L,
-                                                  2L,
-                                                  "01234567890".getBytes(StandardCharsets.UTF_8),
-                                                  true,
-                                                  null);
+    final TextNode first =
+        factory.createTextNode(4L, 1L, 2L, "01234567890".getBytes(StandardCharsets.UTF_8), true, null);
     final long firstNodeKey = first.getNodeKey();
 
     final byte[] secondValue = "short".getBytes(StandardCharsets.UTF_8);
@@ -164,12 +152,8 @@ public final class XmlNodeFactoryImplTest {
 
   @Test
   public void testFactoryReusesCommentNodeProxy() {
-    final CommentNode first = factory.createCommentNode(4L,
-                                                        1L,
-                                                        2L,
-                                                        "comment-one".getBytes(StandardCharsets.UTF_8),
-                                                        true,
-                                                        null);
+    final CommentNode first =
+        factory.createCommentNode(4L, 1L, 2L, "comment-one".getBytes(StandardCharsets.UTF_8), true, null);
     final long firstNodeKey = first.getNodeKey();
 
     final byte[] secondValue = "ok".getBytes(StandardCharsets.UTF_8);

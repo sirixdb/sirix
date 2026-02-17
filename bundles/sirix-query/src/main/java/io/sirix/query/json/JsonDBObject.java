@@ -75,7 +75,7 @@ public final class JsonDBObject extends AbstractItem
   /**
    * Constructor.
    *
-   * @param rtx        {@link JsonNodeReadOnlyTrx} for providing reading access to the underlying node
+   * @param rtx {@link JsonNodeReadOnlyTrx} for providing reading access to the underlying node
    * @param collection {@link JsonDBCollection} reference
    */
   public JsonDBObject(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
@@ -163,14 +163,18 @@ public final class JsonDBObject extends AbstractItem
   @Override
   public Stream<JsonDBObject> getEarlier(final boolean includeSelf) {
     moveRtx();
-    final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
+    final IncludeSelf include = includeSelf
+        ? IncludeSelf.YES
+        : IncludeSelf.NO;
     return new TemporalSirixJsonObjectStream(new PastAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
   @Override
   public Stream<JsonDBObject> getFuture(final boolean includeSelf) {
     moveRtx();
-    final IncludeSelf include = includeSelf ? IncludeSelf.YES : IncludeSelf.NO;
+    final IncludeSelf include = includeSelf
+        ? IncludeSelf.YES
+        : IncludeSelf.NO;
     return new TemporalSirixJsonObjectStream(new FutureAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
@@ -289,13 +293,13 @@ public final class JsonDBObject extends AbstractItem
   private JsonNodeTrx getReadWriteTrx() {
     final JsonResourceSession resourceManager = rtx.getResourceSession();
     final var trx = resourceManager.getNodeTrx().orElseGet(resourceManager::beginNodeTrx);
-    
+
     // Register the session with the store so it can be cleaned up on close
     final var store = collection.getJsonDBStore();
     if (store instanceof BasicJsonDBStore basicStore) {
       basicStore.registerWriteSession(resourceManager);
     }
-    
+
     // If the read transaction is from an older revision than the write transaction,
     // revert the write transaction to match the source revision.
     // This enables editing historical versions and creating new branches.
@@ -304,7 +308,7 @@ public final class JsonDBObject extends AbstractItem
     if (sourceRevision < mostRecentRevision) {
       trx.revertTo(sourceRevision);
     }
-    
+
     trx.moveTo(nodeKey);
     return trx;
   }
@@ -397,7 +401,7 @@ public final class JsonDBObject extends AbstractItem
     final Item item = ExprUtil.asItem(value);
     // Use Commit.NO to prevent auto-commit after insertion.
     // Auto-commit would cause subsequent getReadWriteTrx() calls to see
-    // sourceRevision < mostRecentRevision, triggering revertTo() which 
+    // sourceRevision < mostRecentRevision, triggering revertTo() which
     // undoes the modifications.
     trx.insertSubtreeAsLastChild(item, JsonNodeTrx.Commit.NO);
   }
@@ -486,10 +490,8 @@ public final class JsonDBObject extends AbstractItem
       }
 
       trx.moveToFirstChild();
-      trx.insertSubtreeAsFirstChild(item,
-                                    JsonNodeTrx.Commit.NO,
-                                    JsonNodeTrx.CheckParentNode.YES,
-                                    JsonNodeTrx.SkipRootToken.YES);
+      trx.insertSubtreeAsFirstChild(item, JsonNodeTrx.Commit.NO, JsonNodeTrx.CheckParentNode.YES,
+          JsonNodeTrx.SkipRootToken.YES);
     }
   }
 
@@ -544,7 +546,9 @@ public final class JsonDBObject extends AbstractItem
 
   private boolean hasNoMatchingPathNode(QNm field) {
     rtx.moveToParent();
-    final long pcr = rtx.isDocumentRoot() ? 0 : rtx.getPathNodeKey();
+    final long pcr = rtx.isDocumentRoot()
+        ? 0
+        : rtx.getPathNodeKey();
     rtx.moveTo(nodeKey);
     BitSet matches = filterMap.get(pcr);
     if (matches == null) {

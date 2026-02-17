@@ -34,20 +34,26 @@ import java.util.Arrays;
 /**
  * Primitive-specialized interface for serializing long keys to byte arrays.
  *
- * <p>This interface avoids boxing overhead by using primitive {@code long}
- * parameters instead of {@code Long} objects. Use this for PATH index keys
- * and other long-valued keys.</p>
+ * <p>
+ * This interface avoids boxing overhead by using primitive {@code long} parameters instead of
+ * {@code Long} objects. Use this for PATH index keys and other long-valued keys.
+ * </p>
  *
  * <h2>Order Preservation</h2>
- * <p>Implementations MUST ensure signed long ordering is preserved in the
- * unsigned byte representation. This typically requires XORing the sign bit:</p>
+ * <p>
+ * Implementations MUST ensure signed long ordering is preserved in the unsigned byte
+ * representation. This typically requires XORing the sign bit:
+ * </p>
+ * 
  * <pre>
  * long signFlipped = key ^ 0x8000000000000000L;
  * </pre>
  *
  * <h2>Zero Allocation</h2>
- * <p>All methods use primitives and caller-provided buffers to ensure
- * zero allocations on the hot path.</p>
+ * <p>
+ * All methods use primitives and caller-provided buffers to ensure zero allocations on the hot
+ * path.
+ * </p>
  *
  * @author Johannes Lichtenberger
  */
@@ -61,10 +67,12 @@ public interface HOTLongKeySerializer {
   /**
    * Serializes the primitive long key into the destination buffer.
    *
-   * <p>This method is designed for zero-allocation operation on the hot path.</p>
+   * <p>
+   * This method is designed for zero-allocation operation on the hot path.
+   * </p>
    *
-   * @param key    the primitive long key to serialize
-   * @param dest   the destination buffer (must have at least 8 bytes available)
+   * @param key the primitive long key to serialize
+   * @param dest the destination buffer (must have at least 8 bytes available)
    * @param offset the offset in the destination buffer to start writing
    * @return the number of bytes written (always 8 for long keys)
    * @throws ArrayIndexOutOfBoundsException if dest is too small
@@ -74,7 +82,7 @@ public interface HOTLongKeySerializer {
   /**
    * Deserializes a primitive long key from bytes.
    *
-   * @param bytes  the byte array containing the serialized key
+   * @param bytes the byte array containing the serialized key
    * @param offset the offset to start reading from
    * @param length the number of bytes to read (must be 8)
    * @return the deserialized primitive long key
@@ -84,10 +92,10 @@ public interface HOTLongKeySerializer {
   /**
    * Compares two serialized keys lexicographically (unsigned byte comparison).
    *
-   * @param a    first key bytes
+   * @param a first key bytes
    * @param aOff offset in first array
    * @param aLen length of first key
-   * @param b    second key bytes
+   * @param b second key bytes
    * @param bOff offset in second array
    * @param bLen length of second key
    * @return negative if a &lt; b, zero if equal, positive if a &gt; b
@@ -99,10 +107,12 @@ public interface HOTLongKeySerializer {
   /**
    * Serializes directly to a MemorySegment for maximum performance.
    *
-   * <p>This avoids the byte array intermediary by writing directly to off-heap memory.</p>
+   * <p>
+   * This avoids the byte array intermediary by writing directly to off-heap memory.
+   * </p>
    *
-   * @param key    the primitive long key to serialize
-   * @param dest   the destination MemorySegment
+   * @param key the primitive long key to serialize
+   * @param dest the destination MemorySegment
    * @param offset the offset in the segment
    * @return the number of bytes written (always 8)
    */

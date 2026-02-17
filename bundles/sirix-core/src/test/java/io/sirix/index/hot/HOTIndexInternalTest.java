@@ -73,27 +73,27 @@ class HOTIndexInternalTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           StringBuilder json = new StringBuilder("{");
           for (int i = 0; i < 1000; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append("\"p_").append(String.format("%04d", i)).append("\": ").append(i);
           }
           json.append("}");
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         // Read back to verify
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           assertTrue(rtx.hasFirstChild());
@@ -107,13 +107,12 @@ class HOTIndexInternalTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           // Create deeply nested structure
           StringBuilder json = new StringBuilder();
           int depth = 20;
@@ -124,13 +123,13 @@ class HOTIndexInternalTest {
           for (int i = 0; i < depth; i++) {
             json.append("}");
           }
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -149,27 +148,28 @@ class HOTIndexInternalTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .maxNumberOfRevisionsToRestore(5)
-            .build());
+                                                     .versioningApproach(VersioningType.FULL)
+                                                     .maxNumberOfRevisionsToRestore(5)
+                                                     .build());
 
         for (int rev = 1; rev <= 20; rev++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
-            
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
+
             if (rev == 1) {
               StringBuilder json = new StringBuilder("[");
               for (int i = 0; i < 10; i++) {
-                if (i > 0) json.append(",");
+                if (i > 0)
+                  json.append(",");
                 json.append(i);
               }
               json.append("]");
               wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
             } else {
               wtx.moveToDocumentRoot();
-              wtx.moveToFirstChild();  // array
-              wtx.moveToLastChild();   // last element
-              
+              wtx.moveToFirstChild(); // array
+              wtx.moveToLastChild(); // last element
+
               // Insert more elements
               for (int i = 0; i < 5; i++) {
                 wtx.insertNumberValueAsRightSibling(rev * 100 + i);
@@ -183,7 +183,7 @@ class HOTIndexInternalTest {
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           int mostRecent = session.getMostRecentRevisionNumber();
           assertEquals(20, mostRecent);
-          
+
           for (int rev = 1; rev <= mostRecent; rev++) {
             try (var rtx = session.beginNodeReadOnlyTrx(rev)) {
               rtx.moveToDocumentRoot();
@@ -201,25 +201,23 @@ class HOTIndexInternalTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(3)
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(3)
+                                                     .build());
 
         // Initial data
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader("[1, 2, 3, 4, 5]"),
-              JsonNodeTrx.Commit.NO);
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[1, 2, 3, 4, 5]"), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         for (int rev = 0; rev < 10; rev++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild();
-            
+
             if (rev % 2 == 0) {
               // Add elements
               wtx.moveToLastChild();
@@ -236,7 +234,7 @@ class HOTIndexInternalTest {
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           assertTrue(rtx.hasFirstChild());
         }
@@ -254,26 +252,31 @@ class HOTIndexInternalTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           // Keys with long common prefixes
           StringBuilder json = new StringBuilder("{");
           String[] prefixes = {"user", "username", "userinfo", "userdata", "usersettings"};
           int count = 0;
           for (String prefix : prefixes) {
             for (int i = 0; i < 20; i++) {
-              if (count > 0) json.append(",");
-              json.append("\"").append(prefix).append("_").append(String.format("%03d", i)).append("\": ").append(count);
+              if (count > 0)
+                json.append(",");
+              json.append("\"")
+                  .append(prefix)
+                  .append("_")
+                  .append(String.format("%03d", i))
+                  .append("\": ")
+                  .append(count);
               count++;
             }
           }
           json.append("}");
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
@@ -286,13 +289,12 @@ class HOTIndexInternalTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           String json = """
               {
                 "normal": 1,
@@ -305,7 +307,7 @@ class HOTIndexInternalTest {
                 "with#hash": 8
               }
               """;
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
@@ -318,13 +320,12 @@ class HOTIndexInternalTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           String json = """
               {
                 "ascii": 1,
@@ -335,7 +336,7 @@ class HOTIndexInternalTest {
                 "кириллица": 6
               }
               """;
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
@@ -353,20 +354,20 @@ class HOTIndexInternalTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           StringBuilder json = new StringBuilder("[");
           for (int i = 0; i < 500; i++) {
-            if (i > 0) json.append(",");
+            if (i > 0)
+              json.append(",");
             json.append(i);
           }
           json.append("]");
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
@@ -379,13 +380,12 @@ class HOTIndexInternalTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           String json = """
               [
                 [1, 2, 3],
@@ -394,7 +394,7 @@ class HOTIndexInternalTest {
                 [[[11, 12]]]
               ]
               """;
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
@@ -412,13 +412,12 @@ class HOTIndexInternalTest {
       Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+
           String json = """
               {
                 "string": "hello",
@@ -440,13 +439,13 @@ class HOTIndexInternalTest {
                 "empty_array": []
               }
               """;
-          
+
           wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             var rtx = session.beginNodeReadOnlyTrx()) {
+            var rtx = session.beginNodeReadOnlyTrx()) {
           rtx.moveToDocumentRoot();
           rtx.moveToFirstChild();
           assertEquals(NodeKind.OBJECT, rtx.getKind());
@@ -466,28 +465,25 @@ class HOTIndexInternalTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.DIFFERENTIAL)
-            .maxNumberOfRevisionsToRestore(5)
-            .build());
+                                                     .versioningApproach(VersioningType.DIFFERENTIAL)
+                                                     .maxNumberOfRevisionsToRestore(5)
+                                                     .build());
 
         // Initial data
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeTrx wtx = session.beginNodeTrx()) {
-          wtx.insertSubtreeAsFirstChild(
-              JsonShredder.createStringReader("{\"counter\": 0}"),
-              JsonNodeTrx.Commit.NO);
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"counter\": 0}"), JsonNodeTrx.Commit.NO);
           wtx.commit();
         }
 
         // Many small updates
         for (int i = 1; i <= 30; i++) {
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-               JsonNodeTrx wtx = session.beginNodeTrx()) {
+              JsonNodeTrx wtx = session.beginNodeTrx()) {
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild();
             wtx.remove();
-            wtx.insertSubtreeAsFirstChild(
-                JsonShredder.createStringReader("{\"counter\": " + i + "}"),
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"counter\": " + i + "}"),
                 JsonNodeTrx.Commit.NO);
             wtx.commit();
           }

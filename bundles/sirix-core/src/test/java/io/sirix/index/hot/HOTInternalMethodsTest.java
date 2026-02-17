@@ -54,7 +54,7 @@ class HOTInternalMethodsTest {
       PageReference rr1 = new PageReference();
       rr1.setKey(2);
       HOTIndirectPage biNode1 = HOTIndirectPage.createBiNode(1L, 1, 0, lr1, rr1);
-      
+
       List<HOTIndirectPage> singleList = List.of(biNode1);
       HOTIndirectPage result1 = NodeUpgradeManager.mergeToSpanNode(singleList, 100L, 1);
       assertNotNull(result1);
@@ -65,7 +65,7 @@ class HOTInternalMethodsTest {
       PageReference rr2 = new PageReference();
       rr2.setKey(4);
       HOTIndirectPage biNode2 = HOTIndirectPage.createBiNode(2L, 1, 1, lr2, rr2);
-      
+
       List<HOTIndirectPage> twoNodes = List.of(biNode1, biNode2);
       try {
         HOTIndirectPage result2 = NodeUpgradeManager.mergeToSpanNode(twoNodes, 101L, 1);
@@ -164,8 +164,7 @@ class HOTInternalMethodsTest {
       PageReference additionalChild = new PageReference();
       additionalChild.setKey(100);
 
-      HOTIndirectPage multiNode = NodeUpgradeManager.upgradeToMultiNode(
-          spanNode, 2L, 1, additionalChild, (byte) 0x40);
+      HOTIndirectPage multiNode = NodeUpgradeManager.upgradeToMultiNode(spanNode, 2L, 1, additionalChild, (byte) 0x40);
       assertNotNull(multiNode);
       assertEquals(HOTIndirectPage.NodeType.MULTI_NODE, multiNode.getNodeType());
     }
@@ -249,7 +248,7 @@ class HOTInternalMethodsTest {
       }
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b111L, keys3, children3);
 
-      assertTrue(NodeUpgradeManager.isUnderfilled(spanNode, 0.5));  // < 50% fill
+      assertTrue(NodeUpgradeManager.isUnderfilled(spanNode, 0.5)); // < 50% fill
       assertFalse(NodeUpgradeManager.isUnderfilled(spanNode, 0.1)); // > 10% fill
     }
 
@@ -370,7 +369,7 @@ class HOTInternalMethodsTest {
     void testSplitLeafPageDirect() {
       // Create a leaf page with many entries
       HOTLeafPage sourcePage = new HOTLeafPage(1L, 1, IndexType.PATH);
-      
+
       // Add enough entries to require splitting
       for (int i = 0; i < 50; i++) {
         byte[] key = new byte[] {(byte) ((i * 5) >> 8), (byte) (i * 5)};
@@ -383,7 +382,7 @@ class HOTInternalMethodsTest {
 
       // Perform split
       byte[] splitKey = sourcePage.splitTo(targetPage);
-      
+
       // Verify split result
       assertNotNull(splitKey);
       assertTrue(sourcePage.getEntryCount() > 0);
@@ -402,7 +401,7 @@ class HOTInternalMethodsTest {
 
       // Find optimal split
       int splitPoint = HeightOptimalSplitter.findOptimalSplitPoint(keys);
-      
+
       // Should be near middle
       assertTrue(splitPoint > 10 && splitPoint < 54, "Split point should be near middle: " + splitPoint);
     }
@@ -623,7 +622,9 @@ class HOTInternalMethodsTest {
       for (int pattern = 0; pattern < 256; pattern++) {
         byte[] key = new byte[8];
         for (int b = 0; b < 8; b++) {
-          key[b] = (byte) (((pattern >> b) & 1) == 1 ? 0x80 : 0x00);
+          key[b] = (byte) (((pattern >> b) & 1) == 1
+              ? 0x80
+              : 0x00);
         }
 
         int extracted = mapping.extractMask(key);
@@ -638,7 +639,7 @@ class HOTInternalMethodsTest {
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(3);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 11);
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 19);
-      
+
       int msb = mapping.getMostSignificantBitIndex();
       int lsb = mapping.getLeastSignificantBitIndex();
       assertTrue(msb >= 0);
@@ -658,17 +659,17 @@ class HOTInternalMethodsTest {
     void testExtractMaskMultiTriggered() {
       // Create a mapping that spans more than 8 bytes to force multi-mask
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(0);
-      
+
       // Add bits far apart to trigger multi-mask path
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 64); // 8 bytes apart
       mapping = PartialKeyMapping.withAdditionalBit(mapping, 72); // Force multi-mask
-      
+
       // Create a key and extract
       byte[] key = new byte[16];
-      key[0] = (byte) 0x80;  // bit 0
-      key[8] = (byte) 0x80;  // bit 64
-      key[9] = (byte) 0x80;  // bit 72
-      
+      key[0] = (byte) 0x80; // bit 0
+      key[8] = (byte) 0x80; // bit 64
+      key[9] = (byte) 0x80; // bit 72
+
       int extracted = mapping.extractMask(key);
       assertNotNull(Integer.valueOf(extracted));
     }
@@ -678,14 +679,16 @@ class HOTInternalMethodsTest {
     void testExtractMaskMultiVariousByte() {
       // Force multi-mask by spanning > 8 bytes
       PartialKeyMapping mapping = PartialKeyMapping.forSingleBit(0);
-      mapping = PartialKeyMapping.withAdditionalBit(mapping, 72);  // 9 bytes apart
-      
+      mapping = PartialKeyMapping.withAdditionalBit(mapping, 72); // 9 bytes apart
+
       // Test with various patterns
       for (int pattern = 0; pattern < 8; pattern++) {
         byte[] key = new byte[16];
-        if ((pattern & 1) != 0) key[0] = (byte) 0x80;
-        if ((pattern & 2) != 0) key[9] = (byte) 0x80;
-        
+        if ((pattern & 1) != 0)
+          key[0] = (byte) 0x80;
+        if ((pattern & 2) != 0)
+          key[9] = (byte) 0x80;
+
         int extracted = mapping.extractMask(key);
         assertTrue(extracted >= 0 && extracted <= 3);
       }

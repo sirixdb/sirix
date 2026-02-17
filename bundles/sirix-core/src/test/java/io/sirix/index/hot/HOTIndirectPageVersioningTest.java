@@ -31,12 +31,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 /**
  * Integration tests for HOTIndirectPage navigation combined with versioning.
  * 
- * <p>These tests verify that:
+ * <p>
+ * These tests verify that:
  * <ul>
- *   <li>HOTIndirectPages (created by leaf page splits) work correctly across multiple revisions</li>
- *   <li>Historical revisions can be read correctly when HOTIndirectPages are involved</li>
- *   <li>Different versioning strategies (FULL, INCREMENTAL, DIFFERENTIAL, SLIDING_SNAPSHOT) work with HOT splits</li>
- *   <li>Data integrity is maintained when pages split AND versions accumulate</li>
+ * <li>HOTIndirectPages (created by leaf page splits) work correctly across multiple revisions</li>
+ * <li>Historical revisions can be read correctly when HOTIndirectPages are involved</li>
+ * <li>Different versioning strategies (FULL, INCREMENTAL, DIFFERENTIAL, SLIDING_SNAPSHOT) work with
+ * HOT splits</li>
+ * <li>Data integrity is maintained when pages split AND versions accumulate</li>
  * </ul>
  */
 @DisplayName("HOT IndirectPage Versioning Integration Tests")
@@ -53,7 +55,7 @@ class HOTIndirectPageVersioningTest {
     } catch (Exception e) {
       // Ignore - buffer manager might not exist yet
     }
-    
+
     tempDir = Files.createTempDirectory("sirix-hot-indirect-versioning-test");
     System.setProperty("sirix.index.useHOT", "true");
   }
@@ -61,11 +63,11 @@ class HOTIndirectPageVersioningTest {
   @AfterEach
   void tearDown() throws IOException {
     System.clearProperty("sirix.index.useHOT");
-    
+
     if (tempDir != null) {
       deleteRecursively(tempDir);
     }
-    
+
     try {
       Databases.getGlobalBufferManager().clearAllCaches();
     } catch (Exception e) {
@@ -89,13 +91,14 @@ class HOTIndirectPageVersioningTest {
   // ============================================================================
 
   /**
-   * Creates a JSON object with the specified number of keys.
-   * Keys are formatted as "keyNNN" for consistent ordering.
+   * Creates a JSON object with the specified number of keys. Keys are formatted as "keyNNN" for
+   * consistent ordering.
    */
   private String createLargeJsonObject(int keyCount) {
     StringBuilder json = new StringBuilder("{");
     for (int i = 0; i < keyCount; i++) {
-      if (i > 0) json.append(",");
+      if (i > 0)
+        json.append(",");
       json.append(String.format("\"key%03d\": \"value%d\"", i, i));
     }
     json.append("}");
@@ -108,7 +111,8 @@ class HOTIndirectPageVersioningTest {
   private String createLargeJsonArray(int elementCount) {
     StringBuilder json = new StringBuilder("[");
     for (int i = 0; i < elementCount; i++) {
-      if (i > 0) json.append(",");
+      if (i > 0)
+        json.append(",");
       json.append(i);
     }
     json.append("]");
@@ -148,8 +152,8 @@ class HOTIndirectPageVersioningTest {
   private int countArrayElements(JsonNodeReadOnlyTrx rtx) {
     int count = 0;
     rtx.moveToDocumentRoot();
-    if (rtx.moveToFirstChild()) {  // Array
-      if (rtx.moveToFirstChild()) {  // First element
+    if (rtx.moveToFirstChild()) { // Array
+      if (rtx.moveToFirstChild()) { // First element
         do {
           if (rtx.getKind() == NodeKind.NUMBER_VALUE) {
             count++;
@@ -176,15 +180,13 @@ class HOTIndirectPageVersioningTest {
       Databases.createJsonDatabase(dbConfig);
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
-        database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.FULL)
-            .build());
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           // Revision 1: Large object with 200 keys (likely triggers HOT page splits)
           try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-            wtx.insertSubtreeAsFirstChild(
-                JsonShredder.createStringReader(createLargeJsonObject(200)), Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(200)), Commit.NO);
             wtx.commit();
           }
 
@@ -194,8 +196,7 @@ class HOTIndirectPageVersioningTest {
             if (wtx.moveToFirstChild()) {
               wtx.remove();
             }
-            wtx.insertSubtreeAsFirstChild(
-                JsonShredder.createStringReader(createLargeJsonObject(300)), Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(300)), Commit.NO);
             wtx.commit();
           }
 
@@ -205,14 +206,12 @@ class HOTIndirectPageVersioningTest {
             if (wtx.moveToFirstChild()) {
               wtx.remove();
             }
-            wtx.insertSubtreeAsFirstChild(
-                JsonShredder.createStringReader(createLargeJsonObject(400)), Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(400)), Commit.NO);
             wtx.commit();
           }
 
           // Verify revision counts
-          assertEquals(3, session.getMostRecentRevisionNumber(),
-              "Should have 3 revisions");
+          assertEquals(3, session.getMostRecentRevisionNumber(), "Should have 3 revisions");
 
           // Verify revision 1 has 200 keys
           try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(1)) {
@@ -237,7 +236,7 @@ class HOTIndirectPageVersioningTest {
       // Reopen and verify data persists
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
-             JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
           int keyCount = countObjectRecordKeys(rtx);
           assertEquals(400, keyCount, "Should have 400 keys after reopening");
         }
@@ -258,14 +257,14 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(3) // Trigger fragment combining
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(3) // Trigger fragment combining
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           // Create 6 revisions with increasing data sizes - exceeds revsToRestore=3 to test combining
           int[] sizes = {100, 150, 200, 250, 300, 350};
-          
+
           for (int rev = 0; rev < sizes.length; rev++) {
             try (JsonNodeTrx wtx = session.beginNodeTrx()) {
               if (rev > 0) {
@@ -274,21 +273,19 @@ class HOTIndirectPageVersioningTest {
                   wtx.remove();
                 }
               }
-              wtx.insertSubtreeAsFirstChild(
-                  JsonShredder.createStringReader(createLargeJsonObject(sizes[rev])), Commit.NO);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(sizes[rev])),
+                  Commit.NO);
               wtx.commit();
             }
           }
 
-          assertEquals(6, session.getMostRecentRevisionNumber(),
-              "Should have 6 revisions");
+          assertEquals(6, session.getMostRecentRevisionNumber(), "Should have 6 revisions");
 
           // Verify each historical revision has correct data
           for (int rev = 1; rev <= sizes.length; rev++) {
             try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
               int keyCount = countObjectRecordKeys(rtx);
-              assertEquals(sizes[rev - 1], keyCount,
-                  "Revision " + rev + " should have " + sizes[rev - 1] + " keys");
+              assertEquals(sizes[rev - 1], keyCount, "Revision " + rev + " should have " + sizes[rev - 1] + " keys");
             }
           }
         }
@@ -304,15 +301,14 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(5)
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(5)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           // Revision 1: Create initial large object
           try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-            wtx.insertSubtreeAsFirstChild(
-                JsonShredder.createStringReader(createLargeJsonObject(150)), Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(150)), Commit.NO);
             wtx.commit();
           }
 
@@ -325,8 +321,8 @@ class HOTIndirectPageVersioningTest {
               }
               // Each revision adds 50 more keys
               int keyCount = 150 + (rev - 1) * 50;
-              wtx.insertSubtreeAsFirstChild(
-                  JsonShredder.createStringReader(createLargeJsonObject(keyCount)), Commit.NO);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(keyCount)),
+                  Commit.NO);
               wtx.commit();
             }
           }
@@ -336,8 +332,7 @@ class HOTIndirectPageVersioningTest {
             try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
               int expectedKeys = 150 + (rev - 1) * 50;
               int actualKeys = countObjectRecordKeys(rtx);
-              assertEquals(expectedKeys, actualKeys,
-                  "Revision " + rev + " should have " + expectedKeys + " keys");
+              assertEquals(expectedKeys, actualKeys, "Revision " + rev + " should have " + expectedKeys + " keys");
             }
           }
         }
@@ -358,14 +353,14 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.DIFFERENTIAL)
-            .maxNumberOfRevisionsToRestore(3)
-            .build());
+                                                     .versioningApproach(VersioningType.DIFFERENTIAL)
+                                                     .maxNumberOfRevisionsToRestore(3)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           // Create 4 revisions with varying sizes to trigger splits
           int[] sizes = {180, 220, 260, 320};
-          
+
           for (int rev = 0; rev < sizes.length; rev++) {
             try (JsonNodeTrx wtx = session.beginNodeTrx()) {
               if (rev > 0) {
@@ -374,8 +369,8 @@ class HOTIndirectPageVersioningTest {
                   wtx.remove();
                 }
               }
-              wtx.insertSubtreeAsFirstChild(
-                  JsonShredder.createStringReader(createLargeJsonObject(sizes[rev])), Commit.NO);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(sizes[rev])),
+                  Commit.NO);
               wtx.commit();
             }
           }
@@ -406,14 +401,14 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-            .maxNumberOfRevisionsToRestore(4)
-            .build());
+                                                     .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                     .maxNumberOfRevisionsToRestore(4)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           // Create 6 revisions with varying sizes
           int[] sizes = {120, 180, 240, 300, 350, 400};
-          
+
           for (int rev = 0; rev < sizes.length; rev++) {
             try (JsonNodeTrx wtx = session.beginNodeTrx()) {
               if (rev > 0) {
@@ -422,8 +417,8 @@ class HOTIndirectPageVersioningTest {
                   wtx.remove();
                 }
               }
-              wtx.insertSubtreeAsFirstChild(
-                  JsonShredder.createStringReader(createLargeJsonObject(sizes[rev])), Commit.NO);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(sizes[rev])),
+                  Commit.NO);
               wtx.commit();
             }
           }
@@ -438,8 +433,7 @@ class HOTIndirectPageVersioningTest {
           for (int rev = 1; rev <= sizes.length; rev++) {
             try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
               int keyCount = countObjectRecordKeys(rtx);
-              assertEquals(sizes[rev - 1], keyCount,
-                  "Revision " + rev + " should have " + sizes[rev - 1] + " keys");
+              assertEquals(sizes[rev - 1], keyCount, "Revision " + rev + " should have " + sizes[rev - 1] + " keys");
             }
           }
         }
@@ -458,12 +452,8 @@ class HOTIndirectPageVersioningTest {
     @Test
     @DisplayName("All versioning types produce consistent results with large datasets")
     void testAllVersioningTypesConsistent() throws IOException {
-      VersioningType[] versioningTypes = {
-          VersioningType.FULL,
-          VersioningType.INCREMENTAL,
-          VersioningType.DIFFERENTIAL,
-          VersioningType.SLIDING_SNAPSHOT
-      };
+      VersioningType[] versioningTypes = {VersioningType.FULL, VersioningType.INCREMENTAL, VersioningType.DIFFERENTIAL,
+          VersioningType.SLIDING_SNAPSHOT};
 
       int[] sizes = {100, 200, 300};
 
@@ -474,9 +464,9 @@ class HOTIndirectPageVersioningTest {
 
         try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
           database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-              .versioningApproach(versioningType)
-              .maxNumberOfRevisionsToRestore(3)
-              .build());
+                                                       .versioningApproach(versioningType)
+                                                       .maxNumberOfRevisionsToRestore(3)
+                                                       .build());
 
           try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
             // Create 3 revisions
@@ -488,8 +478,8 @@ class HOTIndirectPageVersioningTest {
                     wtx.remove();
                   }
                 }
-                wtx.insertSubtreeAsFirstChild(
-                    JsonShredder.createStringReader(createLargeJsonObject(sizes[rev])), Commit.NO);
+                wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(sizes[rev])),
+                    Commit.NO);
                 wtx.commit();
               }
             }
@@ -525,9 +515,9 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(5)
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(5)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           // Revision 1: Empty object
@@ -542,8 +532,7 @@ class HOTIndirectPageVersioningTest {
             if (wtx.moveToFirstChild()) {
               wtx.remove();
             }
-            wtx.insertSubtreeAsFirstChild(
-                JsonShredder.createStringReader(createLargeJsonObject(10)), Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(10)), Commit.NO);
             wtx.commit();
           }
 
@@ -553,8 +542,7 @@ class HOTIndirectPageVersioningTest {
             if (wtx.moveToFirstChild()) {
               wtx.remove();
             }
-            wtx.insertSubtreeAsFirstChild(
-                JsonShredder.createStringReader(createLargeJsonObject(300)), Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(300)), Commit.NO);
             wtx.commit();
           }
 
@@ -588,15 +576,14 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.DIFFERENTIAL)
-            .maxNumberOfRevisionsToRestore(3)
-            .build());
+                                                     .versioningApproach(VersioningType.DIFFERENTIAL)
+                                                     .maxNumberOfRevisionsToRestore(3)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           // Revision 1: Large object
           try (JsonNodeTrx wtx = session.beginNodeTrx()) {
-            wtx.insertSubtreeAsFirstChild(
-                JsonShredder.createStringReader(createLargeJsonObject(250)), Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(250)), Commit.NO);
             wtx.commit();
           }
 
@@ -606,8 +593,7 @@ class HOTIndirectPageVersioningTest {
             if (wtx.moveToFirstChild()) {
               wtx.remove();
             }
-            wtx.insertSubtreeAsFirstChild(
-                JsonShredder.createStringReader(createLargeJsonObject(50)), Commit.NO);
+            wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(50)), Commit.NO);
             wtx.commit();
           }
 
@@ -644,9 +630,9 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(4)
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(4)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           int[] arraySizes = {50, 100, 200, 350};
@@ -659,8 +645,8 @@ class HOTIndirectPageVersioningTest {
                   wtx.remove();
                 }
               }
-              wtx.insertSubtreeAsFirstChild(
-                  JsonShredder.createStringReader(createLargeJsonArray(arraySizes[rev])), Commit.NO);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonArray(arraySizes[rev])),
+                  Commit.NO);
               wtx.commit();
             }
           }
@@ -686,14 +672,14 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-            .maxNumberOfRevisionsToRestore(4) // Trigger snapshot behavior
-            .build());
+                                                     .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                     .maxNumberOfRevisionsToRestore(4) // Trigger snapshot behavior
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           // Now we can use more revisions since RECORD_TO_REVISIONS bug is fixed
           int numRevisions = 12;
-          
+
           for (int rev = 0; rev < numRevisions; rev++) {
             try (JsonNodeTrx wtx = session.beginNodeTrx()) {
               if (rev > 0) {
@@ -704,8 +690,8 @@ class HOTIndirectPageVersioningTest {
               }
               // Each revision adds 15 more keys
               int keyCount = 50 + rev * 15;
-              wtx.insertSubtreeAsFirstChild(
-                  JsonShredder.createStringReader(createLargeJsonObject(keyCount)), Commit.NO);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(keyCount)),
+                  Commit.NO);
               wtx.commit();
             }
           }
@@ -718,8 +704,7 @@ class HOTIndirectPageVersioningTest {
             try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
               int expectedKeys = 50 + (rev - 1) * 15;
               int actualKeys = countObjectRecordKeys(rtx);
-              assertEquals(expectedKeys, actualKeys,
-                  "Revision " + rev + " should have " + expectedKeys + " keys");
+              assertEquals(expectedKeys, actualKeys, "Revision " + rev + " should have " + expectedKeys + " keys");
             }
           }
         }
@@ -747,9 +732,9 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           // Create many revisions - use additive pattern to avoid RECORD_TO_REVISIONS limits
@@ -758,16 +743,15 @@ class HOTIndirectPageVersioningTest {
             try (JsonNodeTrx wtx = session.beginNodeTrx()) {
               if (rev == 0) {
                 // First revision: create initial structure
-                wtx.insertSubtreeAsFirstChild(
-                    JsonShredder.createStringReader(createLargeJsonObject(50)), Commit.NO);
+                wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(50)), Commit.NO);
               } else {
                 // Subsequent revisions: remove and recreate with more data
                 wtx.moveToDocumentRoot();
                 if (wtx.moveToFirstChild()) {
                   wtx.remove();
                 }
-                wtx.insertSubtreeAsFirstChild(
-                    JsonShredder.createStringReader(createLargeJsonObject(50 + rev * 5)), Commit.NO);
+                wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(50 + rev * 5)),
+                    Commit.NO);
               }
               wtx.commit();
             }
@@ -782,9 +766,8 @@ class HOTIndirectPageVersioningTest {
             try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
               int expectedKeys = 50 + (rev - 1) * 5;
               int actualKeys = countObjectRecordKeys(rtx);
-              assertEquals(expectedKeys, actualKeys,
-                  "INCREMENTAL Revision " + rev + " (revsToRestore=" + REVS_TO_RESTORE + 
-                  ") should have " + expectedKeys + " keys");
+              assertEquals(expectedKeys, actualKeys, "INCREMENTAL Revision " + rev + " (revsToRestore="
+                  + REVS_TO_RESTORE + ") should have " + expectedKeys + " keys");
             }
           }
         }
@@ -803,9 +786,9 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.DIFFERENTIAL)
-            .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
-            .build());
+                                                     .versioningApproach(VersioningType.DIFFERENTIAL)
+                                                     .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           for (int rev = 0; rev < TOTAL_REVISIONS; rev++) {
@@ -818,8 +801,8 @@ class HOTIndirectPageVersioningTest {
               }
               // Different key counts make each revision distinguishable
               int keyCount = 40 + rev * 4;
-              wtx.insertSubtreeAsFirstChild(
-                  JsonShredder.createStringReader(createLargeJsonObject(keyCount)), Commit.NO);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(keyCount)),
+                  Commit.NO);
               wtx.commit();
             }
           }
@@ -833,10 +816,9 @@ class HOTIndirectPageVersioningTest {
               int expectedKeys = 40 + (rev - 1) * 4;
               int actualKeys = countObjectRecordKeys(rtx);
               boolean isSnapshotBoundary = (rev % REVS_TO_RESTORE == 0);
-              assertEquals(expectedKeys, actualKeys,
-                  "DIFFERENTIAL Revision " + rev + 
-                  (isSnapshotBoundary ? " (SNAPSHOT)" : " (delta)") + 
-                  " should have " + expectedKeys + " keys");
+              assertEquals(expectedKeys, actualKeys, "DIFFERENTIAL Revision " + rev + (isSnapshotBoundary
+                  ? " (SNAPSHOT)"
+                  : " (delta)") + " should have " + expectedKeys + " keys");
             }
           }
         }
@@ -855,9 +837,9 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
-            .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
-            .build());
+                                                     .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                     .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           for (int rev = 0; rev < TOTAL_REVISIONS; rev++) {
@@ -870,8 +852,8 @@ class HOTIndirectPageVersioningTest {
               }
               // Use prime-based key counts for easy identification
               int keyCount = 31 + rev * 3;
-              wtx.insertSubtreeAsFirstChild(
-                  JsonShredder.createStringReader(createLargeJsonObject(keyCount)), Commit.NO);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(keyCount)),
+                  Commit.NO);
               wtx.commit();
             }
           }
@@ -884,9 +866,8 @@ class HOTIndirectPageVersioningTest {
             try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {
               int expectedKeys = 31 + (rev - 1) * 3;
               int actualKeys = countObjectRecordKeys(rtx);
-              assertEquals(expectedKeys, actualKeys,
-                  "SLIDING_SNAPSHOT Revision " + rev + " (window=" + REVS_TO_RESTORE + 
-                  ") should have " + expectedKeys + " keys");
+              assertEquals(expectedKeys, actualKeys, "SLIDING_SNAPSHOT Revision " + rev + " (window=" + REVS_TO_RESTORE
+                  + ") should have " + expectedKeys + " keys");
             }
           }
         }
@@ -907,9 +888,9 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           for (int rev = 0; rev < TOTAL_REVISIONS; rev++) {
@@ -921,8 +902,8 @@ class HOTIndirectPageVersioningTest {
                 }
               }
               int keyCount = 25 + rev * 5;
-              wtx.insertSubtreeAsFirstChild(
-                  JsonShredder.createStringReader(createLargeJsonObject(keyCount)), Commit.NO);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(keyCount)),
+                  Commit.NO);
               wtx.commit();
             }
           }
@@ -952,9 +933,9 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.DIFFERENTIAL)
-            .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
-            .build());
+                                                     .versioningApproach(VersioningType.DIFFERENTIAL)
+                                                     .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           for (int rev = 0; rev < TOTAL_REVISIONS; rev++) {
@@ -966,8 +947,8 @@ class HOTIndirectPageVersioningTest {
                 }
               }
               int keyCount = 35 + rev * 7;
-              wtx.insertSubtreeAsFirstChild(
-                  JsonShredder.createStringReader(createLargeJsonObject(keyCount)), Commit.NO);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(keyCount)),
+                  Commit.NO);
               wtx.commit();
             }
           }
@@ -997,14 +978,14 @@ class HOTIndirectPageVersioningTest {
 
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(REVS_TO_RESTORE)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           // Pattern: grow, shrink, grow, shrink... across threshold boundaries
           int[] keyCounts = {30, 50, 25, 60, 35, 70, 40};
-          
+
           for (int rev = 0; rev < TOTAL_REVISIONS; rev++) {
             try (JsonNodeTrx wtx = session.beginNodeTrx()) {
               if (rev > 0) {
@@ -1013,8 +994,8 @@ class HOTIndirectPageVersioningTest {
                   wtx.remove();
                 }
               }
-              wtx.insertSubtreeAsFirstChild(
-                  JsonShredder.createStringReader(createLargeJsonObject(keyCounts[rev])), Commit.NO);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(keyCounts[rev])),
+                  Commit.NO);
               wtx.commit();
             }
           }
@@ -1053,9 +1034,9 @@ class HOTIndirectPageVersioningTest {
       // Create database with multiple revisions
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         database.createResource(ResourceConfiguration.newBuilder(RESOURCE_NAME)
-            .versioningApproach(VersioningType.INCREMENTAL)
-            .maxNumberOfRevisionsToRestore(4)
-            .build());
+                                                     .versioningApproach(VersioningType.INCREMENTAL)
+                                                     .maxNumberOfRevisionsToRestore(4)
+                                                     .build());
 
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
           for (int rev = 0; rev < sizes.length; rev++) {
@@ -1066,8 +1047,8 @@ class HOTIndirectPageVersioningTest {
                   wtx.remove();
                 }
               }
-              wtx.insertSubtreeAsFirstChild(
-                  JsonShredder.createStringReader(createLargeJsonObject(sizes[rev])), Commit.NO);
+              wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(createLargeJsonObject(sizes[rev])),
+                  Commit.NO);
               wtx.commit();
             }
           }
@@ -1084,8 +1065,7 @@ class HOTIndirectPageVersioningTest {
       // Reopen and verify all revisions
       try (Database<JsonResourceSession> database = Databases.openJsonDatabase(dbPath)) {
         try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME)) {
-          assertEquals(3, session.getMostRecentRevisionNumber(),
-              "Should have 3 revisions after reopen");
+          assertEquals(3, session.getMostRecentRevisionNumber(), "Should have 3 revisions after reopen");
 
           for (int rev = 1; rev <= sizes.length; rev++) {
             try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(rev)) {

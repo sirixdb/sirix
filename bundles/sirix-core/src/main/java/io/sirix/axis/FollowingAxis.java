@@ -77,8 +77,8 @@ public final class FollowingAxis extends AbstractAxis {
       isFirst = false;
 
       /*
-       * The first following is either a right sibling, or the right sibling of the first ancestor
-       * that has a right sibling. Note: ancestors and descendants are no following node!
+       * The first following is either a right sibling, or the right sibling of the first ancestor that
+       * has a right sibling. Note: ancestors and descendants are no following node!
        */
       if (cursor.hasRightSibling()) {
         cursor.moveToRightSibling();

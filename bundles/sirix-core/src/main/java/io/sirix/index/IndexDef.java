@@ -57,9 +57,7 @@ public final class IndexDef implements Materializable {
     JSON;
 
     public static Optional<DbType> ofString(String type) {
-      return Arrays.stream(DbType.values())
-                   .filter(env -> env.name().equalsIgnoreCase(type))
-                   .findFirst();
+      return Arrays.stream(DbType.values()).filter(env -> env.name().equalsIgnoreCase(type)).findFirst();
     }
   }
 
@@ -97,8 +95,8 @@ public final class IndexDef implements Materializable {
   /**
    * CAS index.
    */
-  IndexDef(final Type contentType, final Set<Path<QNm>> paths, final boolean unique,
-      final int indexDefNo, final DbType dbType) {
+  IndexDef(final Type contentType, final Set<Path<QNm>> paths, final boolean unique, final int indexDefNo,
+      final DbType dbType) {
     type = IndexType.CAS;
     this.contentType = requireNonNull(contentType);
     this.paths.addAll(paths);
@@ -198,7 +196,8 @@ public final class IndexDef implements Materializable {
 
     attribute = root.getAttribute(DB_TYPE_ATTRIBUTE);
     if (attribute != null) {
-      dbType = DbType.ofString(attribute.getValue().stringValue()).orElseThrow(() -> new DocumentException("Invalid db type"));
+      dbType = DbType.ofString(attribute.getValue().stringValue())
+                     .orElseThrow(() -> new DocumentException("Invalid db type"));
     }
 
     try (Stream<? extends Node<?>> children = root.getChildren()) {
@@ -212,7 +211,9 @@ public final class IndexDef implements Materializable {
         final String value = child.getValue().stringValue();
 
         if (childName.equals(PATH_TAG)) {
-          paths.add(Path.parse(value, dbType == DbType.JSON ? PathParser.Type.JSON : PathParser.Type.XML));
+          paths.add(Path.parse(value, dbType == DbType.JSON
+              ? PathParser.Type.JSON
+              : PathParser.Type.XML));
         } else if (childName.equals(INCLUDING_TAG)) {
           for (final String s : value.split(",")) {
             if (s.length() > 0) {
@@ -235,8 +236,7 @@ public final class IndexDef implements Materializable {
   }
 
   private static Type resolveType(final String s) throws DocumentException {
-    final QNm name = new QNm(Namespaces.XS_NSURI, Namespaces.XS_PREFIX,
-        s.substring(Namespaces.XS_PREFIX.length() + 1));
+    final QNm name = new QNm(Namespaces.XS_NSURI, Namespaces.XS_PREFIX, s.substring(Namespaces.XS_PREFIX.length() + 1));
     for (final Type type : Type.builtInTypes) {
       if (type.getName().getLocalName().equals(name.getLocalName())) {
         return type;

@@ -18,8 +18,7 @@ import io.sirix.query.json.JsonDBItem;
  * Function for removing a resource within a database. Supported signature is:
  * </p>
  * <ul>
- * <li><code>jn:drop-resource($coll as xs:string, $res as xs:string)</code>
- * </li>
+ * <li><code>jn:drop-resource($coll as xs:string, $res as xs:string)</code></li>
  * </ul>
  *
  * @author Johannes Lichtenberger
@@ -34,7 +33,7 @@ public final class DropResource extends AbstractFunction {
   /**
    * Constructor.
    *
-   * @param name      the name of the function
+   * @param name the name of the function
    * @param signature the signature of the function
    */
   public DropResource(final QNm name, final Signature signature) {

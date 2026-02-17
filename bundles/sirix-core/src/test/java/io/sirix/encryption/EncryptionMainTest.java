@@ -25,8 +25,8 @@ import io.sirix.Holder;
 
 public class EncryptionMainTest {
 
-  private static final String XML = "src" + File.separator + "test" + File.separator + "resources"
-      + File.separator + "auction.xml";
+  private static final String XML =
+      "src" + File.separator + "test" + File.separator + "resources" + File.separator + "auction.xml";
 
   private static Holder holder;
 
