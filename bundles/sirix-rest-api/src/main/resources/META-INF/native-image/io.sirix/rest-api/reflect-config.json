@@ -122,7 +122,39 @@
     "methods": [{"name": "<init>", "parameterTypes": []}]
   },
   {
+    "name": "com.github.benmanes.caffeine.cache.PSMW",
+    "methods": [{"name": "<init>", "parameterTypes": []}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.SS",
+    "methods": [{"name": "<init>", "parameterTypes": ["com.github.benmanes.caffeine.cache.Caffeine", "com.github.benmanes.caffeine.cache.AsyncCacheLoader", "boolean"]}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.SSM",
+    "methods": [{"name": "<init>", "parameterTypes": ["com.github.benmanes.caffeine.cache.Caffeine", "com.github.benmanes.caffeine.cache.AsyncCacheLoader", "boolean"]}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.SSMS",
+    "methods": [{"name": "<init>", "parameterTypes": ["com.github.benmanes.caffeine.cache.Caffeine", "com.github.benmanes.caffeine.cache.AsyncCacheLoader", "boolean"]}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.SSMW",
+    "methods": [{"name": "<init>", "parameterTypes": ["com.github.benmanes.caffeine.cache.Caffeine", "com.github.benmanes.caffeine.cache.AsyncCacheLoader", "boolean"]}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.SSLM",
+    "methods": [{"name": "<init>", "parameterTypes": ["com.github.benmanes.caffeine.cache.Caffeine", "com.github.benmanes.caffeine.cache.AsyncCacheLoader", "boolean"]}]
+  },
+  {
     "name": "com.github.benmanes.caffeine.cache.SSLMS",
+    "methods": [{"name": "<init>", "parameterTypes": ["com.github.benmanes.caffeine.cache.Caffeine", "com.github.benmanes.caffeine.cache.AsyncCacheLoader", "boolean"]}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.SSLMW",
+    "methods": [{"name": "<init>", "parameterTypes": ["com.github.benmanes.caffeine.cache.Caffeine", "com.github.benmanes.caffeine.cache.AsyncCacheLoader", "boolean"]}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.SSLSMW",
     "methods": [{"name": "<init>", "parameterTypes": ["com.github.benmanes.caffeine.cache.Caffeine", "com.github.benmanes.caffeine.cache.AsyncCacheLoader", "boolean"]}]
   },
   {
@@ -131,6 +163,10 @@
   },
   {
     "name": "com.github.benmanes.caffeine.cache.SSMSA",
+    "methods": [{"name": "<init>", "parameterTypes": ["com.github.benmanes.caffeine.cache.Caffeine", "com.github.benmanes.caffeine.cache.AsyncCacheLoader", "boolean"]}]
+  },
+  {
+    "name": "com.github.benmanes.caffeine.cache.SSMSW",
     "methods": [{"name": "<init>", "parameterTypes": ["com.github.benmanes.caffeine.cache.Caffeine", "com.github.benmanes.caffeine.cache.AsyncCacheLoader", "boolean"]}]
   },
   {
@@ -182,6 +218,22 @@
   },
   {
     "name": "io.vertx.core.Launcher",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.vertx.launcher.application.VertxApplication",
+    "allDeclaredConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.vertx.launcher.application.impl.VertxApplicationCommand",
+    "allDeclaredConstructors": true,
+    "allDeclaredFields": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "io.vertx.launcher.application.impl.CommandExceptionHandler",
     "allDeclaredConstructors": true,
     "allPublicMethods": true
   },

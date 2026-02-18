@@ -182,8 +182,8 @@ graalvmNative {
             buildArgs.add('--exclude-config')
             buildArgs.add('library-support.jar')
             buildArgs.add('META-INF/native-image/.*')
-            // Vert.x main verticle
-            buildArgs.add('-Dvertx.main=io.sirix.rest.SirixVerticle')
+            // Enable HTTP/HTTPS URL protocols (needed for Keycloak OAuth2 discovery)
+            buildArgs.add('--enable-url-protocols=http,https')
             // Include config files from classpath
             buildArgs.add('-H:IncludeResources=.*\\.properties$')
             buildArgs.add('-H:IncludeResources=.*\\.xml$')
@@ -222,8 +222,8 @@ graalvmNative {
             verbose = true
             // Quick build uses less memory and is faster (disable for production)
             quickBuild = project.hasProperty('quick-build') ? true : false
-            // Allocate more memory to the native-image compiler (use 80% of available RAM)
-            jvmArgs.add('-XX:MaxRAMPercentage=80')
+            // Allocate memory to the native-image compiler
+            jvmArgs.add('-Xmx16g')
         }
     }
     toolchainDetection = false

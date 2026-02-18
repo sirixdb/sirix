@@ -42,6 +42,8 @@ import io.sirix.rest.crud.xml.XmlUpdate
 import java.io.ByteArrayOutputStream
 import java.io.PrintWriter
 import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.UUID
 
@@ -57,6 +59,17 @@ class SirixVerticle : CoroutineVerticle() {
     private val location = Paths.get(userHome, "sirix-data")
 
     override suspend fun start() {
+        // Auto-load config from sirix-docker-conf.json when no config is passed
+        // (needed for native image where picocli -conf flag doesn't work)
+        if (config.isEmpty) {
+            val configFile = Path.of("sirix-docker-conf.json")
+            if (Files.exists(configFile)) {
+                logger.info("Loading config from {}", configFile.toAbsolutePath())
+                val fileConfig = JsonObject(Files.readString(configFile))
+                fileConfig.forEach { (key, value) -> config.put(key, value) }
+            }
+        }
+
         val router = createRouter()
 
         // Start an HTTP/2 server
