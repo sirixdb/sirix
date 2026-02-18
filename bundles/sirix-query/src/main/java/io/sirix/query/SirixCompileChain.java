@@ -22,9 +22,15 @@ import io.brackit.query.util.Cfg;
 /**
  * Compile chain for SirixDB queries.
  *
- * <p>Supports both sequential (default) and parallel (block-based) execution modes. Parallel mode
- * uses Brackit's {@link BlockPipelineStrategy} with ForkJoinPool-based work-stealing to parallelize
- * FLWOR expressions automatically.
+ * <p>Uses sequential execution by default. Parallel (block-based) execution is available via
+ * {@link #createParallel} factory methods for read-only queries. Brackit's
+ * {@link BlockPipelineStrategy} leverages ForkJoinPool-based work-stealing to parallelize FLWOR
+ * expressions automatically. The strategy only activates for FLWOR PipeExpr AST nodes, so simple
+ * queries incur zero overhead.
+ *
+ * <p>Thread-safety for parallel execution is provided by per-worker read-only transactions:
+ * collections wrap raw transactions in thread-safe proxies that transparently obtain per-thread
+ * cursors from the resource session's shared pool.
  *
  * @author Johannes Lichtenberger
  */
@@ -67,8 +73,6 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   public static SirixCompileChain createWithNodeAndJsonStore(final XmlDBStore nodeStore, final JsonDBStore jsonStore) {
     return new SirixCompileChain(nodeStore, jsonStore, false, true);
   }
-
-  // ---- Parallel factory methods ----
 
   /**
    * Create a parallel compile chain with ordered output.

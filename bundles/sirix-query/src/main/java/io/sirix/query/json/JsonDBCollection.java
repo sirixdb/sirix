@@ -216,12 +216,13 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
   }
 
   private JsonDBItem getItem(final JsonNodeReadOnlyTrx rtx) {
-    if (rtx.hasFirstChild()) {
-      rtx.moveToFirstChild();
-      if (rtx.isObject())
-        return new JsonDBObject(rtx, this);
-      else if (rtx.isArray())
-        return new JsonDBArray(rtx, this);
+    final JsonNodeReadOnlyTrx proxy = new ThreadSafeJsonReadOnlyTrx(rtx);
+    if (proxy.hasFirstChild()) {
+      proxy.moveToFirstChild();
+      if (proxy.isObject())
+        return new JsonDBObject(proxy, this);
+      else if (proxy.isArray())
+        return new JsonDBArray(proxy, this);
     }
 
     return null;
@@ -302,12 +303,13 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
         final String resourceName = resourcePath.getFileName().toString();
         final JsonResourceSession resource = database.beginResourceSession(resourceName);
         final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx();
+        final JsonNodeReadOnlyTrx proxy = new ThreadSafeJsonReadOnlyTrx(rtx);
 
-        if (rtx.moveToFirstChild()) {
-          if (rtx.isObject())
-            documents.add(new JsonDBObject(rtx, this));
-          else if (rtx.isArray())
-            documents.add(new JsonDBArray(rtx, this));
+        if (proxy.moveToFirstChild()) {
+          if (proxy.isObject())
+            documents.add(new JsonDBObject(proxy, this));
+          else if (proxy.isArray())
+            documents.add(new JsonDBArray(proxy, this));
         }
       } catch (final SirixException e) {
         throw new DocumentException(e.getCause());
