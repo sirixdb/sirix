@@ -24,6 +24,7 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
+import io.brackit.query.compiler.translator.PipelineStrategy;
 import io.brackit.query.compiler.translator.TopDownTranslator;
 import io.brackit.query.expr.Accessor;
 import io.brackit.query.jdm.Axis;
@@ -43,7 +44,7 @@ import java.util.*;
  *
  * @author Johannes Lichtenberger
  */
-public final class SirixTranslator extends TopDownTranslator {
+public class SirixTranslator extends TopDownTranslator {
 
   /**
    * Optimize accessors or not.
@@ -61,12 +62,24 @@ public final class SirixTranslator extends TopDownTranslator {
   public static final int DESCENDANT_THRESHOLD = Cfg.asInt("org.sirix.xquery.optimize.child.threshold", -1);
 
   /**
-   * Constructor.
+   * Constructor using sequential (default) pipeline strategy.
    *
    * @param options options map
    */
   public SirixTranslator(final Map<QNm, Str> options) {
     super(options);
+  }
+
+  /**
+   * Constructor with explicit pipeline strategy. Pass a
+   * {@link io.brackit.query.compiler.translator.BlockPipelineStrategy} to enable parallel
+   * (block-based) FLWOR execution via Brackit's ForkJoinPool model.
+   *
+   * @param options options map
+   * @param pipelineStrategy the pipeline strategy (sequential or block-parallel)
+   */
+  public SirixTranslator(final Map<QNm, Str> options, final PipelineStrategy pipelineStrategy) {
+    super(options, pipelineStrategy);
   }
 
   protected Expr anyExpr(AST node) throws QueryException {
