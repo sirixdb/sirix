@@ -373,6 +373,24 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   Optional<User> getUser();
 
   /**
+   * Get or create a shared read-only transaction for the calling thread at the
+   * given revision. The transaction is cached per thread+revision so that
+   * multiple items on the same worker thread share a single cursor.
+   *
+   * @param revision the revision number to read
+   * @return a read-only transaction bound to the current thread and revision
+   */
+  R getOrCreateSharedReadOnlyTrx(@NonNegative int revision);
+
+  /**
+   * Close and remove all shared read-only transactions for the given revision.
+   * Called when a thread-safe proxy is closed to free per-worker cursors.
+   *
+   * @param revision the revision whose shared transactions should be closed
+   */
+  void closeSharedReadOnlyTrxs(int revision);
+
+  /**
    * Get cache for index-structures.
    *
    * @return the cache

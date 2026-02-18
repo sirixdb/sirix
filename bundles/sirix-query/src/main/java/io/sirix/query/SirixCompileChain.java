@@ -22,9 +22,14 @@ import io.brackit.query.util.Cfg;
 /**
  * Compile chain for SirixDB queries.
  *
- * <p>Supports both sequential (default) and parallel (block-based) execution modes. Parallel mode
- * uses Brackit's {@link BlockPipelineStrategy} with ForkJoinPool-based work-stealing to parallelize
- * FLWOR expressions automatically.
+ * <p>Uses parallel (block-based) execution by default. Brackit's
+ * {@link BlockPipelineStrategy} leverages ForkJoinPool-based work-stealing to parallelize FLWOR
+ * expressions automatically. The strategy only activates for FLWOR PipeExpr AST nodes, so simple
+ * queries incur zero overhead.
+ *
+ * <p>Thread-safety for parallel execution is provided by per-worker read-only transactions:
+ * collections wrap raw transactions in thread-safe proxies that transparently obtain per-thread
+ * cursors from the resource session's shared pool.
  *
  * @author Johannes Lichtenberger
  */
@@ -50,25 +55,23 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   /** Whether parallel output must preserve input order. */
   private final boolean ordered;
 
-  // ---- Sequential (default) factory methods ----
+  // ---- Factory methods (parallel by default) ----
 
   public static SirixCompileChain create() {
-    return new SirixCompileChain(null, null, false, true);
+    return new SirixCompileChain(null, null, true, true);
   }
 
   public static SirixCompileChain createWithNodeStore(final XmlDBStore nodeStore) {
-    return new SirixCompileChain(nodeStore, null, false, true);
+    return new SirixCompileChain(nodeStore, null, true, true);
   }
 
   public static SirixCompileChain createWithJsonStore(final JsonDBStore jsonStore) {
-    return new SirixCompileChain(null, jsonStore, false, true);
+    return new SirixCompileChain(null, jsonStore, true, true);
   }
 
   public static SirixCompileChain createWithNodeAndJsonStore(final XmlDBStore nodeStore, final JsonDBStore jsonStore) {
-    return new SirixCompileChain(nodeStore, jsonStore, false, true);
+    return new SirixCompileChain(nodeStore, jsonStore, true, true);
   }
-
-  // ---- Parallel factory methods ----
 
   /**
    * Create a parallel compile chain with ordered output.
@@ -101,7 +104,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    * @param jsonItemStore the json item store.
    */
   public SirixCompileChain(final XmlDBStore nodeStore, final JsonDBStore jsonItemStore) {
-    this(nodeStore, jsonItemStore, false, true);
+    this(nodeStore, jsonItemStore, true, true);
   }
 
   /**

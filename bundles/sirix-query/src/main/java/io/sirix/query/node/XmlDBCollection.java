@@ -157,7 +157,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
         }
       }
 
-      return new XmlDBNode(trx, this);
+      return new XmlDBNode(new ThreadSafeXmlReadOnlyTrx(trx), this);
     });
   }
 
@@ -227,7 +227,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
         ? manager.getMostRecentRevisionNumber()
         : revision;
     final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
-    return new XmlDBNode(rtx, this);
+    return new XmlDBNode(new ThreadSafeXmlReadOnlyTrx(rtx), this);
   }
 
   public XmlDBNode add(final String resourceName, NodeSubtreeParser parser) {

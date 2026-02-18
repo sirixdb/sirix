@@ -121,6 +121,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    */
   final AtomicInteger pageTrxIDCounter;
 
+  /**
+   * Per-thread shared read-only transactions for parallel query execution.
+   * Key: (threadId, revision) → one read-only trx per worker thread per revision.
+   */
+  private final ConcurrentHashMap<SharedTrxKey, R> sharedTrxMap;
+
   private final AtomicReference<ObjectPool<StorageEngineReader>> pool;
 
   /**
@@ -191,6 +197,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     nodeTrxIDCounter = new AtomicInteger();
     pageTrxIDCounter = new AtomicInteger();
     commitLock = new ReentrantLock(false);
+    sharedTrxMap = new ConcurrentHashMap<>();
 
     this.writeLock = requireNonNull(writeLock);
 
@@ -506,6 +513,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     if (!isClosed) {
       // NOTE: ClockSweepers are GLOBAL now - don't stop them per-session
       // They continue running, managed by BufferManager lifecycle
+
+      // Close all shared per-thread read-only transactions.
+      for (final NodeReadOnlyTrx rtx : sharedTrxMap.values()) {
+        rtx.close();
+      }
+      sharedTrxMap.clear();
 
       // Close all open node transactions.
       for (NodeReadOnlyTrx rtx : nodeTrxMap.values()) {
@@ -956,5 +969,23 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertNotClosed();
 
     return Optional.ofNullable(user);
+  }
+
+  @Override
+  public R getOrCreateSharedReadOnlyTrx(final int revision) {
+    final var key = new SharedTrxKey(Thread.currentThread().threadId(), revision);
+    return sharedTrxMap.computeIfAbsent(key, k -> beginNodeReadOnlyTrx(revision));
+  }
+
+  @Override
+  public void closeSharedReadOnlyTrxs(final int revision) {
+    final var iterator = sharedTrxMap.entrySet().iterator();
+    while (iterator.hasNext()) {
+      final var entry = iterator.next();
+      if (entry.getKey().revision() == revision) {
+        entry.getValue().close();
+        iterator.remove();
+      }
+    }
   }
 }
