@@ -403,10 +403,20 @@ public enum PageKind {
       }
 
       final BytesIn<?> uncompressedBytes = sink.bytesForRead();
-      final byte[] uncompressedArray = uncompressedBytes.toByteArray();
+      final long uncompressedLength = sink.writePosition();
+      final ByteHandlerPipeline pipeline = resourceConfig.byteHandlePipeline;
 
-      final byte[] compressedPage =
-          compress(resourceConfig, uncompressedBytes, uncompressedArray, sink.writePosition());
+      final byte[] compressedPage;
+      if (pipeline.supportsMemorySegments() && uncompressedBytes instanceof MemorySegmentBytesIn segmentIn) {
+        // MemorySegment path — compress directly without materializing uncompressed byte[]
+        final MemorySegment uncompressedSegment = segmentIn.getSource().asSlice(0, uncompressedLength);
+        final MemorySegment compressedSegment = pipeline.compress(uncompressedSegment);
+        compressedPage = segmentToByteArray(compressedSegment);
+      } else {
+        // Fallback: materialize to byte[] for stream-based compression
+        final byte[] uncompressedArray = uncompressedBytes.toByteArray();
+        compressedPage = compressViaStream(pipeline, uncompressedArray);
+      }
 
       // Cache compressed form for writers, but leave the sink unmodified (uncompressed)
       // so in-memory round-trips that bypass the ByteHandler still work.
@@ -1184,25 +1194,6 @@ public enum PageKind {
    */
   public byte getID() {
     return id;
-  }
-
-  /**
-   * Compress the serialized page using the configured {@link ByteHandlerPipeline} and write the
-   * compressed bytes back to the provided sink. Uses the MemorySegment path when available to avoid
-   * intermediate byte[] allocations.
-   */
-  private static byte[] compress(ResourceConfiguration resourceConfig, BytesIn<?> uncompressedBytes,
-      byte[] uncompressedArray, long uncompressedLength) {
-    final ByteHandlerPipeline pipeline = resourceConfig.byteHandlePipeline;
-
-    if (pipeline.supportsMemorySegments() && uncompressedBytes instanceof MemorySegmentBytesIn segmentIn) {
-      MemorySegment uncompressedSegment = segmentIn.getSource().asSlice(0, uncompressedLength);
-      MemorySegment compressedSegment = pipeline.compress(uncompressedSegment);
-      return segmentToByteArray(compressedSegment);
-    }
-
-    final byte[] compressedBytes = compressViaStream(pipeline, uncompressedArray);
-    return compressedBytes;
   }
 
   private static byte[] compressViaStream(ByteHandlerPipeline pipeline, byte[] uncompressedArray) {

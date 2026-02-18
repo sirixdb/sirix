@@ -21,6 +21,10 @@ import java.lang.foreign.ValueLayout;
  * <p>
  * All field offsets are pre-computed as {@code static final} constants from {@link NodeKindLayouts}
  * at class-load time, so the JIT treats them as compile-time constants.
+ *
+ * <p>
+ * The {@code baseOffset} parameter allows reading from a full page {@link MemorySegment} without
+ * creating an {@code asSlice()} wrapper, eliminating one heap allocation per slot on the commit path.
  */
 public final class FixedToCompactTransformer {
 
@@ -246,45 +250,40 @@ public final class FixedToCompactTransformer {
    * NodeKind id byte) into {@code sink}.
    *
    * <p>
-   * The output is byte-identical to
-   * {@code NodeSerializerImpl.serialize(sink, FixedSlotRecordMaterializer.materialize(...), config)}.
+   * Reads from {@code memory} at {@code baseOffset + fieldOffset} for each field, eliminating
+   * the need to create an {@code asSlice()} wrapper per slot.
    *
    * @param nodeKind the kind of node stored in this slot
    * @param nodeKey the absolute node key
-   * @param slot the fixed-slot bytes (zero-based, length = fixed slot size)
+   * @param memory the page memory segment containing the fixed-slot bytes
+   * @param baseOffset byte offset within {@code memory} where the slot data starts
    * @param config the resource configuration
    * @param sink the output sink to write compact bytes into
    */
-  public static void transform(final NodeKind nodeKind, final long nodeKey, final MemorySegment slot,
-      final ResourceConfiguration config, final BytesOut<?> sink) {
-    // Write the NodeKind id byte (same as NodeSerializerImpl.serialize)
+  public static void transform(final NodeKind nodeKind, final long nodeKey, final MemorySegment memory,
+      final long baseOffset, final ResourceConfiguration config, final BytesOut<?> sink) {
     sink.writeByte(nodeKind.getId());
 
     switch (nodeKind) {
-      // ── JSON structural ──
-      case OBJECT -> transformObject(nodeKey, slot, config, sink);
-      case ARRAY -> transformArray(nodeKey, slot, config, sink);
-      case OBJECT_KEY -> transformObjectKey(nodeKey, slot, config, sink);
-      // ── JSON value (with siblings) ──
-      case STRING_VALUE -> transformStringValue(nodeKey, slot, config, sink);
-      case NUMBER_VALUE -> transformNumberValue(nodeKey, slot, config, sink);
-      case BOOLEAN_VALUE -> transformBooleanValue(nodeKey, slot, config, sink);
-      case NULL_VALUE -> transformNullValue(nodeKey, slot, config, sink);
-      // ── JSON value (object-property, no siblings) ──
-      case OBJECT_STRING_VALUE -> transformObjectStringValue(nodeKey, slot, config, sink);
-      case OBJECT_NUMBER_VALUE -> transformObjectNumberValue(nodeKey, slot, config, sink);
-      case OBJECT_BOOLEAN_VALUE -> transformObjectBooleanValue(nodeKey, slot, config, sink);
-      case OBJECT_NULL_VALUE -> transformObjectNullValue(nodeKey, slot, config, sink);
-      // ── JSON document ──
-      case JSON_DOCUMENT -> transformJsonDocument(nodeKey, slot, sink);
-      // ── XML ──
-      case XML_DOCUMENT -> transformXmlDocument(nodeKey, slot, config, sink);
-      case ELEMENT -> transformElement(nodeKey, slot, config, sink);
-      case ATTRIBUTE -> transformAttribute(nodeKey, slot, sink);
-      case NAMESPACE -> transformNamespace(nodeKey, slot, sink);
-      case TEXT -> transformText(nodeKey, slot, sink);
-      case COMMENT -> transformComment(nodeKey, slot, sink);
-      case PROCESSING_INSTRUCTION -> transformProcessingInstruction(nodeKey, slot, config, sink);
+      case OBJECT -> transformObject(nodeKey, memory, baseOffset, config, sink);
+      case ARRAY -> transformArray(nodeKey, memory, baseOffset, config, sink);
+      case OBJECT_KEY -> transformObjectKey(nodeKey, memory, baseOffset, config, sink);
+      case STRING_VALUE -> transformStringValue(nodeKey, memory, baseOffset, config, sink);
+      case NUMBER_VALUE -> transformNumberValue(nodeKey, memory, baseOffset, config, sink);
+      case BOOLEAN_VALUE -> transformBooleanValue(nodeKey, memory, baseOffset, config, sink);
+      case NULL_VALUE -> transformNullValue(nodeKey, memory, baseOffset, config, sink);
+      case OBJECT_STRING_VALUE -> transformObjectStringValue(nodeKey, memory, baseOffset, config, sink);
+      case OBJECT_NUMBER_VALUE -> transformObjectNumberValue(nodeKey, memory, baseOffset, config, sink);
+      case OBJECT_BOOLEAN_VALUE -> transformObjectBooleanValue(nodeKey, memory, baseOffset, config, sink);
+      case OBJECT_NULL_VALUE -> transformObjectNullValue(nodeKey, memory, baseOffset, config, sink);
+      case JSON_DOCUMENT -> transformJsonDocument(nodeKey, memory, baseOffset, sink);
+      case XML_DOCUMENT -> transformXmlDocument(nodeKey, memory, baseOffset, config, sink);
+      case ELEMENT -> transformElement(nodeKey, memory, baseOffset, config, sink);
+      case ATTRIBUTE -> transformAttribute(nodeKey, memory, baseOffset, sink);
+      case NAMESPACE -> transformNamespace(nodeKey, memory, baseOffset, sink);
+      case TEXT -> transformText(nodeKey, memory, baseOffset, sink);
+      case COMMENT -> transformComment(nodeKey, memory, baseOffset, sink);
+      case PROCESSING_INSTRUCTION -> transformProcessingInstruction(nodeKey, memory, baseOffset, config, sink);
       default ->
         throw new UnsupportedOperationException("FixedToCompactTransformer does not support node kind: " + nodeKind);
     }
@@ -292,347 +291,338 @@ public final class FixedToCompactTransformer {
 
   // ════════════════════════════ JSON STRUCTURAL ════════════════════════════
 
-  private static void transformObject(final long nodeKey, final MemorySegment slot, final ResourceConfiguration config,
-      final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, OBJ_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, OBJ_RSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, OBJ_LSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, OBJ_FCHILD), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, OBJ_LCHILD), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, OBJ_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, OBJ_LAST_MOD));
-    if (config.storeChildCount()) {
-      DeltaVarIntCodec.encodeSigned(sink, (int) slot.get(JAVA_LONG_UNALIGNED, OBJ_CHILD_CNT));
-    }
-    if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, OBJ_HASH));
-      DeltaVarIntCodec.encodeSigned(sink, (int) slot.get(JAVA_LONG_UNALIGNED, OBJ_DESC_CNT));
-    }
-  }
-
-  private static void transformArray(final long nodeKey, final MemorySegment slot, final ResourceConfiguration config,
-      final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ARR_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ARR_RSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ARR_LSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ARR_FCHILD), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ARR_LCHILD), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ARR_PATH), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ARR_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ARR_LAST_MOD));
-    if (config.storeChildCount()) {
-      DeltaVarIntCodec.encodeSigned(sink, (int) slot.get(JAVA_LONG_UNALIGNED, ARR_CHILD_CNT));
-    }
-    if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, ARR_HASH));
-      DeltaVarIntCodec.encodeSigned(sink, (int) slot.get(JAVA_LONG_UNALIGNED, ARR_DESC_CNT));
-    }
-  }
-
-  private static void transformObjectKey(final long nodeKey, final MemorySegment slot,
+  private static void transformObject(final long nodeKey, final MemorySegment m, final long b,
       final ResourceConfiguration config, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, OKEY_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, OKEY_RSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, OKEY_LSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, OKEY_FCHILD), nodeKey);
-    // LAST_CHILD_KEY is in the fixed layout but NOT written in compact format
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, OKEY_NAME));
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, OKEY_PATH), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, OKEY_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, OKEY_LAST_MOD));
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + OBJ_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + OBJ_RSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + OBJ_LSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + OBJ_FCHILD), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + OBJ_LCHILD), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + OBJ_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + OBJ_LAST_MOD));
+    if (config.storeChildCount()) {
+      DeltaVarIntCodec.encodeSigned(sink, (int) m.get(JAVA_LONG_UNALIGNED, b + OBJ_CHILD_CNT));
+    }
     if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, OKEY_HASH));
-      DeltaVarIntCodec.encodeSigned(sink, (int) slot.get(JAVA_LONG_UNALIGNED, OKEY_DESC_CNT));
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + OBJ_HASH));
+      DeltaVarIntCodec.encodeSigned(sink, (int) m.get(JAVA_LONG_UNALIGNED, b + OBJ_DESC_CNT));
+    }
+  }
+
+  private static void transformArray(final long nodeKey, final MemorySegment m, final long b,
+      final ResourceConfiguration config, final BytesOut<?> sink) {
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ARR_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ARR_RSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ARR_LSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ARR_FCHILD), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ARR_LCHILD), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ARR_PATH), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ARR_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ARR_LAST_MOD));
+    if (config.storeChildCount()) {
+      DeltaVarIntCodec.encodeSigned(sink, (int) m.get(JAVA_LONG_UNALIGNED, b + ARR_CHILD_CNT));
+    }
+    if (config.hashType != HashType.NONE) {
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + ARR_HASH));
+      DeltaVarIntCodec.encodeSigned(sink, (int) m.get(JAVA_LONG_UNALIGNED, b + ARR_DESC_CNT));
+    }
+  }
+
+  private static void transformObjectKey(final long nodeKey, final MemorySegment m, final long b,
+      final ResourceConfiguration config, final BytesOut<?> sink) {
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + OKEY_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + OKEY_RSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + OKEY_LSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + OKEY_FCHILD), nodeKey);
+    // LAST_CHILD_KEY is in the fixed layout but NOT written in compact format
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + OKEY_NAME));
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + OKEY_PATH), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + OKEY_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + OKEY_LAST_MOD));
+    if (config.hashType != HashType.NONE) {
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + OKEY_HASH));
+      DeltaVarIntCodec.encodeSigned(sink, (int) m.get(JAVA_LONG_UNALIGNED, b + OKEY_DESC_CNT));
     }
   }
 
   // ════════════════════════════ JSON VALUE (WITH SIBLINGS) ════════════════════════════
 
-  private static void transformStringValue(final long nodeKey, final MemorySegment slot,
+  private static void transformStringValue(final long nodeKey, final MemorySegment m, final long b,
       final ResourceConfiguration config, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, STR_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, STR_RSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, STR_LSIB), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, STR_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, STR_LAST_MOD));
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + STR_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + STR_RSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + STR_LSIB), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + STR_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + STR_LAST_MOD));
     if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, STR_HASH));
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + STR_HASH));
     }
-    // Compression flag + raw value bytes
-    final int flags = slot.get(JAVA_INT_UNALIGNED, STR_PR0_FLAGS);
+    final int flags = m.get(JAVA_INT_UNALIGNED, b + STR_PR0_FLAGS);
     sink.writeByte((byte) (flags & 1));
-    final long pointer = slot.get(JAVA_LONG_UNALIGNED, STR_PR0_PTR);
-    final int length = slot.get(JAVA_INT_UNALIGNED, STR_PR0_LEN);
+    final long pointer = m.get(JAVA_LONG_UNALIGNED, b + STR_PR0_PTR);
+    final int length = m.get(JAVA_INT_UNALIGNED, b + STR_PR0_LEN);
     DeltaVarIntCodec.encodeSigned(sink, length);
     if (length > 0) {
-      sink.writeSegment(slot, pointer, length);
+      sink.writeSegment(m, b + pointer, length);
     }
   }
 
-  private static void transformNumberValue(final long nodeKey, final MemorySegment slot,
+  private static void transformNumberValue(final long nodeKey, final MemorySegment m, final long b,
       final ResourceConfiguration config, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, NUM_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, NUM_RSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, NUM_LSIB), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, NUM_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, NUM_LAST_MOD));
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + NUM_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + NUM_RSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + NUM_LSIB), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + NUM_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + NUM_LAST_MOD));
     if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, NUM_HASH));
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + NUM_HASH));
     }
-    // Number payload: already in serialized format (type byte + encoded value)
-    final long pointer = slot.get(JAVA_LONG_UNALIGNED, NUM_PR0_PTR);
-    final int length = slot.get(JAVA_INT_UNALIGNED, NUM_PR0_LEN);
+    final long pointer = m.get(JAVA_LONG_UNALIGNED, b + NUM_PR0_PTR);
+    final int length = m.get(JAVA_INT_UNALIGNED, b + NUM_PR0_LEN);
     if (length > 0) {
-      sink.writeSegment(slot, pointer, length);
+      sink.writeSegment(m, b + pointer, length);
     }
   }
 
-  private static void transformBooleanValue(final long nodeKey, final MemorySegment slot,
+  private static void transformBooleanValue(final long nodeKey, final MemorySegment m, final long b,
       final ResourceConfiguration config, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, BOOL_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, BOOL_RSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, BOOL_LSIB), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, BOOL_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, BOOL_LAST_MOD));
-    // Boolean value written BEFORE hash
-    sink.writeBoolean(slot.get(ValueLayout.JAVA_BYTE, BOOL_VAL) != 0);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + BOOL_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + BOOL_RSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + BOOL_LSIB), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + BOOL_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + BOOL_LAST_MOD));
+    sink.writeBoolean(m.get(ValueLayout.JAVA_BYTE, b + BOOL_VAL) != 0);
     if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, BOOL_HASH));
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + BOOL_HASH));
     }
   }
 
-  private static void transformNullValue(final long nodeKey, final MemorySegment slot,
+  private static void transformNullValue(final long nodeKey, final MemorySegment m, final long b,
       final ResourceConfiguration config, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, NULL_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, NULL_RSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, NULL_LSIB), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, NULL_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, NULL_LAST_MOD));
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + NULL_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + NULL_RSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + NULL_LSIB), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + NULL_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + NULL_LAST_MOD));
     if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, NULL_HASH));
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + NULL_HASH));
     }
   }
 
-  // ════════════════════════════ JSON VALUE (OBJECT-PROPERTY, NO SIBLINGS)
-  // ════════════════════════════
+  // ════════════════════════════ JSON VALUE (OBJECT-PROPERTY, NO SIBLINGS) ════════════════════════════
 
-  private static void transformObjectStringValue(final long nodeKey, final MemorySegment slot,
+  private static void transformObjectStringValue(final long nodeKey, final MemorySegment m, final long b,
       final ResourceConfiguration config, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, OSTR_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, OSTR_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, OSTR_LAST_MOD));
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + OSTR_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + OSTR_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + OSTR_LAST_MOD));
     if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, OSTR_HASH));
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + OSTR_HASH));
     }
-    // Compression flag + raw value bytes
-    final int flags = slot.get(JAVA_INT_UNALIGNED, OSTR_PR0_FLAGS);
+    final int flags = m.get(JAVA_INT_UNALIGNED, b + OSTR_PR0_FLAGS);
     sink.writeByte((byte) (flags & 1));
-    final long pointer = slot.get(JAVA_LONG_UNALIGNED, OSTR_PR0_PTR);
-    final int length = slot.get(JAVA_INT_UNALIGNED, OSTR_PR0_LEN);
+    final long pointer = m.get(JAVA_LONG_UNALIGNED, b + OSTR_PR0_PTR);
+    final int length = m.get(JAVA_INT_UNALIGNED, b + OSTR_PR0_LEN);
     DeltaVarIntCodec.encodeSigned(sink, length);
     if (length > 0) {
-      sink.writeSegment(slot, pointer, length);
+      sink.writeSegment(m, b + pointer, length);
     }
   }
 
-  private static void transformObjectNumberValue(final long nodeKey, final MemorySegment slot,
+  private static void transformObjectNumberValue(final long nodeKey, final MemorySegment m, final long b,
       final ResourceConfiguration config, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ONUM_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ONUM_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ONUM_LAST_MOD));
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ONUM_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ONUM_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ONUM_LAST_MOD));
     if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, ONUM_HASH));
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + ONUM_HASH));
     }
-    // Number payload: already in serialized format
-    final long pointer = slot.get(JAVA_LONG_UNALIGNED, ONUM_PR0_PTR);
-    final int length = slot.get(JAVA_INT_UNALIGNED, ONUM_PR0_LEN);
+    final long pointer = m.get(JAVA_LONG_UNALIGNED, b + ONUM_PR0_PTR);
+    final int length = m.get(JAVA_INT_UNALIGNED, b + ONUM_PR0_LEN);
     if (length > 0) {
-      sink.writeSegment(slot, pointer, length);
+      sink.writeSegment(m, b + pointer, length);
     }
   }
 
-  private static void transformObjectBooleanValue(final long nodeKey, final MemorySegment slot,
+  private static void transformObjectBooleanValue(final long nodeKey, final MemorySegment m, final long b,
       final ResourceConfiguration config, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, OBOOL_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, OBOOL_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, OBOOL_LAST_MOD));
-    // Boolean value written BEFORE hash
-    sink.writeBoolean(slot.get(ValueLayout.JAVA_BYTE, OBOOL_VAL) != 0);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + OBOOL_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + OBOOL_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + OBOOL_LAST_MOD));
+    sink.writeBoolean(m.get(ValueLayout.JAVA_BYTE, b + OBOOL_VAL) != 0);
     if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, OBOOL_HASH));
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + OBOOL_HASH));
     }
   }
 
-  private static void transformObjectNullValue(final long nodeKey, final MemorySegment slot,
+  private static void transformObjectNullValue(final long nodeKey, final MemorySegment m, final long b,
       final ResourceConfiguration config, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ONULL_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ONULL_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ONULL_LAST_MOD));
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ONULL_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ONULL_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ONULL_LAST_MOD));
     if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, ONULL_HASH));
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + ONULL_HASH));
     }
   }
 
   // ════════════════════════════ JSON DOCUMENT ════════════════════════════
 
-  private static void transformJsonDocument(final long nodeKey, final MemorySegment slot, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, JDOC_FCHILD), nodeKey);
-    DeltaVarIntCodec.encodeSignedLong(sink, slot.get(JAVA_LONG_UNALIGNED, JDOC_DESC_CNT));
+  private static void transformJsonDocument(final long nodeKey, final MemorySegment m, final long b,
+      final BytesOut<?> sink) {
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + JDOC_FCHILD), nodeKey);
+    DeltaVarIntCodec.encodeSignedLong(sink, m.get(JAVA_LONG_UNALIGNED, b + JDOC_DESC_CNT));
   }
 
   // ════════════════════════════ XML DOCUMENT ════════════════════════════
 
-  private static void transformXmlDocument(final long nodeKey, final MemorySegment slot,
+  private static void transformXmlDocument(final long nodeKey, final MemorySegment m, final long b,
       final ResourceConfiguration config, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, XDOC_FCHILD), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + XDOC_FCHILD), nodeKey);
     if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, XDOC_HASH));
-      DeltaVarIntCodec.encodeSignedLong(sink, slot.get(JAVA_LONG_UNALIGNED, XDOC_DESC_CNT));
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + XDOC_HASH));
+      DeltaVarIntCodec.encodeSignedLong(sink, m.get(JAVA_LONG_UNALIGNED, b + XDOC_DESC_CNT));
     }
   }
 
   // ════════════════════════════ XML ELEMENT ════════════════════════════
 
-  private static void transformElement(final long nodeKey, final MemorySegment slot, final ResourceConfiguration config,
-      final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ELEM_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ELEM_RSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ELEM_LSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ELEM_FCHILD), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ELEM_LCHILD), nodeKey);
-    // Name node fields
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ELEM_PATH), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ELEM_PREFIX));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ELEM_LNAME));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ELEM_URI));
-    // Metadata
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ELEM_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ELEM_LAST_MOD));
+  private static void transformElement(final long nodeKey, final MemorySegment m, final long b,
+      final ResourceConfiguration config, final BytesOut<?> sink) {
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ELEM_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ELEM_RSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ELEM_LSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ELEM_FCHILD), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ELEM_LCHILD), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ELEM_PATH), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ELEM_PREFIX));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ELEM_LNAME));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ELEM_URI));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ELEM_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ELEM_LAST_MOD));
     if (config.storeChildCount()) {
-      DeltaVarIntCodec.encodeSigned(sink, (int) slot.get(JAVA_LONG_UNALIGNED, ELEM_CHILD_CNT));
+      DeltaVarIntCodec.encodeSigned(sink, (int) m.get(JAVA_LONG_UNALIGNED, b + ELEM_CHILD_CNT));
     }
     if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, ELEM_HASH));
-      DeltaVarIntCodec.encodeSigned(sink, (int) slot.get(JAVA_LONG_UNALIGNED, ELEM_DESC_CNT));
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + ELEM_HASH));
+      DeltaVarIntCodec.encodeSigned(sink, (int) m.get(JAVA_LONG_UNALIGNED, b + ELEM_DESC_CNT));
     }
     // Attribute keys vector
-    final long attrPointer = slot.get(JAVA_LONG_UNALIGNED, ELEM_ATTR_PR_PTR);
-    final int attrLength = slot.get(JAVA_INT_UNALIGNED, ELEM_ATTR_PR_LEN);
+    final long attrPointer = m.get(JAVA_LONG_UNALIGNED, b + ELEM_ATTR_PR_PTR);
+    final int attrLength = m.get(JAVA_INT_UNALIGNED, b + ELEM_ATTR_PR_LEN);
     final int attrCount = attrLength / Long.BYTES;
     DeltaVarIntCodec.encodeSigned(sink, attrCount);
     for (int i = 0; i < attrCount; i++) {
-      DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, attrPointer + (long) i * Long.BYTES), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + attrPointer + (long) i * Long.BYTES), nodeKey);
     }
     // Namespace keys vector
-    final long nsPointer = slot.get(JAVA_LONG_UNALIGNED, ELEM_NS_PR_PTR);
-    final int nsLength = slot.get(JAVA_INT_UNALIGNED, ELEM_NS_PR_LEN);
+    final long nsPointer = m.get(JAVA_LONG_UNALIGNED, b + ELEM_NS_PR_PTR);
+    final int nsLength = m.get(JAVA_INT_UNALIGNED, b + ELEM_NS_PR_LEN);
     final int nsCount = nsLength / Long.BYTES;
     DeltaVarIntCodec.encodeSigned(sink, nsCount);
     for (int i = 0; i < nsCount; i++) {
-      DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, nsPointer + (long) i * Long.BYTES), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + nsPointer + (long) i * Long.BYTES), nodeKey);
     }
   }
 
   // ════════════════════════════ XML ATTRIBUTE ════════════════════════════
 
-  private static void transformAttribute(final long nodeKey, final MemorySegment slot, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ATTR_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, ATTR_PATH), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ATTR_PREFIX));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ATTR_LNAME));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ATTR_URI));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ATTR_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, ATTR_LAST_MOD));
-    // Attribute values are always written uncompressed (flag = 0x00)
+  private static void transformAttribute(final long nodeKey, final MemorySegment m, final long b,
+      final BytesOut<?> sink) {
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ATTR_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + ATTR_PATH), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ATTR_PREFIX));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ATTR_LNAME));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ATTR_URI));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ATTR_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + ATTR_LAST_MOD));
     sink.writeByte((byte) 0);
-    final long pointer = slot.get(JAVA_LONG_UNALIGNED, ATTR_PR0_PTR);
-    final int length = slot.get(JAVA_INT_UNALIGNED, ATTR_PR0_LEN);
+    final long pointer = m.get(JAVA_LONG_UNALIGNED, b + ATTR_PR0_PTR);
+    final int length = m.get(JAVA_INT_UNALIGNED, b + ATTR_PR0_LEN);
     DeltaVarIntCodec.encodeSigned(sink, length);
     if (length > 0) {
-      sink.writeSegment(slot, pointer, length);
+      sink.writeSegment(m, b + pointer, length);
     }
   }
 
   // ════════════════════════════ XML NAMESPACE ════════════════════════════
 
-  private static void transformNamespace(final long nodeKey, final MemorySegment slot, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, NS_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, NS_PATH), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, NS_PREFIX));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, NS_LNAME));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, NS_URI));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, NS_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, NS_LAST_MOD));
+  private static void transformNamespace(final long nodeKey, final MemorySegment m, final long b,
+      final BytesOut<?> sink) {
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + NS_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + NS_PATH), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + NS_PREFIX));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + NS_LNAME));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + NS_URI));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + NS_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + NS_LAST_MOD));
   }
 
   // ════════════════════════════ XML TEXT ════════════════════════════
 
-  private static void transformText(final long nodeKey, final MemorySegment slot, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, TEXT_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, TEXT_RSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, TEXT_LSIB), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, TEXT_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, TEXT_LAST_MOD));
-    // Compression flag + value bytes (hash is NOT serialized for TEXT)
-    final int flags = slot.get(JAVA_INT_UNALIGNED, TEXT_PR0_FLAGS);
+  private static void transformText(final long nodeKey, final MemorySegment m, final long b, final BytesOut<?> sink) {
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + TEXT_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + TEXT_RSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + TEXT_LSIB), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + TEXT_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + TEXT_LAST_MOD));
+    final int flags = m.get(JAVA_INT_UNALIGNED, b + TEXT_PR0_FLAGS);
     sink.writeByte((byte) (flags & 1));
-    final long pointer = slot.get(JAVA_LONG_UNALIGNED, TEXT_PR0_PTR);
-    final int length = slot.get(JAVA_INT_UNALIGNED, TEXT_PR0_LEN);
+    final long pointer = m.get(JAVA_LONG_UNALIGNED, b + TEXT_PR0_PTR);
+    final int length = m.get(JAVA_INT_UNALIGNED, b + TEXT_PR0_LEN);
     DeltaVarIntCodec.encodeSigned(sink, length);
     if (length > 0) {
-      sink.writeSegment(slot, pointer, length);
+      sink.writeSegment(m, b + pointer, length);
     }
   }
 
   // ════════════════════════════ XML COMMENT ════════════════════════════
 
-  private static void transformComment(final long nodeKey, final MemorySegment slot, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, CMT_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, CMT_RSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, CMT_LSIB), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, CMT_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, CMT_LAST_MOD));
-    // Compression flag + value bytes (hash is NOT serialized for COMMENT)
-    final int flags = slot.get(JAVA_INT_UNALIGNED, CMT_PR0_FLAGS);
+  private static void transformComment(final long nodeKey, final MemorySegment m, final long b,
+      final BytesOut<?> sink) {
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + CMT_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + CMT_RSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + CMT_LSIB), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + CMT_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + CMT_LAST_MOD));
+    final int flags = m.get(JAVA_INT_UNALIGNED, b + CMT_PR0_FLAGS);
     sink.writeByte((byte) (flags & 1));
-    final long pointer = slot.get(JAVA_LONG_UNALIGNED, CMT_PR0_PTR);
-    final int length = slot.get(JAVA_INT_UNALIGNED, CMT_PR0_LEN);
+    final long pointer = m.get(JAVA_LONG_UNALIGNED, b + CMT_PR0_PTR);
+    final int length = m.get(JAVA_INT_UNALIGNED, b + CMT_PR0_LEN);
     DeltaVarIntCodec.encodeSigned(sink, length);
     if (length > 0) {
-      sink.writeSegment(slot, pointer, length);
+      sink.writeSegment(m, b + pointer, length);
     }
   }
 
   // ════════════════════════════ XML PROCESSING_INSTRUCTION ════════════════════════════
 
-  private static void transformProcessingInstruction(final long nodeKey, final MemorySegment slot,
+  private static void transformProcessingInstruction(final long nodeKey, final MemorySegment m, final long b,
       final ResourceConfiguration config, final BytesOut<?> sink) {
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, PI_PARENT), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, PI_RSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, PI_LSIB), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, PI_FCHILD), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, PI_LCHILD), nodeKey);
-    DeltaVarIntCodec.encodeDelta(sink, slot.get(JAVA_LONG_UNALIGNED, PI_PATH), nodeKey);
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, PI_PREFIX));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, PI_LNAME));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, PI_URI));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, PI_PREV_REV));
-    DeltaVarIntCodec.encodeSigned(sink, slot.get(JAVA_INT_UNALIGNED, PI_LAST_MOD));
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + PI_PARENT), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + PI_RSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + PI_LSIB), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + PI_FCHILD), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + PI_LCHILD), nodeKey);
+    DeltaVarIntCodec.encodeDelta(sink, m.get(JAVA_LONG_UNALIGNED, b + PI_PATH), nodeKey);
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + PI_PREFIX));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + PI_LNAME));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + PI_URI));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + PI_PREV_REV));
+    DeltaVarIntCodec.encodeSigned(sink, m.get(JAVA_INT_UNALIGNED, b + PI_LAST_MOD));
     if (config.storeChildCount()) {
-      DeltaVarIntCodec.encodeSigned(sink, (int) slot.get(JAVA_LONG_UNALIGNED, PI_CHILD_CNT));
+      DeltaVarIntCodec.encodeSigned(sink, (int) m.get(JAVA_LONG_UNALIGNED, b + PI_CHILD_CNT));
     }
     if (config.hashType != HashType.NONE) {
-      sink.writeLong(slot.get(JAVA_LONG_UNALIGNED, PI_HASH));
-      DeltaVarIntCodec.encodeSigned(sink, (int) slot.get(JAVA_LONG_UNALIGNED, PI_DESC_CNT));
+      sink.writeLong(m.get(JAVA_LONG_UNALIGNED, b + PI_HASH));
+      DeltaVarIntCodec.encodeSigned(sink, (int) m.get(JAVA_LONG_UNALIGNED, b + PI_DESC_CNT));
     }
-    // Compression flag + value bytes
-    final int flags = slot.get(JAVA_INT_UNALIGNED, PI_PR0_FLAGS);
+    final int flags = m.get(JAVA_INT_UNALIGNED, b + PI_PR0_FLAGS);
     sink.writeByte((byte) (flags & 1));
-    final long pointer = slot.get(JAVA_LONG_UNALIGNED, PI_PR0_PTR);
-    final int length = slot.get(JAVA_INT_UNALIGNED, PI_PR0_LEN);
+    final long pointer = m.get(JAVA_LONG_UNALIGNED, b + PI_PR0_PTR);
+    final int length = m.get(JAVA_INT_UNALIGNED, b + PI_PR0_LEN);
     DeltaVarIntCodec.encodeSigned(sink, length);
     if (length > 0) {
-      sink.writeSegment(slot, pointer, length);
+      sink.writeSegment(m, b + pointer, length);
     }
   }
 }

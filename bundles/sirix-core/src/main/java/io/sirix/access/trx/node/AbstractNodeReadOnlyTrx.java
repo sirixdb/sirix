@@ -464,22 +464,25 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     final long targetPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
     final int slotOffset = StorageEngineReader.recordPageOffset(nodeKey);
 
-    MemorySegment data;
     KeyValueLeafPage page;
 
     // OPTIMIZATION: Check if we're moving within the same page
     if (currentPageKey == targetPageKey && currentPage != null && !currentPage.isClosed()) {
       // Same page! Skip guard management entirely
       page = currentPage;
-      data = page.getSlot(slotOffset);
-      if (data == null) {
-        // Slot not found on current page - try overflow or fail
-        return moveToSingletonSlowPath(nodeKey, reader);
-      }
     } else {
       // Different page - use the slow path with guard management
       return moveToSingletonSlowPath(nodeKey, reader);
     }
+
+    // Read slot metadata without allocating an asSlice
+    final int dataLength = page.getSlotDataLength(slotOffset);
+    if (dataLength < 0) {
+      // Slot not found on current page - try overflow or fail
+      return moveToSingletonSlowPath(nodeKey, reader);
+    }
+    final MemorySegment slotMemory = page.getSlotMemory();
+    final long baseOffset = page.getSlotDataOffset(slotOffset);
 
     final boolean fixedSlotFormat = page.isFixedSlotFormat(slotOffset);
     final NodeKind kind;
@@ -489,8 +492,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         return moveToLegacy(nodeKey);
       }
     } else {
-      // Read node kind from first byte.
-      final byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+      // Read node kind from first byte (zero-copy: read directly from slotMemory).
+      final byte kindByte = slotMemory.get(java.lang.foreign.ValueLayout.JAVA_BYTE, baseOffset);
       kind = NodeKind.getKind(kindByte);
       if (kind == NodeKind.DELETE) {
         return false;
@@ -508,11 +511,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Note: no guard management needed, we're on the same page.
     // Dewey bytes are bound lazily on demand to avoid byte[] allocation per moveTo.
     if (fixedSlotFormat) {
-      if (!populateSingletonFromFixedSlot(singleton, kind, data, nodeKey, null, page)) {
+      if (!populateSingletonFromFixedSlot(singleton, kind, slotMemory, baseOffset, dataLength, nodeKey, null, page)) {
         return moveToLegacy(nodeKey);
       }
     } else {
-      reusableBytesIn.reset(data, 1);
+      reusableBytesIn.reset(slotMemory, baseOffset + 1);
       populateSingleton(singleton, reusableBytesIn, nodeKey, null, kind, page);
     }
 
@@ -540,17 +543,20 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
 
     final KeyValueLeafPage slotPage = slotLocation.page();
-    final boolean fixedSlotFormat = slotPage.isFixedSlotFormat(slotLocation.offset());
-    final MemorySegment data = slotLocation.data();
+    final int slotOff = slotLocation.offset();
+    final MemorySegment slotMemory = slotPage.getSlotMemory();
+    final long baseOffset = slotPage.getSlotDataOffset(slotOff);
+    final int dataLength = slotPage.getSlotDataLength(slotOff);
+    final boolean fixedSlotFormat = slotPage.isFixedSlotFormat(slotOff);
     final NodeKind kind;
     if (fixedSlotFormat) {
-      kind = slotPage.getFixedSlotNodeKind(slotLocation.offset());
+      kind = slotPage.getFixedSlotNodeKind(slotOff);
       if (kind == null) {
         slotLocation.guard().close();
         return moveToLegacy(nodeKey);
       }
     } else {
-      final byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+      final byte kindByte = slotMemory.get(java.lang.foreign.ValueLayout.JAVA_BYTE, baseOffset);
       kind = NodeKind.getKind(kindByte);
       if (kind == NodeKind.DELETE) {
         slotLocation.guard().close();
@@ -573,12 +579,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
     // Dewey bytes are bound lazily on demand to avoid byte[] allocation per moveTo.
     if (fixedSlotFormat) {
-      if (!populateSingletonFromFixedSlot(singleton, kind, data, nodeKey, null, slotPage)) {
+      if (!populateSingletonFromFixedSlot(singleton, kind, slotMemory, baseOffset, dataLength, nodeKey, null,
+          slotPage)) {
         slotLocation.guard().close();
         return moveToLegacy(nodeKey);
       }
     } else {
-      reusableBytesIn.reset(data, 1);
+      reusableBytesIn.reset(slotMemory, baseOffset + 1);
       populateSingleton(singleton, reusableBytesIn, nodeKey, null, kind, slotPage);
     }
 
@@ -589,7 +596,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentSingleton = singleton;
     this.currentNodeKind = kind;
     this.currentNodeKey = nodeKey;
-    this.currentSlotOffset = slotLocation.offset();
+    this.currentSlotOffset = slotOff;
     this.singletonDeweyBound = !resourceConfig.areDeweyIDsStored;
     this.currentNode = null; // Clear - will be created lazily by getCurrentNode()
     this.singletonMode = true;
@@ -598,13 +605,14 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   private boolean populateSingletonFromFixedSlot(final ImmutableNode singleton, final NodeKind kind,
-      final MemorySegment slotData, final long nodeKey, final byte[] deweyIdBytes, final KeyValueLeafPage page) {
+      final MemorySegment slotMemory, final long baseOffset, final int dataLength, final long nodeKey,
+      final byte[] deweyIdBytes, final KeyValueLeafPage page) {
     final NodeKindLayout layout = kind.layoutDescriptor();
-    if (!layout.isFixedSlotSupported() || slotData.byteSize() < layout.fixedSlotSizeInBytes()) {
+    if (!layout.isFixedSlotSupported() || dataLength < layout.fixedSlotSizeInBytes()) {
       return false;
     }
     // Reject payload-bearing nodes with non-VALUE_BLOB payload refs (e.g., ATTRIBUTE_VECTOR)
-    if (layout.payloadRefCount() > 0 && !FixedSlotRecordProjector.hasSupportedPayloads(layout)) {
+    if (layout.payloadRefCount() > 0 && !layout.hasSupportedPayloads()) {
       return false;
     }
 
@@ -614,10 +622,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LAST_CHILD_KEY));
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case XML_DOCUMENT -> {
@@ -625,10 +633,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LAST_CHILD_KEY));
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LAST_CHILD_KEY));
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case OBJECT -> {
@@ -636,12 +644,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case ARRAY -> {
@@ -649,13 +657,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PATH_NODE_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PATH_NODE_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case OBJECT_KEY -> {
@@ -663,14 +671,14 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.NAME_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setNameKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.NAME_KEY));
         node.clearCachedName();
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case BOOLEAN_VALUE -> {
@@ -678,12 +686,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setValue(SlotLayoutAccessors.readBooleanField(slotData, layout, StructuralField.BOOLEAN_VALUE));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setValue(SlotLayoutAccessors.readBooleanField(slotMemory, baseOffset, layout, StructuralField.BOOLEAN_VALUE));
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case NULL_VALUE -> {
@@ -691,11 +699,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case OBJECT_BOOLEAN_VALUE -> {
@@ -703,10 +711,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setValue(SlotLayoutAccessors.readBooleanField(slotData, layout, StructuralField.BOOLEAN_VALUE));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setValue(SlotLayoutAccessors.readBooleanField(slotMemory, baseOffset, layout, StructuralField.BOOLEAN_VALUE));
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case OBJECT_NULL_VALUE -> {
@@ -714,9 +722,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case NAMESPACE -> {
@@ -724,13 +732,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
-        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
-        node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.PREFIX_KEY));
+        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.LOCAL_NAME_KEY));
+        node.setURIKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.URI_KEY));
         node.setName(EMPTY_QNM);
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case ELEMENT -> {
@@ -738,17 +746,17 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
-        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
-        FixedSlotRecordMaterializer.readInlineVectorPayload(node, slotData, layout, 0, true);
-        FixedSlotRecordMaterializer.readInlineVectorPayload(node, slotData, layout, 1, false);
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.PREFIX_KEY));
+        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.LOCAL_NAME_KEY));
+        FixedSlotRecordMaterializer.readInlineVectorPayload(node, slotMemory, baseOffset, layout, 0, true);
+        FixedSlotRecordMaterializer.readInlineVectorPayload(node, slotMemory, baseOffset, layout, 1, false);
         node.setName(EMPTY_QNM);
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case STRING_VALUE -> {
@@ -756,22 +764,22 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
         // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazySource and
         // metadataParsed=true
-        final long strPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
-        final int strLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
-        final int strFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
-        node.setLazyRawValue(slotData, strPointer, strLength, (strFlags & 1) != 0);
-        // Propagate FSST symbol table for decompression
+        final long strPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
+        final int strLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
+        final int strFlags = SlotLayoutAccessors.readPayloadFlags(slotMemory, baseOffset, layout, 0);
+        node.setLazyRawValue(slotMemory, baseOffset + strPointer, strLength, (strFlags & 1) != 0);
+        // Propagate FSST symbol table for decompression (use pre-parsed symbols)
         final byte[] strFsstSymbols = page.getFsstSymbolTable();
         if (strFsstSymbols != null && strFsstSymbols.length > 0) {
-          node.setFsstSymbolTable(strFsstSymbols);
+          node.setFsstSymbolTable(strFsstSymbols, page.getParsedFsstSymbols());
         }
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case OBJECT_STRING_VALUE -> {
@@ -779,20 +787,20 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
         // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazySource and
         // metadataParsed=true
-        final long objStrPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
-        final int objStrLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
-        final int objStrFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
-        node.setLazyRawValue(slotData, objStrPointer, objStrLength, (objStrFlags & 1) != 0);
-        // Propagate FSST symbol table for decompression
+        final long objStrPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
+        final int objStrLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
+        final int objStrFlags = SlotLayoutAccessors.readPayloadFlags(slotMemory, baseOffset, layout, 0);
+        node.setLazyRawValue(slotMemory, baseOffset + objStrPointer, objStrLength, (objStrFlags & 1) != 0);
+        // Propagate FSST symbol table for decompression (use pre-parsed symbols)
         final byte[] objStrFsstSymbols = page.getFsstSymbolTable();
         if (objStrFsstSymbols != null && objStrFsstSymbols.length > 0) {
-          node.setFsstSymbolTable(objStrFsstSymbols);
+          node.setFsstSymbolTable(objStrFsstSymbols, page.getParsedFsstSymbols());
         }
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case NUMBER_VALUE -> {
@@ -800,16 +808,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
         // setLazyNumberValue BEFORE bindFixedSlotLazy — setLazyNumberValue sets lazySource and
         // metadataParsed=true
-        final long numPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
-        final int numLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
-        node.setLazyNumberValue(slotData, numPointer, numLength);
+        final long numPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
+        final int numLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
+        node.setLazyNumberValue(slotMemory, baseOffset + numPointer, numLength);
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case OBJECT_NUMBER_VALUE -> {
@@ -817,14 +825,14 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
         // setLazyNumberValue BEFORE bindFixedSlotLazy — setLazyNumberValue sets lazySource and
         // metadataParsed=true
-        final long objNumPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
-        final int objNumLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
-        node.setLazyNumberValue(slotData, objNumPointer, objNumLength);
+        final long objNumPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
+        final int objNumLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
+        node.setLazyNumberValue(slotMemory, baseOffset + objNumPointer, objNumLength);
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case TEXT -> {
@@ -832,17 +840,17 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
         // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazySource and
         // metadataParsed=true
-        final long textPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
-        final int textLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
-        final int textFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
-        node.setLazyRawValue(slotData, textPointer, textLength, (textFlags & 1) != 0);
+        final long textPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
+        final int textLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
+        final int textFlags = SlotLayoutAccessors.readPayloadFlags(slotMemory, baseOffset, layout, 0);
+        node.setLazyRawValue(slotMemory, baseOffset + textPointer, textLength, (textFlags & 1) != 0);
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case COMMENT -> {
@@ -850,16 +858,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
         // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazyValueSource
-        final long commentPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
-        final int commentLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
-        final int commentFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
-        node.setLazyRawValue(slotData, commentPointer, commentLength, (commentFlags & 1) != 0);
+        final long commentPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
+        final int commentLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
+        final int commentFlags = SlotLayoutAccessors.readPayloadFlags(slotMemory, baseOffset, layout, 0);
+        node.setLazyRawValue(slotMemory, baseOffset + commentPointer, commentLength, (commentFlags & 1) != 0);
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case ATTRIBUTE -> {
@@ -867,17 +875,17 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
-        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
-        node.setURIKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.URI_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.PREFIX_KEY));
+        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.LOCAL_NAME_KEY));
+        node.setURIKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.URI_KEY));
         // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazyValueSource
-        final long attrPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
-        final int attrLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
-        node.setLazyRawValue(slotData, attrPointer, attrLength);
+        final long attrPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
+        final int attrLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
+        node.setLazyRawValue(slotMemory, baseOffset + attrPointer, attrLength);
         node.setName(EMPTY_QNM);
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       case PROCESSING_INSTRUCTION -> {
@@ -885,20 +893,20 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           return false;
         }
         node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotData, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.PREFIX_KEY));
-        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotData, layout, StructuralField.LOCAL_NAME_KEY));
+        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
+        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
+        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
+        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
+        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.PREFIX_KEY));
+        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.LOCAL_NAME_KEY));
         // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazyValueSource
-        final long piPointer = SlotLayoutAccessors.readPayloadPointer(slotData, layout, 0);
-        final int piLength = SlotLayoutAccessors.readPayloadLength(slotData, layout, 0);
-        final int piFlags = SlotLayoutAccessors.readPayloadFlags(slotData, layout, 0);
-        node.setLazyRawValue(slotData, piPointer, piLength, (piFlags & 1) != 0);
+        final long piPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
+        final int piLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
+        final int piFlags = SlotLayoutAccessors.readPayloadFlags(slotMemory, baseOffset, layout, 0);
+        node.setLazyRawValue(slotMemory, baseOffset + piPointer, piLength, (piFlags & 1) != 0);
         node.setName(EMPTY_QNM);
         node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotData, layout);
+        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
         return true;
       }
       default -> {
@@ -1072,10 +1080,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       case STRING_VALUE -> {
         StringNode stringNode = (StringNode) singleton;
         stringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-        // Propagate FSST symbol table for decompression
+        // Propagate FSST symbol table for decompression (use pre-parsed symbols)
         byte[] fsstSymbolTable = page.getFsstSymbolTable();
         if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
-          stringNode.setFsstSymbolTable(fsstSymbolTable);
+          stringNode.setFsstSymbolTable(fsstSymbolTable, page.getParsedFsstSymbols());
         }
       }
       case NUMBER_VALUE ->
@@ -1087,10 +1095,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       case OBJECT_STRING_VALUE -> {
         ObjectStringNode objectStringNode = (ObjectStringNode) singleton;
         objectStringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-        // Propagate FSST symbol table for decompression
+        // Propagate FSST symbol table for decompression (use pre-parsed symbols)
         byte[] fsstSymbolTable = page.getFsstSymbolTable();
         if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
-          objectStringNode.setFsstSymbolTable(fsstSymbolTable);
+          objectStringNode.setFsstSymbolTable(fsstSymbolTable, page.getParsedFsstSymbols());
         }
       }
       case OBJECT_NUMBER_VALUE -> ((ObjectNumberNode) singleton).readFrom(source, nodeKey, deweyId,
@@ -1228,11 +1236,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   /**
    * Make sure that the transaction is not yet closed when calling this method.
+   * Uses {@code assert} so the volatile read of {@code isClosed} is eliminated
+   * when assertions are disabled (the production default), removing a memory
+   * barrier from every getter on the read hot path.
    */
   public void assertNotClosed() {
-    if (isClosed) {
-      throw new IllegalStateException("Transaction is already closed.");
-    }
+    assert !isClosed : "Transaction is already closed.";
   }
 
   /**

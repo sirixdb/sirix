@@ -418,10 +418,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     }
     final byte[] fsstSymbolTable = page.getFsstSymbolTable();
     if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
+      final byte[][] parsedSymbols = page.getParsedFsstSymbols();
       if (record instanceof StringNode stringNode) {
-        stringNode.setFsstSymbolTable(fsstSymbolTable);
+        stringNode.setFsstSymbolTable(fsstSymbolTable, parsedSymbols);
       } else if (record instanceof ObjectStringNode objectStringNode) {
-        objectStringNode.setFsstSymbolTable(fsstSymbolTable);
+        objectStringNode.setFsstSymbolTable(fsstSymbolTable, parsedSymbols);
       }
     }
   }

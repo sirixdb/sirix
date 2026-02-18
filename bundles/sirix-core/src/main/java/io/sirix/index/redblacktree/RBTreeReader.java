@@ -457,9 +457,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    * Make sure that the path summary is not yet closed when calling this method.
    */
   void assertNotClosed() {
-    if (isClosed) {
-      throw new IllegalStateException("Tree reader is already closed.");
-    }
+    assert !isClosed : "Tree reader is already closed.";
   }
 
   /**

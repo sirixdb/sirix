@@ -91,6 +91,7 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
 
   // Fixed-slot lazy support
   private Object lazySource;
+  private long lazyBaseOffset;
   private NodeKindLayout fixedSlotLayout;
   private boolean lazyFieldsParsed = true;
 
@@ -408,7 +409,8 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
     this.hash = 0L;
   }
 
-  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+  public void bindFixedSlotLazy(final MemorySegment slotData, final long baseOffset, final NodeKindLayout layout) {
+    this.lazyBaseOffset = baseOffset;
     this.lazySource = slotData;
     this.fixedSlotLayout = layout;
     this.lazyFieldsParsed = false;
@@ -422,9 +424,10 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
     if (fixedSlotLayout != null) {
       final MemorySegment sd = (MemorySegment) lazySource;
       final NodeKindLayout ly = fixedSlotLayout;
-      this.childCount = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.CHILD_COUNT);
-      this.descendantCount = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.DESCENDANT_COUNT);
-      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      final long off = this.lazyBaseOffset;
+      this.childCount = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.CHILD_COUNT);
+      this.descendantCount = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.DESCENDANT_COUNT);
+      this.hash = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.HASH);
       this.fixedSlotLayout = null;
       this.lazyFieldsParsed = true;
       return;

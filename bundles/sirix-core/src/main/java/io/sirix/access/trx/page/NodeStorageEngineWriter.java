@@ -469,7 +469,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     // Only VALUE_BLOB payload refs are supported for inline projection.
-    if (!FixedSlotRecordProjector.hasSupportedPayloads(layout)) {
+    if (!layout.hasSupportedPayloads()) {
       return false;
     }
 

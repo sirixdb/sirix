@@ -93,6 +93,7 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
 
   // Lazy parsing state (single-stage since boolean value is cheap)
   private Object lazySource;
+  private long lazyBaseOffset;
   private long lazyOffset;
   private boolean lazyFieldsParsed;
   private boolean hasHash;
@@ -364,7 +365,8 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
     this.hash = 0;
   }
 
-  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+  public void bindFixedSlotLazy(final MemorySegment slotData, final long baseOffset, final NodeKindLayout layout) {
+    this.lazyBaseOffset = baseOffset;
     this.lazySource = slotData;
     this.fixedSlotLayout = layout;
     this.lazyFieldsParsed = false;
@@ -378,9 +380,10 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
     if (fixedSlotLayout != null) {
       final MemorySegment sd = (MemorySegment) lazySource;
       final NodeKindLayout ly = fixedSlotLayout;
-      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
-      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
-      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      final long off = this.lazyBaseOffset;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.hash = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.HASH);
       this.fixedSlotLayout = null;
       this.lazyFieldsParsed = true;
       return;

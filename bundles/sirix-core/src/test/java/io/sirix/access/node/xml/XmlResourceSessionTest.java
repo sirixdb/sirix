@@ -81,8 +81,8 @@ public class XmlResourceSessionTest {
     try {
       rtx.getAttributeCount();
       fail();
-    } catch (final IllegalStateException e) {
-      // Must fail.
+    } catch (final AssertionError e) {
+      // assertNotClosed() uses a Java assert — throws AssertionError with -ea.
     } finally {
       holder.getResourceSession().close();
     }

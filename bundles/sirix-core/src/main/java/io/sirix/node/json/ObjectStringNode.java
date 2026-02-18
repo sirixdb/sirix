@@ -98,6 +98,8 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   private boolean isCompressed;
   /** FSST symbol table for decompression (shared from KeyValueLeafPage) */
   private byte[] fsstSymbolTable;
+  /** Pre-parsed FSST symbol table (avoids re-parsing on every decode) */
+  private byte[][] parsedFsstSymbols;
   /** Decompressed value (lazy allocated on first access if compressed) */
   private byte[] decodedValue;
 
@@ -116,6 +118,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   private boolean fixedValueCompressed; // Whether inline payload is FSST compressed
 
   // Fixed-slot lazy metadata support
+  private long lazyBaseOffset;
   private NodeKindLayout fixedSlotLayout;
 
   /**
@@ -296,9 +299,10 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     if (!valueParsed) {
       parseValueField();
     }
-    // If compressed, decode on first access
+    // If compressed, decode on first access using pre-parsed symbols when available
     if (isCompressed && decodedValue == null && value != null) {
-      decodedValue = FSSTCompressor.decode(value, fsstSymbolTable);
+      final byte[][] parsed = parsedFsstSymbols;
+      decodedValue = (parsed != null) ? FSSTCompressor.decode(value, parsed) : FSSTCompressor.decode(value, fsstSymbolTable);
     }
     return isCompressed
         ? decodedValue
@@ -371,11 +375,24 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   /**
    * Set the FSST symbol table.
-   * 
+   *
    * @param fsstSymbolTable the symbol table
    */
   public void setFsstSymbolTable(byte[] fsstSymbolTable) {
     this.fsstSymbolTable = fsstSymbolTable;
+    this.parsedFsstSymbols = null;
+    this.decodedValue = null;
+  }
+
+  /**
+   * Set the FSST symbol table with pre-parsed symbols to avoid redundant parsing.
+   *
+   * @param fsstSymbolTable the raw symbol table bytes
+   * @param parsedFsstSymbols the pre-parsed symbol arrays
+   */
+  public void setFsstSymbolTable(byte[] fsstSymbolTable, byte[][] parsedFsstSymbols) {
+    this.fsstSymbolTable = fsstSymbolTable;
+    this.parsedFsstSymbols = parsedFsstSymbols;
     this.decodedValue = null;
   }
 
@@ -499,11 +516,13 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.fixedValueCompressed = compressed;
     this.value = null;
     this.fsstSymbolTable = null;
+    this.parsedFsstSymbols = null;
     this.decodedValue = null;
     this.hash = 0L;
   }
 
-  public void bindFixedSlotLazy(final MemorySegment slotData, final NodeKindLayout layout) {
+  public void bindFixedSlotLazy(final MemorySegment slotData, final long baseOffset, final NodeKindLayout layout) {
+    this.lazyBaseOffset = baseOffset;
     this.fixedSlotLayout = layout;
     this.metadataParsed = false;
   }
@@ -516,9 +535,10 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     if (fixedSlotLayout != null) {
       final MemorySegment sd = (MemorySegment) lazySource;
       final NodeKindLayout ly = fixedSlotLayout;
-      this.previousRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.PREVIOUS_REVISION);
-      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, ly, StructuralField.LAST_MODIFIED_REVISION);
-      this.hash = SlotLayoutAccessors.readLongField(sd, ly, StructuralField.HASH);
+      final long off = this.lazyBaseOffset;
+      this.previousRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.PREVIOUS_REVISION);
+      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.LAST_MODIFIED_REVISION);
+      this.hash = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.HASH);
       this.fixedSlotLayout = null;
       this.metadataParsed = true;
       return;

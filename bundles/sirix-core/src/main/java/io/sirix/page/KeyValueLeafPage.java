@@ -229,7 +229,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * References to overflow pages.
    */
-  private final Map<Long, PageReference> references;
+  private volatile Map<Long, PageReference> references;
 
   /**
    * Key of record page. This is the base key of all contained nodes.
@@ -280,6 +280,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * compression is not used.
    */
   private byte[] fsstSymbolTable;
+
+  /** Pre-parsed FSST symbol table (avoids re-parsing on every encode/decode). */
+  private byte[][] parsedFsstSymbols;
 
   /**
    * Offset arrays to manage positions within memory segments.
@@ -417,7 +420,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // internal flow.
     assert resourceConfig != null : "The resource config must not be null!";
 
-    this.references = new ConcurrentHashMap<>();
     this.recordPageKey = recordPageKey;
     this.records = new DataRecord[Constants.NDP_NODE_COUNT];
     this.areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
@@ -770,8 +772,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       setSlot(segment, i);
       markSlotAsCompactFormat(i);
 
-      if (config.areDeweyIDsStored && record.getDeweyID() != null && record.getNodeKey() != 0) {
-        setDeweyId(record.getDeweyID().toBytes(), i);
+      if (config.areDeweyIDsStored && record.getNodeKey() != 0) {
+        final byte[] deweyBytes = record.getDeweyIDAsBytes();
+        if (deweyBytes != null) {
+          setDeweyId(deweyBytes, i);
+        }
       }
 
       records[i] = null;
@@ -804,7 +809,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   public Map<Long, PageReference> getReferencesMap() {
-    return references;
+    return references != null ? references : Map.of();
   }
 
   /**
@@ -1898,7 +1903,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public int size() {
-    return getNumberOfNonNullEntries(records) + references.size();
+    return getNumberOfNonNullEntries(records) + (references != null ? references.size() : 0);
   }
 
   private int getNumberOfNonNullEntries(final DataRecord[] entries) {
@@ -2045,13 +2050,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Clear FSST symbol table
     fsstSymbolTable = null;
+    parsedFsstSymbols = null;
 
     // Clear references to aid garbage collection
     Arrays.fill(records, null);
     inMemoryRecordCount = 0;
     demotionThreshold = MIN_DEMOTION_THRESHOLD;
     rematerializedRecordsSinceLastDemotion = 0;
-    references.clear();
+    if (references != null) {
+      references.clear();
+    }
     bytes = null;
     hashCode = null;
   }
@@ -2086,12 +2094,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Set the FSST symbol table for string compression.
-   * 
+   * Set the FSST symbol table for string compression. Pre-parses the symbol table to avoid
+   * redundant parsing on every encode/decode call.
+   *
    * @param symbolTable the symbol table bytes
    */
   public void setFsstSymbolTable(byte[] symbolTable) {
     this.fsstSymbolTable = symbolTable;
+    this.parsedFsstSymbols =
+        (symbolTable != null && symbolTable.length > 0) ? FSSTCompressor.parseSymbolTable(symbolTable) : null;
+  }
+
+  /**
+   * Get the pre-parsed FSST symbol table.
+   *
+   * @return the parsed symbol arrays, or null if FSST is not used
+   */
+  public byte[][] getParsedFsstSymbols() {
+    return parsedFsstSymbols;
   }
 
   /**
@@ -2203,13 +2223,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public List<PageReference> getReferences() {
+    if (references == null || references.isEmpty()) {
+      return List.of();
+    }
     return List.of(references.values().toArray(new PageReference[0]));
   }
 
   @Override
   public void commit(final @NonNull StorageEngineWriter pageWriteTrx) {
     addReferences(pageWriteTrx.getResourceSession().getResourceConfig());
-    for (final PageReference reference : references.values()) {
+    final var refs = references;
+    if (refs == null) {
+      return;
+    }
+    for (final PageReference reference : refs.values()) {
       if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
           && reference.getLogKey() == Constants.NULL_ID_LONG)) {
         pageWriteTrx.commit(reference);
@@ -2229,17 +2256,26 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public void setPageReference(final long key, @NonNull final PageReference reference) {
-    references.put(key, reference);
+    referencesOrInit().put(key, reference);
   }
 
   @Override
   public Set<Entry<Long, PageReference>> referenceEntrySet() {
-    return references.entrySet();
+    return references != null ? references.entrySet() : Set.of();
   }
 
   @Override
   public PageReference getPageReference(final long key) {
-    return references.get(key);
+    return references != null ? references.get(key) : null;
+  }
+
+  private Map<Long, PageReference> referencesOrInit() {
+    var refs = references;
+    if (refs == null) {
+      refs = new ConcurrentHashMap<>();
+      references = refs;
+    }
+    return refs;
   }
 
   @Override
@@ -2425,7 +2461,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         : -1;
 
     // Clear references
-    references.clear();
+    if (references != null) {
+      references.clear();
+    }
     addedReferences = false;
 
     // Clear cached data
@@ -2494,8 +2532,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         processEntries(resourceConfiguration, records);
         for (int i = 0; i < records.length; i++) {
           final DataRecord record = records[i];
-          if (record != null && record.getDeweyID() != null && record.getNodeKey() != 0) {
-            setDeweyId(record.getDeweyID().toBytes(), i);
+          if (record != null && record.getNodeKey() != 0) {
+            final byte[] deweyBytes = record.getDeweyIDAsBytes();
+            if (deweyBytes != null) {
+              setDeweyId(deweyBytes, i);
+            }
           }
         }
       } else {
@@ -2537,7 +2578,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
           final var reference = new PageReference();
           reference.setPage(new OverflowPage(persistentBuffer));
-          references.put(recordID, reference);
+          referencesOrInit().put(recordID, reference);
         } else {
           // Normal record: setSlot copies data to slotMemory, so temp buffer is fine
           setSlot(buffer, offset);
@@ -2575,16 +2616,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
         final NodeKind nodeKind = getFixedSlotNodeKind(slotIndex);
         final int slotOffset = slotOffsets[slotIndex];
-        final int fixedLength = slotMemory.get(JAVA_INT_UNALIGNED, slotOffset);
-        final MemorySegment fixedSlotBytes = slotMemory.asSlice(slotOffset + INT_SIZE, fixedLength);
+        final long slotDataOffset = slotOffset + INT_SIZE;
 
         if (nodeKind == null) {
           throw new IllegalStateException("Missing fixed-slot metadata for node key " + nodeKey);
         }
 
         // Direct byte-level transformation: fixed → compact without materializing a DataRecord.
+        // Uses base-offset into slotMemory to avoid asSlice() allocation per slot.
         compactBuffer.clear();
-        FixedToCompactTransformer.transform(nodeKind, nodeKey, fixedSlotBytes, resourceConfiguration, compactBuffer);
+        FixedToCompactTransformer.transform(nodeKind, nodeKey, slotMemory, slotDataOffset, resourceConfiguration,
+            compactBuffer);
         final MemorySegment compactBytes = compactBuffer.getDestination();
         final int compactSize = (int) compactBytes.byteSize();
         if (compactSize > PageConstants.MAX_RECORD_SIZE) {
@@ -2680,6 +2722,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       if (candidateTable != null && candidateTable.length > 0
           && FSSTCompressor.isCompressionBeneficial(stringSamples, candidateTable)) {
         this.fsstSymbolTable = candidateTable;
+        this.parsedFsstSymbols = FSSTCompressor.parseSymbolTable(candidateTable);
         return true;
       }
     }
@@ -2702,15 +2745,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       return;
     }
 
+    // Use pre-parsed symbols to avoid re-parsing for every string node
+    final byte[][] symbols = parsedFsstSymbols;
+    if (symbols == null || symbols.length == 0) {
+      return;
+    }
+
     for (final DataRecord record : records) {
       if (record == null) {
         continue;
       }
       if (record instanceof StringNode stringNode) {
         if (!stringNode.isCompressed()) {
-          byte[] originalValue = stringNode.getRawValueWithoutDecompression();
+          final byte[] originalValue = stringNode.getRawValueWithoutDecompression();
           if (originalValue != null && originalValue.length > 0) {
-            byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
+            final byte[] compressedValue = FSSTCompressor.encode(originalValue, symbols);
             // Only use compressed value if it's actually smaller
             if (compressedValue.length < originalValue.length) {
               stringNode.setRawValue(compressedValue, true, fsstSymbolTable);
@@ -2719,9 +2768,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         }
       } else if (record instanceof ObjectStringNode objectStringNode) {
         if (!objectStringNode.isCompressed()) {
-          byte[] originalValue = objectStringNode.getRawValueWithoutDecompression();
+          final byte[] originalValue = objectStringNode.getRawValueWithoutDecompression();
           if (originalValue != null && originalValue.length > 0) {
-            byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
+            final byte[] compressedValue = FSSTCompressor.encode(originalValue, symbols);
             // Only use compressed value if it's actually smaller
             if (compressedValue.length < originalValue.length) {
               objectStringNode.setRawValue(compressedValue, true, fsstSymbolTable);
@@ -2741,14 +2790,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       return;
     }
 
+    final byte[][] parsed = parsedFsstSymbols;
+
     for (final DataRecord record : records) {
       if (record == null) {
         continue;
       }
       if (record instanceof StringNode stringNode) {
-        stringNode.setFsstSymbolTable(fsstSymbolTable);
+        stringNode.setFsstSymbolTable(fsstSymbolTable, parsed);
       } else if (record instanceof ObjectStringNode objectStringNode) {
-        objectStringNode.setFsstSymbolTable(fsstSymbolTable);
+        objectStringNode.setFsstSymbolTable(fsstSymbolTable, parsed);
       }
     }
   }
