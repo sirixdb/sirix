@@ -15,14 +15,18 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.CompileChain;
 import io.brackit.query.compiler.optimizer.Optimizer;
+import io.brackit.query.compiler.translator.BlockPipelineStrategy;
 import io.brackit.query.compiler.translator.Translator;
 import io.brackit.query.util.Cfg;
 
 /**
- * Compile chain.
+ * Compile chain for SirixDB queries.
+ *
+ * <p>Supports both sequential (default) and parallel (block-based) execution modes. Parallel mode
+ * uses Brackit's {@link BlockPipelineStrategy} with ForkJoinPool-based work-stealing to parallelize
+ * FLWOR expressions automatically.
  *
  * @author Johannes Lichtenberger
- *
  */
 public final class SirixCompileChain extends CompileChain implements AutoCloseable {
   public static final boolean OPTIMIZE = Cfg.asBool("org.sirix.xquery.optimize.indexrewrite", true);
@@ -40,20 +44,54 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   /** The JSON item store. */
   private final JsonDBStore jsonItemStore;
 
+  /** Whether to use block-based parallel execution. */
+  private final boolean parallel;
+
+  /** Whether parallel output must preserve input order. */
+  private final boolean ordered;
+
+  // ---- Sequential (default) factory methods ----
+
   public static SirixCompileChain create() {
-    return new SirixCompileChain(null, null);
+    return new SirixCompileChain(null, null, false, true);
   }
 
   public static SirixCompileChain createWithNodeStore(final XmlDBStore nodeStore) {
-    return new SirixCompileChain(nodeStore, null);
+    return new SirixCompileChain(nodeStore, null, false, true);
   }
 
   public static SirixCompileChain createWithJsonStore(final JsonDBStore jsonStore) {
-    return new SirixCompileChain(null, jsonStore);
+    return new SirixCompileChain(null, jsonStore, false, true);
   }
 
   public static SirixCompileChain createWithNodeAndJsonStore(final XmlDBStore nodeStore, final JsonDBStore jsonStore) {
-    return new SirixCompileChain(nodeStore, jsonStore);
+    return new SirixCompileChain(nodeStore, jsonStore, false, true);
+  }
+
+  // ---- Parallel factory methods ----
+
+  /**
+   * Create a parallel compile chain with ordered output.
+   *
+   * @param nodeStore the XML node store (or null)
+   * @param jsonStore the JSON item store (or null)
+   * @return a parallel compile chain
+   */
+  public static SirixCompileChain createParallel(final XmlDBStore nodeStore, final JsonDBStore jsonStore) {
+    return new SirixCompileChain(nodeStore, jsonStore, true, true);
+  }
+
+  /**
+   * Create a parallel compile chain with configurable ordering.
+   *
+   * @param nodeStore the XML node store (or null)
+   * @param jsonStore the JSON item store (or null)
+   * @param ordered whether parallel output must preserve document order
+   * @return a parallel compile chain
+   */
+  public static SirixCompileChain createParallel(final XmlDBStore nodeStore, final JsonDBStore jsonStore,
+      final boolean ordered) {
+    return new SirixCompileChain(nodeStore, jsonStore, true, ordered);
   }
 
   /**
@@ -63,16 +101,36 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    * @param jsonItemStore the json item store.
    */
   public SirixCompileChain(final XmlDBStore nodeStore, final JsonDBStore jsonItemStore) {
+    this(nodeStore, jsonItemStore, false, true);
+  }
+
+  /**
+   * Full constructor with parallel execution support.
+   *
+   * @param nodeStore the XML node store (or null for default)
+   * @param jsonItemStore the JSON item store (or null for default)
+   * @param parallel whether to use block-based parallel execution
+   * @param ordered whether parallel output preserves order (ignored if parallel is false)
+   */
+  public SirixCompileChain(final XmlDBStore nodeStore, final JsonDBStore jsonItemStore, final boolean parallel,
+      final boolean ordered) {
     this.nodeStore = nodeStore == null
         ? BasicXmlDBStore.newBuilder().build()
         : nodeStore;
     this.jsonItemStore = jsonItemStore == null
         ? BasicJsonDBStore.newBuilder().build()
         : jsonItemStore;
+    this.parallel = parallel;
+    this.ordered = ordered;
   }
 
   @Override
   protected Translator getTranslator(Map<QNm, Str> options) {
+    if (parallel) {
+      final BlockPipelineStrategy strategy = new BlockPipelineStrategy();
+      strategy.setOrdered(ordered);
+      return new SirixTranslator(options, strategy);
+    }
     return new SirixTranslator(options);
   }
 
