@@ -14,13 +14,14 @@ One or two sentences describing it
 
 ## Onboarding experience
 
-Did it build and run as documented?
-    
-See the assignment for details; if everything works out of the box,
-there is no need to write much here. If the first project(s) you picked
-ended up being unsuitable, you can describe the "onboarding experience"
-for each project, along with reason(s) why you changed to a different one.
+The project could easily be built by cloning the repo and following the instructions in the project's readme. 
+The required tools to build the project is Java 25 or later, and gradle 9.1 or later. However, gradle was not
+necessary to install since you could use the wrapper, and therefore build using ```./gradlew test```. Other tools,
+such as plugins, was installed automatically by the build script.
 
+The build sometimes conclude with one error in the tests, and several tests are ignored or skipped. Additionally,
+the build can sometimes fail due to different causes. Otherwise, building the project with ```./gradlew build -x test```
+succeeds.
 
 ## Complexity
 
