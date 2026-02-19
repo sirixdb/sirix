@@ -55,7 +55,7 @@ public final class FirstAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends N
   }
 
   @Override
-  public ResourceSession<R, W> getResourceManager() {
+  public ResourceSession<R, W> getResourceSession() {
     return resourceSession;
   }
 }

@@ -36,7 +36,7 @@ import org.checkerframework.checker.index.qual.NonNegative;
 import org.sirix.access.Databases;
 import org.sirix.api.Database;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.view.model.TraverseCompareTree;
 import org.sirix.utils.LogWrapper;
@@ -57,10 +57,10 @@ public final class ReadDB implements AutoCloseable {
   private static final LogWrapper LOGWRAPPER = new LogWrapper(LoggerFactory.getLogger(TraverseCompareTree.class));
 
   /** Sirix {@link Database}. */
-  private final Database<XmlResourceManager> mDatabase;
+  private final Database<XmlResourceSession> mDatabase;
 
   /** The resource manager. */
-  private final XmlResourceManager mSession;
+  private final XmlResourceSession mSession;
 
   /** The read only transaction. */
   private final XmlNodeReadOnlyTrx mRtx;
@@ -107,7 +107,7 @@ public final class ReadDB implements AutoCloseable {
 
     // Initialize database.
     mDatabase = Databases.openXmlDatabase(file);
-    mSession = mDatabase.openResourceManager();
+    mSession = mDatabase.openResourceSession();
 
     if (revision == -1) {
       // Open newest revision.
@@ -124,7 +124,7 @@ public final class ReadDB implements AutoCloseable {
    *
    * @return the Database.
    */
-  public Database<XmlResourceManager> getDatabase() {
+  public Database<XmlResourceSession> getDatabase() {
     return mDatabase;
   }
 
@@ -133,7 +133,7 @@ public final class ReadDB implements AutoCloseable {
    *
    * @return the Session.
    */
-  public XmlResourceManager getSession() {
+  public XmlResourceSession getSession() {
     return mSession;
   }
 

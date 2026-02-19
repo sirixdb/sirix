@@ -166,7 +166,7 @@ final class JsonNodeTrxImpl extends
    * Constructor.
    *
    * @param databaseName The database name where the transaction operates.
-   * @param resourceManager the resource manager instance this transaction is bound to
+   * @param resourceSession the resource manager instance this transaction is bound to
    * @param nodeReadTrx the read-only trx delegate
    * @param pathSummaryWriter writes the path summary
    * @param maxNodeCount maximum number of node modifications before auto commit
@@ -178,27 +178,27 @@ final class JsonNodeTrxImpl extends
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
   JsonNodeTrxImpl(final String databaseName,
-      final InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceManager,
+      final InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceSession,
       final InternalJsonNodeReadOnlyTrx nodeReadTrx,
       @Nullable final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter, @NonNegative final int maxNodeCount,
       @Nullable final Lock transactionLock, final Duration afterCommitDelay, @NonNull final JsonNodeHashing nodeHashing,
       final JsonNodeFactory nodeFactory, @NonNull final AfterCommitState afterCommitState,
       final RecordToRevisionsIndex nodeToRevisionsIndex, final boolean isAutoCommitting) {
-    super(new JsonNodeTrxThreadFactory(), resourceManager.getResourceConfig().hashType, nodeReadTrx, nodeReadTrx,
-        resourceManager, afterCommitState, nodeHashing, pathSummaryWriter, nodeFactory, nodeToRevisionsIndex,
+    super(new JsonNodeTrxThreadFactory(), resourceSession.getResourceConfig().hashType, nodeReadTrx, nodeReadTrx,
+        resourceSession, afterCommitState, nodeHashing, pathSummaryWriter, nodeFactory, nodeToRevisionsIndex,
         transactionLock, afterCommitDelay, maxNodeCount);
     this.databaseName = requireNonNull(databaseName);
 
-    hashFunction = resourceManager.getResourceConfig().nodeHashFunction;
-    storeChildCount = resourceManager.getResourceConfig().storeChildCount();
+    hashFunction = resourceSession.getResourceConfig().nodeHashFunction;
+    storeChildCount = resourceSession.getResourceConfig().storeChildCount();
 
     // Only auto commit by node modifications if it is more than 0.
     this.isAutoCommitting = isAutoCommitting;
 
-    useTextCompression = resourceManager.getResourceConfig().useTextCompression;
+    useTextCompression = resourceSession.getResourceConfig().useTextCompression;
 
     deweyIDManager = new JsonDeweyIDManager(this);
-    storeNodeHistory = resourceManager.getResourceConfig().storeNodeHistory();
+    storeNodeHistory = resourceSession.getResourceConfig().storeNodeHistory();
 
     // Register index listeners for any existing indexes.
     // This is critical for subsequent write transactions to update indexes on node modifications.
@@ -208,7 +208,7 @@ final class JsonNodeTrxImpl extends
     }
 
     // Auto-create CAS indexes for valid time paths on bootstrap
-    createValidTimeIndexesIfNeeded(resourceManager.getResourceConfig());
+    createValidTimeIndexesIfNeeded(resourceSession.getResourceConfig());
   }
 
   /**

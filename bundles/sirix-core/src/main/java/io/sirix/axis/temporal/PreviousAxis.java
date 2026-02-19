@@ -58,7 +58,7 @@ public final class PreviousAxis<R extends NodeReadOnlyTrx & NodeCursor, W extend
   }
 
   @Override
-  public ResourceSession<R, W> getResourceManager() {
+  public ResourceSession<R, W> getResourceSession() {
     return resourceSession;
   }
 }

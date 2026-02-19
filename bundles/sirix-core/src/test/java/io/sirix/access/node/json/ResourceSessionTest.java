@@ -37,9 +37,9 @@ public final class ResourceSessionTest {
   @DisplayName("throw exception when multiple read-write transactions are started")
   @Test
   public void test_whenMultipleReadWriteTrxStarted_throwException() {
-    final Exception exception = assertThrows(RuntimeException.class, () -> createTransactions(resourceManager -> {
-      resourceManager.beginNodeTrx();
-      resourceManager.beginNodeTrx();
+    final Exception exception = assertThrows(RuntimeException.class, () -> createTransactions(resourceSession -> {
+      resourceSession.beginNodeTrx();
+      resourceSession.beginNodeTrx();
     }));
 
     assertion(exception);

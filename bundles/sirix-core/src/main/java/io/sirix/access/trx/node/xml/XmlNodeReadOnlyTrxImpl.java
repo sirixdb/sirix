@@ -63,15 +63,15 @@ public final class XmlNodeReadOnlyTrxImpl extends
   /**
    * Constructor.
    *
-   * @param resourceManager the current {@link ResourceSession} the reader is bound to
+   * @param resourceSession the current {@link ResourceSession} the reader is bound to
    * @param trxId ID of the reader
    * @param pageReadTransaction {@link StorageEngineReader} to interact with the page layer
    * @param documentNode the document node
    */
-  XmlNodeReadOnlyTrxImpl(final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
+  XmlNodeReadOnlyTrxImpl(final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceSession,
       final @NonNegative int trxId, final StorageEngineReader pageReadTransaction,
       final ImmutableXmlNode documentNode) {
-    super(trxId, pageReadTransaction, documentNode, resourceManager, new ItemListImpl());
+    super(trxId, pageReadTransaction, documentNode, resourceSession, new ItemListImpl());
   }
 
   @Override

@@ -43,10 +43,10 @@ class DiffHandler(private val location: Path) {
         val diff = context.executeBlocking {
             var diffString: String? = null
             database.use {
-                val resourceManager = database.beginResourceSession(resourceName)
+                val resourceSession = database.beginResourceSession(resourceName)
 
-                resourceManager.use {
-                    if (resourceManager is JsonResourceSession) {
+                resourceSession.use {
+                    if (resourceSession is JsonResourceSession) {
                         val firstRevision: String? = ctx.queryParam("first-revision").getOrNull(0)
                         val secondRevision: String? = ctx.queryParam("second-revision").getOrNull(0)
 
@@ -65,7 +65,7 @@ class DiffHandler(private val location: Path) {
 
                         // For consecutive revisions without filtering, try to read pre-computed diff file
                         if (secondRevision.toInt() - 1 == firstRevision.toInt() && startNodeKey == null && maxDepth == null) {
-                            val diffPath = resourceManager.getResourceConfig()
+                            val diffPath = resourceSession.getResourceConfig()
                                 .resource
                                 .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.path)
                                 .resolve("diffFromRev${firstRevision.toInt()}toRev${secondRevision.toInt()}.json")
@@ -74,9 +74,9 @@ class DiffHandler(private val location: Path) {
                                 // Fast path: read pre-computed diff file directly (no data for jsonFragments)
                                 logger.debug("Reading pre-computed diff from: $diffPath")
                                 diffString = Files.readString(diffPath)
-                            } else if (Files.exists(diffPath) && includeData && resourceManager.resourceConfig.areDeweyIDsStored) {
+                            } else if (Files.exists(diffPath) && includeData && resourceSession.resourceConfig.areDeweyIDsStored) {
                                 // includeData=true: use update operations to lazily serialize jsonFragment data
-                                val rtx = resourceManager.beginNodeReadOnlyTrx(secondRevision.toInt())
+                                val rtx = resourceSession.beginNodeReadOnlyTrx(secondRevision.toInt())
                                 rtx.use {
                                     diffString = useUpdateOperations(
                                         rtx,
@@ -88,9 +88,9 @@ class DiffHandler(private val location: Path) {
                                         maxDepthAsLong
                                     )
                                 }
-                            } else if (resourceManager.resourceConfig.areDeweyIDsStored) {
+                            } else if (resourceSession.resourceConfig.areDeweyIDsStored) {
                                 // Use update operations if DeweyIDs are stored but file doesn't exist
-                                val rtx = resourceManager.beginNodeReadOnlyTrx(secondRevision.toInt())
+                                val rtx = resourceSession.beginNodeReadOnlyTrx(secondRevision.toInt())
                                 rtx.use {
                                     diffString = useUpdateOperations(
                                         rtx,
@@ -105,7 +105,7 @@ class DiffHandler(private val location: Path) {
                             } else {
                                 // Fall back to computing diff
                                 diffString = BasicJsonDiff(databaseName).generateDiff(
-                                    resourceManager,
+                                    resourceSession,
                                     firstRevision.toInt(),
                                     secondRevision.toInt(),
                                     startNodeKeyAsLong,
@@ -113,9 +113,9 @@ class DiffHandler(private val location: Path) {
                                     includeData
                                 )
                             }
-                        } else if (resourceManager.resourceConfig.areDeweyIDsStored && secondRevision.toInt() - 1 == firstRevision.toInt()) {
+                        } else if (resourceSession.resourceConfig.areDeweyIDsStored && secondRevision.toInt() - 1 == firstRevision.toInt()) {
                             // Consecutive revisions with filtering - use update operations
-                            val rtx = resourceManager.beginNodeReadOnlyTrx(secondRevision.toInt())
+                            val rtx = resourceSession.beginNodeReadOnlyTrx(secondRevision.toInt())
                             rtx.use {
                                 diffString = useUpdateOperations(
                                     rtx,
@@ -130,7 +130,7 @@ class DiffHandler(private val location: Path) {
                         } else {
                             // Non-consecutive revisions or no DeweyIDs with filtering
                             diffString = BasicJsonDiff(databaseName).generateDiff(
-                                resourceManager,
+                                resourceSession,
                                 firstRevision.toInt(),
                                 secondRevision.toInt(),
                                 startNodeKeyAsLong,

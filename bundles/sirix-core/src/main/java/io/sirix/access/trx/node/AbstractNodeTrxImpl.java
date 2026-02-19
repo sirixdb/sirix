@@ -171,7 +171,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   protected AbstractNodeTrxImpl(final ThreadFactory threadFactory, final HashType hashType, final IN nodeReadOnlyTrx,
-      final R typeSpecificTrx, final InternalResourceSession<R, W> resourceManager,
+      final R typeSpecificTrx, final InternalResourceSession<R, W> resourceSession,
       final AfterCommitState afterCommitState, final AbstractNodeHashing<N, R> nodeHashing,
       final PathSummaryWriter<R> pathSummaryWriter, final NF nodeFactory,
       final RecordToRevisionsIndex nodeToRevisionsIndex, @Nullable final Lock transactionLock,
@@ -183,14 +183,14 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.hashType = hashType;
     this.nodeReadOnlyTrx = requireNonNull(nodeReadOnlyTrx);
     this.typeSpecificTrx = typeSpecificTrx;
-    this.resourceSession = requireNonNull(resourceManager);
+    this.resourceSession = requireNonNull(resourceSession);
     this.lock = transactionLock;
     this.afterCommitState = requireNonNull(afterCommitState);
     this.nodeHashing = requireNonNull(nodeHashing);
-    this.buildPathSummary = resourceManager.getResourceConfig().withPathSummary;
+    this.buildPathSummary = resourceSession.getResourceConfig().withPathSummary;
     this.nodeFactory = requireNonNull(nodeFactory);
     this.pathSummaryWriter = pathSummaryWriter;
-    this.indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
+    this.indexController = resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     this.nodeToRevisionsIndex = requireNonNull(nodeToRevisionsIndex);
 
     this.updateOperationsOrdered = new TreeMap<>();

@@ -9,7 +9,7 @@ import java.util.EnumSet;
 import java.util.Map;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.Database;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.fs.HierarchyFileVisitor.Builder;
@@ -36,10 +36,10 @@ public class FileHierarchyWalker {
    * @throws NullPointerException if one of the arguments is {@code null}
    */
   public static Map<Path, org.sirix.fs.FileSystemPath> parseDir(final Path path,
-      final Database<XmlResourceManager> database, Optional<Visitor<XmlNodeTrx>> visitor) throws IOException {
+      final Database<XmlResourceSession> database, Optional<Visitor<XmlNodeTrx>> visitor) throws IOException {
     requireNonNull(visitor);
     requireNonNull(path);
-    try (final XmlResourceManager resource = requireNonNull(database).openResourceManager("shredded");
+    try (final XmlResourceSession resource = requireNonNull(database).openResourceSession("shredded");
         final XmlNodeTrx wtx = resource.beginNodeTrx()) {
       final Builder builder = new Builder(wtx);
       if (visitor.isPresent()) {

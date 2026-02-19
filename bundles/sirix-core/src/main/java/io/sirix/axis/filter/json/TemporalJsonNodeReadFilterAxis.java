@@ -83,7 +83,7 @@ public final class TemporalJsonNodeReadFilterAxis<F extends Filter<JsonNodeReadO
   }
 
   @Override
-  public ResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> getResourceManager() {
-    return axis.getResourceManager();
+  public ResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> getResourceSession() {
+    return axis.getResourceSession();
   }
 }

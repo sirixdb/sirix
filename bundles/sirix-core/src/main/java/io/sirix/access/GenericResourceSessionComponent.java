@@ -13,7 +13,7 @@ import java.nio.file.Path;
  */
 public interface GenericResourceSessionComponent<R extends ResourceSession<?, ?>> {
 
-  R resourceManager();
+  R resourceSession();
 
   interface Builder<B extends GenericResourceSessionComponent.Builder<B, R, C>, R extends ResourceSession<?, ?>, C extends GenericResourceSessionComponent<R>> {
 

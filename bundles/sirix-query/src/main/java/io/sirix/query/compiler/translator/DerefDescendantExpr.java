@@ -96,8 +96,8 @@ class DerefDescendantExpr implements Expr {
   @Nullable
   private SirixJsonLazySequence getLazySequence(String recordFieldAsString, JsonDBItem jsonDBItem,
       JsonNodeReadOnlyTrx rtx) {
-    final var resourceManager = rtx.getResourceSession();
-    if (resourceManager.getResourceConfig().withPathSummary && rtx.hasChildren()) {
+    final var resourceSession = rtx.getResourceSession();
+    if (resourceSession.getResourceConfig().withPathSummary && rtx.hasChildren()) {
       try {
         final int revisionNumber = rtx.getRevisionNumber();
         final var nodeKey = jsonDBItem.getNodeKey();
@@ -121,7 +121,7 @@ class DerefDescendantExpr implements Expr {
         int startLevel = data == null
             ? 0
             : data.level;
-        try (final PathSummaryReader reader = resourceManager.openPathSummary(rtx.getRevisionNumber())) {
+        try (final PathSummaryReader reader = resourceSession.openPathSummary(rtx.getRevisionNumber())) {
           if (matches == null) {
             if (pcr != 0) {
               reader.moveTo(pcr);
@@ -160,7 +160,7 @@ class DerefDescendantExpr implements Expr {
             // Match at a level below the child level.
             final Deque<PathSegment> pathSegments = getPathSegments(matchLevel, startLevel, reader);
             return getLazySequence(new SirixJsonStream(
-                buildQuery(pathSegments, resourceManager, revisionNumber, nodeKey), jsonDBItem.getCollection()));
+                buildQuery(pathSegments, resourceSession, revisionNumber, nodeKey), jsonDBItem.getCollection()));
           }
           // More than one match.
           boolean onSameLevel = true;
@@ -182,7 +182,7 @@ class DerefDescendantExpr implements Expr {
             // Matches on same level.
             for (int j = level; (j > startLevel && nodeKind == NodeKind.OBJECT)
                 || (j >= startLevel && nodeKind == NodeKind.ARRAY); j--) {
-              final var newRtx = resourceManager.beginNodeReadOnlyTrx(rtx.getRevisionNumber());
+              final var newRtx = resourceSession.beginNodeReadOnlyTrx(rtx.getRevisionNumber());
               newRtx.moveTo(nodeKey);
 
               // Build an immutable set and turn it into a list for sorting.
@@ -239,7 +239,7 @@ class DerefDescendantExpr implements Expr {
             Axis axis = axisQueue.pop();
             for (int k = 0, size = axisQueue.size(); k < size; k++) {
               if (doParallelExecution && k == size - 1) {
-                final var newRtx2 = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+                final var newRtx2 = resourceSession.beginNodeReadOnlyTrx(revisionNumber);
                 axis = new NestedAxis(new ConcurrentAxis<>(newRtx2, axis), axisQueue.pop());
               } else {
                 axis = new NestedAxis(axis, axisQueue.pop());
@@ -260,9 +260,9 @@ class DerefDescendantExpr implements Expr {
               }
               // Match at the next level (single child-path).
               if (matchLevel == level + 1) {
-                final var newConcurrentRtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+                final var newConcurrentRtx = resourceSession.beginNodeReadOnlyTrx(revisionNumber);
                 newConcurrentRtx.moveTo(nodeKey);
-                final var newConcurrentRtx1 = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+                final var newConcurrentRtx1 = resourceSession.beginNodeReadOnlyTrx(revisionNumber);
 
                 if (reader.getPathNode().getKind() == NodeKind.ARRAY) {
                   axisQueue.addLast(new ConcurrentAxis<>(newConcurrentRtx1, new ChildAxis(rtx)));
@@ -289,15 +289,15 @@ class DerefDescendantExpr implements Expr {
               // Match at a level below the child level.
               else {
                 final Deque<PathSegment> pathSegments = getPathSegments(matchLevel, level, reader);
-                axisQueue.addLast(buildQuery(pathSegments, resourceManager, revisionNumber, nodeKey));
+                axisQueue.addLast(buildQuery(pathSegments, resourceSession, revisionNumber, nodeKey));
               }
             }
 
-            var newRtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+            var newRtx = resourceSession.beginNodeReadOnlyTrx(revisionNumber);
             Axis axis = new ConcurrentUnionAxis<>(newRtx, axisQueue.pollFirst(), axisQueue.pollFirst());
             final int size = axisQueue.size();
             for (i = 0; i < size; i++) {
-              newRtx = resourceManager.beginNodeReadOnlyTrx(revisionNumber);
+              newRtx = resourceSession.beginNodeReadOnlyTrx(revisionNumber);
               axis = new ConcurrentUnionAxis<>(newRtx, axis, axisQueue.pollFirst());
             }
             return getLazySequence(new SirixJsonStream(axis, jsonDBItem.getCollection()));

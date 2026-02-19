@@ -33,14 +33,14 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   /**
    * Diff two revisions.
    *
-   * @param resourceManager the resource manager to use
+   * @param resourceSession the resource manager to use
    * @param oldRevisionNumber the revision number of the older revision
    * @param newRevisionNumber the revision number of the newer revision
    * @return a JSON-String describing the differences encountered between the two revisions
    */
   @Override
-  public String generateDiff(JsonResourceSession resourceManager, int oldRevisionNumber, int newRevisionNumber) {
-    return generateDiff(resourceManager, oldRevisionNumber, newRevisionNumber, 0, 0);
+  public String generateDiff(JsonResourceSession resourceSession, int oldRevisionNumber, int newRevisionNumber) {
+    return generateDiff(resourceSession, oldRevisionNumber, newRevisionNumber, 0, 0);
   }
 
   /**

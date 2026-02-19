@@ -45,7 +45,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import io.brackit.query.update.Insert;
 import org.sirix.api.NodeReadTrx;
 import org.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.diff.DiffFactory.DiffType;
 import org.sirix.exception.SirixException;
 import org.sirix.gui.ReadDB;
@@ -89,7 +89,7 @@ public abstract class AbstractModel<S, T extends VisualItem> extends AbstractObs
   protected transient XmlNodeReadOnlyTrx mRtx;
 
   /** The resource manager. */
-  protected transient XmlResourceManager mSession;
+  protected transient XmlResourceSession mSession;
 
   /**
    * {@link Deque} with {@link List}s of a {@link VisualItem} implementation for undo operation.
