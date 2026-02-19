@@ -292,21 +292,21 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     final UberPage lastCommittedUberPage = this.lastCommittedUberPage.get();
     final int lastCommittedRev = lastCommittedUberPage.getRevisionNumber();
-    final var pageTrx = this.pageTrxFactory.createPageTrx(this,
+    final var storageEngineWriter = this.pageTrxFactory.createPageTrx(this,
         abort == Abort.YES && lastCommittedUberPage.isBootstrap()
             ? new UberPage()
             : new UberPage(lastCommittedUberPage),
         writer, id, representRevision, storedRevision, lastCommittedRev, isBoundToNodeTrx, bufferManager);
 
-    truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, lastCommittedRev, pageTrx);
+    truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(writer, lastCommittedRev, storageEngineWriter);
 
-    return pageTrx;
+    return storageEngineWriter;
   }
 
   private void truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists(Writer writer, int lastCommittedRev,
-      StorageEngineWriter pageTrx) {
+      StorageEngineWriter storageEngineWriter) {
     if (Files.exists(getCommitFile())) {
-      writer.truncateTo(pageTrx, lastCommittedRev);
+      writer.truncateTo(storageEngineWriter, lastCommittedRev);
     }
   }
 
@@ -386,7 +386,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public synchronized R beginNodeReadOnlyTrx(@NonNegative final int revision) {
     assertAccess(revision);
 
-    final StorageEngineReader pageReadTrx = beginPageReadOnlyTrx(revision);
+    final StorageEngineReader pageReadTrx = beginStorageEngineReader(revision);
 
     final Node documentNode = getDocumentNode(pageReadTrx);
 
@@ -403,7 +403,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   public abstract R createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader pageReadTrx, Node documentNode);
 
-  public abstract W createNodeReadWriteTrx(int nodeTrxId, StorageEngineWriter pageTrx, int maxNodeCount,
+  public abstract W createNodeReadWriteTrx(int nodeTrxId, StorageEngineWriter storageEngineWriter, int maxNodeCount,
       Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState);
 
   static Node getDocumentNode(final StorageEngineReader pageReadTrx) {
@@ -490,18 +490,18 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     // Create new page write transaction (shares the same ID with the node write trx).
     final int nodeTrxId = nodeTrxIDCounter.incrementAndGet();
     final int lastRev = getMostRecentRevisionNumber();
-    final StorageEngineWriter pageWtx = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
+    final StorageEngineWriter storageEngineWriter = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
 
-    final Node documentNode = getDocumentNode(pageWtx);
+    final Node documentNode = getDocumentNode(storageEngineWriter);
 
     // Create new node write transaction.
     final var autoCommitDelay = Duration.of(maxTime, timeUnit.toChronoUnit());
     final W wtx =
-        createNodeReadWriteTrx(nodeTrxId, pageWtx, maxNodeCount, autoCommitDelay, documentNode, afterCommitState);
+        createNodeReadWriteTrx(nodeTrxId, storageEngineWriter, maxNodeCount, autoCommitDelay, documentNode, afterCommitState);
 
     // Remember node transaction for debugging and safe close.
     // noinspection unchecked
-    if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null || nodePageTrxMap.put(nodeTrxId, pageWtx) != null) {
+    if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null || nodePageTrxMap.put(nodeTrxId, storageEngineWriter) != null) {
       throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
     }
 
@@ -603,13 +603,13 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * Set a new node page write trx.
    *
    * @param transactionID page write transaction ID
-   * @param pageTrx page write trx
+   * @param storageEngineWriter page write trx
    */
   @Override
   public void setNodePageWriteTransaction(final @NonNegative int transactionID,
-      @NonNull final StorageEngineWriter pageTrx) {
+      @NonNull final StorageEngineWriter storageEngineWriter) {
     assertNotClosed();
-    nodePageTrxMap.put(transactionID, pageTrx);
+    nodePageTrxMap.put(transactionID, storageEngineWriter);
   }
 
   /**
@@ -621,9 +621,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public void closeNodePageWriteTransaction(final @NonNegative int transactionID) {
     assertNotClosed();
-    final StorageEngineReader pageRtx = nodePageTrxMap.remove(transactionID);
-    if (pageRtx != null) {
-      pageRtx.close();
+    final StorageEngineReader storageEngineReader = nodePageTrxMap.remove(transactionID);
+    if (storageEngineReader != null) {
+      storageEngineReader.close();
     }
   }
 
@@ -764,24 +764,24 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       }
 
       if (poolable == null) {
-        pageReadOnlyTrx = beginPageReadOnlyTrx(revision);
+        pageReadOnlyTrx = beginStorageEngineReader(revision);
       } else {
         pageReadOnlyTrx = poolable.getObject();
 
         if (pageReadOnlyTrx.getRevisionNumber() != revision) {
           pool.returnObject(poolable);
-          pageReadOnlyTrx = beginPageReadOnlyTrx(revision);
+          pageReadOnlyTrx = beginStorageEngineReader(revision);
         }
       }
     } else {
-      pageReadOnlyTrx = beginPageReadOnlyTrx(revision);
+      pageReadOnlyTrx = beginStorageEngineReader(revision);
     }
 
     return PathSummaryReader.getInstance(pageReadOnlyTrx, this);
   }
 
   @Override
-  public StorageEngineReader beginPageReadOnlyTrx(final @NonNegative int revision) {
+  public StorageEngineReader beginStorageEngineReader(final @NonNegative int revision) {
     assertAccess(revision);
 
     final int currentPageTrxID = pageTrxIDCounter.incrementAndGet();
@@ -797,7 +797,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized StorageEngineWriter beginPageTrx(final @NonNegative int revision) {
+  public synchronized StorageEngineWriter beginStorageEngineWriter(final @NonNegative int revision) {
     assertAccess(revision);
 
     // Make sure not to exceed available number of write transactions.
@@ -809,18 +809,18 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       throw new SirixThreadedException(e);
     }
 
-    LOGGER.debug("Lock: lock acquired (beginPageTrx)");
+    LOGGER.debug("Lock: lock acquired (beginStorageEngineWriter)");
 
     final int currentPageTrxID = pageTrxIDCounter.incrementAndGet();
     final int lastRev = getMostRecentRevisionNumber();
-    final StorageEngineWriter pageTrx = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
+    final StorageEngineWriter storageEngineWriter = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
 
     // Remember page transaction for debugging and safe close.
-    if (pageTrxMap.put(currentPageTrxID, pageTrx) != null) {
+    if (pageTrxMap.put(currentPageTrxID, storageEngineWriter) != null) {
       throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
     }
 
-    return pageTrx;
+    return storageEngineWriter;
   }
 
   @Override

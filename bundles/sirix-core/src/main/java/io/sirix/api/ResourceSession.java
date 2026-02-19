@@ -101,8 +101,8 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    *
    * @return new {@link StorageEngineReader} instance
    */
-  default StorageEngineReader beginPageReadOnlyTrx() {
-    return beginPageReadOnlyTrx(getMostRecentRevisionNumber());
+  default StorageEngineReader beginStorageEngineReader() {
+    return beginStorageEngineReader(getMostRecentRevisionNumber());
   }
 
   /**
@@ -112,7 +112,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return new {@link StorageEngineReader} instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
-  StorageEngineReader beginPageReadOnlyTrx(@NonNegative int revision);
+  StorageEngineReader beginStorageEngineReader(@NonNegative int revision);
 
   /**
    * Begin a new {@link StorageEngineWriter}.
@@ -120,8 +120,8 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @return new {@link StorageEngineWriter} instance
    * @throws SirixException if Sirix fails to create a new instance
    */
-  default StorageEngineWriter beginPageTrx() {
-    return beginPageTrx(getMostRecentRevisionNumber());
+  default StorageEngineWriter beginStorageEngineWriter() {
+    return beginStorageEngineWriter(getMostRecentRevisionNumber());
   }
 
   /**
@@ -142,7 +142,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
    * @throws SirixException if Sirix fails to create a new instance
    * @throws IllegalArgumentException if {@code revision < 0}
    */
-  StorageEngineWriter beginPageTrx(@NonNegative int revision);
+  StorageEngineWriter beginStorageEngineWriter(@NonNegative int revision);
 
   /**
    * Begin a read-only transaction on the given revision number.

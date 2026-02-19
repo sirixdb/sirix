@@ -171,10 +171,10 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       updateIndexCapability(indexDef.getType());
       switch (indexDef.getType()) {
         case PATH ->
-          addListener(createPathIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
+          addListener(createPathIndexListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
         case CAS ->
-          addListener(createCASIndexListener(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
-        case NAME -> addListener(createNameIndexListener(nodeWriteTrx.getPageWtx(), indexDef));
+          addListener(createCASIndexListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
+        case NAME -> addListener(createNameIndexListener(nodeWriteTrx.getStorageEngineWriter(), indexDef));
         default -> {
         }
       }
@@ -254,42 +254,42 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public Iterator<NodeReferences> openPathIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
+  public Iterator<NodeReferences> openPathIndex(final StorageEngineReader storageEngineReader, final IndexDef indexDef,
       final PathFilter filter) {
     if (pathIndex == null) {
       throw new IllegalStateException("This document does not support path indexes.");
     }
 
-    return pathIndex.openIndex(pageRtx, indexDef, filter);
+    return pathIndex.openIndex(storageEngineReader, indexDef, filter);
   }
 
   @Override
-  public Iterator<NodeReferences> openNameIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
+  public Iterator<NodeReferences> openNameIndex(final StorageEngineReader storageEngineReader, final IndexDef indexDef,
       final NameFilter filter) {
     if (nameIndex == null) {
       throw new IllegalStateException("This document does not support name indexes.");
     }
 
-    return nameIndex.openIndex(pageRtx, indexDef, filter);
+    return nameIndex.openIndex(storageEngineReader, indexDef, filter);
   }
 
   @Override
-  public Iterator<NodeReferences> openCASIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
+  public Iterator<NodeReferences> openCASIndex(final StorageEngineReader storageEngineReader, final IndexDef indexDef,
       final CASFilter filter) {
     if (casIndex == null) {
       throw new IllegalStateException("This document does not support CAS indexes.");
     }
 
-    return casIndex.openIndex(pageRtx, indexDef, filter);
+    return casIndex.openIndex(storageEngineReader, indexDef, filter);
   }
 
   @Override
-  public Iterator<NodeReferences> openCASIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
+  public Iterator<NodeReferences> openCASIndex(final StorageEngineReader storageEngineReader, final IndexDef indexDef,
       final CASFilterRange filter) {
     if (casIndex == null) {
       throw new IllegalStateException("This document does not support path indexes.");
     }
 
-    return casIndex.openIndex(pageRtx, indexDef, filter);
+    return casIndex.openIndex(storageEngineReader, indexDef, filter);
   }
 }

@@ -70,7 +70,7 @@ import static org.mockito.Mockito.*;
  */
 public class JsonNodeFactoryImplTest {
 
-  private StorageEngineWriter pageTrx;
+  private StorageEngineWriter storageEngineWriter;
   private JsonResourceSession resourceSession;
   private JsonNodeFactoryImpl factory;
   private ResourceConfiguration resourceConfig;
@@ -84,25 +84,25 @@ public class JsonNodeFactoryImplTest {
     resourceConfig = resourceSession.getResourceConfig();
 
     // Create a mock StorageEngineWriter that captures created nodes
-    pageTrx = mock(StorageEngineWriter.class);
+    storageEngineWriter = mock(StorageEngineWriter.class);
 
     // Mock the RevisionRootPage to provide node keys
     final RevisionRootPage revisionRootPage = mock(RevisionRootPage.class);
-    when(pageTrx.getActualRevisionRootPage()).thenReturn(revisionRootPage);
+    when(storageEngineWriter.getActualRevisionRootPage()).thenReturn(revisionRootPage);
     when(revisionRootPage.getMaxNodeKeyInDocumentIndex()).thenAnswer(inv -> nodeCounter++);
 
     // Mock the ResourceSession
-    doReturn(resourceSession).when(pageTrx).getResourceSession();
-    when(pageTrx.getRevisionNumber()).thenReturn(0);
+    doReturn(resourceSession).when(storageEngineWriter).getResourceSession();
+    when(storageEngineWriter.getRevisionNumber()).thenReturn(0);
 
     // Mock createRecord to return the node passed to it
-    when(pageTrx.createRecord(any(DataRecord.class), any(IndexType.class), anyInt())).thenAnswer(
+    when(storageEngineWriter.createRecord(any(DataRecord.class), any(IndexType.class), anyInt())).thenAnswer(
         invocation -> invocation.getArgument(0));
 
     // Mock createNameKey for ObjectKeyNode
-    when(pageTrx.createNameKey(anyString(), any(NodeKind.class))).thenReturn(5); // Return a dummy name key
+    when(storageEngineWriter.createNameKey(anyString(), any(NodeKind.class))).thenReturn(5); // Return a dummy name key
 
-    factory = new JsonNodeFactoryImpl(LongHashFunction.xx3(), pageTrx);
+    factory = new JsonNodeFactoryImpl(LongHashFunction.xx3(), storageEngineWriter);
   }
 
   @After
@@ -133,8 +133,8 @@ public class JsonNodeFactoryImplTest {
     // CRITICAL: Object* value nodes should have NO children
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
 
-    // Verify pageTrx.createRecord was called
-    verify(pageTrx).createRecord(eq(node), eq(IndexType.DOCUMENT), eq(-1));
+    // Verify storageEngineWriter.createRecord was called
+    verify(storageEngineWriter).createRecord(eq(node), eq(IndexType.DOCUMENT), eq(-1));
   }
 
   @Test

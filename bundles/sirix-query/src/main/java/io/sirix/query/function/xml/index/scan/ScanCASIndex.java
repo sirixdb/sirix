@@ -97,6 +97,6 @@ public final class ScanCASIndex extends AbstractScanIndex {
         ? controller.createCASFilter(Set.of(paths.split(";")), key, mode, new XmlPCRCollector(rtx))
         : controller.createCASFilter(Set.of(), key, mode, new XmlPCRCollector(rtx));
 
-    return getSequence(doc, controller.openCASIndex(doc.getTrx().getPageTrx(), indexDef, filter));
+    return getSequence(doc, controller.openCASIndex(doc.getTrx().getStorageEngineReader(), indexDef, filter));
   }
 }

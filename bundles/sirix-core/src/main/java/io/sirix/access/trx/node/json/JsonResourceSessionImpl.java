@@ -103,19 +103,19 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   }
 
   @Override
-  public JsonNodeTrx createNodeReadWriteTrx(int nodeTrxId, StorageEngineWriter pageTrx, int maxNodeCount,
+  public JsonNodeTrx createNodeReadWriteTrx(int nodeTrxId, StorageEngineWriter storageEngineWriter, int maxNodeCount,
       Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
-    final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx = createNodeReadOnlyTrx(nodeTrxId, pageTrx, documentNode);
+    final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx = createNodeReadOnlyTrx(nodeTrxId, storageEngineWriter, documentNode);
 
     // Node factory.
-    final JsonNodeFactory nodeFactory = new JsonNodeFactoryImpl(getResourceConfig().nodeHashFunction, pageTrx);
+    final JsonNodeFactory nodeFactory = new JsonNodeFactoryImpl(getResourceConfig().nodeHashFunction, storageEngineWriter);
 
     // Path summary.
     final boolean buildPathSummary = getResourceConfig().withPathSummary;
     final PathSummaryWriter<JsonNodeReadOnlyTrx> pathSummaryWriter;
     if (buildPathSummary) {
-      pathSummaryWriter = new PathSummaryWriter<>(pageTrx, this, nodeFactory, nodeReadOnlyTrx);
+      pathSummaryWriter = new PathSummaryWriter<>(storageEngineWriter, this, nodeFactory, nodeReadOnlyTrx);
     } else {
       pathSummaryWriter = null;
     }
@@ -127,8 +127,8 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
         : null;
     final var resourceConfig = getResourceConfig();
     return new JsonNodeTrxImpl(this.databaseName, this, nodeReadOnlyTrx, pathSummaryWriter, maxNodeCount, lock,
-        autoCommitDelay, new JsonNodeHashing(resourceConfig, nodeReadOnlyTrx, pageTrx), nodeFactory, afterCommitState,
-        new RecordToRevisionsIndex(pageTrx), isAutoCommitting);
+        autoCommitDelay, new JsonNodeHashing(resourceConfig, nodeReadOnlyTrx, storageEngineWriter), nodeFactory, afterCommitState,
+        new RecordToRevisionsIndex(storageEngineWriter), isAutoCommitting);
   }
 
   @SuppressWarnings("unchecked")

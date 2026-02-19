@@ -48,7 +48,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   /**
    * {@link StorageEngineWriter} implementation.
    */
-  private final StorageEngineWriter pageTrx;
+  private final StorageEngineWriter storageEngineWriter;
 
   /**
    * The current revision number.
@@ -74,12 +74,12 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
    * Constructor.
    *
    * @param hashFunction hash function used to hash nodes
-   * @param pageTrx {@link StorageEngineWriter} implementation
+   * @param storageEngineWriter {@link StorageEngineWriter} implementation
    */
-  JsonNodeFactoryImpl(final LongHashFunction hashFunction, final StorageEngineWriter pageTrx) {
+  JsonNodeFactoryImpl(final LongHashFunction hashFunction, final StorageEngineWriter storageEngineWriter) {
     this.hashFunction = requireNonNull(hashFunction);
-    this.pageTrx = requireNonNull(pageTrx);
-    this.revisionNumber = pageTrx.getRevisionNumber();
+    this.storageEngineWriter = requireNonNull(storageEngineWriter);
+    this.revisionNumber = storageEngineWriter.getRevisionNumber();
     this.reusableObjectNode =
         new ObjectNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, Fixed.NULL_NODE_KEY.getStandardProperty(),
             Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
@@ -114,7 +114,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   private long nextNodeKey() {
-    return pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    return storageEngineWriter.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
   }
 
   private ObjectNode bindObjectNode(final long nodeKey, final long parentKey, final long leftSibKey,
@@ -295,15 +295,15 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
 
     // CRITICAL FIX: Use accessor method instead of direct .getPage() call
     // After TIL.put(), PageReference.getPage() returns null
-    // Must use pageTrx.getPathSummaryPage() which handles TIL lookups
-    final PathSummaryPage pathSummaryPage = pageTrx.getPathSummaryPage(pageTrx.getActualRevisionRootPage());
+    // Must use storageEngineWriter.getPathSummaryPage() which handles TIL lookups
+    final PathSummaryPage pathSummaryPage = storageEngineWriter.getPathSummaryPage(storageEngineWriter.getActualRevisionRootPage());
     final NodeDelegate nodeDel = new NodeDelegate(pathSummaryPage.getMaxNodeKey(0) + 1, parentKey, hashFunction,
         Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
         Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
 
-    return pageTrx.createRecord(new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level), IndexType.PATH_SUMMARY,
+    return storageEngineWriter.createRecord(new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level), IndexType.PATH_SUMMARY,
         0);
   }
 
@@ -312,31 +312,31 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
       SirixDeweyID id) {
     final long nodeKey = nextNodeKey();
     final ArrayNode node = bindArrayNode(nodeKey, parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectNode createJsonObjectNode(long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id) {
     final long nodeKey = nextNodeKey();
     final ObjectNode node = bindObjectNode(nodeKey, parentKey, leftSibKey, rightSibKey, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public NullNode createJsonNullNode(long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id) {
     final long nodeKey = nextNodeKey();
     final NullNode node = bindNullNode(nodeKey, parentKey, leftSibKey, rightSibKey, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectKeyNode createJsonObjectKeyNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
       String name, long objectValueKey, SirixDeweyID id) {
-    final int localNameKey = pageTrx.createNameKey(name, NodeKind.OBJECT_KEY);
+    final int localNameKey = storageEngineWriter.createNameKey(name, NodeKind.OBJECT_KEY);
     final long nodeKey = nextNodeKey();
     final ObjectKeyNode node = bindObjectKeyNode(nodeKey, parentKey, leftSibKey, rightSibKey, pathNodeKey, localNameKey,
         name, objectValueKey, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
@@ -346,7 +346,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
 
     // For FSST, page-level symbol tables are required for decoding.
     // Until symbol table plumbing is complete, keep stored values uncompressed.
-    final ResourceConfiguration config = pageTrx.getResourceSession().getResourceConfig();
+    final ResourceConfiguration config = storageEngineWriter.getResourceSession().getResourceConfig();
     final boolean shouldUseCompression = doCompress && config.stringCompressionType == StringCompressionType.FSST;
     if (shouldUseCompression) {
       // Intentionally not compressing here: no symbol table is available on this path yet.
@@ -354,7 +354,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final boolean isCompressed = false;
 
     final StringNode node = bindStringNode(nodeKey, parentKey, leftSibKey, rightSibKey, value, isCompressed, null, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
@@ -362,7 +362,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
       SirixDeweyID id) {
     final long nodeKey = nextNodeKey();
     final BooleanNode node = bindBooleanNode(nodeKey, parentKey, leftSibKey, rightSibKey, boolValue, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
@@ -370,14 +370,14 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
       SirixDeweyID id) {
     final long nodeKey = nextNodeKey();
     final NumberNode node = bindNumberNode(nodeKey, parentKey, leftSibKey, rightSibKey, value, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectNullNode createJsonObjectNullNode(long parentKey, SirixDeweyID id) {
     final long nodeKey = nextNodeKey();
     final ObjectNullNode node = bindObjectNullNode(nodeKey, parentKey, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
@@ -387,7 +387,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
 
     // For FSST, page-level symbol tables are required for decoding.
     // Until symbol table plumbing is complete, keep stored values uncompressed.
-    final ResourceConfiguration config = pageTrx.getResourceSession().getResourceConfig();
+    final ResourceConfiguration config = storageEngineWriter.getResourceSession().getResourceConfig();
     final boolean shouldUseCompression = doCompress && config.stringCompressionType == StringCompressionType.FSST;
     if (shouldUseCompression) {
       // Intentionally not compressing here: no symbol table is available on this path yet.
@@ -395,25 +395,25 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final boolean isCompressed = false;
 
     final ObjectStringNode node = bindObjectStringNode(nodeKey, parentKey, value, isCompressed, null, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectBooleanNode createJsonObjectBooleanNode(long parentKey, boolean boolValue, SirixDeweyID id) {
     final long nodeKey = nextNodeKey();
     final ObjectBooleanNode node = bindObjectBooleanNode(nodeKey, parentKey, boolValue, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public ObjectNumberNode createJsonObjectNumberNode(long parentKey, Number value, SirixDeweyID id) {
     final long nodeKey = nextNodeKey();
     final ObjectNumberNode node = bindObjectNumberNode(nodeKey, parentKey, value, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public DeweyIDNode createDeweyIdNode(long nodeKey, @NonNull SirixDeweyID id) {
-    return pageTrx.createRecord(new DeweyIDNode(nodeKey, id), IndexType.DEWEYID_TO_RECORDID, 0);
+    return storageEngineWriter.createRecord(new DeweyIDNode(nodeKey, id), IndexType.DEWEYID_TO_RECORDID, 0);
   }
 }

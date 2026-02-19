@@ -127,11 +127,11 @@ public class GlobalBufferManagerIntegrationTest {
           final var rtx = session.beginNodeReadOnlyTrx()) {
 
         // Access the page transaction to verify IDs are set
-        final var pageRtx = rtx.getPageTrx();
+        final var storageEngineReader = rtx.getStorageEngineReader();
 
         // Verify transaction has access to both IDs
-        final long databaseId = pageRtx.getDatabaseId();
-        final long resourceId = pageRtx.getResourceId();
+        final long databaseId = storageEngineReader.getDatabaseId();
+        final long resourceId = storageEngineReader.getResourceId();
 
         assertTrue(databaseId >= 0, "Page transaction should have valid database ID");
         assertTrue(resourceId >= 0, "Page transaction should have valid resource ID");

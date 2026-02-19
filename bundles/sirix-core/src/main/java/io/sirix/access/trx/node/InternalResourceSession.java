@@ -39,7 +39,7 @@ public interface InternalResourceSession<R extends NodeReadOnlyTrx & NodeCursor,
 
   void closeWriteTransaction(int transactionID);
 
-  void setNodePageWriteTransaction(int transactionID, StorageEngineWriter pageTrx);
+  void setNodePageWriteTransaction(int transactionID, StorageEngineWriter storageEngineWriter);
 
   void closeNodePageWriteTransaction(int transactionID);
 

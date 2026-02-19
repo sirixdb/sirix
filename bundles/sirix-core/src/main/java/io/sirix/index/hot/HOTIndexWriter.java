@@ -69,14 +69,14 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   /**
    * Private constructor.
    *
-   * @param pageTrx the storage engine writer
+   * @param storageEngineWriter the storage engine writer
    * @param keySerializer the key serializer
    * @param indexType the index type (PATH, CAS, NAME)
    * @param indexNumber the index number
    */
-  private HOTIndexWriter(StorageEngineWriter pageTrx, HOTKeySerializer<K> keySerializer, IndexType indexType,
+  private HOTIndexWriter(StorageEngineWriter storageEngineWriter, HOTKeySerializer<K> keySerializer, IndexType indexType,
       int indexNumber) {
-    super(pageTrx, indexType, indexNumber);
+    super(storageEngineWriter, indexType, indexNumber);
     this.keySerializer = requireNonNull(keySerializer);
 
     // Initialize HOT index tree based on type
@@ -98,16 +98,16 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
   /**
    * Creates a new HOTIndexWriter.
    *
-   * @param pageTrx the storage engine writer
+   * @param storageEngineWriter the storage engine writer
    * @param keySerializer the key serializer
    * @param indexType the index type
    * @param indexNumber the index number
    * @param <K> the key type
    * @return a new HOTIndexWriter instance
    */
-  public static <K extends Comparable<? super K>> HOTIndexWriter<K> create(StorageEngineWriter pageTrx,
+  public static <K extends Comparable<? super K>> HOTIndexWriter<K> create(StorageEngineWriter storageEngineWriter,
       HOTKeySerializer<K> keySerializer, IndexType indexType, int indexNumber) {
-    return new HOTIndexWriter<>(pageTrx, keySerializer, indexType, indexNumber);
+    return new HOTIndexWriter<>(storageEngineWriter, keySerializer, indexType, indexNumber);
   }
 
   /**

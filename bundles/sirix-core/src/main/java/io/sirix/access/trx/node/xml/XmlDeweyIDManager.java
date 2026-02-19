@@ -14,12 +14,12 @@ import io.sirix.node.xml.ElementNode;
 final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx> {
   private final InternalXmlNodeTrx nodeTrx;
 
-  private final StorageEngineWriter pageTrx;
+  private final StorageEngineWriter storageEngineWriter;
 
   public XmlDeweyIDManager(InternalXmlNodeTrx nodeTrx) {
     super(nodeTrx);
     this.nodeTrx = nodeTrx;
-    this.pageTrx = nodeTrx.getPageWtx();
+    this.storageEngineWriter = nodeTrx.getStorageEngineWriter();
   }
 
   /**
@@ -41,7 +41,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
 
     final long nodeKey = nodeTrx.getNodeKey();
 
-    final StructNode root = nodeTrx.getPageWtx().prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    final StructNode root = nodeTrx.getStorageEngineWriter().prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
     root.setDeweyID(id);
     persistUpdatedRecord(root);
 
@@ -88,7 +88,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
           }
         }
 
-        final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+        final Node node = storageEngineWriter.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setDeweyID(deweyID);
         persistUpdatedRecord(node);
 
@@ -114,7 +114,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
         nodeTrx.moveToParent();
         nodeTrx.moveToAttribute(i);
 
-        final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+        final Node node = storageEngineWriter.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setDeweyID(deweyID);
         persistUpdatedRecord(node);
 
@@ -132,7 +132,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
         }
         nodeTrx.moveToNamespace(i);
 
-        final Node node = pageTrx.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+        final Node node = storageEngineWriter.prepareRecordForModification(nodeTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setDeweyID(deweyID);
         persistUpdatedRecord(node);
 
@@ -182,7 +182,7 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
   }
 
   private void persistUpdatedRecord(final DataRecord record) {
-    pageTrx.updateRecordSlot(record, IndexType.DOCUMENT, -1);
+    storageEngineWriter.updateRecordSlot(record, IndexType.DOCUMENT, -1);
   }
 
 }

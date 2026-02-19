@@ -14,19 +14,19 @@ public final class RecordToRevisionsIndex {
   /**
    * The page trx to create index-entries.
    */
-  private StorageEngineWriter pageTrx;
+  private StorageEngineWriter storageEngineWriter;
 
   /**
    * Constructor
    *
-   * @param pageTrx the page trx to create index-entries.
+   * @param storageEngineWriter the page trx to create index-entries.
    */
-  public RecordToRevisionsIndex(final StorageEngineWriter pageTrx) {
-    this.pageTrx = requireNonNull(pageTrx);
+  public RecordToRevisionsIndex(final StorageEngineWriter storageEngineWriter) {
+    this.storageEngineWriter = requireNonNull(storageEngineWriter);
   }
 
-  public void setPageTrx(final StorageEngineWriter pageTrx) {
-    this.pageTrx = pageTrx;
+  public void setPageTrx(final StorageEngineWriter storageEngineWriter) {
+    this.storageEngineWriter = storageEngineWriter;
   }
 
   /**
@@ -36,8 +36,8 @@ public final class RecordToRevisionsIndex {
    */
   public void addToRecordToRevisionsIndex(long recordKey) {
     // Add to revision index.
-    final int[] revisions = {pageTrx.getRevisionNumber()};
-    pageTrx.createRecord(new RevisionReferencesNode(recordKey, revisions), IndexType.RECORD_TO_REVISIONS, 0);
+    final int[] revisions = {storageEngineWriter.getRevisionNumber()};
+    storageEngineWriter.createRecord(new RevisionReferencesNode(recordKey, revisions), IndexType.RECORD_TO_REVISIONS, 0);
   }
 
   /**
@@ -47,8 +47,8 @@ public final class RecordToRevisionsIndex {
    */
   public void addRevisionToRecordToRevisionsIndex(long recordKey) {
     final RevisionReferencesNode revisionReferencesNode =
-        pageTrx.prepareRecordForModification(recordKey, IndexType.RECORD_TO_REVISIONS, 0);
-    revisionReferencesNode.addRevision(pageTrx.getRevisionNumber());
-    pageTrx.updateRecordSlot(revisionReferencesNode, IndexType.RECORD_TO_REVISIONS, 0);
+        storageEngineWriter.prepareRecordForModification(recordKey, IndexType.RECORD_TO_REVISIONS, 0);
+    revisionReferencesNode.addRevision(storageEngineWriter.getRevisionNumber());
+    storageEngineWriter.updateRecordSlot(revisionReferencesNode, IndexType.RECORD_TO_REVISIONS, 0);
   }
 }

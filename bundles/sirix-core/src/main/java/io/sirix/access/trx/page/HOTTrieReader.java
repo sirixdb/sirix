@@ -62,7 +62,7 @@ import java.util.Objects;
  * </p>
  * 
  * <pre>{@code
- * try (HOTTrieReader reader = new HOTTrieReader(pageRtx)) {
+ * try (HOTTrieReader reader = new HOTTrieReader(storageEngineReader)) {
  *   MemorySegment value = reader.get(rootRef, key);
  *   if (value != null) {
  *     // Use value...
@@ -81,7 +81,7 @@ public final class HOTTrieReader implements AutoCloseable {
   private static final int MAX_TREE_HEIGHT = 64;
 
   /** The storage engine reader. */
-  private final StorageEngineReader pageRtx;
+  private final StorageEngineReader storageEngineReader;
 
   // ===== Pre-allocated traversal path - ZERO allocations on hot path! =====
   private final PageReference[] pathRefs = new PageReference[MAX_TREE_HEIGHT];
@@ -95,10 +95,10 @@ public final class HOTTrieReader implements AutoCloseable {
   /**
    * Create a new HOTTrieReader.
    *
-   * @param pageRtx the storage engine reader
+   * @param storageEngineReader the storage engine reader
    */
-  public HOTTrieReader(@NonNull StorageEngineReader pageRtx) {
-    this.pageRtx = Objects.requireNonNull(pageRtx);
+  public HOTTrieReader(@NonNull StorageEngineReader storageEngineReader) {
+    this.storageEngineReader = Objects.requireNonNull(storageEngineReader);
   }
 
   /**
@@ -392,7 +392,7 @@ public final class HOTTrieReader implements AutoCloseable {
 
     // Load from storage via the storage engine reader
     // The storage engine will handle versioning/fragment combining AND transaction log lookup
-    return pageRtx.loadHOTPage(ref);
+    return storageEngineReader.loadHOTPage(ref);
   }
 
   /**
@@ -409,7 +409,7 @@ public final class HOTTrieReader implements AutoCloseable {
    * Get the storage engine reader.
    */
   StorageEngineReader getPageRtx() {
-    return pageRtx;
+    return storageEngineReader;
   }
 
   @Override

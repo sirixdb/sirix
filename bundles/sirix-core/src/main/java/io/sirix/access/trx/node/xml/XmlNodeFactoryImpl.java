@@ -39,7 +39,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   /**
    * {@link StorageEngineWriter} implementation.
    */
-  private final StorageEngineWriter pageTrx;
+  private final StorageEngineWriter storageEngineWriter;
 
   /**
    * The hash function used for hashing nodes.
@@ -70,11 +70,11 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
    * @param pageWriteTrx {@link StorageEngineWriter} implementation
    */
   XmlNodeFactoryImpl(final LongHashFunction hashFunction, final StorageEngineWriter pageWriteTrx) {
-    this.pageTrx = requireNonNull(pageWriteTrx);
-    this.pageTrx.createNameKey("xs:untyped", NodeKind.ATTRIBUTE);
-    this.pageTrx.createNameKey("xs:untyped", NodeKind.NAMESPACE);
-    this.pageTrx.createNameKey("xs:untyped", NodeKind.ELEMENT);
-    this.pageTrx.createNameKey("xs:untyped", NodeKind.PROCESSING_INSTRUCTION);
+    this.storageEngineWriter = requireNonNull(pageWriteTrx);
+    this.storageEngineWriter.createNameKey("xs:untyped", NodeKind.ATTRIBUTE);
+    this.storageEngineWriter.createNameKey("xs:untyped", NodeKind.NAMESPACE);
+    this.storageEngineWriter.createNameKey("xs:untyped", NodeKind.ELEMENT);
+    this.storageEngineWriter.createNameKey("xs:untyped", NodeKind.PROCESSING_INSTRUCTION);
     this.hashFunction = requireNonNull(hashFunction);
     this.revisionNumber = pageWriteTrx.getRevisionNumber();
     this.reusableElementAttributeKeys = new LongArrayList();
@@ -100,7 +100,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   private long nextNodeKey() {
-    return pageTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
+    return storageEngineWriter.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
   }
 
   private AttributeNode bindAttributeNode(final long nodeKey, final long parentKey, final QNm name, final byte[] value,
@@ -235,15 +235,15 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
 
     // CRITICAL FIX: Use accessor method instead of direct .getPage() call
     // After TIL.put(), PageReference.getPage() returns null
-    // Must use pageTrx.getPathSummaryPage() which handles TIL lookups
-    final PathSummaryPage pathSummaryPage = pageTrx.getPathSummaryPage(pageTrx.getActualRevisionRootPage());
+    // Must use storageEngineWriter.getPathSummaryPage() which handles TIL lookups
+    final PathSummaryPage pathSummaryPage = storageEngineWriter.getPathSummaryPage(storageEngineWriter.getActualRevisionRootPage());
     final NodeDelegate nodeDel = new NodeDelegate(pathSummaryPage.getMaxNodeKey(0) + 1, parentKey, hashFunction,
         Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
     final StructNodeDelegate structDel =
         new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
 
-    return pageTrx.createRecord(new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level), IndexType.PATH_SUMMARY,
+    return storageEngineWriter.createRecord(new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level), IndexType.PATH_SUMMARY,
         0);
   }
 
@@ -252,16 +252,16 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
       final @NonNegative long rightSibKey, @NonNull final QNm name, final @NonNegative long pathNodeKey,
       final SirixDeweyID id) {
     final int uriKey = name.getNamespaceURI() != null && !name.getNamespaceURI().isEmpty()
-        ? pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE)
+        ? storageEngineWriter.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE)
         : -1;
     final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
-        ? pageTrx.createNameKey(name.getPrefix(), NodeKind.ELEMENT)
+        ? storageEngineWriter.createNameKey(name.getPrefix(), NodeKind.ELEMENT)
         : -1;
-    final int localNameKey = pageTrx.createNameKey(name.getLocalName(), NodeKind.ELEMENT);
+    final int localNameKey = storageEngineWriter.createNameKey(name.getLocalName(), NodeKind.ELEMENT);
     final long nodeKey = nextNodeKey();
     final ElementNode node = bindElementNode(nodeKey, parentKey, leftSibKey, rightSibKey, name, pathNodeKey, prefixKey,
         localNameKey, uriKey, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
@@ -276,34 +276,34 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         : value;
 
     final TextNode node = bindTextNode(nodeKey, parentKey, leftSibKey, rightSibKey, compressedValue, compression, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public AttributeNode createAttributeNode(final @NonNegative long parentKey, final @NonNull QNm name,
       final byte[] value, final @NonNegative long pathNodeKey, final SirixDeweyID id) {
-    final int uriKey = pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
+    final int uriKey = storageEngineWriter.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
     final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
-        ? pageTrx.createNameKey(name.getPrefix(), NodeKind.ATTRIBUTE)
+        ? storageEngineWriter.createNameKey(name.getPrefix(), NodeKind.ATTRIBUTE)
         : -1;
-    final int localNameKey = pageTrx.createNameKey(name.getLocalName(), NodeKind.ATTRIBUTE);
+    final int localNameKey = storageEngineWriter.createNameKey(name.getLocalName(), NodeKind.ATTRIBUTE);
     final long nodeKey = nextNodeKey();
     final AttributeNode node =
         bindAttributeNode(nodeKey, parentKey, name, value, pathNodeKey, prefixKey, localNameKey, uriKey, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
   public NamespaceNode createNamespaceNode(final @NonNegative long parentKey, final QNm name,
       final @NonNegative long pathNodeKey, final SirixDeweyID id) {
-    final int uriKey = pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
+    final int uriKey = storageEngineWriter.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
     final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
-        ? pageTrx.createNameKey(name.getPrefix(), NodeKind.NAMESPACE)
+        ? storageEngineWriter.createNameKey(name.getPrefix(), NodeKind.NAMESPACE)
         : -1;
 
     final long nodeKey = nextNodeKey();
     final NamespaceNode node = bindNamespaceNode(nodeKey, parentKey, name, pathNodeKey, prefixKey, uriKey, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
@@ -311,10 +311,10 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
       final @NonNegative long rightSibKey, final QNm target, final byte[] content, final boolean isCompressed,
       final @NonNegative long pathNodeKey, final SirixDeweyID id) {
     final int prefixKey = target.getPrefix() != null && !target.getPrefix().isEmpty()
-        ? pageTrx.createNameKey(target.getPrefix(), NodeKind.PROCESSING_INSTRUCTION)
+        ? storageEngineWriter.createNameKey(target.getPrefix(), NodeKind.PROCESSING_INSTRUCTION)
         : -1;
-    final int localNameKey = pageTrx.createNameKey(target.getLocalName(), NodeKind.PROCESSING_INSTRUCTION);
-    final int uriKey = pageTrx.createNameKey(target.getNamespaceURI(), NodeKind.NAMESPACE);
+    final int localNameKey = storageEngineWriter.createNameKey(target.getLocalName(), NodeKind.PROCESSING_INSTRUCTION);
+    final int uriKey = storageEngineWriter.createNameKey(target.getNamespaceURI(), NodeKind.NAMESPACE);
     final long nodeKey = nextNodeKey();
     final boolean compression = isCompressed && content.length > 10;
     final byte[] compressedContent = compression
@@ -322,7 +322,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         : content;
     final PINode node = bindPINode(nodeKey, parentKey, leftSibKey, rightSibKey, target, compressedContent, pathNodeKey,
         prefixKey, localNameKey, uriKey, compression, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 
   @Override
@@ -338,6 +338,6 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
 
     final CommentNode node =
         bindCommentNode(nodeKey, parentKey, leftSibKey, rightSibKey, compressedValue, compression, id);
-    return pageTrx.createRecord(node, IndexType.DOCUMENT, -1);
+    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
   }
 }

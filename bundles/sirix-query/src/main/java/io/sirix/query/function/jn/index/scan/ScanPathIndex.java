@@ -75,6 +75,6 @@ public final class ScanPathIndex extends AbstractScanIndex {
         ? controller.createPathFilter(Set.of(paths.split(";")), document.getTrx())
         : null;
 
-    return getSequence(document, controller.openPathIndex(document.getTrx().getPageTrx(), indexDef, filter));
+    return getSequence(document, controller.openPathIndex(document.getTrx().getStorageEngineReader(), indexDef, filter));
   }
 }

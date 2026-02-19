@@ -64,7 +64,7 @@ public class AttributeNodeTest {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     holder = Holder.generateDeweyIDResourceSession();
-    pageReadOnlyTrx = holder.getResourceSession().beginPageReadOnlyTrx();
+    pageReadOnlyTrx = holder.getResourceSession().beginStorageEngineReader();
   }
 
   @After

@@ -85,7 +85,7 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
    *
    * @return the underlying page transaction
    */
-  StorageEngineReader getPageTrx();
+  StorageEngineReader getStorageEngineReader();
 
   /**
    * Get the path node key of the current node.

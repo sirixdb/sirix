@@ -100,7 +100,7 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for values GREATER than 25
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/items/[]/value"), new Int32(25), SearchMode.GREATER, new JsonPCRCollector(wtx)));
 
           int count = 0;
@@ -147,7 +147,7 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for values LESS than 35
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/items/[]/value"), new Int32(35), SearchMode.LOWER, new JsonPCRCollector(wtx)));
 
           int count = 0;
@@ -194,7 +194,7 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for values GREATER_OR_EQUAL to 30
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/items/[]/value"), new Int32(30), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
@@ -241,7 +241,7 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for values LESS_OR_EQUAL to 30
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/items/[]/value"), new Int32(30), SearchMode.LOWER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
@@ -293,7 +293,7 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for names GREATER than "C" (should find Charlie, David, Eve)
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/users/[]/name"), new Str("C"), SearchMode.GREATER, new JsonPCRCollector(wtx)));
 
           int count = 0;
@@ -340,7 +340,7 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for names LESS than "D" (should find Alice, Bob, Charlie)
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/users/[]/name"), new Str("D"), SearchMode.LOWER, new JsonPCRCollector(wtx)));
 
           int count = 0;
@@ -390,7 +390,7 @@ class HOTRangeQueryTest {
           wtx.commit();
 
           // Query for values in range [25, 75]
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/items/[]/value"), new Int32(25), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;

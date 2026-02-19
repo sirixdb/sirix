@@ -130,7 +130,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   /**
    * The page write trx.
    */
-  protected StorageEngineWriter pageTrx;
+  protected StorageEngineWriter storageEngineWriter;
 
   /**
    * The {@link IndexController} used within the resource manager this {@link NodeTrx} is bound to.
@@ -190,13 +190,13 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     this.buildPathSummary = resourceManager.getResourceConfig().withPathSummary;
     this.nodeFactory = requireNonNull(nodeFactory);
     this.pathSummaryWriter = pathSummaryWriter;
-    this.indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
+    this.indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     this.nodeToRevisionsIndex = requireNonNull(nodeToRevisionsIndex);
 
     this.updateOperationsOrdered = new TreeMap<>();
     this.updateOperationsUnordered = new HashMap<>();
 
-    this.pageTrx = (StorageEngineWriter) nodeReadOnlyTrx.getPageTrx();
+    this.storageEngineWriter = (StorageEngineWriter) nodeReadOnlyTrx.getStorageEngineReader();
 
     // Only auto commit by node modifications if it is more then 0.
     this.maxNodeCount = maxNodeCount;
@@ -268,7 +268,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     if (hashType != HashType.NONE) {
       final long nodeKey = nodeReadOnlyTrx.getNodeKey();
       postOrderTraversalHashes();
-      final ImmutableNode startNode = pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      final ImmutableNode startNode = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
       // Pre-capture all values from startNode before traversing ancestors.
       // Each ancestor's prepareRecordForModification may overwrite the singleton if same kind.
       final long hashToAdd = startNode.computeHash(nodeHashing.getBytes());
@@ -315,7 +315,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       final var preCommitRevision = getRevisionNumber();
 
-      final UberPage uberPage = pageTrx.commit(commitMessage, commitTimestamp, isAutoCommitting);
+      final UberPage uberPage = storageEngineWriter.commit(commitMessage, commitTimestamp, isAutoCommitting);
 
       // Remember successfully committed uber page in resource manager.
       resourceSession.setLastCommittedUberPage(uberPage);
@@ -358,7 +358,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   protected final void persistUpdatedRecord(final DataRecord record) {
-    pageTrx.updateRecordSlot(record, IndexType.DOCUMENT, -1);
+    storageEngineWriter.updateRecordSlot(record, IndexType.DOCUMENT, -1);
   }
 
   /**
@@ -386,16 +386,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private void reInstantiate(final @NonNegative int trxID, final @NonNegative int revNumber) {
     // Reset page transaction to new uber page.
     resourceSession.closeNodePageWriteTransaction(getId());
-    pageTrx =
+    storageEngineWriter =
         resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.NO, true);
     nodeReadOnlyTrx.setPageReadTransaction(null);
-    nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
-    resourceSession.setNodePageWriteTransaction(getId(), pageTrx);
+    nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
+    resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
 
-    nodeFactory = reInstantiateNodeFactory(pageTrx);
+    nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
 
     final boolean isBulkInsert = nodeHashing.isBulkInsert();
-    nodeHashing = reInstantiateNodeHashing(pageTrx);
+    nodeHashing = reInstantiateNodeHashing(storageEngineWriter);
     nodeHashing.setBulkInsert(isBulkInsert);
 
     updateOperationsUnordered.clear();
@@ -404,22 +404,22 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     reInstantiateIndexes();
   }
 
-  protected abstract AbstractNodeHashing<N, R> reInstantiateNodeHashing(StorageEngineWriter pageTrx);
+  protected abstract AbstractNodeHashing<N, R> reInstantiateNodeHashing(StorageEngineWriter storageEngineWriter);
 
-  protected abstract NF reInstantiateNodeFactory(StorageEngineWriter pageTrx);
+  protected abstract NF reInstantiateNodeFactory(StorageEngineWriter storageEngineWriter);
 
   private void reInstantiateIndexes() {
     // Get a new path summary instance.
     if (buildPathSummary) {
-      pathSummaryWriter = new PathSummaryWriter<>(pageTrx, resourceSession, nodeFactory, typeSpecificTrx);
+      pathSummaryWriter = new PathSummaryWriter<>(storageEngineWriter, resourceSession, nodeFactory, typeSpecificTrx);
     }
 
     // Recreate index listeners.
     final var indexDefs = indexController.getIndexes().getIndexDefs();
-    indexController = resourceSession.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
+    indexController = resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     indexController.createIndexListeners(indexDefs, self());
 
-    nodeToRevisionsIndex.setPageTrx(pageTrx);
+    nodeToRevisionsIndex.setPageTrx(storageEngineWriter);
   }
 
   @Override
@@ -436,11 +436,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // Close current page transaction.
     final int trxID = getId();
     final int revision = getRevisionNumber();
-    final int revNumber = pageTrx.getUberPage().isBootstrap()
+    final int revNumber = storageEngineWriter.getUberPage().isBootstrap()
         ? 0
         : revision - 1;
 
-    final UberPage uberPage = pageTrx.rollback();
+    final UberPage uberPage = storageEngineWriter.rollback();
 
     // Remember successfully committed uber page in resource manager.
     resourceSession.setLastCommittedUberPage(uberPage);
@@ -449,12 +449,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     nodeReadOnlyTrx.setPageReadTransaction(null);
     removeCommitFile();
 
-    pageTrx =
+    storageEngineWriter =
         resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.YES, true);
-    nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
-    resourceSession.setNodePageWriteTransaction(getId(), pageTrx);
+    nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
+    resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
 
-    nodeFactory = reInstantiateNodeFactory(pageTrx);
+    nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
 
     reInstantiateIndexes();
 
@@ -489,16 +489,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       // Reset internal transaction state to new uber page.
       resourceSession.closeNodePageWriteTransaction(getId());
-      pageTrx =
+      storageEngineWriter =
           resourceSession.createPageTransaction(trxID, revision, revNumber - 1, InternalResourceSession.Abort.NO, true);
       nodeReadOnlyTrx.setPageReadTransaction(null);
-      nodeReadOnlyTrx.setPageReadTransaction(pageTrx);
-      resourceSession.setNodePageWriteTransaction(getId(), pageTrx);
+      nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
+      resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
 
-      nodeHashing = reInstantiateNodeHashing(pageTrx);
+      nodeHashing = reInstantiateNodeHashing(storageEngineWriter);
 
       // Reset node factory.
-      nodeFactory = reInstantiateNodeFactory(pageTrx);
+      nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
 
       // New index instances.
       reInstantiateIndexes();
@@ -574,9 +574,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   @Override
-  public StorageEngineWriter getPageWtx() {
+  public StorageEngineWriter getStorageEngineWriter() {
     nodeReadOnlyTrx.assertNotClosed();
-    return (StorageEngineWriter) nodeReadOnlyTrx.getPageTrx();
+    return (StorageEngineWriter) nodeReadOnlyTrx.getStorageEngineReader();
   }
 
   @Override
@@ -599,8 +599,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
         // CRITICAL FIX: Close StorageEngineWriter to trigger TIL.close() and clean up uncommitted pages
         // Without this, TIL instances with uncommitted pages leak
-        if (pageTrx != null && !pageTrx.isClosed()) {
-          pageTrx.close();
+        if (storageEngineWriter != null && !storageEngineWriter.isClosed()) {
+          storageEngineWriter.close();
         }
 
         resourceSession.closeWriteTransaction(trxId);

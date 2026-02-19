@@ -262,7 +262,7 @@ public final class BitemporalIndexStressTest {
           String[] thresholds = {"2021-01-01T00:00:00Z", "2022-01-01T00:00:00Z", "2023-01-01T00:00:00Z"};
 
           for (String threshold : thresholds) {
-            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+            var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), validFromIndex,
                 indexController.createCASFilter(Set.of("/[]/validFrom"), new Str(threshold),
                     SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
@@ -439,7 +439,7 @@ public final class BitemporalIndexStressTest {
           assertEquals(100, allValidToNodeKeys.size(), "Should have exactly 100 validTo nodeKeys");
 
           // Query all indexed validFrom values and collect nodeKeys
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), validFromIndex,
               indexController.createCASFilter(Set.of("/[]/validFrom"), new Str("2020-01-01T00:00:00Z"),
                   SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
@@ -458,7 +458,7 @@ public final class BitemporalIndexStressTest {
           }
 
           // Query all indexed validTo values
-          var casIndexTo = indexController.openCASIndex(wtx.getPageTrx(), validToIndex,
+          var casIndexTo = indexController.openCASIndex(wtx.getStorageEngineReader(), validToIndex,
               indexController.createCASFilter(Set.of("/[]/validTo"), new Str("2020-01-01T00:00:00Z"),
                   SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
@@ -531,7 +531,7 @@ public final class BitemporalIndexStressTest {
           wtx.commit();
 
           // Query for records >= 2022-01-01 (should be 300: 2022, 2023, 2024)
-          var casIndex2022 = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+          var casIndex2022 = indexController.openCASIndex(wtx.getStorageEngineReader(), validFromIndex,
               indexController.createCASFilter(Set.of("/[]/validFrom"), new Str("2022-01-01T00:00:00Z"),
                   SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
@@ -543,7 +543,7 @@ public final class BitemporalIndexStressTest {
           assertEquals(300, count2022, "Should have exactly 300 records >= 2022-01-01");
 
           // Query for records >= 2024-01-01 (should be 100: only 2024)
-          var casIndex2024 = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+          var casIndex2024 = indexController.openCASIndex(wtx.getStorageEngineReader(), validFromIndex,
               indexController.createCASFilter(Set.of("/[]/validFrom"), new Str("2024-01-01T00:00:00Z"),
                   SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
@@ -555,7 +555,7 @@ public final class BitemporalIndexStressTest {
           assertEquals(100, count2024, "Should have exactly 100 records >= 2024-01-01");
 
           // Query for all records (should be 500)
-          var casIndexAll = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+          var casIndexAll = indexController.openCASIndex(wtx.getStorageEngineReader(), validFromIndex,
               indexController.createCASFilter(Set.of("/[]/validFrom"), new Str("2020-01-01T00:00:00Z"),
                   SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
@@ -613,7 +613,7 @@ public final class BitemporalIndexStressTest {
           wtx.commit();
 
           // Collect nodeKeys from revision 1
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), validFromIndex,
               indexController.createCASFilter(Set.of("/[]/validFrom"), new Str("2020-01-01T00:00:00Z"),
                   SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
@@ -644,7 +644,7 @@ public final class BitemporalIndexStressTest {
 
           // Collect all nodeKeys from revision 2
           var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), validFromIndex,
               indexController.createCASFilter(Set.of("/[]/validFrom"), new Str("2020-01-01T00:00:00Z"),
                   SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
@@ -748,7 +748,7 @@ public final class BitemporalIndexStressTest {
 
     private long countIndexEntries(IndexController<JsonNodeReadOnlyTrx, JsonNodeTrx> indexController, JsonNodeTrx wtx,
         IndexDef indexDef, String threshold) {
-      var casIndex = indexController.openCASIndex(wtx.getPageTrx(), indexDef, indexController.createCASFilter(
+      var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), indexDef, indexController.createCASFilter(
           Set.of("/[]/validFrom"), new Str(threshold), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
       long count = 0;
@@ -1321,7 +1321,7 @@ public final class BitemporalIndexStressTest {
             int year = 2015 + (iteration % 10);
             String threshold = year + "-01-01T00:00:00Z";
 
-            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), validFromIndex,
+            var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), validFromIndex,
                 indexController.createCASFilter(Set.of("/[]/validFrom"), new Str(threshold),
                     SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
@@ -1558,7 +1558,7 @@ public final class BitemporalIndexStressTest {
           // Verify total record count by querying first few indexes
           long totalVerified = 0;
           for (int i = 0; i < Math.min(10, NUM_SECTIONS); i++) {
-            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), indexes.get(i * 2),
+            var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), indexes.get(i * 2),
                 indexController.createCASFilter(Set.of("/section_" + i + "/data/[]/validFrom"),
                     new Str("2020-01-01T00:00:00Z"), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
@@ -1783,7 +1783,7 @@ public final class BitemporalIndexStressTest {
 
           // Collect all validFrom nodeKeys by querying each department's index
           for (int dept = 0; dept < NUM_DEPARTMENTS; dept++) {
-            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), indexes.get(dept),
+            var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), indexes.get(dept),
                 indexController.createCASFilter(Set.of("/dept_" + dept + "/employees/[]/validFrom"),
                     new Str("2020-01-01T00:00:00Z"), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 

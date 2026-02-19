@@ -187,8 +187,8 @@ public interface ForwardingJsonNodeReadOnlyTrx extends JsonNodeReadOnlyTrx {
   }
 
   @Override
-  default StorageEngineReader getPageTrx() {
-    return nodeReadOnlyTrxDelegate().getPageTrx();
+  default StorageEngineReader getStorageEngineReader() {
+    return nodeReadOnlyTrxDelegate().getStorageEngineReader();
   }
 
   @Override

@@ -24,24 +24,24 @@ import java.util.Optional;
 import java.util.Set;
 
 public interface NameIndex<B, L extends ChangeListener> {
-  B createBuilder(StorageEngineWriter pageTrx, IndexDef indexDef);
+  B createBuilder(StorageEngineWriter storageEngineWriter, IndexDef indexDef);
 
-  L createListener(StorageEngineWriter pageTrx, IndexDef indexDef);
+  L createListener(StorageEngineWriter storageEngineWriter, IndexDef indexDef);
 
-  default Iterator<NodeReferences> openIndex(StorageEngineReader pageRtx, IndexDef indexDef, NameFilter filter) {
+  default Iterator<NodeReferences> openIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, NameFilter filter) {
     // Check if HOT is enabled (system property takes precedence, then resource config)
-    if (isHOTEnabled(pageRtx)) {
-      return openHOTIndex(pageRtx, indexDef, filter);
+    if (isHOTEnabled(storageEngineReader)) {
+      return openHOTIndex(storageEngineReader, indexDef, filter);
     }
 
     // Use RBTree (default)
-    return openRBTreeIndex(pageRtx, indexDef, filter);
+    return openRBTreeIndex(storageEngineReader, indexDef, filter);
   }
 
   /**
    * Checks if HOT indexes should be used for reading.
    */
-  private static boolean isHOTEnabled(final StorageEngineReader pageRtx) {
+  private static boolean isHOTEnabled(final StorageEngineReader storageEngineReader) {
     // System property takes precedence (for testing)
     final String sysProp = System.getProperty(NameIndexListenerFactory.USE_HOT_PROPERTY);
     if (sysProp != null) {
@@ -49,16 +49,16 @@ public interface NameIndex<B, L extends ChangeListener> {
     }
 
     // Fall back to resource configuration
-    final var resourceConfig = pageRtx.getResourceSession().getResourceConfig();
+    final var resourceConfig = storageEngineReader.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;
   }
 
   /**
    * Open HOT-based name index.
    */
-  private Iterator<NodeReferences> openHOTIndex(StorageEngineReader pageRtx, IndexDef indexDef, NameFilter filter) {
+  private Iterator<NodeReferences> openHOTIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, NameFilter filter) {
     final HOTIndexReader<QNm> reader =
-        HOTIndexReader.create(pageRtx, NameKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
+        HOTIndexReader.create(storageEngineReader, NameKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
 
     if (filter.getIncludes().size() == 1 && filter.getExcludes().isEmpty()) {
       // Single name lookup
@@ -111,9 +111,9 @@ public interface NameIndex<B, L extends ChangeListener> {
   /**
    * Open RBTree-based name index (default).
    */
-  private Iterator<NodeReferences> openRBTreeIndex(StorageEngineReader pageRtx, IndexDef indexDef, NameFilter filter) {
+  private Iterator<NodeReferences> openRBTreeIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, NameFilter filter) {
     final RBTreeReader<QNm, NodeReferences> reader = RBTreeReader.getInstance(
-        pageRtx.getResourceSession().getIndexCache(), pageRtx, indexDef.getType(), indexDef.getID());
+        storageEngineReader.getResourceSession().getIndexCache(), storageEngineReader, indexDef.getType(), indexDef.getID());
 
     if (filter.getIncludes().size() == 1 && filter.getExcludes().isEmpty()) {
       final Optional<NodeReferences> optionalNodeReferences =

@@ -46,7 +46,7 @@ public final class FirstExisting extends AbstractFunction {
     final var resourceSession = item.getTrx().getResourceSession();
 
     final RevisionReferencesNode indexNode =
-        item.getTrx().getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
+        item.getTrx().getStorageEngineReader().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
 
     if (indexNode != null) {
       final var revision = indexNode.getRevisions()[0];

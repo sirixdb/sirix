@@ -162,37 +162,37 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key name key identifying name
    * @return raw name of name key
    */
-  public byte[] getRawName(final int key, final NodeKind nodeKind, final StorageEngineReader pageRtx) {
+  public byte[] getRawName(final int key, final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
     final byte[] rawName;
     // $CASES-OMITTED$
     switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
-          elements = getNames(pageRtx, ELEMENTS_REFERENCE_OFFSET);
+          elements = getNames(storageEngineReader, ELEMENTS_REFERENCE_OFFSET);
         }
         rawName = elements.getRawName(key);
       }
       case NAMESPACE -> {
         if (namespaces == null) {
-          namespaces = getNames(pageRtx, NAMESPACE_REFERENCE_OFFSET);
+          namespaces = getNames(storageEngineReader, NAMESPACE_REFERENCE_OFFSET);
         }
         rawName = namespaces.getRawName(key);
       }
       case ATTRIBUTE -> {
         if (attributes == null) {
-          attributes = getNames(pageRtx, ATTRIBUTES_REFERENCE_OFFSET);
+          attributes = getNames(storageEngineReader, ATTRIBUTES_REFERENCE_OFFSET);
         }
         rawName = attributes.getRawName(key);
       }
       case PROCESSING_INSTRUCTION -> {
         if (processingInstructions == null) {
-          processingInstructions = getNames(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
+          processingInstructions = getNames(storageEngineReader, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
         }
         rawName = processingInstructions.getRawName(key);
       }
       case OBJECT_KEY -> {
         if (jsonObjectKeys == null) {
-          jsonObjectKeys = getNames(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET);
+          jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
         rawName = jsonObjectKeys.getRawName(key);
       }
@@ -201,16 +201,16 @@ public final class NamePage extends AbstractForwardingPage {
     return rawName;
   }
 
-  private Names getNames(StorageEngineReader pageRtx, int offset) {
+  private Names getNames(StorageEngineReader storageEngineReader, int offset) {
     final var maxNodeKey = maxNodeKeys.getOrDefault(offset, 0L);
-    if (pageRtx.hasTrxIntentLog()) {
-      return Names.fromStorage(pageRtx, offset, maxNodeKey);
+    if (storageEngineReader.hasTrxIntentLog()) {
+      return Names.fromStorage(storageEngineReader, offset, maxNodeKey);
     }
 
-    final Cache<NamesCacheKey, Names> namesCache = pageRtx.getBufferManager().getNamesCache();
+    final Cache<NamesCacheKey, Names> namesCache = storageEngineReader.getBufferManager().getNamesCache();
     final NamesCacheKey namesCacheKey =
-        new NamesCacheKey(pageRtx.getDatabaseId(), pageRtx.getResourceId(), pageRtx.getRevisionNumber(), offset);
-    return namesCache.get(namesCacheKey, (_, _) -> Names.copy(Names.fromStorage(pageRtx, offset, maxNodeKey)));
+        new NamesCacheKey(storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId(), storageEngineReader.getRevisionNumber(), offset);
+    return namesCache.get(namesCacheKey, (_, _) -> Names.copy(Names.fromStorage(storageEngineReader, offset, maxNodeKey)));
   }
 
   /**
@@ -219,35 +219,35 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key name key identifying name
    * @return raw name of name key, or {@code null} if not present
    */
-  public String getName(final int key, @NonNull final NodeKind nodeKind, final StorageEngineReader pageRtx) {
+  public String getName(final int key, @NonNull final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
     return switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
-          elements = getNames(pageRtx, ELEMENTS_REFERENCE_OFFSET);
+          elements = getNames(storageEngineReader, ELEMENTS_REFERENCE_OFFSET);
         }
         yield elements.getName(key);
       }
       case NAMESPACE -> {
         if (namespaces == null) {
-          namespaces = getNames(pageRtx, NAMESPACE_REFERENCE_OFFSET);
+          namespaces = getNames(storageEngineReader, NAMESPACE_REFERENCE_OFFSET);
         }
         yield namespaces.getName(key);
       }
       case ATTRIBUTE -> {
         if (attributes == null) {
-          attributes = getNames(pageRtx, ATTRIBUTES_REFERENCE_OFFSET);
+          attributes = getNames(storageEngineReader, ATTRIBUTES_REFERENCE_OFFSET);
         }
         yield attributes.getName(key);
       }
       case PROCESSING_INSTRUCTION -> {
         if (processingInstructions == null) {
-          processingInstructions = getNames(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
+          processingInstructions = getNames(storageEngineReader, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
         }
         yield processingInstructions.getName(key);
       }
       case OBJECT_KEY -> {
         if (jsonObjectKeys == null) {
-          jsonObjectKeys = getNames(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET);
+          jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
         yield jsonObjectKeys.getName(key);
       }
@@ -263,35 +263,35 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key name key identifying name
    * @return number of nodes with the given name key
    */
-  public int getCount(final int key, @NonNull final NodeKind nodeKind, final StorageEngineReader pageRtx) {
+  public int getCount(final int key, @NonNull final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
     return switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
-          elements = getNames(pageRtx, ELEMENTS_REFERENCE_OFFSET);
+          elements = getNames(storageEngineReader, ELEMENTS_REFERENCE_OFFSET);
         }
         yield elements.getCount(key);
       }
       case NAMESPACE -> {
         if (namespaces == null) {
-          namespaces = getNames(pageRtx, NAMESPACE_REFERENCE_OFFSET);
+          namespaces = getNames(storageEngineReader, NAMESPACE_REFERENCE_OFFSET);
         }
         yield namespaces.getCount(key);
       }
       case ATTRIBUTE -> {
         if (attributes == null) {
-          attributes = getNames(pageRtx, ATTRIBUTES_REFERENCE_OFFSET);
+          attributes = getNames(storageEngineReader, ATTRIBUTES_REFERENCE_OFFSET);
         }
         yield attributes.getCount(key);
       }
       case PROCESSING_INSTRUCTION -> {
         if (processingInstructions == null) {
-          processingInstructions = getNames(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
+          processingInstructions = getNames(storageEngineReader, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
         }
         yield processingInstructions.getCount(key);
       }
       case OBJECT_KEY -> {
         if (jsonObjectKeys == null) {
-          jsonObjectKeys = getNames(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET);
+          jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
         yield jsonObjectKeys.getCount(key);
       }
@@ -307,38 +307,38 @@ public final class NamePage extends AbstractForwardingPage {
    * @param nodeKind kind of node
    * @return the created key
    */
-  public int setName(final String name, final NodeKind nodeKind, final StorageEngineWriter pageRtx) {
+  public int setName(final String name, final NodeKind nodeKind, final StorageEngineWriter storageEngineReader) {
     // $CASES-OMITTED$
     switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
-          elements = getNames(pageRtx, ELEMENTS_REFERENCE_OFFSET);
+          elements = getNames(storageEngineReader, ELEMENTS_REFERENCE_OFFSET);
         }
-        return elements.setName(name, pageRtx);
+        return elements.setName(name, storageEngineReader);
       }
       case NAMESPACE -> {
         if (namespaces == null) {
-          namespaces = getNames(pageRtx, NAMESPACE_REFERENCE_OFFSET);
+          namespaces = getNames(storageEngineReader, NAMESPACE_REFERENCE_OFFSET);
         }
-        return namespaces.setName(name, pageRtx);
+        return namespaces.setName(name, storageEngineReader);
       }
       case ATTRIBUTE -> {
         if (attributes == null) {
-          attributes = getNames(pageRtx, ATTRIBUTES_REFERENCE_OFFSET);
+          attributes = getNames(storageEngineReader, ATTRIBUTES_REFERENCE_OFFSET);
         }
-        return attributes.setName(name, pageRtx);
+        return attributes.setName(name, storageEngineReader);
       }
       case PROCESSING_INSTRUCTION -> {
         if (processingInstructions == null) {
-          processingInstructions = getNames(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
+          processingInstructions = getNames(storageEngineReader, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
         }
-        return processingInstructions.setName(name, pageRtx);
+        return processingInstructions.setName(name, storageEngineReader);
       }
       case OBJECT_KEY -> {
         if (jsonObjectKeys == null) {
-          jsonObjectKeys = getNames(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET);
+          jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
-        return jsonObjectKeys.setName(name, pageRtx);
+        return jsonObjectKeys.setName(name, storageEngineReader);
       }
       default -> throw new IllegalStateException("No other node types supported!");
     }
@@ -376,38 +376,38 @@ public final class NamePage extends AbstractForwardingPage {
    *
    * @param key the key to remove
    */
-  public void removeName(final int key, final NodeKind nodeKind, final StorageEngineWriter pageRtx) {
+  public void removeName(final int key, final NodeKind nodeKind, final StorageEngineWriter storageEngineReader) {
     // $CASES-OMITTED$
     switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
-          elements = getNames(pageRtx, ELEMENTS_REFERENCE_OFFSET);
+          elements = getNames(storageEngineReader, ELEMENTS_REFERENCE_OFFSET);
         }
-        elements.removeName(key, pageRtx);
+        elements.removeName(key, storageEngineReader);
       }
       case NAMESPACE -> {
         if (namespaces == null) {
-          namespaces = getNames(pageRtx, NAMESPACE_REFERENCE_OFFSET);
+          namespaces = getNames(storageEngineReader, NAMESPACE_REFERENCE_OFFSET);
         }
-        namespaces.removeName(key, pageRtx);
+        namespaces.removeName(key, storageEngineReader);
       }
       case ATTRIBUTE -> {
         if (attributes == null) {
-          attributes = getNames(pageRtx, ATTRIBUTES_REFERENCE_OFFSET);
+          attributes = getNames(storageEngineReader, ATTRIBUTES_REFERENCE_OFFSET);
         }
-        attributes.removeName(key, pageRtx);
+        attributes.removeName(key, storageEngineReader);
       }
       case PROCESSING_INSTRUCTION -> {
         if (processingInstructions == null) {
-          processingInstructions = getNames(pageRtx, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
+          processingInstructions = getNames(storageEngineReader, PROCESSING_INSTRUCTION_REFERENCE_OFFSET);
         }
-        processingInstructions.removeName(key, pageRtx);
+        processingInstructions.removeName(key, storageEngineReader);
       }
       case OBJECT_KEY -> {
         if (jsonObjectKeys == null) {
-          jsonObjectKeys = getNames(pageRtx, JSON_OBJECT_KEY_REFERENCE_OFFSET);
+          jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
-        jsonObjectKeys.removeName(key, pageRtx);
+        jsonObjectKeys.removeName(key, storageEngineReader);
       }
       default -> throw new IllegalStateException("No other node types supported!");
     }

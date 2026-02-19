@@ -79,7 +79,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Sirix {@link StorageEngineWriter}.
    */
-  private final StorageEngineWriter pageTrx;
+  private final StorageEngineWriter storageEngineWriter;
 
   /**
    * Sirix {@link PathSummaryReader}.
@@ -104,15 +104,15 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Constructor.
    *
-   * @param pageTrx Sirix {@link StorageEngineWriter}
+   * @param storageEngineWriter Sirix {@link StorageEngineWriter}
    * @param resMgr The resource manager
    * @param nodeFactory The node factory to create path nodes
    * @param rtx the read-only trx
    */
-  public PathSummaryWriter(final StorageEngineWriter pageTrx, final ResourceSession<R, ? extends NodeTrx> resMgr,
+  public PathSummaryWriter(final StorageEngineWriter storageEngineWriter, final ResourceSession<R, ? extends NodeTrx> resMgr,
       final NodeFactory nodeFactory, final R rtx) {
-    this.pageTrx = requireNonNull(pageTrx);
-    pathSummaryReader = PathSummaryReader.getInstance(pageTrx, resMgr);
+    this.storageEngineWriter = requireNonNull(storageEngineWriter);
+    pathSummaryReader = PathSummaryReader.getInstance(storageEngineWriter, resMgr);
     nodeRtx = requireNonNull(rtx);
     this.nodeFactory = requireNonNull(nodeFactory);
     storeChildCount = resMgr.getResourceConfig().storeChildCount();
@@ -159,7 +159,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (childNodeKey >= 0) {
       // Found existing child - increment reference count
       retVal = childNodeKey;
-      final PathNode pathNode = pageTrx.prepareRecordForModification(retVal, IndexType.PATH_SUMMARY, 0);
+      final PathNode pathNode = storageEngineWriter.prepareRecordForModification(retVal, IndexType.PATH_SUMMARY, 0);
       pathNode.incrementReferenceCount();
       persistPathSummaryRecord(pathNode);
       pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
@@ -229,7 +229,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     assert newNode != null;
 
     if (newNode instanceof StructNode strucNode) {
-      final StructNode parent = pageTrx.prepareRecordForModification(newNode.getParentKey(), IndexType.PATH_SUMMARY, 0);
+      final StructNode parent = storageEngineWriter.prepareRecordForModification(newNode.getParentKey(), IndexType.PATH_SUMMARY, 0);
       if (storeChildCount) {
         parent.incrementChildCount();
       }
@@ -239,14 +239,14 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
       if (strucNode.hasRightSibling()) {
         final StructNode rightSiblingNode =
-            pageTrx.prepareRecordForModification(strucNode.getRightSiblingKey(), IndexType.PATH_SUMMARY, 0);
+            storageEngineWriter.prepareRecordForModification(strucNode.getRightSiblingKey(), IndexType.PATH_SUMMARY, 0);
         rightSiblingNode.setLeftSiblingKey(newNode.getNodeKey());
         persistPathSummaryRecord(rightSiblingNode);
         pathSummaryReader.putMapping(rightSiblingNode.getNodeKey(), rightSiblingNode);
       }
       if (strucNode.hasLeftSibling()) {
         final StructNode leftSiblingNode =
-            pageTrx.prepareRecordForModification(strucNode.getLeftSiblingKey(), IndexType.PATH_SUMMARY, 0);
+            storageEngineWriter.prepareRecordForModification(strucNode.getLeftSiblingKey(), IndexType.PATH_SUMMARY, 0);
         leftSiblingNode.setRightSiblingKey(newNode.getNodeKey());
         persistPathSummaryRecord(leftSiblingNode);
         pathSummaryReader.putMapping(leftSiblingNode.getNodeKey(), leftSiblingNode);
@@ -293,7 +293,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         /* The path summary just needs to be updated for the new renamed node. */
         pathSummaryReader.moveTo(oldPathNodeKey);
         final PathNode pathNode =
-            pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
+            storageEngineWriter.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
         pathNode.setPrefixKey(prefixKey);
         pathNode.setLocalNameKey(localNameKey);
         pathNode.setURIKey(uriKey);
@@ -439,7 +439,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     // Set new reference count of the root.
     final PathNode currNode =
-        pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
+        storageEngineWriter.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
     currNode.setReferenceCount(currNode.getReferences() + 1);
     currNode.setLocalNameKey(localNameKey);
     currNode.setPrefixKey(prefixKey);
@@ -566,14 +566,14 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void setNewPathNodeKey() {
-    final NameNode node = pageTrx.prepareRecordForModification(nodeRtx.getNodeKey(), IndexType.DOCUMENT, -1);
+    final NameNode node = storageEngineWriter.prepareRecordForModification(nodeRtx.getNodeKey(), IndexType.DOCUMENT, -1);
     node.setPathNodeKey(pathSummaryReader.getNodeKey());
     persistDocumentRecord(node);
   }
 
   private void setReferenceCountToOne() {
     final PathNode currNode =
-        pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
+        storageEngineWriter.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
     currNode.setReferenceCount(1);
     persistPathSummaryRecord(currNode);
     pathSummaryReader.putMapping(currNode.getNodeKey(), currNode);
@@ -582,7 +582,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   private void increaseReferenceCount() {
     // Set new reference count.
     final PathNode currNode =
-        pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
+        storageEngineWriter.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
     currNode.setReferenceCount(currNode.getReferences() + 1);
     persistPathSummaryRecord(currNode);
     pathSummaryReader.putMapping(currNode.getNodeKey(), currNode);
@@ -622,11 +622,11 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    */
   private void resetPathNodeKey(final @NonNegative long nodeKey, final NodeKind nodeKind) {
     if (nodeKind == NodeKind.ATTRIBUTE || nodeKind == NodeKind.ELEMENT || nodeKind == NodeKind.NAMESPACE) {
-      final NameNode currNode = pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      final NameNode currNode = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
       currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
       persistDocumentRecord(currNode);
     } else {
-      final ObjectKeyNode currNode = pageTrx.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+      final ObjectKeyNode currNode = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
       currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
       persistDocumentRecord(currNode);
     }
@@ -652,14 +652,14 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         }
         pathSummaryReader.removeMapping(pathSummaryReader.getNodeKey());
         pathSummaryReader.removeQNameMapping(pathNode, pathSummaryReader.getName());
-        pageTrx.removeRecord(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
+        storageEngineWriter.removeRecord(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
       }
     }
 
     // Adapt left sibling node if there is one.
     if (pathSummaryReader.hasLeftSibling()) {
       final StructNode leftSibling =
-          pageTrx.prepareRecordForModification(pathSummaryReader.getLeftSiblingKey(), IndexType.PATH_SUMMARY, 0);
+          storageEngineWriter.prepareRecordForModification(pathSummaryReader.getLeftSiblingKey(), IndexType.PATH_SUMMARY, 0);
       leftSibling.setRightSiblingKey(pathSummaryReader.getRightSiblingKey());
       persistPathSummaryRecord(leftSibling);
       pathSummaryReader.putMapping(leftSibling.getNodeKey(), leftSibling);
@@ -668,7 +668,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     // Adapt right sibling node if there is one.
     if (pathSummaryReader.hasRightSibling()) {
       final StructNode rightSibling =
-          pageTrx.prepareRecordForModification(pathSummaryReader.getRightSiblingKey(), IndexType.PATH_SUMMARY, 0);
+          storageEngineWriter.prepareRecordForModification(pathSummaryReader.getRightSiblingKey(), IndexType.PATH_SUMMARY, 0);
       rightSibling.setLeftSiblingKey(pathSummaryReader.getLeftSiblingKey());
       persistPathSummaryRecord(rightSibling);
       pathSummaryReader.putMapping(rightSibling.getNodeKey(), rightSibling);
@@ -676,7 +676,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     // Adapt parent. If node has no left sibling it is a first child.
     StructNode parent =
-        pageTrx.prepareRecordForModification(pathSummaryReader.getParentKey(), IndexType.PATH_SUMMARY, 0);
+        storageEngineWriter.prepareRecordForModification(pathSummaryReader.getParentKey(), IndexType.PATH_SUMMARY, 0);
     if (!pathSummaryReader.hasLeftSibling()) {
       parent.setFirstChildKey(pathSummaryReader.getRightSiblingKey());
     }
@@ -696,7 +696,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     // Remove node.
     pathSummaryReader.removeMapping(pathSummaryReader.getNodeKey());
     pathSummaryReader.removeQNameMapping(currentPathNode, pathSummaryReader.getName());
-    pageTrx.removeRecord(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
+    storageEngineWriter.removeRecord(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
 
     // pathSummaryReader.moveToDocumentRoot();
     //
@@ -719,7 +719,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         removePathSummaryNode(RemoveSubtreePath.NO);
       } else {
         final PathNode pathNode =
-            pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
+            storageEngineWriter.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
         pathNode.decrementReferenceCount();
         persistPathSummaryRecord(pathNode);
         pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
@@ -741,7 +741,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       } else {
         assert pathSummaryReader.getReferences() > 1;
         final PathNode pathNode =
-            pageTrx.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
+            storageEngineWriter.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
         pathNode.decrementReferenceCount();
         persistPathSummaryRecord(pathNode);
         pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
@@ -750,11 +750,11 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void persistDocumentRecord(final DataRecord record) {
-    pageTrx.updateRecordSlot(record, IndexType.DOCUMENT, -1);
+    storageEngineWriter.updateRecordSlot(record, IndexType.DOCUMENT, -1);
   }
 
   private void persistPathSummaryRecord(final DataRecord record) {
-    pageTrx.updateRecordSlot(record, IndexType.PATH_SUMMARY, 0);
+    storageEngineWriter.updateRecordSlot(record, IndexType.PATH_SUMMARY, 0);
   }
 
   @Override

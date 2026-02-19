@@ -336,7 +336,7 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     return this;
   }
 
-  private void flushBuffer(final StorageEngineWriter pageTrx, final ByteBuffer buffer) throws IOException {
+  private void flushBuffer(final StorageEngineWriter storageEngineWriter, final ByteBuffer buffer) throws IOException {
     final long fileSize = dataFile.size().join();
     long offset;
 

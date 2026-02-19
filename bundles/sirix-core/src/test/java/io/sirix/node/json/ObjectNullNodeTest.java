@@ -25,14 +25,14 @@ import static org.junit.Assert.*;
  */
 public class ObjectNullNodeTest {
 
-  private StorageEngineWriter pageTrx;
+  private StorageEngineWriter storageEngineWriter;
   private Database<JsonResourceSession> database;
 
   @Before
   public void setUp() throws SirixException {
     JsonTestHelper.deleteEverything();
     database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
+    storageEngineWriter = database.beginResourceSession(JsonTestHelper.RESOURCE).beginStorageEngineWriter();
   }
 
   @After

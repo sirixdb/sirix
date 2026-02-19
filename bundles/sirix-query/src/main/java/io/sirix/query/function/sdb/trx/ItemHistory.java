@@ -61,7 +61,7 @@ public final class ItemHistory extends AbstractFunction {
     final NodeReadOnlyTrx rtxInMostRecentRevision = resourceSession.beginNodeReadOnlyTrx();
 
     final RevisionReferencesNode node =
-        rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
+        rtxInMostRecentRevision.getStorageEngineReader().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
 
     if (node == null) {
       final Deque<Item> sequences = new ArrayDeque<>();

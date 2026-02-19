@@ -154,7 +154,7 @@ public class HOTIndexStressTest {
 
         // Use proper indexController API (empty filter = get all)
         Iterator<NodeReferences> iter =
-            indexController.openNameIndex(rtx.getPageTrx(), indexDef, indexController.createNameFilter(Set.of()));
+            indexController.openNameIndex(rtx.getStorageEngineReader(), indexDef, indexController.createNameFilter(Set.of()));
 
         final Roaring64Bitmap foundNodeKeys = new Roaring64Bitmap();
         int iterCount = 0;
@@ -235,7 +235,7 @@ public class HOTIndexStressTest {
         IndexDef indexDef = pathIndexOpt.get();
 
         // Use proper indexController API
-        Iterator<NodeReferences> iter = indexController.openPathIndex(rtx.getPageTrx(), indexDef, null);
+        Iterator<NodeReferences> iter = indexController.openPathIndex(rtx.getStorageEngineReader(), indexDef, null);
 
         final Roaring64Bitmap foundNodeKeys = new Roaring64Bitmap();
         int entryCount = 0;
@@ -321,7 +321,7 @@ public class HOTIndexStressTest {
         // Full iteration (empty filter = get all)
         long startTime2 = System.nanoTime();
         Iterator<NodeReferences> iter =
-            indexController.openNameIndex(rtx.getPageTrx(), indexDef, indexController.createNameFilter(Set.of()));
+            indexController.openNameIndex(rtx.getStorageEngineReader(), indexDef, indexController.createNameFilter(Set.of()));
 
         int iterCount = 0;
         final Roaring64Bitmap allNodeKeys = new Roaring64Bitmap();
@@ -421,7 +421,7 @@ public class HOTIndexStressTest {
         // Full iteration
         long startTime2 = System.nanoTime();
         final Roaring64Bitmap foundNodeKeys = new Roaring64Bitmap();
-        Iterator<NodeReferences> iter = indexController.openPathIndex(rtx.getPageTrx(), indexDef, null);
+        Iterator<NodeReferences> iter = indexController.openPathIndex(rtx.getStorageEngineReader(), indexDef, null);
         int entryCount = 0;
         while (iter.hasNext()) {
           NodeReferences refs = iter.next();

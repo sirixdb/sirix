@@ -51,7 +51,7 @@ public final class IsDeleted extends AbstractFunction {
     final NodeReadOnlyTrx rtxInMostRecentRevision = getTrx(resourceSession, mostRecentRevisionNumber);
 
     final RevisionReferencesNode node =
-        rtxInMostRecentRevision.getPageTrx().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
+        rtxInMostRecentRevision.getStorageEngineReader().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
 
     if (node == null) {
       return rtxInMostRecentRevision.moveTo(item.getNodeKey())

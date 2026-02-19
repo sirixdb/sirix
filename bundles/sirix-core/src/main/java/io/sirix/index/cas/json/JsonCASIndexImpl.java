@@ -20,16 +20,16 @@ public final class JsonCASIndexImpl implements JsonCASIndex {
   }
 
   @Override
-  public JsonCASIndexBuilder createBuilder(JsonNodeReadOnlyTrx rtx, StorageEngineWriter pageTrx,
+  public JsonCASIndexBuilder createBuilder(JsonNodeReadOnlyTrx rtx, StorageEngineWriter storageEngineWriter,
       PathSummaryReader pathSummaryReader, IndexDef indexDef) {
-    final var indexBuilderDelegate = casIndexBuilderFactory.create(pageTrx, pathSummaryReader, indexDef);
+    final var indexBuilderDelegate = casIndexBuilderFactory.create(storageEngineWriter, pathSummaryReader, indexDef);
     return new JsonCASIndexBuilder(indexBuilderDelegate, rtx);
   }
 
   @Override
-  public JsonCASIndexListener createListener(StorageEngineWriter pageTrx, PathSummaryReader pathSummaryReader,
+  public JsonCASIndexListener createListener(StorageEngineWriter storageEngineWriter, PathSummaryReader pathSummaryReader,
       IndexDef indexDef) {
-    final var indexListenerDelegate = casIndexListenerFactory.create(pageTrx, pathSummaryReader, indexDef);
+    final var indexListenerDelegate = casIndexListenerFactory.create(storageEngineWriter, pathSummaryReader, indexDef);
     return new JsonCASIndexListener(indexListenerDelegate);
   }
 }

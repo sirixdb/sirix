@@ -70,7 +70,7 @@ public class PinCountDiagnosticsTest {
       BufferManager bufferManager;
       try (final var session = database.beginResourceSession("resource");
           final var rtx = session.beginNodeReadOnlyTrx()) {
-        bufferManager = rtx.getPageTrx().getBufferManager();
+        bufferManager = rtx.getStorageEngineReader().getBufferManager();
       }
 
       System.err.println("\n========================================");
@@ -190,7 +190,7 @@ public class PinCountDiagnosticsTest {
       BufferManager bufferManager;
       try (final var session = database.beginResourceSession("resource");
           final var rtx = session.beginNodeReadOnlyTrx()) {
-        bufferManager = rtx.getPageTrx().getBufferManager();
+        bufferManager = rtx.getStorageEngineReader().getBufferManager();
       }
 
       System.err.println("\n========================================");

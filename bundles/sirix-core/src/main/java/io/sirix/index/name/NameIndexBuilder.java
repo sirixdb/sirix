@@ -31,19 +31,19 @@ public final class NameIndexBuilder {
   public final Set<QNm> excludes;
   public final @Nullable RBTreeWriter<QNm, NodeReferences> rbTreeWriter;
   public final @Nullable HOTIndexWriter<QNm> hotWriter;
-  public final StorageEngineReader pageRtx;
+  public final StorageEngineReader storageEngineReader;
   private final boolean useHOT;
 
   /**
    * Constructor with RBTree writer (legacy path).
    */
   public NameIndexBuilder(final Set<QNm> includes, final Set<QNm> excludes,
-      final RBTreeWriter<QNm, NodeReferences> indexWriter, final StorageEngineReader pageRtx) {
+      final RBTreeWriter<QNm, NodeReferences> indexWriter, final StorageEngineReader storageEngineReader) {
     this.includes = includes;
     this.excludes = excludes;
     this.rbTreeWriter = indexWriter;
     this.hotWriter = null;
-    this.pageRtx = pageRtx;
+    this.storageEngineReader = storageEngineReader;
     this.useHOT = false;
   }
 
@@ -51,12 +51,12 @@ public final class NameIndexBuilder {
    * Constructor with HOT writer (high-performance path).
    */
   public NameIndexBuilder(final Set<QNm> includes, final Set<QNm> excludes, final HOTIndexWriter<QNm> hotWriter,
-      final StorageEngineReader pageRtx) {
+      final StorageEngineReader storageEngineReader) {
     this.includes = includes;
     this.excludes = excludes;
     this.rbTreeWriter = null;
     this.hotWriter = hotWriter;
-    this.pageRtx = pageRtx;
+    this.storageEngineReader = storageEngineReader;
     this.useHOT = true;
   }
 

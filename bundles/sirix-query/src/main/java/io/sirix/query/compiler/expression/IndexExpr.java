@@ -86,7 +86,7 @@ public final class IndexExpr implements Expr {
 
       switch (indexType) {
         case PATH -> {
-          final Iterator<NodeReferences> nodeReferencesIterator = indexController.openPathIndex(rtx.getPageTrx(),
+          final Iterator<NodeReferences> nodeReferencesIterator = indexController.openPathIndex(rtx.getStorageEngineReader(),
               entrySet.getKey(), indexController.createPathFilter(pathStrings, rtx));
 
           checkIfIndexNodeIsApplicable(manager, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
@@ -112,7 +112,7 @@ public final class IndexExpr implements Expr {
                 new JsonPCRCollector(rtx));
 
             final Iterator<NodeReferences> nodeReferencesIterator =
-                indexController.openCASIndex(rtx.getPageTrx(), entrySet.getKey(), casFilter);
+                indexController.openCASIndex(rtx.getStorageEngineReader(), entrySet.getKey(), casFilter);
 
             checkIfIndexNodeIsApplicable(manager, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
                 false);
@@ -123,7 +123,7 @@ public final class IndexExpr implements Expr {
                 new CASFilter(new HashSet<>(entrySet.getValue()), atomic, searchMode, new JsonPCRCollector(rtx));
 
             final Iterator<NodeReferences> nodeReferencesIterator =
-                indexController.openCASIndex(rtx.getPageTrx(), entrySet.getKey(), casFilter);
+                indexController.openCASIndex(rtx.getStorageEngineReader(), entrySet.getKey(), casFilter);
 
             checkIfIndexNodeIsApplicable(manager, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
                 false);
@@ -134,7 +134,7 @@ public final class IndexExpr implements Expr {
         }
         case NAME -> {
           final Iterator<NodeReferences> nodeReferencesIterator =
-              indexController.openNameIndex(rtx.getPageTrx(), entrySet.getKey(),
+              indexController.openNameIndex(rtx.getStorageEngineReader(), entrySet.getKey(),
                   new NameFilter(Set.of(entrySet.getValue().get(entrySet.getValue().size() - 1).tail()), Set.of()));
 
           checkIfIndexNodeIsApplicable(manager, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,

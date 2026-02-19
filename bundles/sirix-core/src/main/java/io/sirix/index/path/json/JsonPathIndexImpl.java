@@ -19,16 +19,16 @@ public final class JsonPathIndexImpl implements JsonPathIndex {
   }
 
   @Override
-  public JsonPathIndexBuilder createBuilder(final StorageEngineWriter pageTrx,
+  public JsonPathIndexBuilder createBuilder(final StorageEngineWriter storageEngineWriter,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    final var indexBuilderDelegate = pathIndexBuilderFactory.create(pageTrx, pathSummaryReader, indexDef);
+    final var indexBuilderDelegate = pathIndexBuilderFactory.create(storageEngineWriter, pathSummaryReader, indexDef);
     return new JsonPathIndexBuilder(indexBuilderDelegate);
   }
 
   @Override
-  public JsonPathIndexListener createListener(final StorageEngineWriter pageTrx,
+  public JsonPathIndexListener createListener(final StorageEngineWriter storageEngineWriter,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    final var indexListenerDelegate = pathIndexListenerFactory.create(pageTrx, pathSummaryReader, indexDef);
+    final var indexListenerDelegate = pathIndexListenerFactory.create(storageEngineWriter, pathSummaryReader, indexDef);
     return new JsonPathIndexListener(indexListenerDelegate);
   }
 

@@ -205,13 +205,13 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   CASFilterRange createCASFilterRange(Set<String> paths, Atomic min, Atomic max, boolean incMin, boolean incMax,
       PCRCollector pcrCollector) throws PathException;
 
-  Iterator<NodeReferences> openPathIndex(StorageEngineReader pageRtx, IndexDef indexDef, PathFilter filter);
+  Iterator<NodeReferences> openPathIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, PathFilter filter);
 
-  Iterator<NodeReferences> openNameIndex(StorageEngineReader pageRtx, IndexDef indexDef, NameFilter filter);
+  Iterator<NodeReferences> openNameIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, NameFilter filter);
 
-  Iterator<NodeReferences> openCASIndex(StorageEngineReader pageRtx, IndexDef indexDef, CASFilter filter);
+  Iterator<NodeReferences> openCASIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilter filter);
 
-  Iterator<NodeReferences> openCASIndex(StorageEngineReader pageRtx, IndexDef indexDef, CASFilterRange filter);
+  Iterator<NodeReferences> openCASIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilterRange filter);
 
   /**
    * Deserialize from an {@link InputStream}.

@@ -112,7 +112,7 @@ public final class Names {
    *
    * @param key the key to remove
    */
-  public void removeName(final int key, final StorageEngineWriter pageTrx) {
+  public void removeName(final int key, final StorageEngineWriter storageEngineWriter) {
     final int prevValue = countNameMapping.get(key);
     if (prevValue != 0) {
       final long countNodeKey = countNodeMap.get(key);
@@ -121,13 +121,13 @@ public final class Names {
         nameMap.remove(key);
         countNameMapping.remove(key);
 
-        pageTrx.removeRecord(countNodeKey - 1, IndexType.NAME, indexNumber);
-        pageTrx.removeRecord(countNodeKey, IndexType.NAME, indexNumber);
+        storageEngineWriter.removeRecord(countNodeKey - 1, IndexType.NAME, indexNumber);
+        storageEngineWriter.removeRecord(countNodeKey, IndexType.NAME, indexNumber);
       } else {
         countNameMapping.put(key, prevValue - 1);
 
         final HashCountEntryNode hashCountEntryNode =
-            pageTrx.prepareRecordForModification(countNodeKey, IndexType.NAME, indexNumber);
+            storageEngineWriter.prepareRecordForModification(countNodeKey, IndexType.NAME, indexNumber);
         hashCountEntryNode.decrementValue();
       }
     }
@@ -149,9 +149,9 @@ public final class Names {
    * @param name name to create key for
    * @return generated key
    */
-  public int setName(final String name, final StorageEngineWriter pageTrx) {
+  public int setName(final String name, final StorageEngineWriter storageEngineWriter) {
     assert name != null;
-    assert pageTrx != null;
+    assert storageEngineWriter != null;
 
     final int key = name.hashCode();
     final byte[] previousByteValue = nameMap.get(key);
@@ -177,11 +177,11 @@ public final class Names {
       final HashEntryNode hashEntryNode = new HashEntryNode(maxNodeKey, newKey, name);
       final HashCountEntryNode hashCountEntryNode = new HashCountEntryNode(maxNodeKey + 1, 1);
 
-      pageTrx.createRecord(hashEntryNode, IndexType.NAME, indexNumber);
+      storageEngineWriter.createRecord(hashEntryNode, IndexType.NAME, indexNumber);
       maxNodeKey++;
 
       countNodeMap.put(newKey, maxNodeKey);
-      pageTrx.createRecord(hashCountEntryNode, IndexType.NAME, indexNumber);
+      storageEngineWriter.createRecord(hashCountEntryNode, IndexType.NAME, indexNumber);
 
       nameMap.put(newKey, requireNonNull(getBytes(name)));
       countNameMapping.put(newKey, 1);
@@ -195,7 +195,7 @@ public final class Names {
       final long nodeKey = countNodeMap.get(key);
 
       final HashCountEntryNode hashCountEntryNode =
-          pageTrx.prepareRecordForModification(nodeKey, IndexType.NAME, indexNumber);
+          storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.NAME, indexNumber);
       hashCountEntryNode.incrementValue();
 
       return key;

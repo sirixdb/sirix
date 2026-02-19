@@ -127,7 +127,7 @@ class HOTInternalPathsTest {
           // Open and iterate
           var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.NAME);
           if (indexDef != null) {
-            var nameIndex = indexController.openNameIndex(wtx.getPageTrx(), indexDef, null);
+            var nameIndex = indexController.openNameIndex(wtx.getStorageEngineReader(), indexDef, null);
 
             int count = 0;
             while (nameIndex.hasNext()) {
@@ -305,7 +305,7 @@ class HOTInternalPathsTest {
           // Query empty index
           var pathIdx = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
           if (pathIdx != null) {
-            var pathIter = indexController.openPathIndex(wtx.getPageTrx(), pathIdx, null);
+            var pathIter = indexController.openPathIndex(wtx.getStorageEngineReader(), pathIdx, null);
             // Just verify it doesn't throw
             while (pathIter.hasNext()) {
               pathIter.next();
@@ -336,7 +336,7 @@ class HOTInternalPathsTest {
 
           var nameIdx = indexController.getIndexes().getIndexDef(0, IndexType.NAME);
           if (nameIdx != null) {
-            var nameIter = indexController.openNameIndex(wtx.getPageTrx(), nameIdx,
+            var nameIter = indexController.openNameIndex(wtx.getStorageEngineReader(), nameIdx,
                 indexController.createNameFilter(Set.of("single")));
             assertTrue(nameIter.hasNext(), "Should find 'single' key");
             NodeReferences refs = nameIter.next();

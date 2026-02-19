@@ -20,16 +20,16 @@ public final class XmlCASIndexImpl implements XmlCASIndex {
   }
 
   @Override
-  public XmlCASIndexBuilder createBuilder(XmlNodeReadOnlyTrx rtx, StorageEngineWriter pageTrx,
+  public XmlCASIndexBuilder createBuilder(XmlNodeReadOnlyTrx rtx, StorageEngineWriter storageEngineWriter,
       PathSummaryReader pathSummaryReader, IndexDef indexDef) {
-    final var indexBuilderDelegate = casIndexBuilderFactory.create(pageTrx, pathSummaryReader, indexDef);
+    final var indexBuilderDelegate = casIndexBuilderFactory.create(storageEngineWriter, pathSummaryReader, indexDef);
     return new XmlCASIndexBuilder(indexBuilderDelegate, rtx);
   }
 
   @Override
-  public XmlCASIndexListener createListener(StorageEngineWriter pageTrx, PathSummaryReader pathSummaryReader,
+  public XmlCASIndexListener createListener(StorageEngineWriter storageEngineWriter, PathSummaryReader pathSummaryReader,
       IndexDef indexDef) {
-    final var indexListenerDelegate = casIndexListenerFactory.create(pageTrx, pathSummaryReader, indexDef);
+    final var indexListenerDelegate = casIndexListenerFactory.create(storageEngineWriter, pathSummaryReader, indexDef);
     return new XmlCASIndexListener(indexListenerDelegate);
   }
 }
