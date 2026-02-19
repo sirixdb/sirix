@@ -44,6 +44,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -103,6 +104,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    * 2-byte aligned.
    */
   private static final ValueLayout.OfShort JAVA_SHORT_UNALIGNED = ValueLayout.JAVA_SHORT.withByteAlignment(1);
+
+  /**
+   * Unaligned big-endian long layout for zero-allocation lexicographic key comparison.
+   * Big-endian ensures that Long.compareUnsigned correctly orders byte sequences lexicographically.
+   */
+  private static final ValueLayout.OfLong JAVA_LONG_BE_UNALIGNED =
+      ValueLayout.JAVA_LONG.withByteAlignment(1).withOrder(ByteOrder.BIG_ENDIAN);
+
+  /**
+   * Thread-local scratch buffer for compact() to avoid 2*n byte[] allocations.
+   * Sized to DEFAULT_SIZE (64KB) to handle worst-case full page.
+   */
+  private static final ThreadLocal<byte[]> COMPACT_SCRATCH = ThreadLocal.withInitial(() -> new byte[DEFAULT_SIZE]);
 
   // ===== Page identity =====
   private final long recordPageKey;
@@ -220,25 +234,46 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * SIMD-optimized key comparison using MemorySegment.mismatch().
+   * Zero-allocation key comparison. Processes 8 bytes at a time using big-endian longs
+   * for JIT-vectorizable lexicographic comparison. No MemorySegment.ofArray() wrapper.
    *
-   * @param a first key as MemorySegment
+   * @param a first key as MemorySegment (off-heap slice)
    * @param b second key as byte array
    * @return negative if a < b, positive if a > b, zero if equal
    */
   private static int compareKeysSimd(MemorySegment a, byte[] b) {
-    MemorySegment bSeg = MemorySegment.ofArray(b);
-    long mismatch = a.mismatch(bSeg);
-    if (mismatch == -1) {
-      return 0;
+    final long aLen = a.byteSize();
+    final int bLen = b.length;
+    final long minLen = Math.min(aLen, bLen);
+
+    // Fast path: compare 8 bytes at a time as big-endian unsigned longs.
+    // Big-endian byte order makes Long.compareUnsigned == lexicographic order.
+    long i = 0;
+    for (; i + 8 <= minLen; i += 8) {
+      final long aWord = a.get(JAVA_LONG_BE_UNALIGNED, i);
+      final long bWord = ((long) (b[(int) i]     & 0xFF) << 56)
+                       | ((long) (b[(int) i + 1] & 0xFF) << 48)
+                       | ((long) (b[(int) i + 2] & 0xFF) << 40)
+                       | ((long) (b[(int) i + 3] & 0xFF) << 32)
+                       | ((long) (b[(int) i + 4] & 0xFF) << 24)
+                       | ((long) (b[(int) i + 5] & 0xFF) << 16)
+                       | ((long) (b[(int) i + 6] & 0xFF) << 8)
+                       |  (long) (b[(int) i + 7] & 0xFF);
+      if (aWord != bWord) {
+        return Long.compareUnsigned(aWord, bWord);
+      }
     }
-    if (mismatch == a.byteSize()) {
-      return -1;
+
+    // Compare remaining bytes
+    for (; i < minLen; i++) {
+      final int aByte = Byte.toUnsignedInt(a.get(ValueLayout.JAVA_BYTE, i));
+      final int bByte = b[(int) i] & 0xFF;
+      if (aByte != bByte) {
+        return Integer.compare(aByte, bByte);
+      }
     }
-    if (mismatch == bSeg.byteSize()) {
-      return 1;
-    }
-    return Byte.compareUnsigned(a.get(ValueLayout.JAVA_BYTE, mismatch), bSeg.get(ValueLayout.JAVA_BYTE, mismatch));
+
+    return Long.compare(aLen, bLen);
   }
 
   // ===== Zero-copy key/value access =====
@@ -433,33 +468,44 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    * fragmented. This method rebuilds the page with all entries packed contiguously, freeing up space.
    * </p>
    *
+   * <p>Uses a thread-local scratch buffer to avoid the 2×n byte[] allocations of the naive approach
+   * (which would allocate 1024+ arrays for a full 512-entry page).</p>
+   *
    * @return the amount of space reclaimed
    */
   public int compact() {
     if (entryCount == 0) {
-      int reclaimed = usedSlotMemorySize;
+      final int reclaimed = usedSlotMemorySize;
       usedSlotMemorySize = 0;
       return reclaimed;
     }
 
-    // Allocate temporary storage
-    byte[][] keys = new byte[entryCount][];
-    byte[][] values = new byte[entryCount][];
+    // Use a thread-local scratch buffer to hold a compacted snapshot of the data.
+    // This is O(usedSlotMemorySize) memory touch but only one allocation (the ThreadLocal byte[]).
+    byte[] scratch = COMPACT_SCRATCH.get();
+    if (scratch.length < usedSlotMemorySize) {
+      scratch = new byte[usedSlotMemorySize];
+      COMPACT_SCRATCH.set(scratch);
+    }
 
-    // Extract all entries
+    // Copy all active entries into scratch in sorted (slot) order, recording new offsets.
+    int newOffset = 0;
     for (int i = 0; i < entryCount; i++) {
-      keys[i] = getKey(i);
-      values[i] = getValue(i);
+      final int oldOffset = slotOffsets[i];
+      final int keyLen   = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, oldOffset));
+      final int valueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, oldOffset + 2 + keyLen));
+      final int entrySize = 2 + keyLen + 2 + valueLen;
+
+      // Bulk-copy the raw entry bytes [u16 keyLen][key][u16 valueLen][value]
+      MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, oldOffset, scratch, newOffset, entrySize);
+      slotOffsets[i] = newOffset;
+      newOffset += entrySize;
     }
 
-    // Clear and reinsert
-    int oldUsed = usedSlotMemorySize;
-    usedSlotMemorySize = 0;
-    entryCount = 0;
-
-    for (int i = 0; i < keys.length; i++) {
-      insertAt(i, keys[i], values[i]);
-    }
+    // Bulk-copy compacted data back to slotMemory
+    final int oldUsed = usedSlotMemorySize;
+    MemorySegment.copy(scratch, 0, slotMemory, ValueLayout.JAVA_BYTE, 0, newOffset);
+    usedSlotMemorySize = newOffset;
 
     return oldUsed - usedSlotMemorySize;
   }
@@ -689,6 +735,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Recalculate the used slot memory size based on actual entries. Called after split to allow new
    * inserts on the truncated page.
+   *
+   * <p>Uses {@link Short#toUnsignedInt} to handle lengths up to 65535 correctly (raw {@code short}
+   * would be negative for lengths > 32767, corrupting the offset arithmetic).</p>
    */
   private void recalculateUsedMemory() {
     if (entryCount == 0) {
@@ -696,15 +745,15 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       return;
     }
 
-    // Find the maximum offset + entry size to determine actual used memory
+    // Find the maximum offset + entry size to determine actual used memory.
+    // MUST use Short.toUnsignedInt: raw short is sign-extended and would be negative for
+    // lengths >= 32768, making (offset + 2 + keyLen) wrap to a wrong negative position.
     int maxEndOffset = 0;
     for (int i = 0; i < entryCount; i++) {
-      int offset = slotOffsets[i];
-      // Read key and value lengths to calculate entry size
-      short keyLen = slotMemory.get(JAVA_SHORT_UNALIGNED, offset);
-      short valueLen = slotMemory.get(JAVA_SHORT_UNALIGNED, offset + 2 + keyLen);
-      int entrySize = 2 + keyLen + 2 + valueLen;
-      int endOffset = offset + entrySize;
+      final int offset = slotOffsets[i];
+      final int keyLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
+      final int valueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset + 2 + keyLen));
+      final int endOffset = offset + 2 + keyLen + 2 + valueLen;
       if (endOffset > maxEndOffset) {
         maxEndOffset = endOffset;
       }

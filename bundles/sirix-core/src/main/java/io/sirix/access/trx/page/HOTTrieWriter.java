@@ -39,6 +39,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.HeightOptimalSplitter;
 import io.sirix.index.hot.NodeUpgradeManager;
+import java.util.Arrays;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
@@ -100,6 +101,16 @@ public final class HOTTrieWriter {
   private final HOTIndirectPage[] cowPathNodes = new HOTIndirectPage[MAX_TREE_HEIGHT];
   private final int[] cowPathChildIndices = new int[MAX_TREE_HEIGHT];
   private int cowPathDepth = 0;
+
+  // ===== Pre-allocated arrays for handleLeafSplit - avoids 3 new[] per call =====
+  private final HOTIndirectPage[] splitPathNodes = new HOTIndirectPage[MAX_TREE_HEIGHT];
+  private final PageReference[] splitPathRefs = new PageReference[MAX_TREE_HEIGHT];
+  private final int[] splitPathChildIndices = new int[MAX_TREE_HEIGHT];
+
+  // ===== Pre-allocated buffers for splitParentAndRecurse - avoids ArrayList =====
+  private static final int MAX_SPLIT_CHILDREN = NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN + 2;
+  private final PageReference[] splitSmallerBuf = new PageReference[MAX_SPLIT_CHILDREN];
+  private final PageReference[] splitLargerBuf = new PageReference[MAX_SPLIT_CHILDREN];
 
   /**
    * Create a new HOTTrieWriter.
@@ -298,33 +309,37 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Navigate within a cached tree that's already been modified.
+   * Navigate within a cached tree that's already been modified (iterative, no stack overflow risk).
    */
   private @Nullable PageContainer navigateWithinCachedTree(@NonNull PageContainer cached, byte[] key,
       @NonNull StorageEngineWriter pageRtx, @NonNull TransactionIntentLog log, @NonNull IndexType indexType,
       int indexNumber) {
 
-    Page page = cached.getModified();
+    PageContainer current = cached;
+    while (true) {
+      final Page page = current.getModified();
 
-    if (page instanceof HOTLeafPage) {
-      return cached;
-    }
+      if (page instanceof HOTLeafPage) {
+        return current;
+      }
 
-    if (page instanceof HOTIndirectPage hotNode) {
-      int childIndex = hotNode.findChildIndex(key);
-      if (childIndex >= 0) {
-        PageReference childRef = hotNode.getChildReference(childIndex);
-        if (childRef != null) {
-          PageContainer childContainer = log.get(childRef);
-          if (childContainer != null) {
-            return navigateWithinCachedTree(childContainer, key, pageRtx, log, indexType, indexNumber);
+      if (page instanceof HOTIndirectPage hotNode) {
+        final int childIndex = hotNode.findChildIndex(key);
+        if (childIndex >= 0) {
+          final PageReference childRef = hotNode.getChildReference(childIndex);
+          if (childRef != null) {
+            final PageContainer childContainer = log.get(childRef);
+            if (childContainer != null) {
+              current = childContainer; // iterate, not recurse
+              continue;
+            }
           }
         }
       }
-    }
 
-    // Not found in cached tree, need to load
-    return null;
+      // Not found in cached tree
+      return null;
+    }
   }
 
   /**
@@ -361,15 +376,23 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Load a page from storage.
+   * Load a page from storage or return swizzled in-memory page.
+   *
+   * <p>Checks {@link PageReference#getPage()} first (zero I/O for in-memory swizzled pages),
+   * then falls through to {@link StorageEngineReader#loadHOTPage(PageReference)} which handles
+   * both the transaction log (via logKey) and persistent storage (via key).</p>
    */
   private @Nullable Page loadPage(@NonNull StorageEngineReader pageRtx, @NonNull PageReference ref) {
-    if (ref.getKey() < 0) {
+    // Check swizzled in-memory page first — avoids I/O for pages already loaded
+    final Page swizzled = ref.getPage();
+    if (swizzled != null) {
+      return swizzled;
+    }
+    // Need both key < 0 AND logKey < 0 to truly mean "not yet persisted"
+    if (ref.getKey() < 0 && ref.getLogKey() < 0) {
       return null;
     }
-    // This would call the actual page loading logic
-    // For now, return null - actual implementation would use pageRtx
-    return null;
+    return pageRtx.loadHOTPage(ref);
   }
 
   /**
@@ -385,9 +408,9 @@ public final class HOTTrieWriter {
    */
   public byte[] handleLeafSplit(@NonNull StorageEngineWriter pageRtx, @NonNull TransactionIntentLog log,
       @NonNull HOTLeafPage fullPage, @NonNull PageReference pageRef, @NonNull PageReference rootReference) {
-    // Delegate to the path-aware version with empty path (root level split)
-    return handleLeafSplitWithPath(pageRtx, log, fullPage, pageRef, rootReference, new HOTIndirectPage[MAX_TREE_HEIGHT],
-        new PageReference[MAX_TREE_HEIGHT], new int[MAX_TREE_HEIGHT], 0);
+    // Delegate to the path-aware version using pre-allocated arrays (no new[] allocation)
+    return handleLeafSplitWithPath(pageRtx, log, fullPage, pageRef, rootReference,
+        splitPathNodes, splitPathRefs, splitPathChildIndices, 0);
   }
 
   /**
@@ -691,57 +714,53 @@ public final class HOTTrieWriter {
       @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
       int[] pathChildIndices, int currentPathIdx) {
 
-    int numChildren = parent.getNumChildren();
+    final int numChildren = parent.getNumChildren();
 
     // Reference: getMaskForLargerEntries() finds entries with MSB set
     // The MSB (most significant bit) determines the split boundary
     // Find the split point based on the most significant discriminative bit
-    int msbPosition = findMostSignificantDiscriminativeBitPosition(parent);
+    final int msbPosition = findMostSignificantDiscriminativeBitPosition(parent);
 
-    // Build arrays of children with MSB=0 ("smaller") and MSB=1 ("larger")
-    java.util.List<PageReference> smallerChildren = new java.util.ArrayList<>();
-    java.util.List<PageReference> largerChildren = new java.util.ArrayList<>();
+    // Partition children into "smaller" (MSB=0) and "larger" (MSB=1) using pre-allocated buffers
+    int smallerCount = 0;
+    int largerCount = 0;
 
     for (int i = 0; i < numChildren; i++) {
       if (i == originalChildIndex) {
-        // Replace the original child with the split children
-        // Determine which half each goes to based on their keys
-        byte[] leftKey = getFirstKeyFromChild(leftChild);
-        byte[] rightKey = getFirstKeyFromChild(rightChild);
-        boolean leftHasMsbSet = hasBitSet(leftKey, msbPosition);
-        boolean rightHasMsbSet = hasBitSet(rightKey, msbPosition);
-
-        if (!leftHasMsbSet) {
-          smallerChildren.add(leftChild);
+        // Replace the original child with the two split children
+        final byte[] leftKey = getFirstKeyFromChild(leftChild);
+        final byte[] rightKey = getFirstKeyFromChild(rightChild);
+        if (!hasBitSet(leftKey, msbPosition)) {
+          splitSmallerBuf[smallerCount++] = leftChild;
         } else {
-          largerChildren.add(leftChild);
+          splitLargerBuf[largerCount++] = leftChild;
         }
-        if (!rightHasMsbSet) {
-          smallerChildren.add(rightChild);
+        if (!hasBitSet(rightKey, msbPosition)) {
+          splitSmallerBuf[smallerCount++] = rightChild;
         } else {
-          largerChildren.add(rightChild);
+          splitLargerBuf[largerCount++] = rightChild;
         }
       } else {
-        PageReference child = parent.getChildReference(i);
-        byte[] childKey = getFirstKeyFromChild(child);
+        final PageReference child = parent.getChildReference(i);
+        final byte[] childKey = getFirstKeyFromChild(child);
         if (!hasBitSet(childKey, msbPosition)) {
-          smallerChildren.add(child);
+          splitSmallerBuf[smallerCount++] = child;
         } else {
-          largerChildren.add(child);
+          splitLargerBuf[largerCount++] = child;
         }
       }
     }
 
     // Ensure we have entries in both halves (fallback to half split if needed)
-    if (smallerChildren.isEmpty() || largerChildren.isEmpty()) {
-      // Fall back to simple half split
+    if (smallerCount == 0 || largerCount == 0) {
       splitParentHalfAndRecurse(pageRtx, log, parentRef, parent, originalChildIndex, leftChild, rightChild,
           rootReference, pathNodes, pathRefs, pathChildIndices, currentPathIdx);
       return;
     }
 
-    PageReference[] leftChildren = smallerChildren.toArray(PageReference[]::new);
-    PageReference[] rightChildren = largerChildren.toArray(PageReference[]::new);
+    // Trim to exact size — small allocation but avoids API contract issues with oversized arrays
+    final PageReference[] leftChildren = Arrays.copyOf(splitSmallerBuf, smallerCount);
+    final PageReference[] rightChildren = Arrays.copyOf(splitLargerBuf, largerCount);
 
     // Create left node (entries with MSB=0)
     HOTIndirectPage leftNode =

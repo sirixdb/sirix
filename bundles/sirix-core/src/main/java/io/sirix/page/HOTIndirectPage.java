@@ -109,7 +109,7 @@ public final class HOTIndirectPage implements Page {
     BI_NODE,
     /** 2-16 children, SIMD-searchable partial keys. */
     SPAN_NODE,
-    /** 17-256 children, direct byte indexing. */
+    /** 17-32 children, SIMD-searchable partial keys (same as SpanNode but higher fanout). */
     MULTI_NODE
   }
 
@@ -243,7 +243,7 @@ public final class HOTIndirectPage implements Page {
     // Create SIMD-accelerated SparsePartialKeys for fast search
     page.sparsePartialKeys = SparsePartialKeys.forBytes(children.length);
     for (int i = 0; i < children.length; i++) {
-      page.sparsePartialKeys.setEntry(i, partialKeys[i]);
+      page.sparsePartialKeys.setByteEntry(i, partialKeys[i]);
     }
 
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
@@ -251,7 +251,7 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
-   * Create a new MultiNode with 17-256 children.
+   * Create a new MultiNode with 1-32 children using direct-byte childIndex array.
    *
    * @param pageKey the page key
    * @param revision the revision
@@ -262,8 +262,9 @@ public final class HOTIndirectPage implements Page {
    */
   public static HOTIndirectPage createMultiNode(long pageKey, int revision, byte discriminativeByte, byte[] childIndex,
       PageReference[] children) {
-    if (children.length < 17 || children.length > 256) {
-      throw new IllegalArgumentException("MultiNode must have 17-256 children");
+    if (children.length < 1 || children.length > MAX_NODE_ENTRIES) {
+      throw new IllegalArgumentException("MultiNode must have 1-" + MAX_NODE_ENTRIES + " children, got: "
+          + children.length);
     }
     HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, 0, NodeType.MULTI_NODE, children.length);
     page.layoutType = LayoutType.SINGLE_MASK;
@@ -312,11 +313,11 @@ public final class HOTIndirectPage implements Page {
     }
     if (other.partialKeys != null) {
       this.partialKeys = other.partialKeys.clone();
-      // Recreate SparsePartialKeys for SIMD search
-      if (other.nodeType == NodeType.SPAN_NODE) {
+      // Recreate SparsePartialKeys for SIMD search (both SPAN_NODE and MULTI_NODE use it)
+      if (other.nodeType == NodeType.SPAN_NODE || other.nodeType == NodeType.MULTI_NODE) {
         this.sparsePartialKeys = SparsePartialKeys.forBytes(other.numChildren);
         for (int i = 0; i < other.numChildren; i++) {
-          this.sparsePartialKeys.setEntry(i, other.partialKeys[i]);
+          this.sparsePartialKeys.setByteEntry(i, other.partialKeys[i]);
         }
       }
     }
@@ -617,6 +618,13 @@ public final class HOTIndirectPage implements Page {
     }
     if (this.partialKeys != null) {
       copy.partialKeys = this.partialKeys.clone();
+      // Recreate SparsePartialKeys so the copy has a fully functional SIMD lookup
+      if (this.nodeType == NodeType.SPAN_NODE || this.nodeType == NodeType.MULTI_NODE) {
+        copy.sparsePartialKeys = SparsePartialKeys.forBytes(this.numChildren);
+        for (int i = 0; i < this.numChildren; i++) {
+          copy.sparsePartialKeys.setByteEntry(i, this.partialKeys[i]);
+        }
+      }
     }
     if (this.childIndex != null) {
       copy.childIndex = this.childIndex.clone();
@@ -680,6 +688,13 @@ public final class HOTIndirectPage implements Page {
     page.initialBytePos = (byte) initialBytePos;
     page.bitMask = bitMask;
     page.partialKeys = partialKeys.clone();
+
+    // Create SIMD-accelerated SparsePartialKeys for fast child lookup (was MISSING in this overload)
+    page.sparsePartialKeys = SparsePartialKeys.forBytes(children.length);
+    for (int i = 0; i < children.length; i++) {
+      page.sparsePartialKeys.setByteEntry(i, partialKeys[i]);
+    }
+
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
     return page;
   }
@@ -710,7 +725,7 @@ public final class HOTIndirectPage implements Page {
     // Set up sparsePartialKeys for SIMD-accelerated navigation (same as SpanNode)
     page.sparsePartialKeys = SparsePartialKeys.forBytes(children.length);
     for (int i = 0; i < children.length; i++) {
-      page.sparsePartialKeys.setEntry(i, partialKeys[i]);
+      page.sparsePartialKeys.setByteEntry(i, partialKeys[i]);
     }
 
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
