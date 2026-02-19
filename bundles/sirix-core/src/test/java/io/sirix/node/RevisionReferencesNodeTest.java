@@ -15,13 +15,13 @@ import static org.junit.Assert.*;
 
 public final class RevisionReferencesNodeTest {
 
-  private StorageEngineWriter pageTrx;
+  private StorageEngineWriter storageEngineWriter;
 
   @Before
   public void setUp() {
     JsonTestHelper.deleteEverything();
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
+    storageEngineWriter = database.beginResourceSession(JsonTestHelper.RESOURCE).beginStorageEngineWriter();
   }
 
   @After
@@ -38,11 +38,11 @@ public final class RevisionReferencesNodeTest {
 
     // Serialize and deserialize node.
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
-    node.getKind().serialize(data, node, pageTrx.getResourceSession().getResourceConfig());
+    node.getKind().serialize(data, node, storageEngineWriter.getResourceSession().getResourceConfig());
     final RevisionReferencesNode node2 =
         (RevisionReferencesNode) node.getKind()
                                      .deserialize(data.asBytesIn(), node.getNodeKey(), null,
-                                         pageTrx.getResourceSession().getResourceConfig());
+                                         storageEngineWriter.getResourceSession().getResourceConfig());
     checkNode(node2);
   }
 

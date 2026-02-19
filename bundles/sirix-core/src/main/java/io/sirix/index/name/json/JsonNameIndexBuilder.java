@@ -19,7 +19,7 @@ final class JsonNameIndexBuilder extends AbstractJsonNodeVisitor {
     QNm name = node.getName();
 
     if (name == null) {
-      name = new QNm(builder.pageRtx.getName(node.getNameKey(), NodeKind.OBJECT_KEY));
+      name = new QNm(builder.storageEngineReader.getName(node.getNameKey(), NodeKind.OBJECT_KEY));
     }
 
     return builder.build(name, node);

@@ -67,10 +67,10 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
       indexes.add(indexDef);
       switch (indexDef.getType()) {
         case PATH ->
-          indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
+          indexBuilders.add(createPathIndexBuilder(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
         case CAS -> indexBuilders.add(
-            createCASIndexBuilder(nodeWriteTrx, nodeWriteTrx.getPageWtx(), nodeWriteTrx.getPathSummary(), indexDef));
-        case NAME -> indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getPageWtx(), indexDef));
+            createCASIndexBuilder(nodeWriteTrx, nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
+        case NAME -> indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getStorageEngineWriter(), indexDef));
       }
     }
     return indexBuilders;

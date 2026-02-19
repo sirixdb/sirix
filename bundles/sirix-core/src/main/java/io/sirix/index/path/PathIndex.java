@@ -24,26 +24,26 @@ import java.util.NoSuchElementException;
 import java.util.Set;
 
 public interface PathIndex<B, L extends ChangeListener> {
-  B createBuilder(StorageEngineWriter pageTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef);
+  B createBuilder(StorageEngineWriter storageEngineWriter, PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
-  L createListener(StorageEngineWriter pageTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef);
+  L createListener(StorageEngineWriter storageEngineWriter, PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
-  default Iterator<NodeReferences> openIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
+  default Iterator<NodeReferences> openIndex(final StorageEngineReader storageEngineReader, final IndexDef indexDef,
       final PathFilter filter) {
 
     // Check if HOT is enabled (system property takes precedence, then resource config)
-    if (isHOTEnabled(pageRtx)) {
-      return openHOTIndex(pageRtx, indexDef, filter);
+    if (isHOTEnabled(storageEngineReader)) {
+      return openHOTIndex(storageEngineReader, indexDef, filter);
     }
 
     // Use RBTree (default)
-    return openRBTreeIndex(pageRtx, indexDef, filter);
+    return openRBTreeIndex(storageEngineReader, indexDef, filter);
   }
 
   /**
    * Checks if HOT indexes should be used for reading.
    */
-  private static boolean isHOTEnabled(final StorageEngineReader pageRtx) {
+  private static boolean isHOTEnabled(final StorageEngineReader storageEngineReader) {
     // System property takes precedence (for testing)
     final String sysProp = System.getProperty(PathIndexListenerFactory.USE_HOT_PROPERTY);
     if (sysProp != null) {
@@ -51,16 +51,16 @@ public interface PathIndex<B, L extends ChangeListener> {
     }
 
     // Fall back to resource configuration
-    final var resourceConfig = pageRtx.getResourceSession().getResourceConfig();
+    final var resourceConfig = storageEngineReader.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;
   }
 
   /**
    * Open HOT-based path index.
    */
-  private Iterator<NodeReferences> openHOTIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
+  private Iterator<NodeReferences> openHOTIndex(final StorageEngineReader storageEngineReader, final IndexDef indexDef,
       final PathFilter filter) {
-    final HOTLongIndexReader reader = HOTLongIndexReader.create(pageRtx, indexDef.getType(), indexDef.getID());
+    final HOTLongIndexReader reader = HOTLongIndexReader.create(storageEngineReader, indexDef.getType(), indexDef.getID());
 
     if (filter != null && filter.getPCRs().size() == 1) {
       // Single PCR lookup
@@ -111,10 +111,10 @@ public interface PathIndex<B, L extends ChangeListener> {
   /**
    * Open RBTree-based path index (default).
    */
-  private Iterator<NodeReferences> openRBTreeIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
+  private Iterator<NodeReferences> openRBTreeIndex(final StorageEngineReader storageEngineReader, final IndexDef indexDef,
       final PathFilter filter) {
     final RBTreeReader<Long, NodeReferences> reader = RBTreeReader.getInstance(
-        pageRtx.getResourceSession().getIndexCache(), pageRtx, indexDef.getType(), indexDef.getID());
+        storageEngineReader.getResourceSession().getIndexCache(), storageEngineReader, indexDef.getType(), indexDef.getID());
 
     if (filter != null && filter.getPCRs().size() == 1) {
       final var optionalNodeReferences = reader.get(filter.getPCRs().iterator().next(), SearchMode.EQUAL);

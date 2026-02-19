@@ -35,7 +35,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   /**
    * The page write trx.
    */
-  private final StorageEngineWriter pageTrx;
+  private final StorageEngineWriter storageEngineWriter;
 
   /**
    * {@code true} if bulk inserting is enabled, {@code false} otherwise
@@ -51,13 +51,13 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    *
    * @param resourceConfig the resource configuration
    * @param nodeReadOnlyTrx the internal read-only node trx
-   * @param pageTrx the page trx
+   * @param storageEngineWriter the page trx
    */
   protected AbstractNodeHashing(final ResourceConfiguration resourceConfig, final T nodeReadOnlyTrx,
-      final StorageEngineWriter pageTrx) {
+      final StorageEngineWriter storageEngineWriter) {
     this.hashType = resourceConfig.hashType;
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;
-    this.pageTrx = pageTrx;
+    this.storageEngineWriter = storageEngineWriter;
   }
 
   public void setBulkInsert(final boolean value) {
@@ -134,13 +134,13 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    */
   private void postorderAdd() {
     // start with hash to add
-    final Node startNode = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+    final Node startNode = storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
     final long startNodeKey = startNode.getNodeKey();
     // long for adapting the hash of the parent
     long hashCodeForParent;
     // adapting the parent if the current node is no structural one.
     if (!(startNode instanceof StructNode)) {
-      final Node node = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+      final Node node = storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
       node.setHash(node.computeHash(bytes));
       persistNode(node);
       nodeReadOnlyTrx.moveTo(nodeReadOnlyTrx.getParentKey());
@@ -148,7 +148,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     // Cursor to root
     StructNode cursorToRoot;
     do {
-      cursorToRoot = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+      cursorToRoot = storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
       hashCodeForParent = cursorToRoot.computeHash(bytes);
       // Caring about attributes and namespaces if node is an element.
       if (cursorToRoot.getKind() == NodeKind.ELEMENT) {
@@ -158,14 +158,14 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         for (int i = 0; i < attCount; i++) {
           nodeReadOnlyTrx.moveTo(currentElement.getAttributeKey(i));
           final Node attributeNode =
-              pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+              storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
           hashCodeForParent = attributeNode.computeHash(bytes) + hashCodeForParent * PRIME;
         }
         final int nspCount = ((ElementNode) cursorToRoot).getNamespaceCount();
         for (int i = 0; i < nspCount; i++) {
           nodeReadOnlyTrx.moveTo(currentElement.getNamespaceKey(i));
           final Node namespaceNode =
-              pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+              storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
           hashCodeForParent = namespaceNode.computeHash(bytes) + hashCodeForParent * PRIME;
         }
         nodeReadOnlyTrx.moveTo(cursorToRoot.getNodeKey());
@@ -190,7 +190,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   protected abstract StructNode getStructuralNode();
 
   private void persistNode(final Node node) {
-    pageTrx.updateRecordSlot(node, IndexType.DOCUMENT, -1);
+    storageEngineWriter.updateRecordSlot(node, IndexType.DOCUMENT, -1);
   }
 
   /**
@@ -201,14 +201,14 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    */
   private void rollingUpdate(final long oldHash) {
     long currentKey = nodeReadOnlyTrx.getNodeKey();
-    final Node newNode = pageTrx.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
+    final Node newNode = storageEngineWriter.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
     final long newNodeKey = newNode.getNodeKey();
     final long newHash = newNode.computeHash(bytes);
     long resultNew;
 
     // go the path to the root — track position via local key to avoid moveTo allocations
     do {
-      final Node node = pageTrx.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
+      final Node node = storageEngineWriter.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
       if (node.getNodeKey() == newNodeKey) {
         resultNew = newHash;
       } else {
@@ -227,7 +227,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    * Adapting the structure with a rolling hash for all ancestors only with remove.
    */
   private void rollingRemove() {
-    final Node startNode = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+    final Node startNode = storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
     final long startNodeKey = startNode.getNodeKey();
     // Capture all needed values from startNode before any subsequent prepareRecordForModification
     // calls, which may return the same write-path singleton and overwrite startNode's fields.
@@ -244,7 +244,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     // go the path to the root — track position via local key to avoid moveTo allocations
     long currentKey = nodeReadOnlyTrx.getNodeKey();
     do {
-      final Node node = pageTrx.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
+      final Node node = storageEngineWriter.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
       if (node.getNodeKey() == startNodeKey) {
         // the hash for the start node is always 0
         newHash = 0L;
@@ -292,7 +292,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    */
   private void rollingAdd() {
     // start with hash to add
-    final Node startNode = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+    final Node startNode = storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
     final long startNodeKey = startNode.getNodeKey();
     // Capture all needed values from startNode before any subsequent prepareRecordForModification
     // calls, which may return the same write-path singleton and overwrite startNode's fields.
@@ -312,7 +312,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     if (isValueNode(startNodeKind)) {
       hashToAdd = startNode.computeHash(bytes);
       // Set hash on value node so it can be serialized with metadata
-      final Node valueNode = pageTrx.prepareRecordForModification(startNodeKey, IndexType.DOCUMENT, -1);
+      final Node valueNode = storageEngineWriter.prepareRecordForModification(startNodeKey, IndexType.DOCUMENT, -1);
       valueNode.setHash(hashToAdd);
       persistNode(valueNode);
       currentKey = startParentKey;
@@ -331,7 +331,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     Node node;
     long nodeParentKey;
     do {
-      node = pageTrx.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
+      node = storageEngineWriter.prepareRecordForModification(currentKey, IndexType.DOCUMENT, -1);
       nodeParentKey = node.getParentKey();
       if (node.getNodeKey() == startNodeKey) {
         // first, take the hashcode of the node only
@@ -380,7 +380,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
     switch (hashType) {
       case ROLLING:
         final Node parentNode =
-            pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+            storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         final long hash = parentNode.getHash();
         parentNode.setHash(hash + hashToAdd * PRIME);
         if (startIsStruct && parentNode instanceof StructNode parentStruct) {
@@ -404,7 +404,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
       case ROLLING -> {
         // Setup.
         final Node startNode =
-            pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+            storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         final long startNodeKey = startNode.getNodeKey();
         // Capture all needed values from startNode before any subsequent prepareRecordForModification
         // calls, which may return the same write-path singleton and overwrite startNode's fields.
@@ -423,14 +423,14 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
         long hashToAdd = startNode.getHash() == 0L
             ? startNode.computeHash(bytes)
             : startNode.getHash(); // Already includes own data hash from child processing
-        Node node = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+        Node node = storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
         node.setHash(hashToAdd);
         persistNode(node);
 
         // Set parent node's hash.
         if (startHasParent) {
           nodeReadOnlyTrx.moveTo(startParentKey);
-          node = pageTrx.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+          node = storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
           final long currentNodeHash = node.getHash();
           // If parent's hash is 0, initialize with its own data hash.
           // Otherwise, use existing hash (which already includes parent's data hash).

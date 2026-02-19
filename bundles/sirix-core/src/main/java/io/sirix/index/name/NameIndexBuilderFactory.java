@@ -33,14 +33,14 @@ public final class NameIndexBuilderFactory {
   /**
    * Creates a NAME index builder using the backend configured for the resource.
    */
-  public NameIndexBuilder create(final StorageEngineWriter pageTrx, final IndexDef indexDefinition) {
-    return create(pageTrx, indexDefinition, isHOTEnabled(pageTrx));
+  public NameIndexBuilder create(final StorageEngineWriter storageEngineWriter, final IndexDef indexDefinition) {
+    return create(storageEngineWriter, indexDefinition, isHOTEnabled(storageEngineWriter));
   }
 
   /**
    * Creates a NAME index builder with explicit backend selection.
    */
-  public NameIndexBuilder create(final StorageEngineWriter pageTrx, final IndexDef indexDefinition,
+  public NameIndexBuilder create(final StorageEngineWriter storageEngineWriter, final IndexDef indexDefinition,
       final boolean useHOT) {
     final var includes = requireNonNull(indexDefinition.getIncluded());
     final var excludes = requireNonNull(indexDefinition.getExcluded());
@@ -48,19 +48,19 @@ public final class NameIndexBuilderFactory {
 
     if (useHOT) {
       final var hotWriter =
-          HOTIndexWriter.create(pageTrx, NameKeySerializer.INSTANCE, IndexType.NAME, indexDefinition.getID());
-      return new NameIndexBuilder(includes, excludes, hotWriter, pageTrx);
+          HOTIndexWriter.create(storageEngineWriter, NameKeySerializer.INSTANCE, IndexType.NAME, indexDefinition.getID());
+      return new NameIndexBuilder(includes, excludes, hotWriter, storageEngineWriter);
     } else {
-      final var rbTreeWriter = RBTreeWriter.<QNm, NodeReferences>getInstance(this.databaseType, pageTrx,
+      final var rbTreeWriter = RBTreeWriter.<QNm, NodeReferences>getInstance(this.databaseType, storageEngineWriter,
           indexDefinition.getType(), indexDefinition.getID());
-      return new NameIndexBuilder(includes, excludes, rbTreeWriter, pageTrx);
+      return new NameIndexBuilder(includes, excludes, rbTreeWriter, storageEngineWriter);
     }
   }
 
   /**
    * Checks if HOT indexes should be used for the given transaction.
    */
-  private static boolean isHOTEnabled(final StorageEngineWriter pageTrx) {
+  private static boolean isHOTEnabled(final StorageEngineWriter storageEngineWriter) {
     // System property takes precedence (for testing)
     final String sysProp = System.getProperty(NameIndexListenerFactory.USE_HOT_PROPERTY);
     if (sysProp != null) {
@@ -68,7 +68,7 @@ public final class NameIndexBuilderFactory {
     }
 
     // Fall back to resource configuration
-    final var resourceConfig = pageTrx.getResourceSession().getResourceConfig();
+    final var resourceConfig = storageEngineWriter.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;
   }
 }

@@ -126,7 +126,7 @@ final class XmlNodeTrxImpl extends
     super(Executors.defaultThreadFactory(), resourceManager.getResourceConfig().hashType, nodeReadOnlyTrx,
         nodeReadOnlyTrx, resourceManager, afterCommitState, nodeHashing, pathSummaryWriter, nodeFactory,
         nodeToRevisionsIndex, transactionLock, afterCommitDelay, maxNodeCount);
-    indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getPageTrx().getRevisionNumber());
+    indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     storeChildCount = this.resourceSession.getResourceConfig().storeChildCount();
 
     useTextCompression = resourceManager.getResourceConfig().useTextCompression;
@@ -156,7 +156,7 @@ final class XmlNodeTrxImpl extends
 
       checkArgument(fromKey != getNodeKey(), "Can't move itself to first child of itself!");
 
-      final DataRecord node = pageTrx.getRecord(fromKey, IndexType.DOCUMENT, -1);
+      final DataRecord node = storageEngineWriter.getRecord(fromKey, IndexType.DOCUMENT, -1);
       if (node == null) {
         throw new IllegalStateException("Node to move must exist!");
       }
@@ -227,13 +227,13 @@ final class XmlNodeTrxImpl extends
       axis.nextLong();
       for (int i = 0, attCount = getAttributeCount(); i < attCount; i++) {
         moveToAttribute(i);
-        final AttributeNode att = pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
+        final AttributeNode att = storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
         notifyPrimitiveIndexChange(type, att, att.getPathNodeKey());
         moveToParent();
       }
       for (int i = 0, nspCount = getNamespaceCount(); i < nspCount; i++) {
         moveToNamespace(i);
-        final NamespaceNode nsp = pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
+        final NamespaceNode nsp = storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
         notifyPrimitiveIndexChange(type, nsp, nsp.getPathNodeKey());
         moveToParent();
       }
@@ -321,7 +321,7 @@ final class XmlNodeTrxImpl extends
       }
 
       // Save: Every node in the "usual" node page is of type Node.
-      final var node = pageTrx.getRecord(fromKey, IndexType.DOCUMENT, -1);
+      final var node = storageEngineWriter.getRecord(fromKey, IndexType.DOCUMENT, -1);
       if (node == null) {
         throw new IllegalStateException("Node to move must exist: " + fromKey);
       }
@@ -401,7 +401,7 @@ final class XmlNodeTrxImpl extends
 
     // Modify nodes where the subtree has been moved from.
     // ==============================================================================
-    final StructNode parent = pageTrx.prepareRecordForModification(fromNode.getParentKey(), IndexType.DOCUMENT, -1);
+    final StructNode parent = storageEngineWriter.prepareRecordForModification(fromNode.getParentKey(), IndexType.DOCUMENT, -1);
     switch (insertPos) {
       case ASRIGHTSIBLING:
         if (fromNode.getParentKey() != toNode.getParentKey() && storeChildCount) {
@@ -428,7 +428,7 @@ final class XmlNodeTrxImpl extends
     // Adapt left sibling key of former right sibling.
     if (fromNode.hasRightSibling()) {
       final StructNode rightSibling =
-          pageTrx.prepareRecordForModification(fromNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
+          storageEngineWriter.prepareRecordForModification(fromNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
       rightSibling.setLeftSiblingKey(fromNode.getLeftSiblingKey());
       persistUpdatedRecord(rightSibling);
     }
@@ -436,7 +436,7 @@ final class XmlNodeTrxImpl extends
     // Adapt right sibling key of former left sibling.
     if (fromNode.hasLeftSibling()) {
       final StructNode leftSibling =
-          pageTrx.prepareRecordForModification(fromNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
+          storageEngineWriter.prepareRecordForModification(fromNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
       leftSibling.setRightSiblingKey(fromNode.getRightSiblingKey());
       persistUpdatedRecord(leftSibling);
     }
@@ -457,7 +457,7 @@ final class XmlNodeTrxImpl extends
             final boolean hasLeftSibling = currentLeftNode.hasLeftSibling();
             if (hasLeftSibling) {
               final StructNode leftSibling =
-                  pageTrx.prepareRecordForModification(currentLeftNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
+                  storageEngineWriter.prepareRecordForModification(currentLeftNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
               leftSibling.setRightSiblingKey(rightSiblingNodeKey);
               persistUpdatedRecord(leftSibling);
             }
@@ -465,7 +465,7 @@ final class XmlNodeTrxImpl extends
                 ? currentLeftNode.getLeftSiblingKey()
                 : currentLeftNode.getNodeKey();
             moveTo(rightSiblingNodeKey);
-            final StructNode rightSibling = pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
+            final StructNode rightSibling = storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
             rightSibling.setLeftSiblingKey(newLeftSiblingKey);
             persistUpdatedRecord(rightSibling);
             moveTo(leftSiblingNodeKey);
@@ -477,7 +477,7 @@ final class XmlNodeTrxImpl extends
             final boolean hasRightSibling = currentRightNode.hasRightSibling();
             if (hasRightSibling) {
               final StructNode rightSibling =
-                  pageTrx.prepareRecordForModification(currentRightNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
+                  storageEngineWriter.prepareRecordForModification(currentRightNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
               rightSibling.setLeftSiblingKey(leftSiblingNodeKey);
               persistUpdatedRecord(rightSibling);
             }
@@ -485,7 +485,7 @@ final class XmlNodeTrxImpl extends
                 ? currentRightNode.getRightSiblingKey()
                 : currentRightNode.getNodeKey();
             moveTo(leftSiblingNodeKey);
-            final StructNode leftSibling = pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
+            final StructNode leftSibling = storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
             leftSibling.setRightSiblingKey(newRightSiblingKey);
             persistUpdatedRecord(leftSibling);
             moveTo(rightSiblingNodeKey);
@@ -729,7 +729,7 @@ final class XmlNodeTrxImpl extends
     while (getKind() != NodeKind.ELEMENT) {
       final ImmutableNode currentNode = nodeReadOnlyTrx.getStructuralNode();
       final long hashToAdd = currentNode.computeHash(bytes);
-      final Node node = pageTrx.prepareRecordForModification(currentNode.getNodeKey(), IndexType.DOCUMENT, -1);
+      final Node node = storageEngineWriter.prepareRecordForModification(currentNode.getNodeKey(), IndexType.DOCUMENT, -1);
       node.setHash(hashToAdd);
       persistUpdatedRecord(node);
 
@@ -1162,7 +1162,7 @@ final class XmlNodeTrxImpl extends
       final SirixDeweyID id = deweyIDManager.newAttributeID();
       final AttributeNode node = nodeFactory.createAttributeNode(elementKey, name, attValue, pathNodeKey, id);
 
-      final Node parentNode = pageTrx.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
+      final Node parentNode = storageEngineWriter.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
       ((ElementNode) parentNode).insertAttribute(node.getNodeKey());
       persistUpdatedRecord(parentNode);
 
@@ -1222,7 +1222,7 @@ final class XmlNodeTrxImpl extends
       final SirixDeweyID id = deweyIDManager.newNamespaceID();
       final NamespaceNode node = nodeFactory.createNamespaceNode(elementKey, name, pathNodeKey, id);
 
-      final Node parentNode = pageTrx.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
+      final Node parentNode = storageEngineWriter.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
       ((ElementNode) parentNode).insertNamespace(node.getNodeKey());
       persistUpdatedRecord(parentNode);
 
@@ -1269,25 +1269,25 @@ final class XmlNodeTrxImpl extends
       if (kind == NodeKind.XML_DOCUMENT) {
         throw new SirixUsageException("Document root can not be removed.");
       } else if (kind == NodeKind.ATTRIBUTE) {
-        final AttributeNode node = pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
+        final AttributeNode node = storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
 
         notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
-        final ElementNode parent = pageTrx.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
+        final ElementNode parent = storageEngineWriter.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
         parent.removeAttribute(node.getNodeKey());
         persistUpdatedRecord(parent);
         nodeHashing.adaptHashesWithRemove();
-        pageTrx.removeRecord(node.getNodeKey(), IndexType.DOCUMENT, -1);
+        storageEngineWriter.removeRecord(node.getNodeKey(), IndexType.DOCUMENT, -1);
         removeName();
         moveToParent();
       } else if (kind == NodeKind.NAMESPACE) {
-        final NamespaceNode node = pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
+        final NamespaceNode node = storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
 
         notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
-        final ElementNode parent = pageTrx.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
+        final ElementNode parent = storageEngineWriter.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
         parent.removeNamespace(node.getNodeKey());
         persistUpdatedRecord(parent);
         nodeHashing.adaptHashesWithRemove();
-        pageTrx.removeRecord(node.getNodeKey(), IndexType.DOCUMENT, -1);
+        storageEngineWriter.removeRecord(node.getNodeKey(), IndexType.DOCUMENT, -1);
         removeName();
         moveToParent();
       } else {
@@ -1315,7 +1315,7 @@ final class XmlNodeTrxImpl extends
           removeValue();
 
           // Then remove node.
-          pageTrx.removeRecord(currentNodeKey, IndexType.DOCUMENT, -1);
+          storageEngineWriter.removeRecord(currentNodeKey, IndexType.DOCUMENT, -1);
         }
 
         // getPathSummary().moveToDocumentRoot();
@@ -1379,7 +1379,7 @@ final class XmlNodeTrxImpl extends
     if (kind == NodeKind.TEXT || kind == NodeKind.COMMENT || kind == NodeKind.PROCESSING_INSTRUCTION) {
       valueNode = (ValueNode) nodeReadOnlyTrx.getStructuralNode();
     } else if (kind == NodeKind.ATTRIBUTE) {
-      valueNode = pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
+      valueNode = storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
     } else {
       return;
     }
@@ -1404,7 +1404,7 @@ final class XmlNodeTrxImpl extends
         final long attributeNodeKey = getNodeKey();
         removeName();
         removeValue();
-        pageTrx.removeRecord(attributeNodeKey, IndexType.DOCUMENT, -1);
+        storageEngineWriter.removeRecord(attributeNodeKey, IndexType.DOCUMENT, -1);
         moveToParent();
       }
       final int nspCount = nodeReadOnlyTrx.getNamespaceCount();
@@ -1412,7 +1412,7 @@ final class XmlNodeTrxImpl extends
         moveToNamespace(i);
         final long namespaceNodeKey = getNodeKey();
         removeName();
-        pageTrx.removeRecord(namespaceNodeKey, IndexType.DOCUMENT, -1);
+        storageEngineWriter.removeRecord(namespaceNodeKey, IndexType.DOCUMENT, -1);
         moveToParent();
       }
     }
@@ -1436,10 +1436,10 @@ final class XmlNodeTrxImpl extends
 
     notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
     final NodeKind nodeKind = node.getKind();
-    final NamePage page = pageTrx.getNamePage(pageTrx.getActualRevisionRootPage());
-    page.removeName(node.getPrefixKey(), nodeKind, pageTrx);
-    page.removeName(node.getLocalNameKey(), nodeKind, pageTrx);
-    page.removeName(node.getURIKey(), NodeKind.NAMESPACE, pageTrx);
+    final NamePage page = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
+    page.removeName(node.getPrefixKey(), nodeKind, storageEngineWriter);
+    page.removeName(node.getLocalNameKey(), nodeKind, storageEngineWriter);
+    page.removeName(node.getURIKey(), NodeKind.NAMESPACE, storageEngineWriter);
 
     assert nodeKind != NodeKind.XML_DOCUMENT;
     if (buildPathSummary) {
@@ -1474,20 +1474,20 @@ final class XmlNodeTrxImpl extends
           final int oldPrefixKey = node.getPrefixKey();
           final int oldLocalNameKey = node.getLocalNameKey();
           final int oldUriKey = node.getURIKey();
-          final NamePage page = ((NamePage) pageTrx.getActualRevisionRootPage().getNamePageReference().getPage());
-          page.removeName(oldPrefixKey, nodeKind, pageTrx);
-          page.removeName(oldLocalNameKey, nodeKind, pageTrx);
-          page.removeName(oldUriKey, NodeKind.NAMESPACE, pageTrx);
+          final NamePage page = ((NamePage) storageEngineWriter.getActualRevisionRootPage().getNamePageReference().getPage());
+          page.removeName(oldPrefixKey, nodeKind, storageEngineWriter);
+          page.removeName(oldLocalNameKey, nodeKind, storageEngineWriter);
+          page.removeName(oldUriKey, NodeKind.NAMESPACE, storageEngineWriter);
 
           // Create new keys for mapping.
           final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
-              ? pageTrx.createNameKey(name.getPrefix(), node.getKind())
+              ? storageEngineWriter.createNameKey(name.getPrefix(), node.getKind())
               : -1;
           final int localNameKey = name.getLocalName() != null && !name.getLocalName().isEmpty()
-              ? pageTrx.createNameKey(name.getLocalName(), node.getKind())
+              ? storageEngineWriter.createNameKey(name.getLocalName(), node.getKind())
               : -1;
           final int uriKey = name.getNamespaceURI() != null && !name.getNamespaceURI().isEmpty()
-              ? pageTrx.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE)
+              ? storageEngineWriter.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE)
               : -1;
 
           // Set new keys for current node.
@@ -1638,7 +1638,7 @@ final class XmlNodeTrxImpl extends
       final boolean hasRight = structNode.hasRightSibling();
 
       // Phase 1: Update parent — complete all modifications and persist BEFORE siblings.
-      final StructNode parent = pageTrx.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
+      final StructNode parent = storageEngineWriter.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
       if (storeChildCount) {
         parent.incrementChildCount();
       }
@@ -1649,14 +1649,14 @@ final class XmlNodeTrxImpl extends
 
       // Phase 2: Update right sibling (safe — parent already persisted)
       if (hasRight) {
-        final StructNode rightSiblingNode = pageTrx.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
+        final StructNode rightSiblingNode = storageEngineWriter.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
         rightSiblingNode.setLeftSiblingKey(structNodeKey);
         persistUpdatedRecord(rightSiblingNode);
       }
 
       // Phase 3: Update left sibling
       if (hasLeft) {
-        final StructNode leftSiblingNode = pageTrx.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
+        final StructNode leftSiblingNode = storageEngineWriter.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
         leftSiblingNode.setRightSiblingKey(structNodeKey);
         persistUpdatedRecord(leftSiblingNode);
       }
@@ -1704,7 +1704,7 @@ final class XmlNodeTrxImpl extends
 
     // Phase 1: Adapt left sibling node if there is one.
     if (hasLeft) {
-      final StructNode leftSibling = pageTrx.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
+      final StructNode leftSibling = storageEngineWriter.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
       if (concatenated) {
         moveTo(rightSibKey);
         leftSibling.setRightSiblingKey(nodeReadOnlyTrx.getStructuralNode().getRightSiblingKey());
@@ -1720,17 +1720,17 @@ final class XmlNodeTrxImpl extends
       if (concatenated) {
         moveTo(rightSibKey);
         moveTo(nodeReadOnlyTrx.getStructuralNode().getRightSiblingKey());
-        rightSibling = pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
+        rightSibling = storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
         rightSibling.setLeftSiblingKey(leftSibKey);
       } else {
-        rightSibling = pageTrx.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
+        rightSibling = storageEngineWriter.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
         rightSibling.setLeftSiblingKey(leftSibKey);
       }
       persistUpdatedRecord(rightSibling);
     }
 
     // Phase 3: Adapt parent
-    final StructNode parent = pageTrx.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
+    final StructNode parent = storageEngineWriter.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
     if (!hasLeft) {
       parent.setFirstChildKey(rightSibKey);
     }
@@ -1752,7 +1752,7 @@ final class XmlNodeTrxImpl extends
       boolean hasAncestorParent = parentHasParent;
       while (hasAncestorParent) {
         moveToParent();
-        final StructNode ancestor = pageTrx.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
+        final StructNode ancestor = storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
         ancestor.decrementDescendantCount();
         hasAncestorParent = ancestor.hasParent();
         persistUpdatedRecord(ancestor);
@@ -1763,7 +1763,7 @@ final class XmlNodeTrxImpl extends
     // concatenated/merged.
     if (concatenated) {
       moveTo(rightSibKey);
-      pageTrx.removeRecord(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
+      storageEngineWriter.removeRecord(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
     }
 
     // Remove non-structural nodes of old node.
@@ -1774,7 +1774,7 @@ final class XmlNodeTrxImpl extends
 
     // Remove old node.
     moveTo(oldNodeKey);
-    pageTrx.removeRecord(oldNodeKey, IndexType.DOCUMENT, -1);
+    storageEngineWriter.removeRecord(oldNodeKey, IndexType.DOCUMENT, -1);
   }
 
   // ////////////////////////////////////////////////////////////
@@ -2054,12 +2054,12 @@ final class XmlNodeTrxImpl extends
 
   @Override
   protected AbstractNodeHashing<ImmutableXmlNode, XmlNodeReadOnlyTrx> reInstantiateNodeHashing(
-      StorageEngineWriter pageTrx) {
-    return new XmlNodeHashing(resourceSession.getResourceConfig(), nodeReadOnlyTrx, pageTrx);
+      StorageEngineWriter storageEngineWriter) {
+    return new XmlNodeHashing(resourceSession.getResourceConfig(), nodeReadOnlyTrx, storageEngineWriter);
   }
 
   @Override
-  protected XmlNodeFactory reInstantiateNodeFactory(StorageEngineWriter pageTrx) {
-    return new XmlNodeFactoryImpl(resourceSession.getResourceConfig().nodeHashFunction, pageTrx);
+  protected XmlNodeFactory reInstantiateNodeFactory(StorageEngineWriter storageEngineWriter) {
+    return new XmlNodeFactoryImpl(resourceSession.getResourceConfig().nodeHashFunction, storageEngineWriter);
   }
 }

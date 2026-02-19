@@ -15,12 +15,12 @@ import static org.testng.Assert.assertNotEquals;
 public final class NamesTest {
   @Test
   public void whenIndexExistsForAnotherString_createNewIndex() {
-    final StorageEngineWriter pageTrx = createPageTrxMock("FB");
+    final StorageEngineWriter storageEngineWriter = createPageTrxMock("FB");
 
     final var names = Names.getInstance(0);
 
-    final var fbIndex = names.setName("FB", pageTrx);
-    final var EaIndex = names.setName("Ea", pageTrx);
+    final var fbIndex = names.setName("FB", storageEngineWriter);
+    final var EaIndex = names.setName("Ea", storageEngineWriter);
 
     assertNotEquals(fbIndex, EaIndex);
   }
@@ -30,33 +30,33 @@ public final class NamesTest {
     final var hashCountEntryNode = new HashCountEntryNode(3, 1);
 
     @SuppressWarnings("unchecked")
-    final StorageEngineWriter pageTrx = mock(StorageEngineWriter.class);
-    when(pageTrx.createRecord(any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashEntryNode);
-    when(pageTrx.createRecord(any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashCountEntryNode);
-    when(pageTrx.prepareRecordForModification(2L, IndexType.NAME, 0)).thenReturn(hashCountEntryNode);
-    return pageTrx;
+    final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
+    when(storageEngineWriter.createRecord(any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashEntryNode);
+    when(storageEngineWriter.createRecord(any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashCountEntryNode);
+    when(storageEngineWriter.prepareRecordForModification(2L, IndexType.NAME, 0)).thenReturn(hashCountEntryNode);
+    return storageEngineWriter;
   }
 
   @Test
   public void whenIndexExistsForSameString_createNoNewIndex() {
-    final StorageEngineWriter pageTrx = createPageTrxMock("FB");
+    final StorageEngineWriter storageEngineWriter = createPageTrxMock("FB");
 
     final var names = Names.getInstance(0);
 
-    final var fbIndex = names.setName("FB", pageTrx);
-    final var EaIndex = names.setName("FB", pageTrx);
+    final var fbIndex = names.setName("FB", storageEngineWriter);
+    final var EaIndex = names.setName("FB", storageEngineWriter);
 
     assertEquals(fbIndex, EaIndex);
   }
 
   @Test
   public void whenIndexExistsForSameString_increaseCounter() {
-    final StorageEngineWriter pageTrx = createPageTrxMock("FB");
+    final StorageEngineWriter storageEngineWriter = createPageTrxMock("FB");
 
     final var names = Names.getInstance(0);
 
-    final var index = names.setName("FB", pageTrx);
-    names.setName("FB", pageTrx);
+    final var index = names.setName("FB", storageEngineWriter);
+    names.setName("FB", storageEngineWriter);
 
     assertEquals(2, names.getCount(index));
   }
@@ -72,10 +72,10 @@ public final class NamesTest {
   public void whenNameIsSet_getNameReturnsName() {
     final var testName = "FB";
 
-    final StorageEngineWriter pageTrx = createPageTrxMock(testName);
+    final StorageEngineWriter storageEngineWriter = createPageTrxMock(testName);
 
     final var names = Names.getInstance(0);
-    final var index = names.setName(testName, pageTrx);
+    final var index = names.setName(testName, storageEngineWriter);
     final var name = names.getName(index);
 
     assertEquals(testName, name);

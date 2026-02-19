@@ -55,7 +55,7 @@ public class PageTest {
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
     holder = Holder.generateDeweyIDResourceSession();
-    pageReadTrx = holder.getResourceSession().beginPageReadOnlyTrx();
+    pageReadTrx = holder.getResourceSession().beginStorageEngineReader();
   }
 
   @AfterClass
@@ -124,10 +124,10 @@ public class PageTest {
     final var hashEntryNode = new HashEntryNode(2, 12, "name");
     final var hashCountEntryNode = new HashCountEntryNode(3, 1);
 
-    final StorageEngineWriter pageTrx = mock(StorageEngineWriter.class);
-    when(pageTrx.createRecord(any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashEntryNode);
-    when(pageTrx.createRecord(any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashCountEntryNode);
-    when(pageTrx.prepareRecordForModification(2L, IndexType.NAME, 0)).thenReturn(hashCountEntryNode);
-    return pageTrx;
+    final StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
+    when(storageEngineWriter.createRecord(any(HashEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashEntryNode);
+    when(storageEngineWriter.createRecord(any(HashCountEntryNode.class), eq(IndexType.NAME), eq(0))).thenReturn(hashCountEntryNode);
+    when(storageEngineWriter.prepareRecordForModification(2L, IndexType.NAME, 0)).thenReturn(hashCountEntryNode);
+    return storageEngineWriter;
   }
 }

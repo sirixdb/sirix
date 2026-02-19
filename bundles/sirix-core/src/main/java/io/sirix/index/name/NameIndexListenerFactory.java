@@ -88,10 +88,10 @@ public final class NameIndexListenerFactory {
    * </ol>
    * </p>
    *
-   * @param pageTrx the storage engine writer providing access to resource configuration
+   * @param storageEngineWriter the storage engine writer providing access to resource configuration
    * @return true if HOT should be used
    */
-  public static boolean isHOTEnabled(final StorageEngineWriter pageTrx) {
+  public static boolean isHOTEnabled(final StorageEngineWriter storageEngineWriter) {
     // System property takes precedence (for testing)
     final String sysProp = System.getProperty(USE_HOT_PROPERTY);
     if (sysProp != null) {
@@ -99,7 +99,7 @@ public final class NameIndexListenerFactory {
     }
 
     // Fall back to resource configuration
-    final var resourceConfig = pageTrx.getResourceSession().getResourceConfig();
+    final var resourceConfig = storageEngineWriter.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;
   }
 

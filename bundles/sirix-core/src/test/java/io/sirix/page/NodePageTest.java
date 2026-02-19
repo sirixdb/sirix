@@ -67,7 +67,7 @@ public final class NodePageTest {
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
     holder = Holder.generateDeweyIDResourceSession();
-    pageReadTrx = holder.getResourceSession().beginPageReadOnlyTrx();
+    pageReadTrx = holder.getResourceSession().beginStorageEngineReader();
     arena = Arena.ofConfined();
   }
 

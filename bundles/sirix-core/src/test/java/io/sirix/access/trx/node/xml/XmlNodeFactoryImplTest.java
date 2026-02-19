@@ -33,22 +33,22 @@ import static org.mockito.Mockito.when;
 
 public final class XmlNodeFactoryImplTest {
 
-  private StorageEngineWriter pageTrx;
+  private StorageEngineWriter storageEngineWriter;
   private XmlNodeFactoryImpl factory;
   private long nodeCounter;
 
   @Before
   public void setUp() {
-    pageTrx = mock(StorageEngineWriter.class);
+    storageEngineWriter = mock(StorageEngineWriter.class);
     final RevisionRootPage revisionRootPage = mock(RevisionRootPage.class);
-    when(pageTrx.getActualRevisionRootPage()).thenReturn(revisionRootPage);
+    when(storageEngineWriter.getActualRevisionRootPage()).thenReturn(revisionRootPage);
     when(revisionRootPage.getMaxNodeKeyInDocumentIndex()).thenAnswer(invocation -> nodeCounter++);
-    when(pageTrx.getRevisionNumber()).thenReturn(1);
-    when(pageTrx.createRecord(any(DataRecord.class), any(IndexType.class), anyInt())).thenAnswer(
+    when(storageEngineWriter.getRevisionNumber()).thenReturn(1);
+    when(storageEngineWriter.createRecord(any(DataRecord.class), any(IndexType.class), anyInt())).thenAnswer(
         invocation -> invocation.getArgument(0));
-    when(pageTrx.createNameKey(anyString(), any(NodeKind.class))).thenAnswer(
+    when(storageEngineWriter.createNameKey(anyString(), any(NodeKind.class))).thenAnswer(
         invocation -> Math.abs(invocation.getArgument(0, String.class).hashCode()));
-    factory = new XmlNodeFactoryImpl(LongHashFunction.xx3(), pageTrx);
+    factory = new XmlNodeFactoryImpl(LongHashFunction.xx3(), storageEngineWriter);
   }
 
   @Test

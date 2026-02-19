@@ -50,7 +50,7 @@ public final class LastExisting extends AbstractFunction {
     final var resourceSession = item.getTrx().getResourceSession();
 
     final RevisionReferencesNode indexNode;
-    try (final var pageReadOnlyTrx = resourceSession.beginPageReadOnlyTrx()) {
+    try (final var pageReadOnlyTrx = resourceSession.beginStorageEngineReader()) {
       indexNode = pageReadOnlyTrx.getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
     } catch (final Exception e) {
       throw new QueryException(new QNm(e.getMessage()), e);

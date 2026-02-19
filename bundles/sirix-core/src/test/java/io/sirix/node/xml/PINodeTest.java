@@ -67,7 +67,7 @@ public class PINodeTest {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     mHolder = Holder.generateDeweyIDResourceSession();
-    pageReadTrx = mHolder.getResourceSession().beginPageReadOnlyTrx();
+    pageReadTrx = mHolder.getResourceSession().beginStorageEngineReader();
   }
 
   @After

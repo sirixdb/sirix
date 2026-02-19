@@ -19,16 +19,16 @@ public final class XmlPathIndexImpl implements XmlPathIndex {
   }
 
   @Override
-  public XmlPathIndexBuilder createBuilder(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
+  public XmlPathIndexBuilder createBuilder(final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
-    final var builderDelegate = pathIndexBuilderFactory.create(pageTrx, pathSummaryReader, indexDef);
+    final var builderDelegate = pathIndexBuilderFactory.create(storageEngineWriter, pathSummaryReader, indexDef);
     return new XmlPathIndexBuilder(builderDelegate);
   }
 
   @Override
-  public XmlPathIndexListener createListener(final StorageEngineWriter pageTrx,
+  public XmlPathIndexListener createListener(final StorageEngineWriter storageEngineWriter,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    final var listenerDelegate = pathIndexListenerFactory.create(pageTrx, pathSummaryReader, indexDef);
+    final var listenerDelegate = pathIndexListenerFactory.create(storageEngineWriter, pathSummaryReader, indexDef);
     return new XmlPathIndexListener(listenerDelegate);
   }
 

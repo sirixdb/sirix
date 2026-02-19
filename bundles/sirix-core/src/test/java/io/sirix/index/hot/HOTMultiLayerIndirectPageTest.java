@@ -122,7 +122,7 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Verify data was indexed - 5000 entries (0-4999), query >= 0, expect 5000 entries
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/data/[]/value"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long totalNodeRefs = 0;
@@ -174,7 +174,7 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Query to verify index works - use GREATER search to find all entries
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/items/[]/nested/score"), new Dbl(0.0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
@@ -224,7 +224,7 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Query the index to verify it works
-          var pathIndex = indexController.openPathIndex(wtx.getPageTrx(), pathIndexDef,
+          var pathIndex = indexController.openPathIndex(wtx.getStorageEngineReader(), pathIndexDef,
               indexController.createPathFilter(Set.of("/data/[]/id"), wtx));
 
           int count = 0;
@@ -306,7 +306,7 @@ class HOTMultiLayerIndirectPageTest {
 
           // Query the CAS index with various search modes
           for (SearchMode mode : new SearchMode[] {SearchMode.EQUAL, SearchMode.GREATER, SearchMode.LOWER}) {
-            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
                 Set.of("/records/[]/id"), new Int32(1500), mode, new JsonPCRCollector(wtx)));
             int count = 0;
             while (casIndex.hasNext()) {
@@ -359,7 +359,7 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Now query with range - 10000 entries (0-9999), query >= 5000, expect 5000 entries
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/items/[]/value"), new Int32(5000), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long totalNodeRefs = 0;
@@ -405,7 +405,7 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Query to verify - 5000 entries (0-4999), query >= 2500, expect 2500 entries
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/records/[]/score"), new Int32(2500), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long totalNodeRefs = 0;
@@ -464,7 +464,7 @@ class HOTMultiLayerIndirectPageTest {
 
           for (int i = 0; i < starts.length; i++) {
             int start = starts[i];
-            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
                 Set.of("/entries/[]/key"), new Int32(start), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
             long totalNodeRefs = 0;
@@ -504,7 +504,7 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Access via HOTLongIndexReader
-          var longReader = HOTLongIndexReader.create(wtx.getPageTrx(), pathIndexDef.getType(), pathIndexDef.getID());
+          var longReader = HOTLongIndexReader.create(wtx.getStorageEngineReader(), pathIndexDef.getType(), pathIndexDef.getID());
 
           // Test get method - should have exactly 1 entry for path /data/id
           var iterator = longReader.iterator();
@@ -556,7 +556,7 @@ class HOTMultiLayerIndirectPageTest {
           wtx.commit();
 
           // Query with range - 10000 entries (0-9999), query > 5000, expect 4999 entries
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/records/[]/id"), new Int32(5000), SearchMode.GREATER, new JsonPCRCollector(wtx)));
 
           long totalNodeRefs = 0;

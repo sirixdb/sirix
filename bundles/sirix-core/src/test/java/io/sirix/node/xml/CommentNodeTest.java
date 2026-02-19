@@ -64,7 +64,7 @@ public class CommentNodeTest {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     holder = Holder.generateDeweyIDResourceSession();
-    pageReadTrx = holder.getResourceSession().beginPageReadOnlyTrx();
+    pageReadTrx = holder.getResourceSession().beginStorageEngineReader();
   }
 
   @After

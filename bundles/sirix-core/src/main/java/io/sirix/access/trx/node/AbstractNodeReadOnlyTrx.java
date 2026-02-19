@@ -1480,7 +1480,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public StorageEngineReader getPageTrx() {
+  public StorageEngineReader getStorageEngineReader() {
     assertNotClosed();
     return pageReadOnlyTrx;
   }

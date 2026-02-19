@@ -987,7 +987,7 @@ final class JsonNodeTrxImpl extends
   }
 
   private void setFirstChildOfObjectKeyNode(final ObjectKeyNode node) {
-    final ObjectKeyNode objectKeyNode = pageTrx.prepareRecordForModification(node.getNodeKey(), IndexType.DOCUMENT, -1);
+    final ObjectKeyNode objectKeyNode = storageEngineWriter.prepareRecordForModification(node.getNodeKey(), IndexType.DOCUMENT, -1);
     objectKeyNode.setFirstChildKey(getNodeKey());
     persistUpdatedRecord(objectKeyNode);
   }
@@ -1662,7 +1662,7 @@ final class JsonNodeTrxImpl extends
 
     // CRITICAL FIX: Acquire a separate guard on the current node's page
     // to prevent it from being modified/evicted during the PostOrderAxis traversal
-    final var nodePageGuard = pageTrx.acquireGuardForCurrentNode();
+    final var nodePageGuard = storageEngineWriter.acquireGuardForCurrentNode();
 
     try {
       final StructNode node = nodeReadOnlyTrx.getStructuralNode();
@@ -1695,7 +1695,7 @@ final class JsonNodeTrxImpl extends
         removeValue();
 
         // Then remove node.
-        pageTrx.removeRecord(currentNodeKey, IndexType.DOCUMENT, -1);
+        storageEngineWriter.removeRecord(currentNodeKey, IndexType.DOCUMENT, -1);
 
         if (storeNodeHistory) {
           nodeToRevisionsIndex.addRevisionToRecordToRevisionsIndex(currentNodeKey);
@@ -1829,7 +1829,7 @@ final class JsonNodeTrxImpl extends
       // Ensure the name is resolved for index listener (ObjectKeyNode may have null cachedName when
       // loaded from disk)
       if (node.getName() == null) {
-        final String resolvedName = pageTrx.getName(node.getLocalNameKey(), node.getKind());
+        final String resolvedName = storageEngineWriter.getName(node.getLocalNameKey(), node.getKind());
         if (resolvedName != null) {
           node.setName(resolvedName);
         }
@@ -1837,8 +1837,8 @@ final class JsonNodeTrxImpl extends
 
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, node, node.getPathNodeKey());
       final NodeKind nodeKind = node.getKind();
-      final NamePage page = pageTrx.getNamePage(pageTrx.getActualRevisionRootPage());
-      page.removeName(node.getLocalNameKey(), nodeKind, pageTrx);
+      final NamePage page = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
+      page.removeName(node.getLocalNameKey(), nodeKind, storageEngineWriter);
 
       assert nodeKind != NodeKind.JSON_DOCUMENT;
       if (buildPathSummary) {
@@ -1865,16 +1865,16 @@ final class JsonNodeTrxImpl extends
       // Remove old keys from mapping.
       final NodeKind nodeKind = node.getKind();
       final int oldNameKey = node.getNameKey();
-      final NamePage page = pageTrx.getNamePage(pageTrx.getActualRevisionRootPage());
-      page.removeName(oldNameKey, nodeKind, pageTrx);
+      final NamePage page = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
+      page.removeName(oldNameKey, nodeKind, storageEngineWriter);
 
       // Create new key for mapping.
-      final int newNameKey = pageTrx.createNameKey(key, node.getKind());
+      final int newNameKey = storageEngineWriter.createNameKey(key, node.getKind());
 
       // Mutate current singleton-backed node directly.
       node.setNameKey(newNameKey);
       node.setName(key);
-      node.setPreviousRevision(pageTrx.getRevisionToRepresent());
+      node.setPreviousRevision(storageEngineWriter.getRevisionToRepresent());
 
       // Adapt path summary.
       if (buildPathSummary) {
@@ -1956,7 +1956,7 @@ final class JsonNodeTrxImpl extends
       final byte[] byteVal = getBytes(value);
       node.setRawValue(byteVal);
       node.setPreviousRevision(node.getLastModifiedRevisionNumber());
-      node.setLastModifiedRevision(pageTrx.getRevisionNumber());
+      node.setLastModifiedRevision(storageEngineWriter.getRevisionNumber());
 
       nodeReadOnlyTrx.setCurrentNode(node);
       persistUpdatedRecord(node);
@@ -2003,7 +2003,7 @@ final class JsonNodeTrxImpl extends
       final long oldHash = node.computeHash(bytes);
       node.setValue(value);
       node.setPreviousRevision(node.getLastModifiedRevisionNumber());
-      node.setLastModifiedRevision(pageTrx.getRevisionNumber());
+      node.setLastModifiedRevision(storageEngineWriter.getRevisionNumber());
 
       nodeReadOnlyTrx.setCurrentNode(node);
       persistUpdatedRecord(node);
@@ -2051,7 +2051,7 @@ final class JsonNodeTrxImpl extends
       final long oldHash = node.computeHash(bytes);
       node.setValue(value);
       node.setPreviousRevision(node.getLastModifiedRevisionNumber());
-      node.setLastModifiedRevision(pageTrx.getRevisionNumber());
+      node.setLastModifiedRevision(storageEngineWriter.getRevisionNumber());
 
       nodeReadOnlyTrx.setCurrentNode(node);
       persistUpdatedRecord(node);
@@ -2098,7 +2098,7 @@ final class JsonNodeTrxImpl extends
 
     // Phase 1: Update parent — childCount + firstChild/lastChild if no siblings.
     // Complete all parent modifications and persist BEFORE acquiring any sibling singletons.
-    final StructNode parent = pageTrx.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
+    final StructNode parent = storageEngineWriter.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
     if (storeChildCount) {
       parent.incrementChildCount();
     }
@@ -2112,14 +2112,14 @@ final class JsonNodeTrxImpl extends
 
     // Phase 2: Update left sibling (safe — parent already persisted)
     if (hasLeft) {
-      final StructNode leftSib = pageTrx.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
+      final StructNode leftSib = storageEngineWriter.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
       leftSib.setRightSiblingKey(structNodeKey);
       persistUpdatedRecord(leftSib);
     }
 
     // Phase 3: Update right sibling
     if (hasRight) {
-      final StructNode rightSib = pageTrx.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
+      final StructNode rightSib = storageEngineWriter.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
       rightSib.setLeftSiblingKey(structNodeKey);
       persistUpdatedRecord(rightSib);
     }
@@ -2151,20 +2151,20 @@ final class JsonNodeTrxImpl extends
 
     // Phase 1: Adapt left sibling node if there is one.
     if (hasLeft) {
-      final StructNode leftSibling = pageTrx.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
+      final StructNode leftSibling = storageEngineWriter.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
       leftSibling.setRightSiblingKey(rightSibKey);
       persistUpdatedRecord(leftSibling);
     }
 
     // Phase 2: Adapt right sibling node if there is one.
     if (hasRight) {
-      final StructNode rightSibling = pageTrx.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
+      final StructNode rightSibling = storageEngineWriter.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
       rightSibling.setLeftSiblingKey(leftSibKey);
       persistUpdatedRecord(rightSibling);
     }
 
     // Phase 3: Adapt parent
-    final StructNode parent = pageTrx.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
+    final StructNode parent = storageEngineWriter.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
     if (!hasLeft) {
       parent.setFirstChildKey(rightSibKey);
     }
@@ -2184,7 +2184,7 @@ final class JsonNodeTrxImpl extends
 
     // Remove old node.
     moveTo(oldNode.getNodeKey());
-    pageTrx.removeRecord(oldNode.getNodeKey(), IndexType.DOCUMENT, -1);
+    storageEngineWriter.removeRecord(oldNode.getNodeKey(), IndexType.DOCUMENT, -1);
   }
 
   // ////////////////////////////////////////////////////////////
@@ -2239,13 +2239,13 @@ final class JsonNodeTrxImpl extends
 
   @Override
   protected AbstractNodeHashing<ImmutableNode, JsonNodeReadOnlyTrx> reInstantiateNodeHashing(
-      StorageEngineWriter pageTrx) {
-    return new JsonNodeHashing(resourceSession.getResourceConfig(), nodeReadOnlyTrx, pageTrx);
+      StorageEngineWriter storageEngineWriter) {
+    return new JsonNodeHashing(resourceSession.getResourceConfig(), nodeReadOnlyTrx, storageEngineWriter);
   }
 
   @Override
-  protected JsonNodeFactory reInstantiateNodeFactory(StorageEngineWriter pageTrx) {
-    return new JsonNodeFactoryImpl(hashFunction, pageTrx);
+  protected JsonNodeFactory reInstantiateNodeFactory(StorageEngineWriter storageEngineWriter) {
+    return new JsonNodeFactoryImpl(hashFunction, storageEngineWriter);
   }
 
   @Override

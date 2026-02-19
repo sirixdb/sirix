@@ -68,8 +68,8 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default StorageEngineReader getPageTrx() {
-    return nodeReadOnlyTrxDelegate().getPageTrx();
+  default StorageEngineReader getStorageEngineReader() {
+    return nodeReadOnlyTrxDelegate().getStorageEngineReader();
   }
 
   @Override

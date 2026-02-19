@@ -139,10 +139,10 @@ class HOTLeafPageSplitTest {
       assertTrue(fullPage.needsSplit(), "Page should need split");
 
       // Mock dependencies
-      StorageEngineWriter pageTrx = mock(StorageEngineWriter.class);
+      StorageEngineWriter storageEngineWriter = mock(StorageEngineWriter.class);
       TransactionIntentLog log = mock(TransactionIntentLog.class);
-      when(pageTrx.getRevisionNumber()).thenReturn(1);
-      when(pageTrx.getLog()).thenReturn(log);
+      when(storageEngineWriter.getRevisionNumber()).thenReturn(1);
+      when(storageEngineWriter.getLog()).thenReturn(log);
 
       // Create references
       PageReference pageRef = new PageReference();
@@ -152,7 +152,7 @@ class HOTLeafPageSplitTest {
 
       // Handle split
       HOTTrieWriter trieWriter = new HOTTrieWriter();
-      byte[] splitKey = trieWriter.handleLeafSplit(pageTrx, log, fullPage, pageRef, rootRef);
+      byte[] splitKey = trieWriter.handleLeafSplit(storageEngineWriter, log, fullPage, pageRef, rootRef);
 
       // Verify
       assertNotNull(splitKey, "Split key should be returned");

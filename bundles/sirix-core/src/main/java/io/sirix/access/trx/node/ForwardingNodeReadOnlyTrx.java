@@ -67,8 +67,8 @@ public interface ForwardingNodeReadOnlyTrx extends NodeReadOnlyTrx {
   }
 
   @Override
-  default StorageEngineReader getPageTrx() {
-    return delegate().getPageTrx();
+  default StorageEngineReader getStorageEngineReader() {
+    return delegate().getStorageEngineReader();
   }
 
   @Override

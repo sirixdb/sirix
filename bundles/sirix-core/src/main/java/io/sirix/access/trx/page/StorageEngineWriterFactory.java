@@ -114,16 +114,16 @@ public final class StorageEngineWriterFactory {
     }
 
     // Page read trx.
-    final NodeStorageEngineReader pageRtx = new NodeStorageEngineReader(trxId, resourceManager, uberPage,
+    final NodeStorageEngineReader storageEngineReader = new NodeStorageEngineReader(trxId, resourceManager, uberPage,
         representRevision, writer, bufferManager, new RevisionRootPageReader(), log);
 
     // Create new revision root page.
-    final RevisionRootPage lastCommitedRoot = pageRtx.loadRevRoot(lastCommitedRevision);
+    final RevisionRootPage lastCommitedRoot = storageEngineReader.loadRevRoot(lastCommitedRevision);
     // Use temporary IndirectPageTrieWriter to prepare revision root (moved into NodeStorageEngineWriter
     // in Phase 1)
     final var tempTrieWriter = new NodeStorageEngineWriter.TrieWriter();
     final RevisionRootPage newRevisionRootPage =
-        tempTrieWriter.preparePreviousRevisionRootPage(uberPage, pageRtx, log, representRevision, lastStoredRevision);
+        tempTrieWriter.preparePreviousRevisionRootPage(uberPage, storageEngineReader, log, representRevision, lastStoredRevision);
     newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
     newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
     if (resourceConfig.storeNodeHistory()) {
@@ -132,18 +132,18 @@ public final class StorageEngineWriterFactory {
     }
 
     // First create revision tree if needed.
-    newRevisionRootPage.createDocumentIndexTree(this.databaseType, pageRtx, log);
-    newRevisionRootPage.createChangedNodesIndexTree(this.databaseType, pageRtx, log);
+    newRevisionRootPage.createDocumentIndexTree(this.databaseType, storageEngineReader, log);
+    newRevisionRootPage.createChangedNodesIndexTree(this.databaseType, storageEngineReader, log);
 
     if (resourceConfig.storeNodeHistory()) {
-      newRevisionRootPage.createRecordToRevisionsIndexTree(this.databaseType, pageRtx, log);
+      newRevisionRootPage.createRecordToRevisionsIndexTree(this.databaseType, storageEngineReader, log);
     }
 
     if (usePathSummary) {
       // Create path summary tree if needed.
-      final PathSummaryPage page = pageRtx.getPathSummaryPage(newRevisionRootPage);
+      final PathSummaryPage page = storageEngineReader.getPathSummaryPage(newRevisionRootPage);
 
-      page.createPathSummaryTree(this.databaseType, pageRtx, 0, log);
+      page.createPathSummaryTree(this.databaseType, storageEngineReader, 0, log);
 
       if (log.get(newRevisionRootPage.getPathSummaryPageReference()) == null) {
         log.put(newRevisionRootPage.getPathSummaryPageReference(), PageContainer.getInstance(page, page));
@@ -151,50 +151,50 @@ public final class StorageEngineWriterFactory {
     }
 
     if (uberPage.isBootstrap()) {
-      final NamePage namePage = pageRtx.getNamePage(newRevisionRootPage);
-      final DeweyIDPage deweyIDPage = pageRtx.getDeweyIDPage(newRevisionRootPage);
+      final NamePage namePage = storageEngineReader.getNamePage(newRevisionRootPage);
+      final DeweyIDPage deweyIDPage = storageEngineReader.getDeweyIDPage(newRevisionRootPage);
 
       if (resourceManager instanceof JsonResourceSession) {
-        namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.JSON_OBJECT_KEY_REFERENCE_OFFSET, log);
-        deweyIDPage.createIndexTree(this.databaseType, pageRtx, log);
+        namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.JSON_OBJECT_KEY_REFERENCE_OFFSET, log);
+        deweyIDPage.createIndexTree(this.databaseType, storageEngineReader, log);
       } else if (resourceManager instanceof XmlResourceSession) {
-        namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.ATTRIBUTES_REFERENCE_OFFSET, log);
-        namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.ELEMENTS_REFERENCE_OFFSET, log);
-        namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.NAMESPACE_REFERENCE_OFFSET, log);
-        namePage.createNameIndexTree(this.databaseType, pageRtx, NamePage.PROCESSING_INSTRUCTION_REFERENCE_OFFSET, log);
-        deweyIDPage.createIndexTree(this.databaseType, pageRtx, log);
+        namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.ATTRIBUTES_REFERENCE_OFFSET, log);
+        namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.ELEMENTS_REFERENCE_OFFSET, log);
+        namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.NAMESPACE_REFERENCE_OFFSET, log);
+        namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.PROCESSING_INSTRUCTION_REFERENCE_OFFSET, log);
+        deweyIDPage.createIndexTree(this.databaseType, storageEngineReader, log);
       } else {
         throw new IllegalStateException("Resource manager type not known.");
       }
     } else {
       if (log.get(newRevisionRootPage.getNamePageReference()) == null) {
-        final Page namePage = pageRtx.getNamePage(newRevisionRootPage);
+        final Page namePage = storageEngineReader.getNamePage(newRevisionRootPage);
         log.put(newRevisionRootPage.getNamePageReference(), PageContainer.getInstance(namePage, namePage));
       }
 
       if (log.get(newRevisionRootPage.getCASPageReference()) == null) {
-        final Page casPage = pageRtx.getCASPage(newRevisionRootPage);
+        final Page casPage = storageEngineReader.getCASPage(newRevisionRootPage);
         log.put(newRevisionRootPage.getCASPageReference(), PageContainer.getInstance(casPage, casPage));
       }
 
       if (log.get(newRevisionRootPage.getPathPageReference()) == null) {
-        final Page pathPage = pageRtx.getPathPage(newRevisionRootPage);
+        final Page pathPage = storageEngineReader.getPathPage(newRevisionRootPage);
         log.put(newRevisionRootPage.getPathPageReference(), PageContainer.getInstance(pathPage, pathPage));
       }
 
       if (log.get(newRevisionRootPage.getDeweyIdPageReference()) == null) {
-        final Page deweyIDPage = pageRtx.getDeweyIDPage(newRevisionRootPage);
+        final Page deweyIDPage = storageEngineReader.getDeweyIDPage(newRevisionRootPage);
         log.put(newRevisionRootPage.getDeweyIdPageReference(), PageContainer.getInstance(deweyIDPage, deweyIDPage));
       }
 
       final var revisionRootPageReference =
-          new PageReference().setDatabaseId(pageRtx.getDatabaseId()).setResourceId(pageRtx.getResourceId());
+          new PageReference().setDatabaseId(storageEngineReader.getDatabaseId()).setResourceId(storageEngineReader.getResourceId());
       log.put(revisionRootPageReference, PageContainer.getInstance(newRevisionRootPage, newRevisionRootPage));
       uberPage.setRevisionRootPageReference(revisionRootPageReference);
       uberPage.setRevisionRootPage(newRevisionRootPage);
     }
 
-    return new NodeStorageEngineWriter(writer, log, newRevisionRootPage, pageRtx, indexController, representRevision,
+    return new NodeStorageEngineWriter(writer, log, newRevisionRootPage, storageEngineReader, indexController, representRevision,
         isBoundToNodeTrx);
   }
 }

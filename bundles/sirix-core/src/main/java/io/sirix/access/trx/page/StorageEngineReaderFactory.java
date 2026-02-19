@@ -14,7 +14,7 @@ public final class StorageEngineReaderFactory implements ObjectFactory<StorageEn
 
   @Override
   public StorageEngineReader create() {
-    return resourceSession.beginPageReadOnlyTrx();
+    return resourceSession.beginStorageEngineReader();
   }
 
   @Override

@@ -63,7 +63,7 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       assertEquals(1, pathNodeKeys.size());
 
-      final var casIndexForGetSummary = indexController.openCASIndex(trx.getPageTrx(), idxDefOfFeatureType,
+      final var casIndexForGetSummary = indexController.openCASIndex(trx.getStorageEngineReader(), idxDefOfFeatureType,
           indexController.createCASFilter(Set.of("/paths/\\/business_service_providers\\/search/get/summary"),
               new Str("Business Service Providers API"), SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
@@ -92,7 +92,7 @@ public final class JsonRedBlackTreeIntegrationTest {
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
-      final var allStreetAddressesAndTwitterAccounts = indexController.openNameIndex(trx.getPageTrx(),
+      final var allStreetAddressesAndTwitterAccounts = indexController.openNameIndex(trx.getStorageEngineReader(),
           allObjectKeyNames, indexController.createNameFilter(Set.of("streetaddress", "twitteraccount")));
 
       assertTrue(allStreetAddressesAndTwitterAccounts.hasNext());
@@ -111,7 +111,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       indexController.createIndexes(Set.of(allObjectKeyNamesExceptStreetAddress), trx);
 
       final var allTwitterAccounts =
-          indexController.openNameIndex(trx.getPageTrx(), allObjectKeyNamesExceptStreetAddress,
+          indexController.openNameIndex(trx.getStorageEngineReader(), allObjectKeyNamesExceptStreetAddress,
               indexController.createNameFilter(Set.of("streetaddress", "twitteraccount")));
 
       assertTrue(allTwitterAccounts.hasNext());
@@ -125,7 +125,7 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       indexController.createIndexes(Set.of(allStreetAddresses), trx);
 
-      final var allStreetAddressesIndex = indexController.openNameIndex(trx.getPageTrx(), allStreetAddresses,
+      final var allStreetAddressesIndex = indexController.openNameIndex(trx.getStorageEngineReader(), allStreetAddresses,
           indexController.createNameFilter(Set.of("streetaddress")));
 
       assertTrue(allStreetAddressesIndex.hasNext());
@@ -134,7 +134,7 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       assertFalse(allStreetAddressesIndex.hasNext());
 
-      final var allStreetAddressesIndexReader = RBTreeReader.getInstance(session.getIndexCache(), trx.getPageTrx(),
+      final var allStreetAddressesIndexReader = RBTreeReader.getInstance(session.getIndexCache(), trx.getStorageEngineReader(),
           allStreetAddresses.getType(), allStreetAddresses.getID());
 
       final var firstChildKey = allStreetAddressesIndexReader.getFirstChildKey();
@@ -148,7 +148,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       assertEquals(NodeKind.UNKNOWN, lastChildKind);
 
       final RBTreeReader<QNm, NodeReferences> allObjectKeyNamesIndexReader = RBTreeReader.getInstance(
-          session.getIndexCache(), trx.getPageTrx(), allObjectKeyNames.getType(), allObjectKeyNames.getID());
+          session.getIndexCache(), trx.getStorageEngineReader(), allObjectKeyNames.getType(), allObjectKeyNames.getID());
 
       final var iterator = allObjectKeyNamesIndexReader.new RBNodeIterator(0);
 
@@ -226,7 +226,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
 
       RBTreeReader<CASValue, NodeReferences> reader =
-          RBTreeReader.getInstance(manager.getIndexCache(), trx.getPageTrx(), indexDef.getType(), indexDef.getID());
+          RBTreeReader.getInstance(manager.getIndexCache(), trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
 
       final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToFeatureType);
 
@@ -246,7 +246,7 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       final var casIndexDef = indexController.getIndexes().getIndexDef(1, IndexType.CAS);
 
-      final var index = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
+      final var index = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef,
           indexController.createCASFilter(Set.of("/features/[]/properties/name"), new Str("ABC Radio Adelaide"),
               SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
@@ -259,7 +259,7 @@ public final class JsonRedBlackTreeIntegrationTest {
         assertEquals("ABC Radio Adelaide", trx.getValue());
       });
 
-      final var indexWithAllEntries = indexController.openCASIndex(trx.getPageTrx(), casIndexDef,
+      final var indexWithAllEntries = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDef,
           indexController.createCASFilter(Set.of(), null, SearchMode.EQUAL, new JsonPCRCollector(trx)));
 
       assertTrue(indexWithAllEntries.hasNext());
@@ -277,7 +277,7 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       final var casIndexDefForCoordinates = indexController.getIndexes().findCASIndex(pathToCoordinates, Type.DEC);
 
-      final var casIndexForCoordinates = indexController.openCASIndex(trx.getPageTrx(), casIndexDefForCoordinates.get(),
+      final var casIndexForCoordinates = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDefForCoordinates.get(),
           indexController.createCASFilterRange(Set.of("/features/[]/geometry/coordinates/[]"), new Dbl(0), new Dbl(160),
               true, true, new JsonPCRCollector(trx)));
 
@@ -303,13 +303,13 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       assertTrue(casIndexDefOfGeometryPath.isPresent());
 
-      final var casIndexForGeometry = indexController.openCASIndex(trx.getPageTrx(), casIndexDefOfGeometryPath.get(),
+      final var casIndexForGeometry = indexController.openCASIndex(trx.getStorageEngineReader(), casIndexDefOfGeometryPath.get(),
           indexController.createCASFilter(Set.of("/features/[]/geometry"), new Str("bla"), SearchMode.EQUAL,
               new JsonPCRCollector(trx)));
 
       assertFalse(casIndexForGeometry.hasNext());
 
-      final var casIndexForGeometryCoordinates = indexController.openCASIndex(trx.getPageTrx(), idxDefOfThreePaths,
+      final var casIndexForGeometryCoordinates = indexController.openCASIndex(trx.getStorageEngineReader(), idxDefOfThreePaths,
           indexController.createCASFilter(Set.of("/features/[]/geometry/coordinates/[]"), new Str("0"),
               SearchMode.GREATER, new JsonPCRCollector(trx)));
 
@@ -344,7 +344,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
 
       RBTreeReader<Long, NodeReferences> reader =
-          RBTreeReader.getInstance(manager.getIndexCache(), trx.getPageTrx(), indexDef.getType(), indexDef.getID());
+          RBTreeReader.getInstance(manager.getIndexCache(), trx.getStorageEngineReader(), indexDef.getType(), indexDef.getID());
 
       final var pathNodeKeys = trx.getPathSummary().getPCRsForPath(pathToFeatureType);
 
@@ -363,7 +363,7 @@ public final class JsonRedBlackTreeIntegrationTest {
 
       final var pathIndexDef = indexController.getIndexes().getIndexDef(1, IndexType.PATH);
 
-      final var index = indexController.openPathIndex(trx.getPageTrx(), pathIndexDef, null);
+      final var index = indexController.openPathIndex(trx.getStorageEngineReader(), pathIndexDef, null);
 
       assertTrue(index.hasNext());
 
@@ -415,7 +415,7 @@ public final class JsonRedBlackTreeIntegrationTest {
       final var allObjectKeyNames = allObjectKeyNamesOpt.get();
 
       // Use RBTreeReader directly to exercise cache lookup
-      RBTreeReader<QNm, NodeReferences> reader = RBTreeReader.getInstance(session.getIndexCache(), rtx.getPageTrx(),
+      RBTreeReader<QNm, NodeReferences> reader = RBTreeReader.getInstance(session.getIndexCache(), rtx.getStorageEngineReader(),
           allObjectKeyNames.getType(), allObjectKeyNames.getID());
 
       // Query multiple times to exercise cache hit path

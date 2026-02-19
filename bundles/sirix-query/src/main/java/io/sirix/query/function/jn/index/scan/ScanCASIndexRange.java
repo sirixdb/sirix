@@ -87,6 +87,6 @@ public final class ScanCASIndexRange extends AbstractScanIndex {
     final CASFilterRange filter =
         controller.createCASFilterRange(setOfPaths, min, max, incMin, incMax, new JsonPCRCollector(rtx));
 
-    return getSequence(document, controller.openCASIndex(document.getTrx().getPageTrx(), indexDef, filter));
+    return getSequence(document, controller.openCASIndex(document.getTrx().getStorageEngineReader(), indexDef, filter));
   }
 }

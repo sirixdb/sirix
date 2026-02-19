@@ -249,7 +249,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public StorageEngineReader getPageTrx() {
+  public StorageEngineReader getStorageEngineReader() {
     return pageReadTrx;
   }
 

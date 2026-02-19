@@ -14,14 +14,14 @@ import java.util.concurrent.RecursiveAction;
 public class ForEach extends RecursiveAction {
   private final static int TASK_LEN = 1024 / 8;
   private final TransactionIntentLog log;
-  private final StorageEngineReader pageTrx;
+  private final StorageEngineReader storageEngineWriter;
   private final PageReference[] array;
   private final int from;
   private final int to;
 
-  public ForEach(TransactionIntentLog log, StorageEngineReader pageTrx, PageReference[] array, int from, int to) {
+  public ForEach(TransactionIntentLog log, StorageEngineReader storageEngineWriter, PageReference[] array, int from, int to) {
     this.log = log;
-    this.pageTrx = pageTrx;
+    this.storageEngineWriter = storageEngineWriter;
     this.array = array;
     this.from = from;
     this.to = to;
@@ -31,18 +31,18 @@ public class ForEach extends RecursiveAction {
   protected void compute() {
     int len = to - from;
     if (len < TASK_LEN) {
-      work(log, pageTrx, array, from, to);
+      work(log, storageEngineWriter, array, from, to);
     } else {
       // split work in half, execute sub-tasks asynchronously
       int mid = (from + to) >>> 1;
       final List<ForEach> dividedTasks = new ArrayList<>();
-      dividedTasks.add(new ForEach(log, pageTrx, array, from, mid));
-      dividedTasks.add(new ForEach(log, pageTrx, array, mid, to));
+      dividedTasks.add(new ForEach(log, storageEngineWriter, array, from, mid));
+      dividedTasks.add(new ForEach(log, storageEngineWriter, array, mid, to));
       ForkJoinTask.invokeAll(dividedTasks).forEach(ForkJoinTask::join);
     }
   }
 
-  private void work(TransactionIntentLog log, StorageEngineReader pageTrx, PageReference[] references, int from,
+  private void work(TransactionIntentLog log, StorageEngineReader storageEngineWriter, PageReference[] references, int from,
       int to) {
     for (int j = from; j < to; j++) {
       final var reference = references[j];

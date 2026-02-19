@@ -180,7 +180,7 @@ class HOTLargeScaleIntegrationTest {
           wtx.commit();
 
           // Range query to trigger RangeIterator across pages
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/items/[]/value"), new Int32(500), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
@@ -226,7 +226,7 @@ class HOTLargeScaleIntegrationTest {
 
           // Query multiple ranges to exercise iterator
           for (int threshold : new int[] {100, 300, 500, 700, 900}) {
-            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
                 Set.of("/records/[]/score"), new Int32(threshold), SearchMode.GREATER, new JsonPCRCollector(wtx)));
 
             int count = 0;
@@ -272,7 +272,7 @@ class HOTLargeScaleIntegrationTest {
           wtx.commit();
 
           // Range query on strings
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/users/[]/name"), new Str("user_0500"), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
@@ -465,7 +465,7 @@ class HOTLargeScaleIntegrationTest {
           var casIndexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
 
           if (casIndexDef != null) {
-            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
                 Set.of("/data/[]/value"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
             int count = 0;
@@ -553,7 +553,7 @@ class HOTLargeScaleIntegrationTest {
           wtx.commit();
 
           // Query index
-          var idx = indexController.openNameIndex(wtx.getPageTrx(), nameIndex,
+          var idx = indexController.openNameIndex(wtx.getStorageEngineReader(), nameIndex,
               indexController.createNameFilter(Set.of("unique_key_0500")));
           assertTrue(idx.hasNext(), "Should find unique_key_0500");
         }

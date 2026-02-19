@@ -97,20 +97,20 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
   }
 
   @Override
-  public XmlNodeTrx createNodeReadWriteTrx(int nodeTrxId, StorageEngineWriter pageTrx, int maxNodeCount,
+  public XmlNodeTrx createNodeReadWriteTrx(int nodeTrxId, StorageEngineWriter storageEngineWriter, int maxNodeCount,
       Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState) {
     // The node read-only transaction.
     final InternalXmlNodeReadOnlyTrx nodeReadTrx =
-        new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageTrx, (ImmutableXmlNode) documentNode);
+        new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, storageEngineWriter, (ImmutableXmlNode) documentNode);
 
     // Node factory.
-    final XmlNodeFactory nodeFactory = new XmlNodeFactoryImpl(this.getResourceConfig().nodeHashFunction, pageTrx);
+    final XmlNodeFactory nodeFactory = new XmlNodeFactoryImpl(this.getResourceConfig().nodeHashFunction, storageEngineWriter);
 
     // Path summary.
     final boolean buildPathSummary = getResourceConfig().withPathSummary;
     final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter;
     if (buildPathSummary) {
-      pathSummaryWriter = new PathSummaryWriter<>(pageTrx, this, nodeFactory, nodeReadTrx);
+      pathSummaryWriter = new PathSummaryWriter<>(storageEngineWriter, this, nodeFactory, nodeReadTrx);
     } else {
       pathSummaryWriter = null;
     }
@@ -121,8 +121,8 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
         : null;
     final var resourceConfig = getResourceConfig();
     return new XmlNodeTrxImpl(this, nodeReadTrx, pathSummaryWriter, maxNodeCount, transactionLock, autoCommitDelay,
-        new XmlNodeHashing(resourceConfig, nodeReadTrx, pageTrx), nodeFactory, afterCommitState,
-        new RecordToRevisionsIndex(pageTrx));
+        new XmlNodeHashing(resourceConfig, nodeReadTrx, storageEngineWriter), nodeFactory, afterCommitState,
+        new RecordToRevisionsIndex(storageEngineWriter));
   }
 
   @SuppressWarnings("unchecked")

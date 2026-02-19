@@ -36,34 +36,34 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
 
   L createListener(StorageEngineWriter pageWriteTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
-  default Iterator<NodeReferences> openIndex(StorageEngineReader pageRtx, IndexDef indexDef, CASFilterRange filter) {
+  default Iterator<NodeReferences> openIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilterRange filter) {
     // Check if HOT is enabled (system property takes precedence, then resource config)
-    if (isHOTEnabled(pageRtx)) {
-      return openHOTIndexWithRangeFilter(pageRtx, indexDef, filter);
+    if (isHOTEnabled(storageEngineReader)) {
+      return openHOTIndexWithRangeFilter(storageEngineReader, indexDef, filter);
     }
 
     final RBTreeReader<CASValue, NodeReferences> reader = RBTreeReader.getInstance(
-        pageRtx.getResourceSession().getIndexCache(), pageRtx, indexDef.getType(), indexDef.getID());
+        storageEngineReader.getResourceSession().getIndexCache(), storageEngineReader, indexDef.getType(), indexDef.getID());
 
     final Iterator<RBNodeKey<CASValue>> iter = reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
 
     return new IndexFilterAxis<>(reader, iter, Set.of(filter));
   }
 
-  default Iterator<NodeReferences> openIndex(StorageEngineReader pageRtx, IndexDef indexDef, CASFilter filter) {
+  default Iterator<NodeReferences> openIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilter filter) {
     // Check if HOT is enabled (system property takes precedence, then resource config)
-    if (isHOTEnabled(pageRtx)) {
-      return openHOTIndexWithFilter(pageRtx, indexDef, filter);
+    if (isHOTEnabled(storageEngineReader)) {
+      return openHOTIndexWithFilter(storageEngineReader, indexDef, filter);
     }
 
     // Use RBTree (default)
-    return openRBTreeIndex(pageRtx, indexDef, filter);
+    return openRBTreeIndex(storageEngineReader, indexDef, filter);
   }
 
   /**
    * Checks if HOT indexes should be used for reading.
    */
-  private static boolean isHOTEnabled(final StorageEngineReader pageRtx) {
+  private static boolean isHOTEnabled(final StorageEngineReader storageEngineReader) {
     // System property takes precedence (for testing)
     final String sysProp = System.getProperty(CASIndexListenerFactory.USE_HOT_PROPERTY);
     if (sysProp != null) {
@@ -71,16 +71,16 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
     }
 
     // Fall back to resource configuration
-    final var resourceConfig = pageRtx.getResourceSession().getResourceConfig();
+    final var resourceConfig = storageEngineReader.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;
   }
 
   /**
    * Open HOT-based CAS index.
    */
-  private Iterator<NodeReferences> openHOTIndex(StorageEngineReader pageRtx, IndexDef indexDef) {
+  private Iterator<NodeReferences> openHOTIndex(StorageEngineReader storageEngineReader, IndexDef indexDef) {
     final HOTIndexReader<CASValue> reader =
-        HOTIndexReader.create(pageRtx, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
+        HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
 
     // Iterate over all entries
     final Iterator<Map.Entry<CASValue, NodeReferences>> entryIterator = reader.iterator();
@@ -116,10 +116,10 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
    * Open HOT-based CAS index with range filter. Applies min/max bounds and inclusivity to filter
    * results.
    */
-  private Iterator<NodeReferences> openHOTIndexWithRangeFilter(StorageEngineReader pageRtx, IndexDef indexDef,
+  private Iterator<NodeReferences> openHOTIndexWithRangeFilter(StorageEngineReader storageEngineReader, IndexDef indexDef,
       CASFilterRange filter) {
     final HOTIndexReader<CASValue> reader =
-        HOTIndexReader.create(pageRtx, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
+        HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
 
     // Full scan with range filter applied
     final Iterator<Map.Entry<CASValue, NodeReferences>> entryIterator = reader.iterator();
@@ -172,10 +172,10 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
   /**
    * Open HOT-based CAS index with filter.
    */
-  private Iterator<NodeReferences> openHOTIndexWithFilter(StorageEngineReader pageRtx, IndexDef indexDef,
+  private Iterator<NodeReferences> openHOTIndexWithFilter(StorageEngineReader storageEngineReader, IndexDef indexDef,
       CASFilter filter) {
     final HOTIndexReader<CASValue> reader =
-        HOTIndexReader.create(pageRtx, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
+        HOTIndexReader.create(storageEngineReader, CASKeySerializer.INSTANCE, indexDef.getType(), indexDef.getID());
 
     // PCRs requested.
     final Set<Long> pcrsRequested = filter == null
@@ -317,9 +317,9 @@ public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx
   /**
    * Open RBTree-based CAS index (default).
    */
-  private Iterator<NodeReferences> openRBTreeIndex(StorageEngineReader pageRtx, IndexDef indexDef, CASFilter filter) {
+  private Iterator<NodeReferences> openRBTreeIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilter filter) {
     final RBTreeReader<CASValue, NodeReferences> reader = RBTreeReader.getInstance(
-        pageRtx.getResourceSession().getIndexCache(), pageRtx, indexDef.getType(), indexDef.getID());
+        storageEngineReader.getResourceSession().getIndexCache(), storageEngineReader, indexDef.getType(), indexDef.getID());
 
     // PCRs requested.
     final Set<Long> pcrsRequested = filter == null

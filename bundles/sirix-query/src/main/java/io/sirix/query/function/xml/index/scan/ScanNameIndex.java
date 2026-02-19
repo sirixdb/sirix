@@ -77,6 +77,6 @@ public final class ScanNameIndex extends AbstractScanIndex {
         ? controller.createNameFilter(Set.of(names.split(";")))
         : null;
 
-    return getSequence(doc, controller.openNameIndex(doc.getTrx().getPageTrx(), indexDef, filter));
+    return getSequence(doc, controller.openNameIndex(doc.getTrx().getStorageEngineReader(), indexDef, filter));
   }
 }

@@ -49,31 +49,31 @@ public final class CASIndexListenerFactory {
    * </ol>
    * </p>
    */
-  public CASIndexListener create(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
+  public CASIndexListener create(final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
-    return create(pageTrx, pathSummaryReader, indexDef, isHOTEnabled(pageTrx));
+    return create(storageEngineWriter, pathSummaryReader, indexDef, isHOTEnabled(storageEngineWriter));
   }
 
   /**
    * Creates a CAS index listener with explicit backend selection.
    *
-   * @param pageTrx the storage engine writer
+   * @param storageEngineWriter the storage engine writer
    * @param pathSummaryReader the path summary reader
    * @param indexDef the index definition
    * @param useHOT true to use HOT, false for RBTree
    * @return the CAS index listener
    */
-  public CASIndexListener create(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
+  public CASIndexListener create(final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef, final boolean useHOT) {
     final var pathSummary = requireNonNull(pathSummaryReader);
     final var type = requireNonNull(indexDef.getContentType());
     final var paths = requireNonNull(indexDef.getPaths());
 
     if (useHOT) {
-      final var hotWriter = HOTIndexWriter.create(pageTrx, CASKeySerializer.INSTANCE, IndexType.CAS, indexDef.getID());
+      final var hotWriter = HOTIndexWriter.create(storageEngineWriter, CASKeySerializer.INSTANCE, IndexType.CAS, indexDef.getID());
       return new CASIndexListener(pathSummary, hotWriter, paths, type);
     } else {
-      final var rbTreeWriter = RBTreeWriter.<CASValue, NodeReferences>getInstance(this.databaseType, pageTrx,
+      final var rbTreeWriter = RBTreeWriter.<CASValue, NodeReferences>getInstance(this.databaseType, storageEngineWriter,
           indexDef.getType(), indexDef.getID());
       return new CASIndexListener(pathSummary, rbTreeWriter, paths, type);
     }
@@ -90,10 +90,10 @@ public final class CASIndexListenerFactory {
    * </ol>
    * </p>
    *
-   * @param pageTrx the storage engine writer providing access to resource configuration
+   * @param storageEngineWriter the storage engine writer providing access to resource configuration
    * @return true if HOT should be used
    */
-  public static boolean isHOTEnabled(final StorageEngineWriter pageTrx) {
+  public static boolean isHOTEnabled(final StorageEngineWriter storageEngineWriter) {
     // System property takes precedence (for testing)
     final String sysProp = System.getProperty(USE_HOT_PROPERTY);
     if (sysProp != null) {
@@ -101,7 +101,7 @@ public final class CASIndexListenerFactory {
     }
 
     // Fall back to resource configuration
-    final var resourceConfig = pageTrx.getResourceSession().getResourceConfig();
+    final var resourceConfig = storageEngineWriter.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;
   }
 

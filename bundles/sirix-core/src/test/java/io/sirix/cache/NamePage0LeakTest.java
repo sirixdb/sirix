@@ -79,7 +79,7 @@ public class NamePage0LeakTest {
 
     // Check cache contents
     try {
-      var bufMgr = holder.getXmlNodeReadTrx().getPageTrx().getBufferManager();
+      var bufMgr = holder.getXmlNodeReadTrx().getStorageEngineReader().getBufferManager();
 
       long inRecordCache =
           KeyValueLeafPage.ALL_LIVE_PAGES.stream()

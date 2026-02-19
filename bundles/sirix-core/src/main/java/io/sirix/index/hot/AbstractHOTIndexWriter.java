@@ -79,7 +79,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   /** Maximum navigable tree depth — pre-allocates path arrays at this depth. */
   private static final int MAX_PATH_DEPTH = 64;
 
-  protected final StorageEngineWriter pageTrx;
+  protected final StorageEngineWriter storageEngineWriter;
   protected final IndexType indexType;
   protected final int indexNumber;
 
@@ -113,12 +113,12 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Protected constructor.
    *
-   * @param pageTrx the storage engine writer
+   * @param storageEngineWriter the storage engine writer
    * @param indexType the index type (PATH, CAS, NAME)
    * @param indexNumber the index number
    */
-  protected AbstractHOTIndexWriter(StorageEngineWriter pageTrx, IndexType indexType, int indexNumber) {
-    this.pageTrx = requireNonNull(pageTrx);
+  protected AbstractHOTIndexWriter(StorageEngineWriter storageEngineWriter, IndexType indexType, int indexNumber) {
+    this.storageEngineWriter = requireNonNull(storageEngineWriter);
     this.indexType = requireNonNull(indexType);
     this.indexNumber = indexNumber;
     this.trieWriter = new HOTTrieWriter();
@@ -129,8 +129,8 @@ public abstract class AbstractHOTIndexWriter<K> {
    *
    * @return the storage engine writer
    */
-  public StorageEngineWriter getPageTrx() {
-    return pageTrx;
+  public StorageEngineWriter getStorageEngineReader() {
+    return storageEngineWriter;
   }
 
   /**
@@ -186,18 +186,18 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @return the root page reference
    */
   protected PageReference getRootReference() {
-    final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
+    final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
     return switch (indexType) {
       case PATH -> {
-        final PathPage pathPage = pageTrx.getPathPage(revisionRootPage);
+        final PathPage pathPage = storageEngineWriter.getPathPage(revisionRootPage);
         yield pathPage.getOrCreateReference(indexNumber);
       }
       case CAS -> {
-        final CASPage casPage = pageTrx.getCASPage(revisionRootPage);
+        final CASPage casPage = storageEngineWriter.getCASPage(revisionRootPage);
         yield casPage.getOrCreateReference(indexNumber);
       }
       case NAME -> {
-        final NamePage namePage = pageTrx.getNamePage(revisionRootPage);
+        final NamePage namePage = storageEngineWriter.getNamePage(revisionRootPage);
         yield namePage.getOrCreateReference(indexNumber);
       }
       default -> null;
@@ -208,30 +208,30 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Mark the index page as dirty so changes are persisted.
    */
   protected void markIndexPageDirty() {
-    final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
+    final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
     switch (indexType) {
       case PATH -> {
         final PageReference pathPageRef = revisionRootPage.getPathPageReference();
-        PageContainer container = pageTrx.getLog().get(pathPageRef);
+        PageContainer container = storageEngineWriter.getLog().get(pathPageRef);
         if (container == null) {
-          PathPage pathPage = pageTrx.getPathPage(revisionRootPage);
-          pageTrx.appendLogRecord(pathPageRef, PageContainer.getInstance(pathPage, pathPage));
+          PathPage pathPage = storageEngineWriter.getPathPage(revisionRootPage);
+          storageEngineWriter.appendLogRecord(pathPageRef, PageContainer.getInstance(pathPage, pathPage));
         }
       }
       case CAS -> {
         final PageReference casPageRef = revisionRootPage.getCASPageReference();
-        PageContainer container = pageTrx.getLog().get(casPageRef);
+        PageContainer container = storageEngineWriter.getLog().get(casPageRef);
         if (container == null) {
-          CASPage casPage = pageTrx.getCASPage(revisionRootPage);
-          pageTrx.appendLogRecord(casPageRef, PageContainer.getInstance(casPage, casPage));
+          CASPage casPage = storageEngineWriter.getCASPage(revisionRootPage);
+          storageEngineWriter.appendLogRecord(casPageRef, PageContainer.getInstance(casPage, casPage));
         }
       }
       case NAME -> {
         final PageReference namePageRef = revisionRootPage.getNamePageReference();
-        PageContainer container = pageTrx.getLog().get(namePageRef);
+        PageContainer container = storageEngineWriter.getLog().get(namePageRef);
         if (container == null) {
-          NamePage namePage = pageTrx.getNamePage(revisionRootPage);
-          pageTrx.appendLogRecord(namePageRef, PageContainer.getInstance(namePage, namePage));
+          NamePage namePage = storageEngineWriter.getNamePage(revisionRootPage);
+          storageEngineWriter.appendLogRecord(namePageRef, PageContainer.getInstance(namePage, namePage));
         }
       }
       default -> {
@@ -267,7 +267,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     final byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
 
     // Check transaction log first (uncommitted modifications)
-    PageContainer container = pageTrx.getLog().get(currentRef);
+    PageContainer container = storageEngineWriter.getLog().get(currentRef);
     if (container != null) {
       Page page = container.getModified();
 
@@ -293,18 +293,18 @@ public abstract class AbstractHOTIndexWriter<K> {
         currentRef = childRef;
 
         // Get child page from log, swizzled cache, or storage
-        PageContainer childContainer = pageTrx.getLog().get(childRef);
+        PageContainer childContainer = storageEngineWriter.getLog().get(childRef);
         if (childContainer != null) {
           page = childContainer.getModified();
         } else if (childRef.getPage() != null) {
           page = childRef.getPage();
         } else {
           // Load from storage and prepare for modification
-          page = pageTrx.loadHOTPage(childRef);
+          page = storageEngineWriter.loadHOTPage(childRef);
           if (page instanceof HOTLeafPage loadedLeaf) {
             HOTLeafPage modifiedLeaf = loadedLeaf.copy();
             childContainer = PageContainer.getInstance(loadedLeaf, modifiedLeaf);
-            pageTrx.getLog().put(childRef, childContainer);
+            storageEngineWriter.getLog().put(childRef, childContainer);
             page = modifiedLeaf;
           }
         }
@@ -323,20 +323,20 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
 
     // Use storage engine's versioning-aware page loading for committed data
-    HOTLeafPage existingLeaf = pageTrx.getHOTLeafPage(indexType, indexNumber);
+    HOTLeafPage existingLeaf = storageEngineWriter.getHOTLeafPage(indexType, indexNumber);
     if (existingLeaf != null) {
       HOTLeafPage modifiedLeaf = existingLeaf.copy();
       container = PageContainer.getInstance(existingLeaf, modifiedLeaf);
-      pageTrx.getLog().put(rootRef, container);
+      storageEngineWriter.getLog().put(rootRef, container);
       return new LeafNavigationResult(modifiedLeaf, rootRef, new HOTIndirectPage[0], new PageReference[0], new int[0],
           0);
     }
 
     // Create new leaf page if none exists
     HOTLeafPage newLeaf = new HOTLeafPage(rootRef.getKey() >= 0 ? rootRef.getKey() : 0,
-        pageTrx.getRevisionNumber(), indexType);
+        storageEngineWriter.getRevisionNumber(), indexType);
     container = PageContainer.getInstance(newLeaf, newLeaf);
-    pageTrx.getLog().put(rootRef, container);
+    storageEngineWriter.getLog().put(rootRef, container);
     return new LeafNavigationResult(newLeaf, rootRef, new HOTIndirectPage[0], new PageReference[0], new int[0], 0);
   }
 
@@ -360,7 +360,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       // Check if the page can be split
       if (leaf.canSplit()) {
         // Handle split using HOTTrieWriter with proper path information
-        byte[] splitKey = trieWriter.handleLeafSplitWithPath(pageTrx, pageTrx.getLog(), leaf, navResult.leafRef(),
+        byte[] splitKey = trieWriter.handleLeafSplitWithPath(storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
             rootRef, navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(), navResult.pathDepth());
 
         // CRITICAL: Mark index page dirty so updated root reference gets persisted
@@ -382,7 +382,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       int reclaimedSpace = leaf.compact();
       if (reclaimedSpace > 0) {
         // Update the page in the log after compaction
-        pageTrx.getLog().put(navResult.leafRef(), PageContainer.getInstance(leaf, leaf));
+        storageEngineWriter.getLog().put(navResult.leafRef(), PageContainer.getInstance(leaf, leaf));
 
         // Try inserting again after compaction
         if (leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
@@ -420,7 +420,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
 
     // Check transaction log first (uncommitted modifications)
-    PageContainer container = pageTrx.getLog().get(currentRef);
+    PageContainer container = storageEngineWriter.getLog().get(currentRef);
     if (container != null) {
       Page page = container.getComplete();
 
@@ -437,13 +437,13 @@ public abstract class AbstractHOTIndexWriter<K> {
         }
         currentRef = childRef;
 
-        PageContainer childContainer = pageTrx.getLog().get(childRef);
+        PageContainer childContainer = storageEngineWriter.getLog().get(childRef);
         if (childContainer != null) {
           page = childContainer.getComplete();
         } else if (childRef.getPage() != null) {
           page = childRef.getPage();
         } else {
-          page = pageTrx.loadHOTPage(childRef);
+          page = storageEngineWriter.loadHOTPage(childRef);
         }
       }
 
@@ -453,7 +453,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
 
     // Use storage engine's versioning-aware page loading for committed data
-    return pageTrx.getHOTLeafPage(indexType, indexNumber);
+    return storageEngineWriter.getHOTLeafPage(indexType, indexNumber);
   }
 
   /**
@@ -463,17 +463,17 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected void initializePathIndex() {
     try {
-      final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
+      final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
 
       // CRITICAL: Check if PathPage is already in the transaction log first
       final PageReference pathPageRef = revisionRootPage.getPathPageReference();
-      PageContainer pathContainer = pageTrx.getLog().get(pathPageRef);
+      PageContainer pathContainer = storageEngineWriter.getLog().get(pathPageRef);
       final PathPage pathPage;
       if (pathContainer != null && pathContainer.getModified() instanceof PathPage modifiedPath) {
         pathPage = modifiedPath;
       } else {
-        pathPage = pageTrx.getPathPage(revisionRootPage);
-        pageTrx.appendLogRecord(pathPageRef, PageContainer.getInstance(pathPage, pathPage));
+        pathPage = storageEngineWriter.getPathPage(revisionRootPage);
+        storageEngineWriter.appendLogRecord(pathPageRef, PageContainer.getInstance(pathPage, pathPage));
       }
 
       // Get existing reference first to check if index already exists
@@ -482,7 +482,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           || existingRef.getLogKey() != Constants.NULL_ID_INT || existingRef.getPage() != null);
 
       if (!indexExists) {
-        pathPage.createHOTPathIndexTree(pageTrx, indexNumber, pageTrx.getLog());
+        pathPage.createHOTPathIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
       }
       rootReference = pathPage.getOrCreateReference(indexNumber);
     } catch (SirixIOException e) {
@@ -497,17 +497,17 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected void initializeCASIndex() {
     try {
-      final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
+      final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
 
       // CRITICAL: Check if CASPage is already in the transaction log first
       final PageReference casPageRef = revisionRootPage.getCASPageReference();
-      PageContainer casContainer = pageTrx.getLog().get(casPageRef);
+      PageContainer casContainer = storageEngineWriter.getLog().get(casPageRef);
       final CASPage casPage;
       if (casContainer != null && casContainer.getModified() instanceof CASPage modifiedCAS) {
         casPage = modifiedCAS;
       } else {
-        casPage = pageTrx.getCASPage(revisionRootPage);
-        pageTrx.appendLogRecord(casPageRef, PageContainer.getInstance(casPage, casPage));
+        casPage = storageEngineWriter.getCASPage(revisionRootPage);
+        storageEngineWriter.appendLogRecord(casPageRef, PageContainer.getInstance(casPage, casPage));
       }
 
       // Get existing reference first to check if index already exists
@@ -516,7 +516,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           || existingRef.getLogKey() != Constants.NULL_ID_INT || existingRef.getPage() != null);
 
       if (!indexExists) {
-        casPage.createHOTCASIndexTree(pageTrx, indexNumber, pageTrx.getLog());
+        casPage.createHOTCASIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
       }
       rootReference = casPage.getOrCreateReference(indexNumber);
     } catch (SirixIOException e) {
@@ -531,17 +531,17 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected void initializeNameIndex() {
     try {
-      final RevisionRootPage revisionRootPage = pageTrx.getActualRevisionRootPage();
+      final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
 
       // CRITICAL: Check if NamePage is already in the transaction log first
       final PageReference namePageRef = revisionRootPage.getNamePageReference();
-      PageContainer nameContainer = pageTrx.getLog().get(namePageRef);
+      PageContainer nameContainer = storageEngineWriter.getLog().get(namePageRef);
       final NamePage namePage;
       if (nameContainer != null && nameContainer.getModified() instanceof NamePage modifiedName) {
         namePage = modifiedName;
       } else {
-        namePage = pageTrx.getNamePage(revisionRootPage);
-        pageTrx.appendLogRecord(namePageRef, PageContainer.getInstance(namePage, namePage));
+        namePage = storageEngineWriter.getNamePage(revisionRootPage);
+        storageEngineWriter.appendLogRecord(namePageRef, PageContainer.getInstance(namePage, namePage));
       }
 
       // Get existing reference first to check if index already exists
@@ -550,7 +550,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           || existingRef.getLogKey() != Constants.NULL_ID_INT || existingRef.getPage() != null);
 
       if (!indexExists) {
-        namePage.createHOTNameIndexTree(pageTrx, indexNumber, pageTrx.getLog());
+        namePage.createHOTNameIndexTree(storageEngineWriter, indexNumber, storageEngineWriter.getLog());
       }
       rootReference = namePage.getOrCreateReference(indexNumber);
     } catch (SirixIOException e) {

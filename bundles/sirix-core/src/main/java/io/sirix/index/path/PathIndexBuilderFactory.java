@@ -33,31 +33,31 @@ public final class PathIndexBuilderFactory {
   /**
    * Creates a PATH index builder using the backend configured for the resource.
    */
-  public PathIndexBuilder create(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
+  public PathIndexBuilder create(final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef) {
-    return create(pageTrx, pathSummaryReader, indexDef, isHOTEnabled(pageTrx));
+    return create(storageEngineWriter, pathSummaryReader, indexDef, isHOTEnabled(storageEngineWriter));
   }
 
   /**
    * Creates a PATH index builder with explicit backend selection.
    *
-   * @param pageTrx the storage engine writer
+   * @param storageEngineWriter the storage engine writer
    * @param pathSummaryReader the path summary reader
    * @param indexDef the index definition
    * @param useHOT true to use HOT, false for RBTree
    * @return the PATH index builder
    */
-  public PathIndexBuilder create(final StorageEngineWriter pageTrx, final PathSummaryReader pathSummaryReader,
+  public PathIndexBuilder create(final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummaryReader,
       final IndexDef indexDef, final boolean useHOT) {
     final var pathSummary = requireNonNull(pathSummaryReader);
     final var paths = requireNonNull(indexDef.getPaths());
     assert indexDef.getType() == IndexType.PATH;
 
     if (useHOT) {
-      final var hotWriter = HOTLongIndexWriter.create(pageTrx, IndexType.PATH, indexDef.getID());
+      final var hotWriter = HOTLongIndexWriter.create(storageEngineWriter, IndexType.PATH, indexDef.getID());
       return new PathIndexBuilder(hotWriter, pathSummary, paths);
     } else {
-      final var rbTreeWriter = RBTreeWriter.<Long, NodeReferences>getInstance(this.databaseType, pageTrx,
+      final var rbTreeWriter = RBTreeWriter.<Long, NodeReferences>getInstance(this.databaseType, storageEngineWriter,
           indexDef.getType(), indexDef.getID());
       return new PathIndexBuilder(rbTreeWriter, pathSummary, paths);
     }
@@ -66,7 +66,7 @@ public final class PathIndexBuilderFactory {
   /**
    * Checks if HOT indexes should be used for the given transaction.
    */
-  private static boolean isHOTEnabled(final StorageEngineWriter pageTrx) {
+  private static boolean isHOTEnabled(final StorageEngineWriter storageEngineWriter) {
     // System property takes precedence (for testing)
     final String sysProp = System.getProperty(PathIndexListenerFactory.USE_HOT_PROPERTY);
     if (sysProp != null) {
@@ -74,7 +74,7 @@ public final class PathIndexBuilderFactory {
     }
 
     // Fall back to resource configuration
-    final var resourceConfig = pageTrx.getResourceSession().getResourceConfig();
+    final var resourceConfig = storageEngineWriter.getResourceSession().getResourceConfig();
     return resourceConfig.indexBackendType == IndexBackendType.HOT;
   }
 }

@@ -47,7 +47,7 @@ import static org.junit.Assert.*;
  */
 public class ObjectNodeTest {
 
-  private StorageEngineWriter pageTrx;
+  private StorageEngineWriter storageEngineWriter;
 
   private Database<JsonResourceSession> database;
 
@@ -56,7 +56,7 @@ public class ObjectNodeTest {
     JsonTestHelper.deleteEverything();
     database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
-    pageTrx = database.beginResourceSession(JsonTestHelper.RESOURCE).beginPageTrx();
+    storageEngineWriter = database.beginResourceSession(JsonTestHelper.RESOURCE).beginStorageEngineWriter();
   }
 
   @After

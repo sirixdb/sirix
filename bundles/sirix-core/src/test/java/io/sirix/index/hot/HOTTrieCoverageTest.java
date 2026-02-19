@@ -459,7 +459,7 @@ class HOTTrieCoverageTest {
           wtx.commit();
 
           // Query all entries
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/data/[]/val"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long count = 0;
@@ -506,7 +506,7 @@ class HOTTrieCoverageTest {
           wtx.commit();
 
           // Query for values >= 10.0
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/floats/[]/val"), new Dbl(10.0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           long count = 0;

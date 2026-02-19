@@ -107,7 +107,7 @@ class HOTRealWorldE2ETest {
           wtx.commit();
 
           // Query 1: All scores >= 250 (should trigger RangeIterator)
-          var casIndex1 = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex1 = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/players/[]/score"), new Int32(250), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count1 = 0;
@@ -118,7 +118,7 @@ class HOTRealWorldE2ETest {
           assertTrue(count1 > 0, "Should find scores >= 250");
 
           // Query 2: All scores > 400 (smaller range)
-          var casIndex2 = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex2 = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/players/[]/score"), new Int32(400), SearchMode.GREATER, new JsonPCRCollector(wtx)));
 
           int count2 = 0;
@@ -129,7 +129,7 @@ class HOTRealWorldE2ETest {
           assertTrue(count2 > 0, "Should find scores > 400");
 
           // Query 3: All scores < 100 (lower range)
-          var casIndex3 = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex3 = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/players/[]/score"), new Int32(100), SearchMode.LOWER, new JsonPCRCollector(wtx)));
 
           int count3 = 0;
@@ -176,7 +176,7 @@ class HOTRealWorldE2ETest {
           wtx.commit();
 
           // Query: Cities >= "M" (alphabetically)
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/locations/[]/city"), new Str("M"), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
@@ -223,7 +223,7 @@ class HOTRealWorldE2ETest {
           wtx.commit();
 
           // Query: Prices >= 1500.0
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/products/[]/price"), new Dbl(1500.0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;
@@ -280,7 +280,7 @@ class HOTRealWorldE2ETest {
           var casIndexDef = indexController.getIndexes().getIndexDef(0, IndexType.CAS);
 
           if (casIndexDef != null) {
-            var casIndex = indexController.openCASIndex(rtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            var casIndex = indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
                 Set.of("/data/[]/value"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(rtx)));
 
             int count = 0;
@@ -334,7 +334,7 @@ class HOTRealWorldE2ETest {
           // Multiple range queries
           int[] thresholds = {100, 250, 500, 750, 900};
           for (int threshold : thresholds) {
-            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
                 Set.of("/items/[]/id"), new Int32(threshold), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
             int count = 0;
@@ -372,7 +372,7 @@ class HOTRealWorldE2ETest {
           wtx.commit();
 
           // Query PATH index
-          var pathIndex = indexController.openPathIndex(wtx.getPageTrx(), pathIndexDef, null);
+          var pathIndex = indexController.openPathIndex(wtx.getStorageEngineReader(), pathIndexDef, null);
           int count = 0;
           while (pathIndex.hasNext()) {
             pathIndex.next();
@@ -428,7 +428,7 @@ class HOTRealWorldE2ETest {
           wtx.commit();
 
           // Query CAS age index
-          var ageIndex = indexController.openCASIndex(wtx.getPageTrx(), casAgeIndex, indexController.createCASFilter(
+          var ageIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casAgeIndex, indexController.createCASFilter(
               Set.of("/users/[]/age"), new Int32(40), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
           int ageCount = 0;
           while (ageIndex.hasNext()) {
@@ -474,7 +474,7 @@ class HOTRealWorldE2ETest {
           // Query at exact boundaries
           for (SearchMode mode : new SearchMode[] {SearchMode.GREATER, SearchMode.GREATER_OR_EQUAL, SearchMode.LOWER,
               SearchMode.LOWER_OR_EQUAL}) {
-            var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+            var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
                 Set.of("/data/[]/value"), new Int32(50), mode, new JsonPCRCollector(wtx)));
 
             int count = 0;
@@ -527,7 +527,7 @@ class HOTRealWorldE2ETest {
           wtx.commit();
 
           // Test GREATER_OR_EQUAL range query (triggers RangeIterator)
-          var casIndex1 = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex1 = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/data/[]/score"), new Int32(50), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count1 = 0;
@@ -538,7 +538,7 @@ class HOTRealWorldE2ETest {
           assertTrue(count1 >= 50, "Should find at least 50 entries >= 50, found " + count1);
 
           // Test GREATER range query
-          var casIndex2 = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex2 = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/data/[]/score"), new Int32(75), SearchMode.GREATER, new JsonPCRCollector(wtx)));
 
           int count2 = 0;
@@ -549,7 +549,7 @@ class HOTRealWorldE2ETest {
           assertTrue(count2 >= 24, "Should find at least 24 entries > 75, found " + count2);
 
           // Test LOWER range query (falls back to full scan for now)
-          var casIndex3 = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex3 = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/data/[]/score"), new Int32(25), SearchMode.LOWER, new JsonPCRCollector(wtx)));
 
           int count3 = 0;
@@ -595,7 +595,7 @@ class HOTRealWorldE2ETest {
           wtx.commit();
 
           // Create HOTIndexReader directly to test range()
-          var hotReader = HOTIndexReader.create(wtx.getPageTrx(), CASKeySerializer.INSTANCE, casIndexDef.getType(),
+          var hotReader = HOTIndexReader.create(wtx.getStorageEngineReader(), CASKeySerializer.INSTANCE, casIndexDef.getType(),
               casIndexDef.getID());
 
           // Get path node key using JsonPCRCollector
@@ -654,7 +654,7 @@ class HOTRealWorldE2ETest {
           wtx.commit();
 
           // Query the index
-          var casIndex = indexController.openCASIndex(wtx.getPageTrx(), casIndexDef, indexController.createCASFilter(
+          var casIndex = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef, indexController.createCASFilter(
               Set.of("/items/[]/id"), new Int32(0), SearchMode.GREATER_OR_EQUAL, new JsonPCRCollector(wtx)));
 
           int count = 0;

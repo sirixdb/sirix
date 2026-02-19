@@ -76,7 +76,7 @@ public class LivePageAnalysisTest {
       System.err.println("  Live (in ALL_LIVE_PAGES): " + livePagesTracked);
 
       // Get buffer manager
-      var bufferManager = holder.getXmlNodeReadTrx().getPageTrx().getBufferManager();
+      var bufferManager = holder.getXmlNodeReadTrx().getStorageEngineReader().getBufferManager();
 
       // Check each cache
       long inRecordCache = 0;

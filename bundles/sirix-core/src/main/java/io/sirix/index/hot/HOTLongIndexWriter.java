@@ -70,14 +70,14 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
   /**
    * Private constructor.
    *
-   * @param pageTrx the storage engine writer
+   * @param storageEngineWriter the storage engine writer
    * @param keySerializer the key serializer
    * @param indexType the index type (should be PATH)
    * @param indexNumber the index number
    */
-  private HOTLongIndexWriter(StorageEngineWriter pageTrx, HOTLongKeySerializer keySerializer, IndexType indexType,
+  private HOTLongIndexWriter(StorageEngineWriter storageEngineWriter, HOTLongKeySerializer keySerializer, IndexType indexType,
       int indexNumber) {
-    super(pageTrx, indexType, indexNumber);
+    super(storageEngineWriter, indexType, indexNumber);
     this.keySerializer = requireNonNull(keySerializer);
 
     // HOTLongIndexWriter is specialized for PATH indexes only.
@@ -93,13 +93,13 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
   /**
    * Creates a new HOTLongIndexWriter for PATH index.
    *
-   * @param pageTrx the storage engine writer
+   * @param storageEngineWriter the storage engine writer
    * @param indexType the index type (should be PATH)
    * @param indexNumber the index number
    * @return a new HOTLongIndexWriter instance
    */
-  public static HOTLongIndexWriter create(StorageEngineWriter pageTrx, IndexType indexType, int indexNumber) {
-    return new HOTLongIndexWriter(pageTrx, PathKeySerializer.INSTANCE, indexType, indexNumber);
+  public static HOTLongIndexWriter create(StorageEngineWriter storageEngineWriter, IndexType indexType, int indexNumber) {
+    return new HOTLongIndexWriter(storageEngineWriter, PathKeySerializer.INSTANCE, indexType, indexNumber);
   }
 
   /**
