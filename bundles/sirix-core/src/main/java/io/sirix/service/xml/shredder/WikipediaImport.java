@@ -82,7 +82,7 @@ public final class WikipediaImport implements Import<StartElement> {
   /**
    * Resource manager instance.
    */
-  private final XmlResourceSession mResourceManager;
+  private final XmlResourceSession mResourceSession;
 
   /**
    * sirix {@link NodeTrx}.
@@ -170,8 +170,8 @@ public final class WikipediaImport implements Import<StartElement> {
     Databases.createXmlDatabase(config);
     mDatabase = Databases.openXmlDatabase(sirixDatabase);
     mDatabase.createResource(new ResourceConfiguration.Builder("shredded").build());
-    mResourceManager = mDatabase.beginResourceSession("shredded");
-    mWtx = mResourceManager.beginNodeTrx();
+    mResourceSession = mDatabase.beginResourceSession("shredded");
+    mWtx = mResourceSession.beginNodeTrx();
   }
 
   /**
@@ -291,7 +291,7 @@ public final class WikipediaImport implements Import<StartElement> {
 
       mWtx.commit();
       mWtx.close();
-      mResourceManager.close();
+      mResourceSession.close();
       mDatabase.close();
     } catch (final XMLStreamException | SirixException | IOException e) {
       LOGWRAPPER.error(e.getMessage(), e);
@@ -307,19 +307,19 @@ public final class WikipediaImport implements Import<StartElement> {
     Databases.createXmlDatabase(dbConf);
     try (var db = Databases.openXmlDatabase(path)) {
       db.createResource(new ResourceConfiguration.Builder("wiki").build());
-      try (XmlResourceSession resourceManager = db.beginResourceSession("wiki")) {
+      try (XmlResourceSession resourceSession = db.beginResourceSession("wiki")) {
         if (mPageEvents.peek() != null && mPageEvents.peek().isStartElement()
             && !mPageEvents.peek().asStartElement().getName().getLocalPart().equals("root")) {
           mPageEvents.addFirst(XMLEventFactory.newInstance().createStartElement(new QName("root"), null, null));
           mPageEvents.addLast(XMLEventFactory.newInstance().createEndElement(new QName("root"), null));
         }
-        final XmlNodeTrx wtx = resourceManager.beginNodeTrx();
+        final XmlNodeTrx wtx = resourceSession.beginNodeTrx();
         final XmlShredder shredder = new XmlShredder.Builder(wtx, XmlShredder.createQueueReader(mPageEvents),
             InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
         shredder.call();
         wtx.close();
         mPageEvents = new ArrayDeque<>();
-        final XmlNodeReadOnlyTrx rtx = resourceManager.beginNodeReadOnlyTrx();
+        final XmlNodeReadOnlyTrx rtx = resourceSession.beginNodeReadOnlyTrx();
         rtx.moveToFirstChild();
         rtx.moveToFirstChild();
         final long nodeKey = mWtx.getNodeKey();
@@ -381,7 +381,7 @@ public final class WikipediaImport implements Import<StartElement> {
         mTimestamp = parseTimestamp(dateRange, currTimestamp);
         mWtx.commit();
         mWtx.close();
-        mWtx = mResourceManager.beginNodeTrx();
+        mWtx = mResourceSession.beginNodeTrx();
       }
 
       assert mIdText != null;

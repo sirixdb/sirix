@@ -21,22 +21,22 @@ import java.util.Collection;
 public final class JsonDiffSerializer {
 
   private final String databaseName;
-  private final JsonResourceSession resourceManager;
+  private final JsonResourceSession resourceSession;
   private final int oldRevisionNumber;
   private final int newRevisionNumber;
   private final Collection<DiffTuple> diffs;
 
-  public JsonDiffSerializer(final String databaseName, JsonResourceSession resourceManager, int oldRevisionNumber,
+  public JsonDiffSerializer(final String databaseName, JsonResourceSession resourceSession, int oldRevisionNumber,
       int newRevisionNumber, Collection<DiffTuple> diffs) {
     this.databaseName = databaseName;
-    this.resourceManager = resourceManager;
+    this.resourceSession = resourceSession;
     this.oldRevisionNumber = oldRevisionNumber;
     this.newRevisionNumber = newRevisionNumber;
     this.diffs = diffs;
   }
 
   public String serialize(boolean emitFromDiffAlgorithm) {
-    final var resourceName = resourceManager.getResourceConfig().getName();
+    final var resourceName = resourceSession.getResourceConfig().getName();
 
     final JsonObject json = createMetaInfo(databaseName, resourceName, oldRevisionNumber, newRevisionNumber);
 
@@ -49,8 +49,8 @@ public final class JsonDiffSerializer {
 
     final var jsonDiffs = json.getAsJsonArray("diffs");
 
-    try (final var oldRtx = resourceManager.beginNodeReadOnlyTrx(oldRevisionNumber);
-        final var newRtx = resourceManager.beginNodeReadOnlyTrx(newRevisionNumber)) {
+    try (final var oldRtx = resourceSession.beginNodeReadOnlyTrx(oldRevisionNumber);
+        final var newRtx = resourceSession.beginNodeReadOnlyTrx(newRevisionNumber)) {
       if (emitFromDiffAlgorithm) {
         diffs.removeIf(diffTuple -> diffTuple.getDiff() == DiffFactory.DiffType.SAME
             || diffTuple.getDiff() == DiffFactory.DiffType.SAMEHASH
@@ -84,7 +84,7 @@ public final class JsonDiffSerializer {
             // Pass true to include parent path for value nodes (STRING_VALUE, etc.)
             addPathIfAvailable(jsonInsertDiff, newRtx, newRevisionNumber, true);
 
-            if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+            if (resourceSession.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
               jsonInsertDiff.addProperty("deweyID", deweyId.toString());
               jsonInsertDiff.addProperty("depth", deweyId.getLevel());
@@ -106,7 +106,7 @@ public final class JsonDiffSerializer {
             // Pass true to include parent path for value nodes (STRING_VALUE, etc.)
             addPathIfAvailable(jsonDeletedDiff, oldRtx, oldRevisionNumber, true);
 
-            if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+            if (resourceSession.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = oldRtx.getDeweyID();
               jsonDeletedDiff.addProperty("deweyID", deweyId.toString());
               jsonDeletedDiff.addProperty("depth", deweyId.getLevel());
@@ -128,7 +128,7 @@ public final class JsonDiffSerializer {
             // For REPLACE, include parent path for values under OBJECT_KEY
             addPathIfAvailable(jsonReplaceDiff, newRtx, newRevisionNumber, true);
 
-            if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+            if (resourceSession.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
               jsonReplaceDiff.addProperty("deweyID", deweyId.toString());
               jsonReplaceDiff.addProperty("depth", deweyId.getLevel());
@@ -148,7 +148,7 @@ public final class JsonDiffSerializer {
             // Include parent path for value nodes under OBJECT_KEY
             addPathIfAvailable(jsonUpdateDiff, newRtx, newRevisionNumber, true);
 
-            if (resourceManager.getResourceConfig().areDeweyIDsStored) {
+            if (resourceSession.getResourceConfig().areDeweyIDsStored) {
               final var deweyId = newRtx.getDeweyID();
               jsonUpdateDiff.addProperty("deweyID", deweyId.toString());
               jsonUpdateDiff.addProperty("depth", deweyId.getLevel());
@@ -216,7 +216,7 @@ public final class JsonDiffSerializer {
     if (newRtx.isArray() || newRtx.isObject() || newRtx.isObjectKey()) {
       json.addProperty("type", "jsonFragment");
       if (emitFromDiffAlgorithm) {
-        serialize(newRevisionNumber, resourceManager, newRtx, json);
+        serialize(newRevisionNumber, resourceSession, newRtx, json);
       }
     } else if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE) {
       json.addProperty("type", "boolean");
@@ -233,11 +233,11 @@ public final class JsonDiffSerializer {
     }
   }
 
-  public static void serialize(int newRevision, JsonResourceSession resourceManager, JsonNodeReadOnlyTrx newRtx,
+  public static void serialize(int newRevision, JsonResourceSession resourceSession, JsonNodeReadOnlyTrx newRtx,
       JsonObject jsonObject) {
     try (final var writer = new StringWriter()) {
       final var serializer =
-          JsonSerializer.newBuilder(resourceManager, writer, newRevision).startNodeKey(newRtx.getNodeKey()).build();
+          JsonSerializer.newBuilder(resourceSession, writer, newRevision).startNodeKey(newRtx.getNodeKey()).build();
       serializer.call();
       jsonObject.addProperty("data", writer.toString());
     } catch (final IOException e) {
@@ -257,7 +257,7 @@ public final class JsonDiffSerializer {
    * @return the path string, or null if unavailable
    */
   private String getNodePath(JsonNodeReadOnlyTrx rtx, int revisionNumber, boolean includeParentPathForValues) {
-    if (!resourceManager.getResourceConfig().withPathSummary) {
+    if (!resourceSession.getResourceConfig().withPathSummary) {
       return null;
     }
 
@@ -298,7 +298,7 @@ public final class JsonDiffSerializer {
       return null;
     }
 
-    try (final PathSummaryReader pathReader = resourceManager.openPathSummary(revisionNumber)) {
+    try (final PathSummaryReader pathReader = resourceSession.openPathSummary(revisionNumber)) {
       if (!pathReader.moveTo(pathNodeKey)) {
         return null;
       }

@@ -31,6 +31,6 @@ public class SubComponentResourceSessionFactory<B extends GenericResourceSession
                                    .bufferManager(bufferManager)
                                    .resourceFile(resourceFile)
                                    .build()
-                                   .resourceManager();
+                                   .resourceSession();
   }
 }

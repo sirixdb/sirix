@@ -83,7 +83,7 @@ public final class TemporalXmlNodeReadFilterAxis<F extends Filter<XmlNodeReadOnl
   }
 
   @Override
-  public ResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> getResourceManager() {
-    return axis.getResourceManager();
+  public ResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> getResourceSession() {
+    return axis.getResourceSession();
   }
 }

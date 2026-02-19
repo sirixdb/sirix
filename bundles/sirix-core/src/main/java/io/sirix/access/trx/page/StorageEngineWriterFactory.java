@@ -72,7 +72,7 @@ public final class StorageEngineWriterFactory {
   /**
    * Create a page write trx.
    *
-   * @param resourceManager {@link XmlResourceSessionImpl} this page write trx is bound to
+   * @param resourceSession {@link XmlResourceSessionImpl} this page write trx is bound to
    * @param uberPage root of revision
    * @param writer writer where this transaction should write to
    * @param trxId the transaction ID
@@ -82,17 +82,17 @@ public final class StorageEngineWriterFactory {
    *        {@code false} otherwise
    */
   public StorageEngineWriter createPageTrx(
-      final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceManager,
+      final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession,
       final UberPage uberPage, final Writer writer, final @NonNegative int trxId,
       final @NonNegative int representRevision, final @NonNegative int lastStoredRevision,
       final @NonNegative int lastCommitedRevision, final boolean isBoundToNodeTrx, final BufferManager bufferManager) {
-    final ResourceConfiguration resourceConfig = resourceManager.getResourceConfig();
+    final ResourceConfiguration resourceConfig = resourceSession.getResourceConfig();
     final boolean usePathSummary = resourceConfig.withPathSummary;
     // Use representRevision + 1 because that's the NEW revision being created.
     // The node transaction will use trx.getRevisionNumber() which returns the new revision,
     // so we need to use the same revision for the index controller to ensure they share state.
     final int newRevisionNumber = representRevision + 1;
-    final IndexController<?, ?> indexController = resourceManager.getWtxIndexController(newRevisionNumber);
+    final IndexController<?, ?> indexController = resourceSession.getWtxIndexController(newRevisionNumber);
 
     // Deserialize index definitions.
     final Path indexes = resourceConfig.resourcePath.resolve(ResourceConfiguration.ResourcePaths.INDEXES.getPath())
@@ -114,7 +114,7 @@ public final class StorageEngineWriterFactory {
     }
 
     // Page read trx.
-    final NodeStorageEngineReader storageEngineReader = new NodeStorageEngineReader(trxId, resourceManager, uberPage,
+    final NodeStorageEngineReader storageEngineReader = new NodeStorageEngineReader(trxId, resourceSession, uberPage,
         representRevision, writer, bufferManager, new RevisionRootPageReader(), log);
 
     // Create new revision root page.
@@ -154,10 +154,10 @@ public final class StorageEngineWriterFactory {
       final NamePage namePage = storageEngineReader.getNamePage(newRevisionRootPage);
       final DeweyIDPage deweyIDPage = storageEngineReader.getDeweyIDPage(newRevisionRootPage);
 
-      if (resourceManager instanceof JsonResourceSession) {
+      if (resourceSession instanceof JsonResourceSession) {
         namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.JSON_OBJECT_KEY_REFERENCE_OFFSET, log);
         deweyIDPage.createIndexTree(this.databaseType, storageEngineReader, log);
-      } else if (resourceManager instanceof XmlResourceSession) {
+      } else if (resourceSession instanceof XmlResourceSession) {
         namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.ATTRIBUTES_REFERENCE_OFFSET, log);
         namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.ELEMENTS_REFERENCE_OFFSET, log);
         namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.NAMESPACE_REFERENCE_OFFSET, log);

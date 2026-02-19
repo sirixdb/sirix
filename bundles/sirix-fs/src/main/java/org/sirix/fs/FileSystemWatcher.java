@@ -48,7 +48,7 @@ import org.sirix.access.Databases;
 import org.sirix.access.ResourceConfiguration;
 import org.sirix.api.Axis;
 import org.sirix.api.Database;
-import org.sirix.api.xml.XmlResourceManager;
+import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.exception.SirixXPathException;
@@ -95,10 +95,10 @@ public class FileSystemWatcher implements AutoCloseable {
   private final Path mPath;
 
   /** Sirix {@link Database}. */
-  private final Database<XmlResourceManager> mDatabase;
+  private final Database<XmlResourceSession> mDatabase;
 
-  /** Sirix {@link XmlResourceManager}. */
-  private final XmlResourceManager mResource;
+  /** Sirix {@link XmlResourceSession}. */
+  private final XmlResourceSession mResource;
 
   /** Determines the state. */
   private State mState;
@@ -121,10 +121,10 @@ public class FileSystemWatcher implements AutoCloseable {
    * @param path {@link Path} reference which denotes the {@code path/directory} to watch for changes.
    * @param database {@link Database} to use for importing changed data into sirix
    */
-  private FileSystemWatcher(final Path path, final Database<XmlResourceManager> database) throws SirixException {
+  private FileSystemWatcher(final Path path, final Database<XmlResourceSession> database) throws SirixException {
     mPath = requireNonNull(path);
     mDatabase = requireNonNull(database);
-    mResource = mDatabase.openResourceManager("shredded");
+    mResource = mDatabase.openResourceSession("shredded");
     mWtx = mResource.beginNodeTrx();
     mState = State.LOOP;
     mPool.scheduleAtFixedRate(() -> mWtx.commit(), 60, 60, TimeUnit.SECONDS);
@@ -141,7 +141,7 @@ public class FileSystemWatcher implements AutoCloseable {
    * @throws NullPointerException if any of the arguments are {@code null}
    * @throws SirixException if anything while setting up sirix failes
    */
-  public static synchronized FileSystemWatcher getInstance(final Path path, final Database<XmlResourceManager> database)
+  public static synchronized FileSystemWatcher getInstance(final Path path, final Database<XmlResourceSession> database)
       throws SirixException {
     final PathDBContainer container = new PathDBContainer(path, database);
     FileSystemWatcher watcher = INSTANCES.putIfAbsent(container, new FileSystemWatcher(path, database));

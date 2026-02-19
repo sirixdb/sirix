@@ -77,7 +77,7 @@ public final class ImportTestCase extends TestCase {
   // // final DBNode node = (DBNode) new Query(cc, xq).evaluate(ctx);
   // // final OutputStream out = new ByteArrayOutputStream();
   // // final XMLSerializer serializer =
-  // // new XMLSerializerBuilder(node.getTrx().getResourceManager(), out).prettyPrint().build();
+  // // new XMLSerializerBuilder(node.getTrx().getResourceSession(), out).prettyPrint().build();
   // // serializer.call();
   // // System.out.println(out.toString());
   //
@@ -88,7 +88,7 @@ public final class ImportTestCase extends TestCase {
   //
   // final OutputStream out = new ByteArrayOutputStream();
   // final XMLSerializer serializer =
-  // new XMLSerializerBuilder(node.getTrx().getResourceManager(), out).build();
+  // new XMLSerializerBuilder(node.getTrx().getResourceSession(), out).build();
   // serializer.call();
   // System.out.println(out.toString());
   //

@@ -442,7 +442,7 @@ public final class PathSummaryTest {
     //
     // OutputStream out = new ByteArrayOutputStream();
     // XMLSerializer serializer =
-    // new XMLSerializerBuilder(holder.getResourceManager(), out).prettyPrint().build();
+    // new XMLSerializerBuilder(holder.getResourceSession(), out).prettyPrint().build();
     // serializer.call();
     // System.out.println(out.toString());
     //
@@ -468,7 +468,7 @@ public final class PathSummaryTest {
     // System.out.println("nodes");
     //
     // out = new ByteArrayOutputStream();
-    // serializer = new XMLSerializerBuilder(holder.getResourceManager(),
+    // serializer = new XMLSerializerBuilder(holder.getResourceSession(),
     // out).prettyPrint().build();
     // serializer.call();
     // System.out.println(out.toString());
@@ -848,7 +848,7 @@ public final class PathSummaryTest {
     //
     // OutputStream out = new ByteArrayOutputStream();
     // XMLSerializer serializer =
-    // new XMLSerializerBuilder(holder.getResourceManager(), out).prettyPrint().build();
+    // new XMLSerializerBuilder(holder.getResourceSession(), out).prettyPrint().build();
     // serializer.call();
     // System.out.println(out.toString());
     //
@@ -1055,14 +1055,14 @@ public final class PathSummaryTest {
     // System.out.println("nodes");
     //
     // out = new ByteArrayOutputStream();
-    // serializer = new XMLSerializerBuilder(holder.getResourceManager(),
+    // serializer = new XMLSerializerBuilder(holder.getResourceSession(),
     // out).prettyPrint().build();
     // serializer.call();
     // System.out.println(out.toString());
     //
     // System.out.println("summary");
     //
-    // pathSummary = holder.getResourceManager().openPathSummary();
+    // pathSummary = holder.getResourceSession().openPathSummary();
     // pathSummaryAxis = new DescendantAxis(pathSummary);
     //
     // while (pathSummaryAxis.hasNext()) {

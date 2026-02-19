@@ -403,7 +403,7 @@ public final class SimpleQueryIntegrationTest {
   // final var rtx = sequence.getTrx();
   // final Instant now;
   //
-  // try (final var wtx = rtx.getResourceManager().beginNodeTrx()) {
+  // try (final var wtx = rtx.getResourceSession().beginNodeTrx()) {
   // wtx.moveTo(rtx.getNodeKey());
   // wtx.moveToFirstChild();
   // while (wtx.hasRightSibling())
@@ -449,7 +449,7 @@ public final class SimpleQueryIntegrationTest {
   // final var rtx = sequence.getTrx();
   // final Instant now;
   //
-  // try (final var wtx = rtx.getResourceManager().beginNodeTrx()) {
+  // try (final var wtx = rtx.getResourceSession().beginNodeTrx()) {
   // wtx.moveTo(rtx.getNodeKey());
   // wtx.moveToFirstChild();
   // while (wtx.hasRightSibling())

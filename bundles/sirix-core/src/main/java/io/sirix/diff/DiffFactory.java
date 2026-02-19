@@ -150,17 +150,17 @@ public final class DiffFactory {
   /**
    * Create a new {@link Builder} instance.
    *
-   * @param resourceManager the {@link ResourceSession} to use
+   * @param resourceSession the {@link ResourceSession} to use
    * @param newRev new revision to compare
    * @param oldRev old revision to compare
    * @param diffKind kind of diff (optimized or not)
    * @param observers {@link Set} of observers
    * @return new {@link Builder} instance
    */
-  public static Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> builder(final XmlResourceSession resourceManager,
+  public static Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> builder(final XmlResourceSession resourceSession,
       final @NonNegative int newRev, final @NonNegative int oldRev, final DiffOptimized diffKind,
       final Set<DiffObserver> observers) {
-    return new Builder<>(resourceManager, newRev, oldRev, diffKind, observers);
+    return new Builder<>(resourceSession, newRev, oldRev, diffKind, observers);
   }
 
   /** Builder to simplify static methods. */

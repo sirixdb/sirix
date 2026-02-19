@@ -69,10 +69,10 @@ public final class Holder {
     final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile());
     database.createResource(
         new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).useDeweyIDs(true).hashKind(HashType.ROLLING).build());
-    final XmlResourceSession resourceManager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+    final XmlResourceSession resourceSession = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
-    holder.setSession(resourceManager);
+    holder.setSession(resourceSession);
     return holder;
   }
 
@@ -89,10 +89,10 @@ public final class Holder {
     }
     final var database = Databases.openXmlDatabase(XmlTestHelper.PATHS.PATH1.getFile());
     database.createResource(new ResourceConfiguration.Builder(XmlTestHelper.RESOURCE).buildPathSummary(true).build());
-    final XmlResourceSession resourceManager = database.beginResourceSession(XmlTestHelper.RESOURCE);
+    final XmlResourceSession resourceSession = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final Holder holder = new Holder();
     holder.setDatabase(database);
-    holder.setSession(resourceManager);
+    holder.setSession(resourceSession);
     return holder;
   }
 
@@ -115,7 +115,7 @@ public final class Holder {
    *
    * @return this holder instance
    */
-  public static Holder openResourceManagerWithHashes() {
+  public static Holder openResourceSessionWithHashes() {
     final var database = XmlTestHelper.getDatabaseWithRollingHashesEnabled(XmlTestHelper.PATHS.PATH1.getFile());
     final XmlResourceSession session = database.beginResourceSession(XmlTestHelper.RESOURCE);
     final Holder holder = new Holder();
@@ -156,7 +156,7 @@ public final class Holder {
    * @return this holder instance
    */
   public static Holder generateWtxAndResourceWithHashes() {
-    final Holder holder = openResourceManagerWithHashes();
+    final Holder holder = openResourceSessionWithHashes();
     final XmlNodeTrx writer = holder.resourceSession.beginNodeTrx();
     holder.setXdmNodeWriteTrx(writer);
     return holder;
@@ -250,10 +250,10 @@ public final class Holder {
   /**
    * Set the working {@link ResourceSession}.
    *
-   * @param resourceManager {@link XmlResourceSession} instance
+   * @param resourceSession {@link XmlResourceSession} instance
    */
-  private void setSession(final XmlResourceSession resourceManager) {
-    resourceSession = resourceManager;
+  private void setSession(final XmlResourceSession resourceSession) {
+    this.resourceSession = resourceSession;
   }
 
   /**

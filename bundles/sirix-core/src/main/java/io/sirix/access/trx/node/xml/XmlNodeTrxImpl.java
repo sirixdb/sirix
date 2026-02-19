@@ -109,7 +109,7 @@ final class XmlNodeTrxImpl extends
   /**
    * Constructor.
    *
-   * @param resourceManager the resource manager this transaction is bound to
+   * @param resourceSession the resource manager this transaction is bound to
    * @param nodeReadOnlyTrx {@link StorageEngineWriter} to interact with the page layer
    * @param pathSummaryWriter the path summary writer
    * @param maxNodeCount maximum number of node modifications before auto commit
@@ -118,18 +118,18 @@ final class XmlNodeTrxImpl extends
    * @throws SirixIOException if the reading of the props is failing
    * @throws SirixUsageException if {@code pMaxNodeCount < 0} or {@code pMaxTime < 0}
    */
-  XmlNodeTrxImpl(final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceManager,
+  XmlNodeTrxImpl(final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceSession,
       final InternalXmlNodeReadOnlyTrx nodeReadOnlyTrx, final PathSummaryWriter<XmlNodeReadOnlyTrx> pathSummaryWriter,
       final @NonNegative int maxNodeCount, @Nullable final Lock transactionLock, final Duration afterCommitDelay,
       final @NonNull XmlNodeHashing nodeHashing, final XmlNodeFactory nodeFactory,
       final @NonNull AfterCommitState afterCommitState, final RecordToRevisionsIndex nodeToRevisionsIndex) {
-    super(Executors.defaultThreadFactory(), resourceManager.getResourceConfig().hashType, nodeReadOnlyTrx,
-        nodeReadOnlyTrx, resourceManager, afterCommitState, nodeHashing, pathSummaryWriter, nodeFactory,
+    super(Executors.defaultThreadFactory(), resourceSession.getResourceConfig().hashType, nodeReadOnlyTrx,
+        nodeReadOnlyTrx, resourceSession, afterCommitState, nodeHashing, pathSummaryWriter, nodeFactory,
         nodeToRevisionsIndex, transactionLock, afterCommitDelay, maxNodeCount);
-    indexController = resourceManager.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
+    indexController = resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     storeChildCount = this.resourceSession.getResourceConfig().storeChildCount();
 
-    useTextCompression = resourceManager.getResourceConfig().useTextCompression;
+    useTextCompression = resourceSession.getResourceConfig().useTextCompression;
     deweyIDManager = new XmlDeweyIDManager(this);
 
     // Register index listeners for any existing indexes.

@@ -62,7 +62,7 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
   }
 
   @Override
-  public ResourceSession<R, W> getResourceManager() {
+  public ResourceSession<R, W> getResourceSession() {
     return resourceSession;
   }
 }
