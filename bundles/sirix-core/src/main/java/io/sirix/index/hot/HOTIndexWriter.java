@@ -147,13 +147,11 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
       keyLen = keySerializer.serialize(key, keyBuf, 0);
     }
 
-    // Serialize value
-    Object[] valueResult = serializeValue(value);
-    byte[] valueBuf = (byte[]) valueResult[0];
-    int valueLen = (int) valueResult[1];
+    // Serialize value (stores result in lastSerializedValueBuf/Len — no Object[] allocation)
+    serializeValueInto(value);
 
     // Perform the index operation
-    doIndex(keyBuf, keyLen, valueBuf, valueLen);
+    doIndex(keyBuf, keyLen, lastSerializedValueBuf, lastSerializedValueLen);
 
     return value;
   }

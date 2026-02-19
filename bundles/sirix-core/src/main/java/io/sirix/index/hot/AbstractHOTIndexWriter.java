@@ -44,7 +44,6 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 
 import static java.util.Objects.requireNonNull;
@@ -77,6 +76,9 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected static final ThreadLocal<byte[]> VALUE_BUFFER = ThreadLocal.withInitial(() -> new byte[4096]);
 
+  /** Maximum navigable tree depth — pre-allocates path arrays at this depth. */
+  private static final int MAX_PATH_DEPTH = 64;
+
   protected final StorageEngineWriter pageTrx;
   protected final IndexType indexType;
   protected final int indexNumber;
@@ -86,6 +88,19 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /** Cached root page reference for the index. */
   protected PageReference rootReference;
+
+  // ===== Pre-allocated path-tracking arrays — ZERO allocation per insert on hot path =====
+  // These are overwritten on every getLeafWithPath() call; LeafNavigationResult stores
+  // copies only when the path depth is non-zero (a small Arrays.copyOf of depth <= 64).
+  private final HOTIndirectPage[] _pathNodes = new HOTIndirectPage[MAX_PATH_DEPTH];
+  private final PageReference[] _pathRefs = new PageReference[MAX_PATH_DEPTH];
+  private final int[] _pathChildIndices = new int[MAX_PATH_DEPTH];
+
+  // ===== Last serialized value — replaces Object[] return from serializeValue =====
+  /** The serialized value bytes from the most recent {@link #serializeValueInto} call. */
+  protected byte[] lastSerializedValueBuf;
+  /** The valid byte count in {@link #lastSerializedValueBuf}. */
+  protected int lastSerializedValueLen;
 
   /**
    * Result of navigating to a leaf page, including the path from root. This is needed for proper
@@ -227,6 +242,15 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Navigate to the correct leaf page for a key, tracking the path from root.
    *
+   * <p><b>Zero allocation design:</b> Path nodes/refs/indices are accumulated in pre-allocated
+   * instance arrays ({@code _pathNodes}, {@code _pathRefs}, {@code _pathChildIndices}).
+   * Only shallow {@link Arrays#copyOf} trims are done on return to give the caller independent
+   * arrays of exactly the right depth. This eliminates {@code ArrayList} and {@code Integer}
+   * boxing that would otherwise occur on every insert.</p>
+   *
+   * <p><b>Thread safety:</b> {@code AbstractHOTIndexWriter} is per-transaction (single-threaded),
+   * so the pre-allocated arrays are safe.</p>
+   *
    * @param rootRef the root reference (must be obtained ONCE and reused)
    * @param keyBuf the key buffer
    * @param keyLen the key length
@@ -237,31 +261,30 @@ public abstract class AbstractHOTIndexWriter<K> {
       throw new IllegalStateException("HOT index not initialized");
     }
 
-    // Use dynamic arrays for deep trees
-    ArrayList<HOTIndirectPage> pathNodesList = new ArrayList<>();
-    ArrayList<PageReference> pathRefsList = new ArrayList<>();
-    ArrayList<Integer> pathChildIndicesList = new ArrayList<>();
-
+    // Reset path depth counter — no allocation
+    int pathDepth = 0;
     PageReference currentRef = rootRef;
-    byte[] keySlice = keyLen == keyBuf.length
-        ? keyBuf
-        : Arrays.copyOf(keyBuf, keyLen);
+    final byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
 
     // Check transaction log first (uncommitted modifications)
     PageContainer container = pageTrx.getLog().get(currentRef);
     if (container != null) {
       Page page = container.getModified();
 
-      // Navigate through indirect pages, tracking the path
+      // Navigate through indirect pages, tracking the path into pre-allocated arrays
       while (page instanceof HOTIndirectPage indirectPage) {
-        pathNodesList.add(indirectPage);
-        pathRefsList.add(currentRef);
+        if (pathDepth >= MAX_PATH_DEPTH) {
+          throw new IllegalStateException("HOT tree depth exceeds MAX_PATH_DEPTH=" + MAX_PATH_DEPTH);
+        }
+        _pathNodes[pathDepth] = indirectPage;
+        _pathRefs[pathDepth] = currentRef;
 
         int childIndex = indirectPage.findChildIndex(keySlice);
         if (childIndex < 0) {
           childIndex = 0; // Default to first child
         }
-        pathChildIndicesList.add(childIndex);
+        _pathChildIndices[pathDepth] = childIndex;
+        pathDepth++;
 
         PageReference childRef = indirectPage.getChildReference(childIndex);
         if (childRef == null) {
@@ -269,34 +292,32 @@ public abstract class AbstractHOTIndexWriter<K> {
         }
         currentRef = childRef;
 
-        // Get child page from log or storage
+        // Get child page from log, swizzled cache, or storage
         PageContainer childContainer = pageTrx.getLog().get(childRef);
         if (childContainer != null) {
           page = childContainer.getModified();
+        } else if (childRef.getPage() != null) {
+          page = childRef.getPage();
         } else {
-          // Child not in log - check if the child reference has a page swizzled on it
-          if (childRef.getPage() != null) {
-            page = childRef.getPage();
-          } else {
-            // Load from storage and prepare for modification
-            page = pageTrx.loadHOTPage(childRef);
-            if (page instanceof HOTLeafPage loadedLeaf) {
-              // Create COW copy for modifications and put in log
-              HOTLeafPage modifiedLeaf = loadedLeaf.copy();
-              childContainer = PageContainer.getInstance(loadedLeaf, modifiedLeaf);
-              pageTrx.getLog().put(childRef, childContainer);
-              page = modifiedLeaf;
-            }
+          // Load from storage and prepare for modification
+          page = pageTrx.loadHOTPage(childRef);
+          if (page instanceof HOTLeafPage loadedLeaf) {
+            HOTLeafPage modifiedLeaf = loadedLeaf.copy();
+            childContainer = PageContainer.getInstance(loadedLeaf, modifiedLeaf);
+            pageTrx.getLog().put(childRef, childContainer);
+            page = modifiedLeaf;
           }
         }
       }
 
       if (page instanceof HOTLeafPage hotLeaf) {
-        // Convert lists to arrays for return
-        int pathDepth = pathNodesList.size();
-        HOTIndirectPage[] pathNodes = pathNodesList.toArray(new HOTIndirectPage[pathDepth]);
-        PageReference[] pathRefs = pathRefsList.toArray(new PageReference[pathDepth]);
-        int[] pathChildIndices = pathChildIndicesList.stream().mapToInt(Integer::intValue).toArray();
+        // Trim the pre-allocated arrays to exact depth — small allocation, avoids boxing
+        final HOTIndirectPage[] pathNodes = pathDepth == 0 ? new HOTIndirectPage[0]
+            : Arrays.copyOf(_pathNodes, pathDepth);
+        final PageReference[] pathRefs = pathDepth == 0 ? new PageReference[0]
+            : Arrays.copyOf(_pathRefs, pathDepth);
+        final int[] pathChildIndices = pathDepth == 0 ? new int[0]
+            : Arrays.copyOf(_pathChildIndices, pathDepth);
         return new LeafNavigationResult(hotLeaf, currentRef, pathNodes, pathRefs, pathChildIndices, pathDepth);
       }
     }
@@ -304,7 +325,6 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Use storage engine's versioning-aware page loading for committed data
     HOTLeafPage existingLeaf = pageTrx.getHOTLeafPage(indexType, indexNumber);
     if (existingLeaf != null) {
-      // Create COW copy for modifications
       HOTLeafPage modifiedLeaf = existingLeaf.copy();
       container = PageContainer.getInstance(existingLeaf, modifiedLeaf);
       pageTrx.getLog().put(rootRef, container);
@@ -313,9 +333,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
 
     // Create new leaf page if none exists
-    HOTLeafPage newLeaf = new HOTLeafPage(rootRef.getKey() >= 0
-        ? rootRef.getKey()
-        : 0, pageTrx.getRevisionNumber(), indexType);
+    HOTLeafPage newLeaf = new HOTLeafPage(rootRef.getKey() >= 0 ? rootRef.getKey() : 0,
+        pageTrx.getRevisionNumber(), indexType);
     container = PageContainer.getInstance(newLeaf, newLeaf);
     pageTrx.getLog().put(rootRef, container);
     return new LeafNavigationResult(newLeaf, rootRef, new HOTIndirectPage[0], new PageReference[0], new int[0], 0);
@@ -602,10 +621,13 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Serialize value to the thread-local buffer, expanding if necessary.
    *
+   * <p>Results are stored in {@link #lastSerializedValueBuf} and {@link #lastSerializedValueLen}
+   * to avoid the {@code Object[]} allocation and {@code int} boxing of the old return-value API.
+   * This is safe because {@code AbstractHOTIndexWriter} is single-threaded per transaction.</p>
+   *
    * @param value the value to serialize
-   * @return array with [valueBuf, valueLen]
    */
-  protected Object[] serializeValue(NodeReferences value) {
+  protected void serializeValueInto(NodeReferences value) {
     byte[] valueBuf = VALUE_BUFFER.get();
     int valueLen = NodeReferencesSerializer.serialize(value, valueBuf, 0);
     if (valueLen > valueBuf.length) {
@@ -613,7 +635,8 @@ public abstract class AbstractHOTIndexWriter<K> {
       VALUE_BUFFER.set(valueBuf);
       valueLen = NodeReferencesSerializer.serialize(value, valueBuf, 0);
     }
-    return new Object[] {valueBuf, valueLen};
+    lastSerializedValueBuf = valueBuf;
+    lastSerializedValueLen = valueLen;
   }
 }
 

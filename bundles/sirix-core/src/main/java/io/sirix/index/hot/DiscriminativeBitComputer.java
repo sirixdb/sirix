@@ -167,7 +167,10 @@ public final class DiscriminativeBitComputer {
     }
 
     long mask = 0L;
-    int endBytePos = Math.min(startBytePos + maxBytes, 8); // Max 8 bytes for 64-bit mask
+    // endBytePos is an absolute byte index. We look at at most maxBytes bytes starting at
+    // startBytePos, but at most 8 bytes total (a 64-bit window). The old code capped at absolute
+    // byte 8, which would produce an empty range for startBytePos >= 8.
+    final int endBytePos = startBytePos + Math.min(maxBytes, 8);
 
     // XOR fold: accumulate all differing bits across adjacent key pairs
     for (int keyIdx = 0; keyIdx < sortedKeys.length - 1; keyIdx++) {

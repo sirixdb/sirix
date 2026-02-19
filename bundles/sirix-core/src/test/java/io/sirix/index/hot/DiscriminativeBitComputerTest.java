@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -219,6 +220,35 @@ class DiscriminativeBitComputerTest {
       byte[][] keys = {};
       long mask = DiscriminativeBitComputer.computeDiscriminativeMask(keys, 0, 8);
       assertEquals(0L, mask);
+    }
+
+    @Test
+    @DisplayName("REGRESSION: startBytePos >= 8 must not produce empty range (endBytePos bug)")
+    void testStartBytePosGe8() {
+      // Keys that are identical in bytes 0-8 and differ only in byte 9
+      // Old code: endBytePos = Math.min(startBytePos + maxBytes, 8) = Math.min(8+8, 8) = 8
+      //   → range [8, 8) is empty → mask = 0  (BUG)
+      // Fixed:   endBytePos = startBytePos + Math.min(maxBytes, 8) = 8 + 8 = 16
+      //   → range [8, 16) covers byte 9 → mask != 0
+      byte[] prefix = new byte[9]; // 9 identical bytes
+      byte[] key1 = new byte[10];
+      byte[] key2 = new byte[10];
+      System.arraycopy(prefix, 0, key1, 0, 9);
+      System.arraycopy(prefix, 0, key2, 0, 9);
+      key1[9] = 0x00;
+      key2[9] = (byte) 0xFF;
+
+      long mask = DiscriminativeBitComputer.computeDiscriminativeMask(new byte[][] {key1, key2}, 8, 8);
+      assertNotEquals(0L, mask,
+          "Mask must be non-zero: keys differ in byte 9 which is within the startBytePos=8 window");
+    }
+
+    @Test
+    @DisplayName("REGRESSION: startBytePos=0 backward-compatibility still works")
+    void testStartBytePos0() {
+      byte[][] keys = {new byte[] {0x00}, new byte[] {(byte) 0xFF}};
+      long mask = DiscriminativeBitComputer.computeDiscriminativeMask(keys, 0, 8);
+      assertNotEquals(0L, mask, "Keys differing from byte 0 must produce non-zero mask");
     }
   }
 

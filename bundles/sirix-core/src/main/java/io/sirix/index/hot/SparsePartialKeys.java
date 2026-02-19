@@ -393,9 +393,9 @@ public final class SparsePartialKeys<T extends Number> {
 
   /**
    * Get entry at index.
-   * 
+   *
    * @param index the entry index
-   * @return the partial key at that index
+   * @return the partial key at that index (boxed)
    */
   @SuppressWarnings("unchecked")
   public T getEntry(int index) {
@@ -409,8 +409,9 @@ public final class SparsePartialKeys<T extends Number> {
   }
 
   /**
-   * Set entry at index.
-   * 
+   * Set entry at index (boxed API, allocates).
+   * Prefer {@link #setByteEntry(int, byte)} for byte-type sparse keys.
+   *
    * @param index the entry index
    * @param value the partial key value
    */
@@ -422,6 +423,65 @@ public final class SparsePartialKeys<T extends Number> {
     } else {
       intEntries[index] = value.intValue();
     }
+  }
+
+  /**
+   * Set byte-type entry at index without boxing.
+   *
+   * <p>This is the preferred hot-path setter for {@code forBytes()} instances — avoids autoboxing
+   * {@code byte} to {@code Byte} that {@link #setEntry(int, Number)} would incur.</p>
+   *
+   * @param index the entry index
+   * @param value the partial key value
+   * @throws IllegalStateException if this is not a byte-type instance
+   */
+  public void setByteEntry(int index, byte value) {
+    if (byteEntries == null) {
+      throw new IllegalStateException("setByteEntry called on non-byte SparsePartialKeys");
+    }
+    byteEntries[index] = value;
+  }
+
+  /**
+   * Get byte-type entry at index without boxing.
+   *
+   * @param index the entry index
+   * @return the partial key value
+   * @throws IllegalStateException if this is not a byte-type instance
+   */
+  public byte getByteEntry(int index) {
+    if (byteEntries == null) {
+      throw new IllegalStateException("getByteEntry called on non-byte SparsePartialKeys");
+    }
+    return byteEntries[index];
+  }
+
+  /**
+   * Set short-type entry at index without boxing.
+   *
+   * @param index the entry index
+   * @param value the partial key value
+   * @throws IllegalStateException if this is not a short-type instance
+   */
+  public void setShortEntry(int index, short value) {
+    if (shortEntries == null) {
+      throw new IllegalStateException("setShortEntry called on non-short SparsePartialKeys");
+    }
+    shortEntries[index] = value;
+  }
+
+  /**
+   * Set int-type entry at index without boxing.
+   *
+   * @param index the entry index
+   * @param value the partial key value
+   * @throws IllegalStateException if this is not an int-type instance
+   */
+  public void setIntEntry(int index, int value) {
+    if (intEntries == null) {
+      throw new IllegalStateException("setIntEntry called on non-int SparsePartialKeys");
+    }
+    intEntries[index] = value;
   }
 
   /**

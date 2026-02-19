@@ -37,6 +37,7 @@ import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -312,6 +313,76 @@ class HOTLeafPageTest {
     assertTrue(str.contains("HOTLeafPage"));
     assertTrue(str.contains("pageKey=1"));
     assertTrue(str.contains("indexType=PATH"));
+  }
+
+  /**
+   * REGRESSION: recalculateUsedMemory() previously used raw short (sign-extended) for key/value
+   * lengths, giving wrong results for lengths >= 32768. Test that compact() + getRemainingSpace()
+   * are consistent when a value of length >= 32768 is stored.
+   */
+  @Test
+  void testRecalculateUsedMemoryLargeValueLength() {
+    // A page that can hold one very large entry (we need > 32767 bytes for value)
+    // Default page size is 64KB = 65536 bytes.
+    // One entry: 2 (keyLen) + 1 (key) + 2 (valueLen) + 32768 (value) = 32773 bytes
+    byte[] smallKey = new byte[] {0x42};
+    byte[] largeValue = new byte[32768]; // exactly 0x8000 → sign-extends to -32768 when read as short
+    java.util.Arrays.fill(largeValue, (byte) 0xAB);
+
+    boolean inserted = hotLeafPage.put(smallKey, largeValue);
+    assertTrue(inserted, "Large value should fit in a 64KB page");
+    assertEquals(1, hotLeafPage.getEntryCount());
+
+    // Verify round-trip: the stored value equals what we inserted
+    int idx = hotLeafPage.findEntry(smallKey);
+    assertTrue(idx >= 0, "Key must be findable");
+    byte[] retrieved = hotLeafPage.getValue(idx);
+    assertArrayEquals(largeValue, retrieved, "Retrieved value must match inserted value");
+
+    // compact() calls recalculateUsedMemory() internally; must not corrupt usedMemory
+    int reclaimed = hotLeafPage.compact();
+    assertTrue(reclaimed >= 0, "Compact must not return negative (sign-overflow symptom)");
+
+    // After compact, the entry must still be findable and correct
+    idx = hotLeafPage.findEntry(smallKey);
+    assertTrue(idx >= 0, "Key must be findable after compact");
+    retrieved = hotLeafPage.getValue(idx);
+    assertArrayEquals(largeValue, retrieved, "Value must be intact after compact");
+
+    // Remaining space must be consistent: DEFAULT_SIZE - overhead - entrySize
+    // If recalculateUsedMemory signed-extended 32768 as -32768, usedMemory would be negative,
+    // making getRemainingSpace() return a huge positive value — detectable as > DEFAULT_SIZE.
+    long remaining = hotLeafPage.getRemainingSpace();
+    assertTrue(remaining >= 0, "Remaining space must not be negative");
+    assertTrue(remaining < HOTLeafPage.DEFAULT_SIZE,
+        "Remaining space must be less than page size (was " + remaining + "), sign-overflow if >= DEFAULT_SIZE");
+  }
+
+  @Test
+  void testCompactWithLargeKeys() {
+    // Insert keys longer than 8 bytes to exercise compareKeysSimd's > 8 byte path
+    byte[] key9  = new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8};      // 9 bytes
+    byte[] key16 = new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 0, 0, 0, 0, 0, 0, 0, 1}; // 16 bytes, differs at byte 15
+    byte[] key17 = new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 0, 0, 0, 0, 0, 0, 0, 2}; // 16 bytes, differs at byte 15
+    byte[] value = new byte[] {1};
+
+    hotLeafPage.put(key9, value);
+    hotLeafPage.put(key16, value);
+    hotLeafPage.put(key17, value);
+
+    assertEquals(3, hotLeafPage.getEntryCount());
+
+    // All three must be found (exercises compareKeysSimd chunk loop)
+    assertTrue(hotLeafPage.findEntry(key9) >= 0);
+    assertTrue(hotLeafPage.findEntry(key16) >= 0);
+    assertTrue(hotLeafPage.findEntry(key17) >= 0);
+
+    // compact should leave all entries intact
+    hotLeafPage.compact();
+    assertEquals(3, hotLeafPage.getEntryCount());
+    assertTrue(hotLeafPage.findEntry(key9) >= 0);
+    assertTrue(hotLeafPage.findEntry(key16) >= 0);
+    assertTrue(hotLeafPage.findEntry(key17) >= 0);
   }
 }
 
