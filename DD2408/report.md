@@ -25,13 +25,40 @@ succeeds.
 
 ## Complexity
 
-1. What are your results for five complex functions?
-   * Did all methods (tools vs. manual count) get the same result?
-   * Are the results clear?
-2. Are the functions just complex, or also long?
-3. What is the purpose of the functions?
-4. Are exceptions taken into account in the given measurements?
-5. Is the documentation clear w.r.t. all the possible outcomes?
+### 1. What are your results for five complex functions?
+
+| Method        | NLOC (Lizard) | CCN (Lizard) | CCN (Manual) |
+| :-----------: | :-----------: | :-----------:| :----------: |
+| `serialize`   | 62            | 16           | 16           |
+| `iterateAxis` | 113           | 30           | 29           |
+|`isNCStartChar`| 11            | 24           | 26           |
+| `checkNodes`  | 52            | 18           | 17           |
+| `processNode` |               |              |              |
+
+### 2. Are the functions just complex, or also long?
+
+As seen in the table above, function length does not always correlate with complexity. The function `isNCStartChar` had a high complexity of 24-26 with only having 11 NLOC. Since functions exceeding 50 NLOC are generally considered long, the other five functions are would be categorized as long as well. All of them also achieve high cyclomatic complexity. 
+
+### 3. What is the purpose of the functions?
+
+#### `serialize`
+The purpose of the method `serialize` is to act like a central component for transforming a `Sequence` of query results and convert them into JSON output. It is used when query results are to be presented to users or external systems, and to ensure that data types are serialized into valid JSON. The method first checks if the current result is the first and initializes a JSON "rest" array. It further iterates over the items in the Sequence, and each element is serialized according to its type, whether that's arrays, objects, structured database nodes, or atomic values.
+
+#### `iterateAxis`
+The purpose of the function is to be a iterator factory, depending on what axis is passed in, the corresponding iterator is constructed and returned. Since different axis require different constructions a giant switch case is used which increases the cyclomatic complexity by quite alot.
+
+#### `isNCStartChar`
+The purpose of the function is validate whether a character input is a valid XML non colonised name start character according to XML specification. It also checks multiple unicode ranges. As the XML spec requirements check over 20 different specific character ranges and each range check itself adds to the CC, this causes high cyclomatic complexity.
+
+#### `checkNodes`
+The method checks two Xml tree nodes for different node types. For example, if the node is an `Element`, it checks for several things, including matching names, attribute and namespace keys. The parameters are two read-only transactions of one old and one new revision.
+
+#### `processNode`
+
+### 4. Are exceptions taken into account in the given measurements?
+
+
+### 5. Is the documentation clear w.r.t. all the possible outcomes?
 
 ## Refactoring
 
