@@ -57,7 +57,7 @@ public final class NodePageTest {
   /**
    * Sirix {@link StorageEngineReader} instance.
    */
-  private StorageEngineReader pageReadTrx;
+  private StorageEngineReader storageEngineReader;
 
   private Arena arena;
 
@@ -67,13 +67,13 @@ public final class NodePageTest {
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
     holder = Holder.generateDeweyIDResourceSession();
-    pageReadTrx = holder.getResourceSession().beginStorageEngineReader();
+    storageEngineReader = holder.getResourceSession().beginStorageEngineReader();
     arena = Arena.ofConfined();
   }
 
   @After
   public void tearDown() throws SirixException {
-    pageReadTrx.close();
+    storageEngineReader.close();
     holder.close();
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
@@ -83,14 +83,14 @@ public final class NodePageTest {
   @Test
   public void testSerializeDeserialize() throws IOException {
     final KeyValueLeafPage page1 =
-        new KeyValueLeafPage(0L, IndexType.DOCUMENT, pageReadTrx.getResourceSession().getResourceConfig(),
-            pageReadTrx.getRevisionNumber(), arena.allocate(SIXTYFOUR_KB), null);
+        new KeyValueLeafPage(0L, IndexType.DOCUMENT, storageEngineReader.getResourceSession().getResourceConfig(),
+            storageEngineReader.getRevisionNumber(), arena.allocate(SIXTYFOUR_KB), null);
     KeyValueLeafPage page2 = null;
     try {
       assertEquals(0L, page1.getPageKey());
 
       // Create ResourceConfiguration for testing
-      final var config = pageReadTrx.getResourceSession().getResourceConfig();
+      final var config = storageEngineReader.getResourceSession().getResourceConfig();
 
       // Create ElementNode with primitive fields
       final LongArrayList attributeKeys = new LongArrayList();
@@ -132,14 +132,14 @@ public final class NodePageTest {
 
       final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
       final PagePersister pagePersister = new PagePersister();
-      pagePersister.serializePage(pageReadTrx.getResourceSession().getResourceConfig(), data, page1,
+      pagePersister.serializePage(storageEngineReader.getResourceSession().getResourceConfig(), data, page1,
           SerializationType.DATA);
-      page2 = (KeyValueLeafPage) pagePersister.deserializePage(pageReadTrx.getResourceSession().getResourceConfig(),
+      page2 = (KeyValueLeafPage) pagePersister.deserializePage(storageEngineReader.getResourceSession().getResourceConfig(),
           Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
       // assertEquals(position, out.position());
-      final ElementNode element = (ElementNode) pageReadTrx.getValue(page2, 0L);
+      final ElementNode element = (ElementNode) storageEngineReader.getValue(page2, 0L);
 
-      assertEquals(0L, pageReadTrx.getValue(page2, 0L).getNodeKey());
+      assertEquals(0L, storageEngineReader.getValue(page2, 0L).getNodeKey());
       assertEquals(1L, element.getParentKey());
       assertEquals(12L, element.getFirstChildKey());
       assertEquals(3L, element.getLeftSiblingKey());
@@ -151,9 +151,9 @@ public final class NodePageTest {
       assertEquals(87L, element.getAttributeKey(1));
       assertEquals(99L, element.getNamespaceKey(0));
       assertEquals(98L, element.getNamespaceKey(1));
-      assertEquals(5, ((NameNode) pageReadTrx.getValue(page2, 0L)).getURIKey());
-      assertEquals(6, ((NameNode) pageReadTrx.getValue(page2, 0L)).getPrefixKey());
-      assertEquals(7, ((NameNode) pageReadTrx.getValue(page2, 0L)).getLocalNameKey());
+      assertEquals(5, ((NameNode) storageEngineReader.getValue(page2, 0L)).getURIKey());
+      assertEquals(6, ((NameNode) storageEngineReader.getValue(page2, 0L)).getPrefixKey());
+      assertEquals(7, ((NameNode) storageEngineReader.getValue(page2, 0L)).getLocalNameKey());
       // typeKey is not persisted, so we don't test it
     } finally {
       // Close pages to prevent page leaks

@@ -37,7 +37,7 @@ public final class OverflowPage implements Page {
   }
 
   @Override
-  public void commit(@NonNull StorageEngineWriter pageWriteTrx) {
+  public void commit(@NonNull StorageEngineWriter storageEngineWriter) {
     throw new UnsupportedOperationException();
   }
 

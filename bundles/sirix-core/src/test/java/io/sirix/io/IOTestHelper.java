@@ -86,12 +86,12 @@ public final class IOTestHelper {
     final var session = mock(ResourceSession.class);
     when(session.getResourceConfig()).thenReturn(resourceConf);
 
-    final var pageReadOnlyTrx = mock(StorageEngineWriter.class);
-    when(pageReadOnlyTrx.getResourceSession()).thenReturn(session);
+    final var storageEngineReader = mock(StorageEngineWriter.class);
+    when(storageEngineReader.getResourceSession()).thenReturn(session);
 
-    verify(pageReadOnlyTrx, atMostOnce()).newBufferedBytesInstance();
+    verify(storageEngineReader, atMostOnce()).newBufferedBytesInstance();
     final Writer writer = fac.createWriter();
-    writer.writeUberPageReference(pageReadOnlyTrx.getResourceSession().getResourceConfig(), pageRef1, page1,
+    writer.writeUberPageReference(storageEngineReader.getResourceSession().getResourceConfig(), pageRef1, page1,
         bufferedBytes);
     final PageReference pageRef2 = writer.readUberPageReference();
     assertEquals(((UberPage) pageRef1.getPage()).getRevisionCount(),

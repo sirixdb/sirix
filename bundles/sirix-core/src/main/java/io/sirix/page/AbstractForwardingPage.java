@@ -45,8 +45,8 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
   protected abstract Page delegate();
 
   @Override
-  public void commit(final StorageEngineWriter pageWriteTrx) {
-    delegate().commit(requireNonNull(pageWriteTrx));
+  public void commit(final StorageEngineWriter storageEngineWriter) {
+    delegate().commit(requireNonNull(storageEngineWriter));
   }
 
   @Override

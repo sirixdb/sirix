@@ -100,11 +100,11 @@ public interface KeyValuePage<V extends DataRecord> extends Page {
    *
    * @param recordPageKey the record page key
    * @param indexType the index type
-   * @param pageReadTrx transaction to read pages
+   * @param storageEngineReader transaction to read pages
    * @return a new {@link KeyValuePage} instance
    */
   <C extends KeyValuePage<V>> C newInstance(@NonNegative long recordPageKey, @NonNull IndexType indexType,
-      @NonNull StorageEngineReader pageReadTrx);
+      @NonNull StorageEngineReader storageEngineReader);
 
   /**
    * Get the index type.

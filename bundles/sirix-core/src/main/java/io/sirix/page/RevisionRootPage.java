@@ -398,9 +398,9 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * {@inheritDoc}
    */
   @Override
-  public void commit(@NonNull final StorageEngineWriter pageWriteTrx) {
-    if (revision == pageWriteTrx.getUberPage().getRevisionNumber()) {
-      super.commit(pageWriteTrx);
+  public void commit(@NonNull final StorageEngineWriter storageEngineWriter) {
+    if (revision == storageEngineWriter.getUberPage().getRevisionNumber()) {
+      super.commit(storageEngineWriter);
     }
   }
 
@@ -477,15 +477,15 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Initialize document index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param storageEngineReader {@link StorageEngineReader} instance
    * @param log the transaction intent log
    */
-  public void createDocumentIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
+  public void createDocumentIndexTree(final DatabaseType databaseType, final StorageEngineReader storageEngineReader,
       final TransactionIntentLog log) {
     PageReference reference = getIndirectDocumentIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.DOCUMENT, pageReadTrx, log);
+      PageUtils.createTree(databaseType, reference, IndexType.DOCUMENT, storageEngineReader, log);
       incrementAndGetMaxNodeKeyInDocumentIndex();
     }
   }
@@ -494,15 +494,15 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Initialize record to revisions index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param storageEngineReader {@link StorageEngineReader} instance
    * @param log the transaction intent log
    */
-  public void createChangedNodesIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
+  public void createChangedNodesIndexTree(final DatabaseType databaseType, final StorageEngineReader storageEngineReader,
       final TransactionIntentLog log) {
     PageReference reference = getIndirectChangedNodesIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.CHANGED_NODES, pageReadTrx, log);
+      PageUtils.createTree(databaseType, reference, IndexType.CHANGED_NODES, storageEngineReader, log);
       incrementAndGetMaxNodeKeyInChangedNodesIndex();
     }
   }
@@ -511,15 +511,15 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Initialize changed records index tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param storageEngineReader {@link StorageEngineReader} instance
    * @param log the transaction intent log
    */
-  public void createRecordToRevisionsIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
+  public void createRecordToRevisionsIndexTree(final DatabaseType databaseType, final StorageEngineReader storageEngineReader,
       final TransactionIntentLog log) {
     PageReference reference = getIndirectRecordToRevisionsIndexPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.RECORD_TO_REVISIONS, pageReadTrx, log);
+      PageUtils.createTree(databaseType, reference, IndexType.RECORD_TO_REVISIONS, storageEngineReader, log);
       incrementAndGetMaxNodeKeyInRecordToRevisionsIndex();
     }
   }

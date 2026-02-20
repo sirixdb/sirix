@@ -460,7 +460,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
   }
 
   @Override
-  public Writer truncateTo(final StorageEngineReader pageReadOnlyTrx, final int revision) {
+  public Writer truncateTo(final StorageEngineReader storageEngineReader, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
           cache.get(revision, _ -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();

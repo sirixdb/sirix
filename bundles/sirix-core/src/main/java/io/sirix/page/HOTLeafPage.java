@@ -1042,8 +1042,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   @Override
   @SuppressWarnings("unchecked")
   public <C extends KeyValuePage<DataRecord>> C newInstance(@NonNegative long recordPageKey,
-      @NonNull IndexType indexType, @NonNull StorageEngineReader pageReadTrx) {
-    return (C) new HOTLeafPage(recordPageKey, pageReadTrx.getRevisionNumber(), indexType);
+      @NonNull IndexType indexType, @NonNull StorageEngineReader storageEngineReader) {
+    return (C) new HOTLeafPage(recordPageKey, storageEngineReader.getRevisionNumber(), indexType);
   }
 
   // ===== Page interface =====

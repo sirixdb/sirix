@@ -30,8 +30,14 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.ResourceSession;
-import io.sirix.cache.*;
+import io.sirix.cache.BufferManager;
+import io.sirix.cache.Cache;
+import io.sirix.cache.FrameReusedException;
+import io.sirix.cache.IndexLogKey;
+import io.sirix.cache.PageContainer;
 import io.sirix.cache.PageGuard;
+import io.sirix.cache.RevisionRootPageCacheKey;
+import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.io.Reader;
@@ -41,7 +47,19 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
-import io.sirix.page.*;
+import io.sirix.page.CASPage;
+import io.sirix.page.DeweyIDPage;
+import io.sirix.page.HOTIndirectPage;
+import io.sirix.page.HOTLeafPage;
+import io.sirix.page.IndirectPage;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.NamePage;
+import io.sirix.page.OverflowPage;
+import io.sirix.page.PageReference;
+import io.sirix.page.PathPage;
+import io.sirix.page.PathSummaryPage;
+import io.sirix.page.RevisionRootPage;
+import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.interfaces.PageFragmentKey;
@@ -66,7 +84,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Page read-only transaction. The only thing shared amongst transactions is the resource manager.
+ * Storage engine reader. The only thing shared amongst transactions is the resource session.
  * Everything else is exclusive to this transaction. It is required that only a single thread has
  * access to this transaction.
  */
@@ -101,12 +119,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   final InternalResourceSession<?, ?> resourceSession;
 
   /**
-   * The revision number, this page trx is bound to.
+   * The revision number, this storage engine reader is bound to.
    */
   private final int revisionNumber;
 
   /**
-   * Determines if page reading transaction is closed or not.
+   * Determines if storage engine reader is closed or not.
    */
   private volatile boolean isClosed;
 
@@ -190,7 +208,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Standard constructor.
    *
    * @param trxId the transaction-ID.
-   * @param resourceSession the resource manager
+   * @param resourceSession the resource session
    * @param uberPage {@link UberPage} to start reading from
    * @param revision key of revision to read from uber page
    * @param reader to read stored pages for this transaction

@@ -3,7 +3,12 @@ package io.sirix.access.trx.node;
 import com.google.common.base.MoreObjects;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.json.InternalJsonNodeReadOnlyTrx;
-import io.sirix.api.*;
+import io.sirix.api.NodeCursor;
+import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.NodeTrx;
+import io.sirix.api.PostCommitHook;
+import io.sirix.api.PreCommitHook;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.PostOrderAxis;
 import io.sirix.diff.DiffTuple;
@@ -28,7 +33,14 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
@@ -77,7 +89,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private final R typeSpecificTrx;
 
   /**
-   * The resource manager.
+   * The resource session.
    */
   protected final InternalResourceSession<R, W> resourceSession;
 
@@ -128,12 +140,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private long modificationCount;
 
   /**
-   * The page write trx.
+   * The storage engine writer.
    */
   protected StorageEngineWriter storageEngineWriter;
 
   /**
-   * The {@link IndexController} used within the resource manager this {@link NodeTrx} is bound to.
+   * The {@link IndexController} used within the resource session this {@link NodeTrx} is bound to.
    */
   protected IndexController<R, W> indexController;
 
@@ -317,7 +329,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       final UberPage uberPage = storageEngineWriter.commit(commitMessage, commitTimestamp, isAutoCommitting);
 
-      // Remember successfully committed uber page in resource manager.
+      // Remember successfully committed uber page in resource session.
       resourceSession.setLastCommittedUberPage(uberPage);
 
       if (resourceSession.getResourceConfig().storeDiffs()) {
@@ -419,7 +431,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     indexController = resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     indexController.createIndexListeners(indexDefs, self());
 
-    nodeToRevisionsIndex.setPageTrx(storageEngineWriter);
+    nodeToRevisionsIndex.setStorageEngineWriter(storageEngineWriter);
   }
 
   @Override
@@ -442,7 +454,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
     final UberPage uberPage = storageEngineWriter.rollback();
 
-    // Remember successfully committed uber page in resource manager.
+    // Remember successfully committed uber page in resource session.
     resourceSession.setLastCommittedUberPage(uberPage);
 
     resourceSession.closeNodePageWriteTransaction(getId());

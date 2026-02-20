@@ -32,7 +32,12 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.cache.TransactionIntentLog;
-import io.sirix.page.*;
+import io.sirix.page.DeweyIDPage;
+import io.sirix.page.NamePage;
+import io.sirix.page.PageReference;
+import io.sirix.page.PathSummaryPage;
+import io.sirix.page.RevisionRootPage;
+import io.sirix.page.UberPage;
 import io.sirix.cache.BufferManager;
 import io.brackit.query.jdm.DocumentException;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -70,18 +75,18 @@ public final class StorageEngineWriterFactory {
   }
 
   /**
-   * Create a page write trx.
+   * Create a storage engine writer.
    *
-   * @param resourceSession {@link XmlResourceSessionImpl} this page write trx is bound to
+   * @param resourceSession {@link XmlResourceSessionImpl} this storage engine writer is bound to
    * @param uberPage root of revision
    * @param writer writer where this transaction should write to
    * @param trxId the transaction ID
    * @param representRevision revision represent
    * @param lastStoredRevision last stored revision
-   * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
+   * @param isBoundToNodeTrx {@code true} if this storage engine writer will be bound to a node trx,
    *        {@code false} otherwise
    */
-  public StorageEngineWriter createPageTrx(
+  public StorageEngineWriter createStorageEngineWriter(
       final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession,
       final UberPage uberPage, final Writer writer, final @NonNegative int trxId,
       final @NonNegative int representRevision, final @NonNegative int lastStoredRevision,
@@ -108,12 +113,12 @@ public final class StorageEngineWriterFactory {
     final TransactionIntentLogFactory logFactory = new TransactionIntentLogFactoryImpl();
     final TransactionIntentLog log = logFactory.createTrxIntentLog(bufferManager, resourceConfig);
 
-    // Create revision tree if needed. Note: This must happen before the page read trx is created.
+    // Create revision tree if needed. Note: This must happen before the storage engine reader is created.
     if (uberPage.isBootstrap()) {
       uberPage.createRevisionTree(log);
     }
 
-    // Page read trx.
+    // Storage engine reader.
     final NodeStorageEngineReader storageEngineReader = new NodeStorageEngineReader(trxId, resourceSession, uberPage,
         representRevision, writer, bufferManager, new RevisionRootPageReader(), log);
 
@@ -164,7 +169,7 @@ public final class StorageEngineWriterFactory {
         namePage.createNameIndexTree(this.databaseType, storageEngineReader, NamePage.PROCESSING_INSTRUCTION_REFERENCE_OFFSET, log);
         deweyIDPage.createIndexTree(this.databaseType, storageEngineReader, log);
       } else {
-        throw new IllegalStateException("Resource manager type not known.");
+        throw new IllegalStateException("Resource session type not known.");
       }
     } else {
       if (log.get(newRevisionRootPage.getNamePageReference()) == null) {

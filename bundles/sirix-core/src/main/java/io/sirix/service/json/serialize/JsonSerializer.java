@@ -116,7 +116,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
   /**
    * Private constructor.
    *
-   * @param resourceMgr resource manager to read the resource
+   * @param resourceMgr resource session to read the resource
    * @param builder builder of the JSON serializer
    */
   private JsonSerializer(final JsonResourceSession resourceMgr, final Builder builder) {
@@ -753,7 +753,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
     private final Appendable stream;
 
     /**
-     * Resource manager to use.
+     * Resource session to use.
      */
     private final JsonResourceSession resourceMgr;
 

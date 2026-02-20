@@ -117,11 +117,11 @@ public final class CASPage extends AbstractForwardingPage {
   /**
    * Initialize CAS index tree.
    *
-   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param storageEngineReader {@link StorageEngineReader} instance
    * @param index the index number
    * @param log the transaction intent log
    */
-  public void createCASIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
+  public void createCASIndexTree(final DatabaseType databaseType, final StorageEngineReader storageEngineReader,
       final int index, final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
@@ -130,7 +130,7 @@ public final class CASPage extends AbstractForwardingPage {
     }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.CAS, pageReadTrx, log);
+      PageUtils.createTree(databaseType, reference, IndexType.CAS, storageEngineReader, log);
       if (maxNodeKeys.get(index) == 0L) {
         maxNodeKeys.put(index, 0L);
       } else {
@@ -147,11 +147,11 @@ public final class CASPage extends AbstractForwardingPage {
    * Creates a cache-friendly HOT index instead of the traditional RBTree-based index.
    * </p>
    *
-   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param storageEngineReader {@link StorageEngineReader} instance
    * @param index the index number
    * @param log the transaction intent log
    */
-  public void createHOTCASIndexTree(final StorageEngineReader pageReadTrx, final int index,
+  public void createHOTCASIndexTree(final StorageEngineReader storageEngineReader, final int index,
       final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
@@ -160,7 +160,7 @@ public final class CASPage extends AbstractForwardingPage {
     }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createHOTTree(reference, IndexType.CAS, pageReadTrx, log);
+      PageUtils.createHOTTree(reference, IndexType.CAS, storageEngineReader, log);
       if (maxNodeKeys.get(index) == 0L) {
         maxNodeKeys.put(index, 0L);
       } else {

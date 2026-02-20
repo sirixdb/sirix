@@ -9,7 +9,13 @@ import com.google.crypto.tink.JsonKeysetWriter;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
 import io.sirix.access.trx.node.AfterCommitState;
-import io.sirix.api.*;
+import io.sirix.api.Database;
+import io.sirix.api.NodeCursor;
+import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.NodeTrx;
+import io.sirix.api.ResourceSession;
+import io.sirix.api.Transaction;
+import io.sirix.api.TransactionManager;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.BufferManagerImpl;
 import io.sirix.exception.SirixException;
@@ -80,14 +86,14 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private final PathBasedPool<Database<?>> sessions;
 
   /**
-   * The resource store to open/close resource-managers.
+   * The resource store to open/close resource sessions.
    */
   private final ResourceStore<T> resourceStore;
 
   private final PathBasedPool<ResourceSession<?, ?>> resourceSessions;
 
   /**
-   * This field should be use to fetch the locks for resource managers.
+   * This field should be used to fetch the locks for resource sessions.
    */
   private final WriteLocksRegistry writeLocks;
 
@@ -103,8 +109,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
    * @param sessions The database sessions management instance.
    * @param resourceStore The resource store used by this database.
-   * @param writeLocks Manages the locks for resource managers.
-   * @param resourceSessions The pool for resource managers.
+   * @param writeLocks Manages the locks for resource sessions.
+   * @param resourceSessions The pool for resource sessions.
    */
   public LocalDatabase(final TransactionManager transactionManager, final DatabaseConfiguration dbConfig,
       final PathBasedPool<Database<?>> sessions, final ResourceStore<T> resourceStore,
@@ -124,8 +130,12 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   public @NonNull T beginResourceSession(final String resourceName) {
     assertNotClosed();
 
-    final Path resourcePath =
-        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
+    final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Path resourcePath = dataDir.resolve(resourceName).normalize();
+
+    if (!resourcePath.startsWith(dataDir)) {
+      throw new SirixUsageException("Invalid resource name: path traversal detected in '" + resourceName + "'");
+    }
 
     if (!Files.exists(resourcePath)) {
       throw new SirixUsageException("Resource could not be opened (since it was not created?) at location",
@@ -204,13 +214,14 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       resourceID.set(dbConfig.getMaxResourceID());
       ResourceConfiguration.serialize(resourceConfig.setID(resourceID.getAndIncrement()));
       dbConfig.setMaximumResourceID(resourceID.get());
-      resourceIDsToResourceNames.forcePut(resourceID.get(), resourceConfig.getResource().getFileName().toString());
+      resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
       returnVal = bootstrapResource(resourceConfig);
     }
 
     if (!returnVal) {
       // If something was not correct, delete the partly created substructure.
+      resourceIDsToResourceNames.inverse().remove(resourceConfig.getResource().getFileName().toString());
       SirixFiles.recursiveRemove(resourceConfig.resourcePath);
     }
 
@@ -262,9 +273,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final Path resourceFile =
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
 
-    // Check that no running resource managers / sessions are opened.
+    // Check that no running resource sessions are opened.
     if (this.resourceSessions.containsAnyEntry(resourceFile)) {
-      throw new IllegalStateException("Open resource managers found, must be closed first: " + resourceSessions);
+      throw new IllegalStateException("Open resource sessions found, must be closed first: " + resourceSessions);
     }
 
     // If file is existing and folder is a Sirix-dataplace, delete it.
@@ -315,7 +326,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public synchronized long getResourceID(final String name) {
     assertNotClosed();
-    return resourceIDsToResourceNames.inverse().get(requireNonNull(name));
+    final Long id = resourceIDsToResourceNames.inverse().get(requireNonNull(name));
+    if (id == null) {
+      throw new SirixUsageException("No resource found with name: " + name);
+    }
+    return id;
   }
 
   private void assertNotClosed() {

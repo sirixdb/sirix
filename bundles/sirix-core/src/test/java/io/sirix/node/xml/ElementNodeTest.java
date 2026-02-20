@@ -56,19 +56,19 @@ public class ElementNodeTest {
   /**
    * Sirix {@link StorageEngineReader} instance.
    */
-  private StorageEngineReader pageReadTrx;
+  private StorageEngineReader storageEngineReader;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     holder = Holder.generateDeweyIDResourceSession();
-    pageReadTrx = holder.getResourceSession().beginStorageEngineReader();
+    storageEngineReader = holder.getResourceSession().beginStorageEngineReader();
   }
 
   @After
   public void tearDown() throws SirixException {
-    pageReadTrx.close();
+    storageEngineReader.close();
     holder.close();
   }
 

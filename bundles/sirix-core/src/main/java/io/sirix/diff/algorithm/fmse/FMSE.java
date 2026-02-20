@@ -25,7 +25,12 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
-import io.sirix.axis.*;
+import io.sirix.axis.AbstractAxis;
+import io.sirix.axis.ChildAxis;
+import io.sirix.axis.DescendantAxis;
+import io.sirix.axis.IncludeSelf;
+import io.sirix.axis.LevelOrderAxis;
+import io.sirix.axis.PostOrderAxis;
 import io.sirix.axis.visitor.DeleteFMSEVisitor;
 import io.sirix.axis.visitor.VisitorDescendantAxis;
 import io.sirix.diff.algorithm.ImportDiff;
@@ -39,7 +44,12 @@ import io.sirix.utils.Pair;
 import io.brackit.query.atomic.QNm;
 import org.slf4j.LoggerFactory;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -560,7 +570,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         }
       }
       case TEXT, COMMENT -> {
-        assert wtx.getKind() == NodeKind.TEXT;
+        assert wtx.getKind() == NodeKind.TEXT || wtx.getKind() == NodeKind.COMMENT;
         wtx.setValue(rtx.getValue());
       }
       // $CASES-OMITTED$
@@ -694,7 +704,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                   for (int j = 0, oldNspCount = oldRtx.getNamespaceCount(); j < oldNspCount; j++) {
                     wtx.moveToNamespace(j);
                     if (wtx.getName().getNamespaceURI().equals(rtx.getName().getNamespaceURI())
-                        && wtx.getName().getPrefix().equals(wtx.getName().getPrefix())) {
+                        && wtx.getName().getPrefix().equals(rtx.getName().getPrefix())) {
                       process(wtx.getNodeKey(), rtx.getNodeKey());
                       break;
                     }

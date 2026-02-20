@@ -13,7 +13,7 @@ public interface GenericLocalDatabaseComponent<R extends ResourceSession<?, ?>, 
 
   Database<R> database();
 
-  C resourceManagerBuilder();
+  C resourceSessionBuilder();
 
   interface Builder<B extends Builder<B>> {
 

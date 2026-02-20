@@ -46,16 +46,16 @@ public interface Page extends AutoCloseable {
   /**
    * Commit page.
    *
-   * @param pageWriteTrx {@link StorageEngineWriter} implementation
+   * @param storageEngineWriter {@link StorageEngineWriter} implementation
    */
-  default void commit(StorageEngineWriter pageWriteTrx) {
+  default void commit(StorageEngineWriter storageEngineWriter) {
     final var references = getReferences();
-    // final var log = pageWriteTrx.getLog();
+    // final var log = storageEngineWriter.getLog();
     // final List<CompletableFuture<Void>> futures = new ArrayList<>(references.size());
     // for (final PageReference reference : references) {
     // if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT
     // || reference.getPersistentLogKey() != Constants.NULL_ID_LONG)) {
-    // final PageContainer container = log.get(reference, pageWriteTrx);
+    // final PageContainer container = log.get(reference, storageEngineWriter);
     //
     // assert container != null;
     //
@@ -75,7 +75,7 @@ public interface Page extends AutoCloseable {
 
     for (final PageReference reference : references) {
       if (reference.getLogKey() != Constants.NULL_ID_INT) {
-        pageWriteTrx.commit(reference);
+        storageEngineWriter.commit(reference);
       }
     }
   }

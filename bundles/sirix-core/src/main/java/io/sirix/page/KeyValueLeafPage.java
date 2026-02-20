@@ -705,6 +705,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public void setRecord(@NonNull final DataRecord record) {
     addedReferences = false;
+    bytes = null;
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
     if (records[offset] == null) {
@@ -1881,9 +1882,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public <C extends KeyValuePage<DataRecord>> C newInstance(@NonNegative long recordPageKey,
-      @NonNull IndexType indexType, @NonNull StorageEngineReader pageReadTrx) {
+      @NonNull IndexType indexType, @NonNull StorageEngineReader storageEngineReader) {
     // Direct allocation (no pool)
-    ResourceConfiguration config = pageReadTrx.getResourceSession().getResourceConfig();
+    ResourceConfiguration config = storageEngineReader.getResourceSession().getResourceConfig();
     MemorySegmentAllocator allocator = OS.isWindows()
         ? WindowsMemorySegmentAllocator.getInstance()
         : LinuxMemorySegmentAllocator.getInstance();
@@ -1894,7 +1895,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         : null;
 
     // Memory allocated from global allocator - should be released on close()
-    return (C) new KeyValueLeafPage(recordPageKey, indexType, config, pageReadTrx.getRevisionNumber(), slotMemory,
+    return (C) new KeyValueLeafPage(recordPageKey, indexType, config, storageEngineReader.getRevisionNumber(), slotMemory,
         deweyIdMemory, false // NOT externally allocated - release memory on close()
     );
   }
@@ -2239,8 +2240,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public void commit(final @NonNull StorageEngineWriter pageWriteTrx) {
-    addReferences(pageWriteTrx.getResourceSession().getResourceConfig());
+  public void commit(final @NonNull StorageEngineWriter storageEngineWriter) {
+    addReferences(storageEngineWriter.getResourceSession().getResourceConfig());
     final var refs = references;
     if (refs == null) {
       return;
@@ -2248,7 +2249,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     for (final PageReference reference : refs.values()) {
       if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
           && reference.getLogKey() == Constants.NULL_ID_LONG)) {
-        pageWriteTrx.commit(reference);
+        storageEngineWriter.commit(reference);
       }
     }
   }

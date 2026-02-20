@@ -86,17 +86,17 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
     return new PathFilter(paths, new JsonPCRCollector(rtx));
   }
 
-  private JsonNodeVisitor createPathIndexBuilder(final StorageEngineWriter pageWriteTrx,
+  private JsonNodeVisitor createPathIndexBuilder(final StorageEngineWriter storageEngineWriter,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    return (JsonNodeVisitor) pathIndex.createBuilder(pageWriteTrx, pathSummaryReader, indexDef);
+    return (JsonNodeVisitor) pathIndex.createBuilder(storageEngineWriter, pathSummaryReader, indexDef);
   }
 
   private JsonNodeVisitor createCASIndexBuilder(final JsonNodeReadOnlyTrx nodeReadTrx,
-      final StorageEngineWriter pageWriteTrx, final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    return (JsonNodeVisitor) casIndex.createBuilder(nodeReadTrx, pageWriteTrx, pathSummaryReader, indexDef);
+      final StorageEngineWriter storageEngineWriter, final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
+    return (JsonNodeVisitor) casIndex.createBuilder(nodeReadTrx, storageEngineWriter, pathSummaryReader, indexDef);
   }
 
-  private JsonNodeVisitor createNameIndexBuilder(final StorageEngineWriter pageWriteTrx, final IndexDef indexDef) {
-    return (JsonNodeVisitor) nameIndex.createBuilder(pageWriteTrx, indexDef);
+  private JsonNodeVisitor createNameIndexBuilder(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+    return (JsonNodeVisitor) nameIndex.createBuilder(storageEngineWriter, indexDef);
   }
 }

@@ -46,7 +46,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * <p>
- * Each resource is bound to a {@code ResourceManager}. Reader-only transactions and the single
+ * Each resource is bound to a {@code ResourceSession}. Reader-only transactions and the single
  * read/write transaction can then be started from this instance. There can only be one write
  * transaction at a time. However, multiple read-only transactions can coexist concurrently.
  * </p>
@@ -293,10 +293,10 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   int getRevisionNumber(@NonNull Instant pointInTime);
 
   /**
-   * Safely close resource manager and immediately release all resources. If there are running
+   * Safely close resource session and immediately release all resources. If there are running
    * transactions, they will automatically be closed.
    * <p>
-   * This is an idempotent operation and does nothing if the resource manager is already closed.
+   * This is an idempotent operation and does nothing if the resource session is already closed.
    *
    * @throws SirixException if can't close
    */
@@ -351,7 +351,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   Optional<R> getNodeReadTrxByTrxId(Integer ID);
 
   /**
-   * Determines if this resource manager has a running read-write transaction.
+   * Determines if this resource session has a running read-write transaction.
    *
    * @return {@code true}, if a running read-write transaction is found, {code false} otherwise
    */
@@ -366,7 +366,7 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   // Optional<R> getNodeReadTrxByRevisionNumber(final int revision);
 
   /**
-   * Get the user associated with the current ressource manager session.
+   * Get the user associated with the current resource session.
    *
    * @return the user
    */

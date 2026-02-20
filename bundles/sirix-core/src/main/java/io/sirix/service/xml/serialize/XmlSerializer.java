@@ -114,7 +114,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read.
    *
-   * @param resourceMgr resource manager to read the resource
+   * @param resourceMgr resource session to read the resource
    * @param nodeKey start node key
    * @param builder builder of XML Serializer
    * @param revision revision to serialize
@@ -583,7 +583,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
     /** Stream to pipe to. */
     private final OutputStream stream;
 
-    /** Resource manager to use. */
+    /** Resource session to use. */
     private final XmlResourceSession session;
 
     /** Further revisions to serialize. */

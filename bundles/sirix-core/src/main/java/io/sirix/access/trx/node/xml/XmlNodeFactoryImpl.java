@@ -67,16 +67,16 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
    * Constructor.
    *
    * @param hashFunction the hash function used for hashing nodes
-   * @param pageWriteTrx {@link StorageEngineWriter} implementation
+   * @param storageEngineWriter {@link StorageEngineWriter} implementation
    */
-  XmlNodeFactoryImpl(final LongHashFunction hashFunction, final StorageEngineWriter pageWriteTrx) {
-    this.storageEngineWriter = requireNonNull(pageWriteTrx);
+  XmlNodeFactoryImpl(final LongHashFunction hashFunction, final StorageEngineWriter storageEngineWriter) {
+    this.storageEngineWriter = requireNonNull(storageEngineWriter);
     this.storageEngineWriter.createNameKey("xs:untyped", NodeKind.ATTRIBUTE);
     this.storageEngineWriter.createNameKey("xs:untyped", NodeKind.NAMESPACE);
     this.storageEngineWriter.createNameKey("xs:untyped", NodeKind.ELEMENT);
     this.storageEngineWriter.createNameKey("xs:untyped", NodeKind.PROCESSING_INSTRUCTION);
     this.hashFunction = requireNonNull(hashFunction);
-    this.revisionNumber = pageWriteTrx.getRevisionNumber();
+    this.revisionNumber = storageEngineWriter.getRevisionNumber();
     this.reusableElementAttributeKeys = new LongArrayList();
     this.reusableElementNamespaceKeys = new LongArrayList();
     this.reusableElementNode = new ElementNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber,

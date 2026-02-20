@@ -43,7 +43,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * Truncate resource to given revision.
    *
    * @param revision the given revision
-   * @return this page write transaction instance
+   * @return this storage engine writer instance
    */
   StorageEngineWriter truncateTo(int revision);
 
@@ -52,7 +52,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    *
    * @param reference the reference
    * @param page the page to put into the cache
-   * @return this page write transaction instance
+   * @return this storage engine writer instance
    */
   StorageEngineWriter appendLogRecord(@NonNull PageReference reference, @NonNull PageContainer page);
 
@@ -211,7 +211,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
   TransactionIntentLog getLog();
 
   /**
-   * Get the revision, which this page trx is going to represent in case of a revert.
+   * Get the revision, which this storage engine writer is going to represent in case of a revert.
    *
    * @return the revision to represent
    */

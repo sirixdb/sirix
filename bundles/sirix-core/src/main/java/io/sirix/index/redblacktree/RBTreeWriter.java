@@ -130,14 +130,14 @@ public final class RBTreeWriter<K extends Comparable<? super K>, V extends Refer
    * Get a new instance.
    *
    * @param databaseType The type of database.
-   * @param pageWriteTrx {@link StorageEngineWriter} for persistent storage
+   * @param storageEngineWriter {@link StorageEngineWriter} for persistent storage
    * @param type type of index
    * @param index the index number
    * @return new tree instance
    */
   public static <K extends Comparable<? super K>, V extends References> RBTreeWriter<K, V> getInstance(
-      final DatabaseType databaseType, final StorageEngineWriter pageWriteTrx, final IndexType type, final int index) {
-    return new RBTreeWriter<>(databaseType, pageWriteTrx, type, index);
+      final DatabaseType databaseType, final StorageEngineWriter storageEngineWriter, final IndexType type, final int index) {
+    return new RBTreeWriter<>(databaseType, storageEngineWriter, type, index);
   }
 
   /**

@@ -84,8 +84,8 @@ public interface Database<T extends ResourceSession<? extends NodeReadOnlyTrx, ?
    * Open a resource session to work with a resource stored in this database.
    *
    * @param resourceName the resource to work on
-   * @return the resource manager
-   * @throws SirixException if can't open resource manager
+   * @return the resource session
+   * @throws SirixException if can't open resource session
    */
   T beginResourceSession(String resourceName);
 

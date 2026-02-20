@@ -95,15 +95,15 @@ public final class DeweyIDPage extends AbstractForwardingPage {
   /**
    * Initialize dewey id index tree.
    *
-   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param storageEngineReader {@link StorageEngineReader} instance
    * @param log the transaction intent log
    */
-  public void createIndexTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
+  public void createIndexTree(final DatabaseType databaseType, final StorageEngineReader storageEngineReader,
       final TransactionIntentLog log) {
     PageReference reference = getIndirectPageReference();
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.DEWEYID_TO_RECORDID, pageReadTrx, log);
+      PageUtils.createTree(databaseType, reference, IndexType.DEWEYID_TO_RECORDID, storageEngineReader, log);
       incrementAndGetMaxNodeKey();
     }
   }
@@ -142,8 +142,8 @@ public final class DeweyIDPage extends AbstractForwardingPage {
     return false;
   }
 
-  public SirixDeweyID getDeweyIdForNodeKey(final long nodeKey, final StorageEngineReader pageReadOnlyTrx) {
-    final DeweyIDNode node = pageReadOnlyTrx.getRecord(nodeKey, IndexType.DEWEYID_TO_RECORDID, 0);
+  public SirixDeweyID getDeweyIdForNodeKey(final long nodeKey, final StorageEngineReader storageEngineReader) {
+    final DeweyIDNode node = storageEngineReader.getRecord(nodeKey, IndexType.DEWEYID_TO_RECORDID, 0);
     if (node == null) {
       return null;
     }

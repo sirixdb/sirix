@@ -47,7 +47,7 @@ public class PageTest {
   /**
    * Sirix {@link StorageEngineReader} instance.
    */
-  private StorageEngineReader pageReadTrx;
+  private StorageEngineReader storageEngineReader;
 
   @BeforeClass
   public void setUp() throws SirixException {
@@ -55,12 +55,12 @@ public class PageTest {
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
     holder = Holder.generateDeweyIDResourceSession();
-    pageReadTrx = holder.getResourceSession().beginStorageEngineReader();
+    storageEngineReader = holder.getResourceSession().beginStorageEngineReader();
   }
 
   @AfterClass
   public void tearDown() throws SirixException {
-    pageReadTrx.close();
+    storageEngineReader.close();
     holder.close();
     arena.close();
   }
@@ -70,14 +70,14 @@ public class PageTest {
     for (final Page handler : handlers) {
       final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
       PageKind.getKind(handler.getClass())
-              .serializePage(pageReadTrx.getResourceSession().getResourceConfig(), data, handler,
+              .serializePage(storageEngineReader.getResourceSession().getResourceConfig(), data, handler,
                   SerializationType.DATA);
-      // handler.serialize(pageReadTrx, data, SerializationType.DATA);
+      // handler.serialize(storageEngineReader, data, SerializationType.DATA);
       final var pageBytes = data.toByteArray();
       final Page serializedPage = PageKind.getKind(handler.getClass())
-                                          .deserializePage(pageReadTrx.getResourceSession().getResourceConfig(),
+                                          .deserializePage(storageEngineReader.getResourceSession().getResourceConfig(),
                                               Bytes.wrapForRead(data.toByteArray()), SerializationType.DATA);
-      // serializedPage.serialize(pageReadTrx, data, SerializationType.DATA);
+      // serializedPage.serialize(storageEngineReader, data, SerializationType.DATA);
       final var serializedPageBytes = data.toByteArray();
       assertArrayEquals("Check for " + handler.getClass() + " failed.", pageBytes, serializedPageBytes);
     }
@@ -100,7 +100,7 @@ public class PageTest {
 
     // NodePage setup.
     final KeyValueLeafPage nodePage = new KeyValueLeafPage(XmlTestHelper.random.nextInt(Integer.MAX_VALUE),
-        IndexType.DOCUMENT, pageReadTrx.getResourceSession().getResourceConfig(), pageReadTrx.getRevisionNumber(),
+        IndexType.DOCUMENT, storageEngineReader.getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber(),
         arena.allocate(SIXTYFOUR_KB), null);
     for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
       final DataRecord record = XmlTestHelper.generateOne();

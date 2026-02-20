@@ -70,7 +70,7 @@ public interface JsonNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   /**
    * Get the {@link ResourceSession} this instance is bound to.
    *
-   * @return the resource manager
+   * @return the resource session
    */
   @Override
   JsonResourceSession getResourceSession();

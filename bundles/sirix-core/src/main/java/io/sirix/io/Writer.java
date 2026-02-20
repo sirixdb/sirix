@@ -77,7 +77,7 @@ public interface Writer extends Reader {
    * @param revision the revision to truncate to.
    * @return this writer instance
    */
-  Writer truncateTo(StorageEngineReader pageReadOnlyTrx, int revision);
+  Writer truncateTo(StorageEngineReader storageEngineReader, int revision);
 
   /**
    * Truncate, that is remove all file content.

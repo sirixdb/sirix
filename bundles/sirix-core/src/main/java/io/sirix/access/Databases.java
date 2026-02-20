@@ -1,10 +1,18 @@
 package io.sirix.access;
 
 import io.sirix.access.trx.RevisionEpochTracker;
-import io.sirix.api.*;
+import io.sirix.api.Database;
+import io.sirix.api.NodeCursor;
+import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.NodeTrx;
+import io.sirix.api.ResourceSession;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
-import io.sirix.cache.*;
+import io.sirix.cache.BufferManager;
+import io.sirix.cache.BufferManagerImpl;
+import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.MemorySegmentAllocator;
+import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
 import io.sirix.exception.SirixUsageException;
 import io.sirix.utils.LogWrapper;

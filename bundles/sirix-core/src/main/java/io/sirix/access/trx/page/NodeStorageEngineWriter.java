@@ -73,7 +73,21 @@ import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.ReusableNodeProxy;
-import io.sirix.page.*;
+import io.sirix.page.CASPage;
+import io.sirix.page.DeweyIDPage;
+import io.sirix.page.HOTIndirectPage;
+import io.sirix.page.HOTLeafPage;
+import io.sirix.page.IndirectPage;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.NamePage;
+import io.sirix.page.PageConstants;
+import io.sirix.page.PageKind;
+import io.sirix.page.PageReference;
+import io.sirix.page.PathPage;
+import io.sirix.page.PathSummaryPage;
+import io.sirix.page.RevisionRootPage;
+import io.sirix.page.SerializationType;
+import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
@@ -131,8 +145,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private MemorySegmentBytesOut demotionBuffer;
   private MemorySegment fixedSlotProjectionBuffer;
 
-  private record RecordFetchResult(DataRecord record) {
-  }
 
   /**
    * Page writer to serialize.
@@ -197,7 +209,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * {@code true} if this page write trx will be bound to a node trx, {@code false} otherwise
+   * {@code true} if this storage engine writer will be bound to a node trx, {@code false} otherwise
    */
   private final boolean isBoundToNodeTrx;
 
@@ -249,10 +261,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * @param writer the page writer
    * @param log the transaction intent log
    * @param revisionRootPage the revision root page
-   * @param storageEngineReader the page reading transaction used as a delegate
+   * @param storageEngineReader the storage engine reader used as a delegate
    * @param indexController the index controller, which is used to update indexes
    * @param representRevision the revision to represent
-   * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
+   * @param isBoundToNodeTrx {@code true} if this storage engine writer will be bound to a node trx,
    *        {@code false} otherwise
    */
   NodeStorageEngineWriter(final Writer writer, final TransactionIntentLog log, final RevisionRootPage revisionRootPage,
@@ -681,20 +693,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (pageCont == null) {
       return storageEngineReader.getRecord(recordKey, indexType, index);
     } else {
-      DataRecord node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getModified()), recordKey).record();
+      DataRecord node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getModified()), recordKey);
       if (node == null) {
-        node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getComplete()), recordKey).record();
+        node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getComplete()), recordKey);
       }
       return (V) storageEngineReader.checkItemIfDeleted(node);
     }
   }
 
-  private RecordFetchResult getRecordForWriteAccess(final KeyValuePage<? extends DataRecord> page,
+  private DataRecord getRecordForWriteAccess(final KeyValuePage<? extends DataRecord> page,
       final long recordKey) {
     final int recordOffset = StorageEngineReader.recordPageOffset(recordKey);
     final DataRecord cachedRecord = page.getRecord(recordOffset);
     if (cachedRecord != null) {
-      return new RecordFetchResult(cachedRecord);
+      return cachedRecord;
     }
 
     if (page instanceof KeyValueLeafPage leafPage && leafPage.isFixedSlotFormat(recordOffset)) {
@@ -717,10 +729,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         throw new IllegalStateException("Unsupported fixed-slot write-path materialization for node kind " + nodeKind
             + " (key=" + recordKey + ", slot=" + recordOffset + ").");
       }
-      return new RecordFetchResult(materialized);
+      return materialized;
     }
 
-    return new RecordFetchResult(storageEngineReader.getValue(page, recordKey));
+    return storageEngineReader.getValue(page, recordKey);
   }
 
   @Override
@@ -788,7 +800,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     try {
       final Path commitFile = storageEngineReader.resourceSession.getCommitFile();
 
-      commitFile.toFile().deleteOnExit();
       // Issues with windows that it's not created in the first time?
       createIfAbsent(commitFile);
 
@@ -809,8 +820,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       // Wait for the previous commit's async UberPage fsync to complete.
       // This ensures the previous revision is fully durable before we proceed.
-      if (pendingFsync != null) {
-        pendingFsync.join();
+      final var fsync = pendingFsync;
+      if (fsync != null) {
+        fsync.join();
         pendingFsync = null;
       }
 
@@ -832,7 +844,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         // Even if the process crashes before this fsync completes the database is consistent:
         // the old (pre-UberPage) state is recovered because the new UberPage is not yet on disk.
         pendingFsync = java.util.concurrent.CompletableFuture.runAsync(() -> {
-          storagePageReaderWriter.forceAll();
+          try {
+            storagePageReaderWriter.forceAll();
+          } catch (final Exception e) {
+            LOGGER.error("Async fsync failed", e);
+            throw e;
+          }
         });
       } else {
         // Regular commit: flush the UberPage synchronously so durability is guaranteed
@@ -927,6 +944,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       try {
         var bytes = new PooledBytesOut(pooledSeg);
         PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
+      } catch (final SirixIOException e) {
+        throw e;
+      } catch (final RuntimeException e) {
+        throw e;
       } catch (final Exception e) {
         throw new SirixIOException(e);
       } finally {
@@ -985,8 +1006,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       storageEngineReader.assertNotClosed();
 
       // Wait for any pending async fsync to complete before closing
-      if (pendingFsync != null) {
-        pendingFsync.join();
+      final var fsync = pendingFsync;
+      if (fsync != null) {
+        try {
+          fsync.join();
+        } catch (final java.util.concurrent.CompletionException e) {
+          LOGGER.error("Pending async fsync failed during close", e);
+        }
         pendingFsync = null;
       }
 
@@ -1678,7 +1704,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
      * Prepare the previous revision root page and retrieve the next {@link RevisionRootPage}.
      *
      * @param uberPage the uber page
-     * @param storageEngineReader the page reading transaction
+     * @param storageEngineReader the storage engine reader
      * @param log the transaction intent log
      * @param baseRevision base revision
      * @param representRevision the revision to represent
@@ -1707,7 +1733,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     /**
      * Prepare the leaf of the trie, navigating through IndirectPages using bit-decomposition.
      *
-     * @param storageEngineReader the page reading transaction
+     * @param storageEngineReader the storage engine reader
      * @param log the transaction intent log
      * @param inpLevelPageCountExp array which holds the maximum number of indirect page references per
      *        trie level
@@ -1771,7 +1797,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
      * Prepare indirect page, that is getting the referenced indirect page or creating a new page and
      * putting the whole path into the log.
      *
-     * @param storageEngineReader the page reading transaction
+     * @param storageEngineReader the storage engine reader
      * @param log the transaction intent log
      * @param reference {@link PageReference} to get the indirect page from or to create a new one
      * @return {@link IndirectPage} reference

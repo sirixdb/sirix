@@ -112,11 +112,11 @@ public final class PathSummaryPage extends AbstractForwardingPage {
    * Initialize path summary tree.
    *
    * @param databaseType The type of database.
-   * @param pageReadTrx {@link StorageEngineReader} instance
+   * @param storageEngineReader {@link StorageEngineReader} instance
    * @param index the index number
    * @param log the transaction intent log
    */
-  public void createPathSummaryTree(final DatabaseType databaseType, final StorageEngineReader pageReadTrx,
+  public void createPathSummaryTree(final DatabaseType databaseType, final StorageEngineReader storageEngineReader,
       final int index, final TransactionIntentLog log) {
     PageReference reference = getOrCreateReference(index);
     if (reference == null) {
@@ -125,7 +125,7 @@ public final class PathSummaryPage extends AbstractForwardingPage {
     }
     if (reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
         && reference.getLogKey() == Constants.NULL_ID_INT) {
-      PageUtils.createTree(databaseType, reference, IndexType.PATH_SUMMARY, pageReadTrx, log);
+      PageUtils.createTree(databaseType, reference, IndexType.PATH_SUMMARY, storageEngineReader, log);
       if (maxNodeKeys.get(index) == 0L) {
         maxNodeKeys.put(index, 0L);
       } else {

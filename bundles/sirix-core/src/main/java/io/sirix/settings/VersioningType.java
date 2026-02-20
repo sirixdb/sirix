@@ -58,10 +58,10 @@ public enum VersioningType {
   FULL {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-        final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx) {
+        final @NonNegative int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() == 1 : "Only one version of the page!";
       var firstPage = pages.getFirst();
-      T completePage = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), pageReadTrx);
+      T completePage = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), storageEngineReader);
 
       if (firstPage instanceof KeyValueLeafPage firstKvp) {
         copyAllSlotsFromBitmap(firstPage, completePage, firstKvp.getSlotBitmap(), null);
@@ -83,7 +83,7 @@ public enum VersioningType {
 
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx,
+        final List<T> pages, final @NonNegative int revToRestore, final StorageEngineReader storageEngineReader,
         final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() == 1;
       final T firstPage = pages.getFirst();
@@ -91,7 +91,7 @@ public enum VersioningType {
 
       // OPTIMIZATION: Create only ONE page for modifications (not two)
       // FULL versioning stores complete pages, so both complete and modified can be the same
-      final T modifiedPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
+      final T modifiedPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), storageEngineReader);
 
       // Copy data once (not twice)
       if (firstPage instanceof KeyValueLeafPage firstKvp) {
@@ -130,11 +130,11 @@ public enum VersioningType {
   DIFFERENTIAL {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-        final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx) {
+        final @NonNegative int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() <= 2;
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
-      final T pageToReturn = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
+      final T pageToReturn = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), storageEngineReader);
 
       final T latest = pages.get(0);
       final T fullDump = pages.size() == 1
@@ -183,20 +183,20 @@ public enum VersioningType {
 
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx,
+        final List<T> pages, final @NonNegative int revToRestore, final StorageEngineReader storageEngineReader,
         final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() <= 2;
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
-      final int revision = pageReadTrx.getUberPage().getRevisionNumber();
+      final int revision = storageEngineReader.getUberPage().getRevisionNumber();
 
       // Update pageFragments on original reference
       final List<PageFragmentKey> pageFragmentKeys = List.of(new PageFragmentKeyImpl(firstPage.getRevision(),
-          reference.getKey(), (int) pageReadTrx.getDatabaseId(), (int) pageReadTrx.getResourceId()));
+          reference.getKey(), (int) storageEngineReader.getDatabaseId(), (int) storageEngineReader.getResourceId()));
       reference.setPageFragments(pageFragmentKeys);
 
-      final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
-      final T modifiedPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
+      final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), storageEngineReader);
+      final T modifiedPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), storageEngineReader);
 
       // DIAGNOSTIC
       if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
@@ -278,11 +278,11 @@ public enum VersioningType {
   INCREMENTAL {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-        final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx) {
+        final @NonNegative int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
-      final T pageToReturn = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), pageReadTrx);
+      final T pageToReturn = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), storageEngineReader);
 
       // Track which slots are already filled using bitmap from pageToReturn
       // This enables O(k) iteration instead of O(1024)
@@ -324,13 +324,13 @@ public enum VersioningType {
 
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final int revToRestore, final StorageEngineReader pageReadTrx, PageReference reference,
+        final List<T> pages, final int revToRestore, final StorageEngineReader storageEngineReader, PageReference reference,
         final TransactionIntentLog log) {
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
       previousPageFragmentKeys.add(new PageFragmentKeyImpl(firstPage.getRevision(), reference.getKey(),
-          (int) pageReadTrx.getDatabaseId(), (int) pageReadTrx.getResourceId()));
+          (int) storageEngineReader.getDatabaseId(), (int) storageEngineReader.getResourceId()));
       for (int i = 0, previousRefKeysSize = reference.getPageFragments().size(); i < previousRefKeysSize
           && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
         previousPageFragmentKeys.add(reference.getPageFragments().get(i));
@@ -339,8 +339,8 @@ public enum VersioningType {
       // Update pageFragments on original reference
       reference.setPageFragments(previousPageFragmentKeys);
 
-      final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
-      final T modifiedPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
+      final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), storageEngineReader);
+      final T modifiedPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), storageEngineReader);
       final boolean isFullDump = pages.size() == revToRestore;
 
       // DIAGNOSTIC
@@ -426,11 +426,11 @@ public enum VersioningType {
   SLIDING_SNAPSHOT {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-        final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx) {
+        final @NonNegative int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
-      final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), pageReadTrx);
+      final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), storageEngineReader);
 
       // Track which slots are already filled using bitmap from returnVal
       // This enables O(k) iteration instead of O(1024)
@@ -472,13 +472,13 @@ public enum VersioningType {
 
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final int revToRestore, final StorageEngineReader pageReadTrx,
+        final List<T> pages, final int revToRestore, final StorageEngineReader storageEngineReader,
         final PageReference reference, final TransactionIntentLog log) {
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
       final var previousPageFragmentKeys = new ArrayList<PageFragmentKey>(reference.getPageFragments().size() + 1);
       previousPageFragmentKeys.add(new PageFragmentKeyImpl(firstPage.getRevision(), reference.getKey(),
-          (int) pageReadTrx.getDatabaseId(), (int) pageReadTrx.getResourceId()));
+          (int) storageEngineReader.getDatabaseId(), (int) storageEngineReader.getResourceId()));
       for (int i = 0, previousRefKeysSize = reference.getPageFragments().size(); i < previousRefKeysSize
           && previousPageFragmentKeys.size() < revToRestore - 1; i++) {
         previousPageFragmentKeys.add(reference.getPageFragments().get(i));
@@ -489,8 +489,8 @@ public enum VersioningType {
 
       // Only create TWO pages instead of THREE - use bitmap instead of temp page
       // This saves 64KB allocation per combine operation
-      final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
-      final T modifyingPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), pageReadTrx);
+      final T completePage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), storageEngineReader);
+      final T modifyingPage = firstPage.newInstance(recordPageKey, firstPage.getIndexType(), storageEngineReader);
 
       // OPTIMIZATION: Use bitmap (128 bytes) instead of temp page (64KB)
       // inWindowBitmap tracks which slots exist in the sliding window
@@ -616,7 +616,7 @@ public enum VersioningType {
    * @return the complete {@link KeyValuePage}
    */
   public abstract <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-      final @NonNegative int revsToRestore, final StorageEngineReader pageReadTrx);
+      final @NonNegative int revsToRestore, final StorageEngineReader storageEngineReader);
 
   /**
    * Method to reconstruct a complete {@link KeyValuePage} for reading as well as a
@@ -628,7 +628,7 @@ public enum VersioningType {
    *         writing
    */
   public abstract <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-      final List<T> pages, final @NonNegative int revsToRestore, final StorageEngineReader pageReadTrx,
+      final List<T> pages, final @NonNegative int revsToRestore, final StorageEngineReader storageEngineReader,
       final PageReference reference, final TransactionIntentLog log);
 
   /**
@@ -796,11 +796,11 @@ public enum VersioningType {
    *
    * @param pages the list of HOT leaf page fragments (newest first)
    * @param revToRestore the revision to restore
-   * @param pageReadTrx the storage engine reader
+   * @param storageEngineReader the storage engine reader
    * @return the combined HOT leaf page
    */
   public HOTLeafPage combineHOTLeafPages(final List<HOTLeafPage> pages, final @NonNegative int revToRestore,
-      final StorageEngineReader pageReadTrx) {
+      final StorageEngineReader storageEngineReader) {
 
     if (pages.isEmpty()) {
       throw new IllegalArgumentException("No pages to combine");
@@ -849,17 +849,17 @@ public enum VersioningType {
    *
    * @param pages the list of HOT leaf page fragments (newest first)
    * @param revToRestore the revision to restore
-   * @param pageReadTrx the storage engine reader
+   * @param storageEngineReader the storage engine reader
    * @param reference the page reference
    * @param log the transaction intent log
    * @return the page container with complete and modified pages
    */
   public PageContainer combineHOTLeafPagesForModification(final List<HOTLeafPage> pages,
-      final @NonNegative int revToRestore, final StorageEngineReader pageReadTrx, final PageReference reference,
+      final @NonNegative int revToRestore, final StorageEngineReader storageEngineReader, final PageReference reference,
       final TransactionIntentLog log) {
 
     // Combine fragments
-    HOTLeafPage completePage = combineHOTLeafPages(pages, revToRestore, pageReadTrx);
+    HOTLeafPage completePage = combineHOTLeafPages(pages, revToRestore, storageEngineReader);
 
     // Create COW copy for modification
     HOTLeafPage modifiedPage = completePage.copy();
@@ -883,11 +883,11 @@ public enum VersioningType {
    *
    * @param fragments the list of bitmap chunk page fragments (newest first)
    * @param revToRestore the revision to restore
-   * @param pageReadTrx the storage engine reader
+   * @param storageEngineReader the storage engine reader
    * @return the combined bitmap chunk page with complete data
    */
   public BitmapChunkPage combineBitmapChunks(final List<BitmapChunkPage> fragments, final @NonNegative int revToRestore,
-      final StorageEngineReader pageReadTrx) {
+      final StorageEngineReader storageEngineReader) {
 
     if (fragments.isEmpty()) {
       throw new IllegalArgumentException("No fragments to combine");
@@ -971,20 +971,20 @@ public enum VersioningType {
    * @param indexType the index type
    * @param reference the page reference
    * @param log the transaction intent log
-   * @param pageReadTrx the storage engine reader
+   * @param storageEngineReader the storage engine reader
    * @return the page container with complete and modified pages
    */
   public PageContainer prepareBitmapChunkForModification(final List<BitmapChunkPage> fragments,
       final int currentRevision, final @NonNegative int revsToRestore, final long rangeStart, final long rangeEnd,
       final io.sirix.index.IndexType indexType, final PageReference reference, final TransactionIntentLog log,
-      final StorageEngineReader pageReadTrx) {
+      final StorageEngineReader storageEngineReader) {
 
     // Determine if we should create a full snapshot
     final boolean isFullDump = shouldStoreBitmapFullSnapshot(fragments, currentRevision, revsToRestore);
 
     final long pageKey = reference.getKey() >= 0
         ? reference.getKey()
-        : allocateNewPageKey(pageReadTrx);
+        : allocateNewPageKey(storageEngineReader);
 
     if (fragments.isEmpty()) {
       // New chunk - create empty full snapshot
@@ -996,7 +996,7 @@ public enum VersioningType {
     }
 
     // Combine existing fragments
-    BitmapChunkPage completePage = combineBitmapChunks(fragments, revsToRestore, pageReadTrx);
+    BitmapChunkPage completePage = combineBitmapChunks(fragments, revsToRestore, storageEngineReader);
 
     // Create modified page based on versioning strategy
     BitmapChunkPage modifiedPage;
@@ -1055,7 +1055,7 @@ public enum VersioningType {
    * revision-root page-key allocator.
    * </p>
    */
-  private long allocateNewPageKey(final StorageEngineReader pageReadTrx) {
+  private long allocateNewPageKey(final StorageEngineReader storageEngineReader) {
     return System.nanoTime();
   }
 }

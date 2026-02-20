@@ -33,7 +33,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   /**
    * Diff two revisions.
    *
-   * @param resourceSession the resource manager to use
+   * @param resourceSession the resource session to use
    * @param oldRevisionNumber the revision number of the older revision
    * @param newRevisionNumber the revision number of the newer revision
    * @return a JSON-String describing the differences encountered between the two revisions
@@ -46,7 +46,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   /**
    * Diff two revisions.
    *
-   * @param session the resource manager to use
+   * @param session the resource session to use
    * @param oldRevisionNumber the revision number of the older revision
    * @param newRevisionNumber the revision number of the newer revision
    * @param startNodeKey the start node key
@@ -62,7 +62,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   /**
    * Diff two revisions with control over data inclusion.
    *
-   * @param session the resource manager to use
+   * @param session the resource session to use
    * @param oldRevisionNumber the revision number of the older revision
    * @param newRevisionNumber the revision number of the newer revision
    * @param startNodeKey the start node key

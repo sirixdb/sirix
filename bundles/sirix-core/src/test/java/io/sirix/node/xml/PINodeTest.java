@@ -60,26 +60,26 @@ public class PINodeTest {
   /**
    * Sirix {@link StorageEngineReader} instance.
    */
-  private StorageEngineReader pageReadTrx;
+  private StorageEngineReader storageEngineReader;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     mHolder = Holder.generateDeweyIDResourceSession();
-    pageReadTrx = mHolder.getResourceSession().beginStorageEngineReader();
+    storageEngineReader = mHolder.getResourceSession().beginStorageEngineReader();
   }
 
   @After
   public void tearDown() throws SirixException {
-    pageReadTrx.close();
+    storageEngineReader.close();
     mHolder.close();
   }
 
   @Test
   public void testProcessInstructionNode() {
     final byte[] value = {(byte) 17, (byte) 18};
-    final var config = pageReadTrx.getResourceSession().getResourceConfig();
+    final var config = storageEngineReader.getResourceSession().getResourceConfig();
 
     // Create PINode with primitive fields
     final PINode node = new PINode(99L, // nodeKey
@@ -114,9 +114,9 @@ public class PINodeTest {
 
     // Serialize and deserialize node.
     final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
-    node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
+    node.getKind().serialize(data2, node, storageEngineReader.getResourceSession().getResourceConfig());
     final PINode node2 = (PINode) NodeKind.PROCESSING_INSTRUCTION.deserialize(data2.asBytesIn(), node.getNodeKey(),
-        node.getDeweyID().toBytes(), pageReadTrx.getResourceSession().getResourceConfig());
+        node.getDeweyID().toBytes(), storageEngineReader.getResourceSession().getResourceConfig());
     check(node2);
   }
 

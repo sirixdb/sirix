@@ -8,7 +8,7 @@ import io.sirix.api.ResourceSession;
 import java.nio.file.Path;
 
 /**
- * A factory for resource managers.
+ * A factory for resource sessions.
  *
  * @author Joao Sousa
  */

@@ -4,7 +4,17 @@ import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.access.trx.page.NodeStorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
-import io.sirix.page.*;
+import io.sirix.page.CASPage;
+import io.sirix.page.DeweyIDPage;
+import io.sirix.page.HOTIndirectPage;
+import io.sirix.page.HOTLeafPage;
+import io.sirix.page.IndirectPage;
+import io.sirix.page.NamePage;
+import io.sirix.page.PageReference;
+import io.sirix.page.PathPage;
+import io.sirix.page.PathSummaryPage;
+import io.sirix.page.RevisionRootPage;
+import io.sirix.page.UberPage;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.exception.SirixIOException;
@@ -51,9 +61,9 @@ public interface StorageEngineReader extends AutoCloseable {
   UberPage getUberPage();
 
   /**
-   * Get the resource manager this transaction is bound to.
+   * Get the resource session this transaction is bound to.
    *
-   * @return resource manager instance
+   * @return resource session instance
    */
   ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession();
 

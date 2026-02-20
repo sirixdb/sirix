@@ -32,9 +32,9 @@ import java.util.Set;
 import java.util.function.Function;
 
 public interface CASIndex<B, L extends ChangeListener, R extends NodeReadOnlyTrx & NodeCursor> {
-  B createBuilder(R rtx, StorageEngineWriter pageWriteTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef);
+  B createBuilder(R rtx, StorageEngineWriter storageEngineWriter, PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
-  L createListener(StorageEngineWriter pageWriteTrx, PathSummaryReader pathSummaryReader, IndexDef indexDef);
+  L createListener(StorageEngineWriter storageEngineWriter, PathSummaryReader pathSummaryReader, IndexDef indexDef);
 
   default Iterator<NodeReferences> openIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilterRange filter) {
     // Check if HOT is enabled (system property takes precedence, then resource config)

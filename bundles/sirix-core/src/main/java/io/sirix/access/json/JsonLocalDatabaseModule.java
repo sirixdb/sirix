@@ -21,17 +21,17 @@ public interface JsonLocalDatabaseModule {
 
   @DatabaseScope
   @Provides
-  static ResourceSessionFactory<JsonResourceSession> resourceManagerFactory(
+  static ResourceSessionFactory<JsonResourceSession> resourceSessionFactory(
       final Provider<JsonResourceSessionComponent.Builder> subComponentBuilder) {
     return new SubComponentResourceSessionFactory<>(subComponentBuilder);
   }
 
   @DatabaseScope
   @Provides
-  static ResourceStore<JsonResourceSession> jsonResourceManager(
-      final PathBasedPool<ResourceSession<?, ?>> allResourceManagers,
+  static ResourceStore<JsonResourceSession> jsonResourceSession(
+      final PathBasedPool<ResourceSession<?, ?>> allResourceSessions,
       final ResourceSessionFactory<JsonResourceSession> resourceSessionFactory) {
-    return new ResourceStoreImpl<>(allResourceManagers, resourceSessionFactory);
+    return new ResourceStoreImpl<>(allResourceSessions, resourceSessionFactory);
   }
 
   @DatabaseScope
@@ -39,7 +39,7 @@ public interface JsonLocalDatabaseModule {
   static Database<JsonResourceSession> jsonDatabase(final TransactionManager transactionManager,
       final DatabaseConfiguration dbConfig, final PathBasedPool<Database<?>> sessions,
       final ResourceStore<JsonResourceSession> resourceStore, final WriteLocksRegistry writeLocks,
-      final PathBasedPool<ResourceSession<?, ?>> resourceManagers) {
-    return new LocalDatabase<>(transactionManager, dbConfig, sessions, resourceStore, writeLocks, resourceManagers);
+      final PathBasedPool<ResourceSession<?, ?>> resourceSessions) {
+    return new LocalDatabase<>(transactionManager, dbConfig, sessions, resourceStore, writeLocks, resourceSessions);
   }
 }

@@ -101,6 +101,11 @@ public final class IndirectPage extends AbstractForwardingPage {
       }
     }
 
+    if (reference == null) {
+      throw new IllegalStateException(
+          "Failed to create page reference at offset " + offset + " (delegate type: " + delegate.getClass().getSimpleName() + ")");
+    }
+
     return reference;
   }
 }

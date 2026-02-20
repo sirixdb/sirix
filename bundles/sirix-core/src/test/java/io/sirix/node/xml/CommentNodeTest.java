@@ -57,19 +57,19 @@ public class CommentNodeTest {
   /**
    * Sirix {@link StorageEngineReader} instance.
    */
-  private StorageEngineReader pageReadTrx;
+  private StorageEngineReader storageEngineReader;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     holder = Holder.generateDeweyIDResourceSession();
-    pageReadTrx = holder.getResourceSession().beginStorageEngineReader();
+    storageEngineReader = holder.getResourceSession().beginStorageEngineReader();
   }
 
   @After
   public void tearDown() throws SirixException {
-    pageReadTrx.close();
+    storageEngineReader.close();
     holder.close();
   }
 
@@ -94,9 +94,9 @@ public class CommentNodeTest {
 
     // Serialize and deserialize node.
     final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
-    node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
+    node.getKind().serialize(data2, node, storageEngineReader.getResourceSession().getResourceConfig());
     final CommentNode node2 = (CommentNode) NodeKind.COMMENT.deserialize(data2.asBytesIn(), node.getNodeKey(),
-        node.getDeweyID().toBytes(), pageReadTrx.getResourceSession().getResourceConfig());
+        node.getDeweyID().toBytes(), storageEngineReader.getResourceSession().getResourceConfig());
     check(node2);
   }
 

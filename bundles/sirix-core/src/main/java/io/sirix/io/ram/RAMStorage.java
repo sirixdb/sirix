@@ -210,7 +210,7 @@ public final class RAMStorage implements IOStorage {
     public void close() throws SirixIOException {}
 
     @Override
-    public Writer truncateTo(StorageEngineReader pageReadOnlyTrx, int revision) {
+    public Writer truncateTo(StorageEngineReader storageEngineReader, int revision) {
       // TODO
       return this;
     }

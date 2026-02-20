@@ -25,8 +25,18 @@ import com.github.benmanes.caffeine.cache.AsyncCache;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
-import io.sirix.io.*;
-import io.sirix.page.*;
+import io.sirix.io.AbstractForwardingReader;
+import io.sirix.io.IOStorage;
+import io.sirix.io.PageHasher;
+import io.sirix.io.Reader;
+import io.sirix.io.RevisionFileData;
+import io.sirix.io.RevisionIndexHolder;
+import io.sirix.io.Writer;
+import io.sirix.page.PagePersister;
+import io.sirix.page.PageReference;
+import io.sirix.page.RevisionRootPage;
+import io.sirix.page.SerializationType;
+import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
@@ -113,7 +123,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   }
 
   @Override
-  public Writer truncateTo(final StorageEngineReader pageReadOnlyTrx, final int revision) {
+  public Writer truncateTo(final StorageEngineReader storageEngineReader, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
           cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();

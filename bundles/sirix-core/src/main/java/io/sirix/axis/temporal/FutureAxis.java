@@ -44,7 +44,7 @@ public final class FutureAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends 
   /**
    * Constructor.
    *
-   * @param resourceSession the resource manager
+   * @param resourceSession the resource session
    * @param rtx the transactional read only cursor
    * @param includeSelf determines if current revision must be included or not
    */

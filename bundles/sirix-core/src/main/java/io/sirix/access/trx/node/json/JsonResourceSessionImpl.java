@@ -82,14 +82,14 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
    * @param writeLock the write lock, which ensures, that only a single read-write transaction is
    *        opened on a resource
    * @param user a user, which interacts with SirixDB, might be {@code null}
-   * @param pageTrxFactory A factory that creates new {@link StorageEngineWriter} instances.
+   * @param storageEngineWriterFactory A factory that creates new {@link StorageEngineWriter} instances.
    */
   @Inject
   JsonResourceSessionImpl(final ResourceStore<JsonResourceSession> resourceStore,
       final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
       final UberPage uberPage, final Semaphore writeLock, final User user, @DatabaseName final String databaseName,
-      final StorageEngineWriterFactory pageTrxFactory) {
-    super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
+      final StorageEngineWriterFactory storageEngineWriterFactory) {
+    super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, storageEngineWriterFactory);
 
     this.databaseName = databaseName;
     rtxIndexControllers = new ConcurrentHashMap<>();
@@ -97,9 +97,9 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
   }
 
   @Override
-  public InternalJsonNodeReadOnlyTrx createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader pageReadTrx,
+  public InternalJsonNodeReadOnlyTrx createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader storageEngineReader,
       Node documentNode) {
-    return new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableJsonNode) documentNode);
+    return new JsonNodeReadOnlyTrxImpl(this, nodeTrxId, storageEngineReader, (ImmutableJsonNode) documentNode);
   }
 
   @Override
