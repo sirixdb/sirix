@@ -63,7 +63,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * Initialize XMLStreamReader implementation with transaction. The cursor points to the node the
    * XMLStreamReader starts to read.
    *
-   * @param resourceMgr resource manager to read the resource
+   * @param resourceMgr resource session to read the resource
    * @param builder builder of XML Serializer
    * @param revision revision to serialize
    * @param revisions further revisions to serialize
@@ -149,7 +149,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
     private final Appendable stream;
 
     /**
-     * Resource manager to use.
+     * Resource session to use.
      */
     private final JsonResourceSession resourceMgr;
 

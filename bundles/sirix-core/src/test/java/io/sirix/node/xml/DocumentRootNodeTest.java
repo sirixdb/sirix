@@ -55,19 +55,19 @@ public class DocumentRootNodeTest {
   /**
    * Sirix {@link StorageEngineReader} instance.
    */
-  private StorageEngineReader pageReadTrx;
+  private StorageEngineReader storageEngineReader;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     mHolder = Holder.generateDeweyIDResourceSession();
-    pageReadTrx = mHolder.getResourceSession().beginStorageEngineReader();
+    storageEngineReader = mHolder.getResourceSession().beginStorageEngineReader();
   }
 
   @After
   public void tearDown() throws SirixException {
-    pageReadTrx.close();
+    storageEngineReader.close();
     mHolder.close();
   }
 
@@ -82,9 +82,9 @@ public class DocumentRootNodeTest {
 
     // Serialize and deserialize node.
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
-    node.getKind().serialize(data, node, pageReadTrx.getResourceSession().getResourceConfig());
+    node.getKind().serialize(data, node, storageEngineReader.getResourceSession().getResourceConfig());
     final XmlDocumentRootNode node2 = (XmlDocumentRootNode) NodeKind.XML_DOCUMENT.deserialize(data.asBytesIn(),
-        node.getNodeKey(), node.getDeweyID().toBytes(), pageReadTrx.getResourceSession().getResourceConfig());
+        node.getNodeKey(), node.getDeweyID().toBytes(), storageEngineReader.getResourceSession().getResourceConfig());
     check(node2);
   }
 

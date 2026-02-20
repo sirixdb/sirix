@@ -70,11 +70,11 @@ public final class Names {
   /**
    * Constructor to build index from a persistent storage.
    *
-   * @param pageReadTrx the page reading transaction
+   * @param storageEngineReader the storage engine reader
    * @param indexNumber the kind of name dictionary
    * @param maxNodeKey the maximum node key
    */
-  private Names(final StorageEngineReader pageReadTrx, final int indexNumber, final long maxNodeKey) {
+  private Names(final StorageEngineReader storageEngineReader, final int indexNumber, final long maxNodeKey) {
     this.indexNumber = indexNumber;
     this.maxNodeKey = maxNodeKey;
     // It's okay, we don't allow to store more than Integer.MAX key value pairs.
@@ -85,7 +85,7 @@ public final class Names {
 
     // TODO: Next refactoring iteration: Move this to a factory, just assign stuff in constructors
     for (long i = 1; i < maxNodeKey; i += 2) {
-      final var nameNode = pageReadTrx.getRecord(i, IndexType.NAME, indexNumber);
+      final var nameNode = storageEngineReader.getRecord(i, IndexType.NAME, indexNumber);
 
       if (nameNode != null && nameNode.getKind() != NodeKind.DELETE) {
         final HashEntryNode hashEntryNode = (HashEntryNode) nameNode;
@@ -95,7 +95,7 @@ public final class Names {
         nameMap.put(key, hashEntryNode.getValue().getBytes(Constants.DEFAULT_ENCODING));
 
         final long nodeKeyOfCountNode = i + 1;
-        final var countNode = pageReadTrx.getRecord(nodeKeyOfCountNode, IndexType.NAME, indexNumber);
+        final var countNode = storageEngineReader.getRecord(nodeKeyOfCountNode, IndexType.NAME, indexNumber);
         if (countNode == null) {
           throw new IllegalStateException("Node couldn't be fetched from persistent storage: " + nodeKeyOfCountNode);
         }

@@ -71,30 +71,30 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
   /**
    * Private constructor.
    *
-   * @param pageReadTrx the storage engine reader
+   * @param storageEngineReader the storage engine reader
    * @param keySerializer the key serializer
    * @param indexType the index type (PATH, CAS, NAME)
    * @param indexNumber the index number
    */
-  private HOTIndexReader(StorageEngineReader pageReadTrx, HOTKeySerializer<K> keySerializer, IndexType indexType,
+  private HOTIndexReader(StorageEngineReader storageEngineReader, HOTKeySerializer<K> keySerializer, IndexType indexType,
       int indexNumber) {
-    super(pageReadTrx, indexType, indexNumber);
+    super(storageEngineReader, indexType, indexNumber);
     this.keySerializer = requireNonNull(keySerializer);
   }
 
   /**
    * Creates a new HOTIndexReader.
    *
-   * @param pageReadTrx the storage engine reader
+   * @param storageEngineReader the storage engine reader
    * @param keySerializer the key serializer
    * @param indexType the index type
    * @param indexNumber the index number
    * @param <K> the key type
    * @return a new HOTIndexReader instance
    */
-  public static <K extends Comparable<? super K>> HOTIndexReader<K> create(StorageEngineReader pageReadTrx,
+  public static <K extends Comparable<? super K>> HOTIndexReader<K> create(StorageEngineReader storageEngineReader,
       HOTKeySerializer<K> keySerializer, IndexType indexType, int indexNumber) {
-    return new HOTIndexReader<>(pageReadTrx, keySerializer, indexType, indexNumber);
+    return new HOTIndexReader<>(storageEngineReader, keySerializer, indexType, indexNumber);
   }
 
   /**

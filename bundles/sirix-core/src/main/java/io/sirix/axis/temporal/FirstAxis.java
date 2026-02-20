@@ -29,7 +29,7 @@ public final class FirstAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends N
   /**
    * Constructor.
    *
-   * @param resourceSession the resource manager
+   * @param resourceSession the resource session
    * @param rtx the transactional cursor
    */
   public FirstAxis(final ResourceSession<R, W> resourceSession, final R rtx) {

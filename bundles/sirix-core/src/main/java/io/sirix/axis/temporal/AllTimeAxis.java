@@ -35,7 +35,7 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
   /**
    * Constructor.
    *
-   * @param resourceSession the resource manager
+   * @param resourceSession the resource session
    * @param rtx the read only transactional cursor
    */
   public AllTimeAxis(final ResourceSession<R, W> resourceSession, final R rtx) {

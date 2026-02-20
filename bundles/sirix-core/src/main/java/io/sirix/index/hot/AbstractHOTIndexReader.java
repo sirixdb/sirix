@@ -66,19 +66,19 @@ import static java.util.Objects.requireNonNull;
  */
 public abstract class AbstractHOTIndexReader<K> {
 
-  protected final StorageEngineReader pageReadTrx;
+  protected final StorageEngineReader storageEngineReader;
   protected final IndexType indexType;
   protected final int indexNumber;
 
   /**
    * Protected constructor.
    *
-   * @param pageReadTrx the storage engine reader
+   * @param storageEngineReader the storage engine reader
    * @param indexType the index type (PATH, CAS, NAME)
    * @param indexNumber the index number
    */
-  protected AbstractHOTIndexReader(StorageEngineReader pageReadTrx, IndexType indexType, int indexNumber) {
-    this.pageReadTrx = requireNonNull(pageReadTrx);
+  protected AbstractHOTIndexReader(StorageEngineReader storageEngineReader, IndexType indexType, int indexNumber) {
+    this.storageEngineReader = requireNonNull(storageEngineReader);
     this.indexType = requireNonNull(indexType);
     this.indexNumber = indexNumber;
   }
@@ -88,8 +88,8 @@ public abstract class AbstractHOTIndexReader<K> {
    *
    * @return the storage engine reader
    */
-  public StorageEngineReader getPageReadTrx() {
-    return pageReadTrx;
+  public StorageEngineReader getStorageEngineReader() {
+    return storageEngineReader;
   }
 
   /**
@@ -116,24 +116,24 @@ public abstract class AbstractHOTIndexReader<K> {
    * @return the root page reference, or null if not found
    */
   protected @Nullable PageReference getRootReference() {
-    final RevisionRootPage rootPage = pageReadTrx.getActualRevisionRootPage();
+    final RevisionRootPage rootPage = storageEngineReader.getActualRevisionRootPage();
     return switch (indexType) {
       case PATH -> {
-        final PathPage pathPage = pageReadTrx.getPathPage(rootPage);
+        final PathPage pathPage = storageEngineReader.getPathPage(rootPage);
         if (pathPage == null || indexNumber >= pathPage.getReferences().size()) {
           yield null;
         }
         yield pathPage.getOrCreateReference(indexNumber);
       }
       case CAS -> {
-        final CASPage casPage = pageReadTrx.getCASPage(rootPage);
+        final CASPage casPage = storageEngineReader.getCASPage(rootPage);
         if (casPage == null || indexNumber >= casPage.getReferences().size()) {
           yield null;
         }
         yield casPage.getOrCreateReference(indexNumber);
       }
       case NAME -> {
-        final NamePage namePage = pageReadTrx.getNamePage(rootPage);
+        final NamePage namePage = storageEngineReader.getNamePage(rootPage);
         if (namePage == null || indexNumber >= namePage.getReferences().size()) {
           yield null;
         }
@@ -152,7 +152,7 @@ public abstract class AbstractHOTIndexReader<K> {
    * @return the leaf page, or null if not found
    */
   protected @Nullable HOTLeafPage navigateToLeaf(PageReference rootRef, byte[] key) {
-    try (var trieReader = new HOTTrieReader(pageReadTrx)) {
+    try (var trieReader = new HOTTrieReader(storageEngineReader)) {
       return trieReader.navigateToLeaf(rootRef, key);
     }
   }
@@ -226,13 +226,13 @@ public abstract class AbstractHOTIndexReader<K> {
     protected HOTLeafIterator() {
       this.rootRef = getRootReference();
       if (rootRef != null) {
-        this.trieReader = new HOTTrieReader(pageReadTrx);
+        this.trieReader = new HOTTrieReader(storageEngineReader);
         // Navigate to leftmost leaf
         this.currentLeaf = trieReader.navigateToLeftmostLeaf(rootRef);
       } else {
         this.trieReader = null;
         // Fallback to simple case
-        this.currentLeaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
+        this.currentLeaf = storageEngineReader.getHOTLeafPage(indexType, indexNumber);
       }
       this.currentIndex = 0;
       advance();
@@ -310,13 +310,13 @@ public abstract class AbstractHOTIndexReader<K> {
 
       PageReference rootRef = getRootReference();
       if (rootRef != null) {
-        this.trieReader = new HOTTrieReader(pageReadTrx);
+        this.trieReader = new HOTTrieReader(storageEngineReader);
         // Start from the leftmost leaf and skip entries < fromBytes
         this.currentLeaf = trieReader.navigateToLeftmostLeaf(rootRef);
       } else {
         this.trieReader = null;
         // Fallback to simple case
-        this.currentLeaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
+        this.currentLeaf = storageEngineReader.getHOTLeafPage(indexType, indexNumber);
       }
 
       this.currentIndex = 0;

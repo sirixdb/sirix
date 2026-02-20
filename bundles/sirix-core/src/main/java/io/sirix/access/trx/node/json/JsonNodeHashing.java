@@ -16,11 +16,11 @@ final class JsonNodeHashing extends AbstractNodeHashing<ImmutableNode, JsonNodeR
    *
    * @param resourceConfiguration the resource configuration
    * @param nodeReadOnlyTrx the internal read-only node trx
-   * @param pageWriteTrx the page trx
+   * @param storageEngineWriter the storage engine writer
    */
   JsonNodeHashing(final ResourceConfiguration resourceConfiguration, final InternalJsonNodeReadOnlyTrx nodeReadOnlyTrx,
-      final StorageEngineWriter pageWriteTrx) {
-    super(resourceConfiguration, nodeReadOnlyTrx, pageWriteTrx);
+      final StorageEngineWriter storageEngineWriter) {
+    super(resourceConfiguration, nodeReadOnlyTrx, storageEngineWriter);
     this.nodeReadOnlyTrx = nodeReadOnlyTrx;
   }
 

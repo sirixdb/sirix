@@ -766,12 +766,12 @@ public final class HOTIndirectPage implements Page {
   }
 
   @Override
-  public void commit(io.sirix.api.StorageEngineWriter pageWriteTrx) {
+  public void commit(io.sirix.api.StorageEngineWriter storageEngineWriter) {
     // Commit all child pages before this page is written
     for (int i = 0; i < numChildren; i++) {
       PageReference ref = childReferences[i];
       if (ref != null && ref.getLogKey() != io.sirix.settings.Constants.NULL_ID_INT) {
-        pageWriteTrx.commit(ref);
+        storageEngineWriter.commit(ref);
       }
     }
   }

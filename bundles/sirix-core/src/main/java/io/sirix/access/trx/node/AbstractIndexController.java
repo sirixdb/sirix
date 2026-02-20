@@ -203,18 +203,18 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     }
   }
 
-  private ChangeListener createPathIndexListener(final StorageEngineWriter pageWriteTrx,
+  private ChangeListener createPathIndexListener(final StorageEngineWriter storageEngineWriter,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    return pathIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
+    return pathIndex.createListener(storageEngineWriter, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createCASIndexListener(final StorageEngineWriter pageWriteTrx,
+  private ChangeListener createCASIndexListener(final StorageEngineWriter storageEngineWriter,
       final PathSummaryReader pathSummaryReader, final IndexDef indexDef) {
-    return casIndex.createListener(pageWriteTrx, pathSummaryReader, indexDef);
+    return casIndex.createListener(storageEngineWriter, pathSummaryReader, indexDef);
   }
 
-  private ChangeListener createNameIndexListener(final StorageEngineWriter pageWriteTrx, final IndexDef indexDef) {
-    return nameIndex.createListener(pageWriteTrx, indexDef);
+  private ChangeListener createNameIndexListener(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+    return nameIndex.createListener(storageEngineWriter, indexDef);
   }
 
   @Override

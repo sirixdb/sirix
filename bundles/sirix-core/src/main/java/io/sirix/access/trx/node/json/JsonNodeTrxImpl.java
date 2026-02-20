@@ -177,7 +177,7 @@ final class JsonNodeTrxImpl extends
    * Constructor.
    *
    * @param databaseName The database name where the transaction operates.
-   * @param resourceSession the resource manager instance this transaction is bound to
+   * @param resourceSession the resource session instance this transaction is bound to
    * @param nodeReadTrx the read-only trx delegate
    * @param pathSummaryWriter writes the path summary
    * @param maxNodeCount maximum number of node modifications before auto commit

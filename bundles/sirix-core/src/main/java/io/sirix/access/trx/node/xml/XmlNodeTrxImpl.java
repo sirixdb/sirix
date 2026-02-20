@@ -123,7 +123,7 @@ final class XmlNodeTrxImpl extends
   /**
    * Constructor.
    *
-   * @param resourceSession the resource manager this transaction is bound to
+   * @param resourceSession the resource session this transaction is bound to
    * @param nodeReadOnlyTrx {@link StorageEngineWriter} to interact with the page layer
    * @param pathSummaryWriter the path summary writer
    * @param maxNodeCount maximum number of node modifications before auto commit

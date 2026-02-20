@@ -18,7 +18,7 @@ public interface ResourceStore<R extends ResourceSession<? extends NodeReadOnlyT
    * @param resourceConfig The resource configuration.
    * @param bufferManager The buffer manager.
    * @param resourcePath The resource to open.
-   * @return A resource manager.
+   * @return A resource session.
    * @throws NullPointerException if one if the arguments is {@code null}
    */
   R beginResourceSession(@NonNull ResourceConfiguration resourceConfig, @NonNull BufferManager bufferManager,

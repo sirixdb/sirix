@@ -89,7 +89,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private final R typeSpecificTrx;
 
   /**
-   * The resource manager.
+   * The resource session.
    */
   protected final InternalResourceSession<R, W> resourceSession;
 
@@ -140,12 +140,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private long modificationCount;
 
   /**
-   * The page write trx.
+   * The storage engine writer.
    */
   protected StorageEngineWriter storageEngineWriter;
 
   /**
-   * The {@link IndexController} used within the resource manager this {@link NodeTrx} is bound to.
+   * The {@link IndexController} used within the resource session this {@link NodeTrx} is bound to.
    */
   protected IndexController<R, W> indexController;
 
@@ -329,7 +329,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       final UberPage uberPage = storageEngineWriter.commit(commitMessage, commitTimestamp, isAutoCommitting);
 
-      // Remember successfully committed uber page in resource manager.
+      // Remember successfully committed uber page in resource session.
       resourceSession.setLastCommittedUberPage(uberPage);
 
       if (resourceSession.getResourceConfig().storeDiffs()) {
@@ -431,7 +431,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     indexController = resourceSession.getWtxIndexController(nodeReadOnlyTrx.getStorageEngineReader().getRevisionNumber());
     indexController.createIndexListeners(indexDefs, self());
 
-    nodeToRevisionsIndex.setPageTrx(storageEngineWriter);
+    nodeToRevisionsIndex.setStorageEngineWriter(storageEngineWriter);
   }
 
   @Override
@@ -454,7 +454,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
     final UberPage uberPage = storageEngineWriter.rollback();
 
-    // Remember successfully committed uber page in resource manager.
+    // Remember successfully committed uber page in resource session.
     resourceSession.setLastCommittedUberPage(uberPage);
 
     resourceSession.closeNodePageWriteTransaction(getId());

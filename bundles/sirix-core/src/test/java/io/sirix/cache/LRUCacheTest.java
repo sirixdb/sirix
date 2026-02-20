@@ -51,7 +51,7 @@ public class LRUCacheTest {
   public void tearDown() throws SirixException {
     CacheTestHelper.tearDown();
     cache.close();
-    CacheTestHelper.PAGE_READ_TRX.close();
+    CacheTestHelper.STORAGE_ENGINE_READER.close();
     XmlTestHelper.closeEverything();
   }
 

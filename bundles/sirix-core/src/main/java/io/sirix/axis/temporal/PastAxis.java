@@ -44,7 +44,7 @@ public final class PastAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends No
   /**
    * Constructor.
    *
-   * @param resourceSession the resource manager
+   * @param resourceSession the resource session
    * @param rtx the transactional read only cursor
    * @param includeSelf determines if current revision must be included or not
    */

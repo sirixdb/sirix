@@ -18,13 +18,13 @@ public final class StorageEngineReaderFactory implements ObjectFactory<StorageEn
   }
 
   @Override
-  public void destroy(StorageEngineReader pageReadOnlyTrx) {
-    pageReadOnlyTrx.close();
+  public void destroy(StorageEngineReader storageEngineReader) {
+    storageEngineReader.close();
   }
 
   @Override
-  public boolean validate(StorageEngineReader pageReadOnlyTrx) {
+  public boolean validate(StorageEngineReader storageEngineReader) {
     int mostRecentRevisionNumber = resourceSession.getMostRecentRevisionNumber();
-    return !pageReadOnlyTrx.isClosed() || pageReadOnlyTrx.getRevisionNumber() != mostRecentRevisionNumber;
+    return !storageEngineReader.isClosed() || storageEngineReader.getRevisionNumber() != mostRecentRevisionNumber;
   }
 }

@@ -33,7 +33,7 @@ import java.util.function.Function;
 /**
  * Interface for all upcoming cache implementations. Can be a weak one, a LRU-based one or a
  * persistent. However, clear, put and get must to be provided. Instances of this class are used
- * with {@code PageReadTrx} as well as with {@code PageWriteTrx}.
+ * with {@code StorageEngineReader} as well as with {@code StorageEngineWriter}.
  *
  * @author Sebastian Graf, University of Konstanz
  * @author Johannes Lichtenberger, University of Konstanz

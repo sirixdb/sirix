@@ -129,7 +129,7 @@ public final class UberPage implements Page {
   }
 
   // @Override
-  // public void serialize(final StorageEngineReader pageReadOnlyTrx, final BytesOut<?> out,
+  // public void serialize(final StorageEngineReader storageEngineReader, final BytesOut<?> out,
   // final SerializationType type) {
   // out.writeInt(revisionCount);
   // isBootstrap = false;
@@ -193,8 +193,8 @@ public final class UberPage implements Page {
   }
 
   @Override
-  public void commit(final @NonNull StorageEngineWriter pageWriteTrx) {
-    pageWriteTrx.commit(rootPageReference);
+  public void commit(final @NonNull StorageEngineWriter storageEngineWriter) {
+    storageEngineWriter.commit(rootPageReference);
   }
 
   public UberPage setRevisionRootPage(final RevisionRootPage rootPage) {

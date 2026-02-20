@@ -148,15 +148,15 @@ public final class XmlNodeReadOnlyTrxImpl extends
     final NameNode nameNode = currentNameNodeOrNull();
     if (nameNode != null) {
       final NodeKind kind = getKind();
-      final String uri = pageReadOnlyTrx.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
+      final String uri = storageEngineReader.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
       final int prefixKey = nameNode.getPrefixKey();
       final String prefix = prefixKey == -1
           ? ""
-          : pageReadOnlyTrx.getName(prefixKey, kind);
+          : storageEngineReader.getName(prefixKey, kind);
       final int localNameKey = nameNode.getLocalNameKey();
       final String localName = localNameKey == -1
           ? ""
-          : pageReadOnlyTrx.getName(localNameKey, kind);
+          : storageEngineReader.getName(localNameKey, kind);
       return new QNm(uri, prefix, localName);
     }
 
@@ -166,13 +166,13 @@ public final class XmlNodeReadOnlyTrxImpl extends
   @Override
   public String getType() {
     assertNotClosed();
-    return pageReadOnlyTrx.getName(getTypeKey(), getKind());
+    return storageEngineReader.getName(getTypeKey(), getKind());
   }
 
   @Override
   public byte[] rawNameForKey(final int key) {
     assertNotClosed();
-    return pageReadOnlyTrx.getRawName(key, getKind());
+    return storageEngineReader.getRawName(key, getKind());
   }
 
   @Override
@@ -352,7 +352,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
     assertNotClosed();
     final NameNode nameNode = currentNameNodeOrNull();
     if (nameNode != null) {
-      return pageReadOnlyTrx.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
+      return storageEngineReader.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
     }
     return null;
   }
@@ -519,7 +519,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
     if (valueNode != null) {
       returnVal = new String(valueNode.getRawValue(), Constants.DEFAULT_ENCODING);
     } else if (getKind() == NodeKind.NAMESPACE) {
-      returnVal = pageReadOnlyTrx.getName(((NamespaceNode) getCurrentNode()).getURIKey(), NodeKind.NAMESPACE);
+      returnVal = storageEngineReader.getName(((NamespaceNode) getCurrentNode()).getURIKey(), NodeKind.NAMESPACE);
     } else {
       returnVal = "";
     }
@@ -531,7 +531,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   public int getNameCount(String name, @NonNull NodeKind kind) {
     assertNotClosed();
     if (currentNameNodeOrNull() != null) {
-      return pageReadOnlyTrx.getNameCount(NamePageHash.generateHashForString(name), kind);
+      return storageEngineReader.getNameCount(NamePageHash.generateHashForString(name), kind);
     }
     return 0;
   }

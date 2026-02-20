@@ -38,7 +38,7 @@ public interface DatabaseModule {
 
   @Provides
   @Singleton
-  static PathBasedPool<ResourceSession<?, ?>> resourceManagers() {
+  static PathBasedPool<ResourceSession<?, ?>> resourceSessions() {
     return new PathBasedPool<>();
   }
 

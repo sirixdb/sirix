@@ -604,12 +604,12 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
   XmlNodeTrx addPostCommitHook(PostCommitHook hook);
 
   // /**
-  // * Get the page transaction used within the write transaction.
+  // * Get the storage engine writer used within the write transaction.
   // *
-  // * @return the {@link PageWriteTrx} instance
+  // * @return the {@link StorageEngineWriter} instance
   // */
   // @Beta
-  // PageWriteTrx<Long, Record, UnorderedKeyValuePage> getPageTransaction();
+  // StorageEngineWriter<Long, Record, UnorderedKeyValuePage> getPageTransaction();
 
   @Override
   XmlNodeTrx truncateTo(int revision);

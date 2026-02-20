@@ -18,14 +18,14 @@ public final class JsonNameIndexImpl implements JsonNameIndex {
   }
 
   @Override
-  public JsonNameIndexBuilder createBuilder(final StorageEngineWriter pageWriteTrx, final IndexDef indexDef) {
-    final var nameIndexBuilderDelegate = nameIndexBuilderFactory.create(pageWriteTrx, indexDef);
+  public JsonNameIndexBuilder createBuilder(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+    final var nameIndexBuilderDelegate = nameIndexBuilderFactory.create(storageEngineWriter, indexDef);
     return new JsonNameIndexBuilder(nameIndexBuilderDelegate);
   }
 
   @Override
-  public JsonNameIndexListener createListener(final StorageEngineWriter pageWriteTrx, final IndexDef indexDef) {
-    final var nameIndexListenerDelegate = nameIndexListenerFactory.create(pageWriteTrx, indexDef);
+  public JsonNameIndexListener createListener(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+    final var nameIndexListenerDelegate = nameIndexListenerFactory.create(storageEngineWriter, indexDef);
     return new JsonNameIndexListener(nameIndexListenerDelegate);
   }
 }

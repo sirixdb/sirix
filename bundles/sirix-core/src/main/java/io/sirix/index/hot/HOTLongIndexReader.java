@@ -72,27 +72,27 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
   /**
    * Private constructor.
    *
-   * @param pageReadTrx the storage engine reader
+   * @param storageEngineReader the storage engine reader
    * @param keySerializer the key serializer
    * @param indexType the index type (should be PATH)
    * @param indexNumber the index number
    */
-  private HOTLongIndexReader(StorageEngineReader pageReadTrx, HOTLongKeySerializer keySerializer, IndexType indexType,
+  private HOTLongIndexReader(StorageEngineReader storageEngineReader, HOTLongKeySerializer keySerializer, IndexType indexType,
       int indexNumber) {
-    super(pageReadTrx, indexType, indexNumber);
+    super(storageEngineReader, indexType, indexNumber);
     this.keySerializer = keySerializer;
   }
 
   /**
    * Creates a new HOTLongIndexReader for PATH index.
    *
-   * @param pageReadTrx the storage engine reader
+   * @param storageEngineReader the storage engine reader
    * @param indexType the index type (should be PATH)
    * @param indexNumber the index number
    * @return a new HOTLongIndexReader instance
    */
-  public static HOTLongIndexReader create(StorageEngineReader pageReadTrx, IndexType indexType, int indexNumber) {
-    return new HOTLongIndexReader(pageReadTrx, PathKeySerializer.INSTANCE, indexType, indexNumber);
+  public static HOTLongIndexReader create(StorageEngineReader storageEngineReader, IndexType indexType, int indexNumber) {
+    return new HOTLongIndexReader(storageEngineReader, PathKeySerializer.INSTANCE, indexType, indexNumber);
   }
 
   /**
@@ -131,7 +131,7 @@ public final class HOTLongIndexReader extends AbstractHOTIndexReader<Long> {
    * Fallback method for simple (single leaf) case.
    */
   private @Nullable NodeReferences getFromSimpleLeaf(byte[] keyBuf) {
-    HOTLeafPage leaf = pageReadTrx.getHOTLeafPage(indexType, indexNumber);
+    HOTLeafPage leaf = storageEngineReader.getHOTLeafPage(indexType, indexNumber);
     if (leaf == null) {
       return null;
     }

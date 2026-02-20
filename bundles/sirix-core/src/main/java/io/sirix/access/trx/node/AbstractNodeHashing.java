@@ -33,7 +33,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   protected final T nodeReadOnlyTrx;
 
   /**
-   * The page write trx.
+   * The storage engine writer.
    */
   private final StorageEngineWriter storageEngineWriter;
 
@@ -51,7 +51,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    *
    * @param resourceConfig the resource configuration
    * @param nodeReadOnlyTrx the internal read-only node trx
-   * @param storageEngineWriter the page trx
+   * @param storageEngineWriter the storage engine writer
    */
   protected AbstractNodeHashing(final ResourceConfiguration resourceConfig, final T nodeReadOnlyTrx,
       final StorageEngineWriter storageEngineWriter) {

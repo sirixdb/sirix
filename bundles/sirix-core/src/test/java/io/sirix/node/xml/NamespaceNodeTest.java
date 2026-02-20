@@ -51,19 +51,19 @@ public class NamespaceNodeTest {
   /**
    * Sirix {@link StorageEngineReader} instance.
    */
-  private StorageEngineReader pageReadTrx;
+  private StorageEngineReader storageEngineReader;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     holder = Holder.generateDeweyIDResourceSession();
-    pageReadTrx = holder.getResourceSession().beginStorageEngineReader();
+    storageEngineReader = holder.getResourceSession().beginStorageEngineReader();
   }
 
   @After
   public void tearDown() throws SirixException {
-    pageReadTrx.close();
+    storageEngineReader.close();
     holder.close();
   }
 
@@ -86,7 +86,7 @@ public class NamespaceNodeTest {
     var bytesIn = data.asBytesIn();
     bytesIn.readByte(); // Skip NodeKind byte
     final NamespaceNode node = (NamespaceNode) NodeKind.NAMESPACE.deserialize(bytesIn, nodeKey,
-        SirixDeweyID.newRootID().toBytes(), pageReadTrx.getResourceSession().getResourceConfig());
+        SirixDeweyID.newRootID().toBytes(), storageEngineReader.getResourceSession().getResourceConfig());
 
     // Compute and set hash
     var hashBytes = Bytes.elasticOffHeapByteBuffer();
@@ -97,11 +97,11 @@ public class NamespaceNodeTest {
     // Serialize and deserialize node again
     final BytesOut<?> data2 = Bytes.elasticOffHeapByteBuffer();
     data2.writeByte(NodeKind.NAMESPACE.getId()); // Write NodeKind to ensure proper alignment
-    node.getKind().serialize(data2, node, pageReadTrx.getResourceSession().getResourceConfig());
+    node.getKind().serialize(data2, node, storageEngineReader.getResourceSession().getResourceConfig());
     var bytesIn2 = data2.asBytesIn();
     bytesIn2.readByte(); // Skip NodeKind byte
     final NamespaceNode node2 = (NamespaceNode) NodeKind.NAMESPACE.deserialize(bytesIn2, node.getNodeKey(),
-        node.getDeweyID().toBytes(), pageReadTrx.getResourceSession().getResourceConfig());
+        node.getDeweyID().toBytes(), storageEngineReader.getResourceSession().getResourceConfig());
     check(node2);
   }
 

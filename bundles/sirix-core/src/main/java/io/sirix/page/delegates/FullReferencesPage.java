@@ -132,13 +132,13 @@ public final class FullReferencesPage implements Page {
   /**
    * Recursively call commit on all referenced pages.
    *
-   * @param pageWriteTrx the page write transaction
+   * @param storageEngineWriter the storage engine writer
    */
   @Override
-  public void commit(@NonNull final StorageEngineWriter pageWriteTrx) {
+  public void commit(@NonNull final StorageEngineWriter storageEngineWriter) {
     for (final PageReference reference : references) {
       if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT)) {
-        pageWriteTrx.commit(reference);
+        storageEngineWriter.commit(reference);
       }
     }
   }

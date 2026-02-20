@@ -18,14 +18,14 @@ public final class XmlNameIndexImpl implements XmlNameIndex {
   }
 
   @Override
-  public XmlNameIndexBuilder createBuilder(final StorageEngineWriter pageWriteTrx, final IndexDef indexDef) {
-    final var nameIndexBuilderDelegate = nameIndexBuilderFactory.create(pageWriteTrx, indexDef);
+  public XmlNameIndexBuilder createBuilder(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+    final var nameIndexBuilderDelegate = nameIndexBuilderFactory.create(storageEngineWriter, indexDef);
     return new XmlNameIndexBuilder(nameIndexBuilderDelegate);
   }
 
   @Override
-  public XmlNameIndexListener createListener(final StorageEngineWriter pageWriteTrx, final IndexDef indexDef) {
-    final var nameIndexListenerDelegate = nameIndexListenerFactory.create(pageWriteTrx, indexDef);
+  public XmlNameIndexListener createListener(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+    final var nameIndexListenerDelegate = nameIndexListenerFactory.create(storageEngineWriter, indexDef);
     return new XmlNameIndexListener(nameIndexListenerDelegate);
   }
 }

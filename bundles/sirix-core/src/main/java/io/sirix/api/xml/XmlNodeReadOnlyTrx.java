@@ -106,9 +106,9 @@ import java.util.List;
  */
 public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   /**
-   * Get the page reading transaction.
+   * Get the storage engine reader.
    *
-   * @return The page reading transaction.
+   * @return The storage engine reader.
    */
   @Override
   StorageEngineReader getStorageEngineReader();
@@ -527,7 +527,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
   /**
    * Get the {@link ResourceSession} this instance is bound to.
    *
-   * @return the resource manager
+   * @return the resource session
    */
   @Override
   XmlResourceSession getResourceSession();

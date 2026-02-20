@@ -13,7 +13,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 
 /**
- * A registry for write locks used for {@link ResourceSession resource managers}.
+ * A registry for write locks used for {@link ResourceSession resource sessions}.
  *
  * <p>
  * Each {@link ResourceSession}, identified by its {@link Path resource path}, will be assigned a

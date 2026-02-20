@@ -17,7 +17,7 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
     implements ResourceStore<R> {
 
   /**
-   * Central repository of all open resource managers.
+   * Central repository of all open resource sessions.
    */
   private final Map<Path, R> resourceSessions;
 
@@ -40,7 +40,7 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
       final var resourceSession = this.resourceSessionFactory.create(resourceConfig, bufferManager, resourceFile);
       this.allResourceSessions.putObject(resourceFile, resourceSession);
       if (resourceSession.getMostRecentRevisionNumber() > 0) {
-        ((AbstractResourceSession<?, ?>) resourceSession).createPageTrxPool();
+        ((AbstractResourceSession<?, ?>) resourceSession).createStorageEnginePool();
       }
       return resourceSession;
     });

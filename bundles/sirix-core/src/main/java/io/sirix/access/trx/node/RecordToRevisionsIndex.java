@@ -12,20 +12,20 @@ import static java.util.Objects.requireNonNull;
 public final class RecordToRevisionsIndex {
 
   /**
-   * The page trx to create index-entries.
+   * The storage engine writer to create index-entries.
    */
   private StorageEngineWriter storageEngineWriter;
 
   /**
    * Constructor
    *
-   * @param storageEngineWriter the page trx to create index-entries.
+   * @param storageEngineWriter the storage engine writer to create index-entries.
    */
   public RecordToRevisionsIndex(final StorageEngineWriter storageEngineWriter) {
     this.storageEngineWriter = requireNonNull(storageEngineWriter);
   }
 
-  public void setPageTrx(final StorageEngineWriter storageEngineWriter) {
+  public void setStorageEngineWriter(final StorageEngineWriter storageEngineWriter) {
     this.storageEngineWriter = storageEngineWriter;
   }
 

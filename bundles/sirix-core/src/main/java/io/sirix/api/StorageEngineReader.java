@@ -61,9 +61,9 @@ public interface StorageEngineReader extends AutoCloseable {
   UberPage getUberPage();
 
   /**
-   * Get the resource manager this transaction is bound to.
+   * Get the resource session this transaction is bound to.
    *
-   * @return resource manager instance
+   * @return resource session instance
    */
   ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession();
 

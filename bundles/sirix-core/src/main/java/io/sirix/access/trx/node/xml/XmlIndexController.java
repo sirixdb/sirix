@@ -100,7 +100,7 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
     return (XmlNodeVisitor) casIndex.createBuilder(nodeReadTrx, storageEngineWriter, pathSummaryReader, indexDef);
   }
 
-  private XmlNodeVisitor createNameIndexBuilder(final StorageEngineWriter pageWriteTrx, final IndexDef indexDef) {
-    return (XmlNodeVisitor) nameIndex.createBuilder(pageWriteTrx, indexDef);
+  private XmlNodeVisitor createNameIndexBuilder(final StorageEngineWriter storageEngineWriter, final IndexDef indexDef) {
+    return (XmlNodeVisitor) nameIndex.createBuilder(storageEngineWriter, indexDef);
   }
 }

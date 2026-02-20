@@ -57,19 +57,19 @@ public class AttributeNodeTest {
   /**
    * Sirix {@link StorageEngineReader} instance.
    */
-  private StorageEngineReader pageReadOnlyTrx;
+  private StorageEngineReader storageEngineReader;
 
   @Before
   public void setUp() throws SirixException {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     holder = Holder.generateDeweyIDResourceSession();
-    pageReadOnlyTrx = holder.getResourceSession().beginStorageEngineReader();
+    storageEngineReader = holder.getResourceSession().beginStorageEngineReader();
   }
 
   @After
   public void tearDown() throws SirixException {
-    pageReadOnlyTrx.close();
+    storageEngineReader.close();
     holder.close();
   }
 
@@ -100,11 +100,11 @@ public class AttributeNodeTest {
     // Serialize and deserialize node.
     final BytesOut<?> data = Bytes.elasticOffHeapByteBuffer();
     data.writeByte(NodeKind.ATTRIBUTE.getId()); // Write NodeKind byte
-    node.getKind().serialize(data, node, pageReadOnlyTrx.getResourceSession().getResourceConfig());
+    node.getKind().serialize(data, node, storageEngineReader.getResourceSession().getResourceConfig());
     var bytesIn = data.asBytesIn();
     bytesIn.readByte(); // Skip NodeKind byte
     final AttributeNode node2 = (AttributeNode) NodeKind.ATTRIBUTE.deserialize(bytesIn, node.getNodeKey(),
-        node.getDeweyID().toBytes(), pageReadOnlyTrx.getResourceSession().getResourceConfig());
+        node.getDeweyID().toBytes(), storageEngineReader.getResourceSession().getResourceConfig());
     check(node2);
   }
 

@@ -70,9 +70,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   private StructNode currentNode;
 
   /**
-   * Page reader.
+   * Storage engine reader.
    */
-  private final StorageEngineReader pageReadTrx;
+  private final StorageEngineReader storageEngineReader;
 
   /**
    * {@link ResourceSession} reference.
@@ -111,37 +111,37 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   /**
    * Private constructor.
    *
-   * @param pageReadTrx page reader
+   * @param storageEngineReader the storage engine reader
    * @param resourceSession {@link ResourceSession} reference
    */
-  private PathSummaryReader(final StorageEngineReader pageReadTrx,
+  private PathSummaryReader(final StorageEngineReader storageEngineReader,
       final ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession) {
     pathCache = new HashMap<>();
-    this.pageReadTrx = pageReadTrx;
+    this.storageEngineReader = storageEngineReader;
     isClosed = false;
     this.resourceSession = resourceSession;
 
     final Cache<PathSummaryCacheKey, PathSummaryData> pathSummaryCache =
-        pageReadTrx.getBufferManager().getPathSummaryCache();
-    final PathSummaryCacheKey cacheKey = new PathSummaryCacheKey(pageReadTrx.getDatabaseId(),
-        pageReadTrx.getResourceId(), pageReadTrx.getRevisionNumber());
+        storageEngineReader.getBufferManager().getPathSummaryCache();
+    final PathSummaryCacheKey cacheKey = new PathSummaryCacheKey(storageEngineReader.getDatabaseId(),
+        storageEngineReader.getResourceId(), storageEngineReader.getRevisionNumber());
     final PathSummaryData pathSummaryData = pathSummaryCache.get(cacheKey);
 
-    if (pathSummaryData == null || pageReadTrx.hasTrxIntentLog()) {
+    if (pathSummaryData == null || storageEngineReader.hasTrxIntentLog()) {
       if (DEBUG_PATH_SUMMARY) {
         LOGGER.debug("[PATH_SUMMARY-INIT] Initializing pathNodeMapping: hasTrxIntentLog={}, revision={}",
-            pageReadTrx.hasTrxIntentLog(), pageReadTrx.getRevisionNumber());
+            storageEngineReader.hasTrxIntentLog(), storageEngineReader.getRevisionNumber());
       }
 
       currentNode =
-          this.pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
+          this.storageEngineReader.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.PATH_SUMMARY, 0);
 
       if (currentNode == null) {
         throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
       }
 
       final int maxNrOfNodes =
-          (int) this.pageReadTrx.getPathSummaryPage(this.pageReadTrx.getActualRevisionRootPage()).getMaxNodeKey(0);
+          (int) this.storageEngineReader.getPathSummaryPage(this.storageEngineReader.getActualRevisionRootPage()).getMaxNodeKey(0);
       final int maxNrOfNodesForMap = (int) Math.ceil(maxNrOfNodes / 0.75);
       pathNodeMapping = new StructNode[maxNrOfNodes + 1];
       qnmMapping = new HashMap<>(maxNrOfNodesForMap);
@@ -176,15 +176,15 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
         moveToDocumentRoot();
       }
-      if (!pageReadTrx.hasTrxIntentLog()) {
-        final PathSummaryCacheKey putKey = new PathSummaryCacheKey(pageReadTrx.getDatabaseId(),
-            pageReadTrx.getResourceId(), pageReadTrx.getRevisionNumber());
+      if (!storageEngineReader.hasTrxIntentLog()) {
+        final PathSummaryCacheKey putKey = new PathSummaryCacheKey(storageEngineReader.getDatabaseId(),
+            storageEngineReader.getResourceId(), storageEngineReader.getRevisionNumber());
         pathSummaryCache.put(putKey, new PathSummaryData(currentNode, pathNodeMapping, qnmMapping, childLookupCache));
       }
     } else {
       if (DEBUG_PATH_SUMMARY) {
         LOGGER.debug("[PATH_SUMMARY-INIT] Using cached pathSummaryData from revision {}",
-            pageReadTrx.getRevisionNumber());
+            storageEngineReader.getRevisionNumber());
       }
       currentNode = pathSummaryData.currentNode();
       pathNodeMapping = pathSummaryData.pathNodeMapping();
@@ -240,7 +240,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   @Override
   public Optional<User> getUser() {
-    return pageReadTrx.getActualRevisionRootPage().getUser();
+    return storageEngineReader.getActualRevisionRootPage().getUser();
   }
 
   @Override
@@ -250,19 +250,19 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   @Override
   public StorageEngineReader getStorageEngineReader() {
-    return pageReadTrx;
+    return storageEngineReader;
   }
 
   /**
    * Get a new path summary reader instance.
    *
-   * @param pageReadTrx the {@link StorageEngineReader} instance
+   * @param storageEngineReader the {@link StorageEngineReader} instance
    * @param resourceSession the {@link ResourceSession} instance
    * @return new path summary reader instance
    */
-  public static PathSummaryReader getInstance(final StorageEngineReader pageReadTrx,
+  public static PathSummaryReader getInstance(final StorageEngineReader storageEngineReader,
       final ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession) {
-    return new PathSummaryReader(requireNonNull(pageReadTrx), requireNonNull(resourceSession));
+    return new PathSummaryReader(requireNonNull(storageEngineReader), requireNonNull(resourceSession));
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
@@ -555,7 +555,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final StructNode oldNode = currentNode;
     StructNode newNode;
     try {
-      newNode = pageReadTrx.getRecord(nodeKey, IndexType.PATH_SUMMARY, 0);
+      newNode = storageEngineReader.getRecord(nodeKey, IndexType.PATH_SUMMARY, 0);
     } catch (final SirixIOException e) {
       newNode = null;
     }
@@ -643,8 +643,8 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
       currentNode = null;
       isClosed = true;
 
-      if (pageReadTrx != null && !pageReadTrx.isClosed()) {
-        pageReadTrx.close();
+      if (storageEngineReader != null && !storageEngineReader.isClosed()) {
+        storageEngineReader.close();
       }
     }
   }
@@ -683,19 +683,19 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public int getRevisionNumber() {
     assertNotClosed();
-    return pageReadTrx.getRevisionNumber();
+    return storageEngineReader.getRevisionNumber();
   }
 
   @Override
   public Instant getRevisionTimestamp() {
     assertNotClosed();
-    return Instant.ofEpochMilli(pageReadTrx.getActualRevisionRootPage().getRevisionTimestamp());
+    return Instant.ofEpochMilli(storageEngineReader.getActualRevisionRootPage().getRevisionTimestamp());
   }
 
   @Override
   public long getMaxNodeKey() {
     assertNotClosed();
-    return pageReadTrx.getPathSummaryPage(pageReadTrx.getActualRevisionRootPage()).getMaxNodeKey(0);
+    return storageEngineReader.getPathSummaryPage(storageEngineReader.getActualRevisionRootPage()).getMaxNodeKey(0);
   }
 
   @Override
@@ -716,17 +716,17 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
         return nameNode.getName();
       }
       final int uriKey = nameNode.getURIKey();
-      final String uri = uriKey == -1 || pageReadTrx.getResourceSession() instanceof JsonResourceSession
+      final String uri = uriKey == -1 || storageEngineReader.getResourceSession() instanceof JsonResourceSession
           ? ""
-          : pageReadTrx.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
+          : storageEngineReader.getName(nameNode.getURIKey(), NodeKind.NAMESPACE);
       final int prefixKey = nameNode.getPrefixKey();
       final String prefix = prefixKey == -1
           ? ""
-          : pageReadTrx.getName(prefixKey, ((PathNode) currentNode).getPathKind());
+          : storageEngineReader.getName(prefixKey, ((PathNode) currentNode).getPathKind());
       final int localNameKey = nameNode.getLocalNameKey();
       final String localName = localNameKey == -1
           ? ""
-          : pageReadTrx.getName(localNameKey, ((PathNode) currentNode).getPathKind());
+          : storageEngineReader.getName(localNameKey, ((PathNode) currentNode).getPathKind());
       final var qNm = new QNm(uri, prefix, localName);
       if (nameNode instanceof PathNode pathNode) {
         pathNode.setName(qNm);
@@ -747,7 +747,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   public String nameForKey(final int key) {
     assertNotClosed();
     if (currentNode instanceof PathNode node) {
-      return pageReadTrx.getName(key, node.getPathKind());
+      return storageEngineReader.getName(key, node.getPathKind());
     } else {
       return "";
     }
@@ -832,9 +832,9 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
 
     if (currentNode instanceof PathNode node) {
-      helper.add("uri", pageReadTrx.getName(node.getURIKey(), node.getPathKind()));
-      helper.add("prefix", pageReadTrx.getName(node.getPrefixKey(), node.getPathKind()));
-      helper.add("localName", pageReadTrx.getName(node.getLocalNameKey(), node.getPathKind()));
+      helper.add("uri", storageEngineReader.getName(node.getURIKey(), node.getPathKind()));
+      helper.add("prefix", storageEngineReader.getName(node.getPrefixKey(), node.getPathKind()));
+      helper.add("localName", storageEngineReader.getName(node.getLocalNameKey(), node.getPathKind()));
     }
 
     helper.add("node", currentNode);
@@ -1065,7 +1065,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   @Override
   public CommitCredentials getCommitCredentials() {
     assertNotClosed();
-    return pageReadTrx.getCommitCredentials();
+    return storageEngineReader.getCommitCredentials();
   }
 
   public boolean isNameNode() {

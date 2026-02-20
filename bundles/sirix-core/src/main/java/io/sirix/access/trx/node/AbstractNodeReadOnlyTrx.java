@@ -72,7 +72,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   /**
    * State of transaction including all cached stuff.
    */
-  protected StorageEngineReader pageReadOnlyTrx;
+  protected StorageEngineReader storageEngineReader;
 
   /**
    * The current node fallback object.
@@ -80,7 +80,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   private N currentNode;
 
   /**
-   * Resource manager this write transaction is bound to.
+   * Resource session this transaction is bound to.
    */
   protected final InternalResourceSession<T, W> resourceSession;
 
@@ -162,7 +162,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @param trxId the transaction ID
    * @param pageReadTransaction the underlying read-only page transaction
    * @param documentNode the document root node
-   * @param resourceSession The resource manager for the current transaction
+   * @param resourceSession The resource session for the current transaction
    * @param itemList Read-transaction-exclusive item list.
    */
   protected AbstractNodeReadOnlyTrx(final @NonNegative int trxId,
@@ -171,7 +171,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.itemList = itemList;
     this.resourceSession = requireNonNull(resourceSession);
     this.id = trxId;
-    this.pageReadOnlyTrx = requireNonNull(pageReadTransaction);
+    this.storageEngineReader = requireNonNull(pageReadTransaction);
     this.currentNode = requireNonNull(documentNode);
     this.isClosed = false;
     this.resourceConfig = resourceSession.getResourceConfig();
@@ -257,7 +257,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   @Override
   public Optional<User> getUser() {
-    return pageReadOnlyTrx.getActualRevisionRootPage().getUser();
+    return storageEngineReader.getActualRevisionRootPage().getUser();
   }
 
   @Override
@@ -328,7 +328,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public String nameForKey(final int key) {
     assertNotClosed();
-    return pageReadOnlyTrx.getName(key, getKind());
+    return storageEngineReader.getName(key, getKind());
   }
 
   @Override
@@ -366,13 +366,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public int getRevisionNumber() {
     assertNotClosed();
-    return pageReadOnlyTrx.getActualRevisionRootPage().getRevision();
+    return storageEngineReader.getActualRevisionRootPage().getRevision();
   }
 
   @Override
   public Instant getRevisionTimestamp() {
     assertNotClosed();
-    return Instant.ofEpochMilli(pageReadOnlyTrx.getActualRevisionRootPage().getRevisionTimestamp());
+    return Instant.ofEpochMilli(storageEngineReader.getActualRevisionRootPage().getRevisionTimestamp());
   }
 
   @Override
@@ -406,7 +406,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return moveToItemList(nodeKey);
     }
 
-    if (singletonOptimizedResource && pageReadOnlyTrx instanceof NodeStorageEngineReader reader) {
+    if (singletonOptimizedResource && storageEngineReader instanceof NodeStorageEngineReader reader) {
       return moveToSingleton(nodeKey, reader);
     }
 
@@ -1159,7 +1159,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   private boolean moveToLegacy(final long nodeKey) {
     DataRecord newNode;
     try {
-      newNode = pageReadOnlyTrx.getRecord(nodeKey, IndexType.DOCUMENT, -1);
+      newNode = storageEngineReader.getRecord(nodeKey, IndexType.DOCUMENT, -1);
     } catch (final SirixIOException | UncheckedIOException | IllegalArgumentException | IllegalStateException e) {
       newNode = null;
     }
@@ -1251,7 +1251,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    */
   public StorageEngineReader getPageTransaction() {
     assertNotClosed();
-    return pageReadOnlyTrx;
+    return storageEngineReader;
   }
 
   /**
@@ -1261,13 +1261,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    */
   public final void setPageReadTransaction(@Nullable final StorageEngineReader pageReadTransaction) {
     assertNotClosed();
-    pageReadOnlyTrx = pageReadTransaction;
+    storageEngineReader = pageReadTransaction;
   }
 
   @Override
   public final long getMaxNodeKey() {
     assertNotClosed();
-    return pageReadOnlyTrx.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex();
+    return storageEngineReader.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex();
   }
 
   /**
@@ -1482,13 +1482,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public StorageEngineReader getStorageEngineReader() {
     assertNotClosed();
-    return pageReadOnlyTrx;
+    return storageEngineReader;
   }
 
   @Override
   public CommitCredentials getCommitCredentials() {
     assertNotClosed();
-    return pageReadOnlyTrx.getCommitCredentials();
+    return storageEngineReader.getCommitCredentials();
   }
 
   @Override
@@ -1585,7 +1585,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       setPageReadTransaction(null);
 
       // Immediately release all references.
-      pageReadOnlyTrx = null;
+      storageEngineReader = null;
       currentNode = null;
 
       // Close state.
@@ -1605,11 +1605,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
     final AbstractNodeReadOnlyTrx<?, ?, ?> that = (AbstractNodeReadOnlyTrx<?, ?, ?>) o;
     return getNodeKey() == that.getNodeKey()
-        && pageReadOnlyTrx.getRevisionNumber() == that.pageReadOnlyTrx.getRevisionNumber();
+        && storageEngineReader.getRevisionNumber() == that.storageEngineReader.getRevisionNumber();
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(getNodeKey(), pageReadOnlyTrx.getRevisionNumber());
+    return Objects.hash(getNodeKey(), storageEngineReader.getRevisionNumber());
   }
 }

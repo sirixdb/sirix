@@ -80,7 +80,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
 
   @Override
   public List<JsonObject> getUpdateOperations() {
-    final var revisionNumber = pageReadOnlyTrx instanceof StorageEngineWriter
+    final var revisionNumber = storageEngineReader instanceof StorageEngineWriter
         ? getRevisionNumber() - 1
         : getRevisionNumber();
     final var updateOperationsFile =
@@ -124,7 +124,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
 
         final int revisionNumber;
 
-        if (pageReadOnlyTrx instanceof StorageEngineWriter) {
+        if (storageEngineReader instanceof StorageEngineWriter) {
           revisionNumber = getRevisionNumber() - 1;
         } else {
           revisionNumber = getRevisionNumber();
@@ -336,7 +336,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
       final int nameKey = currentObjectKeyNode.getNameKey();
       final String localName = nameKey == -1
           ? ""
-          : pageReadOnlyTrx.getName(nameKey, NodeKind.OBJECT_KEY);
+          : storageEngineReader.getName(nameKey, NodeKind.OBJECT_KEY);
       currentObjectKeyNode.setName(localName);
       return new QNm(localName);
     }

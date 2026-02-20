@@ -123,7 +123,7 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
   }
 
   @Override
-  public Writer truncateTo(final StorageEngineReader pageReadOnlyTrx, final int revision) {
+  public Writer truncateTo(final StorageEngineReader storageEngineReader, final int revision) {
     try {
       final var dataFileRevisionRootPageOffset =
           cache.get(revision, (unused) -> getRevisionFileData(revision)).get(5, TimeUnit.SECONDS).offset();

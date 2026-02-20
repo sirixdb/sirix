@@ -105,7 +105,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * Constructor.
    *
    * @param storageEngineWriter Sirix {@link StorageEngineWriter}
-   * @param resMgr The resource manager
+   * @param resMgr The resource session
    * @param nodeFactory The node factory to create path nodes
    * @param rtx the read-only trx
    */

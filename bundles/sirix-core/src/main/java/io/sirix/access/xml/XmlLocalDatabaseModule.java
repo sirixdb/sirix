@@ -21,7 +21,7 @@ public interface XmlLocalDatabaseModule {
 
   @DatabaseScope
   @Provides
-  static ResourceSessionFactory<XmlResourceSession> resourceManagerFactory(
+  static ResourceSessionFactory<XmlResourceSession> resourceSessionFactory(
       final Provider<XmlResourceManagerComponent.Builder> subComponentBuilder) {
     return new SubComponentResourceSessionFactory<>(subComponentBuilder);
   }
@@ -31,15 +31,15 @@ public interface XmlLocalDatabaseModule {
   static Database<XmlResourceSession> xmlDatabase(final TransactionManager transactionManager,
       final DatabaseConfiguration dbConfig, final PathBasedPool<Database<?>> sessions,
       final ResourceStore<XmlResourceSession> resourceStore, final WriteLocksRegistry writeLocks,
-      final PathBasedPool<ResourceSession<?, ?>> resourceManagers) {
-    return new LocalDatabase<>(transactionManager, dbConfig, sessions, resourceStore, writeLocks, resourceManagers);
+      final PathBasedPool<ResourceSession<?, ?>> resourceSessions) {
+    return new LocalDatabase<>(transactionManager, dbConfig, sessions, resourceStore, writeLocks, resourceSessions);
   }
 
   @DatabaseScope
   @Provides
-  static ResourceStore<XmlResourceSession> xmlResourceManager(
-      final PathBasedPool<ResourceSession<?, ?>> allResourceManagers,
+  static ResourceStore<XmlResourceSession> xmlResourceSession(
+      final PathBasedPool<ResourceSession<?, ?>> allResourceSessions,
       final ResourceSessionFactory<XmlResourceSession> resourceSessionFactory) {
-    return new ResourceStoreImpl<>(allResourceManagers, resourceSessionFactory);
+    return new ResourceStoreImpl<>(allResourceSessions, resourceSessionFactory);
   }
 }

@@ -101,14 +101,14 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   final ConcurrentMap<Integer, R> nodeTrxMap;
 
   /**
-   * Remember all running page transactions (both read and write).
+   * Remember all running storage engine instances (both readers and writers).
    */
-  final ConcurrentMap<Integer, StorageEngineReader> pageTrxMap;
+  final ConcurrentMap<Integer, StorageEngineReader> storageEngineReaderMap;
 
   /**
-   * Remember the write seperately because of the concurrent writes.
+   * Remember the write separately because of the concurrent writes.
    */
-  final ConcurrentMap<Integer, StorageEngineWriter> nodePageTrxMap;
+  final ConcurrentMap<Integer, StorageEngineWriter> storageEngineWriterMap;
 
   /**
    * Lock for blocking the commit.
@@ -131,9 +131,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   private final AtomicInteger nodeTrxIDCounter;
 
   /**
-   * Atomic counter for concurrent generation of page transaction id.
+   * Atomic counter for concurrent generation of storage engine id.
    */
-  final AtomicInteger pageTrxIDCounter;
+  final AtomicInteger storageEngineIDCounter;
 
   /**
    * Per-thread shared read-only transactions for parallel query execution.
@@ -173,7 +173,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   /**
    * A factory that creates new {@link StorageEngineWriter} instances.
    */
-  private final StorageEngineWriterFactory pageTrxFactory;
+  private final StorageEngineWriterFactory storageEngineWriterFactory;
 
   /**
    * ID Generation exception message for duplicate ID.
@@ -183,33 +183,33 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   /**
    * Creates a new instance of this class.
    *
-   * @param resourceStore the resource store with which this manager has been created
+   * @param resourceStore the resource store with which this session has been created
    * @param resourceConf {@link DatabaseConfiguration} for general setting about the storage
-   * @param bufferManager the cache of in-memory pages shared amongst all resource managers and
+   * @param bufferManager the cache of in-memory pages shared amongst all resource sessions and
    *        transactions
    * @param storage the I/O backed storage backend
    * @param uberPage holds a reference to the revision root page tree
    * @param writeLock allow for concurrent writes
-   * @param user the user tied to the resource manager
-   * @param pageTrxFactory A factory that creates new {@link StorageEngineWriter} instances.
+   * @param user the user tied to the resource session
+   * @param storageEngineWriterFactory A factory that creates new {@link StorageEngineWriter} instances.
    * @throws SirixException if Sirix encounters an exception
    */
   protected AbstractResourceSession(final @NonNull ResourceStore<? extends ResourceSession<R, W>> resourceStore,
       final @NonNull ResourceConfiguration resourceConf, final @NonNull BufferManager bufferManager,
       final @NonNull IOStorage storage, final @NonNull UberPage uberPage, final @NonNull Semaphore writeLock,
-      final @Nullable User user, final StorageEngineWriterFactory pageTrxFactory) {
+      final @Nullable User user, final StorageEngineWriterFactory storageEngineWriterFactory) {
     this.resourceStore = requireNonNull(resourceStore);
     resourceConfig = requireNonNull(resourceConf);
     this.bufferManager = requireNonNull(bufferManager);
     this.storage = requireNonNull(storage);
-    this.pageTrxFactory = pageTrxFactory;
+    this.storageEngineWriterFactory = storageEngineWriterFactory;
 
     nodeTrxMap = new ConcurrentHashMap<>();
-    pageTrxMap = new ConcurrentHashMap<>();
-    nodePageTrxMap = new ConcurrentHashMap<>();
+    storageEngineReaderMap = new ConcurrentHashMap<>();
+    storageEngineWriterMap = new ConcurrentHashMap<>();
 
     nodeTrxIDCounter = new AtomicInteger();
-    pageTrxIDCounter = new AtomicInteger();
+    storageEngineIDCounter = new AtomicInteger();
     commitLock = new ReentrantLock(false);
     sharedTrxMap = new ConcurrentHashMap<>();
 
@@ -237,7 +237,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   // This follows PostgreSQL bgwriter pattern - background threads run continuously,
   // not tied to individual session lifecycle
 
-  public void createPageTrxPool() {
+  public void createStorageEnginePool() {
     if (pool.get() == null) {
       final PoolConfig config = new PoolConfig();
       config.setPartitionSize(3);
@@ -306,7 +306,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     final UberPage lastCommittedUberPage = this.lastCommittedUberPage.get();
     final int lastCommittedRev = lastCommittedUberPage.getRevisionNumber();
-    final var storageEngineWriter = this.pageTrxFactory.createPageTrx(this,
+    final var storageEngineWriter = this.storageEngineWriterFactory.createStorageEngineWriter(this,
         abort == Abort.YES && lastCommittedUberPage.isBootstrap()
             ? new UberPage()
             : new UberPage(lastCommittedUberPage),
@@ -400,12 +400,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public synchronized R beginNodeReadOnlyTrx(@NonNegative final int revision) {
     assertAccess(revision);
 
-    final StorageEngineReader pageReadTrx = beginStorageEngineReader(revision);
+    final StorageEngineReader storageEngineReader = beginStorageEngineReader(revision);
 
-    final Node documentNode = getDocumentNode(pageReadTrx);
+    final Node documentNode = getDocumentNode(storageEngineReader);
 
     // Create new reader.
-    final R reader = createNodeReadOnlyTrx(nodeTrxIDCounter.incrementAndGet(), pageReadTrx, documentNode);
+    final R reader = createNodeReadOnlyTrx(nodeTrxIDCounter.incrementAndGet(), storageEngineReader, documentNode);
 
     // Remember reader for debugging and safe close.
     if (nodeTrxMap.put(reader.getId(), reader) != null) {
@@ -415,15 +415,15 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     return reader;
   }
 
-  public abstract R createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader pageReadTrx, Node documentNode);
+  public abstract R createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader storageEngineReader, Node documentNode);
 
   public abstract W createNodeReadWriteTrx(int nodeTrxId, StorageEngineWriter storageEngineWriter, int maxNodeCount,
       Duration autoCommitDelay, Node documentNode, AfterCommitState afterCommitState);
 
-  static Node getDocumentNode(final StorageEngineReader pageReadTrx) {
-    final Node node = pageReadTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
+  static Node getDocumentNode(final StorageEngineReader storageEngineReader) {
+    final Node node = storageEngineReader.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), IndexType.DOCUMENT, -1);
     if (node == null) {
-      pageReadTrx.close();
+      storageEngineReader.close();
       throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
     }
 
@@ -501,7 +501,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     LOGGER.trace("Lock: lock acquired (beginNodeTrx)");
 
-    // Create new page write transaction (shares the same ID with the node write trx).
+    // Create new storage engine writer (shares the same ID with the node write trx).
     final int nodeTrxId = nodeTrxIDCounter.incrementAndGet();
     final int lastRev = getMostRecentRevisionNumber();
     final StorageEngineWriter storageEngineWriter = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
@@ -515,7 +515,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     // Remember node transaction for debugging and safe close.
     // noinspection unchecked
-    if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null || nodePageTrxMap.put(nodeTrxId, storageEngineWriter) != null) {
+    if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null || storageEngineWriterMap.put(nodeTrxId, storageEngineWriter) != null) {
       throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
     }
 
@@ -543,12 +543,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         }
         rtx.close();
       }
-      // Close all open node page transactions.
-      for (StorageEngineReader rtx : nodePageTrxMap.values()) {
+      // Close all open storage engine writers.
+      for (StorageEngineReader rtx : storageEngineWriterMap.values()) {
         rtx.close();
       }
-      // Close all open page transactions.
-      for (StorageEngineReader rtx : pageTrxMap.values()) {
+      // Close all open storage engine readers.
+      for (StorageEngineReader rtx : storageEngineReaderMap.values()) {
         rtx.close();
       }
 
@@ -556,10 +556,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       // Pages will be evicted by normal cache LRU policy or cleaned up at database close
       // PostgreSQL-style: buffers released when ALL sessions release them, not when one closes
 
-      // Immediately release all ressources.
+      // Immediately release all resources.
       nodeTrxMap.clear();
-      pageTrxMap.clear();
-      nodePageTrxMap.clear();
+      storageEngineReaderMap.clear();
+      storageEngineWriterMap.clear();
       resourceStore.closeResourceSession(resourceConfig.getResource());
 
       storage.close();
@@ -593,12 +593,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public String toString() {
-    return "ResourceManager{" + "resourceConfig=" + resourceConfig + ", isClosed=" + isClosed + '}';
+    return "ResourceSession{" + "resourceConfig=" + resourceConfig + ", isClosed=" + isClosed + '}';
   }
 
   private void assertNotClosed() {
     if (isClosed) {
-      throw new IllegalStateException("Resource manager is already closed!");
+      throw new IllegalStateException("Resource session is already closed!");
     }
   }
 
@@ -614,28 +614,28 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
-   * Set a new node page write trx.
+   * Set a new storage engine writer for a node transaction.
    *
-   * @param transactionID page write transaction ID
-   * @param storageEngineWriter page write trx
+   * @param transactionID storage engine writer transaction ID
+   * @param storageEngineWriter storage engine writer
    */
   @Override
   public void setNodePageWriteTransaction(final @NonNegative int transactionID,
       @NonNull final StorageEngineWriter storageEngineWriter) {
     assertNotClosed();
-    nodePageTrxMap.put(transactionID, storageEngineWriter);
+    storageEngineWriterMap.put(transactionID, storageEngineWriter);
   }
 
   /**
-   * Close a node page transaction.
+   * Close a storage engine writer for a node transaction.
    *
-   * @param transactionID page write transaction ID
+   * @param transactionID storage engine writer transaction ID
    * @throws SirixIOException if an I/O error occurs
    */
   @Override
   public void closeNodePageWriteTransaction(final @NonNegative int transactionID) {
     assertNotClosed();
-    final StorageEngineReader storageEngineReader = nodePageTrxMap.remove(transactionID);
+    final StorageEngineReader storageEngineReader = storageEngineWriterMap.remove(transactionID);
     if (storageEngineReader != null) {
       storageEngineReader.close();
     }
@@ -681,7 +681,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertNotClosed();
 
     // Remove from internal map.
-    pageTrxMap.remove(transactionID);
+    storageEngineReaderMap.remove(transactionID);
 
     // Make new transactions available.
     LOGGER.trace("Lock unlock (closePageWriteTransaction).");
@@ -698,7 +698,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     assertNotClosed();
 
     // Remove from internal map.
-    pageTrxMap.remove(transactionID);
+    storageEngineReaderMap.remove(transactionID);
   }
 
   /**
@@ -713,7 +713,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     nodeTrxMap.remove(transactionID);
 
     // Removing the write from the own internal mapping
-    nodePageTrxMap.remove(transactionID);
+    storageEngineWriterMap.remove(transactionID);
   }
 
   @Override
@@ -760,7 +760,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   public synchronized PathSummaryReader openPathSummary(final @NonNegative int revision) {
     assertAccess(revision);
 
-    StorageEngineReader pageReadOnlyTrx;
+    StorageEngineReader storageEngineReader;
 
     var pool = this.pool.get();
 
@@ -778,36 +778,36 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       }
 
       if (poolable == null) {
-        pageReadOnlyTrx = beginStorageEngineReader(revision);
+        storageEngineReader = beginStorageEngineReader(revision);
       } else {
-        pageReadOnlyTrx = poolable.getObject();
+        storageEngineReader = poolable.getObject();
 
-        if (pageReadOnlyTrx.getRevisionNumber() != revision) {
+        if (storageEngineReader.getRevisionNumber() != revision) {
           pool.returnObject(poolable);
-          pageReadOnlyTrx = beginStorageEngineReader(revision);
+          storageEngineReader = beginStorageEngineReader(revision);
         }
       }
     } else {
-      pageReadOnlyTrx = beginStorageEngineReader(revision);
+      storageEngineReader = beginStorageEngineReader(revision);
     }
 
-    return PathSummaryReader.getInstance(pageReadOnlyTrx, this);
+    return PathSummaryReader.getInstance(storageEngineReader, this);
   }
 
   @Override
   public StorageEngineReader beginStorageEngineReader(final @NonNegative int revision) {
     assertAccess(revision);
 
-    final int currentPageTrxID = pageTrxIDCounter.incrementAndGet();
-    final NodeStorageEngineReader pageReadTrx =
-        new NodeStorageEngineReader(currentPageTrxID, this, lastCommittedUberPage.get(), revision,
+    final int currentStorageEngineID = storageEngineIDCounter.incrementAndGet();
+    final NodeStorageEngineReader storageEngineReader =
+        new NodeStorageEngineReader(currentStorageEngineID, this, lastCommittedUberPage.get(), revision,
             storage.createReader(), bufferManager, new RevisionRootPageReader(), null);
-    // Remember page transaction for debugging and safe close.
-    if (pageTrxMap.put(currentPageTrxID, pageReadTrx) != null) {
+    // Remember storage engine reader for debugging and safe close.
+    if (storageEngineReaderMap.put(currentStorageEngineID, storageEngineReader) != null) {
       throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
     }
 
-    return pageReadTrx;
+    return storageEngineReader;
   }
 
   @Override
@@ -825,12 +825,12 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     LOGGER.debug("Lock: lock acquired (beginStorageEngineWriter)");
 
-    final int currentPageTrxID = pageTrxIDCounter.incrementAndGet();
+    final int currentStorageEngineID = storageEngineIDCounter.incrementAndGet();
     final int lastRev = getMostRecentRevisionNumber();
-    final StorageEngineWriter storageEngineWriter = createPageTransaction(currentPageTrxID, lastRev, lastRev, Abort.NO, false);
+    final StorageEngineWriter storageEngineWriter = createPageTransaction(currentStorageEngineID, lastRev, lastRev, Abort.NO, false);
 
-    // Remember page transaction for debugging and safe close.
-    if (pageTrxMap.put(currentPageTrxID, storageEngineWriter) != null) {
+    // Remember storage engine writer for debugging and safe close.
+    if (storageEngineReaderMap.put(currentStorageEngineID, storageEngineWriter) != null) {
       throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
     }
 

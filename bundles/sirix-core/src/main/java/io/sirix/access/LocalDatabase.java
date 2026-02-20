@@ -86,14 +86,14 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private final PathBasedPool<Database<?>> sessions;
 
   /**
-   * The resource store to open/close resource-managers.
+   * The resource store to open/close resource sessions.
    */
   private final ResourceStore<T> resourceStore;
 
   private final PathBasedPool<ResourceSession<?, ?>> resourceSessions;
 
   /**
-   * This field should be use to fetch the locks for resource managers.
+   * This field should be used to fetch the locks for resource sessions.
    */
   private final WriteLocksRegistry writeLocks;
 
@@ -109,8 +109,8 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
    * @param dbConfig {@link ResourceConfiguration} reference to configure the {@link Database}
    * @param sessions The database sessions management instance.
    * @param resourceStore The resource store used by this database.
-   * @param writeLocks Manages the locks for resource managers.
-   * @param resourceSessions The pool for resource managers.
+   * @param writeLocks Manages the locks for resource sessions.
+   * @param resourceSessions The pool for resource sessions.
    */
   public LocalDatabase(final TransactionManager transactionManager, final DatabaseConfiguration dbConfig,
       final PathBasedPool<Database<?>> sessions, final ResourceStore<T> resourceStore,
@@ -273,9 +273,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     final Path resourceFile =
         dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(name);
 
-    // Check that no running resource managers / sessions are opened.
+    // Check that no running resource sessions are opened.
     if (this.resourceSessions.containsAnyEntry(resourceFile)) {
-      throw new IllegalStateException("Open resource managers found, must be closed first: " + resourceSessions);
+      throw new IllegalStateException("Open resource sessions found, must be closed first: " + resourceSessions);
     }
 
     // If file is existing and folder is a Sirix-dataplace, delete it.

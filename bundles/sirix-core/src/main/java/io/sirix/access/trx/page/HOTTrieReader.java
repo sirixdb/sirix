@@ -408,7 +408,7 @@ public final class HOTTrieReader implements AutoCloseable {
   /**
    * Get the storage engine reader.
    */
-  StorageEngineReader getPageRtx() {
+  StorageEngineReader getStorageEngineReader() {
     return storageEngineReader;
   }
 

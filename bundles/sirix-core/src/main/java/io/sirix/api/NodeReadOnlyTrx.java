@@ -61,7 +61,7 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
   /**
    * Get the {@link ResourceSession} this instance is bound to.
    *
-   * @return the resource manager this transaction is bound to
+   * @return the resource session this transaction is bound to
    */
   ResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> getResourceSession();
 

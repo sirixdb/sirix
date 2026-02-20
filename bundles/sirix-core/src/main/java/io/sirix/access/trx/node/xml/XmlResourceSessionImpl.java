@@ -76,24 +76,24 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
    * @param writeLock the write lock, which ensures, that only a single read-write transaction is
    *        opened on a resource
    * @param user a user, which interacts with SirixDB, might be {@code null}
-   * @param pageTrxFactory A factory that creates new {@link StorageEngineWriter} instances.
+   * @param storageEngineWriterFactory A factory that creates new {@link StorageEngineWriter} instances.
    */
   @Inject
   XmlResourceSessionImpl(final ResourceStore<XmlResourceSession> resourceStore,
       final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
       final UberPage uberPage, final Semaphore writeLock, final User user,
-      final StorageEngineWriterFactory pageTrxFactory) {
+      final StorageEngineWriterFactory storageEngineWriterFactory) {
 
-    super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, pageTrxFactory);
+    super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, storageEngineWriterFactory);
 
     rtxIndexControllers = new ConcurrentHashMap<>();
     wtxIndexControllers = new ConcurrentHashMap<>();
   }
 
   @Override
-  public XmlNodeReadOnlyTrx createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader pageReadTrx, Node documentNode) {
+  public XmlNodeReadOnlyTrx createNodeReadOnlyTrx(int nodeTrxId, StorageEngineReader storageEngineReader, Node documentNode) {
 
-    return new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, pageReadTrx, (ImmutableXmlNode) documentNode);
+    return new XmlNodeReadOnlyTrxImpl(this, nodeTrxId, storageEngineReader, (ImmutableXmlNode) documentNode);
   }
 
   @Override

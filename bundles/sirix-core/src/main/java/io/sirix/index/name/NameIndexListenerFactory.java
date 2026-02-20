@@ -48,19 +48,19 @@ public final class NameIndexListenerFactory {
    * </ol>
    * </p>
    */
-  public NameIndexListener create(final StorageEngineWriter pageWriteTrx, final IndexDef indexDefinition) {
-    return create(pageWriteTrx, indexDefinition, isHOTEnabled(pageWriteTrx));
+  public NameIndexListener create(final StorageEngineWriter storageEngineWriter, final IndexDef indexDefinition) {
+    return create(storageEngineWriter, indexDefinition, isHOTEnabled(storageEngineWriter));
   }
 
   /**
    * Creates a NAME index listener with explicit backend selection.
    *
-   * @param pageWriteTrx the storage engine writer
+   * @param storageEngineWriter the storage engine writer
    * @param indexDefinition the index definition
    * @param useHOT true to use HOT, false for RBTree
    * @return the NAME index listener
    */
-  public NameIndexListener create(final StorageEngineWriter pageWriteTrx, final IndexDef indexDefinition,
+  public NameIndexListener create(final StorageEngineWriter storageEngineWriter, final IndexDef indexDefinition,
       final boolean useHOT) {
     final var includes = requireNonNull(indexDefinition.getIncluded());
     final var excludes = requireNonNull(indexDefinition.getExcluded());
@@ -68,10 +68,10 @@ public final class NameIndexListenerFactory {
 
     if (useHOT) {
       final var hotWriter =
-          HOTIndexWriter.create(pageWriteTrx, NameKeySerializer.INSTANCE, IndexType.NAME, indexDefinition.getID());
+          HOTIndexWriter.create(storageEngineWriter, NameKeySerializer.INSTANCE, IndexType.NAME, indexDefinition.getID());
       return new NameIndexListener(includes, excludes, hotWriter);
     } else {
-      final var rbTreeWriter = RBTreeWriter.<QNm, NodeReferences>getInstance(this.databaseType, pageWriteTrx,
+      final var rbTreeWriter = RBTreeWriter.<QNm, NodeReferences>getInstance(this.databaseType, storageEngineWriter,
           indexDefinition.getType(), indexDefinition.getID());
       return new NameIndexListener(includes, excludes, rbTreeWriter);
     }

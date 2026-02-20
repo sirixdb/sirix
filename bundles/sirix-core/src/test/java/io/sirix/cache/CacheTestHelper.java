@@ -39,9 +39,9 @@ import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 public class CacheTestHelper {
 
   /**
-   * Page reading transaction.
+   * Storage engine reader.
    */
-  public static StorageEngineReader PAGE_READ_TRX;
+  public static StorageEngineReader STORAGE_ENGINE_READER;
 
   /**
    * Unordered record pages.
@@ -60,18 +60,18 @@ public class CacheTestHelper {
    */
   public static void setUp(final Cache<Long, PageContainer> cache) throws SirixException {
     arena = Arena.ofConfined();
-    PAGE_READ_TRX = Holder.openResourceSession().getResourceSession().beginStorageEngineReader();
+    STORAGE_ENGINE_READER = Holder.openResourceSession().getResourceSession().beginStorageEngineReader();
     PAGES = new KeyValueLeafPage[LRUCache.CACHE_CAPACITY + 1][VERSIONSTORESTORE + 1];
     for (int i = 0; i < PAGES.length; i++) {
       final KeyValueLeafPage page =
-          new KeyValueLeafPage(i, IndexType.DOCUMENT, PAGE_READ_TRX.getResourceSession().getResourceConfig(),
-              PAGE_READ_TRX.getRevisionNumber(), arena.allocate(SIXTYFOUR_KB), null);
+          new KeyValueLeafPage(i, IndexType.DOCUMENT, STORAGE_ENGINE_READER.getResourceSession().getResourceConfig(),
+              STORAGE_ENGINE_READER.getRevisionNumber(), arena.allocate(SIXTYFOUR_KB), null);
       final KeyValueLeafPage[] revs = new KeyValueLeafPage[VERSIONSTORESTORE];
 
       for (int j = 0; j < VERSIONSTORESTORE; j++) {
         PAGES[i][j + 1] =
-            new KeyValueLeafPage(i, IndexType.DOCUMENT, PAGE_READ_TRX.getResourceSession().getResourceConfig(),
-                PAGE_READ_TRX.getRevisionNumber(), arena.allocate(SIXTYFOUR_KB), null);
+            new KeyValueLeafPage(i, IndexType.DOCUMENT, STORAGE_ENGINE_READER.getResourceSession().getResourceConfig(),
+                STORAGE_ENGINE_READER.getRevisionNumber(), arena.allocate(SIXTYFOUR_KB), null);
         revs[j] = PAGES[i][j + 1];
       }
       PAGES[i][0] = page;

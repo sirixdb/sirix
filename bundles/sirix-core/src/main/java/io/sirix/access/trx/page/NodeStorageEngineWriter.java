@@ -209,7 +209,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   /**
-   * {@code true} if this page write trx will be bound to a node trx, {@code false} otherwise
+   * {@code true} if this storage engine writer will be bound to a node trx, {@code false} otherwise
    */
   private final boolean isBoundToNodeTrx;
 
@@ -261,10 +261,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * @param writer the page writer
    * @param log the transaction intent log
    * @param revisionRootPage the revision root page
-   * @param storageEngineReader the page reading transaction used as a delegate
+   * @param storageEngineReader the storage engine reader used as a delegate
    * @param indexController the index controller, which is used to update indexes
    * @param representRevision the revision to represent
-   * @param isBoundToNodeTrx {@code true} if this page write trx will be bound to a node trx,
+   * @param isBoundToNodeTrx {@code true} if this storage engine writer will be bound to a node trx,
    *        {@code false} otherwise
    */
   NodeStorageEngineWriter(final Writer writer, final TransactionIntentLog log, final RevisionRootPage revisionRootPage,
@@ -1704,7 +1704,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
      * Prepare the previous revision root page and retrieve the next {@link RevisionRootPage}.
      *
      * @param uberPage the uber page
-     * @param storageEngineReader the page reading transaction
+     * @param storageEngineReader the storage engine reader
      * @param log the transaction intent log
      * @param baseRevision base revision
      * @param representRevision the revision to represent
@@ -1733,7 +1733,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     /**
      * Prepare the leaf of the trie, navigating through IndirectPages using bit-decomposition.
      *
-     * @param storageEngineReader the page reading transaction
+     * @param storageEngineReader the storage engine reader
      * @param log the transaction intent log
      * @param inpLevelPageCountExp array which holds the maximum number of indirect page references per
      *        trie level
@@ -1797,7 +1797,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
      * Prepare indirect page, that is getting the referenced indirect page or creating a new page and
      * putting the whole path into the log.
      *
-     * @param storageEngineReader the page reading transaction
+     * @param storageEngineReader the storage engine reader
      * @param log the transaction intent log
      * @param reference {@link PageReference} to get the indirect page from or to create a new one
      * @return {@link IndirectPage} reference

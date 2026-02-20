@@ -70,9 +70,9 @@ public final class PageUtils {
    * @param indexType the index type
    */
   public static void createTree(final DatabaseType databaseType, @NonNull PageReference reference,
-      final IndexType indexType, final StorageEngineReader pageReadTrx, final TransactionIntentLog log) {
+      final IndexType indexType, final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
     // Create new record page.
-    final ResourceConfiguration resourceConfiguration = pageReadTrx.getResourceSession().getResourceConfig();
+    final ResourceConfiguration resourceConfiguration = storageEngineReader.getResourceSession().getResourceConfig();
 
     // Direct allocation (no pool)
     final MemorySegmentAllocator allocator = OS.isWindows()
@@ -81,7 +81,7 @@ public final class PageUtils {
 
     final KeyValueLeafPage recordPage =
         new KeyValueLeafPage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, resourceConfiguration,
-            pageReadTrx.getRevisionNumber(), allocator.allocate(SIXTYFOUR_KB), resourceConfiguration.areDeweyIDsStored
+            storageEngineReader.getRevisionNumber(), allocator.allocate(SIXTYFOUR_KB), resourceConfiguration.areDeweyIDsStored
                 ? allocator.allocate(SIXTYFOUR_KB)
                 : null,
             false // Memory from allocator - release on close()
@@ -107,15 +107,15 @@ public final class PageUtils {
    *
    * @param reference reference from revision root
    * @param indexType the index type (PATH, CAS, or NAME)
-   * @param pageReadTrx the storage engine reader
+   * @param storageEngineReader the storage engine reader
    * @param log the transaction intent log
    */
   public static void createHOTTree(@NonNull PageReference reference, final IndexType indexType,
-      final StorageEngineReader pageReadTrx, final TransactionIntentLog log) {
+      final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
 
     // Create new HOT leaf page (starts as a leaf, grows into trie on demand)
     final HOTLeafPage hotLeafPage =
-        new HOTLeafPage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), pageReadTrx.getRevisionNumber(), indexType);
+        new HOTLeafPage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), storageEngineReader.getRevisionNumber(), indexType);
 
     // Set page key on reference
     reference.setKey(Fixed.ROOT_PAGE_KEY.getStandardProperty());

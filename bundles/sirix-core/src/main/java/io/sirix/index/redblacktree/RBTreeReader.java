@@ -76,9 +76,9 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   private Node currentNode;
 
   /**
-   * {@link StorageEngineReader} for persistent storage.
+   * Storage engine reader for persistent storage.
    */
-  final StorageEngineReader pageReadOnlyTrx;
+  final StorageEngineReader storageEngineReader;
 
   /**
    * Index number.
@@ -106,47 +106,47 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    * @param <K> key instance which extends comparable
    * @param <V> value
    * @param cache a cache shared between all read-only tree readers
-   * @param pageReadTrx {@link StorageEngineReader} for persistent storage
+   * @param storageEngineReader {@link StorageEngineReader} for persistent storage
    * @param type type of index
    * @param index index
    * @return new tree instance
    */
   public static <K extends Comparable<? super K>, V extends References> RBTreeReader<K, V> getInstance(
-      final Cache<RBIndexKey, Node> cache, final StorageEngineReader pageReadTrx, final IndexType type,
+      final Cache<RBIndexKey, Node> cache, final StorageEngineReader storageEngineReader, final IndexType type,
       @NonNegative final int index) {
-    return new RBTreeReader<>(cache, pageReadTrx, type, index);
+    return new RBTreeReader<>(cache, storageEngineReader, type, index);
   }
 
   /**
    * Private constructor.
    *
    * @param cache a cache shared between all read-only tree readers
-   * @param pageReadOnlyTrx {@link StorageEngineReader} for persistent storage
+   * @param storageEngineReader {@link StorageEngineReader} for persistent storage
    * @param indexType kind of indexType
    * @param indexNumber the indexNumber number
    */
-  private RBTreeReader(final Cache<RBIndexKey, Node> cache, final StorageEngineReader pageReadOnlyTrx,
+  private RBTreeReader(final Cache<RBIndexKey, Node> cache, final StorageEngineReader storageEngineReader,
       final IndexType indexType, final int indexNumber) {
     this.cache = requireNonNull(cache);
-    this.pageReadOnlyTrx = requireNonNull(pageReadOnlyTrx);
+    this.storageEngineReader = requireNonNull(storageEngineReader);
     this.indexType = requireNonNull(indexType);
     this.indexNumber = indexNumber;
-    revisionNumber = pageReadOnlyTrx.getRevisionNumber();
+    revisionNumber = storageEngineReader.getRevisionNumber();
     isClosed = false;
     this.index = indexNumber;
 
-    currentNode = this.pageReadOnlyTrx.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), indexType, indexNumber);
+    currentNode = this.storageEngineReader.getRecord(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(), indexType, indexNumber);
 
     if (currentNode == null) {
       throw new IllegalStateException("Node couldn't be fetched from persistent storage!");
     }
 
     // TODO: move this / constructor of course should not do any work!
-    if (!(pageReadOnlyTrx instanceof StorageEngineWriter)) {
+    if (!(storageEngineReader instanceof StorageEngineWriter)) {
       for (RBNodeIterator it = new RBNodeIterator(0); it.hasNext();) {
         RBNodeKey<K> node = it.next();
         assert node.getNodeKey() != 0;
-        final var cacheKey = new RBIndexKey(pageReadOnlyTrx.getDatabaseId(), pageReadOnlyTrx.getResourceId(),
+        final var cacheKey = new RBIndexKey(storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId(),
             node.getNodeKey(), revisionNumber, indexType, indexNumber);
         this.cache.put(cacheKey, getCurrentNodeAsRBNodeKey());
       }
@@ -251,9 +251,9 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
   private Optional<V> getNode(K key, SearchMode mode, RBNodeKey<K> node) {
     // Get reusable lookup key for zero-allocation cache lookups
     final RBIndexKeyLookup lookupKey = LOOKUP_KEY.get();
-    final long databaseId = pageReadOnlyTrx.getDatabaseId();
-    final long resourceId = pageReadOnlyTrx.getResourceId();
-    final boolean isWriter = pageReadOnlyTrx instanceof StorageEngineWriter;
+    final long databaseId = storageEngineReader.getDatabaseId();
+    final long resourceId = storageEngineReader.getResourceId();
+    final boolean isWriter = storageEngineReader instanceof StorageEngineWriter;
 
     while (true) {
       final int c = mode.compare(key, node.getKey());
@@ -530,7 +530,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     Node newNode;
     try {
       // Immediately return node from item list if node key negative.
-      newNode = pageReadOnlyTrx.getRecord(nodeKey, indexType, index);
+      newNode = storageEngineReader.getRecord(nodeKey, indexType, index);
     } catch (final SirixIOException e) {
       newNode = null;
     }

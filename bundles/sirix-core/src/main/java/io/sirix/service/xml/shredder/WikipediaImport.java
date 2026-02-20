@@ -80,7 +80,7 @@ public final class WikipediaImport implements Import<StartElement> {
   private transient XMLEventReader mReader;
 
   /**
-   * Resource manager instance.
+   * Resource session instance.
    */
   private final XmlResourceSession mResourceSession;
 

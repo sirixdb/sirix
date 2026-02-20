@@ -84,7 +84,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Page read-only transaction. The only thing shared amongst transactions is the resource manager.
+ * Storage engine reader. The only thing shared amongst transactions is the resource session.
  * Everything else is exclusive to this transaction. It is required that only a single thread has
  * access to this transaction.
  */
@@ -119,12 +119,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   final InternalResourceSession<?, ?> resourceSession;
 
   /**
-   * The revision number, this page trx is bound to.
+   * The revision number, this storage engine reader is bound to.
    */
   private final int revisionNumber;
 
   /**
-   * Determines if page reading transaction is closed or not.
+   * Determines if storage engine reader is closed or not.
    */
   private volatile boolean isClosed;
 
@@ -208,7 +208,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * Standard constructor.
    *
    * @param trxId the transaction-ID.
-   * @param resourceSession the resource manager
+   * @param resourceSession the resource session
    * @param uberPage {@link UberPage} to start reading from
    * @param revision key of revision to read from uber page
    * @param reader to read stored pages for this transaction
