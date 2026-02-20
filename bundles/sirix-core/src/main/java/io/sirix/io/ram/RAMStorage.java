@@ -188,14 +188,22 @@ public final class RAMStorage implements IOStorage {
 
     @Override
     public Instant readRevisionRootPageCommitTimestamp(int revision) {
-      // FIXME
-      throw new UnsupportedOperationException();
+      final RevisionRootPage revisionRootPage = mResourceRevisionRootsStorage.get(revision);
+      if (revisionRootPage == null) {
+        throw new SirixIOException("No revision root page found for revision " + revision
+            + " in RAM storage. RAMStorage does not persist revision root pages across restarts.");
+      }
+      return Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp());
     }
 
     @Override
     public RevisionFileData getRevisionFileData(int revision) {
-      // FIXME
-      throw new UnsupportedOperationException();
+      final RevisionRootPage revisionRootPage = mResourceRevisionRootsStorage.get(revision);
+      if (revisionRootPage == null) {
+        throw new SirixIOException("No revision root page found for revision " + revision
+            + " in RAM storage. RAMStorage does not persist revision root pages across restarts.");
+      }
+      return new RevisionFileData(0L, Instant.ofEpochMilli(revisionRootPage.getRevisionTimestamp()));
     }
 
     @Override

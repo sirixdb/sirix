@@ -191,11 +191,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     final var fastMatching = fastMatch(this.wtx, this.rtx);
     totalMatching = new Matching(fastMatching);
     firstFMESStep(this.wtx, this.rtx);
-    try {
-      secondFMESStep(this.wtx, this.rtx);
-    } catch (final SirixException e) {
-      logger.error(e.getMessage(), e);
-    }
+    secondFMESStep(this.wtx, this.rtx);
   }
 
   /**
@@ -271,12 +267,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         rtx.moveTo(x);
         if (rtx.isNamespace() || rtx.isAttribute()) {
           wtx.moveTo(w);
-          try {
-            totalMatching.remove(w);
-            wtx.remove();
-          } catch (final SirixException e) {
-            logger.error(e.getMessage(), e);
-          }
+          totalMatching.remove(w);
+          wtx.remove();
           w = emitInsert(x, z, -1, wtx, rtx);
         } else {
           final int k = findPos(x, wtx, rtx);
@@ -446,8 +438,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     moved = wtx.moveTo(parent);
     assert moved;
 
-    try {
-      if (pos == 0) {
+    if (pos == 0) {
         assert wtx.getKind() == NodeKind.ELEMENT || wtx.getKind() == NodeKind.XML_DOCUMENT;
         if (wtx.getFirstChildKey() == child) {
           logger.error("Something went wrong: First child and child may never be the same!");
@@ -512,9 +503,6 @@ public final class FMSE implements ImportDiff, AutoCloseable {
 
         wtx.moveTo(wtx.moveSubtreeToRightSibling(child).getNodeKey());
       }
-    } catch (final SirixException e) {
-      logger.error(e.getMessage(), e);
-    }
   }
 
   private void checkFromNodeForTextRemoval(final XmlNodeTrx wtx, final long child) {
@@ -562,26 +550,22 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     wtx.moveTo(fromNode);
     rtx.moveTo(toNode);
 
-    try {
-      switch (rtx.getKind()) {
-        case ELEMENT, ATTRIBUTE, NAMESPACE, PROCESSING_INSTRUCTION -> {
-          assert rtx.getKind() == NodeKind.ELEMENT || rtx.getKind() == NodeKind.ATTRIBUTE
-              || rtx.getKind() == NodeKind.NAMESPACE || rtx.getKind() == NodeKind.PROCESSING_INSTRUCTION;
-          wtx.setName(rtx.getName());
-          if (wtx.getKind() == NodeKind.ATTRIBUTE || wtx.getKind() == NodeKind.PROCESSING_INSTRUCTION) {
-            wtx.setValue(rtx.getValue());
-          }
-        }
-        case TEXT, COMMENT -> {
-          assert wtx.getKind() == NodeKind.TEXT;
+    switch (rtx.getKind()) {
+      case ELEMENT, ATTRIBUTE, NAMESPACE, PROCESSING_INSTRUCTION -> {
+        assert rtx.getKind() == NodeKind.ELEMENT || rtx.getKind() == NodeKind.ATTRIBUTE
+            || rtx.getKind() == NodeKind.NAMESPACE || rtx.getKind() == NodeKind.PROCESSING_INSTRUCTION;
+        wtx.setName(rtx.getName());
+        if (wtx.getKind() == NodeKind.ATTRIBUTE || wtx.getKind() == NodeKind.PROCESSING_INSTRUCTION) {
           wtx.setValue(rtx.getValue());
         }
-        // $CASES-OMITTED$
-        default -> {
-        }
       }
-    } catch (final SirixException e) {
-      logger.error(e.getMessage(), e);
+      case TEXT, COMMENT -> {
+        assert wtx.getKind() == NodeKind.TEXT;
+        wtx.setValue(rtx.getValue());
+      }
+      // $CASES-OMITTED$
+      default -> {
+      }
     }
   }
 
@@ -611,8 +595,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
     wtx.moveTo(parent);
     rtx.moveTo(child);
 
-    try {
-      switch (rtx.getKind()) {
+    switch (rtx.getKind()) {
         case ATTRIBUTE -> {
           try {
             wtx.insertAttribute(rtx.getName(), rtx.getValue());
@@ -726,12 +709,8 @@ public final class FMSE implements ImportDiff, AutoCloseable {
           }
         }
       }
-    } catch (final SirixException e) {
-      logger.error(e.getMessage(), e);
-    }
-
     return wtx.getNodeKey();
-  }
+    }
 
   /**
    * Remove right sibling text node from the storage as well as from the matching.

@@ -351,8 +351,9 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   @Override
   public Transaction beginTransaction() {
-    // FIXME
-    return null;
+    throw new UnsupportedOperationException(
+        "Multi-resource transactions are not yet implemented. "
+            + "Use beginNodeTrx() on individual ResourceSession instances instead.");
   }
 
   @Override

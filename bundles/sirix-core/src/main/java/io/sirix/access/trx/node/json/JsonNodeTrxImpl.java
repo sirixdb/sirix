@@ -2365,9 +2365,9 @@ final class JsonNodeTrxImpl extends
         }
       }
       // $CASES-OMITTED$
-      default -> // new JsonItemShredder.Builder(this, new JsonItemIterator(new JsonItemFactory().get),
-                 // insert).build().call();
-        throw new IllegalStateException(); // FIXME
+      default -> throw new UnsupportedOperationException(
+          "Copying complex JSON node kinds (OBJECT, ARRAY, OBJECT_KEY) via copySubtree* "
+              + "is not yet implemented. Node kind: " + kind);
     }
     rtx.close();
   }

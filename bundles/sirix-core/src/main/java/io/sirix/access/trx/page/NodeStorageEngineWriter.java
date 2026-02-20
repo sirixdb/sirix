@@ -800,32 +800,43 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       setUserIfPresent();
       setCommitMessageAndTimestampIfRequired(commitMessage, commitTimestamp);
 
-      // PIPELINING: Serialize pages WHILE previous fsync may still be running
-      // This overlaps CPU work (serialization) with IO work (fsync)
+      // PIPELINING: Serialize pages WHILE previous fsync may still be running.
+      // This overlaps CPU work (serialization) with IO work (fsync).
       parallelSerializationOfKeyValuePages();
 
-      // Recursively write indirectly referenced pages (serializes to buffers)
+      // Recursively write indirectly referenced pages (serializes to buffers).
       uberPage.commit(this);
 
-      // NOW wait for previous fsync before writing to storage
-      // This ensures ordering: previous commit is durable before new data hits disk
+      // Wait for the previous commit's async UberPage fsync to complete.
+      // This ensures the previous revision is fully durable before we proceed.
       if (pendingFsync != null) {
         pendingFsync.join();
+        pendingFsync = null;
       }
 
-      // Write pages to storage (previous fsync complete, safe to write)
+      // CRITICAL crash-safety invariant (write-ahead property):
+      // All data pages MUST be flushed to durable storage BEFORE the UberPage is written.
+      // If the process crashes between writing data pages and writing the UberPage, the OS
+      // kernel may flush the UberPage before the data pages, leaving the database pointing at
+      // pages that are not yet on disk.  An explicit forceAll() here prevents that window.
+      storagePageReaderWriter.forceAll();
+
+      // Write UberPage — all data pages are now durable, safe to update the root pointer.
       storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(), uberPageReference,
           uberPage, bufferBytes);
 
       if (isAutoCommitting) {
-        // Auto-commit mode: fsync runs asynchronously for better throughput
-        // Next commit's serialization will overlap with this fsync
+        // Auto-commit mode: queue an async fsync for the UberPage so the next commit's
+        // serialization can overlap with this IO.  The next commit will call pendingFsync.join()
+        // before writing its own UberPage, guaranteeing ordering.
+        // Even if the process crashes before this fsync completes the database is consistent:
+        // the old (pre-UberPage) state is recovered because the new UberPage is not yet on disk.
         pendingFsync = java.util.concurrent.CompletableFuture.runAsync(() -> {
           storagePageReaderWriter.forceAll();
         });
       } else {
-        // Regular commit: synchronous fsync for strict durability
-        // Data is guaranteed durable when commit() returns
+        // Regular commit: flush the UberPage synchronously so durability is guaranteed
+        // before commit() returns to the caller.
         storagePageReaderWriter.forceAll();
         pendingFsync = null;
       }
@@ -977,6 +988,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       if (pendingFsync != null) {
         pendingFsync.join();
         pendingFsync = null;
+      }
+
+      // Release the demotion buffer's off-heap memory.
+      if (demotionBuffer != null) {
+        demotionBuffer.close();
+        demotionBuffer = null;
       }
 
       // Don't clear the cached containers here - they've either been:
