@@ -10,11 +10,11 @@ The following people are going for P+:
 
 ## Project
 
-Name:
+Name: SirixDB
 
-URL:
+URL: [Sirix github repo](https://github.com/sirixdb/sirix)
 
-One or two sentences describing it
+Purpose: The sirix database has the main goal of handling the history of a database in a neat way.
 
 ## Onboarding experience
 
@@ -62,68 +62,29 @@ The purpose of the method is to take a read only JSON node object and insert a c
 
 ### 4. Are exceptions taken into account in the given measurements?
 
-
-### 5. Is the documentation clear w.r.t. all the possible outcomes?
+Lizard did not seem to take multiple exit points or exceptions (throws) into account when measuring the CCN. When adjusting for this, we seem to get the same resulsts as Lizard.
 
 ## Refactoring
 
-Plan for refactoring complex code:
-
-Estimated impact of refactoring (lower CC, but other drawbacks?).
-
-Carried out refactoring (optional, P+):
-
-git diff ...
+TODO: Need to add for all functions
 
 ### `processNode`
 The high complexity is not needed. We can split the function into smaller parts which each take care of a insert location.
 
 #### P+ Implementation (Melker Trané)
-For an implimentation of the refactor, see branch refactor-melker. The processNode function now has a CCN of 4 while the 3 helper functions each has a CCN of 14.
+For an implimentation of the refactor, see branch refactor-melker and file bundles/sirix-core/src/main/java/io/sirix/service/json/shredder/JsonResourceCopy.java
+
+The processNode function now has a CCN of 4 while the 3 helper functions each has a CCN of 14.
 
 ## Coverage
 
-### Tools
-
-Document your experience in using a "new"/different coverage tool.
-
-How well was the tool documented? Was it possible/easy/difficult to
-integrate it with your build environment?
-
-### Your own coverage tool
-
-Show a patch (or link to a branch) that shows the instrumented code to
-gather coverage measurements.
-
-The patch is probably too long to be copied here, so please add
-the git command that is used to obtain the patch instead:
-
-git diff ...
-
-What kinds of constructs does your tool support, and how accurate is
-its output?
-
-### Evaluation
-
-1. How detailed is your coverage measurement?
-
-2. What are the limitations of your own tool?
-
-3. Are the results of your tool consistent with existing coverage tools?
+For our ad hoc coverage tool we have a CoverageRegister singleton. This singleton has fixed length array of boolean values where the value at a certain position correspond to whether a certain branch has been covered or not. In every branch we add a line which "registers" that branch as visited (eg. 'CoverageRegister.register(3)' for the forth branch). When all tests are executed we call a 'getReport' method on the singleton which returns a string with contains information on what branches were covered and what branches were not.
 
 ## Coverage improvement
 
-Show the comments that describe the requirements for the coverage.
-
-Report of old coverage: [link]
-
-Report of new coverage: [link]
-
-Test cases added:
-
-git diff ...
-
-Number of test cases added: two per team member (P) or at least four (P+).
+The branches that contain the improvements is called "improved-coverage"
+ 
+Below is a table that shows the branch coverage for the different methods before and after the tests were added. 
 
 | Method        | Current       | Improved     | Extra (P+)   |
 | :-----------: | :-----------: | :-----------:| :----------: |
@@ -146,14 +107,8 @@ Two extra tests was made. The first tests every pair which inserts as first chil
 
 When inserting as last child, we assert that we throw exceptions since this is not supported by the 'processNode' function.
 
-See branch extra-coverage-melker
+See branch extra-coverage-melker and the file bundles/sirix-core/src/test/java/io/sirix/service/json/shredder/JsonResourceCopyTest.java
 
 ## Self-assessment: Way of working
 
 As in the first assignment, we still consider ourselves to be in the "in use" state. This is mainly because this assignment was quite differnt from the first two, which required us to form new practices and foundations. And because of the relative short time period between this and the last assignment, we have not spent that much time to fully flesh out all practices for this assignment. While we have gotten to know each other better, our commucation has improved. For the next assignment, which seems to more like this one compared to the first two, we hope to have a good plan going into the assignment, so we do not have to spend as much time to change/redo stuff when different approaches are taken by different team members.
-
-## Overall experience
-
-What are your main take-aways from this project? What did you learn?
-
-Is there something special you want to mention here?
