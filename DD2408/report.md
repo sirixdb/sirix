@@ -32,7 +32,7 @@ succeeds.
 | `serialize`   | 62            | 16           | 16           |
 | `iterateAxis` | 113           | 30           | 29           |
 |`isNCStartChar`| 11            | 24           | 26           |
-| `checkNodes`  | 52            | 18           | 17           |
+|`getReturnType`| 60            | 25           | 11           |
 | `processNode` |               |              |              |
 
 ### 2. Are the functions just complex, or also long?
@@ -50,8 +50,8 @@ The purpose of the function is to be a iterator factory, depending on what axis 
 #### `isNCStartChar`
 The purpose of the function is validate whether a character input is a valid XML non colonised name start character according to XML specification. It also checks multiple unicode ranges. As the XML spec requirements check over 20 different specific character ranges and each range check itself adds to the CC, this causes high cyclomatic complexity.
 
-#### `checkNodes`
-The method checks two Xml tree nodes for different node types. For example, if the node is an `Element`, it checks for several things, including matching names, attribute and namespace keys. The parameters are two read-only transactions of one old and one new revision.
+#### `getReturnType`
+The function takes two operands as arguments, and returns the corresponding type for the sub operation. If the operands are not compatible, it throws errors. 
 
 #### `processNode`
 
