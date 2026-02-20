@@ -4,6 +4,10 @@ This is a template for your report. You are free to modify it as needed.
 It is not required to use markdown for your report either, but the report
 has to be delivered in a standard, cross-platform format.
 
+## P+
+The following people are going for P+:
+- Melker Trané (processNode)
+
 ## Project
 
 Name:
@@ -33,7 +37,7 @@ succeeds.
 | `iterateAxis` | 113           | 30           | 29           |
 |`isNCStartChar`| 11            | 24           | 26           |
 |`getReturnType`| 60            | 25           | 11           |
-| `processNode` |               |              |              |
+| `processNode` | 122           | 48           | 40           |
 
 ### 2. Are the functions just complex, or also long?
 
@@ -54,6 +58,7 @@ The purpose of the function is validate whether a character input is a valid XML
 The function takes two operands as arguments, and returns the corresponding type for the sub operation. If the operands are not compatible, it throws errors. 
 
 #### `processNode`
+The purpose of the method is to take a read only JSON node object and insert a copy of that node in a specific location in a writeable JSON object.
 
 ### 4. Are exceptions taken into account in the given measurements?
 
@@ -69,6 +74,12 @@ Estimated impact of refactoring (lower CC, but other drawbacks?).
 Carried out refactoring (optional, P+):
 
 git diff ...
+
+### `processNode`
+The high complexity is not needed. We can split the function into smaller parts which each take care of a insert location.
+
+#### P+ Implementation (Melker Trané)
+For an implimentation of the refactor, see branch refactor-melker. The processNode function now has a CCN of 4 while the 3 helper functions each has a CCN of 14.
 
 ## Coverage
 
@@ -113,6 +124,29 @@ Test cases added:
 git diff ...
 
 Number of test cases added: two per team member (P) or at least four (P+).
+
+| Method        | Current       | Improved     | Extra (P+)   |
+| :-----------: | :-----------: | :-----------:| :----------: |
+| `serialize`   |               |              |              |
+| `iterateAxis` |               |              |              |
+|`isNCStartChar`|               |              |              |
+|`getReturnType`|               |              |              |
+| `processNode` | 10            | 17           | 27           |
+
+### processNode
+
+The method has two "input" values which determine which branch is visited. The first value is where we should insert. The other is what type we are inserting. Depedning on the pair of these values, a specific branch is visited which calls a specific method (for example insertBooleanAsFirstChild or insertNumberAsLastChild).
+
+To improve the coverage we made two new tests: one which tests all pairs where we insert as left sibling, and another where we tests all pairs where we insert as right sibling.
+
+The assertions checks if the writable and readable databaseses looks the same after the insertions are made.
+
+#### Extra tests for P+ (Melker Trané)
+Two extra tests was made. The first tests every pair which inserts as first child, and the second tests every pair which inserts as last child.
+
+When inserting as last child, we assert that we throw exceptions since this is not supported by the 'processNode' function.
+
+See branch extra-coverage-melker
 
 ## Self-assessment: Way of working
 
