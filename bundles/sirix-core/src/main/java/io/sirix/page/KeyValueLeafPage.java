@@ -673,7 +673,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public DataRecord getRecord(int offset) {
+  public DataRecord getRecord(final int offset) {
+    if (offset < 0 || offset >= Constants.NDP_NODE_COUNT) {
+      throw new IllegalArgumentException(
+          "Record offset out of range [0, " + Constants.NDP_NODE_COUNT + "): " + offset);
+    }
     return records[offset];
   }
 
@@ -685,8 +689,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * the cached record must be cleared to force re-materialization from those bytes on the next read.
    *
    * @param offset the slot offset to clear
+   * @throws IllegalArgumentException if offset is out of range [0, {@link Constants#NDP_NODE_COUNT})
    */
   public void clearRecord(final int offset) {
+    if (offset < 0 || offset >= Constants.NDP_NODE_COUNT) {
+      throw new IllegalArgumentException(
+          "Record offset out of range [0, " + Constants.NDP_NODE_COUNT + "): " + offset);
+    }
     if (records[offset] != null) {
       records[offset] = null;
       inMemoryRecordCount--;

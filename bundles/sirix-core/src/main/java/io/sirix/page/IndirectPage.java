@@ -58,16 +58,20 @@ public final class IndirectPage extends AbstractForwardingPage {
    * Clone indirect page.
    *
    * @param page {@link IndirectPage} to clone
+   * @throws IllegalStateException if the delegate type is unknown and cannot be copied
    */
   public IndirectPage(final IndirectPage page) {
     final Page pageDelegate = page.delegate();
 
-    if (pageDelegate instanceof ReferencesPage4) {
-      delegate = new ReferencesPage4((ReferencesPage4) pageDelegate);
-    } else if (pageDelegate instanceof BitmapReferencesPage) {
-      delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
-    } else if (pageDelegate instanceof FullReferencesPage) {
-      delegate = new FullReferencesPage((FullReferencesPage) pageDelegate);
+    if (pageDelegate instanceof ReferencesPage4 ref) {
+      delegate = new ReferencesPage4(ref);
+    } else if (pageDelegate instanceof BitmapReferencesPage bmp) {
+      delegate = new BitmapReferencesPage(pageDelegate, bmp.getBitmap());
+    } else if (pageDelegate instanceof FullReferencesPage full) {
+      delegate = new FullReferencesPage(full);
+    } else {
+      throw new IllegalStateException(
+          "Unknown IndirectPage delegate type, cannot clone: " + pageDelegate.getClass().getName());
     }
   }
 

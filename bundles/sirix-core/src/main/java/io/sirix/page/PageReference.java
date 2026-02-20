@@ -77,7 +77,8 @@ public final class PageReference {
   }
 
   /**
-   * Copy constructor.
+   * Copy constructor. Creates an independent copy; the {@code pageFragments} list is deep-copied so
+   * mutations to the copy do not affect the original.
    *
    * @param reference {@link PageReference} to copy
    */
@@ -88,7 +89,9 @@ public final class PageReference {
     databaseId = reference.databaseId;
     resourceId = reference.resourceId;
     hashInBytes = reference.hashInBytes;
-    pageFragments = reference.pageFragments;
+    pageFragments = reference.pageFragments != null
+        ? new ArrayList<>(reference.pageFragments)
+        : new ArrayList<>();
     hash = reference.hash;
   }
 
