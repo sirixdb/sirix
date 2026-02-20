@@ -124,8 +124,12 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   public @NonNull T beginResourceSession(final String resourceName) {
     assertNotClosed();
 
-    final Path resourcePath =
-        dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile()).resolve(resourceName);
+    final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Path resourcePath = dataDir.resolve(resourceName).normalize();
+
+    if (!resourcePath.startsWith(dataDir)) {
+      throw new SirixUsageException("Invalid resource name: path traversal detected in '" + resourceName + "'");
+    }
 
     if (!Files.exists(resourcePath)) {
       throw new SirixUsageException("Resource could not be opened (since it was not created?) at location",
@@ -204,13 +208,14 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       resourceID.set(dbConfig.getMaxResourceID());
       ResourceConfiguration.serialize(resourceConfig.setID(resourceID.getAndIncrement()));
       dbConfig.setMaximumResourceID(resourceID.get());
-      resourceIDsToResourceNames.forcePut(resourceID.get(), resourceConfig.getResource().getFileName().toString());
+      resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
       returnVal = bootstrapResource(resourceConfig);
     }
 
     if (!returnVal) {
       // If something was not correct, delete the partly created substructure.
+      resourceIDsToResourceNames.inverse().remove(resourceConfig.getResource().getFileName().toString());
       SirixFiles.recursiveRemove(resourceConfig.resourcePath);
     }
 
@@ -315,7 +320,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public synchronized long getResourceID(final String name) {
     assertNotClosed();
-    return resourceIDsToResourceNames.inverse().get(requireNonNull(name));
+    final Long id = resourceIDsToResourceNames.inverse().get(requireNonNull(name));
+    if (id == null) {
+      throw new SirixUsageException("No resource found with name: " + name);
+    }
+    return id;
   }
 
   private void assertNotClosed() {

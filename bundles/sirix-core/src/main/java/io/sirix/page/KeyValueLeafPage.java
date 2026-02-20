@@ -705,6 +705,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public void setRecord(@NonNull final DataRecord record) {
     addedReferences = false;
+    bytes = null;
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
     if (records[offset] == null) {

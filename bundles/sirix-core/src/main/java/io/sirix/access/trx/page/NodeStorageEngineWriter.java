@@ -788,7 +788,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     try {
       final Path commitFile = storageEngineReader.resourceSession.getCommitFile();
 
-      commitFile.toFile().deleteOnExit();
       // Issues with windows that it's not created in the first time?
       createIfAbsent(commitFile);
 
@@ -809,8 +808,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       // Wait for the previous commit's async UberPage fsync to complete.
       // This ensures the previous revision is fully durable before we proceed.
-      if (pendingFsync != null) {
-        pendingFsync.join();
+      final var fsync = pendingFsync;
+      if (fsync != null) {
+        fsync.join();
         pendingFsync = null;
       }
 
@@ -832,7 +832,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         // Even if the process crashes before this fsync completes the database is consistent:
         // the old (pre-UberPage) state is recovered because the new UberPage is not yet on disk.
         pendingFsync = java.util.concurrent.CompletableFuture.runAsync(() -> {
-          storagePageReaderWriter.forceAll();
+          try {
+            storagePageReaderWriter.forceAll();
+          } catch (final Exception e) {
+            LOGGER.error("Async fsync failed", e);
+            throw e;
+          }
         });
       } else {
         // Regular commit: flush the UberPage synchronously so durability is guaranteed
@@ -985,8 +990,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       storageEngineReader.assertNotClosed();
 
       // Wait for any pending async fsync to complete before closing
-      if (pendingFsync != null) {
-        pendingFsync.join();
+      final var fsync = pendingFsync;
+      if (fsync != null) {
+        try {
+          fsync.join();
+        } catch (final java.util.concurrent.CompletionException e) {
+          LOGGER.error("Pending async fsync failed during close", e);
+        }
         pendingFsync = null;
       }
 

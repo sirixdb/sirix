@@ -560,7 +560,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         }
       }
       case TEXT, COMMENT -> {
-        assert wtx.getKind() == NodeKind.TEXT;
+        assert wtx.getKind() == NodeKind.TEXT || wtx.getKind() == NodeKind.COMMENT;
         wtx.setValue(rtx.getValue());
       }
       // $CASES-OMITTED$
@@ -694,7 +694,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
                   for (int j = 0, oldNspCount = oldRtx.getNamespaceCount(); j < oldNspCount; j++) {
                     wtx.moveToNamespace(j);
                     if (wtx.getName().getNamespaceURI().equals(rtx.getName().getNamespaceURI())
-                        && wtx.getName().getPrefix().equals(wtx.getName().getPrefix())) {
+                        && wtx.getName().getPrefix().equals(rtx.getName().getPrefix())) {
                       process(wtx.getNodeKey(), rtx.getNodeKey());
                       break;
                     }
