@@ -28,7 +28,12 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Item;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.*;
+import io.sirix.access.trx.node.AbstractNodeHashing;
+import io.sirix.access.trx.node.AbstractNodeTrxImpl;
+import io.sirix.access.trx.node.AfterCommitState;
+import io.sirix.access.trx.node.IndexController;
+import io.sirix.access.trx.node.InternalResourceSession;
+import io.sirix.access.trx.node.RecordToRevisionsIndex;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -57,7 +62,13 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import io.sirix.node.json.*;
+import io.sirix.node.json.ArrayNode;
+import io.sirix.node.json.BooleanNode;
+import io.sirix.node.json.NumberNode;
+import io.sirix.node.json.ObjectBooleanNode;
+import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNode;
+import io.sirix.node.json.ObjectNumberNode;
 import io.sirix.page.NamePage;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JacksonJsonShredder;
@@ -304,101 +315,23 @@ final class JsonNodeTrxImpl extends
     return insertSubtree(reader, InsertPosition.AS_RIGHT_SIBLING, commit, checkParentNode, skipRootToken);
   }
 
-  private JsonNodeTrx insertSubtree(final JsonReader reader, final InsertPosition insertionPosition, Commit commit,
-      final CheckParentNode checkParentNode, final SkipRootToken doSkipRootJsonToken) {
-    nodeReadOnlyTrx.assertNotClosed();
+  private JsonNodeTrx insertSubtree(final JsonReader reader, final InsertPosition insertionPosition,
+      final Commit commit, final CheckParentNode checkParentNode, final SkipRootToken doSkipRootJsonToken) {
     requireNonNull(reader);
-    assert insertionPosition != null;
 
-    runLocked(() -> {
-      try {
-        assertRunning();
-        final var peekedJsonToken = reader.peek();
-
-        if (peekedJsonToken != JsonToken.BEGIN_OBJECT && peekedJsonToken != JsonToken.BEGIN_ARRAY)
-          throw new SirixUsageException("JSON to insert must begin with an array or object.");
-
-        var skipRootJsonToken = doSkipRootJsonToken;
-        final var nodeKind = getKind();
-
-        // $CASES-OMITTED$
-        switch (insertionPosition) {
-          case AS_FIRST_CHILD, AS_LAST_CHILD -> {
-            if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT) {
-              throw new IllegalStateException(
-                  "Current node must either be the document root, an array or an object key.");
-            }
-            switch (peekedJsonToken) {
-              case BEGIN_OBJECT -> {
-                if (nodeKind == NodeKind.OBJECT)
-                  skipRootJsonToken = SkipRootToken.YES;
-              }
-              case BEGIN_ARRAY -> {
-                if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
-                  throw new IllegalStateException("Current node in storage must be an array node.");
-                }
-              }
-              // $CASES-OMITTED$
-              default -> {
-              }
-            }
-          }
-          case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
-            if (checkParentNode == CheckParentNode.YES) {
-              final NodeKind parentKind = getParentKind();
-              if (parentKind != NodeKind.ARRAY) {
-                throw new IllegalStateException("Current parent node must be an array node.");
-              }
-            }
-          }
-          default -> throw new UnsupportedOperationException();
-        }
-
-        checkAccessAndCommit();
-        beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber();
-        nodeHashing.setBulkInsert(true);
-        if (isAutoCommitting) {
-          nodeHashing.setAutoCommit(true);
-        }
-        final long nodeKey = getNodeKey();
-        final var shredderBuilder = new JsonShredder.Builder(this, reader, insertionPosition);
-
-        if (skipRootJsonToken == SkipRootToken.YES) {
-          shredderBuilder.skipRootJsonToken();
-        }
-
-        final var shredder = shredderBuilder.build();
-        shredder.call();
-        moveTo(nodeKey);
-
-        switch (insertionPosition) {
-          case AS_FIRST_CHILD -> moveToFirstChild();
-          case AS_LAST_CHILD -> moveToLastChild();
-          case AS_LEFT_SIBLING -> moveToLeftSibling();
-          case AS_RIGHT_SIBLING -> moveToRightSibling();
-          default -> {
-            // May not happen.
-          }
-        }
-
-        adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
-
-        // bulk inserts will be disabled for auto-commits after the first commit
-        if (!isAutoCommitting) {
-          adaptHashesInPostorderTraversal();
-        }
-
-        nodeHashing.setBulkInsert(false);
-
-        if (commit == Commit.IMPLICIT) {
-          commit();
-        }
-
-      } catch (final IOException e) {
-        throw new UncheckedIOException(e);
+    return insertSubtreeInternal(insertionPosition, commit, checkParentNode, doSkipRootJsonToken, () -> {
+      final var peekedJsonToken = reader.peek();
+      if (peekedJsonToken != JsonToken.BEGIN_OBJECT && peekedJsonToken != JsonToken.BEGIN_ARRAY) {
+        throw new SirixUsageException("JSON to insert must begin with an array or object.");
       }
+      return new InputShape(peekedJsonToken == JsonToken.BEGIN_OBJECT, peekedJsonToken == JsonToken.BEGIN_ARRAY);
+    }, (skipToken, position) -> {
+      final var shredderBuilder = new JsonShredder.Builder(this, reader, position);
+      if (skipToken == SkipRootToken.YES) {
+        shredderBuilder.skipRootJsonToken();
+      }
+      shredderBuilder.build().call();
     });
-    return this;
   }
 
   // ==================== Jackson JsonParser Methods ====================
@@ -427,108 +360,27 @@ final class JsonNodeTrxImpl extends
     return insertSubtree(parser, InsertPosition.AS_RIGHT_SIBLING, commit, checkParentNode, skipRootToken);
   }
 
-  private JsonNodeTrx insertSubtree(final JsonParser parser, final InsertPosition insertionPosition, Commit commit,
-      final CheckParentNode checkParentNode, final SkipRootToken doSkipRootJsonToken) {
-    nodeReadOnlyTrx.assertNotClosed();
+  private JsonNodeTrx insertSubtree(final JsonParser parser, final InsertPosition insertionPosition,
+      final Commit commit, final CheckParentNode checkParentNode, final SkipRootToken doSkipRootJsonToken) {
     requireNonNull(parser);
-    assert insertionPosition != null;
 
-    runLocked(() -> {
-      try {
-        assertRunning();
-
-        // Peek the first token to validate JSON structure
-        com.fasterxml.jackson.core.JsonToken peekedToken = parser.nextToken();
-
-        if (peekedToken != com.fasterxml.jackson.core.JsonToken.START_OBJECT
-            && peekedToken != com.fasterxml.jackson.core.JsonToken.START_ARRAY) {
-          throw new SirixUsageException("JSON to insert must begin with an array or object.");
-        }
-
-        var skipRootJsonToken = doSkipRootJsonToken;
-        final var nodeKind = getKind();
-
-        // $CASES-OMITTED$
-        switch (insertionPosition) {
-          case AS_FIRST_CHILD, AS_LAST_CHILD -> {
-            if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT) {
-              throw new IllegalStateException(
-                  "Current node must either be the document root, an array or an object key.");
-            }
-            switch (peekedToken) {
-              case START_OBJECT -> {
-                if (nodeKind == NodeKind.OBJECT)
-                  skipRootJsonToken = SkipRootToken.YES;
-              }
-              case START_ARRAY -> {
-                if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
-                  throw new IllegalStateException("Current node in storage must be an array node.");
-                }
-              }
-              // $CASES-OMITTED$
-              default -> {
-              }
-            }
-          }
-          case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
-            if (checkParentNode == CheckParentNode.YES) {
-              final NodeKind parentKind = getParentKind();
-              if (parentKind != NodeKind.ARRAY) {
-                throw new IllegalStateException("Current parent node must be an array node.");
-              }
-            }
-          }
-          default -> throw new UnsupportedOperationException();
-        }
-
-        checkAccessAndCommit();
-        beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber();
-        nodeHashing.setBulkInsert(true);
-        if (isAutoCommitting) {
-          nodeHashing.setAutoCommit(true);
-        }
-        final long nodeKey = getNodeKey();
-
-        // Create a wrapper parser that replays the peeked token
-        final var wrappedParser = new PeekedTokenJsonParser(parser, peekedToken);
-        final var shredderBuilder = new JacksonJsonShredder.Builder(this, wrappedParser, insertionPosition);
-
-        if (skipRootJsonToken == SkipRootToken.YES) {
-          shredderBuilder.skipRootJsonToken();
-        }
-
-        final var shredder = shredderBuilder.build();
-        shredder.call();
-        moveTo(nodeKey);
-
-        switch (insertionPosition) {
-          case AS_FIRST_CHILD -> moveToFirstChild();
-          case AS_LAST_CHILD -> moveToLastChild();
-          case AS_LEFT_SIBLING -> moveToLeftSibling();
-          case AS_RIGHT_SIBLING -> moveToRightSibling();
-          default -> {
-            // May not happen.
-          }
-        }
-
-        adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
-
-        // bulk inserts will be disabled for auto-commits after the first commit
-        if (!isAutoCommitting) {
-          adaptHashesInPostorderTraversal();
-        }
-
-        nodeHashing.setBulkInsert(false);
-
-        if (commit == Commit.IMPLICIT) {
-          commit();
-        }
-
-      } catch (final IOException e) {
-        throw new UncheckedIOException(e);
+    return insertSubtreeInternal(insertionPosition, commit, checkParentNode, doSkipRootJsonToken, () -> {
+      final com.fasterxml.jackson.core.JsonToken peekedToken = parser.nextToken();
+      if (peekedToken != com.fasterxml.jackson.core.JsonToken.START_OBJECT
+          && peekedToken != com.fasterxml.jackson.core.JsonToken.START_ARRAY) {
+        throw new SirixUsageException("JSON to insert must begin with an array or object.");
       }
+      return new InputShape(peekedToken == com.fasterxml.jackson.core.JsonToken.START_OBJECT,
+          peekedToken == com.fasterxml.jackson.core.JsonToken.START_ARRAY);
+    }, (skipToken, position) -> {
+      // Create a wrapper parser that replays the peeked token (consumed during validation)
+      final var wrappedParser = new PeekedTokenJsonParser(parser, parser.currentToken());
+      final var shredderBuilder = new JacksonJsonShredder.Builder(this, wrappedParser, position);
+      if (skipToken == SkipRootToken.YES) {
+        shredderBuilder.skipRootJsonToken();
+      }
+      shredderBuilder.build().call();
     });
-    return this;
   }
 
   /**
@@ -587,88 +439,147 @@ final class JsonNodeTrxImpl extends
     return insertSubtree(item, InsertPosition.AS_RIGHT_SIBLING, commit, checkParentNode, skipRootToken);
   }
 
-  private JsonNodeTrx insertSubtree(final Item item, final InsertPosition insertionPosition, Commit commit,
+  private JsonNodeTrx insertSubtree(final Item item, final InsertPosition insertionPosition, final Commit commit,
       final CheckParentNode checkParentNode, final SkipRootToken doSkipRootToken) {
-    nodeReadOnlyTrx.assertNotClosed();
     requireNonNull(item);
+
+    return insertSubtreeInternal(insertionPosition, commit, checkParentNode, doSkipRootToken, () -> {
+      if (!item.itemType().isObject() && !item.itemType().isArray()) {
+        throw new SirixUsageException("JSON to insert must begin with an array or object.");
+      }
+      return new InputShape(item.itemType().isObject(), item.itemType().isArray());
+    }, (skipToken, position) -> {
+      final var shredderBuilder = new JsonItemShredder.Builder(this, item, position);
+      if (skipToken == SkipRootToken.YES) {
+        shredderBuilder.skipRootJsonToken();
+      }
+      shredderBuilder.build().call();
+    });
+  }
+
+  /**
+   * Immutable holder for the shape of the input being inserted (object vs array).
+   *
+   * @param isObject {@code true} if the input starts with an object
+   * @param isArray  {@code true} if the input starts with an array
+   */
+  private record InputShape(boolean isObject, boolean isArray) {
+  }
+
+  /**
+   * Functional interface for validating the input source and determining its shape. May throw
+   * checked exceptions (e.g. {@link IOException} from Gson/Jackson peek/nextToken).
+   */
+  @FunctionalInterface
+  private interface InputValidator {
+    InputShape validate() throws Exception;
+  }
+
+  /**
+   * Functional interface for constructing and executing the appropriate shredder. May throw checked
+   * exceptions (e.g. {@link IOException} from shredder I/O).
+   */
+  @FunctionalInterface
+  private interface ShredderExecutor {
+    void execute(SkipRootToken skipRootToken, InsertPosition insertionPosition) throws Exception;
+  }
+
+  /**
+   * Common implementation for all {@code insertSubtree} overloads. Validates position constraints,
+   * sets up bulk-insert state, delegates to the shredder, then adapts hashes and commits.
+   *
+   * @param insertionPosition where to insert relative to the current node
+   * @param commit            whether to commit implicitly after insertion
+   * @param checkParentNode   whether to validate the parent node type for sibling insertions
+   * @param doSkipRootToken   whether to skip the root JSON token of the input
+   * @param inputValidator    validates the input and returns its shape (object vs array)
+   * @param shredderExecutor  constructs and runs the appropriate shredder
+   * @return this transaction for fluent chaining
+   */
+  private JsonNodeTrx insertSubtreeInternal(final InsertPosition insertionPosition, final Commit commit,
+      final CheckParentNode checkParentNode, final SkipRootToken doSkipRootToken,
+      final InputValidator inputValidator, final ShredderExecutor shredderExecutor) {
+    nodeReadOnlyTrx.assertNotClosed();
     assert insertionPosition != null;
 
     runLocked(() -> {
-      assertRunning();
+      try {
+        assertRunning();
 
-      if (!item.itemType().isArray() && !item.itemType().isObject())
-        throw new SirixUsageException("JSON to insert must begin with an array or object.");
+        final InputShape inputShape = inputValidator.validate();
+        var skipRootJsonToken = doSkipRootToken;
+        final var nodeKind = getKind();
 
-      final var nodeKind = getKind();
-      var skipRootJsonToken = doSkipRootToken;
-
-      // $CASES-OMITTED$
-      switch (insertionPosition) {
-        case AS_FIRST_CHILD, AS_LAST_CHILD -> {
-          if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT) {
-            throw new IllegalStateException(
-                "Current node must either be the document root, an array or an object key.");
-          }
-          if (item.itemType().isObject()) {
-            if (nodeKind == NodeKind.OBJECT)
-              skipRootJsonToken = SkipRootToken.YES;
-          } else if (item.itemType().isArray()) {
-            if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
-              throw new IllegalStateException("Current node in storage must be an array node.");
+        // $CASES-OMITTED$
+        switch (insertionPosition) {
+          case AS_FIRST_CHILD, AS_LAST_CHILD -> {
+            if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT) {
+              throw new IllegalStateException(
+                  "Current node must either be the document root, an array or an object key.");
+            }
+            if (inputShape.isObject()) {
+              if (nodeKind == NodeKind.OBJECT) {
+                skipRootJsonToken = SkipRootToken.YES;
+              }
+            } else if (inputShape.isArray()) {
+              if (nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.JSON_DOCUMENT) {
+                throw new IllegalStateException("Current node in storage must be an array node.");
+              }
             }
           }
-        }
-        case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
-          if (checkParentNode == CheckParentNode.YES) {
-            final NodeKind parentKind = getParentKind();
-            if (parentKind != NodeKind.ARRAY) {
-              throw new IllegalStateException("Current parent node must be an array node.");
+          case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> {
+            if (checkParentNode == CheckParentNode.YES) {
+              final NodeKind parentKind = getParentKind();
+              if (parentKind != NodeKind.ARRAY) {
+                throw new IllegalStateException("Current parent node must be an array node.");
+              }
             }
           }
+          default -> throw new UnsupportedOperationException();
         }
-        default -> throw new UnsupportedOperationException();
-      }
 
-      checkAccessAndCommit();
-      beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber();
-      nodeHashing.setBulkInsert(true);
-      if (isAutoCommitting) {
-        nodeHashing.setAutoCommit(true);
-      }
-      final long nodeKey = getNodeKey();
-      final var shredderBuilder = new JsonItemShredder.Builder(this, item, insertionPosition);
-
-      if (skipRootJsonToken == SkipRootToken.YES) {
-        shredderBuilder.skipRootJsonToken();
-      }
-
-      final var shredder = shredderBuilder.build();
-      shredder.call();
-      moveTo(nodeKey);
-
-      switch (insertionPosition) {
-        case AS_FIRST_CHILD -> moveToFirstChild();
-        case AS_LAST_CHILD -> moveToLastChild();
-        case AS_LEFT_SIBLING -> moveToLeftSibling();
-        case AS_RIGHT_SIBLING -> moveToRightSibling();
-        default -> {
-          // May not happen.
+        checkAccessAndCommit();
+        beforeBulkInsertionRevisionNumber = nodeReadOnlyTrx.getRevisionNumber();
+        nodeHashing.setBulkInsert(true);
+        if (isAutoCommitting) {
+          nodeHashing.setAutoCommit(true);
         }
+        final long nodeKey = getNodeKey();
+
+        shredderExecutor.execute(skipRootJsonToken, insertionPosition);
+
+        moveTo(nodeKey);
+
+        switch (insertionPosition) {
+          case AS_FIRST_CHILD -> moveToFirstChild();
+          case AS_LAST_CHILD -> moveToLastChild();
+          case AS_LEFT_SIBLING -> moveToLeftSibling();
+          case AS_RIGHT_SIBLING -> moveToRightSibling();
+          default -> {
+            // May not happen.
+          }
+        }
+
+        adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
+
+        // bulk inserts will be disabled for auto-commits after the first commit
+        if (!isAutoCommitting) {
+          adaptHashesInPostorderTraversal();
+        }
+
+        nodeHashing.setBulkInsert(false);
+
+        if (commit == Commit.IMPLICIT) {
+          commit();
+        }
+
+      } catch (final IOException e) {
+        throw new UncheckedIOException(e);
+      } catch (final RuntimeException e) {
+        throw e;
+      } catch (final Exception e) {
+        throw new SirixException(e);
       }
-
-      adaptUpdateOperationsForInsert(getDeweyID(), getNodeKey());
-
-      // bulk inserts will be disabled for auto-commits after the first commit
-      if (!isAutoCommitting) {
-        adaptHashesInPostorderTraversal();
-      }
-
-      nodeHashing.setBulkInsert(false);
-
-      if (commit == Commit.IMPLICIT) {
-        commit();
-      }
-
     });
     return this;
   }

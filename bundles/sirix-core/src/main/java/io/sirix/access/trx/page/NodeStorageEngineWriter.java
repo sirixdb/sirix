@@ -73,7 +73,21 @@ import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.ReusableNodeProxy;
-import io.sirix.page.*;
+import io.sirix.page.CASPage;
+import io.sirix.page.DeweyIDPage;
+import io.sirix.page.HOTIndirectPage;
+import io.sirix.page.HOTLeafPage;
+import io.sirix.page.IndirectPage;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.NamePage;
+import io.sirix.page.PageConstants;
+import io.sirix.page.PageKind;
+import io.sirix.page.PageReference;
+import io.sirix.page.PathPage;
+import io.sirix.page.PathSummaryPage;
+import io.sirix.page.RevisionRootPage;
+import io.sirix.page.SerializationType;
+import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
@@ -131,8 +145,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private MemorySegmentBytesOut demotionBuffer;
   private MemorySegment fixedSlotProjectionBuffer;
 
-  private record RecordFetchResult(DataRecord record) {
-  }
 
   /**
    * Page writer to serialize.
@@ -681,20 +693,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     if (pageCont == null) {
       return storageEngineReader.getRecord(recordKey, indexType, index);
     } else {
-      DataRecord node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getModified()), recordKey).record();
+      DataRecord node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getModified()), recordKey);
       if (node == null) {
-        node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getComplete()), recordKey).record();
+        node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getComplete()), recordKey);
       }
       return (V) storageEngineReader.checkItemIfDeleted(node);
     }
   }
 
-  private RecordFetchResult getRecordForWriteAccess(final KeyValuePage<? extends DataRecord> page,
+  private DataRecord getRecordForWriteAccess(final KeyValuePage<? extends DataRecord> page,
       final long recordKey) {
     final int recordOffset = StorageEngineReader.recordPageOffset(recordKey);
     final DataRecord cachedRecord = page.getRecord(recordOffset);
     if (cachedRecord != null) {
-      return new RecordFetchResult(cachedRecord);
+      return cachedRecord;
     }
 
     if (page instanceof KeyValueLeafPage leafPage && leafPage.isFixedSlotFormat(recordOffset)) {
@@ -717,10 +729,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         throw new IllegalStateException("Unsupported fixed-slot write-path materialization for node kind " + nodeKind
             + " (key=" + recordKey + ", slot=" + recordOffset + ").");
       }
-      return new RecordFetchResult(materialized);
+      return materialized;
     }
 
-    return new RecordFetchResult(storageEngineReader.getValue(page, recordKey));
+    return storageEngineReader.getValue(page, recordKey);
   }
 
   @Override
@@ -932,6 +944,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       try {
         var bytes = new PooledBytesOut(pooledSeg);
         PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
+      } catch (final SirixIOException e) {
+        throw e;
+      } catch (final RuntimeException e) {
+        throw e;
       } catch (final Exception e) {
         throw new SirixIOException(e);
       } finally {

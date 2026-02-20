@@ -261,6 +261,13 @@ public final class FFILz4Compressor implements ByteHandler {
       throw new UnsupportedOperationException("Native LZ4 not available");
     }
 
+    if (source.byteSize() > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("Source data too large for LZ4: " + source.byteSize());
+    }
+    if (destination.byteSize() > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("Destination buffer too large for LZ4: " + destination.byteSize());
+    }
+
     try {
       return (int) LZ4_COMPRESS_DEFAULT.invokeExact(source, destination, (int) source.byteSize(),
           (int) destination.byteSize());
@@ -405,6 +412,9 @@ public final class FFILz4Compressor implements ByteHandler {
       throw new UnsupportedOperationException("Native LZ4 not available");
     }
 
+    if (source.byteSize() > Integer.MAX_VALUE) {
+      throw new IllegalArgumentException("Source data too large for LZ4: " + source.byteSize());
+    }
     int srcSize = (int) source.byteSize();
 
     // Skip compression for very small data - overhead exceeds benefit
