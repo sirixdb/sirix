@@ -235,9 +235,8 @@ public class HOTIndexStressTest {
         assertTrue(pathIndexOpt.isPresent(), "Path index should exist");
         IndexDef indexDef = pathIndexOpt.get();
         
-        // Use proper indexController API
         Iterator<NodeReferences> iter = indexController.openPathIndex(rtx.getPageTrx(), indexDef, null);
-        
+
         final Roaring64Bitmap foundNodeKeys = new Roaring64Bitmap();
         int entryCount = 0;
         while (iter.hasNext()) {
@@ -245,7 +244,6 @@ public class HOTIndexStressTest {
           foundNodeKeys.or(refs.getNodeKeys());
           entryCount++;
         }
-        
         assertTrue(entryCount > 0, "Should have indexed PCR entries, got: " + entryCount);
         
         // Path index should have indexed all ObjectKeyNodes

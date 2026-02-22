@@ -38,7 +38,10 @@ import io.sirix.io.Reader;
 import io.sirix.node.DeletedNode;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
+import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.node.interfaces.FlyweightNode;
+import io.sirix.node.interfaces.Node;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.page.*;
@@ -356,26 +359,76 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     final var offset = StorageEngineReader.recordPageOffset(nodeKey);
     DataRecord record = page.getRecord(offset);
     if (record == null) {
-      var data = page.getSlot(offset);
-      if (data != null) {
-        record = getDataRecord(nodeKey, offset, data, page);
+      // Unified page path: check directory for flyweight vs legacy format
+      if (page instanceof KeyValueLeafPage kvlPage && kvlPage.isUnifiedFormat()) {
+        record = getRecordFromUnifiedPage(kvlPage, nodeKey, offset);
+      } else {
+        var data = page.getSlot(offset);
+        if (data != null) {
+          record = getDataRecord(nodeKey, offset, data, page);
+        }
       }
       if (record != null) {
         return record;
       }
+      // Overflow page fallback
       try {
         final PageReference reference = page.getPageReference(nodeKey);
         if (reference != null && reference.getKey() != Constants.NULL_ID_LONG) {
-          data = ((OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig())).getData();
+          final var data = ((OverflowPage) pageReader.read(reference, resourceSession.getResourceConfig())).getData();
+          record = getDataRecord(nodeKey, offset, data, page);
         } else {
           return null;
         }
       } catch (final SirixIOException e) {
         return null;
       }
-      record = getDataRecord(nodeKey, offset, data, page);
+    } else if (page instanceof KeyValueLeafPage kvlPage) {
+      // Record was found in records[] cache. Ensure FSST symbol table is propagated
+      // (needed when a cached page from the write transaction is reused by a read session
+      // — the FSST table is built at commit time but records[] may already be populated)
+      propagateFsstSymbolTableToRecord(record, kvlPage);
     }
     return record;
+  }
+
+  /**
+   * Get a record from a unified page. Flyweight records (nodeKindId > 0) are
+   * created via FlyweightNodeFactory and bound directly to page memory.
+   * Legacy records (nodeKindId == 0) are deserialized from the heap bytes.
+   */
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private DataRecord getRecordFromUnifiedPage(final KeyValueLeafPage kvlPage,
+      final long nodeKey, final int offset) {
+    final MemorySegment unifiedPage = kvlPage.getUnifiedPage();
+    if (!PageLayout.isSlotPopulated(unifiedPage, offset)) {
+      return null;
+    }
+    final int nodeKindId = PageLayout.getDirNodeKindId(unifiedPage, offset);
+    if (nodeKindId > 0) {
+      // Flyweight format: create binding shell and bind to page memory (zero-copy read)
+      final FlyweightNode fn = FlyweightNodeFactory.createAndBind(
+          unifiedPage, offset, nodeKey, resourceConfig.nodeHashFunction);
+      // Propagate DeweyID from page to flyweight node (stored inline after record data)
+      if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
+        final byte[] deweyIdBytes = kvlPage.getDeweyIdAsByteArray(offset);
+        if (deweyIdBytes != null) {
+          node.setDeweyID(new SirixDeweyID(deweyIdBytes));
+        }
+      }
+      // Propagate FSST symbol table to flyweight string nodes for lazy decompression
+      propagateFsstSymbolTableToRecord((DataRecord) fn, kvlPage);
+      ((KeyValuePage) kvlPage).setRecord((DataRecord) fn);
+      return (DataRecord) fn;
+    } else {
+      // Legacy format in unified page heap: deserialize normally
+      final var data = kvlPage.getSlot(offset);
+      if (data != null) {
+        final var record = getDataRecord(nodeKey, offset, data, kvlPage);
+        return record;
+      }
+      return null;
+    }
   }
 
   @SuppressWarnings({"unchecked", "rawtypes"})
@@ -763,7 +816,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (cachedPage != null) {
       var page = cachedPage.page();
 
-      // Fast path: Try to use locally cached page  
+      // Fast path: Try to use locally cached page
       // CRITICAL: Acquire guard FIRST, then verify page is still valid
       // This prevents TOCTOU race where page is closed between check and guard acquisition
       closeCurrentPageGuard();
@@ -1794,7 +1847,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       try {
         // First load the page to determine its type
         Page loadedPage = pageReader.read(reference, resourceConfig);
-        
+
         if (loadedPage instanceof HOTIndirectPage) {
           // HOTIndirectPage doesn't need versioning combining - it's stored complete
           reference.setPage(loadedPage);

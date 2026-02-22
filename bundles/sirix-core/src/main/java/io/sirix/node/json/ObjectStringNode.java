@@ -43,11 +43,15 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import io.sirix.node.immutable.json.ImmutableObjectStringNode;
+import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.page.NodeFieldLayout;
+import io.sirix.page.PageLayout;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.settings.StringCompressionType;
@@ -63,7 +67,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  * 
  * @author Johannes Lichtenberger
  */
-public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJsonNode {
+public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJsonNode, FlyweightNode {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
@@ -104,6 +108,25 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   private boolean valueParsed;          // Whether value byte[] is parsed
   private boolean hasHash;              // Whether hash is stored (from config)
   private long valueOffset;             // Offset where value starts (after metadata)
+
+  // ==================== FLYWEIGHT BINDING (LeanStore page-direct access) ====================
+  private MemorySegment page;
+  private long recordBase;
+  private long dataRegionStart;
+  private int slotIndex;
+  private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_STRING_VALUE_FIELD_COUNT;
+
+  /**
+   * Constructor for flyweight binding.
+   * All fields except nodeKey and hashFunction will be read from page memory after bind().
+   *
+   * @param nodeKey the node key
+   * @param hashFunction the hash function from resource config
+   */
+  public ObjectStringNode(long nodeKey, LongHashFunction hashFunction) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+  }
 
   /**
    * Primary constructor with all primitive fields.
@@ -185,16 +208,23 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public long getParentKey() {
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.OBJSTRVAL_PARENT_KEY, nodeKey);
+    }
     return parentKey;
   }
-  
+
   public void setParentKey(final long parentKey) {
+    if (page != null) {
+      setDeltaFieldInPlace(NodeFieldLayout.OBJSTRVAL_PARENT_KEY, parentKey);
+      if (page != null) return;
+    }
     this.parentKey = parentKey;
   }
 
   @Override
   public boolean hasParent() {
-    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -213,16 +243,27 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public void setPreviousRevision(final int revision) {
+    if (page != null) {
+      if (setSignedFieldInPlace(NodeFieldLayout.OBJSTRVAL_PREV_REVISION, revision)) return;
+      unbind();
+    }
     this.previousRevision = revision;
   }
 
   @Override
   public void setLastModifiedRevision(final int revision) {
+    if (page != null) {
+      if (setSignedFieldInPlace(NodeFieldLayout.OBJSTRVAL_LAST_MOD_REVISION, revision)) return;
+      unbind();
+    }
     this.lastModifiedRevision = revision;
   }
 
   @Override
   public long getHash() {
+    if (page != null) {
+      return readLongField(NodeFieldLayout.OBJSTRVAL_HASH);
+    }
     if (!metadataParsed) {
       parseMetadataFields();
     }
@@ -231,6 +272,13 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public void setHash(final long hash) {
+    if (page != null) {
+      // Hash is ALWAYS in-place (fixed 8 bytes)
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJSTRVAL_HASH) & 0xFF;
+      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
+      return;
+    }
     this.hash = hash;
   }
 
@@ -290,7 +338,9 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public byte[] getRawValue() {
-    if (!valueParsed) {
+    if (page != null && !valueParsed) {
+      readPayloadFromPage();
+    } else if (!valueParsed) {
       parseValueField();
     }
     // If compressed, decode on first access
@@ -303,11 +353,13 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   /**
    * Get the raw (possibly compressed) value bytes without FSST decoding.
    * Use this for serialization to preserve compression.
-   * 
+   *
    * @return the raw bytes as stored, possibly FSST compressed
    */
   public byte[] getRawValueWithoutDecompression() {
-    if (!valueParsed) {
+    if (page != null && !valueParsed) {
+      readPayloadFromPage();
+    } else if (!valueParsed) {
       parseValueField();
     }
     return value;
@@ -315,6 +367,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public void setRawValue(final byte[] value) {
+    if (page != null) unbind();
     this.value = value;
     this.decodedValue = null;
     this.valueParsed = true;
@@ -328,6 +381,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
    * @param fsstSymbolTable the symbol table for decompression (or null if not compressed)
    */
   public void setRawValue(final byte[] value, boolean isCompressed, byte[] fsstSymbolTable) {
+    if (page != null) unbind();
     this.value = value;
     this.isCompressed = isCompressed;
     this.fsstSymbolTable = fsstSymbolTable;
@@ -413,6 +467,9 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public int getPreviousRevisionNumber() {
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.OBJSTRVAL_PREV_REVISION);
+    }
     if (!metadataParsed) {
       parseMetadataFields();
     }
@@ -421,6 +478,9 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public int getLastModifiedRevisionNumber() {
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.OBJSTRVAL_LAST_MOD_REVISION);
+    }
     if (!metadataParsed) {
       parseMetadataFields();
     }
@@ -443,11 +503,13 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
    */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
                        final LongHashFunction hashFunction, final ResourceConfiguration config) {
+    // Unbind flyweight — ensures getters use Java fields, not stale page reference
+    this.page = null;
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
-    
+
     // STRUCTURAL FIELD - parse immediately (parentKey is the only one for leaf nodes)
     this.parentKey = DeltaVarIntCodec.decodeDelta(source, nodeKey);
     
@@ -533,11 +595,207 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     }
   }
 
+  // ==================== FLYWEIGHT BIND/UNBIND ====================
+
+  /**
+   * Bind this node as a flyweight to a page MemorySegment.
+   * When bound, getters/setters read/write directly to page memory via the offset table.
+   *
+   * @param page       the page MemorySegment
+   * @param recordBase absolute byte offset of this record in the page
+   * @param nodeKey    the node key (for delta decoding)
+   * @param slotIndex  the slot index in the page directory
+   */
+  public void bind(final MemorySegment page, final long recordBase, final long nodeKey,
+      final int slotIndex) {
+    this.page = page;
+    this.recordBase = recordBase;
+    this.nodeKey = nodeKey;
+    this.slotIndex = slotIndex;
+    this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
+    this.metadataParsed = true;
+    this.valueParsed = false; // Payload still needs lazy parsing from page
+    this.lazySource = null;
+  }
+
+  /**
+   * Unbind from page memory and materialize all fields into Java primitives.
+   * After unbind, the node operates in primitive mode.
+   */
+  public void unbind() {
+    if (page == null) return;
+    final long nk = this.nodeKey;
+    this.parentKey = readDeltaField(NodeFieldLayout.OBJSTRVAL_PARENT_KEY, nk);
+    this.previousRevision = readSignedField(NodeFieldLayout.OBJSTRVAL_PREV_REVISION);
+    this.lastModifiedRevision = readSignedField(NodeFieldLayout.OBJSTRVAL_LAST_MOD_REVISION);
+    this.hash = readLongField(NodeFieldLayout.OBJSTRVAL_HASH);
+    // Payload needs to be read from page before unbinding
+    if (!valueParsed) {
+      readPayloadFromPage();
+    }
+    this.page = null;
+  }
+
+  /** Check if this node is bound to a page MemorySegment. */
+  public boolean isBound() { return page != null; }
+
+  @Override
+  public boolean isBoundTo(final MemorySegment page) {
+    return this.page == page;
+  }
+
+  @Override
+  public int estimateSerializedSize() {
+    final int payloadLen = value != null ? value.length : 0;
+    return 64 + payloadLen;
+  }
+
+  // ==================== FLYWEIGHT FIELD READ HELPERS ====================
+
+  private long readDeltaField(final int fieldIndex, final long baseKey) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(page, dataRegionStart + fieldOff, baseKey);
+  }
+
+  private int readSignedField(final int fieldIndex) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
+  }
+
+  private long readLongField(final int fieldIndex) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
+  }
+
+  // ==================== FLYWEIGHT FIELD WRITE HELPERS ====================
+
+  private void setDeltaFieldInPlace(final int fieldIndex, final long newKey) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    final long absOff = dataRegionStart + fieldOff;
+    final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+    final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(newKey, nodeKey);
+    if (newWidth == currentWidth) {
+      DeltaVarIntCodec.writeDeltaToSegment(page, absOff, newKey, nodeKey);
+    } else {
+      unbind();
+    }
+  }
+
+  private boolean setSignedFieldInPlace(final int fieldIndex, final int newValue) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    final long absOff = dataRegionStart + fieldOff;
+    final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+    final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(newValue);
+    if (newWidth == currentWidth) {
+      DeltaVarIntCodec.writeSignedToSegment(page, absOff, newValue);
+      return true;
+    }
+    unbind();
+    return false;
+  }
+
+  /**
+   * Read the payload (value bytes) directly from page memory when bound.
+   */
+  private void readPayloadFromPage() {
+    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE,
+        recordBase + 1 + NodeFieldLayout.OBJSTRVAL_PAYLOAD) & 0xFF;
+    final long payloadStart = dataRegionStart + payloadFieldOff;
+
+    // Read isCompressed flag (1 byte)
+    this.isCompressed = page.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
+
+    // Read value length (varint)
+    final long lenOffset = payloadStart + 1;
+    final int length = DeltaVarIntCodec.decodeSignedFromSegment(page, lenOffset);
+    final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(page, lenOffset);
+
+    // Read value bytes
+    final long dataOffset = lenOffset + lenBytes;
+    this.value = new byte[length];
+    MemorySegment.copy(page, ValueLayout.JAVA_BYTE, dataOffset, this.value, 0, length);
+    this.valueParsed = true;
+  }
+
+  // ==================== SERIALIZE TO HEAP ====================
+
+  /**
+   * Serialize this node (from Java fields) into the new unified format with offset table.
+   * Writes: [nodeKind:1][offsetTable:FIELD_COUNT][data fields + payload].
+   *
+   * @param target the target MemorySegment
+   * @param offset the absolute byte offset to write at
+   * @return the total number of bytes written
+   */
+  public int serializeToHeap(final MemorySegment target, final long offset) {
+    if (!metadataParsed) parseMetadataFields();
+    if (!valueParsed) parseValueField();
+
+    long pos = offset;
+    target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.OBJECT_STRING_VALUE.getId());
+    pos++;
+
+    final long offsetTableStart = pos;
+    pos += FIELD_COUNT;
+    final long dataStart = pos;
+    final int[] offsets = new int[FIELD_COUNT];
+
+    // Field 0: parentKey (delta-varint)
+    offsets[NodeFieldLayout.OBJSTRVAL_PARENT_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
+
+    // Field 1: previousRevision (signed varint)
+    offsets[NodeFieldLayout.OBJSTRVAL_PREV_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, previousRevision);
+
+    // Field 2: lastModifiedRevision (signed varint)
+    offsets[NodeFieldLayout.OBJSTRVAL_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModifiedRevision);
+
+    // Field 3: hash (fixed 8 bytes)
+    offsets[NodeFieldLayout.OBJSTRVAL_HASH] = (int) (pos - dataStart);
+    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
+    pos += Long.BYTES;
+
+    // Field 4: payload [isCompressed:1][valueLength:varint][value:bytes]
+    offsets[NodeFieldLayout.OBJSTRVAL_PAYLOAD] = (int) (pos - dataStart);
+    target.set(ValueLayout.JAVA_BYTE, pos, isCompressed ? (byte) 1 : (byte) 0);
+    pos++;
+    final byte[] rawValue = value != null ? value : new byte[0];
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, rawValue.length);
+    if (rawValue.length > 0) {
+      MemorySegment.copy(rawValue, 0, target, ValueLayout.JAVA_BYTE, pos, rawValue.length);
+      pos += rawValue.length;
+    }
+
+    // Write offset table
+    for (int i = 0; i < FIELD_COUNT; i++) {
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) offsets[i]);
+    }
+
+    return (int) (pos - offset);
+  }
+
   /**
    * Create a deep copy snapshot of this node.
    * Forces parsing of all lazy fields since snapshot must be independent.
    */
   public ObjectStringNode toSnapshot() {
+    if (page != null) {
+      // Bound mode: read all fields from page
+      if (!valueParsed) {
+        readPayloadFromPage();
+      }
+      return new ObjectStringNode(nodeKey,
+          readDeltaField(NodeFieldLayout.OBJSTRVAL_PARENT_KEY, nodeKey),
+          readSignedField(NodeFieldLayout.OBJSTRVAL_PREV_REVISION),
+          readSignedField(NodeFieldLayout.OBJSTRVAL_LAST_MOD_REVISION),
+          readLongField(NodeFieldLayout.OBJSTRVAL_HASH),
+          value != null ? value.clone() : null,
+          hashFunction,
+          deweyIDBytes != null ? deweyIDBytes.clone() : null,
+          isCompressed, fsstSymbolTable != null ? fsstSymbolTable.clone() : null);
+    }
     if (!metadataParsed) {
       parseMetadataFields();
     }

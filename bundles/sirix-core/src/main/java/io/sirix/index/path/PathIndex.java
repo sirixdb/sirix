@@ -61,7 +61,7 @@ public interface PathIndex<B, L extends ChangeListener> {
   private Iterator<NodeReferences> openHOTIndex(final StorageEngineReader pageRtx, final IndexDef indexDef,
       final PathFilter filter) {
     final HOTLongIndexReader reader = HOTLongIndexReader.create(pageRtx, indexDef.getType(), indexDef.getID());
-    
+
     if (filter != null && filter.getPCRs().size() == 1) {
       // Single PCR lookup
       long pcr = filter.getPCRs().iterator().next();

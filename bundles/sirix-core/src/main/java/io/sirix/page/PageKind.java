@@ -42,7 +42,6 @@ import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import java.lang.foreign.MemorySegment;
 import io.sirix.node.Utils;
 import io.sirix.node.Bytes;
-import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.page.delegates.FullReferencesPage;
@@ -83,96 +82,42 @@ public enum PageKind {
 
       switch (binaryVersion) {
         case V0 -> {
+          // ========== UNIFIED PAGE FORMAT ==========
+          // Read metadata written outside the unified page segment
           final long recordPageKey = Utils.getVarLong(source);
           final int revision = source.readInt();
           final IndexType indexType = IndexType.getType(source.readByte());
-          final int lastSlotIndex = source.readInt();
 
-          // Read compressed slot offsets (delta + bit-packed)
-          final int[] slotOffsets = SlotOffsetCodec.decode(source);
-
-          // Read slotMemory size
-          final int slotMemorySize = source.readInt();
-
-          // ZERO-COPY: Slice decompression buffer directly as slotMemory
-          // This eliminates per-slot MemorySegment.copy() calls (major performance win)
-          final boolean canZeroCopy = decompressionResult != null && source instanceof MemorySegmentBytesIn;
-          final MemorySegment slotMemory;
-          final MemorySegment backingBuffer;
-          final Runnable backingBufferReleaser;
+          // Read unified page data size (HEAP_START + heapEnd)
+          final int unifiedDataSize = source.readInt();
 
           MemorySegmentAllocator memorySegmentAllocator =
               OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
-          if (canZeroCopy) {
-            // Zero-copy path: slice decompression buffer directly
-            final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
-            slotMemory = sourceSegment.asSlice(source.position(), slotMemorySize);
-            source.skip(slotMemorySize);
 
-            // Transfer buffer ownership to page
-            backingBufferReleaser = decompressionResult.transferOwnership();
-            backingBuffer = decompressionResult.backingBuffer();
+          // Allocate unified page (at least INITIAL_PAGE_SIZE for future mutations on modified pages)
+          final int allocSize = Math.max(unifiedDataSize, PageLayout.INITIAL_PAGE_SIZE);
+          final MemorySegment unifiedPage = memorySegmentAllocator.allocate(allocSize);
+
+          // Copy unified page data from source (header + bitmap + directory + heap)
+          if (source instanceof MemorySegmentBytesIn msSource) {
+            MemorySegment.copy(msSource.getSource(), source.position(), unifiedPage, 0, unifiedDataSize);
+            source.skip(unifiedDataSize);
           } else {
-            // Fallback: allocate and copy (for non-MemorySegment sources or no decompressionResult)
-            MemorySegmentAllocator allocator = memorySegmentAllocator;
-            slotMemory = allocator.allocate(slotMemorySize);
-            
-            // Copy slot data
-            if (source instanceof MemorySegmentBytesIn msSource) {
-              MemorySegment.copy(msSource.getSource(), source.position(), slotMemory, 0, slotMemorySize);
-              source.skip(slotMemorySize);
-            } else {
-              byte[] slotData = new byte[slotMemorySize];
-              source.read(slotData);
-              MemorySegment.copy(slotData, 0, slotMemory, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, slotMemorySize);
-            }
-            backingBuffer = null;
-            backingBufferReleaser = null;
+            final byte[] pageData = new byte[unifiedDataSize];
+            source.read(pageData);
+            MemorySegment.copy(pageData, 0, unifiedPage,
+                java.lang.foreign.ValueLayout.JAVA_BYTE, 0, unifiedDataSize);
           }
 
-          // Read dewey ID data if stored
+          // Zero remaining bytes if page is larger than data (for clean directory/bitmap reads)
+          if (allocSize > unifiedDataSize) {
+            unifiedPage.asSlice(unifiedDataSize, allocSize - unifiedDataSize).fill((byte) 0);
+          }
+
+          // DeweyIDs are stored inline in the heap (after record data, with 2-byte length trailer)
+          // when FLAG_DEWEY_IDS_STORED is set — no separate deserialization needed.
           final boolean areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
           final RecordSerializer recordPersister = resourceConfig.recordPersister;
-          final int[] deweyIdOffsets;
-          final MemorySegment deweyIdMemory;
-          final int lastDeweyIdIndex;
-
-          if (areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
-            lastDeweyIdIndex = source.readInt();
-
-            // Read compressed dewey ID offsets (delta + bit-packed)
-            deweyIdOffsets = SlotOffsetCodec.decode(source);
-
-            // Read deweyIdMemory size and data
-            final int deweyIdMemorySize = source.readInt();
-            
-            if (canZeroCopy && deweyIdMemorySize > 1) {
-              // Zero-copy for dewey IDs too (part of same backing buffer)
-              final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
-              deweyIdMemory = sourceSegment.asSlice(source.position(), deweyIdMemorySize);
-              source.skip(deweyIdMemorySize);
-            } else if (deweyIdMemorySize > 1) {
-              // Allocate and copy
-              MemorySegmentAllocator allocator = memorySegmentAllocator;
-              deweyIdMemory = allocator.allocate(deweyIdMemorySize);
-              
-              if (source instanceof MemorySegmentBytesIn msSource) {
-                MemorySegment.copy(msSource.getSource(), source.position(), deweyIdMemory, 0, deweyIdMemorySize);
-                source.skip(deweyIdMemorySize);
-              } else {
-                byte[] deweyData = new byte[deweyIdMemorySize];
-                source.read(deweyData);
-                MemorySegment.copy(deweyData, 0, deweyIdMemory, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, deweyIdMemorySize);
-              }
-            } else {
-              deweyIdMemory = null;
-              source.skip(1); // Skip placeholder byte
-            }
-          } else {
-            deweyIdOffsets = null;
-            deweyIdMemory = null;
-            lastDeweyIdIndex = -1;
-          }
 
           // Read overlong entries bitmap
           final var overlongEntriesBitmap = SerializationType.deserializeBitSet(source);
@@ -191,7 +136,7 @@ public enum PageKind {
             references.put(key, reference);
           }
 
-          // Read FSST symbol table for string compression
+          // Read FSST symbol table
           byte[] fsstSymbolTable = null;
           final int fsstSymbolTableLength = source.readInt();
           if (fsstSymbolTableLength > 0) {
@@ -199,76 +144,20 @@ public enum PageKind {
             source.read(fsstSymbolTable);
           }
 
-          // Read columnar string storage if present
-          // Format: [hasColumnar:1][size:4][offsets:bit-packed][data:N]
-          MemorySegment stringValueMemory = null;
-          int[] stringValueOffsets = null;
-          int lastStringValueIndex = -1;
-          int stringValueMemorySize = 0;
-          
-          byte hasColumnar = source.readByte();
-          if (hasColumnar == 1) {
-            stringValueMemorySize = source.readInt();
-            stringValueOffsets = SlotOffsetCodec.decode(source);
-            
-            // Find last string value index from offsets
-            for (int i = stringValueOffsets.length - 1; i >= 0; i--) {
-              if (stringValueOffsets[i] >= 0) {
-                lastStringValueIndex = i;
-                break;
-              }
-            }
-            
-            // Read columnar data - zero-copy if possible
-            if (canZeroCopy && stringValueMemorySize > 0) {
-              final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
-              stringValueMemory = sourceSegment.asSlice(source.position(), stringValueMemorySize);
-              source.skip(stringValueMemorySize);
-            } else if (stringValueMemorySize > 0) {
-              stringValueMemory = memorySegmentAllocator.allocate(stringValueMemorySize);
-              if (source instanceof MemorySegmentBytesIn msSource) {
-                MemorySegment.copy(msSource.getSource(), source.position(), 
-                    stringValueMemory, 0, stringValueMemorySize);
-                source.skip(stringValueMemorySize);
-              } else {
-                byte[] stringData = new byte[stringValueMemorySize];
-                source.read(stringData);
-                MemorySegment.copy(stringData, 0, stringValueMemory, 
-                    java.lang.foreign.ValueLayout.JAVA_BYTE, 0, stringValueMemorySize);
-              }
-            }
-          }
+          // Create page using the deserialization constructor with dummy slotMemory.
+          // The unified page overrides all slot + DeweyID operations (DeweyIDs inline in heap).
+          final MemorySegment dummySlotMemory = memorySegmentAllocator.allocate(1);
+          final KeyValueLeafPage page = new KeyValueLeafPage(
+              recordPageKey, revision, indexType, resourceConfig,
+              areDeweyIDsStored, recordPersister, references,
+              dummySlotMemory, null, -1, -1);
 
-          // Create page - use the zero-copy constructor for both paths
-          // (it properly handles slotOffsets; backingBuffer/releaser can be null for non-zero-copy)
-          KeyValueLeafPage page = new KeyValueLeafPage(
-              recordPageKey,
-              revision,
-              indexType,
-              resourceConfig,
-              slotOffsets,
-              slotMemory,
-              lastSlotIndex,
-              deweyIdOffsets,
-              deweyIdMemory,
-              lastDeweyIdIndex,
-              references,
-              backingBuffer,
-              backingBufferReleaser
-          );
+          // Set the unified page — all slot operations now route through it
+          page.setUnifiedPage(unifiedPage);
 
-          // Set FSST symbol table if present and propagate to any deserialized nodes
+          // Set FSST symbol table if present
           if (fsstSymbolTable != null) {
             page.setFsstSymbolTable(fsstSymbolTable);
-            // Propagate symbol table to nodes that are already in the records array
-            // Lazily-deserialized nodes will get the table when accessed via getRecord()
-            page.propagateFsstSymbolTableToNodes();
-          }
-
-          // Set columnar string storage if present
-          if (stringValueMemory != null && stringValueOffsets != null) {
-            page.setStringValueData(stringValueMemory, stringValueOffsets, 
-                lastStringValueIndex, stringValueMemorySize);
           }
 
           return page;
@@ -280,7 +169,7 @@ public enum PageKind {
     @Override
     public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
         final SerializationType type) {
-      KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
+      final KeyValueLeafPage keyValueLeafPage = (KeyValueLeafPage) page;
 
       // Check for zero-copy compressed segment first
       final MemorySegment cachedSegment = keyValueLeafPage.getCompressedSegment();
@@ -299,9 +188,7 @@ public enum PageKind {
       sink.writeByte(KEYVALUELEAFPAGE.id);
       sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
 
-      //Variables from keyValueLeafPage
       final long recordPageKey = keyValueLeafPage.getPageKey();
-      final IndexType indexType = keyValueLeafPage.getIndexType();
       final RecordSerializer recordPersister = resourceConfig.recordPersister;
       final Map<Long, PageReference> references = keyValueLeafPage.getReferencesMap();
 
@@ -309,120 +196,66 @@ public enum PageKind {
       keyValueLeafPage.buildFsstSymbolTable(resourceConfig);
       keyValueLeafPage.compressStringValues();
 
-      // Add references to overflow pages if necessary.
+      // addReferences: serializes non-flyweight records to unified page heap via processEntries,
+      // copies preserved slots from completePageRef for DIFFERENTIAL/INCREMENTAL versioning
       keyValueLeafPage.addReferences(resourceConfig);
 
-      // Write page key.
+      // ========== UNIFIED PAGE FORMAT ==========
+      // Write metadata (for format identification and indexing)
       Utils.putVarLong(sink, recordPageKey);
-      // Write revision number.
       sink.writeInt(keyValueLeafPage.getRevision());
-      // Write index type.
-      sink.writeByte(indexType.getID());
-      // Write last slot index.
-      sink.writeInt(keyValueLeafPage.getLastSlotIndex());
+      sink.writeByte(keyValueLeafPage.getIndexType().getID());
 
-      // Write compressed slot offsets (delta + bit-packed) - ~75% smaller than raw int[1024]
-      final int[] slotOffsets = keyValueLeafPage.getSlotOffsets();
-      SlotOffsetCodec.encode(sink, slotOffsets, keyValueLeafPage.getLastSlotIndex());
+      // Write unified page: header(32) + bitmap(128) + directory(8192) + heap(heapEnd)
+      final MemorySegment unifiedPage = keyValueLeafPage.getUnifiedPage();
+      final int heapEnd = PageLayout.getHeapEnd(unifiedPage);
+      final int unifiedDataSize = PageLayout.HEAP_START + heapEnd;
 
-      // Write slotMemory region - BULK COPY
-      int slotMemoryUsedSize = keyValueLeafPage.getUsedSlotsSize();
-      if (slotMemoryUsedSize == 0) {
-        slotMemoryUsedSize = 1;
-      }
-      sink.writeInt(slotMemoryUsedSize);
-      
-      // Bulk copy slotMemory - direct segment-to-segment copy (zero allocation for MemorySegmentBytesOut/PooledBytesOut)
-      final MemorySegment slotMem = keyValueLeafPage.getSlotMemory();
-      sink.writeSegment(slotMem, 0, slotMemoryUsedSize);
+      sink.writeInt(unifiedDataSize);
+      sink.writeSegment(unifiedPage, 0, unifiedDataSize);
 
-      // Write dewey ID data if stored
-      if (resourceConfig.areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
-        // Write last dewey ID index
-        sink.writeInt(keyValueLeafPage.getLastDeweyIdIndex());
-        
-        // Write compressed dewey ID offsets (delta + bit-packed)
-        final int[] deweyIdOffsets = keyValueLeafPage.getDeweyIdOffsets();
-        SlotOffsetCodec.encode(sink, deweyIdOffsets, keyValueLeafPage.getLastDeweyIdIndex());
-        
-        // Write deweyIdMemory region - BULK COPY
-        int deweyIdMemoryUsedSize = keyValueLeafPage.getUsedDeweyIdSize();
-        if (deweyIdMemoryUsedSize == 0) {
-          deweyIdMemoryUsedSize = 1;
-        }
-        sink.writeInt(deweyIdMemoryUsedSize);
-        
-        final MemorySegment deweyMem = keyValueLeafPage.getDeweyIdMemory();
-        if (deweyMem != null) {
-          // Direct segment-to-segment copy (zero allocation for MemorySegmentBytesOut/PooledBytesOut)
-          sink.writeSegment(deweyMem, 0, deweyIdMemoryUsedSize);
-        } else {
-          // Write a single byte placeholder if no dewey ID memory
-          sink.writeByte((byte) 0);
-        }
-      }
+      // DeweyIDs are stored inline in the heap (after record data, with 2-byte length trailer)
+      // when FLAG_DEWEY_IDS_STORED is set — no separate section needed.
 
-      // Write overlong entries bitmap (entries bitmap is not needed - slot presence determined by slotOffsets)
+      // Write overlong entries
       var overlongEntriesBitmap = new BitSet(Constants.NDP_NODE_COUNT);
-      final var overlongEntriesSortedByKey = references.entrySet().stream().sorted(Map.Entry.comparingByKey()).toList();
+      final var overlongEntriesSortedByKey = references.entrySet().stream()
+          .sorted(Map.Entry.comparingByKey()).toList();
 
       for (final Map.Entry<Long, PageReference> entry : overlongEntriesSortedByKey) {
         final var pageOffset = StorageEngineReader.recordPageOffset(entry.getKey());
         overlongEntriesBitmap.set(pageOffset);
       }
       SerializationType.serializeBitSet(sink, overlongEntriesBitmap);
-
-      // Write overlong entries.
       sink.writeInt(overlongEntriesSortedByKey.size());
       for (final var entry : overlongEntriesSortedByKey) {
-        // Write key in persistent storage.
         sink.writeLong(entry.getValue().getKey());
       }
 
-      // Write FSST symbol table for string compression
+      // Write FSST symbol table
       final byte[] fsstSymbolTable = keyValueLeafPage.getFsstSymbolTable();
       if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
         sink.writeInt(fsstSymbolTable.length);
         sink.write(fsstSymbolTable);
       } else {
-        sink.writeInt(0); // No symbol table
+        sink.writeInt(0);
       }
 
-      // Write columnar string storage if present
-      // Format: [hasColumnar:1][size:4][offsets:bit-packed][data:N]
-      if (keyValueLeafPage.hasColumnarStringStorage()) {
-        sink.writeByte((byte) 1); // Has columnar data
-        int columnarSize = keyValueLeafPage.getStringValueMemoryFreeSpaceStart();
-        sink.writeInt(columnarSize);
-        
-        // Write bit-packed string value offsets
-        SlotOffsetCodec.encode(sink, keyValueLeafPage.getStringValueOffsets(), 
-            keyValueLeafPage.getLastStringValueIndex());
-        
-        // Write columnar string data - direct segment copy (zero allocation for MemorySegmentBytesOut/PooledBytesOut)
-        MemorySegment stringMem = keyValueLeafPage.getStringValueMemory();
-        sink.writeSegment(stringMem, 0, columnarSize);
-      } else {
-        sink.writeByte((byte) 0); // No columnar data
-      }
-
+      // Compress the serialized data
       final BytesIn<?> uncompressedBytes = sink.bytesForRead();
       final ByteHandlerPipeline pipeline = resourceConfig.byteHandlePipeline;
 
       if (pipeline.supportsMemorySegments() && uncompressedBytes instanceof MemorySegmentBytesIn segmentIn) {
-        // Zero-copy path: compress MemorySegment → store MemorySegment. No byte[] at all.
         final MemorySegment uncompressed = segmentIn.getSource().asSlice(0, sink.writePosition());
         final MemorySegment compressed = pipeline.compress(uncompressed);
         keyValueLeafPage.setCompressedSegment(compressed);
       } else {
-        // Fallback: byte[] path for non-MemorySegment backends
         final byte[] uncompressedArray = uncompressedBytes.toByteArray();
         final byte[] compressedPage = compressViaStream(pipeline, uncompressedArray);
         keyValueLeafPage.setBytes(Bytes.wrapForWrite(compressedPage));
       }
 
-      // Release node object references — all data is now in slotMemory + compressed cache.
-      // Future reads reconstruct on demand from slotMemory via NodeStorageEngineReader.getValue().
+      // Release node object references — all data is now in the unified page + compressed cache
       keyValueLeafPage.clearRecordsForGC();
     }
   },

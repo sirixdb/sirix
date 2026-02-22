@@ -27,7 +27,10 @@ import io.sirix.node.json.ObjectNumberNode;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.NullNode;
 import io.sirix.node.json.StringNode;
+import io.sirix.node.interfaces.FlyweightNode;
+import io.sirix.node.interfaces.Node;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.PageLayout;
 import io.sirix.service.xml.xpath.AtomicValue;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
@@ -539,14 +542,33 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Calculate target page key to check for same-page access
     final long targetPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
     final int slotOffset = StorageEngineReader.recordPageOffset(nodeKey);
-    
+
     MemorySegment data;
     KeyValueLeafPage page;
-    
+
     // OPTIMIZATION: Check if we're moving within the same page
     if (currentPageKey == targetPageKey && currentPage != null && !currentPage.isClosed()) {
       // Same page! Skip guard management entirely
       page = currentPage;
+
+      // Check records[] first: Java objects are authoritative during write transactions
+      // (modifications via prepareRecordForModification are NOT synced back to page heap)
+      final DataRecord fromRecords = page.getRecord(slotOffset);
+      if (fromRecords != null) {
+        if (fromRecords.getKind() == NodeKind.DELETE) {
+          return false;
+        }
+        @SuppressWarnings("unchecked")
+        final N node = (N) fromRecords;
+        this.currentNode = node;
+        this.currentNodeKind = (NodeKind) fromRecords.getKind();
+        this.currentNodeKey = nodeKey;
+        this.currentSingleton = null;
+        this.singletonMode = false;
+        this.flyweightMode = false;
+        return true;
+      }
+
       data = page.getSlot(slotOffset);
       if (data == null) {
         // Slot not found on current page - try overflow or fail
@@ -556,31 +578,50 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       // Different page - use the slow path with guard management
       return moveToSingletonSlowPath(nodeKey, reader);
     }
-    
+
     // Read node kind from first byte
     byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
     NodeKind kind = NodeKind.getKind(kindByte);
-    
+
     // Check for deleted node
     if (kind == NodeKind.DELETE) {
       return false;
     }
-    
+
     // Get singleton instance for this node type
     ImmutableNode singleton = getSingletonForKind(kind);
     if (singleton == null) {
       // No singleton for this type (e.g., document root), fall back to legacy
       return moveToLegacy(nodeKey);
     }
-    
-    // Populate singleton from serialized data (NO ALLOCATION)
-    // Note: NO guard management needed - we're on the same page
-    // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
-    reusableBytesIn.reset(data, 1);
-    // Only fetch DeweyID if actually stored (avoids byte[] allocation)
-    byte[] deweyId = resourceConfig.areDeweyIDsStored ? page.getDeweyIdAsByteArray(slotOffset) : null;
-    populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
-    
+
+    // Check if this is a flyweight record in unified page
+    final boolean isFlyweightSlot = page.getUnifiedPage() != null && page.getSlotNodeKindId(slotOffset) > 0
+        && singleton instanceof FlyweightNode;
+    if (isFlyweightSlot) {
+      final FlyweightNode fn = (FlyweightNode) singleton;
+      // Bind flyweight directly to unified page (zero-copy, no legacy parsing)
+      final int heapOffset = PageLayout.getDirHeapOffset(page.getUnifiedPage(), slotOffset);
+      final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
+      fn.bind(page.getUnifiedPage(), recordBase, nodeKey, slotOffset);
+      // Propagate FSST symbol table for compressed string nodes
+      propagateFsstToFlyweight(fn, page);
+      // Propagate DeweyID from page to flyweight node (stored inline after record data)
+      if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
+        final byte[] deweyId = page.getDeweyIdAsByteArray(slotOffset);
+        if (deweyId != null) {
+          node.setDeweyID(new SirixDeweyID(deweyId));
+        }
+      }
+    } else {
+      // Legacy format: populate from serialized data (NO ALLOCATION)
+      // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
+      reusableBytesIn.reset(data, 1);
+      // Only fetch DeweyID if actually stored (avoids byte[] allocation)
+      byte[] deweyId = resourceConfig.areDeweyIDsStored ? page.getDeweyIdAsByteArray(slotOffset) : null;
+      populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
+    }
+
     // Update state - we're in singleton mode now (page guard unchanged)
     this.currentSingleton = singleton;
     this.currentNodeKind = kind;
@@ -588,10 +629,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentNode = null;  // Clear - will be created lazily by getCurrentNode()
     this.singletonMode = true;
     this.flyweightMode = false;
-    
+
     return true;
   }
-  
+
   /**
    * Slow path for moveToSingleton when moving to a different page.
    * Handles guard acquisition and release.
@@ -602,18 +643,43 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (slotLocation == null) {
       return false;
     }
-    
+
+    final KeyValueLeafPage slotPage = slotLocation.page();
+    final int slotOff = slotLocation.offset();
+
+    // Check records[] first: Java objects are authoritative during write transactions
+    final DataRecord fromRecords = slotPage.getRecord(slotOff);
+    if (fromRecords != null) {
+      if (fromRecords.getKind() == NodeKind.DELETE) {
+        slotLocation.guard().close();
+        return false;
+      }
+      releaseCurrentPageGuard();
+      @SuppressWarnings("unchecked")
+      final N node = (N) fromRecords;
+      this.currentNode = node;
+      this.currentNodeKind = (NodeKind) fromRecords.getKind();
+      this.currentNodeKey = nodeKey;
+      this.currentSingleton = null;
+      this.singletonMode = false;
+      this.flyweightMode = false;
+      this.currentPageGuard = slotLocation.guard();
+      this.currentPage = slotPage;
+      this.currentPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
+      return true;
+    }
+
     // Read node kind from first byte
     MemorySegment data = slotLocation.data();
     byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
     NodeKind kind = NodeKind.getKind(kindByte);
-    
+
     // Check for deleted node
     if (kind == NodeKind.DELETE) {
       slotLocation.guard().close();
       return false;
     }
-    
+
     // Get singleton instance for this node type
     ImmutableNode singleton = getSingletonForKind(kind);
     if (singleton == null) {
@@ -621,21 +687,41 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       slotLocation.guard().close();
       return moveToLegacy(nodeKey);
     }
-    
+
     // Release previous page guard ONLY NOW (after we know the new page is valid)
     releaseCurrentPageGuard();
-    
-    // Populate singleton from serialized data (NO ALLOCATION)
-    // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
-    reusableBytesIn.reset(data, 1);
-    // Only fetch DeweyID if actually stored (avoids byte[] allocation)
-    byte[] deweyId = resourceConfig.areDeweyIDsStored 
-        ? slotLocation.page().getDeweyIdAsByteArray(slotLocation.offset()) : null;
-    populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, slotLocation.page());
-    
+
+    // Check if this is a flyweight record in unified page
+    final boolean isFlyweightSlotSlow = slotPage.getUnifiedPage() != null && slotPage.getSlotNodeKindId(slotOff) > 0
+        && singleton instanceof FlyweightNode;
+    if (isFlyweightSlotSlow) {
+      final FlyweightNode fn = (FlyweightNode) singleton;
+      // Bind flyweight directly to unified page (zero-copy, no legacy parsing)
+      final int heapOffset = PageLayout.getDirHeapOffset(slotPage.getUnifiedPage(), slotOff);
+      final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
+      fn.bind(slotPage.getUnifiedPage(), recordBase, nodeKey, slotOff);
+      // Propagate FSST symbol table for compressed string nodes
+      propagateFsstToFlyweight(fn, slotPage);
+      // Propagate DeweyID from page to flyweight node (stored inline after record data)
+      if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
+        final byte[] deweyId = slotPage.getDeweyIdAsByteArray(slotOff);
+        if (deweyId != null) {
+          node.setDeweyID(new SirixDeweyID(deweyId));
+        }
+      }
+    } else {
+      // Legacy format: populate from serialized data (NO ALLOCATION)
+      // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
+      reusableBytesIn.reset(data, 1);
+      // Only fetch DeweyID if actually stored (avoids byte[] allocation)
+      byte[] deweyId = resourceConfig.areDeweyIDsStored
+          ? slotPage.getDeweyIdAsByteArray(slotOff) : null;
+      populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, slotPage);
+    }
+
     // Update state - we're in singleton mode now with new page
     this.currentPageGuard = slotLocation.guard();
-    this.currentPage = slotLocation.page();
+    this.currentPage = slotPage;
     this.currentPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
     this.currentSingleton = singleton;
     this.currentNodeKind = kind;
@@ -643,10 +729,25 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentNode = null;  // Clear - will be created lazily by getCurrentNode()
     this.singletonMode = true;
     this.flyweightMode = false;
-    
+
     return true;
   }
   
+  /**
+   * Propagate FSST symbol table from page to a flyweight string node.
+   * Required for lazy decompression of FSST-compressed strings in singleton mode.
+   */
+  private static void propagateFsstToFlyweight(final FlyweightNode fn, final KeyValueLeafPage page) {
+    final byte[] fsstTable = page.getFsstSymbolTable();
+    if (fsstTable != null && fsstTable.length > 0) {
+      if (fn instanceof StringNode sn) {
+        sn.setFsstSymbolTable(fsstTable);
+      } else if (fn instanceof ObjectStringNode osn) {
+        osn.setFsstSymbolTable(fsstTable);
+      }
+    }
+  }
+
   /**
    * Get the singleton instance for a given node kind.
    * Lazily creates singletons on first use.
@@ -1575,10 +1676,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public NodeKind getParentKind() {
     assertNotClosed();
-    if (getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+    final long parentKey = getParentKey();
+    if (parentKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return NodeKind.UNKNOWN;
     }
-    // Save current position using flyweight-compatible getters
     final long savedNodeKey = getNodeKey();
     moveToParent();
     final NodeKind parentKind = getKind();

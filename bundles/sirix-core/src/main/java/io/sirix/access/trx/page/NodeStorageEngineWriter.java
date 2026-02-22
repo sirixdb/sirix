@@ -1002,17 +1002,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     page.commit(this);
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
 
-    // DIAGNOSTIC: Track page closes during commit
-    if (DEBUG_MEMORY_LEAKS && container.getComplete() instanceof KeyValueLeafPage completePage) {
-      LOGGER.debug("[WRITER-COMMIT] Closing complete page: pageKey={}, indexType={}, instance={}",
-                   completePage.getPageKey(), completePage.getIndexType(), System.identityHashCode(completePage));
-    }
     container.getComplete().close();
-    
-    if (DEBUG_MEMORY_LEAKS && page instanceof KeyValueLeafPage kvPage) {
-      LOGGER.debug("[WRITER-COMMIT] Closing modified page: pageKey={}, indexType={}, instance={}",
-                   kvPage.getPageKey(), kvPage.getIndexType(), System.identityHashCode(kvPage));
-    }
     page.close();
 
     // Remove page reference.
@@ -1097,11 +1087,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // CRITICAL: Release current page guard BEFORE TIL.clear()
       // If guard is on a TIL page, the page won't close (guardCount > 0 check)
       pageRtx.closeCurrentPageGuard();
-      
-      if (DEBUG_MEMORY_LEAKS) {
-        LOGGER.debug("[WRITER-COMMIT] Clearing TIL with {} entries before commit", log.size());
-      }
-      
+
       // Clear TransactionIntentLog - closes all modified pages
       log.clear();
 
@@ -1227,10 +1213,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Wait for any pending async intermediate commit to complete before rollback
     awaitPendingAsyncCommit();
 
-    if (DEBUG_MEMORY_LEAKS) {
-      LOGGER.debug("[WRITER-ROLLBACK] Rolling back transaction with {} TIL entries", log.size());
-    }
-    
     // CRITICAL: Release current page guard BEFORE TIL.clear()
     // If guard is on a TIL page, the page won't close (guardCount > 0 check)
     pageRtx.closeCurrentPageGuard();
@@ -1520,13 +1502,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
                 : null,
             false  // Memory from allocator - release on close()
         );
-        
-        if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-          LOGGER.debug("[WRITER-CREATE] Created Page 0 pair: indexType={}, rev={}, complete={}, modify={}",
-                       indexType, pageRtx.getRevisionNumber(), 
-                       System.identityHashCode(completePage), System.identityHashCode(modifyPage));
-        }
-        
+
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
         appendLogRecord(reference, pageContainer);
         return pageContainer;
@@ -1809,9 +1785,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   @SuppressWarnings("deprecation")
   protected void finalize() {
-    // DIAGNOSTIC: Detect if NodeStorageEngineWriter is GC'd without being closed
     if (!isClosed && KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
-      LOGGER.warn("⚠️  NodeStorageEngineWriter FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL", 
+      LOGGER.warn("NodeStorageEngineWriter finalized without close: trxId={} instance={} TIL={} with {} containers in TIL",
           pageRtx.getTrxId(), System.identityHashCode(this), System.identityHashCode(log), log.getList().size());
     }
   }

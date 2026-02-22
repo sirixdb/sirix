@@ -341,24 +341,7 @@ public final class DeltaVarIntCodec {
   }
   
   // ==================== SIZE ESTIMATION ====================
-  
-  /**
-   * Estimate the encoded size of a delta-encoded key (for buffer sizing).
-   * 
-   * @param key     the key to encode
-   * @param baseKey the reference key
-   * @return estimated bytes needed
-   */
-  public static int estimateEncodedSize(long key, long baseKey) {
-    if (key == NULL_KEY) {
-      return 1;
-    }
-    
-    long delta = key - baseKey;
-    long zigzag = zigzagEncode(delta) + 1;
-    return varLongSize(zigzag);
-  }
-  
+
   /**
    * Calculate the number of bytes needed for a varint.
    */
@@ -623,5 +606,275 @@ public final class DeltaVarIntCodec {
    */
   public static long readLongFromSegment(MemorySegment segment, int offset) {
     return segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+  }
+
+  // ==================== DIRECT SEGMENT WRITE METHODS (for in-place mutation) ====================
+
+  /**
+   * Write a fixed 8-byte long value directly to a MemorySegment.
+   * Used for hash values which are always fixed-width, enabling in-place mutation.
+   * ZERO ALLOCATION.
+   *
+   * @param segment the MemorySegment to write to
+   * @param offset  the byte offset to write at
+   * @param value   the 8-byte long value
+   */
+  public static void writeLongToSegment(MemorySegment segment, long offset, long value) {
+    segment.set(ValueLayout.JAVA_LONG_UNALIGNED, offset, value);
+  }
+
+  /**
+   * Compute the encoded byte width of a delta-encoded key.
+   * This is critical for in-place mutation: if the new width matches the old width,
+   * we can overwrite in-place without re-serializing the record.
+   *
+   * @param key     the key to encode
+   * @param baseKey the reference key for delta calculation
+   * @return the number of bytes this delta would occupy
+   */
+  public static int computeDeltaEncodedWidth(long key, long baseKey) {
+    if (key == NULL_KEY) {
+      return 1;
+    }
+    long delta = key - baseKey;
+    long zigzag = zigzagEncode(delta) + 1;
+    return varLongSize(zigzag);
+  }
+
+  /**
+   * Compute the encoded byte width of a signed integer (zigzag + varint).
+   *
+   * @param value the signed integer value
+   * @return the number of bytes this value would occupy
+   */
+  public static int computeSignedEncodedWidth(int value) {
+    long zigzag = zigzagEncode(value);
+    return varLongSize(zigzag);
+  }
+
+  /**
+   * Compute the encoded byte width of a signed long (zigzag + varint).
+   *
+   * @param value the signed long value
+   * @return the number of bytes this value would occupy
+   */
+  public static int computeSignedLongEncodedWidth(long value) {
+    long zigzag = zigzagEncode(value);
+    return varLongSize(zigzag);
+  }
+
+  /**
+   * Write a delta-encoded key directly to a MemorySegment at the given offset.
+   * ZERO ALLOCATION - writes directly to page memory.
+   *
+   * @param segment the MemorySegment to write to
+   * @param offset  the byte offset to start writing at
+   * @param key     the key to encode (may be NULL_NODE_KEY)
+   * @param baseKey the reference key for delta calculation
+   * @return the number of bytes written
+   */
+  public static int writeDeltaToSegment(MemorySegment segment, long offset, long key, long baseKey) {
+    if (key == NULL_KEY) {
+      segment.set(ValueLayout.JAVA_BYTE, offset, (byte) NULL_MARKER);
+      return 1;
+    }
+
+    long delta = key - baseKey;
+    long zigzag = zigzagEncode(delta) + 1;
+    return writeVarLongToSegment(segment, offset, zigzag);
+  }
+
+  /**
+   * Write a signed integer (zigzag + varint) directly to a MemorySegment.
+   * ZERO ALLOCATION.
+   *
+   * @param segment the MemorySegment to write to
+   * @param offset  the byte offset to start writing at
+   * @param value   the signed integer value
+   * @return the number of bytes written
+   */
+  public static int writeSignedToSegment(MemorySegment segment, long offset, int value) {
+    long zigzag = zigzagEncode(value);
+    return writeVarLongToSegment(segment, offset, zigzag);
+  }
+
+  /**
+   * Write a signed long (zigzag + varint) directly to a MemorySegment.
+   * ZERO ALLOCATION.
+   *
+   * @param segment the MemorySegment to write to
+   * @param offset  the byte offset to start writing at
+   * @param value   the signed long value
+   * @return the number of bytes written
+   */
+  public static int writeSignedLongToSegment(MemorySegment segment, long offset, long value) {
+    long zigzag = zigzagEncode(value);
+    return writeVarLongToSegment(segment, offset, zigzag);
+  }
+
+  /**
+   * Write an unsigned varint directly to a MemorySegment.
+   * ZERO ALLOCATION - optimized with fast paths for 1-2 byte values.
+   *
+   * @param segment the MemorySegment to write to
+   * @param offset  the byte offset to start writing at
+   * @param value   the unsigned long value
+   * @return the number of bytes written
+   */
+  public static int writeVarLongToSegment(MemorySegment segment, long offset, long value) {
+    // Fast path for 1-byte values (0-127)
+    if ((value & ~0x7FL) == 0) {
+      segment.set(ValueLayout.JAVA_BYTE, offset, (byte) value);
+      return 1;
+    }
+
+    // Fast path for 2-byte values (128-16383)
+    if ((value & ~0x3FFFL) == 0) {
+      segment.set(ValueLayout.JAVA_BYTE, offset, (byte) ((value & 0x7F) | 0x80));
+      segment.set(ValueLayout.JAVA_BYTE, offset + 1, (byte) (value >>> 7));
+      return 2;
+    }
+
+    // General case
+    int bytesWritten = 0;
+    while ((value & ~0x7FL) != 0) {
+      segment.set(ValueLayout.JAVA_BYTE, offset + bytesWritten, (byte) ((value & 0x7F) | 0x80));
+      value >>>= 7;
+      bytesWritten++;
+    }
+    segment.set(ValueLayout.JAVA_BYTE, offset + bytesWritten, (byte) value);
+    return bytesWritten + 1;
+  }
+
+  /**
+   * Read the encoded width (number of bytes) of a delta-encoded value
+   * at the given offset in a MemorySegment.
+   * Equivalent to {@link #deltaLength} but uses long offset for large segments.
+   *
+   * @param segment the MemorySegment
+   * @param offset  the byte offset
+   * @return the number of bytes this encoded value occupies
+   */
+  public static int readDeltaEncodedWidth(MemorySegment segment, long offset) {
+    byte first = segment.get(ValueLayout.JAVA_BYTE, offset);
+    if (first == NULL_MARKER) {
+      return 1;
+    }
+    return readVarintWidth(segment, offset);
+  }
+
+  /**
+   * Read the byte width of a varint at the given offset.
+   * Scans continuation bits without decoding the value.
+   *
+   * @param segment the MemorySegment
+   * @param offset  the byte offset
+   * @return number of bytes the varint occupies
+   */
+  public static int readVarintWidth(MemorySegment segment, long offset) {
+    int len = 0;
+    while ((segment.get(ValueLayout.JAVA_BYTE, offset + len) & 0x80) != 0) {
+      len++;
+    }
+    return len + 1;
+  }
+
+  /**
+   * Read the byte width of a signed varint at the given offset.
+   * Signed values use zigzag encoding, but the byte-level representation
+   * is the same as unsigned varint.
+   *
+   * @param segment the MemorySegment
+   * @param offset  the byte offset
+   * @return number of bytes the signed varint occupies
+   */
+  public static int readSignedVarintWidth(MemorySegment segment, long offset) {
+    return readVarintWidth(segment, offset);
+  }
+
+  // ==================== LONG-OFFSET SEGMENT DECODE METHODS ====================
+
+  /**
+   * Decode a delta-encoded key from MemorySegment using long offset.
+   * ZERO ALLOCATION.
+   *
+   * @param segment the MemorySegment
+   * @param offset  the byte offset (long for large pages)
+   * @param baseKey the reference key for delta calculation
+   * @return the decoded absolute key
+   */
+  public static long decodeDeltaFromSegment(MemorySegment segment, long offset, long baseKey) {
+    long zigzag = readVarLongFromSegment(segment, offset);
+
+    if (zigzag == NULL_MARKER) {
+      return NULL_KEY;
+    }
+
+    long delta = zigzagDecode(zigzag - 1);
+    return baseKey + delta;
+  }
+
+  /**
+   * Read unsigned varint from MemorySegment using long offset.
+   * ZERO ALLOCATION.
+   *
+   * @param segment the MemorySegment
+   * @param offset  the byte offset (long)
+   * @return the decoded unsigned long value
+   */
+  public static long readVarLongFromSegment(MemorySegment segment, long offset) {
+    byte b = segment.get(ValueLayout.JAVA_BYTE, offset);
+
+    if ((b & 0x80) == 0) {
+      return b;
+    }
+
+    long result = b & 0x7F;
+    b = segment.get(ValueLayout.JAVA_BYTE, offset + 1);
+
+    if ((b & 0x80) == 0) {
+      return result | ((long) b << 7);
+    }
+
+    result |= (long) (b & 0x7F) << 7;
+    long pos = offset + 2;
+    int shift = 14;
+    do {
+      b = segment.get(ValueLayout.JAVA_BYTE, pos++);
+      result |= (long) (b & 0x7F) << shift;
+      shift += 7;
+
+      if (shift > 63) {
+        throw new IllegalStateException("Varint too long (more than 10 bytes)");
+      }
+    } while ((b & 0x80) != 0);
+
+    return result;
+  }
+
+  /**
+   * Read signed integer (zigzag decoded) from MemorySegment using long offset.
+   * ZERO ALLOCATION.
+   *
+   * @param segment the MemorySegment
+   * @param offset  the byte offset (long)
+   * @return the decoded signed integer value
+   */
+  public static int decodeSignedFromSegment(MemorySegment segment, long offset) {
+    long zigzag = readVarLongFromSegment(segment, offset);
+    return (int) zigzagDecode(zigzag);
+  }
+
+  /**
+   * Read signed long (zigzag decoded) from MemorySegment using long offset.
+   * ZERO ALLOCATION.
+   *
+   * @param segment the MemorySegment
+   * @param offset  the byte offset (long)
+   * @return the decoded signed long value
+   */
+  public static long decodeSignedLongFromSegment(MemorySegment segment, long offset) {
+    long zigzag = readVarLongFromSegment(segment, offset);
+    return zigzagDecode(zigzag);
   }
 }
