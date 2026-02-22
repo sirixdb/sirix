@@ -182,7 +182,7 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     final BytesIn<?> uncompressedBytes = byteBufferBytes.bytesForRead();
 
     if (page instanceof KeyValueLeafPage keyValueLeafPage) {
-      // Check compressed MemorySegment cache first (unified page format path)
+      // Check compressed MemorySegment cache first (slotted page format path)
       final MemorySegment cachedSegment = keyValueLeafPage.getCompressedSegment();
       if (cachedSegment != null) {
         return segmentToByteArray(cachedSegment);

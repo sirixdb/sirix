@@ -59,7 +59,7 @@ import java.lang.foreign.ValueLayout;
 /**
  * Node representing an XML namespace, using primitive fields.
  *
- * <p>Supports LeanStore-style flyweight binding: when bound to a unified page MemorySegment,
+ * <p>Supports LeanStore-style flyweight binding: when bound to a slotted page MemorySegment,
  * getters/setters read/write directly to page memory via the per-record offset table.
  * When unbound, they operate on Java primitive fields (normal mode).</p>
  *
@@ -268,7 +268,7 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Fl
   // ==================== SERIALIZE TO HEAP ====================
 
   /**
-   * Serialize this node (from Java fields) into the new unified format with offset table.
+   * Serialize this node (from Java fields) into the new slotted page format with offset table.
    * Writes: [nodeKind:1][offsetTable:FIELD_COUNT][data fields].
    *
    * @param target the target MemorySegment

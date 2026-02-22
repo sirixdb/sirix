@@ -16,7 +16,7 @@ import io.sirix.node.NodeKind;
  * [data region: varint fields + hash + optional payload]
  * </pre>
  *
- * <p>ALL fields are always present in the new unified format, including hash (0 when unused)
+ * <p>ALL fields are always present in the slotted page format, including hash (0 when unused)
  * and childCount/descendantCount (0 when unused). This eliminates conditional field logic
  * and makes the offset table size fixed per NodeKind.
  */

@@ -538,7 +538,7 @@ public final class FFILz4Compressor implements ByteHandler {
   }
 
   /**
-   * Decompress data using the unified allocator for zero-copy page support.
+   * Decompress data using the page allocator for zero-copy page support.
    * 
    * <p>
    * Unlike the pool-based approach, this allocates from the MemorySegmentAllocator which allows
@@ -585,7 +585,7 @@ public final class FFILz4Compressor implements ByteHandler {
 
     int decompressedSize = sizeHeader;
 
-    // Use unified allocator - buffer lifetime matches page lifetime for zero-copy
+    // Use page allocator - buffer lifetime matches page lifetime for zero-copy
     // This replaces the pool-based approach to enable ownership transfer
     MemorySegment buffer = ALLOCATOR.allocate(decompressedSize);
 

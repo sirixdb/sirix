@@ -6,7 +6,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
 /**
- * LeanStore-style unified page layout for {@link KeyValueLeafPage}.
+ * Slotted page layout (PostgreSQL/LeanStore-style: Header + Bitmap + Directory + Heap) for {@link KeyValueLeafPage}.
  *
  * <p>All page metadata, slot directory, and record data live in a single contiguous
  * {@link MemorySegment}. In-memory format = on-disk format. ZERO conversion at commit time.

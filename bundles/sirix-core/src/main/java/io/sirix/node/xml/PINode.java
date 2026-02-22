@@ -66,7 +66,7 @@ import java.lang.foreign.ValueLayout;
 /**
  * Processing Instruction node using primitive fields.
  *
- * <p>Supports LeanStore-style flyweight binding for zero-copy reads from a unified page
+ * <p>Supports LeanStore-style flyweight binding for zero-copy reads from a slotted page
  * MemorySegment. When bound, all getters/setters operate directly on page memory via
  * the per-record offset table. When unbound, they operate on Java primitive fields.</p>
  *
@@ -369,7 +369,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   // ==================== SERIALIZE TO HEAP ====================
 
   /**
-   * Serialize this node (from Java fields) into the new unified format with offset table.
+   * Serialize this node (from Java fields) into the new slotted page format with offset table.
    * Writes: [nodeKind:1][offsetTable:FIELD_COUNT][data fields].
    *
    * @param target the target MemorySegment

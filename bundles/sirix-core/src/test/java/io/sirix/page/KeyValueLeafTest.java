@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.util.Arrays;
 
 import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static org.junit.jupiter.api.Assertions.*;
@@ -322,126 +321,6 @@ class KeyValueLeafPageTest {
   }
 
   @Test
-  void testHasEnoughSpaceWithSufficientSpace() {
-    // Simulate a situation where there is enough space for the new data.
-    byte[] recordData = new byte[50];
-    int[] offsets = new int[5];
-    Arrays.fill(offsets, -1); // Initially, no slots are occupied.
-
-    try (Arena arena = Arena.ofConfined()) {
-      MemorySegment memory = arena.allocate(200); // Create a memory segment of 200 bytes.
-
-      // Set some initial data.
-      keyValueLeafPage.setSlotMemory(memory);
-      keyValueLeafPage.setSlot(recordData, 0);
-      assertTrue(keyValueLeafPage.hasEnoughSpace(offsets, memory, 50),
-          "There should be enough space for the new data.");
-    }
-  }
-
-  @Test
-  void testHasEnoughSpaceWithExactSpace() {
-    // Simulate a situation where there is exactly enough space.
-    byte[] recordData = new byte[50];
-    int[] offsets = new int[5];
-    Arrays.fill(offsets, -1); // Initially, no slots are occupied.
-
-    try (Arena arena = Arena.ofConfined()) {
-      MemorySegment memory = arena.allocate(106); // Create a memory segment of 106 bytes (100 + 4(size) + 2(aligned).
-
-      // Set some initial data.
-      keyValueLeafPage.setSlotMemory(memory);
-      keyValueLeafPage.setSlot(recordData, 0);
-
-      // Check that there's exactly enough space left.
-      assertTrue(keyValueLeafPage.hasEnoughSpace(offsets, memory, 50),
-          "There should be exactly enough space for the new data.");
-    }
-  }
-
-  @Test
-  void testHasEnoughSpaceWithInsufficientSpace() {
-    // Simulate a situation where there is not enough space for the new data.
-    byte[] recordData = new byte[50];
-    int[] offsets = new int[5];
-    Arrays.fill(offsets, -1); // Initially, no slots are occupied.
-
-    try (Arena arena = Arena.ofConfined()) {
-      MemorySegment memory = arena.allocate(80); // Create a memory segment of 80 bytes.
-
-      // Set some initial data.
-      keyValueLeafPage.setSlotMemory(memory);
-      keyValueLeafPage.setSlot(recordData, 0);
-
-      // Check that there's not enough space for new data.
-      assertFalse(keyValueLeafPage.hasEnoughSpace(offsets, memory, 100),
-          "There should not be enough space for the new data.");
-    }
-  }
-
-  @Test
-  void testHasEnoughSpaceWithLargeOffset() {
-    // Simulate a situation with large offset values and small memory.
-    byte[] recordData = new byte[20];
-    int[] offsets = new int[] {0, 24, -1};
-
-    try (Arena arena = Arena.ofConfined()) {
-      MemorySegment memory = arena.allocate(50); // Small memory segment.
-
-      keyValueLeafPage.setSlotMemory(memory);
-
-      // Set some initial data.
-      keyValueLeafPage.setSlot(recordData, 0);
-      keyValueLeafPage.setSlot(recordData, 1);
-
-      // Check that there's not enough space.
-      assertFalse(keyValueLeafPage.hasEnoughSpace(offsets, memory, 50),
-          "There should not be enough space due to the small memory segment and large offsets.");
-    }
-  }
-
-  @Test
-  void testHasEnoughSpaceWithEmptyMemory() {
-    // Simulate a situation with an empty memory segment.
-    int[] offsets = new int[5];
-    Arrays.fill(offsets, -1); // Initially, no slots are occupied.
-
-    try (Arena arena = Arena.ofConfined()) {
-      MemorySegment memory = arena.allocate(0); // Empty memory segment.
-
-      keyValueLeafPage.setSlotMemory(memory);
-      // Check that there's not enough space.
-      assertFalse(keyValueLeafPage.hasEnoughSpace(offsets, memory, 1),
-          "There should not be enough space with an empty memory segment.");
-    }
-  }
-
-  @Test
-  void testHasEnoughSpaceAfterResizing() {
-    // Simulate a situation where the memory is resized.
-    byte[] recordData = new byte[50];
-    int[] offsets = new int[5];
-    Arrays.fill(offsets, -1); // Initially, no slots are occupied.
-
-    try (Arena arena = Arena.ofConfined()) {
-      MemorySegment memory = arena.allocate(54); // Small memory segment.
-
-      // Set some initial data.
-      keyValueLeafPage.setSlotMemory(memory);
-      keyValueLeafPage.setSlot(recordData, 0);
-
-      // Resize the memory segment.
-      MemorySegment resizedMemory = arena.allocate(100);
-
-      keyValueLeafPage.setSlotMemory(resizedMemory);
-
-      // Check that there's enough space after resizing.
-      assertTrue(keyValueLeafPage.hasEnoughSpace(offsets, resizedMemory, 50),
-          "There should be enough space after resizing the memory segment.");
-    }
-  }
-
-  @Test
   void testAddReferencesCopiesOnlyMarkedPreservationSlots() {
     byte[] preserved = new byte[] {42, 43, 44};
 
@@ -538,7 +417,7 @@ class KeyValueLeafPageTest {
 
     keyValueLeafPage.setRecord(node);
 
-    // FlyweightNode records are serialized to the unified page heap eagerly by setRecord.
+    // FlyweightNode records are serialized to the slotted page heap eagerly by setRecord.
     // The record is stored in records[] AND serialized to the heap for zero-copy binding.
     assertSame(node, keyValueLeafPage.getRecord(offset));
     assertNotNull(keyValueLeafPage.getSlot(offset));

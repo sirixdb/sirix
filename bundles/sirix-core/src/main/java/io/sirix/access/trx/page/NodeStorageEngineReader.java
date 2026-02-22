@@ -360,8 +360,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     DataRecord record = page.getRecord(offset);
     if (record == null) {
       // Unified page path: check directory for flyweight vs legacy format
-      if (page instanceof KeyValueLeafPage kvlPage && kvlPage.isUnifiedFormat()) {
-        record = getRecordFromUnifiedPage(kvlPage, nodeKey, offset);
+      if (page instanceof KeyValueLeafPage kvlPage) {
+        record = getRecordFromSlottedPage(kvlPage, nodeKey, offset);
       } else {
         var data = page.getSlot(offset);
         if (data != null) {
@@ -393,22 +393,22 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   /**
-   * Get a record from a unified page. Flyweight records (nodeKindId > 0) are
+   * Get a record from a slotted page. Flyweight records (nodeKindId > 0) are
    * created via FlyweightNodeFactory and bound directly to page memory.
    * Legacy records (nodeKindId == 0) are deserialized from the heap bytes.
    */
   @SuppressWarnings({"unchecked", "rawtypes"})
-  private DataRecord getRecordFromUnifiedPage(final KeyValueLeafPage kvlPage,
+  private DataRecord getRecordFromSlottedPage(final KeyValueLeafPage kvlPage,
       final long nodeKey, final int offset) {
-    final MemorySegment unifiedPage = kvlPage.getUnifiedPage();
-    if (!PageLayout.isSlotPopulated(unifiedPage, offset)) {
+    final MemorySegment slottedPage = kvlPage.getSlottedPage();
+    if (!PageLayout.isSlotPopulated(slottedPage, offset)) {
       return null;
     }
-    final int nodeKindId = PageLayout.getDirNodeKindId(unifiedPage, offset);
+    final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, offset);
     if (nodeKindId > 0) {
       // Flyweight format: create binding shell and bind to page memory (zero-copy read)
       final FlyweightNode fn = FlyweightNodeFactory.createAndBind(
-          unifiedPage, offset, nodeKey, resourceConfig.nodeHashFunction);
+          slottedPage, offset, nodeKey, resourceConfig.nodeHashFunction);
       // Propagate DeweyID from page to flyweight node (stored inline after record data)
       if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
         final byte[] deweyIdBytes = kvlPage.getDeweyIdAsByteArray(offset);
@@ -421,7 +421,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       // Do NOT cache FlyweightNode in page's records[] — pages are shared between transactions.
       return (DataRecord) fn;
     } else {
-      // Legacy format in unified page heap: deserialize normally
+      // Legacy format in slotted page heap: deserialize normally
       final var data = kvlPage.getSlot(offset);
       if (data != null) {
         final var record = getDataRecord(nodeKey, offset, data, kvlPage);
@@ -800,7 +800,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       page.acquireGuard();
       
       // Now check if page is still valid (not closed, memory not released)
-      if (!page.isClosed() && page.getSlotMemory() != null) {
+      if (!page.isClosed() && page.getSlottedPage() != null) {
         currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
         return new PageReferenceToPage(pathSummaryRecordPage.pageReference, page);
       } else {
@@ -826,7 +826,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       page.acquireGuard();
       
       // Now check if page is still valid (not closed, memory not released)
-      if (!page.isClosed() && page.getSlotMemory() != null) {
+      if (!page.isClosed() && page.getSlottedPage() != null) {
         currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
         return new PageReferenceToPage(cachedPage.pageReference, page);
       } else {
@@ -1235,7 +1235,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         kvLeafPage.acquireGuard();
         
         // Now check if page is still valid (not closed, memory not released)
-        if (!kvLeafPage.isClosed() && kvLeafPage.getSlotMemory() != null) {
+        if (!kvLeafPage.isClosed() && kvLeafPage.getSlottedPage() != null) {
           currentPageGuard = PageGuard.wrapAlreadyGuarded(kvLeafPage);
         } else {
           // Swizzled page was closed - release guard and reload

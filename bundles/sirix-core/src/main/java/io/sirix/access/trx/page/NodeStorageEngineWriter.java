@@ -340,14 +340,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Diagnostic: understand why the record is not found
       final int offset = StorageEngineReader.recordPageOffset(recordKey);
       final var kvlComplete = (io.sirix.page.KeyValueLeafPage) completePage;
-      final boolean hasUnifiedPage = kvlComplete.isUnifiedFormat();
-      final boolean slotPopulated = hasUnifiedPage && kvlComplete.getUnifiedPage() != null
-          && io.sirix.page.PageLayout.isSlotPopulated(kvlComplete.getUnifiedPage(), offset);
+      final var slottedPage = kvlComplete.getSlottedPage();
+      final boolean slotPopulated = slottedPage != null
+          && io.sirix.page.PageLayout.isSlotPopulated(slottedPage, offset);
       final var slotData = completePage.getSlot(offset);
-      final int populatedCount = hasUnifiedPage
-          ? io.sirix.page.PageLayout.getPopulatedCount(kvlComplete.getUnifiedPage()) : -1;
+      final int populatedCount = slottedPage != null
+          ? io.sirix.page.PageLayout.getPopulatedCount(slottedPage) : -1;
       throw new SirixIOException("Cannot retrieve record from cache: (key: " + recordKey + ") (indexType: " + indexType
-          + ") (index: " + index + ") (hasUnifiedPage: " + hasUnifiedPage + ") (slotPopulated: " + slotPopulated
+          + ") (index: " + index + ") (slotPopulated: " + slotPopulated
           + ") (populatedCount: " + populatedCount
           + ") (slotData: " + (slotData != null ? slotData.byteSize() + " bytes" : "null")
           + ") (completePage.pageKey: " + completePage.getPageKey()
@@ -420,7 +420,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final KeyValuePage<DataRecord> modified = cont.getModifiedAsKeyValuePage();
 
     // Use setNewRecord for the create path: non-FlyweightNode records (e.g., XML nodes) are
-    // serialized to the unified page heap immediately, because node factories reuse singleton
+    // serialized to the slotted page heap immediately, because node factories reuse singleton
     // objects. setRecord would store the singleton reference in records[], which becomes stale
     // when the singleton is reused for the next node.
     if (modified instanceof KeyValueLeafPage kvl) {

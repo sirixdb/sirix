@@ -3,7 +3,7 @@ package io.sirix.node.interfaces;
 import java.lang.foreign.MemorySegment;
 
 /**
- * Interface for nodes that support LeanStore-style flyweight binding to a unified page MemorySegment.
+ * Interface for nodes that support LeanStore-style flyweight binding to a slotted page MemorySegment.
  *
  * <p>Flyweight nodes can serialize themselves directly to a page heap (with per-record offset tables)
  * and bind to an existing record in the heap for direct in-place reads/writes without Java object
@@ -15,7 +15,7 @@ import java.lang.foreign.MemorySegment;
 public interface FlyweightNode extends DataRecord {
 
   /**
-   * Serialize this node to the target MemorySegment in the unified heap format:
+   * Serialize this node to the target MemorySegment in the slotted page heap format:
    * {@code [nodeKind:1][fieldOffsets:N×1byte][varint fields + hash + payload]}.
    *
    * <p>All Java primitive fields must be materialized before calling this method
@@ -70,7 +70,7 @@ public interface FlyweightNode extends DataRecord {
 
   /**
    * Estimate the serialized size of this record in bytes.
-   * Used to ensure the unified page has enough space before serialization.
+   * Used to ensure the slotted page has enough space before serialization.
    * Structural nodes return a small constant; value nodes add their payload size.
    *
    * @return conservative upper bound on serialized byte count

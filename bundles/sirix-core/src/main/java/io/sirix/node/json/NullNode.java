@@ -268,7 +268,7 @@ public final class NullNode implements StructNode, ImmutableJsonNode, FlyweightN
   // ==================== SERIALIZE TO HEAP ====================
 
   /**
-   * Serialize this node (from Java fields) into the new unified format with offset table.
+   * Serialize this node (from Java fields) into the new slotted page format with offset table.
    * Writes: [nodeKind:1][offsetTable:FIELD_COUNT][data fields].
    *
    * @param target the target MemorySegment

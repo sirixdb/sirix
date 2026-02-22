@@ -624,15 +624,15 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return moveToLegacy(nodeKey);
     }
 
-    // Check if this is a flyweight record in unified page
-    final boolean isFlyweightSlot = page.getUnifiedPage() != null && page.getSlotNodeKindId(slotOffset) > 0
+    // Check if this is a flyweight record in slotted page
+    final boolean isFlyweightSlot = page.getSlottedPage() != null && page.getSlotNodeKindId(slotOffset) > 0
         && singleton instanceof FlyweightNode;
     if (isFlyweightSlot) {
       final FlyweightNode fn = (FlyweightNode) singleton;
-      // Bind flyweight directly to unified page (zero-copy, no legacy parsing)
-      final int heapOffset = PageLayout.getDirHeapOffset(page.getUnifiedPage(), slotOffset);
+      // Bind flyweight directly to slotted page (zero-copy, no legacy parsing)
+      final int heapOffset = PageLayout.getDirHeapOffset(page.getSlottedPage(), slotOffset);
       final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
-      fn.bind(page.getUnifiedPage(), recordBase, nodeKey, slotOffset);
+      fn.bind(page.getSlottedPage(), recordBase, nodeKey, slotOffset);
       // Propagate FSST symbol table for compressed string nodes
       propagateFsstToFlyweight(fn, page);
       // Propagate DeweyID from page to flyweight node (stored inline after record data)
@@ -720,15 +720,15 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Release previous page guard ONLY NOW (after we know the new page is valid)
     releaseCurrentPageGuard();
 
-    // Check if this is a flyweight record in unified page
-    final boolean isFlyweightSlotSlow = slotPage.getUnifiedPage() != null && slotPage.getSlotNodeKindId(slotOff) > 0
+    // Check if this is a flyweight record in slotted page
+    final boolean isFlyweightSlotSlow = slotPage.getSlottedPage() != null && slotPage.getSlotNodeKindId(slotOff) > 0
         && singleton instanceof FlyweightNode;
     if (isFlyweightSlotSlow) {
       final FlyweightNode fn = (FlyweightNode) singleton;
-      // Bind flyweight directly to unified page (zero-copy, no legacy parsing)
-      final int heapOffset = PageLayout.getDirHeapOffset(slotPage.getUnifiedPage(), slotOff);
+      // Bind flyweight directly to slotted page (zero-copy, no legacy parsing)
+      final int heapOffset = PageLayout.getDirHeapOffset(slotPage.getSlottedPage(), slotOff);
       final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
-      fn.bind(slotPage.getUnifiedPage(), recordBase, nodeKey, slotOff);
+      fn.bind(slotPage.getSlottedPage(), recordBase, nodeKey, slotOff);
       // Propagate FSST symbol table for compressed string nodes
       propagateFsstToFlyweight(fn, slotPage);
       // Propagate DeweyID from page to flyweight node (stored inline after record data)

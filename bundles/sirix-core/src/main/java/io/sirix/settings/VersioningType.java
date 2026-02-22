@@ -65,7 +65,7 @@ public enum VersioningType {
 
       final KeyValueLeafPage srcKvl = (KeyValueLeafPage) firstPage;
       final KeyValueLeafPage dstKvl = (KeyValueLeafPage) completePage;
-      dstKvl.ensureUnifiedPage();
+      dstKvl.ensureSlottedPage();
 
       // Use populatedSlots() for O(k) bitmap-driven iteration
       final int[] populated = srcKvl.populatedSlots();
@@ -100,7 +100,7 @@ public enum VersioningType {
 
       final KeyValueLeafPage srcKvl = (KeyValueLeafPage) firstPage;
       final KeyValueLeafPage dstKvl = (KeyValueLeafPage) modifiedPage;
-      dstKvl.ensureUnifiedPage();
+      dstKvl.ensureSlottedPage();
 
       // Copy data once (not twice) - use populatedSlots() for O(k) iteration
       final int[] populated = srcKvl.populatedSlots();
@@ -152,7 +152,7 @@ public enum VersioningType {
       // Use bitmap iteration for O(k) instead of O(1024)
       final KeyValueLeafPage latestKvp = (KeyValueLeafPage) latest;
       final KeyValueLeafPage returnKvp = (KeyValueLeafPage) pageToReturn;
-      returnKvp.ensureUnifiedPage();
+      returnKvp.ensureSlottedPage();
 
       // Copy all populated slots from latest page
       final int[] latestSlots = latestKvp.populatedSlots();
@@ -238,8 +238,8 @@ public enum VersioningType {
       final KeyValueLeafPage latestKvp = (KeyValueLeafPage) latest;
       final KeyValueLeafPage completeKvp = (KeyValueLeafPage) completePage;
       final KeyValueLeafPage modifiedKvp = (KeyValueLeafPage) modifiedPage;
-      completeKvp.ensureUnifiedPage();
-      modifiedKvp.ensureUnifiedPage();
+      completeKvp.ensureSlottedPage();
+      modifiedKvp.ensureSlottedPage();
 
       // Copy all populated slots from latest to completePage using bitmap iteration
       // For modifiedPage: use lazy copy - mark for preservation, actual copy deferred to commit time
@@ -345,7 +345,7 @@ public enum VersioningType {
       // Track which slots are already filled using bitmap from pageToReturn
       // This enables O(k) iteration instead of O(1024)
       final KeyValueLeafPage returnPage = (KeyValueLeafPage) pageToReturn;
-      returnPage.ensureUnifiedPage();
+      returnPage.ensureSlottedPage();
       final long[] filledBitmap = returnPage.getSlotBitmap();
       
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
@@ -429,8 +429,8 @@ public enum VersioningType {
 
       final KeyValueLeafPage completeKvp = (KeyValueLeafPage) completePage;
       final KeyValueLeafPage modifiedKvp = (KeyValueLeafPage) modifiedPage;
-      completeKvp.ensureUnifiedPage();
-      modifiedKvp.ensureUnifiedPage();
+      completeKvp.ensureSlottedPage();
+      modifiedKvp.ensureSlottedPage();
       final long[] filledBitmap = completeKvp.getSlotBitmap();
 
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
@@ -539,7 +539,7 @@ public enum VersioningType {
       // Track which slots are already filled using bitmap from returnVal
       // This enables O(k) iteration instead of O(1024)
       final KeyValueLeafPage returnKvp = (KeyValueLeafPage) returnVal;
-      returnKvp.ensureUnifiedPage();
+      returnKvp.ensureSlottedPage();
       final long[] filledBitmap = returnKvp.getSlotBitmap();
       
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
@@ -563,8 +563,8 @@ public enum VersioningType {
 
           final var recordData = page.getSlot(offset);
           returnKvp.setSlotWithNodeKind(recordData, offset, kvPage.getSlotNodeKindId(offset));
-          // Keep local bitmap in sync with unified page bitmap so that older fragments
-          // don't overwrite newer data (setSlotToUnifiedHeap only updates the unified page bitmap)
+          // Keep local bitmap in sync with slotted page bitmap so that older fragments
+          // don't overwrite newer data (setSlotToHeap only updates the slotted page bitmap)
           filledBitmap[offset >>> 6] |= (1L << (offset & 63));
           filledSlotCount++;
 
@@ -628,8 +628,8 @@ public enum VersioningType {
       
       final KeyValueLeafPage completeKvp = (KeyValueLeafPage) completePage;
       final KeyValueLeafPage modifyingKvp = (KeyValueLeafPage) modifyingPage;
-      completeKvp.ensureUnifiedPage();
-      modifyingKvp.ensureUnifiedPage();
+      completeKvp.ensureSlottedPage();
+      modifyingKvp.ensureSlottedPage();
       final long[] filledBitmap = completeKvp.getSlotBitmap();
       
       final boolean hasOutOfWindowPage = (pages.size() == revToRestore);

@@ -83,13 +83,13 @@ public enum PageKind {
 
       switch (binaryVersion) {
         case V0 -> {
-          return deserializeUnifiedPage(resourceConfig, source);
+          return deserializeSlottedPage(resourceConfig, source);
         }
         default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
       }
     }
 
-    private Page deserializeUnifiedPage(final ResourceConfiguration resourceConfig, final BytesIn<?> source) {
+    private Page deserializeSlottedPage(final ResourceConfiguration resourceConfig, final BytesIn<?> source) {
       final long recordPageKey = Utils.getVarLong(source);
       final int revision = source.readInt();
       final IndexType indexType = IndexType.getType(source.readByte());
@@ -100,19 +100,19 @@ public enum PageKind {
           OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
 
       final int allocSize = Math.max(unifiedDataSize, PageLayout.INITIAL_PAGE_SIZE);
-      final MemorySegment unifiedPage = memorySegmentAllocator.allocate(allocSize);
+      final MemorySegment slottedPage = memorySegmentAllocator.allocate(allocSize);
 
       if (source instanceof MemorySegmentBytesIn msSource) {
-        MemorySegment.copy(msSource.getSource(), source.position(), unifiedPage, 0, unifiedDataSize);
+        MemorySegment.copy(msSource.getSource(), source.position(), slottedPage, 0, unifiedDataSize);
         source.skip(unifiedDataSize);
       } else {
         final byte[] pageData = new byte[unifiedDataSize];
         source.read(pageData);
-        MemorySegment.copy(pageData, 0, unifiedPage, ValueLayout.JAVA_BYTE, 0, unifiedDataSize);
+        MemorySegment.copy(pageData, 0, slottedPage, ValueLayout.JAVA_BYTE, 0, unifiedDataSize);
       }
 
       if (allocSize > unifiedDataSize) {
-        unifiedPage.asSlice(unifiedDataSize, allocSize - unifiedDataSize).fill((byte) 0);
+        slottedPage.asSlice(unifiedDataSize, allocSize - unifiedDataSize).fill((byte) 0);
       }
 
       final boolean areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
@@ -140,14 +140,14 @@ public enum PageKind {
         source.read(fsstSymbolTable);
       }
 
-      // Create page with dummy slotMemory; unified page overrides all slot operations
+      // Create page with dummy slotMemory; slotted page overrides all slot operations
       final MemorySegment dummySlotMemory = memorySegmentAllocator.allocate(1);
       final KeyValueLeafPage page = new KeyValueLeafPage(
           recordPageKey, revision, indexType, resourceConfig,
           areDeweyIDsStored, recordPersister, references,
           dummySlotMemory, null, -1, -1);
 
-      page.setUnifiedPage(unifiedPage);
+      page.setSlottedPage(slottedPage);
 
       if (fsstSymbolTable != null) {
         page.setFsstSymbolTable(fsstSymbolTable);
@@ -175,8 +175,8 @@ public enum PageKind {
         return;
       }
 
-      // Ensure unified page exists — ALL pages use unified format V0
-      keyValueLeafPage.ensureUnifiedPage();
+      // Ensure slotted page exists — ALL pages use slotted page format V0
+      keyValueLeafPage.ensureSlottedPage();
 
       sink.writeByte(KEYVALUELEAFPAGE.id);
       sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
@@ -187,7 +187,7 @@ public enum PageKind {
       keyValueLeafPage.buildFsstSymbolTable(resourceConfig);
       keyValueLeafPage.compressStringValues();
 
-      // addReferences: serializes records to unified page heap via processEntries,
+      // addReferences: serializes records to slotted page heap via processEntries,
       // copies preserved slots from completePageRef for DIFFERENTIAL/INCREMENTAL versioning
       keyValueLeafPage.addReferences(resourceConfig);
 
@@ -196,13 +196,13 @@ public enum PageKind {
       sink.writeInt(keyValueLeafPage.getRevision());
       sink.writeByte(keyValueLeafPage.getIndexType().getID());
 
-      // Write unified page: header(32) + bitmap(128) + directory(8192) + heap(heapEnd)
-      final MemorySegment unifiedPage = keyValueLeafPage.getUnifiedPage();
-      final int heapEnd = PageLayout.getHeapEnd(unifiedPage);
+      // Write slotted page: header(32) + bitmap(128) + directory(8192) + heap(heapEnd)
+      final MemorySegment slottedPage = keyValueLeafPage.getSlottedPage();
+      final int heapEnd = PageLayout.getHeapEnd(slottedPage);
       final int unifiedDataSize = PageLayout.HEAP_START + heapEnd;
 
       sink.writeInt(unifiedDataSize);
-      sink.writeSegment(unifiedPage, 0, unifiedDataSize);
+      sink.writeSegment(slottedPage, 0, unifiedDataSize);
 
       // Write overlong entries
       writeOverlongEntries(sink, references);
@@ -213,7 +213,7 @@ public enum PageKind {
       // Compress the serialized data
       compressAndCache(resourceConfig, sink, keyValueLeafPage);
 
-      // Release node object references — all data is now in the unified page + compressed cache
+      // Release node object references — all data is now in the slotted page + compressed cache
       keyValueLeafPage.clearRecordsForGC();
     }
 

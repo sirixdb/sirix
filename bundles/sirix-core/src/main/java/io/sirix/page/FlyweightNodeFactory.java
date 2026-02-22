@@ -25,7 +25,7 @@ import net.openhft.hashing.LongHashFunction;
 import java.lang.foreign.MemorySegment;
 
 /**
- * Factory for creating flyweight node shells and binding them to a unified page MemorySegment.
+ * Factory for creating flyweight node shells and binding them to a slotted page MemorySegment.
  *
  * <p>This factory creates minimal node instances (binding shells) that are immediately
  * bound to a record in the page heap. After binding, all getters/setters operate
@@ -38,9 +38,9 @@ public final class FlyweightNodeFactory {
   }
 
   /**
-   * Create a flyweight node shell and bind it to a record in the unified page.
+   * Create a flyweight node shell and bind it to a record in the slotted page.
    *
-   * @param page         the unified page MemorySegment
+   * @param page         the slotted page MemorySegment
    * @param slotIndex    the slot index (0 to 1023)
    * @param nodeKey      the node key for this record
    * @param hashFunction the hash function from resource config

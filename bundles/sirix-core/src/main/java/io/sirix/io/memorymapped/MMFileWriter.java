@@ -261,7 +261,7 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     final BytesIn<?> uncompressedBytes = byteBufferBytes.bytesForRead();
 
     if (page instanceof KeyValueLeafPage keyValueLeafPage) {
-      // Check compressed MemorySegment cache first (unified page format path)
+      // Check compressed MemorySegment cache first (slotted page format path)
       final MemorySegment cachedSegment = keyValueLeafPage.getCompressedSegment();
       if (cachedSegment != null) {
         return cachedSegment.toArray(ValueLayout.JAVA_BYTE);

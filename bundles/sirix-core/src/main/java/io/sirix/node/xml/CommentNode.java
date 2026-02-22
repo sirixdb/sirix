@@ -64,7 +64,7 @@ import java.lang.foreign.ValueLayout;
  *
  * <p>
  * Uses primitive fields for efficient storage. Supports LeanStore-style flyweight binding
- * for zero-copy reads from unified page MemorySegment.
+ * for zero-copy reads from slotted page MemorySegment.
  * </p>
  *
  * @author Johannes Lichtenberger
