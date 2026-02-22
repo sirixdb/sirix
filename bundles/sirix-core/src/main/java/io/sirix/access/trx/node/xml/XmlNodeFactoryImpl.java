@@ -106,6 +106,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   private AttributeNode bindAttributeNode(final long nodeKey, final long parentKey, final QNm name, final byte[] value,
       final long pathNodeKey, final int prefixKey, final int localNameKey, final int uriKey, final SirixDeweyID id) {
     final AttributeNode node = reusableAttributeNode;
+    if (node.isBound()) node.unbind();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPathNodeKey(pathNodeKey);
@@ -124,6 +125,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   private NamespaceNode bindNamespaceNode(final long nodeKey, final long parentKey, final QNm name,
       final long pathNodeKey, final int prefixKey, final int uriKey, final SirixDeweyID id) {
     final NamespaceNode node = reusableNamespaceNode;
+    if (node.isBound()) node.unbind();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPathNodeKey(pathNodeKey);
@@ -142,6 +144,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
       final QNm target, final byte[] content, final long pathNodeKey, final int prefixKey, final int localNameKey,
       final int uriKey, final boolean isCompressed, final SirixDeweyID id) {
     final PINode node = reusablePINode;
+    if (node.isBound()) node.unbind();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setRightSiblingKey(rightSibKey);
@@ -170,6 +173,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     reusableElementAttributeKeys.clear();
     reusableElementNamespaceKeys.clear();
     final ElementNode node = reusableElementNode;
+    if (node.isBound()) node.unbind();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setRightSiblingKey(rightSibKey);
@@ -193,6 +197,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   private TextNode bindTextNode(final long nodeKey, final long parentKey, final long leftSibKey, final long rightSibKey,
       final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
     final TextNode node = reusableTextNode;
+    if (node.isBound()) node.unbind();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
@@ -209,6 +214,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   private CommentNode bindCommentNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
     final CommentNode node = reusableCommentNode;
+    if (node.isBound()) node.unbind();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);

@@ -359,6 +359,7 @@ public enum InsertPos {
   abstract void insertNode(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) throws SirixException;
 
   private static void persistUpdatedRecord(final XmlNodeTrx wtx, final DataRecord record) {
-    wtx.getStorageEngineWriter().updateRecordSlot(record, IndexType.DOCUMENT, -1);
+    // Ensure the mutated record is stored in the TIL's modified page.
+    wtx.getStorageEngineWriter().persistRecord(record, IndexType.DOCUMENT, -1);
   }
 }

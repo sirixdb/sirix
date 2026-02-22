@@ -187,7 +187,11 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     } else if (nodeRtx.getNode() instanceof ImmutableNameNode) {
       pathSummaryReader.moveTo(((ImmutableNameNode) nodeRtx.getNode()).getPathNodeKey());
     } else {
-      throw new IllegalStateException();
+      final var node = nodeRtx.getNode();
+      throw new IllegalStateException("movePathSummary: unexpected node kind=" + nodeRtx.getKind()
+          + " nodeClass=" + (node != null ? node.getClass().getName() : "null")
+          + " nodeKey=" + nodeRtx.getNodeKey()
+          + " instanceOfImmutableNameNode=" + (node instanceof ImmutableNameNode));
     }
   }
 
@@ -750,11 +754,13 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void persistDocumentRecord(final DataRecord record) {
-    storageEngineWriter.updateRecordSlot(record, IndexType.DOCUMENT, -1);
+    // No-op: records are mutated in-place via prepareRecordForModification()
+    // and serialized at commit time via processEntries(). No slot sync needed.
   }
 
   private void persistPathSummaryRecord(final DataRecord record) {
-    storageEngineWriter.updateRecordSlot(record, IndexType.PATH_SUMMARY, 0);
+    // No-op: records are mutated in-place via prepareRecordForModification()
+    // and serialized at commit time via processEntries(). No slot sync needed.
   }
 
   @Override

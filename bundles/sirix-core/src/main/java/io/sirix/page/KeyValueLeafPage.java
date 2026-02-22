@@ -12,14 +12,10 @@ import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
+import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
-import io.sirix.node.layout.FixedToCompactTransformer;
-import io.sirix.node.xml.AttributeNode;
-import io.sirix.node.xml.CommentNode;
-import io.sirix.node.xml.PINode;
-import io.sirix.node.xml.TextNode;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
@@ -28,7 +24,6 @@ import io.sirix.utils.FSSTCompressor;
 import io.sirix.utils.ArrayIterator;
 import io.sirix.utils.OS;
 import io.sirix.node.BytesOut;
-import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -64,66 +59,67 @@ import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
  * The page currently is not thread safe (might have to be for concurrent write-transactions)!
  * </p>
  */
-@SuppressWarnings({"unchecked"})
+@SuppressWarnings({ "unchecked" })
 public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(KeyValueLeafPage.class);
   private static final int INT_SIZE = Integer.BYTES;
-
+  
   /**
-   * SIMD vector species for bitmap operations. Uses the preferred species for the current platform
-   * (256-bit AVX2 or 512-bit AVX-512).
+   * SIMD vector species for bitmap operations.
+   * Uses the preferred species for the current platform (256-bit AVX2 or 512-bit AVX-512).
    */
   private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_PREFERRED;
-
+  
   /**
-   * Unaligned int layout for zero-copy deserialization. When slotMemory is a slice of the
-   * decompression buffer, it may not be 4-byte aligned.
+   * Unaligned int layout for zero-copy deserialization.
+   * When slotMemory is a slice of the decompression buffer, it may not be 4-byte aligned.
    */
   private static final ValueLayout.OfInt JAVA_INT_UNALIGNED = ValueLayout.JAVA_INT.withByteAlignment(1);
-
+  
   /**
-   * Enable detailed memory leak tracking. Accessed via centralized
-   * {@link DiagnosticSettings#MEMORY_LEAK_TRACKING}.
+   * Enable detailed memory leak tracking.
+   * Accessed via centralized {@link DiagnosticSettings#MEMORY_LEAK_TRACKING}.
    * 
    * @see DiagnosticSettings#isMemoryLeakTrackingEnabled()
    */
   public static final boolean DEBUG_MEMORY_LEAKS = DiagnosticSettings.MEMORY_LEAK_TRACKING;
-
+  
   // DIAGNOSTIC COUNTERS (enabled via DEBUG_MEMORY_LEAKS)
-  public static final java.util.concurrent.atomic.AtomicLong PAGES_CREATED =
-      new java.util.concurrent.atomic.AtomicLong(0);
-  public static final java.util.concurrent.atomic.AtomicLong PAGES_CLOSED =
-      new java.util.concurrent.atomic.AtomicLong(0);
-  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> PAGES_BY_TYPE =
-      new java.util.concurrent.ConcurrentHashMap<>();
-  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> PAGES_CLOSED_BY_TYPE =
-      new java.util.concurrent.ConcurrentHashMap<>();
-
+  public static final java.util.concurrent.atomic.AtomicLong PAGES_CREATED = new java.util.concurrent.atomic.AtomicLong(0);
+  public static final java.util.concurrent.atomic.AtomicLong PAGES_CLOSED = new java.util.concurrent.atomic.AtomicLong(0);
+  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> PAGES_BY_TYPE = 
+    new java.util.concurrent.ConcurrentHashMap<>();
+  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> PAGES_CLOSED_BY_TYPE = 
+    new java.util.concurrent.ConcurrentHashMap<>();
+  
   // TRACK ALL LIVE PAGES - for leak detection (use object identity, not recordPageKey)
   // CRITICAL: Use IdentityHashMap to track by object identity, not equals/hashCode
-  public static final java.util.Set<KeyValueLeafPage> ALL_LIVE_PAGES =
-      java.util.Collections.synchronizedSet(java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()));
-
+  public static final java.util.Set<KeyValueLeafPage> ALL_LIVE_PAGES = 
+    java.util.Collections.synchronizedSet(
+      java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>())
+    );
+  
   // LEAK DETECTION: Track finalized pages
-  public static final java.util.concurrent.atomic.AtomicLong PAGES_FINALIZED_WITHOUT_CLOSE =
-      new java.util.concurrent.atomic.AtomicLong(0);
-
+  public static final java.util.concurrent.atomic.AtomicLong PAGES_FINALIZED_WITHOUT_CLOSE = new java.util.concurrent.atomic.AtomicLong(0);
+  
   // Track finalized pages by type and pageKey for diagnostics
-  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> FINALIZED_BY_TYPE =
-      new java.util.concurrent.ConcurrentHashMap<>();
-  public static final java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.atomic.AtomicLong> FINALIZED_BY_PAGE_KEY =
-      new java.util.concurrent.ConcurrentHashMap<>();
-
+  public static final java.util.concurrent.ConcurrentHashMap<IndexType, java.util.concurrent.atomic.AtomicLong> FINALIZED_BY_TYPE = 
+    new java.util.concurrent.ConcurrentHashMap<>();
+  public static final java.util.concurrent.ConcurrentHashMap<Long, java.util.concurrent.atomic.AtomicLong> FINALIZED_BY_PAGE_KEY = 
+    new java.util.concurrent.ConcurrentHashMap<>();
+    
   // Track all Page 0 instances for explicit cleanup
   // CRITICAL: Use synchronized IdentityHashSet to track by object identity, not equals/hashCode
   // (Multiple Page 0 instances with same recordPageKey/revision would collide in regular Set)
-  public static final java.util.Set<KeyValueLeafPage> ALL_PAGE_0_INSTANCES =
-      java.util.Collections.synchronizedSet(java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>()));
-
+  public static final java.util.Set<KeyValueLeafPage> ALL_PAGE_0_INSTANCES = 
+    java.util.Collections.synchronizedSet(
+      java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>())
+    );
+  
   /**
-   * Version counter for detecting page reuse (LeanStore/Umbra approach). Incremented when page is
-   * evicted and reused for a different logical page.
+   * Version counter for detecting page reuse (LeanStore/Umbra approach).
+   * Incremented when page is evicted and reused for a different logical page.
    */
   private final AtomicInteger version = new AtomicInteger(0);
 
@@ -140,8 +136,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private static final int CLOSED_BIT = 4;
 
   /**
-   * Packed state flags: HOT (bit 0), orphaned (bit 1), closed (bit 2). Accessed via VarHandle for
-   * lock-free CAS operations.
+   * Packed state flags: HOT (bit 0), orphaned (bit 1), closed (bit 2).
+   * Accessed via VarHandle for lock-free CAS operations.
    */
   @SuppressWarnings("unused") // Accessed via VarHandle
   private volatile int stateFlags = 0;
@@ -151,28 +147,28 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   static {
     try {
-      STATE_FLAGS_HANDLE = MethodHandles.lookup().findVarHandle(KeyValueLeafPage.class, "stateFlags", int.class);
+      STATE_FLAGS_HANDLE = MethodHandles.lookup()
+          .findVarHandle(KeyValueLeafPage.class, "stateFlags", int.class);
     } catch (NoSuchFieldException | IllegalAccessException e) {
       throw new ExceptionInInitializerError(e);
     }
   }
 
   /**
-   * Guard count for preventing eviction during active use (LeanStore/Umbra pattern). Pages with
-   * guardCount > 0 cannot be evicted. This is simpler than per-transaction pinning - it's just a
-   * reference count.
+   * Guard count for preventing eviction during active use (LeanStore/Umbra pattern).
+   * Pages with guardCount > 0 cannot be evicted.
+   * This is simpler than per-transaction pinning - it's just a reference count.
    */
   private final AtomicInteger guardCount = new AtomicInteger(0);
 
   /**
-   * DIAGNOSTIC: Stack trace of where this page was created (only captured when
-   * DEBUG_MEMORY_LEAKS=true). Used to trace where leaked pages come from.
+   * DIAGNOSTIC: Stack trace of where this page was created (only captured when DEBUG_MEMORY_LEAKS=true).
+   * Used to trace where leaked pages come from.
    */
   private final StackTraceElement[] creationStackTrace;
 
   /**
    * Get the creation stack trace for leak diagnostics.
-   * 
    * @return stack trace from constructor, or null if DEBUG_MEMORY_LEAKS disabled
    */
   public StackTraceElement[] getCreationStackTrace() {
@@ -229,7 +225,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * References to overflow pages.
    */
-  private volatile Map<Long, PageReference> references;
+  private final Map<Long, PageReference> references;
 
   /**
    * Key of record page. This is the base key of all contained nodes.
@@ -242,47 +238,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private final DataRecord[] records;
 
   /**
-   * Number of records currently materialized in {@link #records}.
-   */
-  private int inMemoryRecordCount;
-
-  /**
-   * Adaptive in-memory demotion policy constants.
-   */
-  private static final int MIN_DEMOTION_THRESHOLD = 64;
-  private static final int MAX_DEMOTION_THRESHOLD = 256;
-  private static final int DEMOTION_STEP = 32;
-
-  /**
-   * Current adaptive threshold for demoting materialized records to slot memory.
-   */
-  private int demotionThreshold = MIN_DEMOTION_THRESHOLD;
-
-  /**
-   * Number of records re-materialized from slot memory since last demotion.
-   */
-  private int rematerializedRecordsSinceLastDemotion;
-
-  /**
    * Memory segment for slots and Dewey IDs.
    */
   private MemorySegment slotMemory;
   private MemorySegment deweyIdMemory;
 
   /**
-   * Memory segment for string values (columnar storage for better compression). Stores all string
-   * content contiguously, separate from node metadata in slotMemory.
+   * Memory segment for string values (columnar storage for better compression).
+   * Stores all string content contiguously, separate from node metadata in slotMemory.
    */
   private MemorySegment stringValueMemory;
 
   /**
-   * FSST symbol table for string compression (shared across all strings in page). Null if FSST
-   * compression is not used.
+   * FSST symbol table for string compression (shared across all strings in page).
+   * Null if FSST compression is not used.
    */
   private byte[] fsstSymbolTable;
-
-  /** Pre-parsed FSST symbol table (avoids re-parsing on every encode/decode). */
-  private byte[][] parsedFsstSymbols;
 
   /**
    * Offset arrays to manage positions within memory segments.
@@ -296,22 +267,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private final int[] stringValueOffsets;
 
   /**
-   * Bitmap tracking which slots are populated (16 longs = 1024 bits). Bit i is set iff slotOffsets[i]
-   * >= 0. Used for O(k) iteration over populated slots instead of O(1024).
+   * Bitmap tracking which slots are populated (16 longs = 1024 bits).
+   * Bit i is set iff slotOffsets[i] >= 0.
+   * Used for O(k) iteration over populated slots instead of O(1024).
    */
   private final long[] slotBitmap;
-
-  /**
-   * Bitmap tracking which populated slots are currently stored in fixed in-memory layout. Bit i set
-   * => slot i contains fixed-layout bytes (not compact varint/delta bytes).
-   */
-  private final long[] fixedFormatBitmap;
-
-  /**
-   * Node kind id for fixed-format slots, indexed by slot number. Entries are
-   * {@link #NO_FIXED_SLOT_KIND} for compact slots or unknown fixed slots.
-   */
-  private final byte[] fixedSlotKinds;
 
   /**
    * Number of words in the slot bitmap (16 words * 64 bits = 1024 slots).
@@ -319,22 +279,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private static final int BITMAP_WORDS = 16;
 
   /**
-   * Sentinel for "no fixed slot kind assigned".
-   */
-  private static final byte NO_FIXED_SLOT_KIND = (byte) -1;
-
-  /**
-   * Bitmap tracking which slots need preservation during lazy copy (16 longs = 1024 bits). Used by
-   * DIFFERENTIAL, INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning. Null means no
-   * preservation needed (e.g., INCREMENTAL non-full-dump or FULL versioning). At commit time, slots
-   * marked here but not in records[] are copied from completePageRef.
+   * Bitmap tracking which slots need preservation during lazy copy (16 longs = 1024 bits).
+   * Used by DIFFERENTIAL, INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning.
+   * Null means no preservation needed (e.g., INCREMENTAL non-full-dump or FULL versioning).
+   * At commit time, slots marked here but not in records[] are copied from completePageRef.
    */
   private long[] preservationBitmap;
 
   /**
-   * Reference to the complete page for lazy slot copying at commit time. Set during
-   * combineRecordPagesForModification, used by addReferences() to copy slots that need preservation
-   * but weren't modified (records[i] == null).
+   * Reference to the complete page for lazy slot copying at commit time.
+   * Set during combineRecordPagesForModification, used by addReferences() to copy
+   * slots that need preservation but weren't modified (records[i] == null).
    */
   private KeyValueLeafPage completePageRef;
 
@@ -355,6 +310,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private volatile BytesOut<?> bytes;
 
+  /** Compressed page data as MemorySegment (zero-copy path). Arena.ofAuto()-managed. */
+  private volatile MemorySegment compressedSegment;
+
+  /** Reusable buffer for serializing non-FlyweightNode records to the unified heap. */
+  private MemorySegmentBytesOut reusableNonFlyweightBuffer;
+
   private volatile byte[] hashCode;
 
   private int hash;
@@ -362,40 +323,50 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   // Note: isClosed flag is now packed into stateFlags (bit 2) for lock-free access
 
   /**
-   * Flag indicating whether memory was externally allocated (e.g., by Arena in tests). If true,
-   * close() should NOT release memory to segmentAllocator since it wasn't allocated by it.
+   * Flag indicating whether memory was externally allocated (e.g., by Arena in tests).
+   * If true, close() should NOT release memory to segmentAllocator since it wasn't allocated by it.
    */
   private final boolean externallyAllocatedMemory;
 
-  /**
-   * Thread-local serialization buffer for compactFixedSlotsForCommit (avoids per-call allocation).
-   */
-  private static final ThreadLocal<MemorySegmentBytesOut> COMPACT_BUFFER =
-      ThreadLocal.withInitial(() -> new MemorySegmentBytesOut(256));
-
-  private MemorySegmentAllocator segmentAllocator = OS.isWindows()
-      ? WindowsMemorySegmentAllocator.getInstance()
-      : LinuxMemorySegmentAllocator.getInstance();
+  private MemorySegmentAllocator segmentAllocator =
+      OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
 
   /**
-   * Backing buffer from decompression (for zero-copy deserialization). When non-null, this buffer
-   * contains the slotMemory as a slice and must be released on close(). This enables true zero-copy
-   * where the decompressed data becomes the page's storage directly.
+   * Backing buffer from decompression (for zero-copy deserialization).
+   * When non-null, this buffer contains the slotMemory as a slice and must be released on close().
+   * This enables true zero-copy where the decompressed data becomes the page's storage directly.
    */
   private MemorySegment backingBuffer;
 
   /**
-   * Releaser to return backing buffer to allocator. Called on close() to return the decompression
-   * buffer to the allocator pool.
+   * Releaser to return backing buffer to allocator.
+   * Called on close() to return the decompression buffer to the allocator pool.
    */
   private Runnable backingBufferReleaser;
 
+  // ==================== UNIFIED PAGE (LeanStore-style) ====================
+
   /**
-   * Constructor which initializes a new {@link KeyValueLeafPage}. Memory is externally provided
-   * (e.g., by Arena in tests) and will NOT be released by close().
+   * LeanStore-style unified page MemorySegment.
+   * When non-null, this page stores records in a heap with per-record offset tables,
+   * enabling O(1) field access via flyweight binding. The page layout is defined by
+   * {@link PageLayout}: header (32 B) + bitmap (128 B) + directory (8 KB) + heap.
    *
-   * @param recordPageKey base key assigned to this node page
-   * @param indexType the index type
+   * <p>FlyweightNode records are serialized directly to the heap at createRecord time
+   * and bound for in-place mutation. Non-FlyweightNode records are serialized to the
+   * heap at commit time via processEntries (same as legacy slotMemory path).
+   *
+   * <p>When unifiedPage is non-null, slotMemory/slotOffsets/slotBitmap are NOT used
+   * for slot operations — the unified page's directory and heap replace them.
+   */
+  private MemorySegment unifiedPage;
+
+  /**
+   * Constructor which initializes a new {@link KeyValueLeafPage}.
+   * Memory is externally provided (e.g., by Arena in tests) and will NOT be released by close().
+   *
+   * @param recordPageKey  base key assigned to this node page
+   * @param indexType      the index type
    * @param resourceConfig the resource configuration
    */
   public KeyValueLeafPage(final @NonNegative long recordPageKey, final IndexType indexType,
@@ -407,11 +378,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Constructor which initializes a new {@link KeyValueLeafPage}.
    *
-   * @param recordPageKey base key assigned to this node page
-   * @param indexType the index type
-   * @param resourceConfig the resource configuration
-   * @param externallyAllocatedMemory if true, memory was allocated externally and won't be released
-   *        by close()
+   * @param recordPageKey              base key assigned to this node page
+   * @param indexType                  the index type
+   * @param resourceConfig             the resource configuration
+   * @param externallyAllocatedMemory  if true, memory was allocated externally and won't be released by close()
    */
   public KeyValueLeafPage(final @NonNegative long recordPageKey, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
@@ -420,6 +390,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // internal flow.
     assert resourceConfig != null : "The resource config must not be null!";
 
+    this.references = new ConcurrentHashMap<>();
     this.recordPageKey = recordPageKey;
     this.records = new DataRecord[Constants.NDP_NODE_COUNT];
     this.areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
@@ -430,13 +401,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.slotOffsets = new int[Constants.NDP_NODE_COUNT];
     this.deweyIdOffsets = new int[Constants.NDP_NODE_COUNT];
     this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
-    this.slotBitmap = new long[BITMAP_WORDS]; // All bits initially 0 (no slots populated)
-    this.fixedFormatBitmap = new long[BITMAP_WORDS];
-    this.fixedSlotKinds = new byte[Constants.NDP_NODE_COUNT];
+    this.slotBitmap = new long[BITMAP_WORDS];  // All bits initially 0 (no slots populated)
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
     Arrays.fill(stringValueOffsets, -1);
-    Arrays.fill(fixedSlotKinds, NO_FIXED_SLOT_KIND);
     this.doResizeMemorySegmentsIfNeeded = true;
     this.slotMemoryFreeSpaceStart = 0;
     this.lastSlotIndex = -1;
@@ -447,6 +415,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.slotMemory = slotMemory;
     this.deweyIdMemory = deweyIdMemory;
     this.externallyAllocatedMemory = externallyAllocatedMemory;
+
+    // Unified page is allocated lazily on first FlyweightNode setRecord/setNewRecord.
+    // Non-FlyweightNode pages (XML, path summary, etc.) use legacy slotMemory/deweyIdMemory.
 
     // Capture creation stack trace for leak tracing (only when diagnostics enabled)
     if (DEBUG_MEMORY_LEAKS) {
@@ -466,13 +437,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * Constructor which reads deserialized data to the {@link KeyValueLeafPage} from the storage.
    * Memory is allocated by the global allocator and WILL be released by close().
    *
-   * @param recordPageKey This is the base key of all contained nodes.
-   * @param revision The current revision.
-   * @param indexType The index type.
-   * @param resourceConfig The resource configuration.
+   * @param recordPageKey     This is the base key of all contained nodes.
+   * @param revision          The current revision.
+   * @param indexType         The index type.
+   * @param resourceConfig    The resource configuration.
    * @param areDeweyIDsStored Determines if DeweyIDs are stored or not.
-   * @param recordPersister Persistenter.
-   * @param references References to overflow pages.
+   * @param recordPersister   Persistenter.
+   * @param references        References to overflow pages.
    */
   public KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
@@ -491,13 +462,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.slotOffsets = new int[Constants.NDP_NODE_COUNT];
     this.deweyIdOffsets = new int[Constants.NDP_NODE_COUNT];
     this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
-    this.slotBitmap = new long[BITMAP_WORDS]; // Will be populated during deserialization
-    this.fixedFormatBitmap = new long[BITMAP_WORDS];
-    this.fixedSlotKinds = new byte[Constants.NDP_NODE_COUNT];
+    this.slotBitmap = new long[BITMAP_WORDS];  // Will be populated during deserialization
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
     Arrays.fill(stringValueOffsets, -1);
-    Arrays.fill(fixedSlotKinds, NO_FIXED_SLOT_KIND);
     this.stringValueMemoryFreeSpaceStart = 0;
     this.lastStringValueIndex = -1;
     this.doResizeMemorySegmentsIfNeeded = true;
@@ -514,6 +482,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       this.lastDeweyIdIndex = -1;
     }
 
+    // Unified page is allocated lazily (may be set by setUnifiedPage for deserialized pages).
+
     // Capture creation stack trace for leak tracing (only when diagnostics enabled)
     if (DEBUG_MEMORY_LEAKS) {
       this.creationStackTrace = Thread.currentThread().getStackTrace();
@@ -529,54 +499,61 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Zero-copy constructor - slotMemory IS a slice of the decompression buffer. The backing buffer is
-   * released when this page is closed.
+   * Zero-copy constructor - slotMemory IS a slice of the decompression buffer.
+   * The backing buffer is released when this page is closed.
    * 
-   * <p>
-   * This constructor enables true zero-copy page deserialization where the decompressed data becomes
-   * the page's storage directly, eliminating the per-slot MemorySegment.copy() calls that were a
-   * major performance bottleneck.
+   * <p>This constructor enables true zero-copy page deserialization where the
+   * decompressed data becomes the page's storage directly, eliminating the
+   * per-slot MemorySegment.copy() calls that were a major performance bottleneck.
    *
-   * @param recordPageKey base key assigned to this node page
-   * @param revision the current revision
-   * @param indexType the index type
-   * @param resourceConfig the resource configuration
-   * @param slotOffsets pre-loaded slot offset array from serialized data
-   * @param slotMemory slice of decompression buffer (NOT copied)
-   * @param lastSlotIndex index of the last slot
-   * @param deweyIdOffsets pre-loaded dewey ID offset array (or null)
-   * @param deweyIdMemory slice for dewey IDs (or null)
-   * @param lastDeweyIdIndex index of the last dewey ID slot
-   * @param references overflow page references
-   * @param backingBuffer full decompression buffer (for lifecycle management)
-   * @param backingBufferReleaser returns buffer to allocator on close()
+   * @param recordPageKey           base key assigned to this node page
+   * @param revision                the current revision
+   * @param indexType               the index type
+   * @param resourceConfig          the resource configuration
+   * @param slotOffsets             pre-loaded slot offset array from serialized data
+   * @param slotMemory              slice of decompression buffer (NOT copied)
+   * @param lastSlotIndex           index of the last slot
+   * @param deweyIdOffsets          pre-loaded dewey ID offset array (or null)
+   * @param deweyIdMemory           slice for dewey IDs (or null)
+   * @param lastDeweyIdIndex        index of the last dewey ID slot
+   * @param references              overflow page references
+   * @param backingBuffer           full decompression buffer (for lifecycle management)
+   * @param backingBufferReleaser   returns buffer to allocator on close()
    */
-  public KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType,
-      final ResourceConfiguration resourceConfig, final int[] slotOffsets, final MemorySegment slotMemory,
-      final int lastSlotIndex, final int[] deweyIdOffsets, final MemorySegment deweyIdMemory,
-      final int lastDeweyIdIndex, final Map<Long, PageReference> references, final MemorySegment backingBuffer,
-      final Runnable backingBufferReleaser) {
+  public KeyValueLeafPage(
+      final long recordPageKey,
+      final int revision,
+      final IndexType indexType,
+      final ResourceConfiguration resourceConfig,
+      final int[] slotOffsets,
+      final MemorySegment slotMemory,
+      final int lastSlotIndex,
+      final int[] deweyIdOffsets,
+      final MemorySegment deweyIdMemory,
+      final int lastDeweyIdIndex,
+      final Map<Long, PageReference> references,
+      final MemorySegment backingBuffer,
+      final Runnable backingBufferReleaser
+  ) {
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = indexType;
     this.resourceConfig = resourceConfig;
     this.recordPersister = resourceConfig.recordPersister;
     this.areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
-
+    
     // Zero-copy: use provided arrays and memory segments directly
     this.slotOffsets = slotOffsets;
     this.slotMemory = slotMemory;
     this.lastSlotIndex = lastSlotIndex;
-
-    this.deweyIdOffsets = deweyIdOffsets != null
-        ? deweyIdOffsets
-        : new int[Constants.NDP_NODE_COUNT];
+    
+    this.deweyIdOffsets = deweyIdOffsets != null ? deweyIdOffsets : new int[Constants.NDP_NODE_COUNT];
     if (deweyIdOffsets == null) {
       Arrays.fill(this.deweyIdOffsets, -1);
     }
     this.deweyIdMemory = deweyIdMemory;
     this.lastDeweyIdIndex = lastDeweyIdIndex;
-
+    
     // String value memory (columnar storage) - not yet used in legacy constructor
     this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
     Arrays.fill(this.stringValueOffsets, -1);
@@ -584,38 +561,35 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.lastStringValueIndex = -1;
     this.stringValueMemoryFreeSpaceStart = 0;
     this.fsstSymbolTable = null;
-
+    
     // Build bitmap from provided slotOffsets for O(k) iteration
     this.slotBitmap = new long[BITMAP_WORDS];
-    this.fixedFormatBitmap = new long[BITMAP_WORDS];
-    this.fixedSlotKinds = new byte[Constants.NDP_NODE_COUNT];
-    Arrays.fill(this.fixedSlotKinds, NO_FIXED_SLOT_KIND);
     for (int i = 0; i < slotOffsets.length; i++) {
       if (slotOffsets[i] >= 0) {
         slotBitmap[i >>> 6] |= (1L << (i & 63));
       }
     }
+    
+    // Unified page is allocated lazily (may be set by setUnifiedPage for deserialized pages).
 
     // Zero-copy: slotMemory is part of backingBuffer, track for release
     this.backingBuffer = backingBuffer;
     this.backingBufferReleaser = backingBufferReleaser;
-
+    
     // If we have a backing buffer, it owns the memory (zero-copy path)
     // Otherwise, slotMemory was allocated separately and should be released via allocator
     this.externallyAllocatedMemory = (backingBuffer != null);
-
-    this.references = references != null
-        ? references
-        : new ConcurrentHashMap<>();
+    
+    this.references = references != null ? references : new ConcurrentHashMap<>();
     this.records = new DataRecord[Constants.NDP_NODE_COUNT];
-
+    
     // Zero-copy pages are read-only snapshots, don't resize
     this.doResizeMemorySegmentsIfNeeded = false;
-
+    
     // Free space tracking not needed for read-only zero-copy pages
     this.slotMemoryFreeSpaceStart = 0;
     this.deweyIdMemoryFreeSpaceStart = 0;
-
+    
     // Capture creation stack trace for leak tracing (only when diagnostics enabled)
     if (DEBUG_MEMORY_LEAKS) {
       this.creationStackTrace = Thread.currentThread().getStackTrace();
@@ -673,45 +647,357 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public DataRecord getRecord(final int offset) {
-    if (offset < 0 || offset >= Constants.NDP_NODE_COUNT) {
-      throw new IllegalArgumentException(
-          "Record offset out of range [0, " + Constants.NDP_NODE_COUNT + "): " + offset);
-    }
+  public DataRecord getRecord(int offset) {
     return records[offset];
-  }
-
-  /**
-   * Clear the cached record reference at the given offset.
-   * <p>
-   * Used after fixed-slot projection to prevent stale pooled object references from being returned by
-   * {@link #getRecord(int)}. Fixed-slot bytes are the authoritative source for fixed-format slots, so
-   * the cached record must be cleared to force re-materialization from those bytes on the next read.
-   *
-   * @param offset the slot offset to clear
-   * @throws IllegalArgumentException if offset is out of range [0, {@link Constants#NDP_NODE_COUNT})
-   */
-  public void clearRecord(final int offset) {
-    if (offset < 0 || offset >= Constants.NDP_NODE_COUNT) {
-      throw new IllegalArgumentException(
-          "Record offset out of range [0, " + Constants.NDP_NODE_COUNT + "): " + offset);
-    }
-    if (records[offset] != null) {
-      records[offset] = null;
-      inMemoryRecordCount--;
-    }
   }
 
   @Override
   public void setRecord(@NonNull final DataRecord record) {
     addedReferences = false;
+    // Invalidate stale compressed cache — record mutation means cached bytes are outdated
+    compressedSegment = null;
     bytes = null;
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
-    if (records[offset] == null) {
-      inMemoryRecordCount++;
+
+    // Serialize FlyweightNode directly to unified page heap and bind for in-place mutation.
+    // After binding, all getters/setters operate directly on page memory — zero commit-time
+    // serialization needed for this record (processEntries will skip it).
+    if (record instanceof FlyweightNode fn) {
+      ensureUnifiedPage();
+      if (!fn.isBound()) {
+        serializeToUnifiedHeap(fn, key, offset);
+      } else if (!fn.isBoundTo(unifiedPage)) {
+        fn.unbind();
+        serializeToUnifiedHeap(fn, key, offset);
+      }
     }
+
     records[offset] = record;
+  }
+
+  /**
+   * Store a newly created record, serializing non-FlyweightNode data to the unified page heap
+   * immediately. This is called from the createRecord path where node factories may reuse
+   * singleton objects. By serializing now and nulling records[], we preserve data before the
+   * singleton is reused for the next node creation.
+   *
+   * <p>For FlyweightNode records, this delegates to {@link #setRecord} which handles heap
+   * serialization and binding. For non-FlyweightNode on unified pages, the record is serialized
+   * to the heap and records[offset] is nulled — prepareRecordForModification will deserialize
+   * a fresh object from the heap when mutation is needed.
+   *
+   * @param record the newly created record
+   */
+  public void setNewRecord(@NonNull final DataRecord record) {
+    addedReferences = false;
+    compressedSegment = null;
+    bytes = null;
+    final var key = record.getNodeKey();
+    final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+
+    if (record instanceof FlyweightNode fn) {
+      // FlyweightNode singleton reuse fix: the node factory reuses one instance per type.
+      // After serializing to the heap, we null records[offset] instead of storing the singleton.
+      // This prevents aliasing: multiple records[] slots pointing to the same singleton object.
+      // prepareRecordForModification will create a fresh FlyweightNode from the heap via getValue().
+      ensureUnifiedPage();
+      if (fn.isBound()) {
+        fn.unbind();
+      }
+      serializeToUnifiedHeap(fn, key, offset);
+      // Unbind the factory's reusable node after serialization. serializeToUnifiedHeap binds
+      // the node to the page MemorySegment, but the factory will reuse this object for the next
+      // node creation. If the page grows (reallocates) before the cursor reads this node,
+      // the bound MemorySegment becomes stale. Unbinding ensures the node falls back to Java
+      // fields (which hold the correct values from serialization) until a fresh bind occurs.
+      fn.unbind();
+      records[offset] = null;
+    } else if (unifiedPage != null && recordPersister != null && resourceConfig != null) {
+      // Non-FlyweightNode on unified page: serialize immediately to preserve singleton reuse.
+      // records[offset] is nulled — prepareRecordForModification will create a fresh object.
+      serializeNonFlyweightToHeap(record, offset);
+      records[offset] = null;
+    } else {
+      records[offset] = record;
+    }
+  }
+
+  /**
+   * Serialize a FlyweightNode to the unified page heap, update directory/bitmap, and bind.
+   *
+   * <p>After this call the node is bound: getters/setters operate on page memory.
+   * processEntries will skip this record at commit time because {@code fn.isBound()} is true.
+   *
+   * @param fn      the flyweight node to serialize
+   * @param nodeKey the node's key
+   * @param offset  the slot index within the page (0-1023)
+   */
+  private void serializeToUnifiedHeap(final FlyweightNode fn, final long nodeKey, final int offset) {
+    ensureUnifiedPage();
+    // Get DeweyID bytes if stored (must capture BEFORE binding overwrites the node state)
+    final byte[] deweyIdBytes = areDeweyIDsStored ? fn.getDeweyIDAsBytes() : null;
+    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+
+    // Ensure heap has enough space for this record (value nodes can be large)
+    final int heapEnd = PageLayout.getHeapEnd(unifiedPage);
+    final int estimatedSize = fn.estimateSerializedSize() + deweyIdLen
+        + (areDeweyIDsStored ? PageLayout.DEWEY_ID_TRAILER_SIZE : 0);
+    while ((int) unifiedPage.byteSize() - PageLayout.HEAP_START - heapEnd < estimatedSize) {
+      growUnifiedPage();
+    }
+
+    // Write directly to heap at current end
+    final long absOffset = PageLayout.heapAbsoluteOffset(heapEnd);
+    final int recordBytes = fn.serializeToHeap(unifiedPage, absOffset);
+
+    // When DeweyIDs are stored, append DeweyID data + 2-byte trailer
+    final int totalBytes;
+    if (areDeweyIDsStored) {
+      if (deweyIdLen > 0) {
+        MemorySegment.copy(deweyIdBytes, 0, unifiedPage,
+            java.lang.foreign.ValueLayout.JAVA_BYTE, absOffset + recordBytes, deweyIdLen);
+      }
+      totalBytes = recordBytes + deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE;
+      PageLayout.writeDeweyIdTrailer(unifiedPage, absOffset + totalBytes, deweyIdLen);
+    } else {
+      totalBytes = recordBytes;
+    }
+
+    // Update heap end and used counters
+    PageLayout.setHeapEnd(unifiedPage, heapEnd + totalBytes);
+    PageLayout.setHeapUsed(unifiedPage, PageLayout.getHeapUsed(unifiedPage) + totalBytes);
+
+    // Update directory entry: [heapOffset][dataLength | nodeKindId]
+    PageLayout.setDirEntry(unifiedPage, offset, heapEnd, totalBytes,
+        ((NodeKind) fn.getKind()).getId());
+
+    // Mark slot populated in bitmap and track last slot index (new slots only)
+    if (!PageLayout.isSlotPopulated(unifiedPage, offset)) {
+      PageLayout.markSlotPopulated(unifiedPage, offset);
+      PageLayout.setPopulatedCount(unifiedPage,
+          PageLayout.getPopulatedCount(unifiedPage) + 1);
+      lastSlotIndex = offset;
+    }
+
+    // Bind flyweight — all subsequent mutations go directly to page memory
+    fn.bind(unifiedPage, absOffset, nodeKey, offset);
+  }
+
+  /**
+   * Serialize a non-FlyweightNode record to the unified page heap.
+   * Used for XML nodes that use the singleton factory pattern: after serialization, the
+   * caller nulls records[offset] to prevent aliasing when the singleton is reused.
+   *
+   * <p>If DeweyIDs are stored, the DeweyID is appended to the heap allocation via
+   * {@link #setDeweyIdToUnifiedHeap}.
+   *
+   * @param record the record to serialize
+   * @param offset the slot index within the page (0-1023)
+   */
+  private void serializeNonFlyweightToHeap(final DataRecord record, final int offset) {
+    ensureUnifiedPage();
+    // Lazily create reusable serialization buffer (Arena.ofAuto = GC-managed)
+    if (reusableNonFlyweightBuffer == null) {
+      reusableNonFlyweightBuffer = new MemorySegmentBytesOut(Arena.ofAuto(), 256);
+    }
+    reusableNonFlyweightBuffer.clear();
+    recordPersister.serialize(reusableNonFlyweightBuffer, record, resourceConfig);
+    final var buffer = reusableNonFlyweightBuffer.getDestination();
+
+    if (buffer.byteSize() > PageConstants.MAX_RECORD_SIZE) {
+      // Overflow page: copy to persistent byte array
+      final byte[] persistentBuffer = new byte[(int) buffer.byteSize()];
+      MemorySegment.copy(buffer, 0, MemorySegment.ofArray(persistentBuffer), 0, buffer.byteSize());
+      final var reference = new PageReference();
+      reference.setPage(new OverflowPage(persistentBuffer));
+      references.put(record.getNodeKey(), reference);
+      return;
+    }
+
+    // Write record to unified page heap (nodeKindId=0 for non-flyweight)
+    setSlotToUnifiedHeap(buffer, offset, 0);
+
+    // Append DeweyID if stored
+    if (areDeweyIDsStored) {
+      final byte[] deweyIdBytes = record.getDeweyIDAsBytes();
+      if (deweyIdBytes != null && deweyIdBytes.length > 0) {
+        setDeweyIdToUnifiedHeap(MemorySegment.ofArray(deweyIdBytes), offset);
+      }
+    }
+  }
+
+  /**
+   * Allocate and initialize the unified page if not yet present.
+   * Called lazily on first FlyweightNode insertion, and eagerly from PageKind.serializePage()
+   * so that ALL pages (including XML/non-FlyweightNode) use the unified format at serialization time.
+   */
+  public void ensureUnifiedPage() {
+    if (unifiedPage != null) {
+      return;
+    }
+    unifiedPage = segmentAllocator.allocate(PageLayout.INITIAL_PAGE_SIZE);
+    PageLayout.initializePage(unifiedPage, recordPageKey, revision, indexType.getID(), areDeweyIDsStored);
+
+    // Migrate existing legacy slot data to unified page heap.
+    // Pages created via the legacy constructor store data in slotMemory/slotOffsets.
+    // When transitioning to unified format, this data must be copied.
+    if (slotMemory != null && slotOffsets != null) {
+      for (int i = 0; i < slotOffsets.length; i++) {
+        final int slotOffset = slotOffsets[i];
+        if (slotOffset < 0) {
+          continue;
+        }
+        // Legacy format: [length:4 bytes][data:length bytes]
+        final int length = slotMemory.get(JAVA_INT_UNALIGNED, slotOffset);
+        if (length > 0 && slotOffset + INT_SIZE + length <= slotMemory.byteSize()) {
+          final MemorySegment slotData = slotMemory.asSlice(slotOffset + INT_SIZE, length);
+          setSlotToUnifiedHeap(slotData, i, 0);
+        }
+      }
+    }
+
+    // Migrate existing legacy DeweyID data to unified page heap.
+    if (areDeweyIDsStored && deweyIdMemory != null && deweyIdOffsets != null) {
+      for (int i = 0; i < deweyIdOffsets.length; i++) {
+        final int deweyOffset = deweyIdOffsets[i];
+        if (deweyOffset < 0) {
+          continue;
+        }
+        final int deweyLen = deweyIdMemory.get(JAVA_INT_UNALIGNED, deweyOffset);
+        if (deweyLen > 0 && deweyOffset + INT_SIZE + deweyLen <= deweyIdMemory.byteSize()) {
+          final MemorySegment deweyData = deweyIdMemory.asSlice(deweyOffset + INT_SIZE, deweyLen);
+          setDeweyIdToUnifiedHeap(deweyData, i);
+        }
+      }
+    }
+  }
+
+  /**
+   * Grow the unified page by doubling its size.
+   * Copies all existing data (header + bitmap + directory + heap) to the new segment.
+   */
+  private void growUnifiedPage() {
+    final int currentSize = (int) unifiedPage.byteSize();
+    final int newSize = currentSize * 2;
+    final MemorySegment grown = segmentAllocator.allocate(newSize);
+    // Copy all existing data
+    MemorySegment.copy(unifiedPage, 0, grown, 0, currentSize);
+    // Release old segment
+    segmentAllocator.release(unifiedPage);
+    unifiedPage = grown;
+
+    // Re-bind any flyweight nodes that reference the old segment
+    // (their page reference is now stale after grow)
+    for (final DataRecord record : records) {
+      if (record instanceof FlyweightNode fn && fn.isBound()) {
+        // The record's recordBase offset is still valid — just update the segment reference
+        final int slotIdx = (int) (record.getNodeKey()
+            - ((record.getNodeKey() >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+        final int heapOff = PageLayout.getDirHeapOffset(unifiedPage, slotIdx);
+        fn.bind(unifiedPage, PageLayout.heapAbsoluteOffset(heapOff), record.getNodeKey(), slotIdx);
+      }
+    }
+  }
+
+  /**
+   * Write raw slot data to the unified page heap.
+   * Used by setSlot() and addReferences() when unifiedPage is active.
+   * Data is stored without a length prefix — the directory entry holds the length.
+   *
+   * @param data       the raw slot data to store
+   * @param slotNumber the slot index (0-1023)
+   * @param nodeKindId the node kind ID (0 for legacy format, &gt;0 for flyweight)
+   */
+  private void setSlotToUnifiedHeap(final MemorySegment data, final int slotNumber, final int nodeKindId) {
+    final int recordSize = (int) data.byteSize();
+    if (recordSize <= 0) {
+      return;
+    }
+
+    // Total allocation includes DeweyID trailer when DeweyIDs are stored
+    final int totalSize = areDeweyIDsStored
+        ? recordSize + PageLayout.DEWEY_ID_TRAILER_SIZE
+        : recordSize;
+
+    // Ensure heap has enough space
+    int heapEnd = PageLayout.getHeapEnd(unifiedPage);
+    int remaining = (int) unifiedPage.byteSize() - PageLayout.HEAP_START - heapEnd;
+    if (remaining < totalSize) {
+      while ((int) unifiedPage.byteSize() - PageLayout.HEAP_START - heapEnd < totalSize) {
+        growUnifiedPage();
+      }
+      heapEnd = PageLayout.getHeapEnd(unifiedPage);
+    }
+
+    // Bump-allocate and copy record data to heap
+    final long absOffset = PageLayout.heapAbsoluteOffset(heapEnd);
+    MemorySegment.copy(data, 0, unifiedPage, absOffset, recordSize);
+
+    // Append DeweyID trailer (initially 0 = no DeweyID yet)
+    if (areDeweyIDsStored) {
+      PageLayout.writeDeweyIdTrailer(unifiedPage, absOffset + totalSize, 0);
+    }
+
+    // Update heap end and used counters
+    PageLayout.setHeapEnd(unifiedPage, heapEnd + totalSize);
+    PageLayout.setHeapUsed(unifiedPage, PageLayout.getHeapUsed(unifiedPage) + totalSize);
+
+    // Update directory entry with the provided nodeKindId
+    PageLayout.setDirEntry(unifiedPage, slotNumber, heapEnd, totalSize, nodeKindId);
+
+    // Mark slot populated in bitmap and track last slot index (new slots only)
+    if (!PageLayout.isSlotPopulated(unifiedPage, slotNumber)) {
+      PageLayout.markSlotPopulated(unifiedPage, slotNumber);
+      PageLayout.setPopulatedCount(unifiedPage,
+          PageLayout.getPopulatedCount(unifiedPage) + 1);
+      lastSlotIndex = slotNumber;
+    }
+  }
+
+  /**
+   * Write raw slot data from a source segment at a given offset to the unified page heap.
+   * Zero-copy variant for direct page deserialization.
+   *
+   * @param source       the source MemorySegment containing the data
+   * @param sourceOffset byte offset within source where data starts
+   * @param dataSize     number of bytes to copy
+   * @param slotNumber   the slot index (0-1023)
+   * @param nodeKindId   the node kind ID (0 for legacy format, 24-43 for flyweight)
+   */
+  void setSlotToUnifiedHeapDirect(final MemorySegment source, final long sourceOffset,
+      final int dataSize, final int slotNumber, final int nodeKindId) {
+    if (dataSize <= 0) {
+      return;
+    }
+
+    // Ensure heap has enough space
+    int heapEnd = PageLayout.getHeapEnd(unifiedPage);
+    final int remaining = (int) unifiedPage.byteSize() - PageLayout.HEAP_START - heapEnd;
+    if (remaining < dataSize) {
+      while ((int) unifiedPage.byteSize() - PageLayout.HEAP_START - heapEnd < dataSize) {
+        growUnifiedPage();
+      }
+      heapEnd = PageLayout.getHeapEnd(unifiedPage);
+    }
+
+    // Bump-allocate and copy data to heap
+    final long absOffset = PageLayout.heapAbsoluteOffset(heapEnd);
+    MemorySegment.copy(source, sourceOffset, unifiedPage, absOffset, dataSize);
+
+    // Update heap end and used counters
+    PageLayout.setHeapEnd(unifiedPage, heapEnd + dataSize);
+    PageLayout.setHeapUsed(unifiedPage, PageLayout.getHeapUsed(unifiedPage) + dataSize);
+
+    // Update directory entry
+    PageLayout.setDirEntry(unifiedPage, slotNumber, heapEnd, dataSize, nodeKindId);
+
+    // Mark slot populated in bitmap
+    if (!PageLayout.isSlotPopulated(unifiedPage, slotNumber)) {
+      PageLayout.markSlotPopulated(unifiedPage, slotNumber);
+      PageLayout.setPopulatedCount(unifiedPage,
+          PageLayout.getPopulatedCount(unifiedPage) + 1);
+    }
   }
 
   /**
@@ -724,84 +1010,71 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Set bytes after serialization.
+   * Set bytes after serialization (legacy byte[] path).
    *
    * @param bytes bytes
    */
-  public void setBytes(BytesOut<?> bytes) {
+  public void setBytes(final BytesOut<?> bytes) {
     this.bytes = bytes;
+    this.compressedSegment = null;
+  }
+
+  /**
+   * Get the compressed page data as a MemorySegment (zero-copy path).
+   *
+   * @return the compressed segment, or null if not set
+   */
+  public MemorySegment getCompressedSegment() {
+    return compressedSegment;
+  }
+
+  /**
+   * Set compressed page data as a MemorySegment (zero-copy path).
+   * Clears the legacy bytes cache.
+   *
+   * @param segment the compressed segment (Arena.ofAuto()-managed)
+   */
+  public void setCompressedSegment(final MemorySegment segment) {
+    this.compressedSegment = segment;
+    this.bytes = null;
+  }
+
+  /**
+   * Release node object references to allow GC to reclaim them.
+   * <p>
+   * MUST only be called after {@code addReferences()} has serialized all records into
+   * {@code slotMemory} and the compressed form is cached via {@code setCompressedSegment()}
+   * or {@code setBytes()}. After this call, individual records can still be reconstructed
+   * on demand from {@code slotMemory} via {@code getSlot(offset)} in
+   * {@link io.sirix.access.trx.page.NodeStorageEngineReader#getValue}.
+   */
+  public void clearRecordsForGC() {
+    // Unbind flyweight nodes BEFORE clearing — cursors may still hold references.
+    // Unbinding materializes all fields from page memory (still valid at this point)
+    // into Java primitives, so reads after page release use correct field values.
+    if (unifiedPage != null) {
+      for (final DataRecord record : records) {
+        if (record instanceof FlyweightNode fn && fn.isBound()) {
+          fn.unbind();
+        }
+      }
+    }
+    Arrays.fill(records, null);
+  }
+
+  /**
+   * Check whether all non-null records have been serialized to slotMemory.
+   *
+   * @return {@code true} if {@link #addReferences} has been called and no subsequent
+   *         {@link #setRecord} has invalidated the serialized state
+   */
+  public boolean isAddedReferences() {
+    return addedReferences;
   }
 
   @Override
   public DataRecord[] records() {
     return records;
-  }
-
-  public int getInMemoryRecordCount() {
-    return inMemoryRecordCount;
-  }
-
-  public int getDemotionThreshold() {
-    return demotionThreshold;
-  }
-
-  public boolean shouldDemoteRecords(IndexType currentIndexType) {
-    return currentIndexType == IndexType.DOCUMENT && inMemoryRecordCount >= demotionThreshold;
-  }
-
-  public void onRecordRematerialized() {
-    rematerializedRecordsSinceLastDemotion++;
-    if (rematerializedRecordsSinceLastDemotion > demotionThreshold * 2) {
-      demotionThreshold = Math.min(MAX_DEMOTION_THRESHOLD, demotionThreshold + DEMOTION_STEP);
-      rematerializedRecordsSinceLastDemotion = 0;
-    }
-  }
-
-  public int demoteRecordsToSlots(ResourceConfiguration config, MemorySegmentBytesOut reusableOut) {
-    if (inMemoryRecordCount <= MIN_DEMOTION_THRESHOLD) {
-      return 0;
-    }
-
-    final RecordSerializer serializer = config.recordPersister;
-    int demoted = 0;
-
-    for (int i = 0; i < records.length && inMemoryRecordCount > MIN_DEMOTION_THRESHOLD; i++) {
-      final DataRecord record = records[i];
-      if (record == null) {
-        continue;
-      }
-
-      reusableOut.clear();
-      serializer.serialize(reusableOut, record, config);
-      final MemorySegment segment = reusableOut.getDestination();
-
-      if (segment.byteSize() > PageConstants.MAX_RECORD_SIZE) {
-        continue;
-      }
-
-      setSlot(segment, i);
-      markSlotAsCompactFormat(i);
-
-      if (config.areDeweyIDsStored && record.getNodeKey() != 0) {
-        final byte[] deweyBytes = record.getDeweyIDAsBytes();
-        if (deweyBytes != null) {
-          setDeweyId(deweyBytes, i);
-        }
-      }
-
-      records[i] = null;
-      inMemoryRecordCount--;
-      demoted++;
-    }
-
-    if (demoted > 0) {
-      if (rematerializedRecordsSinceLastDemotion < demoted / 4) {
-        demotionThreshold = Math.max(MIN_DEMOTION_THRESHOLD, demotionThreshold - DEMOTION_STEP);
-      }
-      rematerializedRecordsSinceLastDemotion = 0;
-    }
-
-    return demoted;
   }
 
   public byte[] getHashCode() {
@@ -819,12 +1092,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   public Map<Long, PageReference> getReferencesMap() {
-    return references != null ? references : Map.of();
+    return references;
   }
 
   /**
-   * Set reference to the complete page for lazy slot copying at commit time. Used by DIFFERENTIAL,
-   * INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning.
+   * Set reference to the complete page for lazy slot copying at commit time.
+   * Used by DIFFERENTIAL, INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning.
    *
    * @param completePage the complete page to copy slots from
    */
@@ -842,8 +1115,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Mark a slot for preservation during lazy copy at commit time. At addReferences(), if this slot
-   * has records[i] == null, it will be copied from completePageRef.
+   * Mark a slot for preservation during lazy copy at commit time.
+   * At addReferences(), if this slot has records[i] == null, it will be copied from completePageRef.
    *
    * @param slotNumber the slot number to mark for preservation (0 to Constants.NDP_NODE_COUNT-1)
    */
@@ -861,7 +1134,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @return true if the slot needs preservation
    */
   public boolean isSlotMarkedForPreservation(int slotNumber) {
-    return preservationBitmap != null && (preservationBitmap[slotNumber >>> 6] & (1L << (slotNumber & 63))) != 0;
+    return preservationBitmap != null && 
+           (preservationBitmap[slotNumber >>> 6] & (1L << (slotNumber & 63))) != 0;
   }
 
   /**
@@ -890,6 +1164,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public void setSlot(byte[] recordData, int slotNumber) {
+    if (unifiedPage != null) {
+      setSlotToUnifiedHeap(MemorySegment.ofArray(recordData), slotNumber, 0);
+      return;
+    }
     setData(recordData, slotNumber, slotOffsets, slotMemory);
   }
 
@@ -903,22 +1181,52 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public void setSlot(MemorySegment data, int slotNumber) {
+    if (unifiedPage != null) {
+      setSlotToUnifiedHeap(data, slotNumber, 0);
+      return;
+    }
     setData(data, slotNumber, slotOffsets, slotMemory);
   }
 
   /**
-   * Set slot data by copying directly from a source MemorySegment. This is the zero-copy path that
-   * avoids intermediate byte[] allocations during deserialization.
+   * Set slot data with an explicit nodeKindId. Used during page combining
+   * to preserve the flyweight format indicator from the source page.
    *
-   * <p>
-   * Memory layout written to slotMemory: [length (4 bytes)][data (dataSize bytes)]
-   * </p>
+   * @param data       the raw slot data to store
+   * @param slotNumber the slot index (0-1023)
+   * @param nodeKindId the node kind ID (0 for legacy, &gt;0 for flyweight)
+   */
+  public void setSlotWithNodeKind(final MemorySegment data, final int slotNumber, final int nodeKindId) {
+    if (unifiedPage != null) {
+      setSlotToUnifiedHeap(data, slotNumber, nodeKindId);
+      return;
+    }
+    setData(data, slotNumber, slotOffsets, slotMemory);
+  }
+
+  /**
+   * Get the nodeKindId for a slot from the unified page directory.
+   * Returns 0 (legacy format) if there is no unified page or the slot is unpopulated.
    *
-   * <p>
-   * This method is optimized for the page deserialization hot path where we can copy directly from
-   * the decompressed page data segment to the target slot memory without creating temporary byte[]
-   * arrays.
-   * </p>
+   * @param slotNumber the slot index (0-1023)
+   * @return the nodeKindId (&gt;0 for flyweight format, 0 for legacy)
+   */
+  public int getSlotNodeKindId(final int slotNumber) {
+    if (unifiedPage == null || !PageLayout.isSlotPopulated(unifiedPage, slotNumber)) {
+      return 0;
+    }
+    return PageLayout.getDirNodeKindId(unifiedPage, slotNumber);
+  }
+
+  /**
+   * Set slot data by copying directly from a source MemorySegment.
+   * This is the zero-copy path that avoids intermediate byte[] allocations during deserialization.
+   *
+   * <p>Memory layout written to slotMemory: [length (4 bytes)][data (dataSize bytes)]</p>
+   *
+   * <p>This method is optimized for the page deserialization hot path where we can copy
+   * directly from the decompressed page data segment to the target slot memory without
+   * creating temporary byte[] arrays.</p>
    *
    * @param source the source MemorySegment containing the data
    * @param sourceOffset the byte offset within source where data starts
@@ -936,17 +1244,27 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       throw new IllegalArgumentException("slotNumber out of range: " + slotNumber);
     }
     if (sourceOffset < 0 || sourceOffset + dataSize > source.byteSize()) {
-      throw new IndexOutOfBoundsException(String.format("Source bounds exceeded: offset=%d, size=%d, segmentSize=%d",
-          sourceOffset, dataSize, source.byteSize()));
+      throw new IndexOutOfBoundsException(
+          String.format("Source bounds exceeded: offset=%d, size=%d, segmentSize=%d",
+              sourceOffset, dataSize, source.byteSize()));
     }
 
-    int requiredSize = INT_SIZE + dataSize; // 4 bytes for length prefix + actual data
+    // Unified page path: write directly to heap (no length prefix)
+    if (unifiedPage != null) {
+      setSlotToUnifiedHeapDirect(source, sourceOffset, dataSize, slotNumber, 0);
+      return;
+    }
+
+    int requiredSize = INT_SIZE + dataSize;  // 4 bytes for length prefix + actual data
     int currentOffset = slotOffsets[slotNumber];
     int sizeDelta = 0;
 
     // Check if resizing is needed
     if (!hasEnoughSpace(slotOffsets, slotMemory, requiredSize)) {
-      int newSize = Math.max((int) slotMemory.byteSize() * 2, (int) slotMemory.byteSize() + requiredSize);
+      int newSize = Math.max(
+          (int) slotMemory.byteSize() * 2,
+          (int) slotMemory.byteSize() + requiredSize
+      );
       slotMemory = resizeMemorySegment(slotMemory, newSize, slotOffsets, true);
     }
 
@@ -985,8 +1303,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     int verifiedSize = slotMemory.get(ValueLayout.JAVA_INT, alignedOffset);
     if (verifiedSize != dataSize) {
       throw new IllegalStateException(
-          String.format("Slot size verification failed: expected=%d, actual=%d (slot: %d, offset: %d)", dataSize,
-              verifiedSize, slotNumber, alignedOffset));
+          String.format("Slot size verification failed: expected=%d, actual=%d (slot: %d, offset: %d)",
+              dataSize, verifiedSize, slotNumber, alignedOffset));
     }
 
     // Copy data directly from source segment to slot memory (ZERO-COPY from caller's perspective!)
@@ -1081,8 +1399,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Verify the write
     int verifiedSize = memory.get(ValueLayout.JAVA_INT, alignedOffset);
     if (verifiedSize <= 0) {
-      throw new IllegalStateException(String.format("Invalid slot size written: %d (slot: %d, offset: %d)",
-          verifiedSize, slotNumber, alignedOffset));
+      throw new IllegalStateException(
+          String.format("Invalid slot size written: %d (slot: %d, offset: %d)",
+                        verifiedSize, slotNumber, alignedOffset));
     }
 
 
@@ -1095,9 +1414,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Update slotMemoryFreeSpaceStart after adding the slot.
     updateFreeSpaceStart(offsets, memory, isSlotMemory);
 
-    return resized
-        ? memory
-        : null;
+    return resized ? memory : null;
   }
 
   private void updateFreeSpaceStart(int[] offsets, MemorySegment memory, boolean isSlotMemory) {
@@ -1124,9 +1441,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     int lastSlotIndex = getLastIndex(isSlotMemory);
 
     // If no slots are set yet, start from the beginning of the memory.
-    int lastOffset = (lastSlotIndex >= 0)
-        ? offsets[lastSlotIndex]
-        : 0;
+    int lastOffset = (lastSlotIndex >= 0) ? offsets[lastSlotIndex] : 0;
 
     // Align the last offset
     int alignedLastOffset = alignOffset(lastOffset);
@@ -1159,8 +1474,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Get the slot offsets array for zero-copy serialization. Each element is the byte offset within
-   * slotMemory where the slot's data begins, or -1 if the slot is empty.
+   * Get the slot offsets array for zero-copy serialization.
+   * Each element is the byte offset within slotMemory where the slot's data begins,
+   * or -1 if the slot is empty.
    * 
    * @return the slot offsets array (do not modify)
    */
@@ -1169,99 +1485,50 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Get the slot bitmap for O(k) iteration over populated slots. Bit i is set (1) iff slot i is
-   * populated (slotOffsets[i] >= 0).
+   * Get the slot bitmap for O(k) iteration over populated slots.
+   * Bit i is set (1) iff slot i is populated (slotOffsets[i] >= 0).
    * 
    * @return the slot bitmap array (16 longs = 1024 bits, do not modify)
    */
   public long[] getSlotBitmap() {
+    if (unifiedPage != null) {
+      // Materialize unified page bitmap into the Java array for VersioningType compatibility
+      PageLayout.copyBitmapTo(unifiedPage, slotBitmap);
+    }
     return slotBitmap;
   }
 
   /**
-   * Returns bitmap of slots stored in fixed in-memory layout.
-   */
-  public long[] getFixedFormatBitmap() {
-    return fixedFormatBitmap;
-  }
-
-  /**
-   * Check if a specific slot is populated using the bitmap. This is O(1) and avoids memory access to
-   * slotOffsets.
+   * Check if a specific slot is populated using the bitmap.
+   * This is O(1) and avoids memory access to slotOffsets.
    * 
    * @param slotNumber the slot index (0-1023)
    * @return true if the slot is populated
    */
   public boolean hasSlot(int slotNumber) {
+    if (unifiedPage != null) {
+      return PageLayout.isSlotPopulated(unifiedPage, slotNumber);
+    }
     return (slotBitmap[slotNumber >>> 6] & (1L << (slotNumber & 63))) != 0;
-  }
-
-  /**
-   * Returns {@code true} if slot data is in fixed in-memory layout.
-   */
-  public boolean isFixedSlotFormat(int slotNumber) {
-    return (fixedFormatBitmap[slotNumber >>> 6] & (1L << (slotNumber & 63))) != 0;
-  }
-
-  /**
-   * Returns node kind for a fixed-format slot, or {@code null} if the slot is compact or fixed
-   * metadata is unavailable.
-   */
-  public NodeKind getFixedSlotNodeKind(final int slotNumber) {
-    if (!isFixedSlotFormat(slotNumber)) {
-      return null;
-    }
-    final byte kindId = fixedSlotKinds[slotNumber];
-    if (kindId == NO_FIXED_SLOT_KIND) {
-      return null;
-    }
-    return NodeKind.getKind(kindId);
-  }
-
-  /**
-   * Mark slot as fixed-layout in-memory representation.
-   */
-  public void markSlotAsFixedFormat(final int slotNumber) {
-    fixedFormatBitmap[slotNumber >>> 6] |= (1L << (slotNumber & 63));
-    fixedSlotKinds[slotNumber] = NO_FIXED_SLOT_KIND;
-  }
-
-  /**
-   * Mark slot as fixed-layout in-memory representation with explicit kind metadata.
-   */
-  public void markSlotAsFixedFormat(final int slotNumber, final NodeKind nodeKind) {
-    if (nodeKind == null) {
-      throw new IllegalArgumentException("nodeKind must not be null");
-    }
-    fixedFormatBitmap[slotNumber >>> 6] |= (1L << (slotNumber & 63));
-    fixedSlotKinds[slotNumber] = nodeKind.getId();
-  }
-
-  /**
-   * Mark slot as compact serialized representation.
-   */
-  public void markSlotAsCompactFormat(final int slotNumber) {
-    fixedFormatBitmap[slotNumber >>> 6] &= ~(1L << (slotNumber & 63));
-    fixedSlotKinds[slotNumber] = NO_FIXED_SLOT_KIND;
   }
 
   /**
    * Returns a primitive int array of populated slot indices for O(k) iteration.
    * <p>
-   * This enables efficient iteration over only populated slots instead of iterating all 1024 slots
-   * and checking for null. For sparse pages with k populated slots, this is O(k) instead of O(1024).
+   * This enables efficient iteration over only populated slots instead of
+   * iterating all 1024 slots and checking for null. For sparse pages with
+   * k populated slots, this is O(k) instead of O(1024).
    * <p>
-   * Note: This allocates a new array on each call. For hot paths where the same page is iterated
-   * multiple times, consider using {@link #forEachPopulatedSlot}.
+   * Note: This allocates a new array on each call. For hot paths where the
+   * same page is iterated multiple times, consider using {@link #forEachPopulatedSlot}.
    * <p>
    * Example usage:
-   * 
    * <pre>{@code
    * int[] slots = page.populatedSlots();
    * for (int i = 0; i < slots.length; i++) {
-   *   int slot = slots[i];
-   *   MemorySegment data = page.getSlot(slot);
-   *   // process data - no null check needed
+   *     int slot = slots[i];
+   *     MemorySegment data = page.getSlot(slot);
+   *     // process data - no null check needed
    * }
    * }</pre>
    * 
@@ -1277,17 +1544,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Second pass: collect slot indices using Brian Kernighan's algorithm
     for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
-      long word = slotBitmap[wordIndex];
-      int baseSlot = wordIndex << 6; // wordIndex * 64
-      while (word != 0) {
-        int bit = Long.numberOfTrailingZeros(word);
+      final long word = unifiedPage != null
+          ? PageLayout.getBitmapWord(unifiedPage, wordIndex)
+          : slotBitmap[wordIndex];
+      long remaining = word;
+      final int baseSlot = wordIndex << 6;  // wordIndex * 64
+      while (remaining != 0) {
+        final int bit = Long.numberOfTrailingZeros(remaining);
         result[idx++] = baseSlot + bit;
-        word &= word - 1; // Clear lowest set bit
+        remaining &= remaining - 1;  // Clear lowest set bit
       }
     }
     return result;
   }
-
+  
   /**
    * Functional interface for slot consumer to enable zero-allocation iteration.
    */
@@ -1295,26 +1565,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public interface SlotConsumer {
     /**
      * Process a populated slot.
-     * 
      * @param slotIndex the slot index
      * @return true to continue iteration, false to stop early
      */
     boolean accept(int slotIndex);
   }
-
+  
   /**
    * Zero-allocation iteration over populated slots.
    * <p>
-   * This method iterates over populated slots without allocating any arrays. The consumer returns
-   * false to stop iteration early.
+   * This method iterates over populated slots without allocating any arrays.
+   * The consumer returns false to stop iteration early.
    * <p>
    * Example usage:
-   * 
    * <pre>{@code
    * page.forEachPopulatedSlot(slot -> {
-   *   MemorySegment data = page.getSlot(slot);
-   *   // process data
-   *   return true; // continue iteration
+   *     MemorySegment data = page.getSlot(slot);
+   *     // process data
+   *     return true;  // continue iteration
    * });
    * }</pre>
    * 
@@ -1324,28 +1592,34 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public int forEachPopulatedSlot(SlotConsumer consumer) {
     int processed = 0;
     for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
-      long word = slotBitmap[wordIndex];
-      int baseSlot = wordIndex << 6; // wordIndex * 64
+      long word = unifiedPage != null
+          ? PageLayout.getBitmapWord(unifiedPage, wordIndex)
+          : slotBitmap[wordIndex];
+      final int baseSlot = wordIndex << 6;  // wordIndex * 64
       while (word != 0) {
-        int bit = Long.numberOfTrailingZeros(word);
-        int slot = baseSlot + bit;
+        final int bit = Long.numberOfTrailingZeros(word);
+        final int slot = baseSlot + bit;
         processed++;
         if (!consumer.accept(slot)) {
           return processed;
         }
-        word &= word - 1; // Clear lowest set bit
+        word &= word - 1;  // Clear lowest set bit
       }
     }
     return processed;
   }
 
   /**
-   * Get the count of populated slots using SIMD-accelerated population count. Uses Vector API for
-   * parallel bitCount across multiple longs. This is O(BITMAP_WORDS / SIMD_WIDTH) instead of O(1024).
+   * Get the count of populated slots using SIMD-accelerated population count.
+   * Uses Vector API for parallel bitCount across multiple longs.
+   * This is O(BITMAP_WORDS / SIMD_WIDTH) instead of O(1024).
    * 
    * @return number of populated slots
    */
   public int populatedSlotCount() {
+    if (unifiedPage != null) {
+      return PageLayout.countPopulatedSlots(unifiedPage);
+    }
     int count = 0;
     int i = 0;
 
@@ -1367,13 +1641,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     return count;
   }
-
+  
   /**
    * Check if all slots are populated using SIMD-accelerated comparison.
    * 
    * @return true if all 1024 slots are populated
    */
   public boolean isFullyPopulated() {
+    if (unifiedPage != null) {
+      return PageLayout.countPopulatedSlots(unifiedPage) == PageLayout.SLOT_COUNT;
+    }
     // All bits set = 0xFFFFFFFFFFFFFFFF = -1L
     int i = 0;
     final int simdWidth = LONG_SPECIES.length();
@@ -1386,7 +1663,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         return false;
       }
     }
-
+    
     // Scalar tail
     for (; i < BITMAP_WORDS; i++) {
       if (slotBitmap[i] != -1L) {
@@ -1395,10 +1672,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
     return true;
   }
-
+  
   /**
-   * SIMD-accelerated bitmap OR into destination array. Computes: dest[i] |= src[i] for all bitmap
-   * words.
+   * SIMD-accelerated bitmap OR into destination array.
+   * Computes: dest[i] |= src[i] for all bitmap words.
    * 
    * @param dest destination bitmap (modified in place)
    * @param src source bitmap to OR into dest
@@ -1407,22 +1684,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     int i = 0;
     final int simdWidth = LONG_SPECIES.length();
     final int simdBound = BITMAP_WORDS - (BITMAP_WORDS % simdWidth);
-
+    
     for (; i < simdBound; i += simdWidth) {
       LongVector destVec = LongVector.fromArray(LONG_SPECIES, dest, i);
       LongVector srcVec = LongVector.fromArray(LONG_SPECIES, src, i);
       destVec.or(srcVec).intoArray(dest, i);
     }
-
+    
     // Scalar tail
     for (; i < BITMAP_WORDS; i++) {
       dest[i] |= src[i];
     }
   }
-
+  
   /**
-   * Check if any bits in src are NOT set in dest using SIMD. Returns true if there exist slots in src
-   * that are not yet in dest. Useful for early termination in page combining.
+   * Check if any bits in src are NOT set in dest using SIMD.
+   * Returns true if there exist slots in src that are not yet in dest.
+   * Useful for early termination in page combining.
    * 
    * @param dest the "filled" bitmap
    * @param src the source bitmap to check
@@ -1432,7 +1710,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     int i = 0;
     final int simdWidth = LONG_SPECIES.length();
     final int simdBound = BITMAP_WORDS - (BITMAP_WORDS % simdWidth);
-
+    
     for (; i < simdBound; i += simdWidth) {
       LongVector destVec = LongVector.fromArray(LONG_SPECIES, dest, i);
       LongVector srcVec = LongVector.fromArray(LONG_SPECIES, src, i);
@@ -1442,7 +1720,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         return true;
       }
     }
-
+    
     // Scalar tail
     for (; i < BITMAP_WORDS; i++) {
       if ((src[i] & ~dest[i]) != 0) {
@@ -1453,7 +1731,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Get the slot memory segment for zero-copy serialization. Contains the raw serialized slot data.
+   * Get the slot memory segment for zero-copy serialization.
+   * Contains the raw serialized slot data.
    * 
    * @return the slot memory segment
    */
@@ -1462,8 +1741,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Get the dewey ID offsets array for zero-copy serialization. Each element is the byte offset
-   * within deweyIdMemory where the dewey ID's data begins, or -1 if empty.
+   * Get the dewey ID offsets array for zero-copy serialization.
+   * Each element is the byte offset within deweyIdMemory where the dewey ID's data begins,
+   * or -1 if empty.
    * 
    * @return the dewey ID offsets array (do not modify)
    */
@@ -1472,13 +1752,46 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Get the dewey ID memory segment for zero-copy serialization. Contains the raw serialized dewey ID
-   * data.
+   * Get the dewey ID memory segment for zero-copy serialization.
+   * Contains the raw serialized dewey ID data.
    * 
    * @return the dewey ID memory segment (may be null if not stored)
    */
   public MemorySegment getDeweyIdMemory() {
     return deweyIdMemory;
+  }
+
+  /**
+   * Get the unified page MemorySegment for serialization.
+   * When non-null, the page uses LeanStore-style heap storage instead of legacy slotMemory.
+   *
+   * @return the unified page segment, or null if using legacy format
+   */
+  public MemorySegment getUnifiedPage() {
+    return unifiedPage;
+  }
+
+  /**
+   * Set the unified page MemorySegment (used during deserialization).
+   * Releases any previously allocated unified page.
+   *
+   * @param unifiedPage the unified page segment
+   */
+  public void setUnifiedPage(final MemorySegment unifiedPage) {
+    // Release old unified page if different from the new one
+    if (this.unifiedPage != null && this.unifiedPage != unifiedPage) {
+      segmentAllocator.release(this.unifiedPage);
+    }
+    this.unifiedPage = unifiedPage;
+  }
+
+  /**
+   * Check if this page uses the unified (LeanStore-style) format.
+   *
+   * @return true if unified format is active
+   */
+  public boolean isUnifiedFormat() {
+    return unifiedPage != null;
   }
 
   MemorySegment resizeMemorySegment(MemorySegment oldMemory, int newSize, int[] offsets, boolean isSlotMemory) {
@@ -1513,10 +1826,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public int getUsedSlotsSize() {
+    if (unifiedPage != null) {
+      return PageLayout.getHeapUsed(unifiedPage);
+    }
     return getUsedByteSize(slotOffsets, slotMemory);
   }
 
   public int getSlotMemoryByteSize() {
+    if (unifiedPage != null) {
+      return PageLayout.HEAP_START + PageLayout.getHeapEnd(unifiedPage);
+    }
     return (int) slotMemory.byteSize();
   }
 
@@ -1569,15 +1888,26 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     long targetEndOffset =
         alignOffset(alignedShiftStartOffset + sizeDelta) + (shiftEndOffset - alignedShiftStartOffset);
     if (targetEndOffset > memory.byteSize()) {
-      throw new IndexOutOfBoundsException("Calculated targetEndOffset exceeds memory bounds. " + "targetEndOffset: "
-          + targetEndOffset + ", memory size: " + memory.byteSize() + ", slotNumber: " + (slotNumber - 1));
+      throw new IndexOutOfBoundsException(
+          "Calculated targetEndOffset exceeds memory bounds. " + "targetEndOffset: " + targetEndOffset
+              + ", memory size: " + memory.byteSize() + ", slotNumber: " + (slotNumber - 1));
     }
 
     // Shift the memory.
-    // Bulk copy: MemorySegment.copy handles overlapping regions safely (memmove semantics).
-    final int dstOffset = alignOffset(alignedShiftStartOffset + sizeDelta);
-    final long copyLength = shiftEndOffset - alignedShiftStartOffset;
-    MemorySegment.copy(memory, alignedShiftStartOffset, memory, dstOffset, copyLength);
+    if (sizeDelta > 0) {
+      // Shifting to the right
+      MemorySegment source = memory.asSlice(alignedShiftStartOffset, shiftEndOffset - alignedShiftStartOffset);
+      MemorySegment target =
+          memory.asSlice(alignOffset(alignedShiftStartOffset + sizeDelta), shiftEndOffset - alignedShiftStartOffset);
+      target.copyFrom(source);
+    } else {
+      // Shifting to the left: move from start to end.
+      for (int i = alignOffset(alignedShiftStartOffset + sizeDelta), j = alignedShiftStartOffset;
+           i < shiftEndOffset; i++, j++) {
+        byte value = memory.get(ValueLayout.JAVA_BYTE, j);
+        memory.set(ValueLayout.JAVA_BYTE, i, value);
+      }
+    }
 
     // Adjust the offsets for all affected slots.
     for (int i = 0; i < offsets.length; i++) {
@@ -1602,53 +1932,38 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   public boolean isSlotSet(int slotNumber) {
+    if (unifiedPage != null) {
+      return PageLayout.isSlotPopulated(unifiedPage, slotNumber);
+    }
     return slotOffsets[slotNumber] != -1;
-  }
-
-  /**
-   * Get the absolute data offset for a slot within {@link #getSlotMemory()}, skipping the 4-byte
-   * length prefix. Use together with {@link #getSlotDataLength(int)} and {@link #getSlotMemory()} to
-   * avoid allocating a {@code MemorySegment} slice on the hot path.
-   *
-   * @param slotNumber the slot index
-   * @return absolute byte offset into slotMemory where data begins, or {@code -1} if the slot is
-   *         empty
-   */
-  public long getSlotDataOffset(final int slotNumber) {
-    assert slotNumber >= 0 && slotNumber < slotOffsets.length : "Invalid slot number: " + slotNumber;
-    final int slotOffset = slotOffsets[slotNumber];
-    if (slotOffset < 0) {
-      return -1;
-    }
-    return slotOffset + INT_SIZE;
-  }
-
-  /**
-   * Get the data length (in bytes) stored in the given slot, excluding the 4-byte length prefix. Use
-   * together with {@link #getSlotDataOffset(int)} and {@link #getSlotMemory()} to avoid allocating a
-   * {@code MemorySegment} slice on the hot path.
-   *
-   * @param slotNumber the slot index
-   * @return data length in bytes, or {@code -1} if the slot is empty
-   */
-  public int getSlotDataLength(final int slotNumber) {
-    assert slotNumber >= 0 && slotNumber < slotOffsets.length : "Invalid slot number: " + slotNumber;
-    final int slotOffset = slotOffsets[slotNumber];
-    if (slotOffset < 0) {
-      return -1;
-    }
-    return slotMemory.get(JAVA_INT_UNALIGNED, slotOffset);
   }
 
   @Override
   public MemorySegment getSlot(int slotNumber) {
+    // Unified page path: read from directory + heap
+    if (unifiedPage != null) {
+      if (!PageLayout.isSlotPopulated(unifiedPage, slotNumber)) {
+        return null;
+      }
+      final int heapOffset = PageLayout.getDirHeapOffset(unifiedPage, slotNumber);
+      // Use record-only length (excludes inline DeweyID data + 2-byte trailer)
+      final int recordLength = PageLayout.getRecordOnlyLength(unifiedPage, slotNumber);
+      if (recordLength <= 0) {
+        return null;
+      }
+      return unifiedPage.asSlice(PageLayout.HEAP_START + heapOffset, recordLength);
+    }
+
+    // Legacy slotMemory path
     // Validate slot memory segment
     assert slotMemory != null : "Slot memory segment is null";
-    assert slotMemory.byteSize() > 0 : "Slot memory segment has zero length. Page key: " + recordPageKey
-        + ", revision: " + revision + ", index type: " + indexType;
+    assert slotMemory.byteSize() > 0 :
+        "Slot memory segment has zero length. Page key: " + recordPageKey +
+            ", revision: " + revision + ", index type: " + indexType;
 
     // Validate slot number
-    assert slotNumber >= 0 && slotNumber < slotOffsets.length : "Invalid slot number: " + slotNumber;
+    assert slotNumber >= 0 && slotNumber < slotOffsets.length :
+        "Invalid slot number: " + slotNumber;
 
     int slotOffset = slotOffsets[slotNumber];
     if (slotOffset < 0) {
@@ -1662,9 +1977,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // DEFENSIVE: Ensure offset is within segment bounds BEFORE reading
     if (slotOffset + INT_SIZE > slotMemory.byteSize()) {
-      throw new IllegalStateException(
-          String.format("CORRUPT OFFSET: slot %d has offset %d but would exceed segment (size %d, page %d, rev %d)",
-              slotNumber, slotOffset, slotMemory.byteSize(), recordPageKey, revision));
+      throw new IllegalStateException(String.format(
+          "CORRUPT OFFSET: slot %d has offset %d but would exceed segment (size %d, page %d, rev %d)",
+          slotNumber, slotOffset, slotMemory.byteSize(), recordPageKey, revision));
     }
 
     // Read the length from the first 4 bytes at the offset
@@ -1673,17 +1988,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     try {
       length = slotMemory.get(JAVA_INT_UNALIGNED, slotOffset);
     } catch (Exception e) {
-      throw new IllegalStateException(
-          String.format("Failed to read length at offset %d (page %d, slot %d, memory size %d)", slotOffset,
-              recordPageKey, slotNumber, slotMemory.byteSize()),
-          e);
+      throw new IllegalStateException(String.format(
+          "Failed to read length at offset %d (page %d, slot %d, memory size %d)",
+          slotOffset, recordPageKey, slotNumber, slotMemory.byteSize()), e);
     }
 
     // DEFENSIVE: Sanity check the length value before using it
     if (length < 0 || length > slotMemory.byteSize()) {
-      throw new IllegalStateException(
-          String.format("CORRUPT LENGTH at offset %d: %d (segment size: %d, page %d, slot %d, revision: %d)",
-              slotOffset, length, slotMemory.byteSize(), recordPageKey, slotNumber, revision));
+      throw new IllegalStateException(String.format(
+          "CORRUPT LENGTH at offset %d: %d (segment size: %d, page %d, slot %d, revision: %d)",
+          slotOffset, length, slotMemory.byteSize(), recordPageKey, slotNumber, revision));
     }
 
     if (length <= 0) {
@@ -1691,19 +2005,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       String memoryDump = dumpMemorySegmentAroundOffset(slotOffset, slotNumber);
 
       String errorMessage = String.format(
-          "Slot length must be greater than 0, but is %d (slotNumber: %d, offset: %d, revision: %d, page: %d)", length,
-          slotNumber, slotOffset, revision, recordPageKey);
+          "Slot length must be greater than 0, but is %d (slotNumber: %d, offset: %d, revision: %d, page: %d)",
+          length, slotNumber, slotOffset, revision, recordPageKey);
 
       // Add comprehensive debugging info
       String debugInfo = String.format(
           "%s\nMemory segment: size=%d, closed=%s\nSlot offsets around %d: [%d, %d, %d]\nLast slot index: %d, Free space: %d\n%s",
-          errorMessage, slotMemory.byteSize(), isClosed(), slotNumber, slotNumber > 0
-              ? slotOffsets[slotNumber - 1]
-              : -1,
-          slotOffsets[slotNumber], slotNumber < slotOffsets.length - 1
-              ? slotOffsets[slotNumber + 1]
-              : -1,
-          lastSlotIndex, slotMemoryFreeSpaceStart, memoryDump);
+          errorMessage, slotMemory.byteSize(), isClosed(),
+          slotNumber,
+          slotNumber > 0 ? slotOffsets[slotNumber-1] : -1,
+          slotOffsets[slotNumber],
+          slotNumber < slotOffsets.length-1 ? slotOffsets[slotNumber+1] : -1,
+          lastSlotIndex, slotMemoryFreeSpaceStart,
+          memoryDump);
 
       throw new AssertionError(createStackTraceMessage(debugInfo));
     }
@@ -1711,9 +2025,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Validate that we can read the full data
     if (slotOffset + INT_SIZE + length > slotMemory.byteSize()) {
-      throw new IllegalStateException(
-          String.format("Slot data extends beyond memory segment: offset=%d, length=%d, total=%d, memory_size=%d",
-              slotOffset, length, slotOffset + INT_SIZE + length, slotMemory.byteSize()));
+      throw new IllegalStateException(String.format(
+          "Slot data extends beyond memory segment: offset=%d, length=%d, total=%d, memory_size=%d",
+          slotOffset, length, slotOffset + INT_SIZE + length, slotMemory.byteSize()));
     }
 
     // Return the memory segment containing just the data (skip the 4-byte length prefix)
@@ -1735,8 +2049,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     int startOffset = Math.max(0, offset - 32);
     int endOffset = Math.min((int) slotMemory.byteSize(), offset + 64);
 
-    sb.append(
-        String.format("Dumping bytes %d to %d (offset %d marked with **):\n", startOffset, endOffset - 1, offset));
+    sb.append(String.format("Dumping bytes %d to %d (offset %d marked with **):\n",
+                            startOffset, endOffset - 1, offset));
 
     // Hex dump with 16 bytes per line
     for (int i = startOffset; i < endOffset; i += 16) {
@@ -1756,9 +2070,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       sb.append(" |");
       for (int j = 0; j < 16 && i + j < endOffset; j++) {
         byte b = slotMemory.get(ValueLayout.JAVA_BYTE, i + j);
-        char c = (b >= 32 && b < 127)
-            ? (char) b
-            : '.';
+        char c = (b >= 32 && b < 127) ? (char) b : '.';
         if (i + j == offset) {
           sb.append('*');
         } else {
@@ -1817,6 +2129,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public void setDeweyId(byte[] deweyId, int offset) {
+    if (deweyId == null) {
+      return;
+    }
+    if (unifiedPage != null) {
+      setDeweyIdToUnifiedHeap(MemorySegment.ofArray(deweyId), offset);
+      return;
+    }
     var memorySegment = setData(MemorySegment.ofArray(deweyId), offset, deweyIdOffsets, deweyIdMemory);
 
     if (memorySegment != null) {
@@ -1826,6 +2145,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public void setDeweyId(MemorySegment deweyId, int offset) {
+    if (deweyId == null) {
+      return;
+    }
+    if (unifiedPage != null) {
+      setDeweyIdToUnifiedHeap(deweyId, offset);
+      return;
+    }
     var memorySegment = setData(deweyId, offset, deweyIdOffsets, deweyIdMemory);
 
     if (memorySegment != null) {
@@ -1833,8 +2159,91 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
   }
 
+  /**
+   * Set a DeweyID for a slot by re-allocating the slot's heap region with DeweyID data appended.
+   * Format: [record data][deweyId data][deweyIdLen:2 bytes (u16)].
+   * The old allocation becomes dead heap space.
+   */
+  private void setDeweyIdToUnifiedHeap(final MemorySegment deweyId, final int slotNumber) {
+    final int deweyIdLen = (int) deweyId.byteSize();
+    if (deweyIdLen == 0) {
+      return;
+    }
+
+    final boolean slotExists = PageLayout.isSlotPopulated(unifiedPage, slotNumber);
+    final int oldDataLength;
+    final int recordLen;
+    final int nodeKindId;
+    final long oldAbsStart;
+
+    if (slotExists) {
+      // Existing slot — read current allocation info
+      final int oldHeapOffset = PageLayout.getDirHeapOffset(unifiedPage, slotNumber);
+      oldDataLength = PageLayout.getDirDataLength(unifiedPage, slotNumber);
+      nodeKindId = PageLayout.getDirNodeKindId(unifiedPage, slotNumber);
+      recordLen = PageLayout.getRecordOnlyLength(unifiedPage, slotNumber);
+      oldAbsStart = PageLayout.heapAbsoluteOffset(oldHeapOffset);
+    } else {
+      // No record yet — DeweyID-only allocation (nodeKindId = 0)
+      oldDataLength = 0;
+      recordLen = 0;
+      nodeKindId = 0;
+      oldAbsStart = 0; // unused
+    }
+
+    // New total: record + deweyId + 2-byte trailer
+    final int newTotalLen = recordLen + deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE;
+
+    // Ensure heap has enough space
+    int heapEnd = PageLayout.getHeapEnd(unifiedPage);
+    int remaining = (int) unifiedPage.byteSize() - PageLayout.HEAP_START - heapEnd;
+    while (remaining < newTotalLen) {
+      growUnifiedPage();
+      heapEnd = PageLayout.getHeapEnd(unifiedPage);
+      remaining = (int) unifiedPage.byteSize() - PageLayout.HEAP_START - heapEnd;
+    }
+
+    // Bump-allocate new space
+    final long newAbsStart = PageLayout.heapAbsoluteOffset(heapEnd);
+
+    // Copy record data from old location (if any)
+    if (recordLen > 0) {
+      MemorySegment.copy(unifiedPage, oldAbsStart, unifiedPage, newAbsStart, recordLen);
+    }
+
+    // Copy DeweyID data
+    MemorySegment.copy(deweyId, 0, unifiedPage, newAbsStart + recordLen, deweyIdLen);
+
+    // Write DeweyID length trailer (u16 at end)
+    PageLayout.writeDeweyIdTrailer(unifiedPage, newAbsStart + newTotalLen, deweyIdLen);
+
+    // Update heap end (heapUsed: add new, subtract old dead space)
+    PageLayout.setHeapEnd(unifiedPage, heapEnd + newTotalLen);
+    PageLayout.setHeapUsed(unifiedPage,
+        PageLayout.getHeapUsed(unifiedPage) + newTotalLen - oldDataLength);
+
+    // Update directory entry
+    PageLayout.setDirEntry(unifiedPage, slotNumber, heapEnd, newTotalLen, nodeKindId);
+
+    // Mark slot populated if new
+    if (!slotExists) {
+      PageLayout.markSlotPopulated(unifiedPage, slotNumber);
+      PageLayout.setPopulatedCount(unifiedPage,
+          PageLayout.getPopulatedCount(unifiedPage) + 1);
+    }
+  }
+
   @Override
   public MemorySegment getDeweyId(int offset) {
+    // Unified page path: DeweyID is inline after record data
+    if (unifiedPage != null) {
+      if (!PageLayout.isSlotPopulated(unifiedPage, offset)) {
+        return null;
+      }
+      return PageLayout.getDeweyId(unifiedPage, offset);
+    }
+
+    // Legacy path
     int deweyIdOffset = deweyIdOffsets[offset];
     if (deweyIdOffset < 0) {
       return null;
@@ -1858,26 +2267,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   public int findFreeSpaceForSlots(int requiredSize, boolean isSlotMemory) {
     // Align the start of the free space
-    int alignedFreeSpaceStart = alignOffset(isSlotMemory
-        ? slotMemoryFreeSpaceStart
-        : deweyIdMemoryFreeSpaceStart);
-    int freeSpaceEnd = isSlotMemory
-        ? (int) slotMemory.byteSize()
-        : (int) deweyIdMemory.byteSize();
+    int alignedFreeSpaceStart = alignOffset(isSlotMemory ? slotMemoryFreeSpaceStart : deweyIdMemoryFreeSpaceStart);
+    int freeSpaceEnd = isSlotMemory ? (int) slotMemory.byteSize() : (int) deweyIdMemory.byteSize();
 
     // Check if there's enough space in the current free space range
     if (freeSpaceEnd - alignedFreeSpaceStart >= requiredSize) {
       return alignedFreeSpaceStart;
     }
 
-    int freeMemoryStart = isSlotMemory
-        ? slotMemoryFreeSpaceStart
-        : deweyIdMemoryFreeSpaceStart;
-    int freeMemoryEnd = isSlotMemory
-        ? (int) slotMemory.byteSize()
-        : (int) deweyIdMemory.byteSize();
-    throw new IllegalStateException("Not enough space in memory segment to store the data (freeSpaceStart "
-        + freeMemoryStart + " requiredSize: " + requiredSize + ", maxLength: " + freeMemoryEnd + ")");
+    int freeMemoryStart = isSlotMemory ? slotMemoryFreeSpaceStart : deweyIdMemoryFreeSpaceStart;
+    int freeMemoryEnd = isSlotMemory ? (int) slotMemory.byteSize() : (int) deweyIdMemory.byteSize();
+    throw new IllegalStateException(
+        "Not enough space in memory segment to store the data (freeSpaceStart " + freeMemoryStart + " requiredSize: "
+            + requiredSize + ", maxLength: " + freeMemoryEnd + ")");
   }
 
   @Override
@@ -1885,18 +2287,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       @NonNull IndexType indexType, @NonNull StorageEngineReader storageEngineReader) {
     // Direct allocation (no pool)
     ResourceConfiguration config = storageEngineReader.getResourceSession().getResourceConfig();
-    MemorySegmentAllocator allocator = OS.isWindows()
-        ? WindowsMemorySegmentAllocator.getInstance()
+    MemorySegmentAllocator allocator = OS.isWindows() 
+        ? WindowsMemorySegmentAllocator.getInstance() 
         : LinuxMemorySegmentAllocator.getInstance();
-
+    
     MemorySegment slotMemory = allocator.allocate(SIXTYFOUR_KB);
-    MemorySegment deweyIdMemory = config.areDeweyIDsStored
-        ? allocator.allocate(SIXTYFOUR_KB)
+    MemorySegment deweyIdMemory = config.areDeweyIDsStored 
+        ? allocator.allocate(SIXTYFOUR_KB) 
         : null;
-
+    
     // Memory allocated from global allocator - should be released on close()
-    return (C) new KeyValueLeafPage(recordPageKey, indexType, config, storageEngineReader.getRevisionNumber(), slotMemory,
-        deweyIdMemory, false // NOT externally allocated - release memory on close()
+    return (C) new KeyValueLeafPage(
+        recordPageKey,
+        indexType,
+        config,
+        storageEngineReader.getRevisionNumber(),
+        slotMemory,
+        deweyIdMemory,
+        false  // NOT externally allocated - release memory on close()
     );
   }
 
@@ -1913,7 +2321,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public int size() {
-    return getNumberOfNonNullEntries(records) + (references != null ? references.size() : 0);
+    return getNumberOfNonNullEntries(records) + references.size();
   }
 
   private int getNumberOfNonNullEntries(final DataRecord[] entries) {
@@ -1935,12 +2343,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Finalizer for detecting page leaks during development.
    * <p>
-   * This method logs a warning if a page is garbage collected without being properly closed,
-   * indicating a potential memory leak. The warning is only generated when diagnostic settings are
-   * enabled.
+   * This method logs a warning if a page is garbage collected without being
+   * properly closed, indicating a potential memory leak. The warning is only
+   * generated when diagnostic settings are enabled.
    * <p>
-   * <b>Note:</b> Finalizers are deprecated in modern Java. This is retained solely for leak detection
-   * during development and testing.
+   * <b>Note:</b> Finalizers are deprecated in modern Java. This is retained
+   * solely for leak detection during development and testing.
    *
    * @deprecated Finalizers are discouraged. This exists only for leak detection.
    */
@@ -1949,26 +2357,25 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   protected void finalize() {
     if (!isClosed() && DEBUG_MEMORY_LEAKS) {
       PAGES_FINALIZED_WITHOUT_CLOSE.incrementAndGet();
-
+      
       // Track by type and pageKey for detailed leak analysis
       if (indexType != null) {
-        FINALIZED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0))
-                         .incrementAndGet();
+        FINALIZED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
       }
-      FINALIZED_BY_PAGE_KEY.computeIfAbsent(recordPageKey, _ -> new java.util.concurrent.atomic.AtomicLong(0))
-                           .incrementAndGet();
-
+      FINALIZED_BY_PAGE_KEY.computeIfAbsent(recordPageKey, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+      
       // Log leak information (only when diagnostics enabled)
       if (LOGGER.isWarnEnabled()) {
         StringBuilder leakMsg = new StringBuilder();
         leakMsg.append(String.format("Page leak detected: pageKey=%d, type=%s, revision=%d - not closed explicitly",
             recordPageKey, indexType, revision));
-
+        
         if (creationStackTrace != null && LOGGER.isDebugEnabled()) {
           leakMsg.append("\n  Creation stack trace:");
           for (int i = 2; i < Math.min(creationStackTrace.length, 8); i++) {
             StackTraceElement frame = creationStackTrace[i];
-            leakMsg.append(String.format("\n    at %s.%s(%s:%d)", frame.getClassName(), frame.getMethodName(),
+            leakMsg.append(String.format("\n    at %s.%s(%s:%d)",
+                frame.getClassName(), frame.getMethodName(),
                 frame.getFileName(), frame.getLineNumber()));
           }
         }
@@ -1980,14 +2387,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Closes this page and releases associated memory resources.
    * <p>
-   * This method is thread-safe and idempotent. If the page has active guards (indicating it's in use
-   * by a transaction), the close operation is skipped to prevent data corruption.
+   * This method is thread-safe and idempotent. If the page has active guards
+   * (indicating it's in use by a transaction), the close operation is skipped
+   * to prevent data corruption.
    * <p>
-   * Memory segments allocated by the global allocator are returned to the pool. Externally allocated
-   * memory (e.g., test arenas) is not released.
+   * Memory segments allocated by the global allocator are returned to the pool.
+   * Externally allocated memory (e.g., test arenas) is not released.
    * <p>
-   * For zero-copy pages, the backing buffer (from decompression) is released via the
-   * backingBufferReleaser callback.
+   * For zero-copy pages, the backing buffer (from decompression) is released
+   * via the backingBufferReleaser callback.
    */
   @Override
   public synchronized void close() {
@@ -2001,8 +2409,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     int currentGuardCount = guardCount.get();
     if (currentGuardCount > 0) {
       if (LOGGER.isDebugEnabled()) {
-        LOGGER.debug("Close skipped for guarded page: pageKey={}, type={}, guardCount={}", recordPageKey, indexType,
-            currentGuardCount);
+        LOGGER.debug("Close skipped for guarded page: pageKey={}, type={}, guardCount={}",
+            recordPageKey, indexType, currentGuardCount);
       }
       return;
     }
@@ -2017,8 +2425,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Update diagnostic counters if tracking is enabled
     if (DEBUG_MEMORY_LEAKS) {
       PAGES_CLOSED.incrementAndGet();
-      PAGES_CLOSED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0))
-                          .incrementAndGet();
+      PAGES_CLOSED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
       ALL_LIVE_PAGES.remove(this);
       if (recordPageKey == 0) {
         ALL_PAGE_0_INSTANCES.remove(this);
@@ -2037,7 +2444,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       // For zero-copy pages, all memory segments are slices of backingBuffer, don't release separately
       slotMemory = null;
       deweyIdMemory = null;
-      stringValueMemory = null; // CRITICAL: Must be nulled for columnar string storage
+      stringValueMemory = null;  // CRITICAL: Must be nulled for columnar string storage
     } else if (!externallyAllocatedMemory) {
       // Release memory segments to the allocator pool (non-zero-copy path)
       try {
@@ -2057,26 +2464,37 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       deweyIdMemory = null;
       stringValueMemory = null;
     }
+    
+    // Unbind all flyweight nodes BEFORE releasing memory — they may still be
+    // referenced by cursors/transactions and must fall back to Java field values.
+    if (unifiedPage != null) {
+      for (final DataRecord record : records) {
+        if (record instanceof FlyweightNode fn && fn.isBound()) {
+          fn.unbind();
+        }
+      }
+      try {
+        segmentAllocator.release(unifiedPage);
+      } catch (Throwable e) {
+        LOGGER.debug("Failed to release unified page for page {}: {}", recordPageKey, e.getMessage());
+      }
+      unifiedPage = null;
+    }
 
     // Clear FSST symbol table
     fsstSymbolTable = null;
-    parsedFsstSymbols = null;
 
     // Clear references to aid garbage collection
     Arrays.fill(records, null);
-    inMemoryRecordCount = 0;
-    demotionThreshold = MIN_DEMOTION_THRESHOLD;
-    rematerializedRecordsSinceLastDemotion = 0;
-    if (references != null) {
-      references.clear();
-    }
+    references.clear();
     bytes = null;
+    compressedSegment = null;
     hashCode = null;
   }
 
   /**
-   * Get the actual memory size used by this page's memory segments. Used for accurate Caffeine cache
-   * weighing.
+   * Get the actual memory size used by this page's memory segments.
+   * Used for accurate Caffeine cache weighing.
    * 
    * @return Total size in bytes of all memory segments used by this page
    */
@@ -2091,6 +2509,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     if (stringValueMemory != null) {
       total += stringValueMemory.byteSize();
     }
+    if (unifiedPage != null) {
+      total += unifiedPage.byteSize();
+    }
     return total;
   }
 
@@ -2104,24 +2525,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Set the FSST symbol table for string compression. Pre-parses the symbol table to avoid
-   * redundant parsing on every encode/decode call.
-   *
+   * Set the FSST symbol table for string compression.
+   * 
    * @param symbolTable the symbol table bytes
    */
   public void setFsstSymbolTable(byte[] symbolTable) {
     this.fsstSymbolTable = symbolTable;
-    this.parsedFsstSymbols =
-        (symbolTable != null && symbolTable.length > 0) ? FSSTCompressor.parseSymbolTable(symbolTable) : null;
-  }
-
-  /**
-   * Get the pre-parsed FSST symbol table.
-   *
-   * @return the parsed symbol arrays, or null if FSST is not used
-   */
-  public byte[][] getParsedFsstSymbols() {
-    return parsedFsstSymbols;
   }
 
   /**
@@ -2134,12 +2543,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     if (stringValueMemory == null || slotNumber < 0 || slotNumber >= stringValueOffsets.length) {
       return null;
     }
-
+    
     int offset = stringValueOffsets[slotNumber];
     if (offset < 0) {
       return null;
     }
-
+    
     // Calculate length: either to next offset or to end of used space
     int length;
     if (slotNumber == lastStringValueIndex) {
@@ -2159,11 +2568,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         length = stringValueMemoryFreeSpaceStart - offset;
       }
     }
-
+    
     if (length <= 0) {
       return null;
     }
-
+    
     return stringValueMemory.asSlice(offset, length);
   }
 
@@ -2175,11 +2584,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @param lastStringValueIndex the index of the last string value slot
    * @param stringValueMemoryFreeSpaceStart the end of used space in stringValueMemory
    */
-  public void setStringValueData(MemorySegment stringValueMemory, int[] stringValueOffsets, int lastStringValueIndex,
-      int stringValueMemoryFreeSpaceStart) {
+  public void setStringValueData(
+      MemorySegment stringValueMemory,
+      int[] stringValueOffsets,
+      int lastStringValueIndex,
+      int stringValueMemoryFreeSpaceStart
+  ) {
     this.stringValueMemory = stringValueMemory;
     if (stringValueOffsets != null) {
-      System.arraycopy(stringValueOffsets, 0, this.stringValueOffsets, 0,
+      System.arraycopy(stringValueOffsets, 0, this.stringValueOffsets, 0, 
           Math.min(stringValueOffsets.length, this.stringValueOffsets.length));
     }
     this.lastStringValueIndex = lastStringValueIndex;
@@ -2233,23 +2646,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public List<PageReference> getReferences() {
-    if (references == null || references.isEmpty()) {
-      return List.of();
-    }
     return List.of(references.values().toArray(new PageReference[0]));
   }
 
   @Override
-  public void commit(final @NonNull StorageEngineWriter storageEngineWriter) {
-    addReferences(storageEngineWriter.getResourceSession().getResourceConfig());
-    final var refs = references;
-    if (refs == null) {
-      return;
-    }
-    for (final PageReference reference : refs.values()) {
+  public void commit(final @NonNull StorageEngineWriter pageWriteTrx) {
+    addReferences(pageWriteTrx.getResourceSession().getResourceConfig());
+    for (final PageReference reference : references.values()) {
       if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
           && reference.getLogKey() == Constants.NULL_ID_LONG)) {
-        storageEngineWriter.commit(reference);
+        pageWriteTrx.commit(reference);
       }
     }
   }
@@ -2266,26 +2672,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public void setPageReference(final long key, @NonNull final PageReference reference) {
-    referencesOrInit().put(key, reference);
+    references.put(key, reference);
   }
 
   @Override
   public Set<Entry<Long, PageReference>> referenceEntrySet() {
-    return references != null ? references.entrySet() : Set.of();
+    return references.entrySet();
   }
 
   @Override
   public PageReference getPageReference(final long key) {
-    return references != null ? references.get(key) : null;
-  }
-
-  private Map<Long, PageReference> referencesOrInit() {
-    var refs = references;
-    if (refs == null) {
-      refs = new ConcurrentHashMap<>();
-      references = refs;
-    }
-    return refs;
+    return references.get(key);
   }
 
   @Override
@@ -2309,8 +2706,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Get the current version of this page frame. Used for detecting page reuse via version counter
-   * check.
+   * Get the current version of this page frame.
+   * Used for detecting page reuse via version counter check.
    *
    * @return current version number
    */
@@ -2319,22 +2716,25 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Increment the version counter. Called when the page frame is reused for a different logical page.
+   * Increment the version counter.
+   * Called when the page frame is reused for a different logical page.
    */
   public void incrementVersion() {
     version.incrementAndGet();
   }
 
   /**
-   * Acquire a guard on this page (increment guard count). Pages with active guards cannot be evicted.
+   * Acquire a guard on this page (increment guard count).
+   * Pages with active guards cannot be evicted.
    */
   public void acquireGuard() {
     guardCount.incrementAndGet();
   }
 
   /**
-   * Try to acquire a guard on this page. Returns false if the page is orphaned or closed (cannot be
-   * used). This is the synchronized version that prevents race conditions with close().
+   * Try to acquire a guard on this page.
+   * Returns false if the page is orphaned or closed (cannot be used).
+   * This is the synchronized version that prevents race conditions with close().
    *
    * @return true if guard was acquired, false if page is orphaned/closed
    */
@@ -2348,9 +2748,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Release a guard on this page (decrement guard count). If the page is orphaned and this was the
-   * last guard, the page is closed. This ensures deterministic cleanup without relying on
-   * GC/finalizers.
+   * Release a guard on this page (decrement guard count).
+   * If the page is orphaned and this was the last guard, the page is closed.
+   * This ensures deterministic cleanup without relying on GC/finalizers.
    */
   public synchronized void releaseGuard() {
     guardCount.decrementAndGet();
@@ -2362,8 +2762,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Mark this page as orphaned using lock-free CAS. Called when the page is removed from cache but
-   * still has active guards. The page will be closed when the last guard is released.
+   * Mark this page as orphaned using lock-free CAS.
+   * Called when the page is removed from cache but still has active guards.
+   * The page will be closed when the last guard is released.
    */
   public void markOrphaned() {
     int current;
@@ -2385,7 +2786,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Get the current guard count. Used by ClockSweeper to check if page can be evicted.
+   * Get the current guard count.
+   * Used by ClockSweeper to check if page can be evicted.
    *
    * @return current guard count
    */
@@ -2394,11 +2796,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Mark this page as recently accessed (set HOT bit). Called on every page access for clock eviction
-   * algorithm.
+   * Mark this page as recently accessed (set HOT bit).
+   * Called on every page access for clock eviction algorithm.
    * <p>
-   * Uses opaque memory access (no memory barriers) for maximum performance. The HOT bit is advisory -
-   * stale reads are acceptable and will at worst give a page an extra second chance during eviction.
+   * Uses opaque memory access (no memory barriers) for maximum performance.
+   * The HOT bit is advisory - stale reads are acceptable and will at worst
+   * give a page an extra second chance during eviction.
    * </p>
    */
   public void markAccessed() {
@@ -2443,56 +2846,54 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Reset page data structures for reuse. Clears records and internal state but keeps MemorySegments
-   * allocated. Used when evicting a page to prepare frame for reuse.
+   * Reset page data structures for reuse.
+   * Clears records and internal state but keeps MemorySegments allocated.
+   * Used when evicting a page to prepare frame for reuse.
    */
   public void reset() {
     // Clear record arrays
     Arrays.fill(records, null);
-    inMemoryRecordCount = 0;
-    demotionThreshold = MIN_DEMOTION_THRESHOLD;
-    rematerializedRecordsSinceLastDemotion = 0;
-
+    
     // Clear offsets
     Arrays.fill(slotOffsets, -1);
     Arrays.fill(deweyIdOffsets, -1);
-
+    
     // Clear slot bitmap (all slots now empty)
     Arrays.fill(slotBitmap, 0L);
-    Arrays.fill(fixedFormatBitmap, 0L);
-    Arrays.fill(fixedSlotKinds, NO_FIXED_SLOT_KIND);
+
+    // Reset unified page state (bitmap and heap pointers)
+    if (unifiedPage != null) {
+      PageLayout.initializePage(unifiedPage, recordPageKey, revision,
+          indexType.getID(), areDeweyIDsStored);
+    }
 
     // Reset free space pointers
     slotMemoryFreeSpaceStart = 0;
     deweyIdMemoryFreeSpaceStart = 0;
     lastSlotIndex = -1;
-    lastDeweyIdIndex = areDeweyIDsStored
-        ? -1
-        : -1;
-
+    lastDeweyIdIndex = areDeweyIDsStored ? -1 : -1;
+    
     // Clear references
-    if (references != null) {
-      references.clear();
-    }
+    references.clear();
     addedReferences = false;
-
+    
     // Clear cached data
     bytes = null;
     hashCode = null;
-
+    
     // CRITICAL: Guard count MUST be 0 before reset
     int currentGuardCount = guardCount.get();
     if (currentGuardCount != 0) {
-      throw new IllegalStateException(String.format(
-          "CRITICAL BUG: reset() called on page with active guards! "
-              + "Page %d (%s) rev=%d guardCount=%d - this will cause guard count corruption!",
-          recordPageKey, indexType, revision, currentGuardCount));
+      throw new IllegalStateException(
+          String.format("CRITICAL BUG: reset() called on page with active guards! " +
+              "Page %d (%s) rev=%d guardCount=%d - this will cause guard count corruption!",
+              recordPageKey, indexType, revision, currentGuardCount));
     }
     hash = 0;
-
+    
     // Clear HOT bit using lock-free operation
     clearHot();
-
+    
     // NOTE: We do NOT release MemorySegments here - they stay allocated
     // The allocator's release() method is called separately if needed
   }
@@ -2504,36 +2905,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       // This is the deferred work from combineRecordPagesForModification for DIFFERENTIAL,
       // INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning types.
       if (preservationBitmap != null && completePageRef != null) {
-        for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
-          long word = preservationBitmap[wordIndex];
-          int baseSlot = wordIndex << 6;
-          while (word != 0) {
-            int bit = Long.numberOfTrailingZeros(word);
-            int slotIndex = baseSlot + bit;
-
-            // Preserve only when the slot is still absent from the modified page.
-            // This keeps write-intent data authoritative and avoids rematerialization churn.
-            if (records[slotIndex] == null && !hasSlot(slotIndex)) {
-              MemorySegment slotData = completePageRef.getSlot(slotIndex);
-              if (slotData != null) {
-                setSlot(slotData, slotIndex);
-                final NodeKind fixedNodeKind = completePageRef.getFixedSlotNodeKind(slotIndex);
-                if (fixedNodeKind != null) {
-                  markSlotAsFixedFormat(slotIndex, fixedNodeKind);
-                } else {
-                  markSlotAsCompactFormat(slotIndex);
-                }
-              }
-
-              if (areDeweyIDsStored) {
-                MemorySegment deweyId = completePageRef.getDeweyId(slotIndex);
-                if (deweyId != null) {
-                  setDeweyId(deweyId, slotIndex);
-                }
+        for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+          // Check if slot needs preservation AND wasn't modified (neither in records[] nor in slot data)
+          boolean needsPreservation = (preservationBitmap[i >>> 6] & (1L << (i & 63))) != 0;
+          if (needsPreservation && records[i] == null && getSlot(i) == null) {
+            // Copy slot from completePage, preserving nodeKindId
+            MemorySegment slotData = completePageRef.getSlot(i);
+            if (slotData != null) {
+              setSlotWithNodeKind(slotData, i, completePageRef.getSlotNodeKindId(i));
+            }
+            // Copy deweyId too if stored
+            if (areDeweyIDsStored) {
+              MemorySegment deweyId = completePageRef.getDeweyId(i);
+              if (deweyId != null) {
+                setDeweyId(deweyId, i);
               }
             }
-
-            word &= word - 1;
           }
         }
       }
@@ -2542,11 +2929,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         processEntries(resourceConfiguration, records);
         for (int i = 0; i < records.length; i++) {
           final DataRecord record = records[i];
-          if (record != null && record.getNodeKey() != 0) {
-            final byte[] deweyBytes = record.getDeweyIDAsBytes();
-            if (deweyBytes != null) {
-              setDeweyId(deweyBytes, i);
-            }
+          if (record != null && record.getDeweyID() != null && record.getNodeKey() != 0) {
+            setDeweyId(record.getDeweyID().toBytes(), i);
           }
         }
       } else {
@@ -2567,9 +2951,34 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       // This eliminates ~N allocations where N = number of non-null records.
       var reusableOut = new MemorySegmentBytesOut(tempArena, 256);
 
-      for (final DataRecord record : records) {
+      for (int i = 0; i < records.length; i++) {
+        final DataRecord record = records[i];
         if (record == null) {
           continue;
+        }
+        if (record instanceof FlyweightNode fn) {
+          if (fn.isBound()) {
+            // Record data is already in the heap via serializeToUnifiedHeap() — skip serialization.
+            // However, DeweyIDs are stored separately and may have been updated after binding
+            // (e.g., by computeNewDeweyIDs during moveSubtreeToFirstChild). Since records[i]
+            // is about to be nulled, persist the DeweyID to the heap now.
+            if (areDeweyIDsStored && fn.getDeweyID() != null && fn.getNodeKey() != 0) {
+              final byte[] deweyIdBytes = fn.getDeweyIDAsBytes();
+              if (deweyIdBytes != null && deweyIdBytes.length > 0) {
+                setDeweyIdToUnifiedHeap(MemorySegment.ofArray(deweyIdBytes), i);
+              }
+            }
+            records[i] = null;
+            continue;
+          }
+          // Unbound flyweight (e.g., value mutation caused unbind): re-serialize to unified page heap.
+          if (unifiedPage != null) {
+            final long nodeKey = record.getNodeKey();
+            final int offset = StorageEngineReader.recordPageOffset(nodeKey);
+            serializeToUnifiedHeap(fn, nodeKey, offset);
+            records[i] = null;
+            continue;
+          }
         }
         final var recordID = record.getNodeKey();
         final var offset = StorageEngineReader.recordPageOffset(recordID);
@@ -2588,78 +2997,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
           final var reference = new PageReference();
           reference.setPage(new OverflowPage(persistentBuffer));
-          referencesOrInit().put(recordID, reference);
+          references.put(recordID, reference);
         } else {
-          // Normal record: setSlot copies data to slotMemory, so temp buffer is fine
+          // Normal record: setSlot copies data to unified page heap (or legacy slotMemory)
           setSlot(buffer, offset);
-          markSlotAsCompactFormat(offset);
         }
+        // Clear record reference after serialization — snapshot isolation.
+        // Data is now in slotMemory/unifiedPage; prevents cross-transaction aliasing.
+        records[i] = null;
       }
     } // Confined arena automatically closes here, freeing all temporary buffers
   }
 
-  void compactFixedSlotsForCommit(final ResourceConfiguration resourceConfiguration) {
-    // Quick exit: no fixed-format slots → nothing to compact.
-    boolean hasFixedSlots = false;
-    for (int w = 0; w < BITMAP_WORDS; w++) {
-      if (fixedFormatBitmap[w] != 0) {
-        hasFixedSlots = true;
-        break;
-      }
-    }
-    if (!hasFixedSlots) {
-      return;
-    }
-
-    // In-place compaction: compact format is always <= fixed format in size,
-    // so we overwrite each fixed slot at its current offset. No buffer allocation needed.
-    // Any gaps left by shrunk slots are eliminated by downstream compactLengthPrefixedRegion().
-    final MemorySegmentBytesOut compactBuffer = COMPACT_BUFFER.get();
-
-    for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
-      long word = fixedFormatBitmap[wordIndex];
-      final int baseSlot = wordIndex << 6;
-      while (word != 0) {
-        final int bit = Long.numberOfTrailingZeros(word);
-        final int slotIndex = baseSlot + bit;
-        final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + slotIndex;
-
-        final NodeKind nodeKind = getFixedSlotNodeKind(slotIndex);
-        final int slotOffset = slotOffsets[slotIndex];
-        final long slotDataOffset = slotOffset + INT_SIZE;
-
-        if (nodeKind == null) {
-          throw new IllegalStateException("Missing fixed-slot metadata for node key " + nodeKey);
-        }
-
-        // Direct byte-level transformation: fixed → compact without materializing a DataRecord.
-        // Uses base-offset into slotMemory to avoid asSlice() allocation per slot.
-        compactBuffer.clear();
-        FixedToCompactTransformer.transform(nodeKind, nodeKey, slotMemory, slotDataOffset, resourceConfiguration,
-            compactBuffer);
-        final MemorySegment compactBytes = compactBuffer.getDestination();
-        final int compactSize = (int) compactBytes.byteSize();
-        if (compactSize > PageConstants.MAX_RECORD_SIZE) {
-          throw new IllegalStateException("Compacted record exceeds max size for node key " + nodeKey);
-        }
-
-        // Overwrite in-place: compact bytes fit within the fixed slot's footprint.
-        // Offset unchanged — only the length prefix and data bytes are rewritten.
-        slotMemory.set(JAVA_INT_UNALIGNED, slotOffset, compactSize);
-        MemorySegment.copy(compactBytes, 0, slotMemory, slotOffset + INT_SIZE, compactSize);
-
-        word &= word - 1;
-      }
-    }
-
-    // Clear fixed-format tracking — all slots are now compact format.
-    Arrays.fill(fixedFormatBitmap, 0L);
-    Arrays.fill(fixedSlotKinds, NO_FIXED_SLOT_KIND);
-  }
-
   /**
-   * Build FSST symbol table from all string values in this page. This should be called before
-   * serialization to enable page-level compression.
+   * Build FSST symbol table from all string values in this page.
+   * This should be called before serialization to enable page-level compression.
    *
    * @param resourceConfig the resource configuration
    * @return true if FSST compression is enabled and symbol table was built
@@ -2671,68 +3023,33 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Collect all string values from StringNode and ObjectStringNode
     java.util.ArrayList<byte[]> stringSamples = new java.util.ArrayList<>();
-
+    
     for (final DataRecord record : records) {
       if (record == null) {
         continue;
       }
       if (record instanceof StringNode stringNode) {
-        addStringSample(stringSamples, stringNode.getRawValueWithoutDecompression());
+        byte[] value = stringNode.getRawValueWithoutDecompression();
+        if (value != null && value.length > 0) {
+          stringSamples.add(value);
+        }
       } else if (record instanceof ObjectStringNode objectStringNode) {
-        addStringSample(stringSamples, objectStringNode.getRawValueWithoutDecompression());
-      } else if (record instanceof TextNode textNode) {
-        addStringSample(stringSamples, textNode.getRawValueWithoutDecompression());
-      } else if (record instanceof CommentNode commentNode) {
-        addStringSample(stringSamples, commentNode.getRawValueWithoutDecompression());
-      } else if (record instanceof PINode piNode) {
-        addStringSample(stringSamples, piNode.getRawValueWithoutDecompression());
-      } else if (record instanceof AttributeNode attrNode) {
-        addStringSample(stringSamples, attrNode.getRawValueWithoutDecompression());
-      }
-    }
-
-    // Include string values only present in slot memory (demoted records).
-    // This is commit-path work and preserves FSST sample completeness.
-    // Fixed-format slots are already compacted before this method runs.
-    for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-      if (records[i] != null) {
-        continue;
-      }
-
-      final MemorySegment slot = getSlot(i);
-      if (slot == null) {
-        continue;
-      }
-
-      final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + i;
-      final DataRecord record = resourceConfig.recordPersister.deserialize(new MemorySegmentBytesIn(slot), nodeKey,
-          getDeweyIdAsByteArray(i), resourceConfig);
-
-      if (record instanceof StringNode stringNode) {
-        addStringSample(stringSamples, stringNode.getRawValueWithoutDecompression());
-      } else if (record instanceof ObjectStringNode objectStringNode) {
-        addStringSample(stringSamples, objectStringNode.getRawValueWithoutDecompression());
-      } else if (record instanceof TextNode textNode) {
-        addStringSample(stringSamples, textNode.getRawValueWithoutDecompression());
-      } else if (record instanceof CommentNode commentNode) {
-        addStringSample(stringSamples, commentNode.getRawValueWithoutDecompression());
-      } else if (record instanceof PINode piNode) {
-        addStringSample(stringSamples, piNode.getRawValueWithoutDecompression());
-      } else if (record instanceof AttributeNode attrNode) {
-        addStringSample(stringSamples, attrNode.getRawValueWithoutDecompression());
+        byte[] value = objectStringNode.getRawValueWithoutDecompression();
+        if (value != null && value.length > 0) {
+          stringSamples.add(value);
+        }
       }
     }
 
     // Build symbol table only if we have enough strings to make it worthwhile
     if (stringSamples.size() >= FSSTCompressor.MIN_SAMPLES_FOR_TABLE) {
       byte[] candidateTable = FSSTCompressor.buildSymbolTable(stringSamples);
-
+      
       // Only apply FSST if trial compression shows >= 15% savings (adaptive threshold)
       // This prevents overhead from exceeding savings for low-entropy data
-      if (candidateTable != null && candidateTable.length > 0
+      if (candidateTable != null && candidateTable.length > 0 
           && FSSTCompressor.isCompressionBeneficial(stringSamples, candidateTable)) {
         this.fsstSymbolTable = candidateTable;
-        this.parsedFsstSymbols = FSSTCompressor.parseSymbolTable(candidateTable);
         return true;
       }
     }
@@ -2740,24 +3057,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return false;
   }
 
-  private static void addStringSample(java.util.ArrayList<byte[]> samples, byte[] value) {
-    if (value != null && value.length > 0) {
-      samples.add(value);
-    }
-  }
-
   /**
-   * Compress all string values in the page using the pre-built FSST symbol table. This modifies the
-   * string nodes in place to use compressed values. Must be called after buildFsstSymbolTable().
+   * Compress all string values in the page using the pre-built FSST symbol table.
+   * This modifies the string nodes in place to use compressed values.
+   * Must be called after buildFsstSymbolTable().
    */
   public void compressStringValues() {
     if (fsstSymbolTable == null || fsstSymbolTable.length == 0) {
-      return;
-    }
-
-    // Use pre-parsed symbols to avoid re-parsing for every string node
-    final byte[][] symbols = parsedFsstSymbols;
-    if (symbols == null || symbols.length == 0) {
       return;
     }
 
@@ -2767,9 +3073,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
       if (record instanceof StringNode stringNode) {
         if (!stringNode.isCompressed()) {
-          final byte[] originalValue = stringNode.getRawValueWithoutDecompression();
+          byte[] originalValue = stringNode.getRawValueWithoutDecompression();
           if (originalValue != null && originalValue.length > 0) {
-            final byte[] compressedValue = FSSTCompressor.encode(originalValue, symbols);
+            byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
             // Only use compressed value if it's actually smaller
             if (compressedValue.length < originalValue.length) {
               stringNode.setRawValue(compressedValue, true, fsstSymbolTable);
@@ -2778,9 +3084,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         }
       } else if (record instanceof ObjectStringNode objectStringNode) {
         if (!objectStringNode.isCompressed()) {
-          final byte[] originalValue = objectStringNode.getRawValueWithoutDecompression();
+          byte[] originalValue = objectStringNode.getRawValueWithoutDecompression();
           if (originalValue != null && originalValue.length > 0) {
-            final byte[] compressedValue = FSSTCompressor.encode(originalValue, symbols);
+            byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
             // Only use compressed value if it's actually smaller
             if (compressedValue.length < originalValue.length) {
               objectStringNode.setRawValue(compressedValue, true, fsstSymbolTable);
@@ -2792,24 +3098,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Set the FSST symbol table on all string nodes after deserialization. This allows nodes to use
-   * lazy decompression.
+   * Set the FSST symbol table on all string nodes after deserialization.
+   * This allows nodes to use lazy decompression.
    */
   public void propagateFsstSymbolTableToNodes() {
     if (fsstSymbolTable == null || fsstSymbolTable.length == 0) {
       return;
     }
 
-    final byte[][] parsed = parsedFsstSymbols;
-
     for (final DataRecord record : records) {
       if (record == null) {
         continue;
       }
       if (record instanceof StringNode stringNode) {
-        stringNode.setFsstSymbolTable(fsstSymbolTable, parsed);
+        stringNode.setFsstSymbolTable(fsstSymbolTable);
       } else if (record instanceof ObjectStringNode objectStringNode) {
-        objectStringNode.setFsstSymbolTable(fsstSymbolTable, parsed);
+        objectStringNode.setFsstSymbolTable(fsstSymbolTable);
       }
     }
   }
@@ -2820,51 +3124,48 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @param slotNumber the slot number in the page (0 to NDP_NODE_COUNT-1)
    * @param value the raw string value bytes
    */
-  private record StringValueEntry(int slotNumber, byte[] value) {
-  }
+  private record StringValueEntry(int slotNumber, byte[] value) {}
 
   /**
-   * Collect string values into columnar storage for better compression. Groups all string data
-   * contiguously in stringValueMemory, which enables better FSST compression patterns and more
-   * efficient storage.
+   * Collect string values into columnar storage for better compression.
+   * Groups all string data contiguously in stringValueMemory, which enables
+   * better FSST compression patterns and more efficient storage.
    * 
-   * <p>
-   * This should be called before serialization when columnar storage is desired. The columnar layout
-   * stores: [length1:4][data1:N][length2:4][data2:M]... with stringValueOffsets pointing to each
-   * entry's start.
+   * <p>This should be called before serialization when columnar storage is desired.
+   * The columnar layout stores: [length1:4][data1:N][length2:4][data2:M]...
+   * with stringValueOffsets pointing to each entry's start.
    * 
-   * <p>
-   * Invariants maintained:
+   * <p>Invariants maintained:
    * <ul>
-   * <li>P4: All offsets are valid: 0 ≤ offset < stringValueMemory.byteSize()</li>
-   * <li>No overlapping entries</li>
-   * <li>Sequential layout with no gaps</li>
+   *   <li>P4: All offsets are valid: 0 ≤ offset < stringValueMemory.byteSize()</li>
+   *   <li>No overlapping entries</li>
+   *   <li>Sequential layout with no gaps</li>
    * </ul>
    */
   public void collectStringsForColumnarStorage() {
     java.util.List<StringValueEntry> entries = new java.util.ArrayList<>();
     int totalSize = 0;
-
+    
     for (int i = 0; i < records.length; i++) {
       DataRecord record = records[i];
       byte[] value = null;
-
+      
       if (record instanceof StringNode sn) {
         value = sn.getRawValueWithoutDecompression();
       } else if (record instanceof ObjectStringNode osn) {
         value = osn.getRawValueWithoutDecompression();
       }
-
+      
       if (value != null && value.length > 0) {
         entries.add(new StringValueEntry(i, value));
         totalSize += INT_SIZE + value.length; // 4 bytes length prefix + data
       }
     }
-
+    
     if (entries.isEmpty()) {
       return;
     }
-
+    
     // Allocate columnar segment if needed
     if (stringValueMemory == null || stringValueMemory.byteSize() < totalSize) {
       if (stringValueMemory != null && !externallyAllocatedMemory) {
@@ -2872,30 +3173,30 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
       stringValueMemory = segmentAllocator.allocate(totalSize);
     }
-
+    
     // Store all string values contiguously
     int offset = 0;
     for (StringValueEntry entry : entries) {
       // Validate offset bounds (P4 invariant)
       if (offset + INT_SIZE + entry.value.length > stringValueMemory.byteSize()) {
-        throw new IllegalStateException(
-            String.format("Columnar storage overflow: offset=%d, entrySize=%d, memorySize=%d", offset,
-                INT_SIZE + entry.value.length, stringValueMemory.byteSize()));
+        throw new IllegalStateException(String.format(
+            "Columnar storage overflow: offset=%d, entrySize=%d, memorySize=%d",
+            offset, INT_SIZE + entry.value.length, stringValueMemory.byteSize()));
       }
-
+      
       stringValueOffsets[entry.slotNumber] = offset;
-
+      
       // Write length prefix
       stringValueMemory.set(java.lang.foreign.ValueLayout.JAVA_INT, offset, entry.value.length);
-
+      
       // Write data using bulk copy
-      MemorySegment.copy(entry.value, 0, stringValueMemory, java.lang.foreign.ValueLayout.JAVA_BYTE, offset + INT_SIZE,
-          entry.value.length);
-
+      MemorySegment.copy(entry.value, 0, stringValueMemory,
+          java.lang.foreign.ValueLayout.JAVA_BYTE, offset + INT_SIZE, entry.value.length);
+      
       offset += INT_SIZE + entry.value.length;
       lastStringValueIndex = Math.max(lastStringValueIndex, entry.slotNumber);
     }
-
+    
     stringValueMemoryFreeSpaceStart = offset;
   }
 

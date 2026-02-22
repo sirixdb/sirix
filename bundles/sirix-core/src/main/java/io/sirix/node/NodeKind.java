@@ -44,9 +44,6 @@ import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.delegates.ValueNodeDelegate;
-import io.sirix.node.layout.NodeKindLayout;
-import io.sirix.node.layout.NodeKindLayouts;
-import io.sirix.node.layout.StructuralField;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.interfaces.StructNode;
@@ -1718,25 +1715,6 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   public byte getId() {
     return id;
-  }
-
-  /**
-   * Fixed-slot layout contract for this node kind.
-   */
-  public NodeKindLayout layoutDescriptor() {
-    return NodeKindLayouts.layoutFor(this);
-  }
-
-  public boolean hasFixedSlotLayout() {
-    return layoutDescriptor().isFixedSlotSupported();
-  }
-
-  public int fixedSlotSizeInBytes() {
-    return layoutDescriptor().fixedSlotSizeInBytes();
-  }
-
-  public int offsetOfOrMinusOne(final StructuralField field) {
-    return layoutDescriptor().offsetOfOrMinusOne(field);
   }
 
   /**

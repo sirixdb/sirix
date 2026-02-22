@@ -370,7 +370,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   protected final void persistUpdatedRecord(final DataRecord record) {
-    storageEngineWriter.updateRecordSlot(record, IndexType.DOCUMENT, -1);
+    // Ensure the mutated record is stored in the TIL's modified page.
+    // For records obtained via prepareRecordForModification(), the page is already
+    // in the TIL and the record is in records[] — this is a safe (redundant) setRecord.
+    // For records obtained via nodeReadOnlyTrx.getCurrentNode() (e.g., setName/setValue),
+    // this ensures the page enters the TIL and the record gets into records[].
+    storageEngineWriter.persistRecord(record, IndexType.DOCUMENT, -1);
   }
 
   /**
@@ -396,6 +401,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * @param revNumber revision number
    */
   private void reInstantiate(final @NonNegative int trxID, final @NonNegative int revNumber) {
+    // Save the current cursor position. getNodeKey() reads from a Java field, always valid.
+    final long currentNodeKey = nodeReadOnlyTrx.getNodeKey();
+
     // Reset page transaction to new uber page.
     resourceSession.closeNodePageWriteTransaction(getId());
     storageEngineWriter =
@@ -414,6 +422,11 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     updateOperationsOrdered.clear();
 
     reInstantiateIndexes();
+
+    // Re-read the current node from the new page transaction.
+    // FlyweightNode getters read from the page MemorySegment; after closing the old transaction,
+    // that MemorySegment is stale. Re-reading creates a fresh node from the new transaction.
+    nodeReadOnlyTrx.moveTo(currentNodeKey);
   }
 
   protected abstract AbstractNodeHashing<N, R> reInstantiateNodeHashing(StorageEngineWriter storageEngineWriter);
@@ -441,6 +454,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     }
 
     nodeReadOnlyTrx.assertNotClosed();
+
+    // Save the current cursor position before closing the old page transaction.
+    final long rollbackNodeKey = nodeReadOnlyTrx.getNodeKey();
 
     // Reset modification counter.
     modificationCount = 0L;
@@ -470,6 +486,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
     reInstantiateIndexes();
 
+    // Re-read the current node from the new page transaction (FlyweightNode binding is stale).
+    nodeReadOnlyTrx.moveTo(rollbackNodeKey);
+
     if (lock != null) {
       lock.unlock();
     }
@@ -494,6 +513,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     try {
       nodeReadOnlyTrx.assertNotClosed();
       resourceSession.assertAccess(revision);
+
+      // Save the current cursor position before closing the old page transaction.
+      final long revertNodeKey = nodeReadOnlyTrx.getNodeKey();
 
       // Close current page transaction.
       final int trxID = getId();

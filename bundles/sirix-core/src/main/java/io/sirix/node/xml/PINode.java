@@ -44,15 +44,13 @@ import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.xml.ImmutablePI;
+import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
-import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import io.sirix.node.layout.NodeKindLayout;
-import io.sirix.node.layout.SlotLayoutAccessors;
-import io.sirix.node.layout.StructuralField;
+import io.sirix.page.NodeFieldLayout;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.Compression;
@@ -63,13 +61,18 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 
 /**
  * Processing Instruction node using primitive fields.
  *
+ * <p>Supports LeanStore-style flyweight binding for zero-copy reads from a unified page
+ * MemorySegment. When bound, all getters/setters operate directly on page memory via
+ * the per-record offset table. When unbound, they operate on Java primitive fields.</p>
+ *
  * @author Johannes Lichtenberger
  */
-public final class PINode implements StructNode, NameNode, ValueNode, ImmutableXmlNode, ReusableNodeProxy {
+public final class PINode implements StructNode, NameNode, ValueNode, ImmutableXmlNode, FlyweightNode {
 
   // === IMMEDIATE STRUCTURAL FIELDS ===
   private long nodeKey;
@@ -101,17 +104,39 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   private boolean lazyValueCompressed;
   private boolean valueParsed = true;
 
-  // === FIXED-SLOT LAZY SUPPORT ===
-  private Object lazySource;
-  private long lazyBaseOffset;
-  private NodeKindLayout fixedSlotLayout;
-  private boolean lazyFieldsParsed = true;
-
   // === NON-SERIALIZED FIELDS ===
   private LongHashFunction hashFunction;
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
   private QNm qNm;
+
+  // ==================== FLYWEIGHT BINDING (LeanStore page-direct access) ====================
+
+  /** Page MemorySegment when bound (null = primitive mode). */
+  private MemorySegment page;
+
+  /** Absolute byte offset of this record in the page (after HEAP_START + heapOffset). */
+  private long recordBase;
+
+  /** Absolute byte offset where the data region starts (recordBase + 1 + FIELD_COUNT). */
+  private long dataRegionStart;
+
+  /** Slot index in the page directory (for re-serialization). */
+  private int slotIndex;
+
+  private static final int FIELD_COUNT = NodeFieldLayout.PI_FIELD_COUNT;
+
+  /**
+   * Constructor for flyweight binding.
+   * All fields except nodeKey and hashFunction will be read from page memory after bind().
+   *
+   * @param nodeKey the node key
+   * @param hashFunction the hash function from resource config
+   */
+  public PINode(long nodeKey, LongHashFunction hashFunction) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+  }
 
   /**
    * Primary constructor with all primitive fields.
@@ -171,6 +196,282 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     this.qNm = qNm;
   }
 
+  // ==================== FLYWEIGHT BIND/UNBIND ====================
+
+  /**
+   * Bind this node as a flyweight to a page MemorySegment.
+   * When bound, getters/setters read/write directly to page memory via the offset table.
+   *
+   * @param page       the page MemorySegment
+   * @param recordBase absolute byte offset of this record in the page
+   * @param nodeKey    the node key (for delta decoding)
+   * @param slotIndex  the slot index in the page directory
+   */
+  public void bind(final MemorySegment page, final long recordBase, final long nodeKey,
+      final int slotIndex) {
+    this.page = page;
+    this.recordBase = recordBase;
+    this.nodeKey = nodeKey;
+    this.slotIndex = slotIndex;
+    this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
+    this.valueParsed = false; // Payload still needs lazy parsing from page
+    this.lazyValueSource = null;
+  }
+
+  /**
+   * Unbind from page memory and materialize all fields into Java primitives.
+   * After unbind, the node operates in primitive mode.
+   */
+  public void unbind() {
+    if (page == null) {
+      return;
+    }
+    // Materialize all fields from page to Java primitives
+    final long nk = this.nodeKey;
+    this.parentKey = readDeltaField(NodeFieldLayout.PI_PARENT_KEY, nk);
+    this.rightSiblingKey = readDeltaField(NodeFieldLayout.PI_RIGHT_SIB_KEY, nk);
+    this.leftSiblingKey = readDeltaField(NodeFieldLayout.PI_LEFT_SIB_KEY, nk);
+    this.firstChildKey = readDeltaField(NodeFieldLayout.PI_FIRST_CHILD_KEY, nk);
+    this.lastChildKey = readDeltaField(NodeFieldLayout.PI_LAST_CHILD_KEY, nk);
+    this.pathNodeKey = readDeltaField(NodeFieldLayout.PI_PATH_NODE_KEY, nk);
+    this.prefixKey = readSignedField(NodeFieldLayout.PI_PREFIX_KEY);
+    this.localNameKey = readSignedField(NodeFieldLayout.PI_LOCAL_NAME_KEY);
+    this.uriKey = readSignedField(NodeFieldLayout.PI_URI_KEY);
+    this.previousRevision = readSignedField(NodeFieldLayout.PI_PREV_REVISION);
+    this.lastModifiedRevision = readSignedField(NodeFieldLayout.PI_LAST_MOD_REVISION);
+    this.hash = readLongField(NodeFieldLayout.PI_HASH);
+    this.childCount = readSignedLongField(NodeFieldLayout.PI_CHILD_COUNT);
+    this.descendantCount = readSignedLongField(NodeFieldLayout.PI_DESCENDANT_COUNT);
+    // Payload needs to be read from page before unbinding
+    if (!valueParsed) {
+      readPayloadFromPage();
+    }
+    this.page = null;
+  }
+
+  /** Check if this node is bound to a page MemorySegment. */
+  public boolean isBound() {
+    return page != null;
+  }
+
+  @Override
+  public boolean isBoundTo(final MemorySegment page) {
+    return this.page == page;
+  }
+
+  @Override
+  public int getSlotIndex() {
+    return slotIndex;
+  }
+
+  @Override
+  public int estimateSerializedSize() {
+    final int payloadLen = value != null ? value.length : 0;
+    return 128 + payloadLen;
+  }
+
+  // ==================== FLYWEIGHT FIELD READ HELPERS ====================
+
+  private long readDeltaField(final int fieldIndex, final long baseKey) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(page, dataRegionStart + fieldOff, baseKey);
+  }
+
+  private int readSignedField(final int fieldIndex) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
+  }
+
+  private long readSignedLongField(final int fieldIndex) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.decodeSignedLongFromSegment(page, dataRegionStart + fieldOff);
+  }
+
+  private long readLongField(final int fieldIndex) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
+  }
+
+  // ==================== FLYWEIGHT FIELD WRITE HELPERS ====================
+
+  /**
+   * Write a delta-encoded field in-place if width matches, otherwise re-serialize.
+   */
+  private void setDeltaFieldInPlace(final int fieldIndex, final long newKey) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    final long absOff = dataRegionStart + fieldOff;
+    final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+    final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(newKey, nodeKey);
+    if (newWidth == currentWidth) {
+      DeltaVarIntCodec.writeDeltaToSegment(page, absOff, newKey, nodeKey);
+    } else {
+      // Width changed: unbind, set field, re-serialize
+      unbind();
+      // The specific field will be set by the caller after this method returns
+    }
+  }
+
+  /**
+   * Write a signed varint field in-place if width matches, otherwise re-serialize.
+   */
+  private boolean setSignedFieldInPlace(final int fieldIndex, final int newValue) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    final long absOff = dataRegionStart + fieldOff;
+    final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+    final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(newValue);
+    if (newWidth == currentWidth) {
+      DeltaVarIntCodec.writeSignedToSegment(page, absOff, newValue);
+      return true;
+    }
+    unbind();
+    return false;
+  }
+
+  /**
+   * Write a signed long varint field in-place if width matches, otherwise re-serialize.
+   */
+  private boolean setSignedLongFieldInPlace(final int fieldIndex, final long newValue) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    final long absOff = dataRegionStart + fieldOff;
+    final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+    final int newWidth = DeltaVarIntCodec.computeSignedLongEncodedWidth(newValue);
+    if (newWidth == currentWidth) {
+      DeltaVarIntCodec.writeSignedLongToSegment(page, absOff, newValue);
+      return true;
+    }
+    unbind();
+    return false;
+  }
+
+  /**
+   * Read the payload (value bytes) directly from page memory when bound.
+   */
+  private void readPayloadFromPage() {
+    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE,
+        recordBase + 1 + NodeFieldLayout.PI_PAYLOAD) & 0xFF;
+    final long payloadStart = dataRegionStart + payloadFieldOff;
+
+    // Read isCompressed flag (1 byte)
+    this.isCompressed = page.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
+
+    // Read value length (varint)
+    final long lenOffset = payloadStart + 1;
+    final int length = DeltaVarIntCodec.decodeSignedFromSegment(page, lenOffset);
+    final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(page, lenOffset);
+
+    // Read value bytes
+    final long dataOffset = lenOffset + lenBytes;
+    this.value = new byte[length];
+    MemorySegment.copy(page, ValueLayout.JAVA_BYTE, dataOffset, this.value, 0, length);
+    this.valueParsed = true;
+  }
+
+  // ==================== SERIALIZE TO HEAP ====================
+
+  /**
+   * Serialize this node (from Java fields) into the new unified format with offset table.
+   * Writes: [nodeKind:1][offsetTable:FIELD_COUNT][data fields].
+   *
+   * @param target the target MemorySegment
+   * @param offset the absolute byte offset to write at
+   * @return the total number of bytes written
+   */
+  public int serializeToHeap(final MemorySegment target, final long offset) {
+    // Ensure all lazy fields are materialized
+    if (!valueParsed) {
+      parseLazyValue();
+    }
+
+    long pos = offset;
+
+    // Write nodeKind byte
+    target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.PROCESSING_INSTRUCTION.getId());
+    pos++;
+
+    // Reserve space for offset table (will be written after computing offsets)
+    final long offsetTableStart = pos;
+    pos += FIELD_COUNT;
+
+    // Data region start
+    final long dataStart = pos;
+    final int[] offsets = new int[FIELD_COUNT];
+
+    // Field 0: parentKey (delta-varint)
+    offsets[NodeFieldLayout.PI_PARENT_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
+
+    // Field 1: rightSiblingKey (delta-varint)
+    offsets[NodeFieldLayout.PI_RIGHT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, rightSiblingKey, nodeKey);
+
+    // Field 2: leftSiblingKey (delta-varint)
+    offsets[NodeFieldLayout.PI_LEFT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, leftSiblingKey, nodeKey);
+
+    // Field 3: firstChildKey (delta-varint)
+    offsets[NodeFieldLayout.PI_FIRST_CHILD_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, firstChildKey, nodeKey);
+
+    // Field 4: lastChildKey (delta-varint)
+    offsets[NodeFieldLayout.PI_LAST_CHILD_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, lastChildKey, nodeKey);
+
+    // Field 5: pathNodeKey (delta-varint)
+    offsets[NodeFieldLayout.PI_PATH_NODE_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, pathNodeKey, nodeKey);
+
+    // Field 6: prefixKey (signed varint)
+    offsets[NodeFieldLayout.PI_PREFIX_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prefixKey);
+
+    // Field 7: localNameKey (signed varint)
+    offsets[NodeFieldLayout.PI_LOCAL_NAME_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, localNameKey);
+
+    // Field 8: uriKey (signed varint)
+    offsets[NodeFieldLayout.PI_URI_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, uriKey);
+
+    // Field 9: previousRevision (signed varint)
+    offsets[NodeFieldLayout.PI_PREV_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, previousRevision);
+
+    // Field 10: lastModifiedRevision (signed varint)
+    offsets[NodeFieldLayout.PI_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModifiedRevision);
+
+    // Field 11: hash (fixed 8 bytes)
+    offsets[NodeFieldLayout.PI_HASH] = (int) (pos - dataStart);
+    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
+    pos += Long.BYTES;
+
+    // Field 12: childCount (signed long varint)
+    offsets[NodeFieldLayout.PI_CHILD_COUNT] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, childCount);
+
+    // Field 13: descendantCount (signed long varint)
+    offsets[NodeFieldLayout.PI_DESCENDANT_COUNT] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, descendantCount);
+
+    // Field 14: payload [isCompressed:1][valueLength:varint][value:bytes]
+    offsets[NodeFieldLayout.PI_PAYLOAD] = (int) (pos - dataStart);
+    target.set(ValueLayout.JAVA_BYTE, pos, isCompressed ? (byte) 1 : (byte) 0);
+    pos++;
+    final byte[] rawValue = value != null ? value : new byte[0];
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, rawValue.length);
+    if (rawValue.length > 0) {
+      MemorySegment.copy(rawValue, 0, target, ValueLayout.JAVA_BYTE, pos, rawValue.length);
+      pos += rawValue.length;
+    }
+
+    // Write offset table
+    for (int i = 0; i < FIELD_COUNT; i++) {
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) offsets[i]);
+    }
+
+    return (int) (pos - offset);
+  }
+
   @Override
   public NodeKind getKind() {
     return NodeKind.PROCESSING_INSTRUCTION;
@@ -188,201 +489,270 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   @Override
   public long getParentKey() {
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.PI_PARENT_KEY, nodeKey);
+    }
     return parentKey;
   }
 
-  public void setParentKey(long parentKey) {
+  public void setParentKey(final long parentKey) {
+    if (page != null) {
+      setDeltaFieldInPlace(NodeFieldLayout.PI_PARENT_KEY, parentKey);
+      if (page != null) return;
+    }
     this.parentKey = parentKey;
   }
 
   @Override
   public boolean hasParent() {
-    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public long getRightSiblingKey() {
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.PI_RIGHT_SIB_KEY, nodeKey);
+    }
     return rightSiblingKey;
   }
 
-  public void setRightSiblingKey(long key) {
+  public void setRightSiblingKey(final long key) {
+    if (page != null) {
+      setDeltaFieldInPlace(NodeFieldLayout.PI_RIGHT_SIB_KEY, key);
+      if (page != null) return;
+    }
     this.rightSiblingKey = key;
   }
 
   @Override
   public boolean hasRightSibling() {
-    return rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public long getLeftSiblingKey() {
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.PI_LEFT_SIB_KEY, nodeKey);
+    }
     return leftSiblingKey;
   }
 
-  public void setLeftSiblingKey(long key) {
+  public void setLeftSiblingKey(final long key) {
+    if (page != null) {
+      setDeltaFieldInPlace(NodeFieldLayout.PI_LEFT_SIB_KEY, key);
+      if (page != null) return;
+    }
     this.leftSiblingKey = key;
   }
 
   @Override
   public boolean hasLeftSibling() {
-    return leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public long getFirstChildKey() {
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.PI_FIRST_CHILD_KEY, nodeKey);
+    }
     return firstChildKey;
   }
 
-  public void setFirstChildKey(long key) {
+  public void setFirstChildKey(final long key) {
+    if (page != null) {
+      setDeltaFieldInPlace(NodeFieldLayout.PI_FIRST_CHILD_KEY, key);
+      if (page != null) return;
+    }
     this.firstChildKey = key;
   }
 
   @Override
   public boolean hasFirstChild() {
-    return firstChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public long getLastChildKey() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.PI_LAST_CHILD_KEY, nodeKey);
+    }
     return lastChildKey;
   }
 
-  public void setLastChildKey(long key) {
+  public void setLastChildKey(final long key) {
+    if (page != null) {
+      setDeltaFieldInPlace(NodeFieldLayout.PI_LAST_CHILD_KEY, key);
+      if (page != null) return;
+    }
     this.lastChildKey = key;
   }
 
   @Override
   public boolean hasLastChild() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
-    return lastChildKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getLastChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public long getChildCount() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
+    if (page != null) {
+      return readSignedLongField(NodeFieldLayout.PI_CHILD_COUNT);
+    }
     return childCount;
   }
 
-  public void setChildCount(long childCount) {
+  public void setChildCount(final long childCount) {
+    if (page != null) {
+      if (setSignedLongFieldInPlace(NodeFieldLayout.PI_CHILD_COUNT, childCount)) return;
+      // Width changed -- unbind already happened in the helper
+    }
     this.childCount = childCount;
   }
 
   @Override
   public void incrementChildCount() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
-    childCount++;
+    setChildCount(getChildCount() + 1);
   }
 
   @Override
   public void decrementChildCount() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
-    childCount--;
+    setChildCount(getChildCount() - 1);
   }
 
   @Override
   public long getDescendantCount() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
+    if (page != null) {
+      return readSignedLongField(NodeFieldLayout.PI_DESCENDANT_COUNT);
+    }
     return descendantCount;
   }
 
   @Override
-  public void setDescendantCount(long descendantCount) {
+  public void setDescendantCount(final long descendantCount) {
+    if (page != null) {
+      if (setSignedLongFieldInPlace(NodeFieldLayout.PI_DESCENDANT_COUNT, descendantCount)) return;
+    }
     this.descendantCount = descendantCount;
   }
 
   @Override
   public void incrementDescendantCount() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
-    descendantCount++;
+    setDescendantCount(getDescendantCount() + 1);
   }
 
   @Override
   public void decrementDescendantCount() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
-    descendantCount--;
+    setDescendantCount(getDescendantCount() - 1);
   }
 
   @Override
   public long getPathNodeKey() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.PI_PATH_NODE_KEY, nodeKey);
+    }
     return pathNodeKey;
   }
 
   @Override
   public void setPathNodeKey(@NonNegative long pathNodeKey) {
+    if (page != null) {
+      setDeltaFieldInPlace(NodeFieldLayout.PI_PATH_NODE_KEY, pathNodeKey);
+      if (page != null) return; // In-place write succeeded
+    }
     this.pathNodeKey = pathNodeKey;
   }
 
   @Override
   public int getPrefixKey() {
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.PI_PREFIX_KEY);
+    }
     return prefixKey;
   }
 
   @Override
   public void setPrefixKey(int prefixKey) {
+    if (page != null) {
+      if (setSignedFieldInPlace(NodeFieldLayout.PI_PREFIX_KEY, prefixKey)) return;
+    }
     this.prefixKey = prefixKey;
   }
 
   @Override
   public int getLocalNameKey() {
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.PI_LOCAL_NAME_KEY);
+    }
     return localNameKey;
   }
 
   @Override
   public void setLocalNameKey(int localNameKey) {
+    if (page != null) {
+      if (setSignedFieldInPlace(NodeFieldLayout.PI_LOCAL_NAME_KEY, localNameKey)) return;
+    }
     this.localNameKey = localNameKey;
   }
 
   @Override
   public int getURIKey() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.PI_URI_KEY);
+    }
     return uriKey;
   }
 
   @Override
   public void setURIKey(int uriKey) {
+    if (page != null) {
+      if (setSignedFieldInPlace(NodeFieldLayout.PI_URI_KEY, uriKey)) return;
+    }
     this.uriKey = uriKey;
   }
 
   @Override
   public int getPreviousRevisionNumber() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.PI_PREV_REVISION);
+    }
     return previousRevision;
   }
 
   @Override
   public void setPreviousRevision(int revision) {
+    if (page != null) {
+      if (setSignedFieldInPlace(NodeFieldLayout.PI_PREV_REVISION, revision)) return;
+    }
     this.previousRevision = revision;
   }
 
   @Override
   public int getLastModifiedRevisionNumber() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.PI_LAST_MOD_REVISION);
+    }
     return lastModifiedRevision;
   }
 
   @Override
   public void setLastModifiedRevision(int revision) {
+    if (page != null) {
+      if (setSignedFieldInPlace(NodeFieldLayout.PI_LAST_MOD_REVISION, revision)) return;
+    }
     this.lastModifiedRevision = revision;
   }
 
   @Override
   public long getHash() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
+    if (page != null) {
+      final long h = readLongField(NodeFieldLayout.PI_HASH);
+      if (h != 0L) return h;
+      if (hashFunction != null) {
+        final long computed = computeHash(Bytes.threadLocalHashBuffer());
+        setHash(computed);
+        return computed;
+      }
+      return 0L;
+    }
     if (hash == 0L && hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
@@ -391,12 +761,21 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   @Override
   public void setHash(long hash) {
+    if (page != null) {
+      // Hash is ALWAYS in-place (fixed 8 bytes)
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.PI_HASH) & 0xFF;
+      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
+      return;
+    }
     this.hash = hash;
   }
 
   @Override
   public byte[] getRawValue() {
-    if (!valueParsed) {
+    if (page != null && !valueParsed) {
+      readPayloadFromPage();
+    } else if (!valueParsed) {
       parseLazyValue();
     }
     if (value != null && isCompressed) {
@@ -408,6 +787,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   @Override
   public void setRawValue(byte[] value) {
+    if (page != null) unbind();
     this.value = value;
     this.valueParsed = true;
     this.lazyValueSource = null;
@@ -431,8 +811,9 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   @Override
   public String getValue() {
-    return value != null
-        ? new String(value, Constants.DEFAULT_ENCODING)
+    final byte[] raw = getRawValue();
+    return raw != null
+        ? new String(raw, Constants.DEFAULT_ENCODING)
         : "";
   }
 
@@ -450,7 +831,9 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
    * preserve the original compressed bytes.
    */
   public byte[] getRawValueWithoutDecompression() {
-    if (!valueParsed) {
+    if (page != null && !valueParsed) {
+      readPayloadFromPage();
+    } else if (!valueParsed) {
       parseLazyValue();
     }
     return value;
@@ -513,6 +896,8 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
    */
   public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId, LongHashFunction hashFunction,
       ResourceConfiguration config) {
+    // Unbind flyweight -- ensures getters use Java fields, not stale page reference
+    this.page = null;
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
@@ -588,16 +973,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     if (hashFunction == null)
       return 0L;
     bytes.clear();
-    bytes.writeLong(nodeKey).writeLong(parentKey).writeByte(getKind().getId());
-    bytes.writeLong(childCount)
-         .writeLong(descendantCount)
-         .writeLong(leftSiblingKey)
-         .writeLong(rightSiblingKey)
-         .writeLong(firstChildKey);
-    if (lastChildKey != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(lastChildKey);
+    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
+    bytes.writeLong(getChildCount())
+         .writeLong(getDescendantCount())
+         .writeLong(getLeftSiblingKey())
+         .writeLong(getRightSiblingKey())
+         .writeLong(getFirstChildKey());
+    if (getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
+      bytes.writeLong(getLastChildKey());
     }
-    bytes.writeInt(prefixKey).writeInt(localNameKey).writeInt(uriKey);
+    bytes.writeInt(getPrefixKey()).writeInt(getLocalNameKey()).writeInt(getURIKey());
     final byte[] rawValue = getRawValue();
     if (rawValue != null) {
       bytes.write(rawValue);
@@ -605,51 +990,59 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     return bytes.hashDirect(hashFunction);
   }
 
-  public void bindFixedSlotLazy(final MemorySegment slotData, final long baseOffset, final NodeKindLayout layout) {
-    this.lazyBaseOffset = baseOffset;
-    this.lazySource = slotData;
-    this.fixedSlotLayout = layout;
-    this.lazyFieldsParsed = false;
-  }
-
-  private void parseLazyFields() {
-    if (lazyFieldsParsed) {
-      return;
-    }
-
-    if (fixedSlotLayout != null) {
-      final MemorySegment sd = (MemorySegment) lazySource;
-      final NodeKindLayout ly = fixedSlotLayout;
-      final long off = this.lazyBaseOffset;
-      this.previousRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.PREVIOUS_REVISION);
-      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.LAST_MODIFIED_REVISION);
-      this.lastChildKey = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.LAST_CHILD_KEY);
-      this.childCount = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.CHILD_COUNT);
-      this.descendantCount = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.DESCENDANT_COUNT);
-      this.hash = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.HASH);
-      this.pathNodeKey = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.PATH_NODE_KEY);
-      this.uriKey = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.URI_KEY);
-      this.fixedSlotLayout = null;
-      this.lazyFieldsParsed = true;
-      return;
-    }
-
-    this.lazyFieldsParsed = true;
-  }
-
+  /**
+   * Create a deep copy snapshot of this node.
+   *
+   * @return a new instance with copied values
+   */
   public PINode toSnapshot() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
-    final byte[] rawValue = getRawValue();
-    return new PINode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
-        firstChildKey, lastChildKey, childCount, descendantCount, hash, pathNodeKey, prefixKey, localNameKey, uriKey,
-        rawValue != null
-            ? rawValue.clone()
-            : null,
-        isCompressed, hashFunction, deweyIDBytes != null
-            ? deweyIDBytes.clone()
-            : null,
+    if (page != null) {
+      final long nk = this.nodeKey;
+      if (!valueParsed) {
+        readPayloadFromPage();
+      }
+      final PINode snapshot = new PINode(
+          nk,
+          readDeltaField(NodeFieldLayout.PI_PARENT_KEY, nk),
+          readSignedField(NodeFieldLayout.PI_PREV_REVISION),
+          readSignedField(NodeFieldLayout.PI_LAST_MOD_REVISION),
+          readDeltaField(NodeFieldLayout.PI_RIGHT_SIB_KEY, nk),
+          readDeltaField(NodeFieldLayout.PI_LEFT_SIB_KEY, nk),
+          readDeltaField(NodeFieldLayout.PI_FIRST_CHILD_KEY, nk),
+          readDeltaField(NodeFieldLayout.PI_LAST_CHILD_KEY, nk),
+          readSignedLongField(NodeFieldLayout.PI_CHILD_COUNT),
+          readSignedLongField(NodeFieldLayout.PI_DESCENDANT_COUNT),
+          readLongField(NodeFieldLayout.PI_HASH),
+          readDeltaField(NodeFieldLayout.PI_PATH_NODE_KEY, nk),
+          readSignedField(NodeFieldLayout.PI_PREFIX_KEY),
+          readSignedField(NodeFieldLayout.PI_LOCAL_NAME_KEY),
+          readSignedField(NodeFieldLayout.PI_URI_KEY),
+          value != null ? value.clone() : null,
+          isCompressed,
+          hashFunction,
+          deweyIDBytes != null ? deweyIDBytes.clone() : null,
+          qNm);
+      if (sirixDeweyID != null) {
+        snapshot.sirixDeweyID = sirixDeweyID;
+      }
+      return snapshot;
+    }
+    if (!valueParsed) {
+      parseLazyValue();
+    }
+    final PINode snapshot = new PINode(
+        nodeKey, parentKey, previousRevision, lastModifiedRevision,
+        rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
+        childCount, descendantCount, hash, pathNodeKey,
+        prefixKey, localNameKey, uriKey,
+        value != null ? value.clone() : null,
+        isCompressed, hashFunction,
+        deweyIDBytes != null ? deweyIDBytes.clone() : null,
         qNm);
+    if (sirixDeweyID != null) {
+      snapshot.sirixDeweyID = sirixDeweyID;
+    }
+    return snapshot;
   }
 
   @Override

@@ -190,7 +190,8 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   protected abstract StructNode getStructuralNode();
 
   private void persistNode(final Node node) {
-    storageEngineWriter.updateRecordSlot(node, IndexType.DOCUMENT, -1);
+    // Ensure the mutated node is stored in the TIL's modified page.
+    storageEngineWriter.persistRecord(node, IndexType.DOCUMENT, -1);
   }
 
   /**

@@ -629,7 +629,15 @@ final class XmlNodeTrxImpl extends
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
-      moveToParent();
+      final boolean moveResult = moveToParent();
+      if (!moveResult) {
+        throw new IllegalStateException("moveToParent() failed from nodeKey=" + key
+            + " kind=" + currentKind + " parentKey=" + parentKey);
+      }
+      if (getKind() != NodeKind.ELEMENT && getKind() != NodeKind.XML_DOCUMENT) {
+        throw new IllegalStateException("After moveToParent(), expected ELEMENT or XML_DOCUMENT but got kind="
+            + getKind() + " nodeKey=" + getNodeKey() + " from child nodeKey=" + key + " kind=" + currentKind);
+      }
       final long pathNodeKey = buildPathSummary
           ? pathSummaryWriter.getPathNodeKey(name, NodeKind.ELEMENT)
           : 0;
@@ -1475,12 +1483,9 @@ final class XmlNodeTrxImpl extends
         if (!getName().equals(name)) {
           checkAccessAndCommit();
 
-          final NameNode node;
-          if (currentKind == NodeKind.ELEMENT || currentKind == NodeKind.PROCESSING_INSTRUCTION) {
-            node = (NameNode) nodeReadOnlyTrx.getStructuralNode();
-          } else {
-            node = (NameNode) nodeReadOnlyTrx.getCurrentNode();
-          }
+          // Get a TIL-owned copy via prepareRecordForModification (proper COW).
+          final NameNode node =
+              (NameNode) storageEngineWriter.prepareRecordForModification(getNodeKey(), IndexType.DOCUMENT, -1);
           final long oldHash = node.computeHash(bytes);
 
           // Remove old keys from mapping.
@@ -1560,13 +1565,11 @@ final class XmlNodeTrxImpl extends
         final long pathNodeKey = getPathNodeKey();
         moveTo(nodeKey);
 
-        final ValueNode node;
-        if (currentKind == NodeKind.TEXT || currentKind == NodeKind.COMMENT
-            || currentKind == NodeKind.PROCESSING_INSTRUCTION) {
-          node = (ValueNode) nodeReadOnlyTrx.getStructuralNode();
-        } else {
-          node = (ValueNode) nodeReadOnlyTrx.getCurrentNode();
-        }
+        // Get a TIL-owned copy via prepareRecordForModification (proper COW).
+        // This ensures mutations don't leak to read-only transactions that share
+        // the same cached page reference.
+        final ValueNode node =
+            (ValueNode) storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
         // Remove old value from indexes before mutating the node.
         notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
         final long oldHash = node.computeHash(bytes);

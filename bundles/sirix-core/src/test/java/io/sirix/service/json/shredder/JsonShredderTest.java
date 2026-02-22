@@ -10,6 +10,7 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Axis;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.settings.Fixed;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.PostOrderAxis;
 import io.sirix.io.StorageType;

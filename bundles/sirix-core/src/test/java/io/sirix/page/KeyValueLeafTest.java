@@ -2,7 +2,6 @@ package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.IndexType;
-import io.sirix.node.NodeKind;
 import io.sirix.node.json.BooleanNode;
 import io.sirix.settings.Constants;
 import net.openhft.hashing.LongHashFunction;
@@ -530,7 +529,7 @@ class KeyValueLeafPageTest {
   }
 
   @Test
-  void testSetRecordDefersSlotMaterializationUntilAddReferences() {
+  void testSetRecordSerializesFlyweightToHeapEagerly() {
     final long nodeKey = 1L;
     final int offset =
         (int) (nodeKey - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
@@ -539,10 +538,9 @@ class KeyValueLeafPageTest {
 
     keyValueLeafPage.setRecord(node);
 
+    // FlyweightNode records are serialized to the unified page heap eagerly by setRecord.
+    // The record is stored in records[] AND serialized to the heap for zero-copy binding.
     assertSame(node, keyValueLeafPage.getRecord(offset));
-    assertNull(keyValueLeafPage.getSlot(offset));
-
-    keyValueLeafPage.addReferences(new ResourceConfiguration.Builder("testResource").build());
     assertNotNull(keyValueLeafPage.getSlot(offset));
   }
 
@@ -564,35 +562,4 @@ class KeyValueLeafPageTest {
     assertArrayEquals(new byte[] {1, 2, 3}, slot.toArray(ValueLayout.JAVA_BYTE));
   }
 
-  @Test
-  void testFixedSlotFormatMarkersRoundTrip() {
-    final int slot = 13;
-    keyValueLeafPage.setSlot(new byte[] {7, 8, 9}, slot);
-
-    assertFalse(keyValueLeafPage.isFixedSlotFormat(slot));
-    assertNull(keyValueLeafPage.getFixedSlotNodeKind(slot));
-
-    keyValueLeafPage.markSlotAsFixedFormat(slot, NodeKind.BOOLEAN_VALUE);
-    assertTrue(keyValueLeafPage.isFixedSlotFormat(slot));
-    assertEquals(NodeKind.BOOLEAN_VALUE, keyValueLeafPage.getFixedSlotNodeKind(slot));
-
-    keyValueLeafPage.markSlotAsCompactFormat(slot);
-    assertFalse(keyValueLeafPage.isFixedSlotFormat(slot));
-    assertNull(keyValueLeafPage.getFixedSlotNodeKind(slot));
-  }
-
-  @Test
-  void testResetClearsFixedSlotFormatMetadata() {
-    final int slot = 17;
-    keyValueLeafPage.setSlot(new byte[] {1, 2}, slot);
-    keyValueLeafPage.markSlotAsFixedFormat(slot, NodeKind.OBJECT);
-
-    assertTrue(keyValueLeafPage.isFixedSlotFormat(slot));
-    assertEquals(NodeKind.OBJECT, keyValueLeafPage.getFixedSlotNodeKind(slot));
-
-    keyValueLeafPage.reset();
-
-    assertFalse(keyValueLeafPage.isFixedSlotFormat(slot));
-    assertNull(keyValueLeafPage.getFixedSlotNodeKind(slot));
-  }
 }

@@ -43,15 +43,14 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
+import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
-import io.sirix.node.layout.NodeKindLayout;
-import io.sirix.node.layout.SlotLayoutAccessors;
-import io.sirix.node.layout.StructuralField;
 import io.sirix.node.interfaces.NumericValueNode;
-import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.page.NodeFieldLayout;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -63,62 +62,72 @@ import java.math.BigInteger;
 /**
  * JSON Number node.
  *
- * <p>
- * Uses primitive fields for efficient storage with delta+varint encoding.
- * </p>
+ * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
  * 
  * @author Johannes Lichtenberger
  */
-public final class NumberNode implements StructNode, ImmutableJsonNode, NumericValueNode, ReusableNodeProxy {
+public final class NumberNode implements StructNode, ImmutableJsonNode, NumericValueNode, FlyweightNode {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
-
+  
   // Mutable structural fields
   private long parentKey;
   private long rightSiblingKey;
   private long leftSiblingKey;
-
+  
   // Mutable revision tracking
   private int previousRevision;
   private int lastModifiedRevision;
-
+  
   // Mutable hash (computed on demand for value nodes)
   private long hash;
-
+  
   // Number value
   private Number value;
-
+  
   // Hash function for computing node hashes (mutable for singleton reuse)
   private LongHashFunction hashFunction;
-
+  
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
 
   // Lazy parsing state (for singleton reuse optimization)
   // Two-stage lazy parsing: metadata (cheap) vs value (expensive Number allocation)
-  private Object lazySource; // Source for lazy parsing (MemorySegment or byte[])
-  private long lazyOffset; // Offset where lazy metadata fields start
-  private boolean metadataParsed; // Whether prevRev, lastModRev, hash are parsed
-  private boolean valueParsed; // Whether Number value is parsed
-  private boolean hasHash; // Whether hash is stored (from config)
-  private long valueOffset; // Offset where value starts (after metadata)
+  private Object lazySource;            // Source for lazy parsing (MemorySegment or byte[])
+  private long lazyOffset;              // Offset where lazy metadata fields start
+  private boolean metadataParsed;       // Whether prevRev, lastModRev, hash are parsed
+  private boolean valueParsed;          // Whether Number value is parsed
+  private boolean hasHash;              // Whether hash is stored (from config)
+  private long valueOffset;             // Offset where value starts (after metadata)
 
-  // Fixed-slot value encoding state (for read path via populateSingletonFromFixedSlot)
-  private boolean fixedValueEncoding; // Whether value comes from fixed-slot inline payload
-  private int fixedValueLength; // Length of inline payload bytes
-
-  // Fixed-slot lazy metadata support
-  private long lazyBaseOffset;
-  private NodeKindLayout fixedSlotLayout;
+  // ==================== FLYWEIGHT BINDING (LeanStore page-direct access) ====================
+  private MemorySegment page;
+  private long recordBase;
+  private long dataRegionStart;
+  private int slotIndex;
+  private static final int FIELD_COUNT = NodeFieldLayout.NUMBER_VALUE_FIELD_COUNT;
 
   /**
-   * Primary constructor with all primitive fields. All fields are already parsed - no lazy loading
-   * needed.
+   * Constructor for flyweight binding.
+   * All fields except nodeKey and hashFunction will be read from page memory after bind().
+   *
+   * @param nodeKey the node key
+   * @param hashFunction the hash function from resource config
    */
-  public NumberNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
-      long leftSiblingKey, long hash, Number value, LongHashFunction hashFunction, byte[] deweyID) {
+  public NumberNode(long nodeKey, LongHashFunction hashFunction) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+  }
+
+  /**
+   * Primary constructor with all primitive fields.
+   * All fields are already parsed - no lazy loading needed.
+   */
+  public NumberNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
+      Number value, LongHashFunction hashFunction, byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -135,11 +144,12 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   }
 
   /**
-   * Constructor with SirixDeweyID instead of byte array. All fields are already parsed - no lazy
-   * loading needed.
+   * Constructor with SirixDeweyID instead of byte array.
+   * All fields are already parsed - no lazy loading needed.
    */
-  public NumberNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
-      long leftSiblingKey, long hash, Number value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
+  public NumberNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
+      Number value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -155,6 +165,250 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     this.valueParsed = true;
   }
 
+  // ==================== FLYWEIGHT BIND/UNBIND ====================
+
+  public void bind(final MemorySegment page, final long recordBase, final long nodeKey,
+      final int slotIndex) {
+    this.page = page;
+    this.recordBase = recordBase;
+    this.nodeKey = nodeKey;
+    this.slotIndex = slotIndex;
+    this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
+    this.metadataParsed = true;
+    this.valueParsed = false;
+    this.lazySource = null;
+  }
+
+  public void unbind() {
+    if (page == null) return;
+    final long nk = this.nodeKey;
+    this.parentKey = readDeltaField(NodeFieldLayout.NUMVAL_PARENT_KEY, nk);
+    this.rightSiblingKey = readDeltaField(NodeFieldLayout.NUMVAL_RIGHT_SIB_KEY, nk);
+    this.leftSiblingKey = readDeltaField(NodeFieldLayout.NUMVAL_LEFT_SIB_KEY, nk);
+    this.previousRevision = readSignedField(NodeFieldLayout.NUMVAL_PREV_REVISION);
+    this.lastModifiedRevision = readSignedField(NodeFieldLayout.NUMVAL_LAST_MOD_REVISION);
+    this.hash = readLongField(NodeFieldLayout.NUMVAL_HASH);
+    if (!valueParsed) {
+      readPayloadFromPage();
+    }
+    this.page = null;
+  }
+
+  public boolean isBound() { return page != null; }
+
+  @Override
+  public boolean isBoundTo(final MemorySegment page) {
+    return this.page == page;
+  }
+
+  @Override
+  public int getSlotIndex() {
+    return slotIndex;
+  }
+
+  // ==================== FLYWEIGHT FIELD READ HELPERS ====================
+
+  private long readDeltaField(final int fieldIndex, final long baseKey) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(page, dataRegionStart + fieldOff, baseKey);
+  }
+
+  private int readSignedField(final int fieldIndex) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
+  }
+
+  private long readLongField(final int fieldIndex) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
+  }
+
+  private void setDeltaFieldInPlace(final int fieldIndex, final long newKey) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    final long absOff = dataRegionStart + fieldOff;
+    final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+    final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(newKey, nodeKey);
+    if (newWidth == currentWidth) {
+      DeltaVarIntCodec.writeDeltaToSegment(page, absOff, newKey, nodeKey);
+    } else {
+      unbind();
+    }
+  }
+
+  private boolean setSignedFieldInPlace(final int fieldIndex, final int newValue) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    final long absOff = dataRegionStart + fieldOff;
+    final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+    final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(newValue);
+    if (newWidth == currentWidth) {
+      DeltaVarIntCodec.writeSignedToSegment(page, absOff, newValue);
+      return true;
+    }
+    unbind();
+    return false;
+  }
+
+  /**
+   * Read the Number payload from page memory when bound.
+   * Uses the flyweight format written by {@link #serializeNumberToSegment}.
+   */
+  private void readPayloadFromPage() {
+    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE,
+        recordBase + 1 + NodeFieldLayout.NUMVAL_PAYLOAD) & 0xFF;
+    final long payloadStart = dataRegionStart + payloadFieldOff;
+    this.value = deserializeNumberFromSegment(page, payloadStart);
+    this.valueParsed = true;
+  }
+
+  /**
+   * Deserialize a Number value directly from a MemorySegment.
+   * Format must match {@link #serializeNumberToSegment} exactly:
+   * <pre>
+   *   Type 0 = Integer (zigzag varint)
+   *   Type 1 = Long (zigzag varlong)
+   *   Type 2 = Float (4 bytes, native endian raw bits)
+   *   Type 3 = Double (8 bytes, native endian raw bits)
+   *   Type 4 = BigDecimal (varint scale + varint byte-length + bytes)
+   *   Type 5 = BigInteger (varint byte-length + bytes)
+   * </pre>
+   *
+   * @param segment the MemorySegment containing the serialized number
+   * @param offset  the byte offset of the number type byte
+   * @return the deserialized Number
+   */
+  static Number deserializeNumberFromSegment(final MemorySegment segment, final long offset) {
+    final byte valueType = segment.get(ValueLayout.JAVA_BYTE, offset);
+    long pos = offset + 1;
+
+    return switch (valueType) {
+      case 0 -> // Integer (zigzag varint)
+          DeltaVarIntCodec.decodeSignedFromSegment(segment, pos);
+      case 1 -> // Long (zigzag varlong)
+          DeltaVarIntCodec.decodeSignedLongFromSegment(segment, pos);
+      case 2 -> // Float (4 bytes raw bits, native endian)
+          Float.intBitsToFloat(segment.get(ValueLayout.JAVA_INT_UNALIGNED, pos));
+      case 3 -> // Double (8 bytes raw bits, native endian)
+          Double.longBitsToDouble(segment.get(ValueLayout.JAVA_LONG_UNALIGNED, pos));
+      case 4 -> { // BigDecimal (varint scale + varint byte-length + bytes)
+        final int scale = DeltaVarIntCodec.decodeSignedFromSegment(segment, pos);
+        final int scaleWidth = DeltaVarIntCodec.readSignedVarintWidth(segment, pos);
+        pos += scaleWidth;
+        final int bytesLen = DeltaVarIntCodec.decodeSignedFromSegment(segment, pos);
+        final int bytesLenWidth = DeltaVarIntCodec.readSignedVarintWidth(segment, pos);
+        pos += bytesLenWidth;
+        final byte[] bytes = new byte[bytesLen];
+        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, pos, bytes, 0, bytesLen);
+        yield new BigDecimal(new BigInteger(bytes), scale);
+      }
+      case 5 -> { // BigInteger (varint byte-length + bytes)
+        final int bytesLen = DeltaVarIntCodec.decodeSignedFromSegment(segment, pos);
+        final int bytesLenWidth = DeltaVarIntCodec.readSignedVarintWidth(segment, pos);
+        pos += bytesLenWidth;
+        final byte[] bytes = new byte[bytesLen];
+        MemorySegment.copy(segment, ValueLayout.JAVA_BYTE, pos, bytes, 0, bytesLen);
+        yield new BigInteger(bytes);
+      }
+      default -> throw new IllegalStateException("Unknown flyweight number type: " + valueType);
+    };
+  }
+
+  // ==================== SERIALIZE TO HEAP ====================
+
+  public int serializeToHeap(final MemorySegment target, final long offset) {
+    if (!metadataParsed) parseMetadataFields();
+    if (!valueParsed) parseValueField();
+
+    long pos = offset;
+    target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.NUMBER_VALUE.getId());
+    pos++;
+
+    final long offsetTableStart = pos;
+    pos += FIELD_COUNT;
+    final long dataStart = pos;
+    final int[] offsets = new int[FIELD_COUNT];
+
+    offsets[NodeFieldLayout.NUMVAL_PARENT_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
+
+    offsets[NodeFieldLayout.NUMVAL_RIGHT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, rightSiblingKey, nodeKey);
+
+    offsets[NodeFieldLayout.NUMVAL_LEFT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, leftSiblingKey, nodeKey);
+
+    offsets[NodeFieldLayout.NUMVAL_PREV_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, previousRevision);
+
+    offsets[NodeFieldLayout.NUMVAL_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModifiedRevision);
+
+    offsets[NodeFieldLayout.NUMVAL_HASH] = (int) (pos - dataStart);
+    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
+    pos += Long.BYTES;
+
+    // Payload: serialize Number via type dispatch
+    offsets[NodeFieldLayout.NUMVAL_PAYLOAD] = (int) (pos - dataStart);
+    pos += serializeNumberToSegment(target, pos, value);
+
+    for (int i = 0; i < FIELD_COUNT; i++) {
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) offsets[i]);
+    }
+
+    return (int) (pos - offset);
+  }
+
+  /**
+   * Serialize a Number value directly to a MemorySegment.
+   * Format: [numberType:1][numberData:variable]
+   */
+  private static int serializeNumberToSegment(final MemorySegment target, final long offset,
+      final Number number) {
+    long pos = offset;
+    switch (number) {
+      case Integer intVal -> {
+        target.set(ValueLayout.JAVA_BYTE, pos, (byte) 0);
+        pos++;
+        pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, intVal);
+      }
+      case Long longVal -> {
+        target.set(ValueLayout.JAVA_BYTE, pos, (byte) 1);
+        pos++;
+        pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, longVal);
+      }
+      case Float floatVal -> {
+        target.set(ValueLayout.JAVA_BYTE, pos, (byte) 2);
+        pos++;
+        target.set(ValueLayout.JAVA_INT_UNALIGNED, pos, Float.floatToRawIntBits(floatVal));
+        pos += Float.BYTES;
+      }
+      case Double doubleVal -> {
+        target.set(ValueLayout.JAVA_BYTE, pos, (byte) 3);
+        pos++;
+        target.set(ValueLayout.JAVA_LONG_UNALIGNED, pos, Double.doubleToRawLongBits(doubleVal));
+        pos += Double.BYTES;
+      }
+      case BigDecimal bigDecimalVal -> {
+        target.set(ValueLayout.JAVA_BYTE, pos, (byte) 4);
+        pos++;
+        final byte[] bytes = bigDecimalVal.unscaledValue().toByteArray();
+        pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, bigDecimalVal.scale());
+        pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, bytes.length);
+        MemorySegment.copy(bytes, 0, target, ValueLayout.JAVA_BYTE, pos, bytes.length);
+        pos += bytes.length;
+      }
+      case BigInteger bigIntegerVal -> {
+        target.set(ValueLayout.JAVA_BYTE, pos, (byte) 5);
+        pos++;
+        final byte[] bytes = bigIntegerVal.toByteArray();
+        pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, bytes.length);
+        MemorySegment.copy(bytes, 0, target, ValueLayout.JAVA_BYTE, pos, bytes.length);
+        pos += bytes.length;
+      }
+      default -> throw new IllegalStateException("Unexpected number type: " + number.getClass());
+    }
+    return (int) (pos - offset);
+  }
+
   @Override
   public NodeKind getKind() {
     return NodeKind.NUMBER_VALUE;
@@ -167,16 +421,23 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
 
   @Override
   public long getParentKey() {
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.NUMVAL_PARENT_KEY, nodeKey);
+    }
     return parentKey;
   }
 
   public void setParentKey(final long parentKey) {
+    if (page != null) {
+      setDeltaFieldInPlace(NodeFieldLayout.NUMVAL_PARENT_KEY, parentKey);
+      if (page != null) return;
+    }
     this.parentKey = parentKey;
   }
 
   @Override
   public boolean hasParent() {
-    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -197,16 +458,27 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
 
   @Override
   public void setPreviousRevision(final int revision) {
+    if (page != null) {
+      if (setSignedFieldInPlace(NodeFieldLayout.NUMVAL_PREV_REVISION, revision)) return;
+      unbind();
+    }
     this.previousRevision = revision;
   }
 
   @Override
   public void setLastModifiedRevision(final int revision) {
+    if (page != null) {
+      if (setSignedFieldInPlace(NodeFieldLayout.NUMVAL_LAST_MOD_REVISION, revision)) return;
+      unbind();
+    }
     this.lastModifiedRevision = revision;
   }
 
   @Override
   public long getHash() {
+    if (page != null) {
+      return readLongField(NodeFieldLayout.NUMVAL_HASH);
+    }
     if (!metadataParsed) {
       parseMetadataFields();
     }
@@ -215,13 +487,21 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
 
   @Override
   public void setHash(final long hash) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.NUMVAL_HASH) & 0xFF;
+      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
+      return;
+    }
     this.hash = hash;
   }
 
   @Override
   public long computeHash(final BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey())
+         .writeLong(getParentKey())
+         .writeByte(getKind().getId());
 
     bytes.writeLong(getChildCount())
          .writeLong(getDescendantCount())
@@ -244,24 +524,38 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
       default -> throw new IllegalStateException("Unexpected value: " + number);
     }
 
-    return bytes.hashDirect(hashFunction);
+    return hashFunction.hashBytes(bytes.toByteArray());
   }
 
   @Override
   public long getRightSiblingKey() {
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.NUMVAL_RIGHT_SIB_KEY, nodeKey);
+    }
     return rightSiblingKey;
   }
 
   public void setRightSiblingKey(final long rightSibling) {
+    if (page != null) {
+      setDeltaFieldInPlace(NodeFieldLayout.NUMVAL_RIGHT_SIB_KEY, rightSibling);
+      if (page != null) return;
+    }
     this.rightSiblingKey = rightSibling;
   }
 
   @Override
   public long getLeftSiblingKey() {
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.NUMVAL_LEFT_SIB_KEY, nodeKey);
+    }
     return leftSiblingKey;
   }
 
   public void setLeftSiblingKey(final long leftSibling) {
+    if (page != null) {
+      setDeltaFieldInPlace(NodeFieldLayout.NUMVAL_LEFT_SIB_KEY, leftSibling);
+      if (page != null) return;
+    }
     this.leftSiblingKey = leftSibling;
   }
 
@@ -269,7 +563,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   public long getFirstChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-
+  
   public void setFirstChildKey(final long firstChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -278,7 +572,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   public long getLastChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-
+  
   public void setLastChildKey(final long lastChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -287,7 +581,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   public long getChildCount() {
     return 0;
   }
-
+  
   public void setChildCount(final long childCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -296,22 +590,23 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   public long getDescendantCount() {
     return 0;
   }
-
+  
   public void setDescendantCount(final long descendantCount) {
     // Value nodes are leaf nodes - no-op
   }
 
   public Number getValue() {
-    if (!valueParsed) {
+    if (page != null && !valueParsed) {
+      readPayloadFromPage();
+    } else if (!valueParsed) {
       parseValueField();
     }
     return value;
   }
 
   public void setValue(final Number value) {
+    if (page != null) unbind();
     this.value = value;
-    this.fixedValueEncoding = false;
-    this.valueParsed = true;
   }
 
   @Override
@@ -346,16 +641,19 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
 
   @Override
   public boolean hasLeftSibling() {
-    return leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasRightSibling() {
-    return rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public int getPreviousRevisionNumber() {
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.NUMVAL_PREV_REVISION);
+    }
     if (!metadataParsed) {
       parseMetadataFields();
     }
@@ -364,6 +662,9 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
 
   @Override
   public int getLastModifiedRevisionNumber() {
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.NUMVAL_LAST_MOD_REVISION);
+    }
     if (!metadataParsed) {
       parseMetadataFields();
     }
@@ -379,18 +680,15 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     this.nodeKey = nodeKey;
   }
 
-  public void setDeweyIDBytes(final byte[] deweyIDBytes) {
-    this.deweyIDBytes = deweyIDBytes;
-    this.sirixDeweyID = null;
-  }
-
   /**
-   * Populate this node from a BytesIn source for singleton reuse. LAZY OPTIMIZATION: Only parses
-   * structural fields immediately. Two-stage lazy parsing: metadata (cheap) vs value (expensive
-   * Number allocation).
+   * Populate this node from a BytesIn source for singleton reuse.
+   * LAZY OPTIMIZATION: Only parses structural fields immediately.
+   * Two-stage lazy parsing: metadata (cheap) vs value (expensive Number allocation).
    */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-      final LongHashFunction hashFunction, final ResourceConfiguration config) {
+                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+    // Unbind flyweight — ensures getters use Java fields, not stale page reference
+    this.page = null;
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
@@ -408,64 +706,30 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     this.valueParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
     this.valueOffset = 0;
-
+    
     // Initialize lazy fields to defaults (will be populated on demand)
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.hash = 0;
     this.value = null;
   }
-
+  
   /**
-   * Populate this singleton from fixed-slot inline payload (zero allocation). Sets up lazy value
-   * parsing from the fixed-slot MemorySegment. CRITICAL: Resets hash to 0 — caller MUST call
-   * setHash() AFTER this method.
-   *
-   * @param source the slot data (MemorySegment) containing inline payload
-   * @param valueOffset byte offset within source where payload bytes start
-   * @param valueLength length of payload bytes
+   * Parse metadata fields on demand (cheap - just varints and optionally a long).
+   * Called by getters that access prevRev, lastModRev, or hash.
    */
-  public void setLazyNumberValue(final Object source, final long valueOffset, final int valueLength) {
-    this.lazySource = source;
-    this.valueOffset = valueOffset;
-    this.metadataParsed = true;
-    this.valueParsed = false;
-    this.fixedValueEncoding = true;
-    this.fixedValueLength = valueLength;
-    this.value = null;
-    this.hash = 0L;
-  }
-
-  public void bindFixedSlotLazy(final MemorySegment slotData, final long baseOffset, final NodeKindLayout layout) {
-    this.lazyBaseOffset = baseOffset;
-    this.fixedSlotLayout = layout;
-    this.metadataParsed = false;
-  }
-
   private void parseMetadataFields() {
     if (metadataParsed) {
       return;
     }
-
-    if (fixedSlotLayout != null) {
-      final MemorySegment sd = (MemorySegment) lazySource;
-      final NodeKindLayout ly = fixedSlotLayout;
-      final long off = this.lazyBaseOffset;
-      this.previousRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.PREVIOUS_REVISION);
-      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.LAST_MODIFIED_REVISION);
-      this.hash = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.HASH);
-      this.fixedSlotLayout = null;
-      this.metadataParsed = true;
-      return;
-    }
-
+    
     if (lazySource == null) {
       metadataParsed = true;
       return;
     }
-
+    
     BytesIn<?> bytesIn = createBytesIn(lazyOffset);
-
+    
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     if (hasHash) {
@@ -474,7 +738,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     this.valueOffset = bytesIn.position();
     this.metadataParsed = true;
   }
-
+  
   /**
    * Parse value field on demand (expensive - may allocate BigDecimal/BigInteger).
    */
@@ -482,33 +746,21 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     if (valueParsed) {
       return;
     }
-
-    // Fixed-slot inline payload path (from setLazyNumberValue)
-    if (fixedValueEncoding) {
-      if (fixedValueLength > 0) {
-        final BytesIn<?> bytesIn = createBytesIn(valueOffset);
-        this.value = NodeKind.deserializeNumber(bytesIn);
-      } else {
-        this.value = 0;
-      }
-      this.valueParsed = true;
-      return;
-    }
-
+    
     if (!metadataParsed) {
       parseMetadataFields();
     }
-
+    
     if (lazySource == null) {
       valueParsed = true;
       return;
     }
-
-    final BytesIn<?> bytesIn = createBytesIn(valueOffset);
+    
+    BytesIn<?> bytesIn = createBytesIn(valueOffset);
     this.value = NodeKind.deserializeNumber(bytesIn);
     this.valueParsed = true;
   }
-
+  
   private BytesIn<?> createBytesIn(long offset) {
     if (lazySource instanceof MemorySegment segment) {
       var bytesIn = new MemorySegmentBytesIn(segment);
@@ -524,10 +776,25 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   }
 
   /**
-   * Create a deep copy snapshot of this node. Forces parsing of all lazy fields since snapshot must
-   * be independent.
+   * Create a deep copy snapshot of this node.
+   * Forces parsing of all lazy fields since snapshot must be independent.
    */
   public NumberNode toSnapshot() {
+    if (page != null) {
+      // Bound mode: read all fields from page
+      if (!valueParsed) {
+        readPayloadFromPage();
+      }
+      return new NumberNode(nodeKey,
+          readDeltaField(NodeFieldLayout.NUMVAL_PARENT_KEY, nodeKey),
+          readSignedField(NodeFieldLayout.NUMVAL_PREV_REVISION),
+          readSignedField(NodeFieldLayout.NUMVAL_LAST_MOD_REVISION),
+          readDeltaField(NodeFieldLayout.NUMVAL_RIGHT_SIB_KEY, nodeKey),
+          readDeltaField(NodeFieldLayout.NUMVAL_LEFT_SIB_KEY, nodeKey),
+          readLongField(NodeFieldLayout.NUMVAL_HASH),
+          value, hashFunction,
+          deweyIDBytes != null ? deweyIDBytes.clone() : null);
+    }
     // Force parse all lazy fields for snapshot (must be complete and independent)
     if (!metadataParsed) {
       parseMetadataFields();
@@ -535,10 +802,9 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     if (!valueParsed) {
       parseValueField();
     }
-    return new NumberNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
-        hash, value, hashFunction, deweyIDBytes != null
-            ? deweyIDBytes.clone()
-            : null);
+    return new NumberNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
+        rightSiblingKey, leftSiblingKey, hash, value, hashFunction,
+        deweyIDBytes != null ? deweyIDBytes.clone() : null);
   }
 
   @Override
@@ -585,6 +851,8 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     if (!(obj instanceof final NumberNode other))
       return false;
 
-    return nodeKey == other.nodeKey && parentKey == other.parentKey && Objects.equal(value, other.value);
+    return nodeKey == other.nodeKey
+        && parentKey == other.parentKey
+        && Objects.equal(value, other.value);
   }
 }

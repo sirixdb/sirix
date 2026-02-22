@@ -85,18 +85,18 @@ public interface StorageEngineWriter extends StorageEngineReader {
   <V extends DataRecord> V prepareRecordForModification(@NonNegative long key, @NonNull IndexType indexType, int index);
 
   /**
-   * Persist a modified record directly back into its record-page slot.
+   * Persist a mutated record into the TIL's modified page.
+   * Ensures the record's page is prepared for modification in the TIL
+   * and stores the record in the modified page's records[].
    *
-   * <p>
-   * This is the hot update path used to keep page slot memory in sync with in-memory mutable records
-   * without waiting for commit-time materialization.
-   * </p>
+   * <p>This is used by mutation operations (setName, setValue, hash updates) that
+   * mutate the current node directly without going through prepareRecordForModification.</p>
    *
-   * @param record modified record to persist
+   * @param record    the mutated record to persist
    * @param indexType the index type
-   * @param index the index number
+   * @param index     the index number
    */
-  void updateRecordSlot(@NonNull DataRecord record, @NonNull IndexType indexType, int index);
+  void persistRecord(@NonNull DataRecord record, @NonNull IndexType indexType, int index);
 
   /**
    * Remove an entry from the storage.

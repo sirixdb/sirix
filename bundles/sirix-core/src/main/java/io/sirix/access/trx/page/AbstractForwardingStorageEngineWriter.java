@@ -46,8 +46,8 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
-  public void updateRecordSlot(@NonNull DataRecord record, @NonNull IndexType indexType, int index) {
-    delegate().updateRecordSlot(record, indexType, index);
+  public void persistRecord(@NonNull DataRecord record, @NonNull IndexType indexType, int index) {
+    delegate().persistRecord(record, indexType, index);
   }
 
   @Override

@@ -182,7 +182,8 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
   }
 
   private void persistUpdatedRecord(final DataRecord record) {
-    storageEngineWriter.updateRecordSlot(record, IndexType.DOCUMENT, -1);
+    // Ensure the mutated record is stored in the TIL's modified page.
+    storageEngineWriter.persistRecord(record, IndexType.DOCUMENT, -1);
   }
 
 }

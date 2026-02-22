@@ -36,8 +36,9 @@ package io.sirix;
 public enum BinaryEncodingVersion {
 
   /**
-   * Zero-copy format: slot offsets array + raw slotMemory blob. Enables direct buffer slice as page
-   * storage without copying.
+   * Unified page format: Header(32B) + Bitmap(128B) + Directory(8KB) + Heap.
+   * FlyweightNode records bind directly to page memory for zero-copy reads.
+   * Non-FlyweightNode records are serialized to the heap at commit time.
    */
   V0((byte) 0);
 

@@ -181,13 +181,21 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       throws IOException {
     final BytesIn<?> uncompressedBytes = byteBufferBytes.bytesForRead();
 
-    if (page instanceof KeyValueLeafPage keyValueLeafPage && keyValueLeafPage.getBytes() != null) {
-      final var cached = keyValueLeafPage.getBytes();
-      if (cached instanceof MemorySegmentBytesOut msOut) {
-        MemorySegment segment = msOut.getDestination();
-        return segmentToByteArray(segment);
+    if (page instanceof KeyValueLeafPage keyValueLeafPage) {
+      // Check compressed MemorySegment cache first (unified page format path)
+      final MemorySegment cachedSegment = keyValueLeafPage.getCompressedSegment();
+      if (cachedSegment != null) {
+        return segmentToByteArray(cachedSegment);
       }
-      return cached.toByteArray();
+      // Check legacy byte[] cache
+      final var cached = keyValueLeafPage.getBytes();
+      if (cached != null) {
+        if (cached instanceof MemorySegmentBytesOut msOut) {
+          MemorySegment segment = msOut.getDestination();
+          return segmentToByteArray(segment);
+        }
+        return cached.toByteArray();
+      }
     }
 
     final var pipeline = resourceConfiguration.byteHandlePipeline;
