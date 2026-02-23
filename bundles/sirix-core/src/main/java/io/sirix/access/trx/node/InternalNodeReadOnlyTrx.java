@@ -13,6 +13,14 @@ public interface InternalNodeReadOnlyTrx<N extends ImmutableNode> extends NodeCu
 
   StructNode getStructuralNode();
 
+  /**
+   * Returns a live view of the current structural node without allocating a snapshot.
+   * When the cursor is in singleton mode, returns the singleton directly (zero-alloc).
+   * The returned reference must NOT be retained across moveTo/prepareRecordForModification
+   * calls — extract needed values into local primitives immediately.
+   */
+  StructNode getStructuralNodeView();
+
   void assertNotClosed();
 
   void setPageReadTransaction(StorageEngineReader trx);

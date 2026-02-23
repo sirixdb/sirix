@@ -293,7 +293,10 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
          .writeLong(getParentKey())
          .writeByte(getKind().getId());
 
-    bytes.writeUtf8(getValue());
+    final byte[] rawValue = getRawValue();
+    if (rawValue != null) {
+      bytes.write(rawValue);
+    }
 
     return hashFunction.hashBytes(bytes.toByteArray());
   }

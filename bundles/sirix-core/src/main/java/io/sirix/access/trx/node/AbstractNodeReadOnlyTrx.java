@@ -1682,6 +1682,17 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
+  public final StructNode getStructuralNodeView() {
+    if (currentNode instanceof StructNode structNode) {
+      return structNode;
+    }
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode structNode) {
+      return structNode;
+    }
+    return getStructuralNode();
+  }
+
+  @Override
   public boolean moveToNextFollowing() {
     assertNotClosed();
     // Use flyweight getters to avoid node materialization
