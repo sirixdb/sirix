@@ -197,6 +197,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private final LinkedHashMap<IndexLogKey, PageContainer> pageContainerCache;
 
   /**
+   * Optional binder for write-path singletons.
+   * When set, prepareRecordForModification uses factory singletons instead of allocating new nodes.
+   */
+  private WriteSingletonBinder writeSingletonBinder;
+
+  /**
    * Constructor.
    *
    * @param writer the page writer
@@ -285,6 +291,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  public void setWriteSingletonBinder(final WriteSingletonBinder binder) {
+    this.writeSingletonBinder = binder;
+  }
+
+  @Override
   public BytesOut<?> newBufferedBytesInstance() {
     bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
     return bufferBytes;
@@ -326,7 +337,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return record;
     }
 
-    // Try records[] on the modified page.
+    // Zero-allocation fast path: bind write singleton to modified page's slotted page.
+    // Write singletons are NOT stored in records[], so this path is hit on every access
+    // to a previously created/modified record. The bind is cheap (4 field assignments).
+    if (writeSingletonBinder != null && modifiedPage instanceof KeyValueLeafPage kvl
+        && kvl.hasSlottedPageSlot(recordKey)) {
+      record = writeSingletonBinder.bind(kvl, recordOffset, recordKey);
+      if (record != null) {
+        return record;
+      }
+    }
+
+    // Try deserialization from modified page's slotted page (non-singleton path).
     record = storageEngineReader.getValue(modifiedPage, recordKey);
     if (record != null) {
       modifiedPage.setRecord(record);
@@ -357,7 +379,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     record = oldRecord;
 
     // Unbind flyweight from complete page — ensures mutations go to Java fields,
-    // not the old revision's MemorySegment. processEntries will re-serialize.
+    // not the old revision's MemorySegment. setRecord will re-serialize to modified page.
     if (record instanceof FlyweightNode fn && fn.isBound()) {
       fn.unbind();
     }

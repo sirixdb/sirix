@@ -115,6 +115,9 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
   /** Slot index in the page directory (for re-serialization). */
   private int slotIndex;
 
+  /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
+  private boolean writeSingleton;
+
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NUMBER_VALUE_FIELD_COUNT;
 
   /** Thread-local buffer for serializing Number payloads during serializeToHeap. */
@@ -699,6 +702,16 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     return new ObjectNumberNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         hash, value, hashFunction,
         deweyIDBytes != null ? deweyIDBytes.clone() : null);
+  }
+
+  @Override
+  public boolean isWriteSingleton() {
+    return writeSingleton;
+  }
+
+  @Override
+  public void setWriteSingleton(final boolean writeSingleton) {
+    this.writeSingleton = writeSingleton;
   }
 
   @Override

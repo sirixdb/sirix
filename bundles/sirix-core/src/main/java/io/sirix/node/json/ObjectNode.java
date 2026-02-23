@@ -115,6 +115,9 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
   /** Slot index in the page directory (for re-serialization). */
   private int slotIndex;
 
+  /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
+  private boolean writeSingleton;
+
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_FIELD_COUNT;
 
   /**
@@ -814,6 +817,16 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
         rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey, childCount,
         descendantCount, hash, hashFunction,
         deweyIDBytes != null ? deweyIDBytes.clone() : null);
+  }
+
+  @Override
+  public boolean isWriteSingleton() {
+    return writeSingleton;
+  }
+
+  @Override
+  public void setWriteSingleton(final boolean writeSingleton) {
+    this.writeSingleton = writeSingleton;
   }
 
   @Override

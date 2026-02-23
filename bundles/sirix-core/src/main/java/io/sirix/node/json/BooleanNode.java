@@ -111,6 +111,9 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   /** Slot index in the page directory (for re-serialization). */
   private int slotIndex;
 
+  /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
+  private boolean writeSingleton;
+
   private static final int FIELD_COUNT = NodeFieldLayout.BOOLEAN_VALUE_FIELD_COUNT;
 
   /**
@@ -689,6 +692,16 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
     return new BooleanNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, hash, value, hashFunction,
         deweyIDBytes != null ? deweyIDBytes.clone() : null);
+  }
+
+  @Override
+  public boolean isWriteSingleton() {
+    return writeSingleton;
+  }
+
+  @Override
+  public void setWriteSingleton(final boolean writeSingleton) {
+    this.writeSingleton = writeSingleton;
   }
 
   @Override

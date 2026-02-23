@@ -115,6 +115,9 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   /** Slot index in the page directory (for re-serialization). */
   private int slotIndex;
 
+  /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
+  private boolean writeSingleton;
+
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
 
   /**
@@ -714,6 +717,16 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   @Override
   public boolean hasRightSibling() {
     return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
+  }
+
+  @Override
+  public boolean isWriteSingleton() {
+    return writeSingleton;
+  }
+
+  @Override
+  public void setWriteSingleton(final boolean writeSingleton) {
+    this.writeSingleton = writeSingleton;
   }
 
   @Override

@@ -114,6 +114,10 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   private long recordBase;
   private long dataRegionStart;
   private int slotIndex;
+
+  /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
+  private boolean writeSingleton;
+
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_STRING_VALUE_FIELD_COUNT;
 
   /**
@@ -811,6 +815,16 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
         hash, value != null ? value.clone() : null, hashFunction,
         deweyIDBytes != null ? deweyIDBytes.clone() : null,
         isCompressed, fsstSymbolTable != null ? fsstSymbolTable.clone() : null);
+  }
+
+  @Override
+  public boolean isWriteSingleton() {
+    return writeSingleton;
+  }
+
+  @Override
+  public void setWriteSingleton(final boolean writeSingleton) {
+    this.writeSingleton = writeSingleton;
   }
 
   @Override

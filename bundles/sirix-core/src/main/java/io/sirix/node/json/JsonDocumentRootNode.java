@@ -102,6 +102,9 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   /** Slot index in the page directory (for re-serialization). */
   private int slotIndex;
 
+  /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
+  private boolean writeSingleton;
+
   private static final int FIELD_COUNT = NodeFieldLayout.JSON_DOCUMENT_ROOT_FIELD_COUNT;
 
   /**
@@ -592,6 +595,16 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   @Override
   public void setTypeKey(int typeKey) {
     // Not supported for JSON nodes
+  }
+
+  @Override
+  public boolean isWriteSingleton() {
+    return writeSingleton;
+  }
+
+  @Override
+  public void setWriteSingleton(final boolean writeSingleton) {
+    this.writeSingleton = writeSingleton;
   }
 
   @Override

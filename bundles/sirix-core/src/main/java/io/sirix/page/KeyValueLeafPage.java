@@ -511,6 +511,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         fn.unbind();
         serializeToHeap(fn, key, offset);
       }
+      // Write singletons must NOT be stored in records[] — they are rebound per-access
+      // by prepareRecordForModification. Storing them would cause aliasing: multiple slots
+      // pointing to the same singleton object. Data is already on the slotted page heap.
+      if (fn.isWriteSingleton()) {
+        return;
+      }
     }
 
     records[offset] = record;
@@ -620,6 +626,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     fn.bind(slottedPage, absOffset, nodeKey, offset);
   }
 
+
+  /**
+   * Check if the slotted page has a populated slot for the given record key.
+   *
+   * @param recordKey the record key
+   * @return true if the slot is populated on the slotted page
+   */
+  public boolean hasSlottedPageSlot(final long recordKey) {
+    if (slottedPage == null) {
+      return false;
+    }
+    final int offset = (int) (recordKey - ((recordKey >> Constants.NDP_NODE_COUNT_EXPONENT)
+        << Constants.NDP_NODE_COUNT_EXPONENT));
+    return PageLayout.isSlotPopulated(slottedPage, offset);
+  }
 
   /**
    * Allocate and initialize the slotted page if not yet present.
@@ -2065,6 +2086,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       for (int i = 0; i < records.length; i++) {
         final DataRecord record = records[i];
         if (record == null) {
+          // Write singletons (FlyweightNode.isWriteSingleton()) are never stored in records[] —
+          // their data is already serialized to the slotted page heap via serializeToHeap() in setRecord().
           continue;
         }
         if (record instanceof FlyweightNode fn) {

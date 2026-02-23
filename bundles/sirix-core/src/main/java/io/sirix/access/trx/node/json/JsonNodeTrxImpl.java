@@ -220,6 +220,11 @@ final class JsonNodeTrxImpl extends
 
     // Auto-create CAS indexes for valid time paths on bootstrap
     createValidTimeIndexesIfNeeded(resourceSession.getResourceConfig());
+
+    // Wire write singleton binder for zero-allocation write path.
+    if (nodeFactory instanceof JsonNodeFactoryImpl factoryImpl) {
+      wireWriteSingletonBinder(factoryImpl, storageEngineWriter);
+    }
   }
 
   /**
@@ -612,15 +617,16 @@ final class JsonNodeTrxImpl extends
           : deweyIDManager.newFirstChildID();
 
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      adaptNodesAndHashesForInsertAsChild(nodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -661,15 +667,16 @@ final class JsonNodeTrxImpl extends
               : deweyIDManager.newLastChildID());
 
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      adaptNodesAndHashesForInsertAsChild(nodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -704,15 +711,16 @@ final class JsonNodeTrxImpl extends
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
 
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(node);
+      insertAsSibling(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -747,15 +755,16 @@ final class JsonNodeTrxImpl extends
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(node);
+      insertAsSibling(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -793,23 +802,24 @@ final class JsonNodeTrxImpl extends
 
       final ObjectKeyNode node = nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey,
           key, Fixed.NULL_NODE_KEY.getStandardProperty(), id);
+      final long nodeKey = node.getNodeKey();
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      adaptNodesAndHashesForInsertAsChild(nodeKey);
 
-      nodeReadOnlyTrx.setCurrentNode(node);
+      moveTo(nodeKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
 
       insertValue(value);
 
-      setFirstChildOfObjectKeyNode(node);
+      setFirstChildOfObjectKeyNode(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -849,23 +859,24 @@ final class JsonNodeTrxImpl extends
 
       final ObjectKeyNode node = nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey,
           key, Fixed.NULL_NODE_KEY.getStandardProperty(), id);
+      final long nodeKey = node.getNodeKey();
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      adaptNodesAndHashesForInsertAsChild(nodeKey);
 
-      nodeReadOnlyTrx.setCurrentNode(node);
+      moveTo(nodeKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
 
       insertValue(value);
 
-      setFirstChildOfObjectKeyNode(node);
+      setFirstChildOfObjectKeyNode(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -897,8 +908,8 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private void setFirstChildOfObjectKeyNode(final ObjectKeyNode node) {
-    final ObjectKeyNode objectKeyNode = storageEngineWriter.prepareRecordForModification(node.getNodeKey(), IndexType.DOCUMENT, -1);
+  private void setFirstChildOfObjectKeyNode(final long objectKeyNodeKey) {
+    final ObjectKeyNode objectKeyNode = storageEngineWriter.prepareRecordForModification(objectKeyNodeKey, IndexType.DOCUMENT, -1);
     objectKeyNode.setFirstChildKey(getNodeKey());
     persistUpdatedRecord(objectKeyNode);
   }
@@ -966,19 +977,20 @@ final class JsonNodeTrxImpl extends
 
       final ObjectKeyNode node =
           nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(node);
+      insertAsSibling(nodeKey);
 
       insertValue(value);
 
-      setFirstChildOfObjectKeyNode(node);
+      setFirstChildOfObjectKeyNode(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1018,19 +1030,20 @@ final class JsonNodeTrxImpl extends
 
       final ObjectKeyNode node =
           nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(node);
+      insertAsSibling(nodeKey);
 
       insertValue(value);
 
-      setFirstChildOfObjectKeyNode(node);
+      setFirstChildOfObjectKeyNode(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1068,17 +1081,18 @@ final class JsonNodeTrxImpl extends
           : deweyIDManager.newFirstChildID();
 
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      adaptNodesAndHashesForInsertAsChild(nodeKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1118,17 +1132,18 @@ final class JsonNodeTrxImpl extends
               : deweyIDManager.newLastChildID();
 
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      adaptNodesAndHashesForInsertAsChild(nodeKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1162,15 +1177,16 @@ final class JsonNodeTrxImpl extends
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
 
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(node);
+      insertAsSibling(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1204,15 +1220,16 @@ final class JsonNodeTrxImpl extends
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(node);
+      insertAsSibling(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1293,11 +1310,13 @@ final class JsonNodeTrxImpl extends
     return pathNodeKey;
   }
 
-  private void adaptNodesAndHashesForInsertAsChild(final ImmutableJsonNode node) {
-    // Adapt local nodes and hashes.
-    nodeReadOnlyTrx.setCurrentNode(node);
-    adaptForInsert((StructNode) node);
-    nodeReadOnlyTrx.setCurrentNode(node);
+  private void adaptNodesAndHashesForInsertAsChild(final long nodeKey) {
+    // Use moveTo(nodeKey) instead of setCurrentNode(node) — the factory singleton may be
+    // rebound by prepareRecordForModification during adaptForInsert, so we must use the
+    // read-path singleton (bound via moveTo) which is independent of the write singleton.
+    nodeReadOnlyTrx.moveTo(nodeKey);
+    adaptForInsert(nodeReadOnlyTrx.getStructuralNode());
+    nodeReadOnlyTrx.moveTo(nodeKey);
     nodeHashing.adaptHashesWithAdd();
   }
 
@@ -1351,11 +1370,12 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private void insertAsSibling(final ImmutableJsonNode node) {
-    // Adapt local nodes and hashes.
-    nodeReadOnlyTrx.setCurrentNode(node);
-    adaptForInsert((StructNode) node);
-    nodeReadOnlyTrx.setCurrentNode(node);
+  private void insertAsSibling(final long nodeKey) {
+    // Use moveTo(nodeKey) instead of setCurrentNode(node) — the factory singleton may be
+    // rebound by prepareRecordForModification during adaptForInsert.
+    nodeReadOnlyTrx.moveTo(nodeKey);
+    adaptForInsert(nodeReadOnlyTrx.getStructuralNode());
+    nodeReadOnlyTrx.moveTo(nodeKey);
     nodeHashing.adaptHashesWithAdd();
 
     // Get the path node key.
@@ -1368,9 +1388,10 @@ final class JsonNodeTrxImpl extends
       pathNodeKey = 0;
     }
 
-    nodeReadOnlyTrx.setCurrentNode(node);
+    nodeReadOnlyTrx.moveTo(nodeKey);
 
-    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(),
+        pathNodeKey);
   }
 
   @FunctionalInterface
@@ -1424,18 +1445,21 @@ final class JsonNodeTrxImpl extends
         node = arrayCreator.create(parentKey, leftSibKey, rightSibKey, id);
       }
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      final long nodeKey = node.getNodeKey();
+
+      adaptNodesAndHashesForInsertAsChild(nodeKey);
 
       if (notifyIndex) {
-        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+        moveTo(nodeKey);
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
       }
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1472,15 +1496,16 @@ final class JsonNodeTrxImpl extends
       }
 
       final StructNode node = nodeCreator.create(parentKey, leftSibKey, rightSibKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling((ImmutableJsonNode) node);
+      insertAsSibling(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1676,7 +1701,17 @@ final class JsonNodeTrxImpl extends
 
     final QNm name;
     if (kind == NodeKind.OBJECT_KEY && indexController.hasNameIndex() && node instanceof ObjectKeyNode objectKeyNode) {
-      name = objectKeyNode.getName();
+      // getName() may be null for flyweight-bound nodes (cachedName is a Java field, not in MemorySegment).
+      // Fall back to resolving the name from the name key via the storage engine.
+      QNm resolvedName = objectKeyNode.getName();
+      if (resolvedName == null) {
+        final int nameKey = objectKeyNode.getNameKey();
+        final String localName = storageEngineWriter.getName(nameKey, NodeKind.OBJECT_KEY);
+        if (localName != null) {
+          resolvedName = new QNm(localName);
+        }
+      }
+      name = resolvedName;
     } else {
       name = null;
     }
@@ -2156,7 +2191,14 @@ final class JsonNodeTrxImpl extends
 
   @Override
   protected JsonNodeFactory reInstantiateNodeFactory(StorageEngineWriter storageEngineWriter) {
-    return new JsonNodeFactoryImpl(hashFunction, storageEngineWriter);
+    final var factory = new JsonNodeFactoryImpl(hashFunction, storageEngineWriter);
+    wireWriteSingletonBinder(factory, storageEngineWriter);
+    return factory;
+  }
+
+  private static void wireWriteSingletonBinder(final JsonNodeFactoryImpl factory,
+      final StorageEngineWriter storageEngineWriter) {
+    storageEngineWriter.setWriteSingletonBinder(factory::bindWriteSingleton);
   }
 
   @Override

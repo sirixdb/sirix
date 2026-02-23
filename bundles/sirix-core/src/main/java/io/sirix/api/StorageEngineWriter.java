@@ -9,6 +9,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -180,6 +181,25 @@ public interface StorageEngineWriter extends StorageEngineReader {
   void commit(PageReference reference);
 
   PageContainer dereferenceRecordPageForModification(PageReference reference);
+
+  /**
+   * Functional interface for binding a write-path singleton to a slotted page slot.
+   * Set by the node transaction to enable zero-allocation write path.
+   */
+  @FunctionalInterface
+  interface WriteSingletonBinder {
+    DataRecord bind(KeyValueLeafPage page, int offset, long nodeKey);
+  }
+
+  /**
+   * Set the write singleton binder for zero-allocation write path.
+   * When set, prepareRecordForModification rebinds factory singletons instead of allocating.
+   *
+   * @param binder the write singleton binder from the node factory
+   */
+  default void setWriteSingletonBinder(final WriteSingletonBinder binder) {
+    // Default no-op; NodeStorageEngineWriter overrides
+  }
 
   /**
    * Get the underlying {@link StorageEngineReader}.

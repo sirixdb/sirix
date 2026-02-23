@@ -10,6 +10,9 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
+import io.sirix.node.interfaces.DataRecord;
+import io.sirix.node.interfaces.FlyweightNode;
+import io.sirix.node.interfaces.Node;
 import io.sirix.node.json.ArrayNode;
 import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.NullNode;
@@ -21,6 +24,8 @@ import io.sirix.node.json.ObjectNullNode;
 import io.sirix.node.json.ObjectNumberNode;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.PageLayout;
 import io.sirix.page.PathSummaryPage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
@@ -30,6 +35,8 @@ import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
+
+import java.lang.foreign.MemorySegment;
 
 import static java.util.Objects.requireNonNull;
 
@@ -111,6 +118,19 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         hashFunction, (SirixDeweyID) null);
     this.reusableObjectStringNode = new ObjectStringNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, 0,
         new byte[0], hashFunction, (SirixDeweyID) null, false, null);
+
+    // Mark all singletons as write singletons so setRecord skips records[] storage.
+    reusableObjectNode.setWriteSingleton(true);
+    reusableArrayNode.setWriteSingleton(true);
+    reusableObjectKeyNode.setWriteSingleton(true);
+    reusableNullNode.setWriteSingleton(true);
+    reusableBooleanNode.setWriteSingleton(true);
+    reusableNumberNode.setWriteSingleton(true);
+    reusableStringNode.setWriteSingleton(true);
+    reusableObjectNullNode.setWriteSingleton(true);
+    reusableObjectBooleanNode.setWriteSingleton(true);
+    reusableObjectNumberNode.setWriteSingleton(true);
+    reusableObjectStringNode.setWriteSingleton(true);
   }
 
   private long nextNodeKey() {
@@ -426,5 +446,66 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public DeweyIDNode createDeweyIdNode(long nodeKey, @NonNull SirixDeweyID id) {
     return storageEngineWriter.createRecord(new DeweyIDNode(nodeKey, id), IndexType.DEWEYID_TO_RECORDID, 0);
+  }
+
+  /**
+   * Bind the correct write singleton to a slotted page slot for zero-allocation modification.
+   * Reads the nodeKindId from the page directory, selects the matching singleton, unbinds if
+   * currently bound elsewhere, binds to the slot, and propagates DeweyID.
+   *
+   * @param page    the KeyValueLeafPage containing the slotted page
+   * @param offset  the slot index (0-1023)
+   * @param nodeKey the record key
+   * @return the bound write singleton, or null if the slot is not a JSON node type
+   */
+  DataRecord bindWriteSingleton(final KeyValueLeafPage page, final int offset, final long nodeKey) {
+    final MemorySegment slottedPage = page.getSlottedPage();
+    if (slottedPage == null || !PageLayout.isSlotPopulated(slottedPage, offset)) {
+      return null;
+    }
+    final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, offset);
+    final FlyweightNode singleton = selectSingleton(nodeKindId);
+    if (singleton == null) {
+      return null;
+    }
+    if (singleton.isBound()) {
+      singleton.unbind();
+    }
+    final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, offset);
+    final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
+    singleton.bind(slottedPage, recordBase, nodeKey, offset);
+
+    // Propagate DeweyID from page to flyweight node
+    if (singleton instanceof Node node) {
+      final byte[] deweyIdBytes = page.getDeweyIdAsByteArray(offset);
+      if (deweyIdBytes != null) {
+        node.setDeweyID(new SirixDeweyID(deweyIdBytes));
+      }
+    }
+    return (DataRecord) singleton;
+  }
+
+  /**
+   * Select the factory write singleton for a given nodeKindId.
+   *
+   * @param nodeKindId the node kind ID from the page directory
+   * @return the singleton, or null if not a managed JSON type
+   */
+  private FlyweightNode selectSingleton(final int nodeKindId) {
+    return switch (nodeKindId) {
+      case 24 -> reusableObjectNode;           // OBJECT
+      case 25 -> reusableArrayNode;            // ARRAY
+      case 26 -> reusableObjectKeyNode;        // OBJECT_KEY
+      case 27 -> reusableBooleanNode;          // BOOLEAN_VALUE
+      case 28 -> reusableNumberNode;           // NUMBER_VALUE
+      case 29 -> reusableNullNode;             // NULL_VALUE
+      case 30 -> reusableStringNode;           // STRING_VALUE
+      case 31 -> null;                         // JSON_DOCUMENT (not reusable - only one per tree)
+      case 40 -> reusableObjectStringNode;     // OBJECT_STRING_VALUE
+      case 41 -> reusableObjectBooleanNode;    // OBJECT_BOOLEAN_VALUE
+      case 42 -> reusableObjectNumberNode;     // OBJECT_NUMBER_VALUE
+      case 43 -> reusableObjectNullNode;       // OBJECT_NULL_VALUE
+      default -> null;                         // Not a JSON type or not managed
+    };
   }
 }

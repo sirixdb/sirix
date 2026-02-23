@@ -107,6 +107,9 @@ public final class NullNode implements StructNode, ImmutableJsonNode, FlyweightN
   /** Slot index in the page directory (for re-serialization). */
   private int slotIndex;
 
+  /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
+  private boolean writeSingleton;
+
   private static final int FIELD_COUNT = NodeFieldLayout.NULL_VALUE_FIELD_COUNT;
 
   /**
@@ -646,6 +649,16 @@ public final class NullNode implements StructNode, ImmutableJsonNode, FlyweightN
     return new NullNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, hash, hashFunction,
         deweyIDBytes != null ? deweyIDBytes.clone() : null);
+  }
+
+  @Override
+  public boolean isWriteSingleton() {
+    return writeSingleton;
+  }
+
+  @Override
+  public void setWriteSingleton(final boolean writeSingleton) {
+    this.writeSingleton = writeSingleton;
   }
 
   @Override

@@ -107,6 +107,10 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   private long recordBase;
   private long dataRegionStart;
   private int slotIndex;
+
+  /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
+  private boolean writeSingleton;
+
   private static final int FIELD_COUNT = NodeFieldLayout.NUMBER_VALUE_FIELD_COUNT;
 
   /**
@@ -805,6 +809,16 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     return new NumberNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, hash, value, hashFunction,
         deweyIDBytes != null ? deweyIDBytes.clone() : null);
+  }
+
+  @Override
+  public boolean isWriteSingleton() {
+    return writeSingleton;
+  }
+
+  @Override
+  public void setWriteSingleton(final boolean writeSingleton) {
+    this.writeSingleton = writeSingleton;
   }
 
   @Override

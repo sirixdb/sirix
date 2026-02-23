@@ -78,4 +78,23 @@ public interface FlyweightNode extends DataRecord {
   default int estimateSerializedSize() {
     return 256;
   }
+
+  /**
+   * Check if this node is a write-path singleton managed by a node factory.
+   * Write singletons are rebound per-access and must NOT be stored in records[].
+   *
+   * @return true if this is a factory-managed write singleton
+   */
+  default boolean isWriteSingleton() {
+    return false;
+  }
+
+  /**
+   * Mark this node as a write-path singleton (or clear the mark).
+   *
+   * @param writeSingleton true to mark as write singleton
+   */
+  default void setWriteSingleton(boolean writeSingleton) {
+    // Default no-op; concrete types override
+  }
 }
