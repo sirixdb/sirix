@@ -727,7 +727,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
           value != null ? value.clone() : null,
           isCompressed,
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null);
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
     }
     // Force parse lazy value for snapshot (must be complete and independent)
     if (!valueParsed) {
@@ -738,7 +738,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
         value != null ? value.clone() : null,
         isCompressed,
         hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
   }
 
   @Override

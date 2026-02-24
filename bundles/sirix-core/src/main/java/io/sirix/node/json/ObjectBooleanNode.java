@@ -642,14 +642,14 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
           readLongField(NodeFieldLayout.OBJBOOLVAL_HASH),
           readByteField(NodeFieldLayout.OBJBOOLVAL_VALUE) != 0,
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null);
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
     }
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
     return new ObjectBooleanNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         hash, value, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
   }
 
   @Override

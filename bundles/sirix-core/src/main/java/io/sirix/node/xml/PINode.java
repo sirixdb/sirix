@@ -1020,7 +1020,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
           value != null ? value.clone() : null,
           isCompressed,
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null,
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
           qNm);
       if (sirixDeweyID != null) {
         snapshot.sirixDeweyID = sirixDeweyID;
@@ -1037,7 +1037,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         prefixKey, localNameKey, uriKey,
         value != null ? value.clone() : null,
         isCompressed, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null,
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
         qNm);
     if (sirixDeweyID != null) {
       snapshot.sirixDeweyID = sirixDeweyID;

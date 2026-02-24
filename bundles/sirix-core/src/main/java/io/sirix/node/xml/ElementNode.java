@@ -1146,7 +1146,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
           readSignedField(NodeFieldLayout.ELEM_LOCAL_NAME_KEY),
           readSignedField(NodeFieldLayout.ELEM_URI_KEY),
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null,
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
           new LongArrayList(attributeKeys),
           new LongArrayList(namespaceKeys),
           qNm);
@@ -1163,7 +1163,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
         rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey,
         childCount, descendantCount, hash, pathNodeKey,
         prefixKey, localNameKey, uriKey, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null,
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
         new LongArrayList(attributeKeys),
         new LongArrayList(namespaceKeys),
         qNm);

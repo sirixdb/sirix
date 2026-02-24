@@ -797,7 +797,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
           readDeltaField(NodeFieldLayout.NUMVAL_LEFT_SIB_KEY, nodeKey),
           readLongField(NodeFieldLayout.NUMVAL_HASH),
           value, hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null);
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
     }
     // Force parse all lazy fields for snapshot (must be complete and independent)
     if (!metadataParsed) {
@@ -808,7 +808,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     }
     return new NumberNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, hash, value, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
   }
 
   @Override

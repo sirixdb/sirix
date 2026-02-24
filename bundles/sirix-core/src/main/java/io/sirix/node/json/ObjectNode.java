@@ -808,7 +808,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
           readSignedLongField(NodeFieldLayout.OBJECT_DESCENDANT_COUNT),
           readLongField(NodeFieldLayout.OBJECT_HASH),
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null);
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
     }
     if (!lazyFieldsParsed) {
       parseLazyFields();
@@ -816,7 +816,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
     return new ObjectNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey, childCount,
         descendantCount, hash, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
   }
 
   @Override

@@ -837,7 +837,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
           readLongField(NodeFieldLayout.STRVAL_HASH),
           value != null ? value.clone() : null,
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null,
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
           isCompressed, fsstSymbolTable != null ? fsstSymbolTable.clone() : null);
     }
     // Force parse all lazy fields for snapshot (must be complete and independent)
@@ -851,7 +851,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
         rightSiblingKey, leftSiblingKey, hash,
         value != null ? value.clone() : null,
         hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null,
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
         isCompressed, fsstSymbolTable != null ? fsstSymbolTable.clone() : null);
   }
 

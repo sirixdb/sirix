@@ -844,14 +844,14 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
           readSignedLongField(NodeFieldLayout.OBJKEY_DESCENDANT_COUNT),
           readLongField(NodeFieldLayout.OBJKEY_HASH),
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null);
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
     }
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
     return new ObjectKeyNode(nodeKey, parentKey, pathNodeKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, firstChildKey, nameKey, descendantCount, hash, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
   }
 
   public String toString() {

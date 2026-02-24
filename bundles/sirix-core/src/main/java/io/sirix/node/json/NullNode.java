@@ -641,14 +641,14 @@ public final class NullNode implements StructNode, ImmutableJsonNode, FlyweightN
           readDeltaField(NodeFieldLayout.NULLVAL_LEFT_SIB_KEY, nodeKey),
           readLongField(NodeFieldLayout.NULLVAL_HASH),
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null);
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
     }
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
     return new NullNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, hash, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
   }
 
   @Override

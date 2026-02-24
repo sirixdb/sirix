@@ -691,7 +691,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
           readLongField(NodeFieldLayout.OBJNUMVAL_HASH),
           value,
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null);
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
     }
     if (!metadataParsed) {
       parseMetadataFields();
@@ -701,7 +701,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     }
     return new ObjectNumberNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         hash, value, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
   }
 
   @Override

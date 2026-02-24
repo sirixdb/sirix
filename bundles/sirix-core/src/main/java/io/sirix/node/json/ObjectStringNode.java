@@ -805,7 +805,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
           readLongField(NodeFieldLayout.OBJSTRVAL_HASH),
           value != null ? value.clone() : null,
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null,
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
           isCompressed, fsstSymbolTable != null ? fsstSymbolTable.clone() : null);
     }
     if (!metadataParsed) {
@@ -816,7 +816,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     }
     return new ObjectStringNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         hash, value != null ? value.clone() : null, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null,
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
         isCompressed, fsstSymbolTable != null ? fsstSymbolTable.clone() : null);
   }
 

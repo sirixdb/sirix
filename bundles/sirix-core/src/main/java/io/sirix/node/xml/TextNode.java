@@ -838,7 +838,7 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
           value != null ? value.clone() : null,
           isCompressed,
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null);
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
     }
     // Force parse all lazy fields for snapshot (must be complete and independent)
     if (!metadataParsed) {
@@ -852,7 +852,7 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
         value != null ? value.clone() : null,
         isCompressed,
         hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
   }
 
   @Override

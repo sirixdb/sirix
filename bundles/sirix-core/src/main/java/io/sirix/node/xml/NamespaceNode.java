@@ -617,12 +617,12 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Fl
           readSignedField(NodeFieldLayout.NS_URI_KEY),
           readLongField(NodeFieldLayout.NS_HASH),
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null,
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
           qNm);
     }
     return new NamespaceNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         pathNodeKey, prefixKey, localNameKey, uriKey, hash, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null, qNm);
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null, qNm);
   }
 
   // ==================== VISITOR / OBJECT METHODS ====================

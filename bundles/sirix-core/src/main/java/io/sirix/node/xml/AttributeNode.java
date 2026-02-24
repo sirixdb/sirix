@@ -639,7 +639,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
           readLongField(NodeFieldLayout.ATTR_HASH),
           value != null ? value.clone() : null,
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null,
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
           qNm);
     }
     // Unbound mode: force parse all lazy fields for snapshot (must be complete and independent)
@@ -650,7 +650,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
         pathNodeKey, prefixKey, localNameKey, uriKey, hash,
         value != null ? value.clone() : null,
         hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null,
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
         qNm);
   }
 

@@ -783,7 +783,7 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode, Flyweight
           readSignedLongField(NodeFieldLayout.ARRAY_DESCENDANT_COUNT),
           readLongField(NodeFieldLayout.ARRAY_HASH),
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null);
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
     }
     if (!lazyFieldsParsed) {
       parseLazyFields();
@@ -791,7 +791,7 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode, Flyweight
     return new ArrayNode(nodeKey, parentKey, pathNodeKey, previousRevision, lastModifiedRevision,
         rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey, childCount,
         descendantCount, hash, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
   }
 
   @Override

@@ -574,14 +574,14 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Flyw
           readSignedField(NodeFieldLayout.OBJNULLVAL_LAST_MOD_REVISION),
           readLongField(NodeFieldLayout.OBJNULLVAL_HASH),
           hashFunction,
-          deweyIDBytes != null ? deweyIDBytes.clone() : null);
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
     }
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
     return new ObjectNullNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
         hash, hashFunction,
-        deweyIDBytes != null ? deweyIDBytes.clone() : null);
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
   }
 
   @Override
