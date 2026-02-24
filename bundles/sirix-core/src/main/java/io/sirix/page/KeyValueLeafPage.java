@@ -500,27 +500,30 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
 
-    // Serialize FlyweightNode directly to slotted page heap and bind for in-place mutation.
-    // After binding, all getters/setters operate directly on page memory — zero commit-time
-    // serialization needed for this record (processEntries will skip it).
     if (record instanceof FlyweightNode fn) {
-      ensureSlottedPage();
-      // Single isBoundTo check covers both "unbound" and "bound to different page" cases.
-      // When bound to this page, data is already in-place — skip serialization (common case).
-      if (!fn.isBoundTo(slottedPage)) {
-        // Must use unbind() (not clearBinding) when bound to a different page —
-        // materializes in-page mutations back to Java fields before re-serializing.
+      if (fn.isBoundTo(slottedPage)) {
+        // Already in-place on this page — skip serialization.
+        if (fn.isWriteSingleton()) {
+          return; // Don't store singletons in records[] (aliasing)
+        }
+        // Non-singleton bound to this page: fall through to store in records[]
+      } else if (fn.isWriteSingleton()) {
+        // Write singleton not bound to this page — must serialize immediately
+        // because the singleton will be reused and can't be stored in records[].
+        ensureSlottedPage();
         if (fn.isBound()) {
           fn.unbind();
         }
         serializeToHeap(fn, key, offset);
+        return; // Don't store singletons in records[] (aliasing)
+      } else if (fn.isBound()) {
+        // Non-singleton bound to different page — unbind to materialize fields,
+        // then defer serialization to processEntries at commit time.
+        fn.unbind();
       }
-      // Write singletons must NOT be stored in records[] — they are rebound per-access
-      // by prepareRecordForModification. Storing them would cause aliasing: multiple slots
-      // pointing to the same singleton object. Data is already on the slotted page heap.
-      if (fn.isWriteSingleton()) {
-        return;
-      }
+      // Non-singleton unbound FlyweightNode (e.g., toSnapshot copy from setNewRecord):
+      // defer serialization to processEntries at commit time. The Java object in
+      // records[] has the authoritative data.
     }
 
     records[offset] = record;
@@ -547,19 +550,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
 
     if (record instanceof FlyweightNode fn) {
-      // FlyweightNode singleton reuse fix: the node factory reuses one instance per type.
-      // After serializing to the heap, we null records[offset] instead of storing the singleton.
-      // This prevents aliasing: multiple records[] slots pointing to the same singleton object.
-      // prepareRecordForModification will create a fresh FlyweightNode from the heap via getValue().
-      ensureSlottedPage();
-      // Factory already called clearBinding() — node is unbound with Java fields set.
-      serializeToHeap(fn, key, offset);
-      // Clear binding after serialization. serializeToHeap binds the node to page memory,
-      // but the factory will reuse this object for the next node creation. clearBinding() is
-      // cheaper than unbind() since it skips field materialization — the factory's setters
-      // will overwrite all fields on the next create cycle anyway.
+      // Deferred serialization: store a snapshot copy in records[] instead of serializing
+      // to the slotted page heap immediately. This eliminates all MemorySegment/DeltaVarIntCodec
+      // overhead on the hot write path (~16% CPU). Serialization is deferred to processEntries
+      // at commit time.
+      //
+      // Must use toSnapshot() because the factory reuses singleton objects — storing the
+      // singleton reference would cause aliasing when the factory creates the next node.
+      // The snapshot is a proper non-singleton DataRecord with all fields copied.
+      ensureSlottedPage(); // Ensure page exists for processEntries at commit time
+      records[offset] = fn.toSnapshot();
       fn.clearBinding();
-      records[offset] = null;
     } else {
       // All node types implement FlyweightNode; this branch handles future non-flyweight records
       records[offset] = record;

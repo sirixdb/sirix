@@ -106,4 +106,13 @@ public interface FlyweightNode extends DataRecord {
   default void setWriteSingleton(boolean writeSingleton) {
     // Default no-op; concrete types override
   }
+
+  /**
+   * Create an independent snapshot copy of this node with all fields materialized.
+   * The snapshot is a non-singleton DataRecord that can be safely stored in records[]
+   * without singleton aliasing issues.
+   *
+   * @return a new DataRecord copy with all fields set
+   */
+  DataRecord toSnapshot();
 }
