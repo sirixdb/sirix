@@ -550,17 +550,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
 
     if (record instanceof FlyweightNode fn) {
-      // Deferred serialization: store a snapshot copy in records[] instead of serializing
-      // to the slotted page heap immediately. This eliminates all MemorySegment/DeltaVarIntCodec
-      // overhead on the hot write path (~16% CPU). Serialization is deferred to processEntries
-      // at commit time.
-      //
-      // Must use toSnapshot() because the factory reuses singleton objects — storing the
-      // singleton reference would cause aliasing when the factory creates the next node.
-      // The snapshot is a proper non-singleton DataRecord with all fields copied.
+      // Deferred serialization: store in records[] instead of serializing to the slotted page
+      // heap immediately. Serialization is deferred to processEntries at commit time.
       ensureSlottedPage(); // Ensure page exists for processEntries at commit time
-      records[offset] = fn.toSnapshot();
-      fn.clearBinding();
+      if (fn.isWriteSingleton()) {
+        // Factory singleton — must snapshot to avoid aliasing when singleton is reused.
+        records[offset] = fn.toSnapshot();
+        fn.clearBinding();
+      } else {
+        // Non-singleton (factory created a new object) — store directly, zero copy.
+        records[offset] = record;
+      }
     } else {
       // All node types implement FlyweightNode; this branch handles future non-flyweight records
       records[offset] = record;

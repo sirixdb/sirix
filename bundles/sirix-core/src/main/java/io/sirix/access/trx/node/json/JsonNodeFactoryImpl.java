@@ -139,180 +139,73 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
 
   private ObjectNode bindObjectNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final SirixDeweyID id) {
-    final ObjectNode node = reusableObjectNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setFirstChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
-    node.setLastChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
-    node.setChildCount(0);
-    node.setDescendantCount(0);
-    node.setHash(0);
-    node.setDeweyID(id);
-    return node;
+    return new ObjectNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+        rightSibKey, leftSibKey, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0, 0, hashFunction, id);
   }
 
   private ArrayNode bindArrayNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final long pathNodeKey, final SirixDeweyID id) {
-    final ArrayNode node = reusableArrayNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPathNodeKey(pathNodeKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setFirstChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
-    node.setLastChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
-    node.setChildCount(0);
-    node.setDescendantCount(0);
-    node.setHash(0);
-    node.setDeweyID(id);
-    return node;
+    return new ArrayNode(nodeKey, parentKey, pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+        rightSibKey, leftSibKey, Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0, 0, hashFunction, id);
   }
 
   private ObjectKeyNode bindObjectKeyNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final long pathNodeKey, final int nameKey, final String name, final long objectValueKey,
       final SirixDeweyID id) {
-    final ObjectKeyNode node = reusableObjectKeyNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPathNodeKey(pathNodeKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setFirstChildKey(objectValueKey);
-    node.setNameKey(nameKey);
+    final var node = new ObjectKeyNode(nodeKey, parentKey, pathNodeKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+        rightSibKey, leftSibKey, objectValueKey, nameKey, 0, 0, hashFunction, id);
     node.setName(name);
-    node.setDescendantCount(0);
-    node.setHash(0);
-    node.setDeweyID(id);
     return node;
   }
 
   private NullNode bindNullNode(final long nodeKey, final long parentKey, final long leftSibKey, final long rightSibKey,
       final SirixDeweyID id) {
-    final NullNode node = reusableNullNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setHash(0);
-    node.setDeweyID(id);
-    return node;
+    return new NullNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+        rightSibKey, leftSibKey, 0, hashFunction, id);
   }
 
   private BooleanNode bindBooleanNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final boolean boolValue, final SirixDeweyID id) {
-    final BooleanNode node = reusableBooleanNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setHash(0);
-    node.setValue(boolValue);
-    node.setDeweyID(id);
-    return node;
+    return new BooleanNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+        rightSibKey, leftSibKey, 0, boolValue, hashFunction, id);
   }
 
   private NumberNode bindNumberNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final Number value, final SirixDeweyID id) {
-    final NumberNode node = reusableNumberNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setHash(0);
-    node.setValue(value);
-    node.setDeweyID(id);
-    return node;
+    return new NumberNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+        rightSibKey, leftSibKey, 0, value, hashFunction, id);
   }
 
   private StringNode bindStringNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final byte[] value, final boolean isCompressed, final byte[] fsstSymbolTable,
       final SirixDeweyID id) {
-    final StringNode node = reusableStringNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setHash(0);
-    node.setRawValue(value, isCompressed, fsstSymbolTable);
-    node.setDeweyID(id);
-    return node;
+    return new StringNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+        rightSibKey, leftSibKey, 0, value, hashFunction, id, isCompressed, fsstSymbolTable);
   }
 
   private ObjectNullNode bindObjectNullNode(final long nodeKey, final long parentKey, final SirixDeweyID id) {
-    final ObjectNullNode node = reusableObjectNullNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setHash(0);
-    node.setDeweyID(id);
-    return node;
+    return new ObjectNullNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+        0, hashFunction, id);
   }
 
   private ObjectBooleanNode bindObjectBooleanNode(final long nodeKey, final long parentKey, final boolean boolValue,
       final SirixDeweyID id) {
-    final ObjectBooleanNode node = reusableObjectBooleanNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setHash(0);
-    node.setValue(boolValue);
-    node.setDeweyID(id);
-    return node;
+    return new ObjectBooleanNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+        0, boolValue, hashFunction, id);
   }
 
   private ObjectNumberNode bindObjectNumberNode(final long nodeKey, final long parentKey, final Number value,
       final SirixDeweyID id) {
-    final ObjectNumberNode node = reusableObjectNumberNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setHash(0);
-    node.setValue(value);
-    node.setDeweyID(id);
-    return node;
+    return new ObjectNumberNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+        0, value, hashFunction, id);
   }
 
   private ObjectStringNode bindObjectStringNode(final long nodeKey, final long parentKey, final byte[] value,
       final boolean isCompressed, final byte[] fsstSymbolTable, final SirixDeweyID id) {
-    final ObjectStringNode node = reusableObjectStringNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setHash(0);
-    node.setRawValue(value, isCompressed, fsstSymbolTable);
-    node.setDeweyID(id);
-    return node;
+    return new ObjectStringNode(nodeKey, parentKey, Constants.NULL_REVISION_NUMBER, revisionNumber,
+        0, value, hashFunction, id, isCompressed, fsstSymbolTable);
   }
 
   @Override
