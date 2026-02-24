@@ -185,6 +185,11 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   }
 
   @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
+  @Override
   public boolean isBound() { return page != null; }
 
   @Override

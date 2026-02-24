@@ -249,6 +249,11 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     this.page = null;
   }
 
+  @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
   /** Check if this node is bound to a page MemorySegment. */
   public boolean isBound() {
     return page != null;

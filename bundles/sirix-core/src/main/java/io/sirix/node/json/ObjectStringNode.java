@@ -643,6 +643,11 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.page = null;
   }
 
+  @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
   /** Check if this node is bound to a page MemorySegment. */
   public boolean isBound() { return page != null; }
 

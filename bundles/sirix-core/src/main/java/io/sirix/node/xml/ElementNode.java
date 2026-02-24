@@ -272,6 +272,11 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     this.page = null;
   }
 
+  @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
   /** Check if this node is bound to a page MemorySegment. */
   @Override
   public boolean isBound() {

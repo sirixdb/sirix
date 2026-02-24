@@ -505,10 +505,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // serialization needed for this record (processEntries will skip it).
     if (record instanceof FlyweightNode fn) {
       ensureSlottedPage();
-      if (!fn.isBound()) {
-        serializeToHeap(fn, key, offset);
-      } else if (!fn.isBoundTo(slottedPage)) {
-        fn.unbind();
+      // Single isBoundTo check covers both "unbound" and "bound to different page" cases.
+      // When bound to this page, data is already in-place — skip serialization (common case).
+      if (!fn.isBoundTo(slottedPage)) {
+        // Must use unbind() (not clearBinding) when bound to a different page —
+        // materializes in-page mutations back to Java fields before re-serializing.
+        if (fn.isBound()) {
+          fn.unbind();
+        }
         serializeToHeap(fn, key, offset);
       }
       // Write singletons must NOT be stored in records[] — they are rebound per-access
@@ -548,16 +552,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       // This prevents aliasing: multiple records[] slots pointing to the same singleton object.
       // prepareRecordForModification will create a fresh FlyweightNode from the heap via getValue().
       ensureSlottedPage();
-      if (fn.isBound()) {
-        fn.unbind();
-      }
+      // Factory already called clearBinding() — node is unbound with Java fields set.
       serializeToHeap(fn, key, offset);
-      // Unbind the factory's reusable node after serialization. serializeToHeap binds
-      // the node to the page MemorySegment, but the factory will reuse this object for the next
-      // node creation. If the page grows (reallocates) before the cursor reads this node,
-      // the bound MemorySegment becomes stale. Unbinding ensures the node falls back to Java
-      // fields (which hold the correct values from serialization) until a fresh bind occurs.
-      fn.unbind();
+      // Clear binding after serialization. serializeToHeap binds the node to page memory,
+      // but the factory will reuse this object for the next node creation. clearBinding() is
+      // cheaper than unbind() since it skips field materialization — the factory's setters
+      // will overwrite all fields on the next create cycle anyway.
+      fn.clearBinding();
       records[offset] = null;
     } else {
       // All node types implement FlyweightNode; this branch handles future non-flyweight records

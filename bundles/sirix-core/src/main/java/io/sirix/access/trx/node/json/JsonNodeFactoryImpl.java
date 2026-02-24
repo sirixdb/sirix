@@ -140,7 +140,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private ObjectNode bindObjectNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final SirixDeweyID id) {
     final ObjectNode node = reusableObjectNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
@@ -159,7 +159,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private ArrayNode bindArrayNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final long pathNodeKey, final SirixDeweyID id) {
     final ArrayNode node = reusableArrayNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPathNodeKey(pathNodeKey);
@@ -180,7 +180,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
       final long rightSibKey, final long pathNodeKey, final int nameKey, final String name, final long objectValueKey,
       final SirixDeweyID id) {
     final ObjectKeyNode node = reusableObjectKeyNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPathNodeKey(pathNodeKey);
@@ -200,7 +200,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private NullNode bindNullNode(final long nodeKey, final long parentKey, final long leftSibKey, final long rightSibKey,
       final SirixDeweyID id) {
     final NullNode node = reusableNullNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
@@ -215,7 +215,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private BooleanNode bindBooleanNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final boolean boolValue, final SirixDeweyID id) {
     final BooleanNode node = reusableBooleanNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
@@ -231,7 +231,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private NumberNode bindNumberNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final Number value, final SirixDeweyID id) {
     final NumberNode node = reusableNumberNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
@@ -248,7 +248,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
       final long rightSibKey, final byte[] value, final boolean isCompressed, final byte[] fsstSymbolTable,
       final SirixDeweyID id) {
     final StringNode node = reusableStringNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
@@ -263,7 +263,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
 
   private ObjectNullNode bindObjectNullNode(final long nodeKey, final long parentKey, final SirixDeweyID id) {
     final ObjectNullNode node = reusableObjectNullNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
@@ -276,7 +276,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private ObjectBooleanNode bindObjectBooleanNode(final long nodeKey, final long parentKey, final boolean boolValue,
       final SirixDeweyID id) {
     final ObjectBooleanNode node = reusableObjectBooleanNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
@@ -290,7 +290,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private ObjectNumberNode bindObjectNumberNode(final long nodeKey, final long parentKey, final Number value,
       final SirixDeweyID id) {
     final ObjectNumberNode node = reusableObjectNumberNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
@@ -304,7 +304,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private ObjectStringNode bindObjectStringNode(final long nodeKey, final long parentKey, final byte[] value,
       final boolean isCompressed, final byte[] fsstSymbolTable, final SirixDeweyID id) {
     final ObjectStringNode node = reusableObjectStringNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
@@ -468,9 +468,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     if (singleton == null) {
       return null;
     }
-    if (singleton.isBound()) {
-      singleton.unbind();
-    }
+    // Skip isBound()/unbind() — bind() overwrites all fields unconditionally,
+    // and we avoid 2 megamorphic interface calls (itable stubs) per bind.
     final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, offset);
     final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
     singleton.bind(slottedPage, recordBase, nodeKey, offset);

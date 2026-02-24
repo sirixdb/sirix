@@ -197,6 +197,11 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Fl
     this.page = null;
   }
 
+  @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
   /** Check if this node is bound to a page MemorySegment. */
   @Override
   public boolean isBound() {

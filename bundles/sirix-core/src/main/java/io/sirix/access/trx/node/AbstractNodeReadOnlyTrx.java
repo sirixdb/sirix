@@ -46,6 +46,7 @@ import io.sirix.node.xml.XmlDocumentRootNode;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageLayout;
 import io.sirix.service.xml.xpath.AtomicValue;
+import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -524,6 +525,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * The current singleton node (set when in singletonMode).
    */
   private ImmutableNode currentSingleton;
+
+  /**
+   * Array-based singleton lookup indexed by NodeKind.getId().
+   * Replaces the 19-case switch in getSingletonForKind with O(1) array access.
+   * Lazily populated on first access per kind. Max NodeKind ID is 55.
+   */
+  private final ImmutableNode[] singletonByKindId = new ImmutableNode[56];
   
   /**
    * Move to a node using flyweight mode (zero allocation).
@@ -592,9 +600,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @return true if the move was successful
    */
   private boolean moveToSingleton(final long nodeKey, final NodeStorageEngineReader reader) {
-    // Calculate target page key to check for same-page access
-    final long targetPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
-    final int slotOffset = StorageEngineReader.recordPageOffset(nodeKey);
+    // Inline pageKey: all index types use exponent 10, avoids assertNotClosed + switch overhead
+    final long targetPageKey = nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
+    final int slotOffset = (int) (nodeKey & ((1 << Constants.NDP_NODE_COUNT_EXPONENT) - 1));
 
     MemorySegment data;
     KeyValueLeafPage page;
@@ -697,7 +705,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
 
     return moveToSingletonFromPage(nodeKey, slotLocation.page(), reader,
-        reader.pageKey(nodeKey, IndexType.DOCUMENT), slotLocation.guard());
+        nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT, slotLocation.guard());
   }
 
   /**
@@ -713,7 +721,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    */
   private boolean moveToSingletonFromPage(final long nodeKey, final KeyValueLeafPage page,
       final NodeStorageEngineReader reader, final long pageKey, final @Nullable PageGuard newGuard) {
-    final int slotOff = StorageEngineReader.recordPageOffset(nodeKey);
+    final int slotOff = (int) (nodeKey & ((1 << Constants.NDP_NODE_COUNT_EXPONENT) - 1));
 
     // Check records[] first: Java objects are authoritative during write transactions
     // (modifications via prepareRecordForModification are NOT synced back to page heap)
@@ -826,8 +834,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    */
   private boolean moveToSingletonWrite(final long nodeKey, final NodeStorageEngineReader reader,
       final StorageEngineWriter writer) {
-    final long targetPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
-    final int slotOffset = StorageEngineReader.recordPageOffset(nodeKey);
+    // Inline pageKey: all index types use exponent 10, avoids assertNotClosed + switch overhead
+    final long targetPageKey = nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
+    final int slotOffset = (int) (nodeKey & ((1 << Constants.NDP_NODE_COUNT_EXPONENT) - 1));
     KeyValueLeafPage page;
 
     // Same-page fast path: reuse cached modified page
@@ -889,15 +898,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
 
     // Bind singleton to page data (zero allocation)
-    final boolean isFlyweight = page.getSlottedPage() != null
-        && page.getSlotNodeKindId(slotOffset) > 0
-        && singleton instanceof FlyweightNode;
-    if (isFlyweight) {
-      final FlyweightNode fn = (FlyweightNode) singleton;
-      final int heapOffset = PageLayout.getDirHeapOffset(page.getSlottedPage(), slotOffset);
+    // Cache slottedPage locally to avoid repeated virtual calls to getSlottedPage()
+    final MemorySegment sp = page.getSlottedPage();
+    if (sp != null && singleton instanceof FlyweightNode fn) {
+      final int heapOffset = PageLayout.getDirHeapOffset(sp, slotOffset);
       final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
-      fn.bind(page.getSlottedPage(), recordBase, nodeKey, slotOffset);
-      propagateFsstToFlyweight(fn, page);
+      fn.bind(sp, recordBase, nodeKey, slotOffset);
       if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
         final byte[] deweyId = page.getDeweyIdAsByteArray(slotOffset);
         if (deweyId != null) {
@@ -946,132 +952,56 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @return the singleton instance, or null if not supported
    */
   private ImmutableNode getSingletonForKind(NodeKind kind) {
+    final int id = kind.getId() & 0xFF;
+    if (id >= singletonByKindId.length) {
+      return null;
+    }
+    ImmutableNode singleton = singletonByKindId[id];
+    if (singleton != null) {
+      return singleton;
+    }
+    singleton = createSingletonForKind(kind);
+    if (singleton != null) {
+      singletonByKindId[id] = singleton;
+    }
+    return singleton;
+  }
+
+  /**
+   * Create a singleton instance for the given node kind (cold path, called once per kind).
+   */
+  private ImmutableNode createSingletonForKind(NodeKind kind) {
     return switch (kind) {
-      case OBJECT -> {
-        if (singletonObject == null) {
-          singletonObject = new ObjectNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
-              resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonObject;
-      }
-      case ARRAY -> {
-        if (singletonArray == null) {
-          singletonArray = new ArrayNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-              resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonArray;
-      }
-      case OBJECT_KEY -> {
-        if (singletonObjectKey == null) {
-          singletonObjectKey = new ObjectKeyNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-              resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonObjectKey;
-      }
-      case STRING_VALUE -> {
-        if (singletonString == null) {
-          singletonString = new StringNode(0, 0, 0, 0, 0, 0, 0, null,
-              resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonString;
-      }
-      case NUMBER_VALUE -> {
-        if (singletonNumber == null) {
-          singletonNumber = new NumberNode(0, 0, 0, 0, 0, 0, 0, 0,
-              resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonNumber;
-      }
-      case BOOLEAN_VALUE -> {
-        if (singletonBoolean == null) {
-          singletonBoolean = new BooleanNode(0, 0, 0, 0, 0, 0, 0, false,
-              resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonBoolean;
-      }
-      case NULL_VALUE -> {
-        if (singletonNull == null) {
-          singletonNull = new NullNode(0, 0, 0, 0, 0, 0, 0,
-              resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonNull;
-      }
-      case OBJECT_STRING_VALUE -> {
-        if (singletonObjectString == null) {
-          singletonObjectString = new ObjectStringNode(0, 0, 0, 0, 0, null,
-              resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonObjectString;
-      }
-      case OBJECT_NUMBER_VALUE -> {
-        if (singletonObjectNumber == null) {
-          singletonObjectNumber = new ObjectNumberNode(0, 0, 0, 0, 0, 0,
-              resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonObjectNumber;
-      }
-      case OBJECT_BOOLEAN_VALUE -> {
-        if (singletonObjectBoolean == null) {
-          singletonObjectBoolean = new ObjectBooleanNode(0, 0, 0, 0, 0, false,
-              resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonObjectBoolean;
-      }
-      case OBJECT_NULL_VALUE -> {
-        if (singletonObjectNull == null) {
-          singletonObjectNull = new ObjectNullNode(0, 0, 0, 0, 0,
-              resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonObjectNull;
-      }
-      case JSON_DOCUMENT -> {
-        if (singletonJsonDocRoot == null) {
-          singletonJsonDocRoot = new JsonDocumentRootNode(0, resourceConfig.nodeHashFunction);
-        }
-        yield singletonJsonDocRoot;
-      }
-      case ELEMENT -> {
-        if (singletonElement == null) {
-          singletonElement = new ElementNode(0, resourceConfig.nodeHashFunction);
-        }
-        yield singletonElement;
-      }
-      case ATTRIBUTE -> {
-        if (singletonAttribute == null) {
-          singletonAttribute = new AttributeNode(0, resourceConfig.nodeHashFunction);
-        }
-        yield singletonAttribute;
-      }
-      case TEXT -> {
-        if (singletonText == null) {
-          singletonText = new TextNode(0, resourceConfig.nodeHashFunction);
-        }
-        yield singletonText;
-      }
-      case COMMENT -> {
-        if (singletonComment == null) {
-          singletonComment = new CommentNode(0, resourceConfig.nodeHashFunction);
-        }
-        yield singletonComment;
-      }
-      case PROCESSING_INSTRUCTION -> {
-        if (singletonPI == null) {
-          singletonPI = new PINode(0, resourceConfig.nodeHashFunction);
-        }
-        yield singletonPI;
-      }
-      case NAMESPACE -> {
-        if (singletonNamespace == null) {
-          singletonNamespace = new NamespaceNode(0, resourceConfig.nodeHashFunction);
-        }
-        yield singletonNamespace;
-      }
-      case XML_DOCUMENT -> {
-        if (singletonXmlDocRoot == null) {
-          singletonXmlDocRoot = new XmlDocumentRootNode(0, resourceConfig.nodeHashFunction);
-        }
-        yield singletonXmlDocRoot;
-      }
+      case OBJECT -> singletonObject = new ObjectNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case ARRAY -> singletonArray = new ArrayNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case OBJECT_KEY -> singletonObjectKey = new ObjectKeyNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case STRING_VALUE -> singletonString = new StringNode(0, 0, 0, 0, 0, 0, 0, null,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case NUMBER_VALUE -> singletonNumber = new NumberNode(0, 0, 0, 0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case BOOLEAN_VALUE -> singletonBoolean = new BooleanNode(0, 0, 0, 0, 0, 0, 0, false,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case NULL_VALUE -> singletonNull = new NullNode(0, 0, 0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case OBJECT_STRING_VALUE -> singletonObjectString = new ObjectStringNode(0, 0, 0, 0, 0, null,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case OBJECT_NUMBER_VALUE -> singletonObjectNumber = new ObjectNumberNode(0, 0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case OBJECT_BOOLEAN_VALUE -> singletonObjectBoolean = new ObjectBooleanNode(0, 0, 0, 0, 0, false,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case OBJECT_NULL_VALUE -> singletonObjectNull = new ObjectNullNode(0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case JSON_DOCUMENT -> singletonJsonDocRoot = new JsonDocumentRootNode(0, resourceConfig.nodeHashFunction);
+      case ELEMENT -> singletonElement = new ElementNode(0, resourceConfig.nodeHashFunction);
+      case ATTRIBUTE -> singletonAttribute = new AttributeNode(0, resourceConfig.nodeHashFunction);
+      case TEXT -> singletonText = new TextNode(0, resourceConfig.nodeHashFunction);
+      case COMMENT -> singletonComment = new CommentNode(0, resourceConfig.nodeHashFunction);
+      case PROCESSING_INSTRUCTION -> singletonPI = new PINode(0, resourceConfig.nodeHashFunction);
+      case NAMESPACE -> singletonNamespace = new NamespaceNode(0, resourceConfig.nodeHashFunction);
+      case XML_DOCUMENT -> singletonXmlDocRoot = new XmlDocumentRootNode(0, resourceConfig.nodeHashFunction);
       default -> null;
     };
   }

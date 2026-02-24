@@ -193,6 +193,11 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Flyw
     this.page = null;
   }
 
+  @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
   /** Check if this node is bound to a page MemorySegment. */
   public boolean isBound() {
     return page != null;

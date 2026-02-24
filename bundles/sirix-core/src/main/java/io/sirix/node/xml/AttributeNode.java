@@ -455,6 +455,11 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   }
 
   @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
+  @Override
   public boolean isBound() { return page != null; }
 
   @Override

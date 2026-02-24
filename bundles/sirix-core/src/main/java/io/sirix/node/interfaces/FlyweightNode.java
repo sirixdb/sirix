@@ -45,6 +45,15 @@ public interface FlyweightNode extends DataRecord {
   void unbind();
 
   /**
+   * Clear the page binding without materializing fields.
+   * Use this instead of {@link #unbind()} when all Java fields will be overwritten immediately
+   * after clearing (e.g., in factory bind methods that set all fields via setters).
+   * This avoids the cost of reading each field from the MemorySegment back to Java primitives
+   * only to have them overwritten a moment later.
+   */
+  void clearBinding();
+
+  /**
    * Check if this node is currently bound to a page MemorySegment.
    *
    * @return true if bound (flyweight mode), false if operating on Java primitives

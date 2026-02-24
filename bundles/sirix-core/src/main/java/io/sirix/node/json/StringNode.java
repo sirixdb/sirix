@@ -235,6 +235,11 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     this.page = null;
   }
 
+  @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
   public boolean isBound() { return page != null; }
 
   @Override

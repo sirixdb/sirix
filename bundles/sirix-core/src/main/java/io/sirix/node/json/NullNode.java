@@ -201,6 +201,11 @@ public final class NullNode implements StructNode, ImmutableJsonNode, FlyweightN
     this.page = null;
   }
 
+  @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
   /** Check if this node is bound to a page MemorySegment. */
   public boolean isBound() {
     return page != null;

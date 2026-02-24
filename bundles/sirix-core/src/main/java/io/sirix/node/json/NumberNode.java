@@ -198,6 +198,11 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     this.page = null;
   }
 
+  @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
   public boolean isBound() { return page != null; }
 
   @Override

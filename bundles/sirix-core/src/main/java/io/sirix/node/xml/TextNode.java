@@ -196,6 +196,11 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
   }
 
   @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
+  @Override
   public boolean isBound() {
     return page != null;
   }

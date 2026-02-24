@@ -223,6 +223,11 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     this.page = null;
   }
 
+  @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
   /** Check if this node is bound to a page MemorySegment. */
   public boolean isBound() {
     return page != null;

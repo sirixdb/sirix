@@ -200,6 +200,11 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
     this.page = null;
   }
 
+  @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
   /** Check if this node is bound to a page MemorySegment. */
   public boolean isBound() {
     return page != null;

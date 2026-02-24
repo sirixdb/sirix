@@ -216,6 +216,11 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     this.page = null;
   }
 
+  @Override
+  public void clearBinding() {
+    this.page = null;
+  }
+
   /** Check if this node is bound to a page MemorySegment. */
   public boolean isBound() {
     return page != null;
