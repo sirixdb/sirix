@@ -9,6 +9,7 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.PageGuard;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
@@ -180,6 +181,20 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   protected final ResourceConfiguration resourceConfig;
 
   /**
+   * Cached {@link NodeStorageEngineReader} resolved once from {@link #storageEngineReader}.
+   * For read-only transactions, this is the reader itself.
+   * For write transactions, this is the delegate reader extracted from the writer.
+   * Used by {@link #moveTo(long)} to enable singleton mode without per-call instanceof checks.
+   */
+  private NodeStorageEngineReader cachedNodeReader;
+
+  /**
+   * Cached {@link StorageEngineWriter} reference, non-null only for write transactions.
+   * Used by {@link #moveToSingletonSlowPath} to resolve TIL modified pages.
+   */
+  private StorageEngineWriter cachedWriter;
+
+  /**
    * Constructor.
    *
    * @param trxId               the transaction ID
@@ -198,7 +213,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentNode = requireNonNull(documentNode);
     this.isClosed = false;
     this.resourceConfig = resourceSession.getResourceConfig();
-    
+    this.cachedNodeReader = resolveNodeReader(pageReadTransaction);
+    this.cachedWriter = (pageReadTransaction instanceof StorageEngineWriter w) ? w : null;
+
     // Initialize flyweight state from document node
     this.currentNodeKey = documentNode.getNodeKey();
     this.currentNodeKind = documentNode.getKind();
@@ -445,9 +462,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return moveToItemList(nodeKey);
     }
 
-    // Use singleton mode directly (inlined for performance - avoids moveToFlyweight indirection)
-    if (SINGLETON_ENABLED && storageEngineReader instanceof NodeStorageEngineReader reader) {
-      return moveToSingleton(nodeKey, reader);
+    // Use singleton mode for READ-ONLY transactions (cachedWriter == null).
+    // Write transactions fall through to moveToLegacy for now — the writer's overridden
+    // getRecord() provides TIL-aware page resolution that moveToSingleton needs.
+    if (SINGLETON_ENABLED && cachedNodeReader != null && cachedWriter == null) {
+      return moveToSingleton(nodeKey, cachedNodeReader);
+    }
+
+    // Write path: use moveToSingletonWrite for TIL-aware singleton mode
+    if (SINGLETON_ENABLED && cachedWriter != null && cachedNodeReader != null) {
+      return moveToSingletonWrite(nodeKey, cachedNodeReader, cachedWriter);
     }
 
     // Fallback to traditional object mode
@@ -663,24 +687,42 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   /**
-   * Slow path for moveToSingleton when moving to a different page.
-   * Handles guard acquisition and release.
+   * Slow path for moveToSingleton when moving to a different page (read-only transactions only).
+   * Uses the reader's lookupSlotWithGuard with guard management.
    */
   private boolean moveToSingletonSlowPath(final long nodeKey, final NodeStorageEngineReader reader) {
-    // Get raw slot data with full guard management
     var slotLocation = reader.lookupSlotWithGuard(nodeKey, IndexType.DOCUMENT, -1);
     if (slotLocation == null) {
       return false;
     }
 
-    final KeyValueLeafPage slotPage = slotLocation.page();
-    final int slotOff = slotLocation.offset();
+    return moveToSingletonFromPage(nodeKey, slotLocation.page(), reader,
+        reader.pageKey(nodeKey, IndexType.DOCUMENT), slotLocation.guard());
+  }
+
+  /**
+   * Move to a node on a given page using singleton mode.
+   * Shared logic for both write (TIL modified page) and read (guarded page) paths.
+   *
+   * @param nodeKey the node key
+   * @param page the page to read from
+   * @param reader the storage engine reader (for pageKey calculation)
+   * @param pageKey the pre-calculated page key
+   * @param newGuard the new page guard (null for TIL pages which don't need guarding)
+   * @return true if move succeeded
+   */
+  private boolean moveToSingletonFromPage(final long nodeKey, final KeyValueLeafPage page,
+      final NodeStorageEngineReader reader, final long pageKey, final @Nullable PageGuard newGuard) {
+    final int slotOff = StorageEngineReader.recordPageOffset(nodeKey);
 
     // Check records[] first: Java objects are authoritative during write transactions
-    final DataRecord fromRecords = slotPage.getRecord(slotOff);
+    // (modifications via prepareRecordForModification are NOT synced back to page heap)
+    final DataRecord fromRecords = page.getRecord(slotOff);
     if (fromRecords != null) {
       if (fromRecords.getKind() == NodeKind.DELETE) {
-        slotLocation.guard().close();
+        if (newGuard != null) {
+          newGuard.close();
+        }
         return false;
       }
       releaseCurrentPageGuard();
@@ -692,20 +734,30 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       this.currentSingleton = null;
       this.singletonMode = false;
       this.flyweightMode = false;
-      this.currentPageGuard = slotLocation.guard();
-      this.currentPage = slotPage;
-      this.currentPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
+      this.currentPageGuard = newGuard;
+      this.currentPage = page;
+      this.currentPageKey = pageKey;
       return true;
     }
 
+    // Get slot data from page heap
+    MemorySegment data = page.getSlot(slotOff);
+    if (data == null) {
+      if (newGuard != null) {
+        newGuard.close();
+      }
+      return false;
+    }
+
     // Read node kind from first byte
-    MemorySegment data = slotLocation.data();
     byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
     NodeKind kind = NodeKind.getKind(kindByte);
 
     // Check for deleted node
     if (kind == NodeKind.DELETE) {
-      slotLocation.guard().close();
+      if (newGuard != null) {
+        newGuard.close();
+      }
       return false;
     }
 
@@ -713,7 +765,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     ImmutableNode singleton = getSingletonForKind(kind);
     if (singleton == null) {
       // No singleton for this type (e.g., document root), fall back to legacy
-      slotLocation.guard().close();
+      if (newGuard != null) {
+        newGuard.close();
+      }
       return moveToLegacy(nodeKey);
     }
 
@@ -721,37 +775,35 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     releaseCurrentPageGuard();
 
     // Check if this is a flyweight record in slotted page
-    final boolean isFlyweightSlotSlow = slotPage.getSlottedPage() != null && slotPage.getSlotNodeKindId(slotOff) > 0
+    final boolean isFlyweight = page.getSlottedPage() != null && page.getSlotNodeKindId(slotOff) > 0
         && singleton instanceof FlyweightNode;
-    if (isFlyweightSlotSlow) {
+    if (isFlyweight) {
       final FlyweightNode fn = (FlyweightNode) singleton;
       // Bind flyweight directly to slotted page (zero-copy, no legacy parsing)
-      final int heapOffset = PageLayout.getDirHeapOffset(slotPage.getSlottedPage(), slotOff);
+      final int heapOffset = PageLayout.getDirHeapOffset(page.getSlottedPage(), slotOff);
       final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
-      fn.bind(slotPage.getSlottedPage(), recordBase, nodeKey, slotOff);
+      fn.bind(page.getSlottedPage(), recordBase, nodeKey, slotOff);
       // Propagate FSST symbol table for compressed string nodes
-      propagateFsstToFlyweight(fn, slotPage);
+      propagateFsstToFlyweight(fn, page);
       // Propagate DeweyID from page to flyweight node (stored inline after record data)
       if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
-        final byte[] deweyId = slotPage.getDeweyIdAsByteArray(slotOff);
+        final byte[] deweyId = page.getDeweyIdAsByteArray(slotOff);
         if (deweyId != null) {
           node.setDeweyID(new SirixDeweyID(deweyId));
         }
       }
     } else {
       // Legacy format: populate from serialized data (NO ALLOCATION)
-      // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
       reusableBytesIn.reset(data, 1);
-      // Only fetch DeweyID if actually stored (avoids byte[] allocation)
       byte[] deweyId = resourceConfig.areDeweyIDsStored
-          ? slotPage.getDeweyIdAsByteArray(slotOff) : null;
-      populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, slotPage);
+          ? page.getDeweyIdAsByteArray(slotOff) : null;
+      populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
     }
 
     // Update state - we're in singleton mode now with new page
-    this.currentPageGuard = slotLocation.guard();
-    this.currentPage = slotPage;
-    this.currentPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
+    this.currentPageGuard = newGuard;
+    this.currentPage = page;
+    this.currentPageKey = pageKey;
     this.currentSingleton = singleton;
     this.currentNodeKind = kind;
     this.currentNodeKey = nodeKey;
@@ -761,7 +813,116 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
     return true;
   }
-  
+
+  /**
+   * Write-transaction singleton moveTo. Uses the writer's TIL for page resolution (modified pages).
+   * Same-page optimization caches the modified page between calls.
+   * Falls back to moveToLegacy if the page is not in TIL.
+   *
+   * @param nodeKey the node key to move to
+   * @param reader the underlying storage engine reader (for pageKey calculation)
+   * @param writer the storage engine writer (for TIL page resolution)
+   * @return true if the move was successful
+   */
+  private boolean moveToSingletonWrite(final long nodeKey, final NodeStorageEngineReader reader,
+      final StorageEngineWriter writer) {
+    final long targetPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
+    final int slotOffset = StorageEngineReader.recordPageOffset(nodeKey);
+    KeyValueLeafPage page;
+
+    // Same-page fast path: reuse cached modified page
+    if (currentPageKey == targetPageKey && currentPage != null && !currentPage.isClosed()) {
+      page = currentPage;
+    } else {
+      // Different page: get modified page from writer's TIL
+      page = writer.getModifiedPageForRead(targetPageKey, IndexType.DOCUMENT, -1);
+      if (page == null) {
+        // Page not in TIL — fall back to legacy (allocating) moveTo
+        return moveToLegacy(nodeKey);
+      }
+      // Release previous guard (if any) and update page tracking
+      // TIL pages don't need guarding — they're pinned by the transaction
+      if (currentPageGuard != null) {
+        currentPageGuard.close();
+        currentPageGuard = null;
+      }
+      currentPage = page;
+      currentPageKey = targetPageKey;
+    }
+
+    // Check records[] first: authoritative for writes (prepareRecordForModification stores here)
+    final DataRecord fromRecords = page.getRecord(slotOffset);
+    if (fromRecords != null) {
+      if (fromRecords.getKind() == NodeKind.DELETE) {
+        return false;
+      }
+      @SuppressWarnings("unchecked")
+      final N node = (N) fromRecords;
+      this.currentNode = node;
+      this.currentNodeKind = (NodeKind) fromRecords.getKind();
+      this.currentNodeKey = nodeKey;
+      this.currentSingleton = null;
+      this.singletonMode = false;
+      this.flyweightMode = false;
+      return true;
+    }
+
+    // Check slot data on modified page
+    final MemorySegment data = page.getSlot(slotOffset);
+    if (data == null) {
+      // Not in modified page heap either — fall back to legacy
+      return moveToLegacy(nodeKey);
+    }
+
+    // Read node kind from first byte
+    final byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+    final NodeKind kind = NodeKind.getKind(kindByte);
+
+    if (kind == NodeKind.DELETE) {
+      return false;
+    }
+
+    // Get singleton instance for this node type
+    final ImmutableNode singleton = getSingletonForKind(kind);
+    if (singleton == null) {
+      return moveToLegacy(nodeKey);
+    }
+
+    // Bind singleton to page data (zero allocation)
+    final boolean isFlyweight = page.getSlottedPage() != null
+        && page.getSlotNodeKindId(slotOffset) > 0
+        && singleton instanceof FlyweightNode;
+    if (isFlyweight) {
+      final FlyweightNode fn = (FlyweightNode) singleton;
+      final int heapOffset = PageLayout.getDirHeapOffset(page.getSlottedPage(), slotOffset);
+      final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
+      fn.bind(page.getSlottedPage(), recordBase, nodeKey, slotOffset);
+      propagateFsstToFlyweight(fn, page);
+      if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
+        final byte[] deweyId = page.getDeweyIdAsByteArray(slotOffset);
+        if (deweyId != null) {
+          node.setDeweyID(new SirixDeweyID(deweyId));
+        }
+      }
+    } else {
+      // Legacy format: populate singleton from serialized data (NO ALLOCATION)
+      reusableBytesIn.reset(data, 1);
+      final byte[] deweyId = resourceConfig.areDeweyIDsStored
+          ? page.getDeweyIdAsByteArray(slotOffset) : null;
+      populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
+    }
+
+    // Update state — singleton mode, no guard needed for TIL pages
+    this.currentSingleton = singleton;
+    this.currentNodeKind = kind;
+    this.currentNodeKey = nodeKey;
+    this.currentNode = null;
+    this.singletonMode = true;
+    this.flyweightMode = false;
+
+    return true;
+  }
+
   /**
    * Propagate FSST symbol table from page to a flyweight string node.
    * Required for lazy decompression of FSST-compressed strings in singleton mode.
@@ -1659,6 +1820,25 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public final void setPageReadTransaction(@Nullable final StorageEngineReader pageReadTransaction) {
     assertNotClosed();
     storageEngineReader = pageReadTransaction;
+    cachedNodeReader = resolveNodeReader(pageReadTransaction);
+    cachedWriter = (pageReadTransaction instanceof StorageEngineWriter w) ? w : null;
+  }
+
+  /**
+   * Resolve the underlying {@link NodeStorageEngineReader} from a storage engine reader.
+   * For read-only transactions, this is the reader itself.
+   * For write transactions (where the reader is a {@link StorageEngineWriter}),
+   * extracts the delegate reader via {@link StorageEngineWriter#getStorageEngineReader()}.
+   */
+  private static NodeStorageEngineReader resolveNodeReader(@Nullable final StorageEngineReader reader) {
+    if (reader instanceof NodeStorageEngineReader r) {
+      return r;
+    }
+    if (reader instanceof StorageEngineWriter w
+        && w.getStorageEngineReader() instanceof NodeStorageEngineReader r) {
+      return r;
+    }
+    return null;
   }
 
   @Override

@@ -245,4 +245,17 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @return a PageGuard that must be closed when done with the node
    */
   PageGuard acquireGuardForCurrentNode();
+
+  /**
+   * Get the TIL's modified {@link KeyValueLeafPage} for a given record page key, or null if not in TIL.
+   * Used by the singleton moveTo path to read from the correct (modified) page during write transactions.
+   *
+   * @param recordPageKey the record page key
+   * @param indexType the index type
+   * @param index the index number
+   * @return the modified page if in TIL, null otherwise
+   */
+  default @Nullable KeyValueLeafPage getModifiedPageForRead(long recordPageKey, @NonNull IndexType indexType, int index) {
+    return null;
+  }
 }

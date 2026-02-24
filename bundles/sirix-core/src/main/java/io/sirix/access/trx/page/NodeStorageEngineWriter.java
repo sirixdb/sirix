@@ -1244,6 +1244,19 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  public KeyValueLeafPage getModifiedPageForRead(final long recordPageKey,
+      @NonNull final IndexType indexType, final int index) {
+    final PageContainer pc = getPageContainer(recordPageKey, index, indexType);
+    if (pc != null) {
+      final var modified = pc.getModified();
+      if (modified instanceof KeyValueLeafPage kvl && !kvl.isClosed()) {
+        return kvl;
+      }
+    }
+    return null;
+  }
+
+  @Override
   public StorageEngineWriter appendLogRecord(@NonNull final PageReference reference,
       @NonNull final PageContainer pageContainer) {
     requireNonNull(pageContainer);
