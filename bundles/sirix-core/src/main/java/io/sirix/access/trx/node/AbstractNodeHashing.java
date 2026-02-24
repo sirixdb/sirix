@@ -70,13 +70,25 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
 
   /**
    * Adapting the structure with a hash for all ancestors only with insert.
+   * Uses the current cursor position as the start node.
    *
    * @throws SirixIOException if an I/O error occurs
    */
   public void adaptHashesWithAdd() {
+    adaptHashesWithAdd(nodeReadOnlyTrx.getNodeKey());
+  }
+
+  /**
+   * Adapting the structure with a hash for all ancestors only with insert.
+   * Accepts the start node key directly, avoiding a moveTo to position the cursor.
+   *
+   * @param startNodeKey the node key to start hashing from
+   * @throws SirixIOException if an I/O error occurs
+   */
+  public void adaptHashesWithAdd(final long startNodeKey) {
     if (!bulkInsert || autoCommit) {
       switch (hashType) {
-        case ROLLING -> rollingAdd();
+        case ROLLING -> rollingAdd(startNodeKey);
         case POSTORDER -> postorderAdd();
         case NONE -> {
         }
@@ -291,10 +303,14 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    *
    * @throws SirixIOException if an I/O error occurs
    */
-  private void rollingAdd() {
-    // start with hash to add
-    final Node startNode = storageEngineWriter.prepareRecordForModification(nodeReadOnlyTrx.getNodeKey(), IndexType.DOCUMENT, -1);
-    final long startNodeKey = startNode.getNodeKey();
+  private void rollingAdd(final long startNodeKey) {
+    // Position cursor on start node — needed for getStructuralNode().getDescendantCount()
+    // and to restore position at end. The caller eliminated the moveTo before adaptForInsert
+    // which is the bigger win (adaptForInsert is called unconditionally; rollingAdd only
+    // when hashing is enabled).
+    nodeReadOnlyTrx.moveTo(startNodeKey);
+    // start with hash to add — startNodeKey passed directly
+    final Node startNode = storageEngineWriter.prepareRecordForModification(startNodeKey, IndexType.DOCUMENT, -1);
     // Capture all needed values from startNode before any subsequent prepareRecordForModification
     // calls, which may return the same write-path singleton and overwrite startNode's fields.
     final long startParentKey = startNode.getParentKey();
