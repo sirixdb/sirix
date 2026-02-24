@@ -50,7 +50,6 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.page.NodeFieldLayout;
-import io.sirix.page.PageLayout;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -61,35 +60,35 @@ import org.checkerframework.checker.nullness.qual.Nullable;
  *
  * <p>Uses primitive fields for efficient storage with delta+varint encoding.
  * This eliminates MemorySegment/VarHandle overhead and enables compact serialization.</p>
- * 
+ *
  * @author Johannes Lichtenberger
  */
 public final class ObjectNode implements StructNode, ImmutableJsonNode, FlyweightNode {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
-  
+
   // Mutable structural fields (updated during tree modifications)
   private long parentKey;
   private long rightSiblingKey;
   private long leftSiblingKey;
   private long firstChildKey;
   private long lastChildKey;
-  
+
   // Mutable revision tracking
   private int previousRevision;
   private int lastModifiedRevision;
-  
+
   // Mutable counters
   private long childCount;
   private long descendantCount;
-  
+
   // Mutable hash
   private long hash;
-  
+
   // Hash function for computing node hashes (mutable for singleton reuse)
   private LongHashFunction hashFunction;
-  
+
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
@@ -321,7 +320,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
   // ==================== SERIALIZE TO HEAP ====================
 
   /**
-   * Serialize this node (from Java fields) into the new slotted page format with offset table.
+   * Serialize this node (from Java fields) into the slotted page format with offset table.
    * Writes: [nodeKind:1][offsetTable:FIELD_COUNT][data fields].
    *
    * @param target the target MemorySegment
@@ -381,11 +380,11 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
     DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
     pos += Long.BYTES;
 
-    // Field 8: childCount (signed varint)
+    // Field 8: childCount (signed long varint)
     offsets[NodeFieldLayout.OBJECT_CHILD_COUNT] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, childCount);
 
-    // Field 9: descendantCount (signed varint)
+    // Field 9: descendantCount (signed long varint)
     offsets[NodeFieldLayout.OBJECT_DESCENDANT_COUNT] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, descendantCount);
 
@@ -581,7 +580,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
   public void setChildCount(final long childCount) {
     if (page != null) {
       if (setSignedLongFieldInPlace(NodeFieldLayout.OBJECT_CHILD_COUNT, childCount)) return;
-      // Width changed — unbind already happened in the helper
+      // Width changed -- unbind already happened in the helper
     }
     this.childCount = childCount;
   }
@@ -701,18 +700,18 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
     this.lazyFieldsParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
     this.storeChildCount = config.storeChildCount();
-    
+
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.childCount = 0;
     this.hash = 0;
     this.descendantCount = 0;
   }
-  
+
   /**
    * Populate this node directly from a MemorySegment, bypassing BytesIn overhead.
    * ZERO ALLOCATION - reads directly from memory segment.
-   * 
+   *
    * @param segment     the MemorySegment containing the serialized node data (after kind byte)
    * @param startOffset the byte offset within the segment to start reading
    * @param nodeKey     the node key
@@ -728,51 +727,51 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
     this.sirixDeweyID = null;
-    
+
     int offset = startOffset;
-    
+
     // STRUCTURAL FIELDS - read directly from segment (no BytesIn overhead)
     this.parentKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
     offset += DeltaVarIntCodec.deltaLength(segment, offset);
-    
+
     this.rightSiblingKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
     offset += DeltaVarIntCodec.deltaLength(segment, offset);
-    
+
     this.leftSiblingKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
     offset += DeltaVarIntCodec.deltaLength(segment, offset);
-    
+
     this.firstChildKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
     offset += DeltaVarIntCodec.deltaLength(segment, offset);
-    
+
     this.lastChildKey = DeltaVarIntCodec.decodeDeltaFromSegment(segment, offset, nodeKey);
     offset += DeltaVarIntCodec.deltaLength(segment, offset);
-    
+
     // Store for lazy parsing
     this.lazySource = segment;
     this.lazyOffset = offset;
     this.lazyFieldsParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
     this.storeChildCount = config.storeChildCount();
-    
+
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.childCount = 0;
     this.hash = 0;
     this.descendantCount = 0;
-    
+
     return offset;
   }
-  
+
   private void parseLazyFields() {
     if (lazyFieldsParsed) {
       return;
     }
-    
+
     if (lazySource == null) {
       lazyFieldsParsed = true;
       return;
     }
-    
+
     BytesIn<?> bytesIn;
     if (lazySource instanceof MemorySegment segment) {
       bytesIn = new MemorySegmentBytesIn(segment);
@@ -783,7 +782,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
     } else {
       throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
     }
-    
+
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.childCount = storeChildCount ? DeltaVarIntCodec.decodeSigned(bytesIn) : 0;
@@ -822,6 +821,13 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
         rightSiblingKey, leftSiblingKey, firstChildKey, lastChildKey, childCount,
         descendantCount, hash, hashFunction,
         getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
+  }
+
+  @Override
+  public int estimateSerializedSize() {
+    // 1 (nodeKind) + 10 (offset table) + ~20 (varint fields avg) + 8 (hash) = ~39
+    // Use conservative upper bound
+    return 1 + FIELD_COUNT + 10 * 2 + 8 + 2 * 2;
   }
 
   @Override

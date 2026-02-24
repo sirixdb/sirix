@@ -408,7 +408,7 @@ class KeyValueLeafPageTest {
   }
 
   @Test
-  void testSetRecordSerializesFlyweightToHeapEagerly() {
+  void testSetRecordDefersSerializationForNonSingletonFlyweight() {
     final long nodeKey = 1L;
     final int offset =
         (int) (nodeKey - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
@@ -417,10 +417,10 @@ class KeyValueLeafPageTest {
 
     keyValueLeafPage.setRecord(node);
 
-    // FlyweightNode records are serialized to the slotted page heap eagerly by setRecord.
-    // The record is stored in records[] AND serialized to the heap for zero-copy binding.
+    // Non-singleton unbound FlyweightNode: serialization is deferred to processEntries at
+    // commit time. The record is stored in records[] but NOT serialized to the heap yet.
     assertSame(node, keyValueLeafPage.getRecord(offset));
-    assertNotNull(keyValueLeafPage.getSlot(offset));
+    assertNull(keyValueLeafPage.getSlot(offset));
   }
 
   @Test
