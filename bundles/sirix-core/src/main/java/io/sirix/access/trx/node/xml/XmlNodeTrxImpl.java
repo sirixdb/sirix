@@ -1517,6 +1517,7 @@ final class XmlNodeTrxImpl extends
               : -1;
 
           // Set new keys for current node.
+          final long savedNodeKey = node.getNodeKey();
           node.setLocalNameKey(localNameKey);
           node.setURIKey(uriKey);
           node.setPrefixKey(prefixKey);
@@ -1527,13 +1528,18 @@ final class XmlNodeTrxImpl extends
                 PathSummaryWriter.OPType.SETNAME);
           }
 
+          // Re-acquire the record: adaptPathForChangedNode may have rebound the write
+          // singleton to a different node via resetPathNodeKey → prepareRecordForModification.
+          final NameNode node2 =
+              (NameNode) storageEngineWriter.prepareRecordForModification(savedNodeKey, IndexType.DOCUMENT, -1);
+
           // Set path node key.
-          node.setPathNodeKey(buildPathSummary
+          node2.setPathNodeKey(buildPathSummary
               ? pathSummaryWriter.getNodeKey()
               : 0);
 
-          nodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) node);
-          persistUpdatedRecord(node);
+          nodeReadOnlyTrx.setCurrentNode((ImmutableXmlNode) node2);
+          persistUpdatedRecord(node2);
           nodeHashing.adaptHashedWithUpdate(oldHash);
         }
 
