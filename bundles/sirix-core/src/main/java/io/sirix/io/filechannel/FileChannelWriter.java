@@ -276,11 +276,12 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
           buffer.position(8);
           buffer.putLong(revisionRootPage.getRevisionTimestamp());
           buffer.position(0);
+          final long revisionsFileSize = revisionsFileChannel.size();
           final long revisionsFileOffset;
           if (revisionRootPage.getRevision() == 0) {
-            revisionsFileOffset = revisionsFileChannel.size() + IOStorage.FIRST_BEACON;
+            revisionsFileOffset = revisionsFileSize + IOStorage.FIRST_BEACON;
           } else {
-            revisionsFileOffset = revisionsFileChannel.size();
+            revisionsFileOffset = revisionsFileSize;
           }
           revisionsFileChannel.write(buffer, revisionsFileOffset);
           final long currOffset = offset;

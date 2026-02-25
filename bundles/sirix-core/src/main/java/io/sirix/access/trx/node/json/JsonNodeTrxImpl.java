@@ -714,7 +714,7 @@ final class JsonNodeTrxImpl extends
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, node);
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -758,7 +758,7 @@ final class JsonNodeTrxImpl extends
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, node);
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -810,7 +810,8 @@ final class JsonNodeTrxImpl extends
 
       moveTo(nodeKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(),
+          pathNodeKey);
 
       insertValue(value);
 
@@ -868,7 +869,8 @@ final class JsonNodeTrxImpl extends
 
       moveTo(nodeKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(),
+          pathNodeKey);
 
       insertValue(value);
 
@@ -1001,7 +1003,7 @@ final class JsonNodeTrxImpl extends
           nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, node);
 
       insertValue(value);
 
@@ -1054,7 +1056,7 @@ final class JsonNodeTrxImpl extends
           nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, node);
 
       insertValue(value);
 
@@ -1108,7 +1110,8 @@ final class JsonNodeTrxImpl extends
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(),
+          pathNodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -1161,7 +1164,8 @@ final class JsonNodeTrxImpl extends
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(),
+          pathNodeKey);
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -1204,7 +1208,7 @@ final class JsonNodeTrxImpl extends
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, (ImmutableNode) node);
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -1247,7 +1251,7 @@ final class JsonNodeTrxImpl extends
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, node);
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -1378,7 +1382,7 @@ final class JsonNodeTrxImpl extends
   }
 
   private void insertAsSibling(final long nodeKey, final long parentKey,
-      final long leftSibKey, final long rightSibKey) {
+      final long leftSibKey, final long rightSibKey, final ImmutableNode insertedNode) {
     // Pass structural keys directly — eliminates moveTo before adaptForInsert.
     adaptForInsert(nodeKey, parentKey, leftSibKey, rightSibKey);
     nodeHashing.adaptHashesWithAdd(nodeKey);
@@ -1396,8 +1400,7 @@ final class JsonNodeTrxImpl extends
       pathNodeKey = 0;
     }
 
-    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(),
-        pathNodeKey);
+    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
   }
 
   /**
@@ -1488,7 +1491,8 @@ final class JsonNodeTrxImpl extends
 
       if (notifyIndex) {
         moveTo(nodeKey);
-        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(),
+            pathNodeKey);
       }
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
@@ -1537,7 +1541,7 @@ final class JsonNodeTrxImpl extends
           stringValue, numberValue, booleanValue, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, (ImmutableNode) node);
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);

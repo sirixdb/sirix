@@ -228,17 +228,18 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (currentNode != null) {
       return currentNode;
     }
-    
+
     // When in singleton mode, create a snapshot (deep copy) of the singleton.
+    // Snapshot semantics are required because singleton instances are reused across moveTo calls.
     if (SINGLETON_ENABLED && singletonMode && currentSingleton != null) {
       currentNode = createSingletonSnapshot();
       return currentNode;
     }
-    
+
     if (FLYWEIGHT_ENABLED && flyweightMode && currentSlot != null) {
       currentNode = deserializeToSnapshot();
     }
-    
+
     return currentNode;
   }
   

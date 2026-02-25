@@ -36,7 +36,6 @@ import static java.util.Objects.requireNonNull;
  * @author Sebastian Graf, University of Konstanz
  */
 public final class Databases {
-
   /**
    * Private constructor to prevent instantiation.
    */
@@ -596,4 +595,5 @@ public final class Databases {
 
     logger.info("BufferManager reinitialized for testing");
   }
+
 }
