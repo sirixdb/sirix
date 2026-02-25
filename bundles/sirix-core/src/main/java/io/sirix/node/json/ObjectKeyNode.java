@@ -50,6 +50,7 @@ import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NodeFieldLayout;
 import io.sirix.page.PageLayout;
 import io.sirix.settings.Fixed;
@@ -118,6 +119,12 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
   private boolean writeSingleton;
 
+  /** Owning page for resize-in-place on varint width changes. */
+  private KeyValueLeafPage ownerPage;
+
+  /** Pre-allocated offset array reused across serializations (zero-alloc hot path). */
+  private final int[] heapOffsets;
+
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
 
   /**
@@ -130,6 +137,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   public ObjectKeyNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -153,6 +161,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.lazyFieldsParsed = true;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -176,6 +185,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.lazyFieldsParsed = true;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -221,11 +231,13 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     this.hash = readLongField(NodeFieldLayout.OBJKEY_HASH);
     this.descendantCount = readSignedLongField(NodeFieldLayout.OBJKEY_DESCENDANT_COUNT);
     this.page = null;
+    this.ownerPage = null;
   }
 
   @Override
   public void clearBinding() {
     this.page = null;
+    this.ownerPage = null;
   }
 
   /** Check if this node is bound to a page MemorySegment. */
@@ -265,55 +277,16 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
-  // ==================== FLYWEIGHT FIELD WRITE HELPERS ====================
+  // ==================== OWNER PAGE (for resize-in-place) ====================
 
-  /**
-   * Write a delta-encoded field in-place if width matches, otherwise re-serialize.
-   */
-  private void setDeltaFieldInPlace(final int fieldIndex, final long newKey) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    final long absOff = dataRegionStart + fieldOff;
-    final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
-    final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(newKey, nodeKey);
-    if (newWidth == currentWidth) {
-      DeltaVarIntCodec.writeDeltaToSegment(page, absOff, newKey, nodeKey);
-    } else {
-      // Width changed: unbind, set field, re-serialize
-      unbind();
-      // The specific field will be set by the caller after this method returns
-    }
+  @Override
+  public KeyValueLeafPage getOwnerPage() {
+    return ownerPage;
   }
 
-  /**
-   * Write a signed varint field in-place if width matches, otherwise re-serialize.
-   */
-  private boolean setSignedFieldInPlace(final int fieldIndex, final int newValue) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    final long absOff = dataRegionStart + fieldOff;
-    final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
-    final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(newValue);
-    if (newWidth == currentWidth) {
-      DeltaVarIntCodec.writeSignedToSegment(page, absOff, newValue);
-      return true;
-    }
-    unbind();
-    return false; // Width changed
-  }
-
-  /**
-   * Write a signed long varint field in-place if width matches, otherwise re-serialize.
-   */
-  private boolean setSignedLongFieldInPlace(final int fieldIndex, final long newValue) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    final long absOff = dataRegionStart + fieldOff;
-    final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
-    final int newWidth = DeltaVarIntCodec.computeSignedLongEncodedWidth(newValue);
-    if (newWidth == currentWidth) {
-      DeltaVarIntCodec.writeSignedLongToSegment(page, absOff, newValue);
-      return true;
-    }
-    unbind();
-    return false; // Width changed
+  @Override
+  public void setOwnerPage(final KeyValueLeafPage ownerPage) {
+    this.ownerPage = ownerPage;
   }
 
   // ==================== SERIALIZE TO HEAP ====================
@@ -344,7 +317,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
     // Data region start
     final long dataStart = pos;
-    final int[] offsets = new int[FIELD_COUNT];
+    final int[] offsets = this.heapOffsets;
 
     // Field 0: parentKey (delta-varint)
     offsets[NodeFieldLayout.OBJKEY_PARENT_KEY] = (int) (pos - dataStart);
@@ -415,8 +388,22 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   public void setParentKey(final long parentKey) {
     if (page != null) {
-      setDeltaFieldInPlace(NodeFieldLayout.OBJKEY_PARENT_KEY, parentKey);
-      if (page != null) return; // In-place write succeeded
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJKEY_PARENT_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(parentKey, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.parentKey = parentKey;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.parentKey = parentKey;
   }
@@ -438,6 +425,16 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   @Override
   public void setDeweyID(final SirixDeweyID id) {
+    final var owner = this.ownerPage;
+    if (owner != null) {
+      final long nk = this.nodeKey;
+      final int slot = this.slotIndex;
+      unbind();
+      this.sirixDeweyID = id;
+      this.deweyIDBytes = null;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
     this.sirixDeweyID = id;
     this.deweyIDBytes = null;
   }
@@ -445,7 +442,22 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   @Override
   public void setPreviousRevision(final int revision) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.OBJKEY_PREV_REVISION, revision)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJKEY_PREV_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.previousRevision = revision;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.previousRevision = revision;
   }
@@ -453,7 +465,22 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   @Override
   public void setLastModifiedRevision(final int revision) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.OBJKEY_LAST_MOD_REVISION, revision)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJKEY_LAST_MOD_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.lastModifiedRevision = revision;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.lastModifiedRevision = revision;
   }
@@ -514,7 +541,22 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   public void setNameKey(final int nameKey) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.OBJKEY_NAME_KEY, nameKey)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJKEY_NAME_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(nameKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, nameKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.nameKey = nameKey;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.nameKey = nameKey;
   }
@@ -549,7 +591,24 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   }
 
   public void setLocalNameKey(final int localNameKey) {
-    if (page != null) unbind();
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJKEY_NAME_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(localNameKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, localNameKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.nameKey = localNameKey;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
     this.nameKey = localNameKey;
   }
 
@@ -565,8 +624,22 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   public void setPathNodeKey(final @NonNegative long pathNodeKey) {
     if (page != null) {
-      setDeltaFieldInPlace(NodeFieldLayout.OBJKEY_PATH_NODE_KEY, pathNodeKey);
-      if (page != null) return; // In-place write succeeded
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJKEY_PATH_NODE_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(pathNodeKey, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, pathNodeKey, nodeKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.pathNodeKey = pathNodeKey;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.pathNodeKey = pathNodeKey;
   }
@@ -581,8 +654,22 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   public void setRightSiblingKey(final long rightSibling) {
     if (page != null) {
-      setDeltaFieldInPlace(NodeFieldLayout.OBJKEY_RIGHT_SIB_KEY, rightSibling);
-      if (page != null) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJKEY_RIGHT_SIB_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(rightSibling, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, rightSibling, nodeKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.rightSiblingKey = rightSibling;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.rightSiblingKey = rightSibling;
   }
@@ -597,8 +684,22 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   public void setLeftSiblingKey(final long leftSibling) {
     if (page != null) {
-      setDeltaFieldInPlace(NodeFieldLayout.OBJKEY_LEFT_SIB_KEY, leftSibling);
-      if (page != null) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJKEY_LEFT_SIB_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(leftSibling, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, leftSibling, nodeKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.leftSiblingKey = leftSibling;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.leftSiblingKey = leftSibling;
   }
@@ -613,8 +714,22 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   public void setFirstChildKey(final long firstChild) {
     if (page != null) {
-      setDeltaFieldInPlace(NodeFieldLayout.OBJKEY_FIRST_CHILD_KEY, firstChild);
-      if (page != null) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJKEY_FIRST_CHILD_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(firstChild, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, firstChild, nodeKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.firstChildKey = firstChild;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.firstChildKey = firstChild;
   }
@@ -663,7 +778,22 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   @Override
   public void setDescendantCount(final long descendantCount) {
     if (page != null) {
-      if (setSignedLongFieldInPlace(NodeFieldLayout.OBJKEY_DESCENDANT_COUNT, descendantCount)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJKEY_DESCENDANT_COUNT) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedLongEncodedWidth(descendantCount);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedLongToSegment(page, absOff, descendantCount);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.descendantCount = descendantCount;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.descendantCount = descendantCount;
   }

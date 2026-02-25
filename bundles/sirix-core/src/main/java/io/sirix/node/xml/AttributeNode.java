@@ -48,6 +48,7 @@ import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NodeFieldLayout;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
@@ -95,6 +96,9 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   private long recordBase;
   private long dataRegionStart;
   private int slotIndex;
+  private boolean writeSingleton;
+  private KeyValueLeafPage ownerPage;
+  private final int[] heapOffsets;
   private static final int FIELD_COUNT = NodeFieldLayout.ATTRIBUTE_FIELD_COUNT;
 
   /**
@@ -107,6 +111,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   public AttributeNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -128,6 +133,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.qNm = qNm;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -149,6 +155,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.qNm = qNm;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   @Override
@@ -176,8 +183,23 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
 
   public void setParentKey(final long parentKey) {
     if (page != null) {
-      setDeltaFieldInPlace(NodeFieldLayout.ATTR_PARENT_KEY, parentKey);
-      if (page != null) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ATTR_PARENT_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(parentKey, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.parentKey = parentKey;
+      if (owner != null) {
+        owner.resizeRecord(this, nk, slot);
+      }
+      return;
     }
     this.parentKey = parentKey;
   }
@@ -198,8 +220,23 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   @Override
   public void setPathNodeKey(@NonNegative final long pathNodeKey) {
     if (page != null) {
-      setDeltaFieldInPlace(NodeFieldLayout.ATTR_PATH_NODE_KEY, pathNodeKey);
-      if (page != null) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ATTR_PATH_NODE_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(pathNodeKey, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, pathNodeKey, nodeKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.pathNodeKey = pathNodeKey;
+      if (owner != null) {
+        owner.resizeRecord(this, nk, slot);
+      }
+      return;
     }
     this.pathNodeKey = pathNodeKey;
   }
@@ -215,7 +252,23 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   @Override
   public void setPrefixKey(final int prefixKey) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.ATTR_PREFIX_KEY, prefixKey)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ATTR_PREFIX_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(prefixKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, prefixKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.prefixKey = prefixKey;
+      if (owner != null) {
+        owner.resizeRecord(this, nk, slot);
+      }
+      return;
     }
     this.prefixKey = prefixKey;
   }
@@ -231,7 +284,23 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   @Override
   public void setLocalNameKey(final int localNameKey) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.ATTR_LOCAL_NAME_KEY, localNameKey)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ATTR_LOCAL_NAME_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(localNameKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, localNameKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.localNameKey = localNameKey;
+      if (owner != null) {
+        owner.resizeRecord(this, nk, slot);
+      }
+      return;
     }
     this.localNameKey = localNameKey;
   }
@@ -247,7 +316,23 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   @Override
   public void setURIKey(final int uriKey) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.ATTR_URI_KEY, uriKey)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ATTR_URI_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(uriKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, uriKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.uriKey = uriKey;
+      if (owner != null) {
+        owner.resizeRecord(this, nk, slot);
+      }
+      return;
     }
     this.uriKey = uriKey;
   }
@@ -263,7 +348,23 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   @Override
   public void setPreviousRevision(final int revision) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.ATTR_PREV_REVISION, revision)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ATTR_PREV_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.previousRevision = revision;
+      if (owner != null) {
+        owner.resizeRecord(this, nk, slot);
+      }
+      return;
     }
     this.previousRevision = revision;
   }
@@ -279,7 +380,23 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   @Override
   public void setLastModifiedRevision(final int revision) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.ATTR_LAST_MOD_REVISION, revision)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ATTR_LAST_MOD_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.lastModifiedRevision = revision;
+      if (owner != null) {
+        owner.resizeRecord(this, nk, slot);
+      }
+      return;
     }
     this.lastModifiedRevision = revision;
   }
@@ -329,6 +446,20 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
 
   @Override
   public void setRawValue(final byte[] value) {
+    final var owner = this.ownerPage;
+    if (owner != null) {
+      final long nk = this.nodeKey;
+      final int slot = this.slotIndex;
+      unbind();
+      this.value = value;
+      this.valueParsed = true;
+      this.lazyValueSource = null;
+      this.lazyValueOffset = 0L;
+      this.lazyValueLength = 0;
+      this.hash = 0L;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
     if (page != null) unbind();
     this.value = value;
     this.valueParsed = true;
@@ -393,6 +524,16 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
 
   @Override
   public void setDeweyID(SirixDeweyID id) {
+    final var owner = this.ownerPage;
+    if (owner != null) {
+      final long nk = this.nodeKey;
+      final int slot = this.slotIndex;
+      unbind();
+      this.sirixDeweyID = id;
+      this.deweyIDBytes = null;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
     this.sirixDeweyID = id;
     this.deweyIDBytes = null;
   }
@@ -451,12 +592,14 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     if (!valueParsed) {
       readPayloadFromPage();
     }
+    this.ownerPage = null;
     this.page = null;
   }
 
   @Override
   public void clearBinding() {
     this.page = null;
+    this.ownerPage = null;
   }
 
   @Override
@@ -471,6 +614,11 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   public int getSlotIndex() {
     return slotIndex;
   }
+
+  @Override public boolean isWriteSingleton() { return writeSingleton; }
+  @Override public void setWriteSingleton(final boolean ws) { this.writeSingleton = ws; }
+  @Override public KeyValueLeafPage getOwnerPage() { return ownerPage; }
+  @Override public void setOwnerPage(final KeyValueLeafPage p) { this.ownerPage = p; }
 
   @Override
   public int estimateSerializedSize() {
@@ -493,33 +641,6 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   private long readLongField(final int fieldIndex) {
     final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
     return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
-  }
-
-  // ==================== FLYWEIGHT FIELD WRITE HELPERS ====================
-
-  private void setDeltaFieldInPlace(final int fieldIndex, final long newKey) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    final long absOff = dataRegionStart + fieldOff;
-    final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
-    final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(newKey, nodeKey);
-    if (newWidth == currentWidth) {
-      DeltaVarIntCodec.writeDeltaToSegment(page, absOff, newKey, nodeKey);
-    } else {
-      unbind();
-    }
-  }
-
-  private boolean setSignedFieldInPlace(final int fieldIndex, final int newValue) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    final long absOff = dataRegionStart + fieldOff;
-    final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
-    final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(newValue);
-    if (newWidth == currentWidth) {
-      DeltaVarIntCodec.writeSignedToSegment(page, absOff, newValue);
-      return true;
-    }
-    unbind();
-    return false;
   }
 
   /**
@@ -567,7 +688,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     final long offsetTableStart = pos;
     pos += FIELD_COUNT;
     final long dataStart = pos;
-    final int[] offsets = new int[FIELD_COUNT];
+    final int[] offsets = this.heapOffsets;
 
     // Field 0: parentKey (delta-varint)
     offsets[NodeFieldLayout.ATTR_PARENT_KEY] = (int) (pos - dataStart);

@@ -21,9 +21,11 @@ import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.UberPage;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -370,6 +372,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   }
 
   protected final void persistUpdatedRecord(final DataRecord record) {
+    if (record instanceof FlyweightNode fn && fn.isWriteSingleton() && fn.getOwnerPage() != null) {
+      return; // Bound write singleton — mutations already on heap via inlined setters
+    }
     // Ensure the mutated record is stored in the TIL's modified page.
     // For records obtained via prepareRecordForModification(), the page is already
     // in the TIL and the record is in records[] — this is a safe (redundant) setRecord.

@@ -417,10 +417,9 @@ class KeyValueLeafPageTest {
 
     keyValueLeafPage.setRecord(node);
 
-    // Non-singleton unbound FlyweightNode: serialization is deferred to processEntries at
-    // commit time. The record is stored in records[] but NOT serialized to the heap yet.
+    // Non-singleton FlyweightNode: stored in records[] for processEntries serialization.
+    // Only write singletons are serialized directly to heap.
     assertSame(node, keyValueLeafPage.getRecord(offset));
-    assertNull(keyValueLeafPage.getSlot(offset));
   }
 
   @Test

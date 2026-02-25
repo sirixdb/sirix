@@ -8,12 +8,18 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
+import io.sirix.node.interfaces.DataRecord;
+import io.sirix.node.interfaces.FlyweightNode;
+import io.sirix.node.interfaces.Node;
 import io.sirix.node.xml.AttributeNode;
 import io.sirix.node.xml.CommentNode;
 import io.sirix.node.xml.ElementNode;
 import io.sirix.node.xml.NamespaceNode;
 import io.sirix.node.xml.PINode;
 import io.sirix.node.xml.TextNode;
+import io.sirix.node.xml.XmlDocumentRootNode;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.PageLayout;
 import io.sirix.page.PathSummaryPage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
@@ -25,6 +31,7 @@ import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
+import java.lang.foreign.MemorySegment;
 import java.util.zip.Deflater;
 
 import static java.util.Objects.requireNonNull;
@@ -62,6 +69,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   private final LongArrayList reusableElementAttributeKeys;
   private final LongArrayList reusableElementNamespaceKeys;
   private final ElementNode reusableElementNode;
+  private final XmlDocumentRootNode reusableXmlDocumentRootNode;
 
   /**
    * Constructor.
@@ -97,6 +105,16 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     this.reusableCommentNode =
         new CommentNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, Fixed.NULL_NODE_KEY.getStandardProperty(),
             Fixed.NULL_NODE_KEY.getStandardProperty(), 0, new byte[0], false, hashFunction, (SirixDeweyID) null);
+    this.reusableXmlDocumentRootNode = new XmlDocumentRootNode(0, hashFunction);
+
+    // Mark all singletons as write singletons so setRecord skips records[] storage.
+    reusableElementNode.setWriteSingleton(true);
+    reusableAttributeNode.setWriteSingleton(true);
+    reusableNamespaceNode.setWriteSingleton(true);
+    reusablePINode.setWriteSingleton(true);
+    reusableTextNode.setWriteSingleton(true);
+    reusableCommentNode.setWriteSingleton(true);
+    reusableXmlDocumentRootNode.setWriteSingleton(true);
   }
 
   private long nextNodeKey() {
@@ -106,7 +124,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   private AttributeNode bindAttributeNode(final long nodeKey, final long parentKey, final QNm name, final byte[] value,
       final long pathNodeKey, final int prefixKey, final int localNameKey, final int uriKey, final SirixDeweyID id) {
     final AttributeNode node = reusableAttributeNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPathNodeKey(pathNodeKey);
@@ -125,7 +143,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   private NamespaceNode bindNamespaceNode(final long nodeKey, final long parentKey, final QNm name,
       final long pathNodeKey, final int prefixKey, final int uriKey, final SirixDeweyID id) {
     final NamespaceNode node = reusableNamespaceNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPathNodeKey(pathNodeKey);
@@ -144,7 +162,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
       final QNm target, final byte[] content, final long pathNodeKey, final int prefixKey, final int localNameKey,
       final int uriKey, final boolean isCompressed, final SirixDeweyID id) {
     final PINode node = reusablePINode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setRightSiblingKey(rightSibKey);
@@ -173,7 +191,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     reusableElementAttributeKeys.clear();
     reusableElementNamespaceKeys.clear();
     final ElementNode node = reusableElementNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setRightSiblingKey(rightSibKey);
@@ -197,7 +215,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   private TextNode bindTextNode(final long nodeKey, final long parentKey, final long leftSibKey, final long rightSibKey,
       final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
     final TextNode node = reusableTextNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
@@ -214,7 +232,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   private CommentNode bindCommentNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
     final CommentNode node = reusableCommentNode;
-    if (node.isBound()) node.unbind();
+    node.clearBinding();
     node.setNodeKey(nodeKey);
     node.setParentKey(parentKey);
     node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
@@ -345,5 +363,63 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final CommentNode node =
         bindCommentNode(nodeKey, parentKey, leftSibKey, rightSibKey, compressedValue, compression, id);
     return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
+  }
+
+  /**
+   * Bind the correct write singleton to a slotted page slot for zero-allocation modification.
+   * Reads the nodeKindId from the page directory, selects the matching singleton, binds to the
+   * slot, and propagates DeweyID.
+   *
+   * @param page    the KeyValueLeafPage containing the slotted page
+   * @param offset  the slot index (0-1023)
+   * @param nodeKey the record key
+   * @return the bound write singleton, or null if the slot is not an XML node type
+   */
+  DataRecord bindWriteSingleton(final KeyValueLeafPage page, final int offset, final long nodeKey) {
+    final MemorySegment slottedPage = page.getSlottedPage();
+    if (slottedPage == null || !PageLayout.isSlotPopulated(slottedPage, offset)) {
+      return null;
+    }
+    final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, offset);
+    final FlyweightNode singleton = selectSingleton(nodeKindId);
+    if (singleton == null) {
+      return null;
+    }
+    // Skip isBound()/unbind() — bind() overwrites all fields unconditionally,
+    // and we avoid 2 megamorphic interface calls (itable stubs) per bind.
+    final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, offset);
+    final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
+    singleton.bind(slottedPage, recordBase, nodeKey, offset);
+    singleton.setOwnerPage(null); // Clear STALE owner from previous binding
+
+    // Propagate DeweyID — safe because ownerPage is null (no write-through).
+    // MUST always set — null clears stale DeweyID from previous singleton reuse.
+    if (singleton instanceof Node node) {
+      final byte[] deweyIdBytes = page.getDeweyIdAsByteArray(offset);
+      node.setDeweyID(deweyIdBytes != null ? new SirixDeweyID(deweyIdBytes) : null);
+    }
+
+    singleton.setOwnerPage(page); // Set CORRECT owner LAST
+
+    return (DataRecord) singleton;
+  }
+
+  /**
+   * Select the factory write singleton for a given nodeKindId.
+   *
+   * @param nodeKindId the node kind ID from the page directory
+   * @return the singleton, or null if not a managed XML type
+   */
+  private FlyweightNode selectSingleton(final int nodeKindId) {
+    return switch (nodeKindId) {
+      case 1 -> reusableElementNode;               // ELEMENT
+      case 2 -> reusableAttributeNode;              // ATTRIBUTE
+      case 3 -> reusableTextNode;                   // TEXT
+      case 7 -> reusablePINode;                     // PROCESSING_INSTRUCTION
+      case 8 -> reusableCommentNode;                // COMMENT
+      case 9 -> reusableXmlDocumentRootNode;        // XML_DOCUMENT
+      case 13 -> reusableNamespaceNode;             // NAMESPACE
+      default -> null;                              // Not an XML type or not managed
+    };
   }
 }

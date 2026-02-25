@@ -7,6 +7,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.index.IndexType;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.xml.ElementNode;
@@ -182,6 +183,9 @@ final class XmlDeweyIDManager extends AbstractDeweyIDManager<InternalXmlNodeTrx>
   }
 
   private void persistUpdatedRecord(final DataRecord record) {
+    if (record instanceof FlyweightNode fn && fn.isWriteSingleton() && fn.getOwnerPage() != null) {
+      return; // Bound write singleton — mutations already on heap via inlined setters
+    }
     // Ensure the mutated record is stored in the TIL's modified page.
     storageEngineWriter.persistRecord(record, IndexType.DOCUMENT, -1);
   }

@@ -36,6 +36,7 @@ import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NodeFieldLayout;
 import io.sirix.settings.Fixed;
 import java.lang.foreign.MemorySegment;
@@ -105,6 +106,12 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
   private boolean writeSingleton;
 
+  /** Owning page for resize-in-place operations. */
+  private KeyValueLeafPage ownerPage;
+
+  /** Reusable offset array for serializeToHeap (avoids allocation). */
+  private final int[] heapOffsets;
+
   private static final int FIELD_COUNT = NodeFieldLayout.JSON_DOCUMENT_ROOT_FIELD_COUNT;
 
   /**
@@ -117,6 +124,7 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   public JsonDocumentRootNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -139,6 +147,7 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
     this.descendantCount = descendantCount;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = SirixDeweyID.newRootID().toBytes();
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -162,6 +171,7 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
     this.descendantCount = descendantCount;
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -199,12 +209,14 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
     this.childCount = readSignedLongField(NodeFieldLayout.JDOCROOT_CHILD_COUNT);
     this.descendantCount = readSignedLongField(NodeFieldLayout.JDOCROOT_DESCENDANT_COUNT);
     this.hash = readLongField(NodeFieldLayout.JDOCROOT_HASH);
+    this.ownerPage = null;
     this.page = null;
   }
 
   @Override
   public void clearBinding() {
     this.page = null;
+    this.ownerPage = null;
   }
 
   /** Check if this node is bound to a page MemorySegment. */
@@ -244,57 +256,6 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
     return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
-  // ==================== FLYWEIGHT FIELD WRITE HELPERS ====================
-
-  /**
-   * Write a delta-encoded field in-place if width matches, otherwise unbind and re-serialize.
-   */
-  private void setDeltaFieldInPlace(final int fieldIndex, final long newKey) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    final long absOff = dataRegionStart + fieldOff;
-    final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
-    final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(newKey, nodeKey);
-    if (newWidth == currentWidth) {
-      DeltaVarIntCodec.writeDeltaToSegment(page, absOff, newKey, nodeKey);
-    } else {
-      // Width changed: unbind, set field, re-serialize
-      unbind();
-      // The specific field will be set by the caller after this method returns
-    }
-  }
-
-  /**
-   * Write a signed varint field in-place if width matches, otherwise re-serialize.
-   */
-  private boolean setSignedFieldInPlace(final int fieldIndex, final int newValue) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    final long absOff = dataRegionStart + fieldOff;
-    final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
-    final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(newValue);
-    if (newWidth == currentWidth) {
-      DeltaVarIntCodec.writeSignedToSegment(page, absOff, newValue);
-      return true;
-    }
-    unbind();
-    return false;
-  }
-
-  /**
-   * Write a signed long varint field in-place if width matches, otherwise re-serialize.
-   */
-  private boolean setSignedLongFieldInPlace(final int fieldIndex, final long newValue) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    final long absOff = dataRegionStart + fieldOff;
-    final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
-    final int newWidth = DeltaVarIntCodec.computeSignedLongEncodedWidth(newValue);
-    if (newWidth == currentWidth) {
-      DeltaVarIntCodec.writeSignedLongToSegment(page, absOff, newValue);
-      return true;
-    }
-    unbind();
-    return false;
-  }
-
   // ==================== SERIALIZE TO HEAP ====================
 
   /**
@@ -318,7 +279,7 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
 
     // Data region start
     final long dataStart = pos;
-    final int[] offsets = new int[FIELD_COUNT];
+    final int[] offsets = this.heapOffsets;
 
     // Field 0: firstChildKey (delta-varint from nodeKey)
     offsets[NodeFieldLayout.JDOCROOT_FIRST_CHILD_KEY] = (int) (pos - dataStart);
@@ -428,8 +389,21 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   @Override
   public void setFirstChildKey(long key) {
     if (page != null) {
-      setDeltaFieldInPlace(NodeFieldLayout.JDOCROOT_FIRST_CHILD_KEY, key);
-      if (page != null) return; // In-place write succeeded
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.JDOCROOT_FIRST_CHILD_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(key, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, key, nodeKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.firstChildKey = key;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.firstChildKey = key;
   }
@@ -450,8 +424,21 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   @Override
   public void setLastChildKey(long key) {
     if (page != null) {
-      setDeltaFieldInPlace(NodeFieldLayout.JDOCROOT_LAST_CHILD_KEY, key);
-      if (page != null) return; // In-place write succeeded
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.JDOCROOT_LAST_CHILD_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(key, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, key, nodeKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.lastChildKey = key;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.lastChildKey = key;
   }
@@ -471,8 +458,21 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
 
   public void setChildCount(long childCount) {
     if (page != null) {
-      if (setSignedLongFieldInPlace(NodeFieldLayout.JDOCROOT_CHILD_COUNT, childCount)) return;
-      // Width changed — unbind already happened in the helper
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.JDOCROOT_CHILD_COUNT) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedLongEncodedWidth(childCount);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedLongToSegment(page, absOff, childCount);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.childCount = childCount;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.childCount = childCount;
   }
@@ -498,7 +498,21 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   @Override
   public void setDescendantCount(long descendantCount) {
     if (page != null) {
-      if (setSignedLongFieldInPlace(NodeFieldLayout.JDOCROOT_DESCENDANT_COUNT, descendantCount)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.JDOCROOT_DESCENDANT_COUNT) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedLongEncodedWidth(descendantCount);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedLongToSegment(page, absOff, descendantCount);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.descendantCount = descendantCount;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.descendantCount = descendantCount;
   }
@@ -571,7 +585,20 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   @Override
   public void setPreviousRevision(int revision) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.JDOCROOT_PREV_REVISION, revision)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.JDOCROOT_PREV_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     // Document root doesn't track previous revision in primitive mode
   }
@@ -587,7 +614,20 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   @Override
   public void setLastModifiedRevision(int revision) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.JDOCROOT_LAST_MOD_REVISION, revision)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.JDOCROOT_LAST_MOD_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     // Document root doesn't track last modified revision in primitive mode
   }
@@ -611,6 +651,9 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   public void setWriteSingleton(final boolean writeSingleton) {
     this.writeSingleton = writeSingleton;
   }
+
+  @Override public KeyValueLeafPage getOwnerPage() { return ownerPage; }
+  @Override public void setOwnerPage(final KeyValueLeafPage p) { this.ownerPage = p; }
 
   @Override
   public SirixDeweyID getDeweyID() {
@@ -636,6 +679,16 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
 
   @Override
   public void setDeweyID(SirixDeweyID id) {
+    final var owner = this.ownerPage;
+    if (owner != null) {
+      final long nk = this.nodeKey;
+      final int slot = this.slotIndex;
+      unbind();
+      this.sirixDeweyID = id;
+      this.deweyIDBytes = null;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
     this.sirixDeweyID = id;
     this.deweyIDBytes = null;
   }

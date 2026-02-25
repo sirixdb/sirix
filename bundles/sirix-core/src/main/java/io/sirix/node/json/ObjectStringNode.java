@@ -50,6 +50,7 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NodeFieldLayout;
 import io.sirix.page.PageLayout;
 import io.sirix.settings.Constants;
@@ -118,6 +119,12 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
   private boolean writeSingleton;
 
+  /** Owning page for resize-in-place on varint width changes. */
+  private KeyValueLeafPage ownerPage;
+
+  /** Pre-allocated offset array reused across serializations (zero-alloc hot path). */
+  private final int[] heapOffsets;
+
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_STRING_VALUE_FIELD_COUNT;
 
   /**
@@ -130,6 +137,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   public ObjectStringNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -164,6 +172,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     // Constructed with all values - mark as fully parsed
     this.metadataParsed = true;
     this.valueParsed = true;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -198,6 +207,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     // Constructed with all values - mark as fully parsed
     this.metadataParsed = true;
     this.valueParsed = true;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   @Override
@@ -220,8 +230,22 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   public void setParentKey(final long parentKey) {
     if (page != null) {
-      setDeltaFieldInPlace(NodeFieldLayout.OBJSTRVAL_PARENT_KEY, parentKey);
-      if (page != null) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJSTRVAL_PARENT_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(parentKey, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.parentKey = parentKey;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.parentKey = parentKey;
   }
@@ -241,6 +265,16 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public void setDeweyID(final SirixDeweyID id) {
+    final var owner = this.ownerPage;
+    if (owner != null) {
+      final long nk = this.nodeKey;
+      final int slot = this.slotIndex;
+      unbind();
+      this.sirixDeweyID = id;
+      this.deweyIDBytes = null;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
     this.sirixDeweyID = id;
     this.deweyIDBytes = null;
   }
@@ -248,8 +282,22 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   @Override
   public void setPreviousRevision(final int revision) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.OBJSTRVAL_PREV_REVISION, revision)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJSTRVAL_PREV_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
       unbind();
+      this.previousRevision = revision;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.previousRevision = revision;
   }
@@ -257,8 +305,22 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   @Override
   public void setLastModifiedRevision(final int revision) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.OBJSTRVAL_LAST_MOD_REVISION, revision)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJSTRVAL_LAST_MOD_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
       unbind();
+      this.lastModifiedRevision = revision;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.lastModifiedRevision = revision;
   }
@@ -374,6 +436,17 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public void setRawValue(final byte[] value) {
+    final var owner = this.ownerPage;
+    if (owner != null) {
+      final long nk = this.nodeKey;
+      final int slot = this.slotIndex;
+      unbind();
+      this.value = value;
+      this.decodedValue = null;
+      this.valueParsed = true;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
     if (page != null) unbind();
     this.value = value;
     this.decodedValue = null;
@@ -388,6 +461,19 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
    * @param fsstSymbolTable the symbol table for decompression (or null if not compressed)
    */
   public void setRawValue(final byte[] value, boolean isCompressed, byte[] fsstSymbolTable) {
+    final var owner = this.ownerPage;
+    if (owner != null) {
+      final long nk = this.nodeKey;
+      final int slot = this.slotIndex;
+      unbind();
+      this.value = value;
+      this.isCompressed = isCompressed;
+      this.fsstSymbolTable = fsstSymbolTable;
+      this.decodedValue = null;
+      this.valueParsed = true;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
     if (page != null) unbind();
     this.value = value;
     this.isCompressed = isCompressed;
@@ -641,11 +727,13 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
       readPayloadFromPage();
     }
     this.page = null;
+    this.ownerPage = null;
   }
 
   @Override
   public void clearBinding() {
     this.page = null;
+    this.ownerPage = null;
   }
 
   /** Check if this node is bound to a page MemorySegment. */
@@ -684,31 +772,16 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
-  // ==================== FLYWEIGHT FIELD WRITE HELPERS ====================
+  // ==================== OWNER PAGE (for resize-in-place) ====================
 
-  private void setDeltaFieldInPlace(final int fieldIndex, final long newKey) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    final long absOff = dataRegionStart + fieldOff;
-    final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
-    final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(newKey, nodeKey);
-    if (newWidth == currentWidth) {
-      DeltaVarIntCodec.writeDeltaToSegment(page, absOff, newKey, nodeKey);
-    } else {
-      unbind();
-    }
+  @Override
+  public KeyValueLeafPage getOwnerPage() {
+    return ownerPage;
   }
 
-  private boolean setSignedFieldInPlace(final int fieldIndex, final int newValue) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    final long absOff = dataRegionStart + fieldOff;
-    final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
-    final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(newValue);
-    if (newWidth == currentWidth) {
-      DeltaVarIntCodec.writeSignedToSegment(page, absOff, newValue);
-      return true;
-    }
-    unbind();
-    return false;
+  @Override
+  public void setOwnerPage(final KeyValueLeafPage ownerPage) {
+    this.ownerPage = ownerPage;
   }
 
   /**
@@ -755,7 +828,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     final long offsetTableStart = pos;
     pos += FIELD_COUNT;
     final long dataStart = pos;
-    final int[] offsets = new int[FIELD_COUNT];
+    final int[] offsets = this.heapOffsets;
 
     // Field 0: parentKey (delta-varint)
     offsets[NodeFieldLayout.OBJSTRVAL_PARENT_KEY] = (int) (pos - dataStart);

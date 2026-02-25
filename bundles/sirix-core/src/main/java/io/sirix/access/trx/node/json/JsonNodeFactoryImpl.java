@@ -22,6 +22,7 @@ import io.sirix.node.json.ObjectKeyNode;
 import io.sirix.node.json.ObjectNode;
 import io.sirix.node.json.ObjectNullNode;
 import io.sirix.node.json.ObjectNumberNode;
+import io.sirix.node.json.JsonDocumentRootNode;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.page.KeyValueLeafPage;
@@ -76,6 +77,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   private final ObjectBooleanNode reusableObjectBooleanNode;
   private final ObjectNumberNode reusableObjectNumberNode;
   private final ObjectStringNode reusableObjectStringNode;
+  private final JsonDocumentRootNode reusableJsonDocumentRootNode;
 
   /**
    * Constructor.
@@ -119,7 +121,10 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     this.reusableObjectStringNode = new ObjectStringNode(0, 0, Constants.NULL_REVISION_NUMBER, revisionNumber, 0,
         new byte[0], hashFunction, (SirixDeweyID) null, false, null);
 
+    this.reusableJsonDocumentRootNode = new JsonDocumentRootNode(0, hashFunction);
+
     // Mark all singletons as write singletons so setRecord skips records[] storage.
+    reusableJsonDocumentRootNode.setWriteSingleton(true);
     reusableObjectNode.setWriteSingleton(true);
     reusableArrayNode.setWriteSingleton(true);
     reusableObjectKeyNode.setWriteSingleton(true);
@@ -473,14 +478,25 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, offset);
     final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
     singleton.bind(slottedPage, recordBase, nodeKey, offset);
+    singleton.setOwnerPage(null); // Clear STALE owner from previous binding
 
-    // Propagate DeweyID from page to flyweight node
+    // Propagate DeweyID — safe because ownerPage is null (no write-through).
+    // MUST always set — null clears stale DeweyID from previous singleton reuse.
     if (singleton instanceof Node node) {
       final byte[] deweyIdBytes = page.getDeweyIdAsByteArray(offset);
-      if (deweyIdBytes != null) {
-        node.setDeweyID(new SirixDeweyID(deweyIdBytes));
-      }
+      node.setDeweyID(deweyIdBytes != null ? new SirixDeweyID(deweyIdBytes) : null);
     }
+
+    singleton.setOwnerPage(page); // Set CORRECT owner LAST
+
+    // Propagate FSST symbol table for string singletons
+    final byte[] fsstTable = page.getFsstSymbolTable();
+    if (singleton instanceof StringNode sn) {
+      sn.setFsstSymbolTable(fsstTable);
+    } else if (singleton instanceof ObjectStringNode osn) {
+      osn.setFsstSymbolTable(fsstTable);
+    }
+
     return (DataRecord) singleton;
   }
 
@@ -499,7 +515,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
       case 28 -> reusableNumberNode;           // NUMBER_VALUE
       case 29 -> reusableNullNode;             // NULL_VALUE
       case 30 -> reusableStringNode;           // STRING_VALUE
-      case 31 -> null;                         // JSON_DOCUMENT (not reusable - only one per tree)
+      case 31 -> reusableJsonDocumentRootNode;  // JSON_DOCUMENT
       case 40 -> reusableObjectStringNode;     // OBJECT_STRING_VALUE
       case 41 -> reusableObjectBooleanNode;    // OBJECT_BOOLEAN_VALUE
       case 42 -> reusableObjectNumberNode;     // OBJECT_NUMBER_VALUE

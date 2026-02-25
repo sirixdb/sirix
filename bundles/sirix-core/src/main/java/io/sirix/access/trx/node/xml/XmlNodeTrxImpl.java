@@ -146,6 +146,11 @@ final class XmlNodeTrxImpl extends
     useTextCompression = resourceSession.getResourceConfig().useTextCompression;
     deweyIDManager = new XmlDeweyIDManager(this);
 
+    // Wire write singleton binder for zero-allocation write path.
+    if (nodeFactory instanceof XmlNodeFactoryImpl factoryImpl) {
+      wireWriteSingletonBinder(factoryImpl, storageEngineWriter);
+    }
+
     // Register index listeners for any existing indexes.
     // This is critical for subsequent write transactions to update indexes on node modifications.
     final var existingIndexDefs = indexController.getIndexes().getIndexDefs();
@@ -543,13 +548,13 @@ final class XmlNodeTrxImpl extends
           : 0;
       final SirixDeweyID id = deweyIDManager.newFirstChildID();
       final ElementNode node = nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      nodeReadOnlyTrx.setCurrentNode(node);
       adaptForInsert(node, InsertPos.ASFIRSTCHILD);
-      nodeReadOnlyTrx.setCurrentNode(node);
-      nodeHashing.adaptHashesWithAdd();
+      nodeHashing.adaptHashesWithAdd(nodeKey);
+      moveTo(nodeKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
 
       return this;
     } finally {
@@ -590,13 +595,13 @@ final class XmlNodeTrxImpl extends
 
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
       final ElementNode node = nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      nodeReadOnlyTrx.setCurrentNode(node);
       adaptForInsert(node, InsertPos.ASLEFTSIBLING);
-      nodeReadOnlyTrx.setCurrentNode(node);
-      nodeHashing.adaptHashesWithAdd();
+      nodeHashing.adaptHashesWithAdd(nodeKey);
+      moveTo(nodeKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
 
       return this;
     } finally {
@@ -645,13 +650,13 @@ final class XmlNodeTrxImpl extends
 
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
       final ElementNode node = nodeFactory.createElementNode(parentKey, leftSibKey, rightSibKey, name, pathNodeKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      nodeReadOnlyTrx.setCurrentNode(node);
       adaptForInsert(node, InsertPos.ASRIGHTSIBLING);
-      nodeReadOnlyTrx.setCurrentNode(node);
-      nodeHashing.adaptHashesWithAdd();
+      nodeHashing.adaptHashesWithAdd(nodeKey);
+      moveTo(nodeKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
 
       return this;
     } finally {
@@ -826,12 +831,12 @@ final class XmlNodeTrxImpl extends
           : 0;
       final PINode node = nodeFactory.createPINode(pk.parentKey(), pk.leftSibKey(), pk.rightSibKey(), targetName,
           processingContent, useTextCompression, pathNodeKey, pk.id());
+      final long nodeKey = node.getNodeKey();
 
       // Adapt local nodes and hashes.
-      nodeReadOnlyTrx.setCurrentNode(node);
       adaptForInsert(node, pk.pos());
-      nodeReadOnlyTrx.setCurrentNode(node);
-      nodeHashing.adaptHashesWithAdd();
+      nodeHashing.adaptHashesWithAdd(nodeKey);
+      moveTo(nodeKey);
 
       return this;
     } finally {
@@ -889,12 +894,12 @@ final class XmlNodeTrxImpl extends
       final byte[] commentValue = getBytes(value);
       final CommentNode node = nodeFactory.createCommentNode(pk.parentKey(), pk.leftSibKey(), pk.rightSibKey(),
           commentValue, useTextCompression, pk.id());
+      final long nodeKey = node.getNodeKey();
 
       // Adapt local nodes and hashes.
-      nodeReadOnlyTrx.setCurrentNode(node);
       adaptForInsert(node, pk.pos());
-      nodeReadOnlyTrx.setCurrentNode(node);
-      nodeHashing.adaptHashesWithAdd();
+      nodeHashing.adaptHashesWithAdd(nodeKey);
+      moveTo(nodeKey);
 
       return this;
     } finally {
@@ -941,15 +946,15 @@ final class XmlNodeTrxImpl extends
       final SirixDeweyID id = deweyIDManager.newFirstChildID();
       final TextNode node =
           nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
+      final long nodeKey = node.getNodeKey();
 
       // Adapt local nodes and hashes.
-      nodeReadOnlyTrx.setCurrentNode(node);
       adaptForInsert(node, InsertPos.ASFIRSTCHILD);
-      nodeReadOnlyTrx.setCurrentNode(node);
-      nodeHashing.adaptHashesWithAdd();
+      nodeHashing.adaptHashesWithAdd(nodeKey);
+      moveTo(nodeKey);
 
       // Index text value.
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
 
       return this;
     } finally {
@@ -1010,22 +1015,22 @@ final class XmlNodeTrxImpl extends
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
       final TextNode node =
           nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
+      final long nodeKey = node.getNodeKey();
 
       // Adapt local nodes and hashes.
-      nodeReadOnlyTrx.setCurrentNode(node);
       adaptForInsert(node, InsertPos.ASLEFTSIBLING);
-      nodeReadOnlyTrx.setCurrentNode(node);
-      nodeHashing.adaptHashesWithAdd();
+      nodeHashing.adaptHashesWithAdd(nodeKey);
 
       // Get the path node key.
+      moveTo(nodeKey);
       moveToParent();
       final long pathNodeKey = isElement()
           ? getNameNode().getPathNodeKey()
           : -1;
-      nodeReadOnlyTrx.setCurrentNode(node);
+      moveTo(nodeKey);
 
       // Index text value.
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
 
       return this;
     } finally {
@@ -1088,22 +1093,22 @@ final class XmlNodeTrxImpl extends
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
       final TextNode node =
           nodeFactory.createTextNode(parentKey, leftSibKey, rightSibKey, textValue, useTextCompression, id);
+      final long nodeKey = node.getNodeKey();
 
       // Adapt local nodes and hashes.
-      nodeReadOnlyTrx.setCurrentNode(node);
       adaptForInsert(node, InsertPos.ASRIGHTSIBLING);
-      nodeReadOnlyTrx.setCurrentNode(node);
-      nodeHashing.adaptHashesWithAdd();
+      nodeHashing.adaptHashesWithAdd(nodeKey);
 
       // Get the path node key.
+      moveTo(nodeKey);
       moveToParent();
       final long pathNodeKey = isElement()
           ? getNameNode().getPathNodeKey()
           : -1;
-      nodeReadOnlyTrx.setCurrentNode(node);
+      moveTo(nodeKey);
 
       // Index text value.
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
 
       return this;
     } finally {
@@ -1183,16 +1188,17 @@ final class XmlNodeTrxImpl extends
 
       final SirixDeweyID id = deweyIDManager.newAttributeID();
       final AttributeNode node = nodeFactory.createAttributeNode(elementKey, name, attValue, pathNodeKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      final Node parentNode = storageEngineWriter.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
-      ((ElementNode) parentNode).insertAttribute(node.getNodeKey());
+      final Node parentNode = storageEngineWriter.prepareRecordForModification(elementKey, IndexType.DOCUMENT, -1);
+      ((ElementNode) parentNode).insertAttribute(nodeKey);
       persistUpdatedRecord(parentNode);
 
-      nodeReadOnlyTrx.setCurrentNode(node);
+      moveTo(nodeKey);
       nodeHashing.adaptHashesWithAdd();
 
       // Index text value.
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
 
       if (move == Movement.TOPARENT) {
         moveToParent();
@@ -1243,12 +1249,13 @@ final class XmlNodeTrxImpl extends
 
       final SirixDeweyID id = deweyIDManager.newNamespaceID();
       final NamespaceNode node = nodeFactory.createNamespaceNode(elementKey, name, pathNodeKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      final Node parentNode = storageEngineWriter.prepareRecordForModification(node.getParentKey(), IndexType.DOCUMENT, -1);
-      ((ElementNode) parentNode).insertNamespace(node.getNodeKey());
+      final Node parentNode = storageEngineWriter.prepareRecordForModification(elementKey, IndexType.DOCUMENT, -1);
+      ((ElementNode) parentNode).insertNamespace(nodeKey);
       persistUpdatedRecord(parentNode);
 
-      nodeReadOnlyTrx.setCurrentNode(node);
+      moveTo(nodeKey);
       nodeHashing.adaptHashesWithAdd();
       if (move == Movement.TOPARENT) {
         moveToParent();
@@ -2077,6 +2084,14 @@ final class XmlNodeTrxImpl extends
 
   @Override
   protected XmlNodeFactory reInstantiateNodeFactory(StorageEngineWriter storageEngineWriter) {
-    return new XmlNodeFactoryImpl(resourceSession.getResourceConfig().nodeHashFunction, storageEngineWriter);
+    final var factory = new XmlNodeFactoryImpl(
+        resourceSession.getResourceConfig().nodeHashFunction, storageEngineWriter);
+    wireWriteSingletonBinder(factory, storageEngineWriter);
+    return factory;
+  }
+
+  private static void wireWriteSingletonBinder(final XmlNodeFactoryImpl factory,
+      final StorageEngineWriter storageEngineWriter) {
+    storageEngineWriter.setWriteSingletonBinder(factory::bindWriteSingleton);
   }
 }

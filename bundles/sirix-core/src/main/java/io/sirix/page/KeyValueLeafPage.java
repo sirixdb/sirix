@@ -234,6 +234,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private byte[] fsstSymbolTable;
 
+  /** Reusable flyweight for FSST compression of StringNode slots on slotted page. */
+  private final StringNode fsstStringFlyweight = new StringNode(0, null);
+
+  /** Reusable flyweight for FSST compression of ObjectStringNode slots on slotted page. */
+  private final ObjectStringNode fsstObjStringFlyweight = new ObjectStringNode(0, null);
+
 
   /**
    * Offset array for string values (maps slot -> offset in stringValueMemory).
@@ -328,6 +334,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * heap at commit time via processEntries.
    */
   private MemorySegment slottedPage;
+
+  /**
+   * Actual capacity in bytes of the slottedPage segment.
+   * Tracked separately because slottedPage is reinterpreted to Long.MAX_VALUE
+   * to eliminate JIT bounds checks on MemorySegment get/set operations.
+   */
+  private int slottedPageCapacity;
 
   /**
    * Constructor which initializes a new {@link KeyValueLeafPage}.
@@ -501,29 +514,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
 
     if (record instanceof FlyweightNode fn) {
-      if (fn.isBoundTo(slottedPage)) {
-        // Already in-place on this page — skip serialization.
-        if (fn.isWriteSingleton()) {
-          return; // Don't store singletons in records[] (aliasing)
+      if (fn.isWriteSingleton()) {
+        // Write singleton: serialize to heap, never store in records[] (aliasing risk).
+        if (slottedPage != null && fn.isBoundTo(slottedPage)) {
+          fn.setOwnerPage(this);
+          return;
         }
-        // Non-singleton bound to this page: fall through to store in records[]
-      } else if (fn.isWriteSingleton()) {
-        // Write singleton not bound to this page — must serialize immediately
-        // because the singleton will be reused and can't be stored in records[].
         ensureSlottedPage();
         if (fn.isBound()) {
           fn.unbind();
         }
         serializeToHeap(fn, key, offset);
-        return; // Don't store singletons in records[] (aliasing)
-      } else if (fn.isBound()) {
-        // Non-singleton bound to different page — unbind to materialize fields,
-        // then defer serialization to processEntries at commit time.
+        return;
+      }
+      // Non-singleton FlyweightNode: unbind if bound, store in records[] for processEntries.
+      if (fn.isBound()) {
         fn.unbind();
       }
-      // Non-singleton unbound FlyweightNode (e.g., toSnapshot copy from setNewRecord):
-      // defer serialization to processEntries at commit time. The Java object in
-      // records[] has the authoritative data.
     }
 
     records[offset] = record;
@@ -543,28 +550,22 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @param record the newly created record
    */
   public void setNewRecord(@NonNull final DataRecord record) {
+    assert !(record instanceof FlyweightNode)
+        : "FlyweightNode must not go through setNewRecord — use serializeNewRecord";
     addedReferences = false;
     compressedSegment = null;
     bytes = null;
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+    records[offset] = record;
+  }
 
-    if (record instanceof FlyweightNode fn) {
-      // Deferred serialization: store a snapshot copy in records[] instead of serializing
-      // to the slotted page heap immediately. This eliminates all MemorySegment/DeltaVarIntCodec
-      // overhead on the hot write path (~16% CPU). Serialization is deferred to processEntries
-      // at commit time.
-      //
-      // Must use toSnapshot() because the factory reuses singleton objects — storing the
-      // singleton reference would cause aliasing when the factory creates the next node.
-      // The snapshot is a proper non-singleton DataRecord with all fields copied.
-      ensureSlottedPage(); // Ensure page exists for processEntries at commit time
-      records[offset] = fn.toSnapshot();
-      fn.clearBinding();
-    } else {
-      // All node types implement FlyweightNode; this branch handles future non-flyweight records
-      records[offset] = record;
-    }
+  public void serializeNewRecord(final FlyweightNode fn, final long nodeKey, final int offset) {
+    addedReferences = false;
+    compressedSegment = null;
+    bytes = null;
+    serializeToHeap(fn, nodeKey, offset);
+    fn.clearBinding();
   }
 
   /**
@@ -587,7 +588,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final int heapEnd = PageLayout.getHeapEnd(slottedPage);
     final int estimatedSize = fn.estimateSerializedSize() + deweyIdLen
         + (areDeweyIDsStored ? PageLayout.DEWEY_ID_TRAILER_SIZE : 0);
-    while ((int) slottedPage.byteSize() - PageLayout.HEAP_START - heapEnd < estimatedSize) {
+    while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < estimatedSize) {
       growSlottedPage();
     }
 
@@ -626,8 +627,74 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Bind flyweight — all subsequent mutations go directly to page memory
     fn.bind(slottedPage, absOffset, nodeKey, offset);
+    fn.setOwnerPage(this);
   }
 
+  /**
+   * Resize a record whose varint width changed. Appends new version at heap end,
+   * updates directory, re-binds, and sets ownerPage. Old space becomes dead
+   * (reclaimed on page compaction/rewrite at commit time).
+   *
+   * @param fn      the flyweight node (unbound, with updated Java fields)
+   * @param nodeKey the node's key
+   * @param offset  the slot index within the page (0-1023)
+   */
+  public void resizeRecord(final FlyweightNode fn, final long nodeKey, final int offset) {
+    compressedSegment = null;
+    bytes = null;
+    serializeToHeap(fn, nodeKey, offset);
+  }
+
+
+  /**
+   * Zero-copy raw slot bytes from source page to this page's heap.
+   * Copies the record body + DeweyID trailer verbatim, avoiding deserialize-serialize round-trip.
+   *
+   * @param sourcePage the source page to copy from
+   * @param slotIndex  the slot index to copy
+   */
+  public void copySlotFromPage(final KeyValueLeafPage sourcePage, final int slotIndex) {
+    final MemorySegment srcPage = sourcePage.getSlottedPage();
+    if (srcPage == null || !PageLayout.isSlotPopulated(srcPage, slotIndex)) {
+      return;
+    }
+    ensureSlottedPage();
+
+    // Read source slot metadata
+    final int srcHeapOffset = PageLayout.getDirHeapOffset(srcPage, slotIndex);
+    final int srcTotalLen = PageLayout.getDirDataLength(srcPage, slotIndex);
+    final int srcNodeKindId = PageLayout.getDirNodeKindId(srcPage, slotIndex);
+
+    // Ensure destination has enough space
+    final int heapEnd = PageLayout.getHeapEnd(slottedPage);
+    while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < srcTotalLen) {
+      growSlottedPage();
+    }
+
+    // Copy raw bytes (record body + DeweyID trailer) from source to destination heap
+    final long srcAbs = PageLayout.heapAbsoluteOffset(srcHeapOffset);
+    final long dstAbs = PageLayout.heapAbsoluteOffset(heapEnd);
+    MemorySegment.copy(srcPage, srcAbs, slottedPage, dstAbs, srcTotalLen);
+
+    // Update destination heap end and used counters
+    PageLayout.setHeapEnd(slottedPage, heapEnd + srcTotalLen);
+    PageLayout.setHeapUsed(slottedPage, PageLayout.getHeapUsed(slottedPage) + srcTotalLen);
+
+    // Update destination directory entry
+    PageLayout.setDirEntry(slottedPage, slotIndex, heapEnd, srcTotalLen, srcNodeKindId);
+
+    // Mark slot populated in bitmap
+    if (!PageLayout.isSlotPopulated(slottedPage, slotIndex)) {
+      PageLayout.markSlotPopulated(slottedPage, slotIndex);
+      PageLayout.setPopulatedCount(slottedPage, PageLayout.getPopulatedCount(slottedPage) + 1);
+      lastSlotIndex = slotIndex;
+    }
+
+    // Invalidate compressed cache
+    compressedSegment = null;
+    bytes = null;
+    addedReferences = false;
+  }
 
   /**
    * Check if the slotted page has a populated slot for the given record key.
@@ -651,8 +718,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     if (slottedPage != null) {
       return;
     }
-    slottedPage = segmentAllocator.allocate(PageLayout.INITIAL_PAGE_SIZE);
-    PageLayout.initializePage(slottedPage, recordPageKey, revision, indexType.getID(), areDeweyIDsStored);
+    final MemorySegment allocated = segmentAllocator.allocate(PageLayout.INITIAL_PAGE_SIZE);
+    slottedPageCapacity = (int) allocated.byteSize();
+    PageLayout.initializePage(allocated, recordPageKey, revision, indexType.getID(), areDeweyIDsStored);
+    slottedPage = allocated.reinterpret(Long.MAX_VALUE);
   }
 
   /**
@@ -660,26 +729,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * Copies all existing data (header + bitmap + directory + heap) to the new segment.
    */
   private void growSlottedPage() {
-    final int currentSize = (int) slottedPage.byteSize();
+    final int currentSize = slottedPageCapacity;
     final int newSize = currentSize * 2;
     final MemorySegment grown = segmentAllocator.allocate(newSize);
     // Copy all existing data
     MemorySegment.copy(slottedPage, 0, grown, 0, currentSize);
-    // Release old segment
-    segmentAllocator.release(slottedPage);
-    slottedPage = grown;
-
-    // Re-bind any flyweight nodes that reference the old segment
-    // (their page reference is now stale after grow)
-    for (final DataRecord record : records) {
-      if (record instanceof FlyweightNode fn && fn.isBound()) {
-        // The record's recordBase offset is still valid — just update the segment reference
-        final int slotIdx = (int) (record.getNodeKey()
-            - ((record.getNodeKey() >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
-        final int heapOff = PageLayout.getDirHeapOffset(slottedPage, slotIdx);
-        fn.bind(slottedPage, PageLayout.heapAbsoluteOffset(heapOff), record.getNodeKey(), slotIdx);
-      }
-    }
+    // Release old segment (reinterpret back to actual size for allocator)
+    segmentAllocator.release(slottedPage.reinterpret(currentSize));
+    slottedPageCapacity = (int) grown.byteSize();
+    slottedPage = grown.reinterpret(Long.MAX_VALUE);
+    // No rebind needed: the caller (serializeToHeap) will rebind the active flyweight.
   }
 
   /**
@@ -704,9 +763,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Ensure heap has enough space
     int heapEnd = PageLayout.getHeapEnd(slottedPage);
-    int remaining = (int) slottedPage.byteSize() - PageLayout.HEAP_START - heapEnd;
+    int remaining = slottedPageCapacity - PageLayout.HEAP_START - heapEnd;
     if (remaining < totalSize) {
-      while ((int) slottedPage.byteSize() - PageLayout.HEAP_START - heapEnd < totalSize) {
+      while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < totalSize) {
         growSlottedPage();
       }
       heapEnd = PageLayout.getHeapEnd(slottedPage);
@@ -755,9 +814,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Ensure heap has enough space
     int heapEnd = PageLayout.getHeapEnd(slottedPage);
-    final int remaining = (int) slottedPage.byteSize() - PageLayout.HEAP_START - heapEnd;
+    final int remaining = slottedPageCapacity - PageLayout.HEAP_START - heapEnd;
     if (remaining < dataSize) {
-      while ((int) slottedPage.byteSize() - PageLayout.HEAP_START - heapEnd < dataSize) {
+      while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < dataSize) {
         growSlottedPage();
       }
       heapEnd = PageLayout.getHeapEnd(slottedPage);
@@ -1266,12 +1325,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    *
    * @param slottedPage the slotted page segment
    */
-  public void setSlottedPage(final MemorySegment slottedPage) {
+  public void setSlottedPage(final MemorySegment newSlottedPage) {
     // Release old slotted page if different from the new one
-    if (this.slottedPage != null && this.slottedPage != slottedPage) {
-      segmentAllocator.release(this.slottedPage);
+    if (this.slottedPage != null && this.slottedPage != newSlottedPage) {
+      segmentAllocator.release(this.slottedPage.reinterpret(slottedPageCapacity));
     }
-    this.slottedPage = slottedPage;
+    this.slottedPageCapacity = (int) newSlottedPage.byteSize();
+    this.slottedPage = newSlottedPage.reinterpret(Long.MAX_VALUE);
   }
 
 
@@ -1392,11 +1452,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Ensure heap has enough space
     int heapEnd = PageLayout.getHeapEnd(slottedPage);
-    int remaining = (int) slottedPage.byteSize() - PageLayout.HEAP_START - heapEnd;
+    int remaining = slottedPageCapacity - PageLayout.HEAP_START - heapEnd;
     while (remaining < newTotalLen) {
       growSlottedPage();
       heapEnd = PageLayout.getHeapEnd(slottedPage);
-      remaining = (int) slottedPage.byteSize() - PageLayout.HEAP_START - heapEnd;
+      remaining = slottedPageCapacity - PageLayout.HEAP_START - heapEnd;
     }
 
     // Bump-allocate new space
@@ -1619,11 +1679,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         }
       }
       try {
-        segmentAllocator.release(slottedPage);
+        segmentAllocator.release(slottedPage.reinterpret(slottedPageCapacity));
       } catch (Throwable e) {
         LOGGER.debug("Failed to release slotted page for page {}: {}", recordPageKey, e.getMessage());
       }
       slottedPage = null;
+      slottedPageCapacity = 0;
     }
 
     // Clear FSST symbol table
@@ -1649,7 +1710,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       total += stringValueMemory.byteSize();
     }
     if (slottedPage != null) {
-      total += slottedPage.byteSize();
+      total += slottedPageCapacity;
     }
     return total;
   }
@@ -2157,9 +2218,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       return false;
     }
 
+    final int stringValueId = NodeKind.STRING_VALUE.getId();
+    final int objectStringValueId = NodeKind.OBJECT_STRING_VALUE.getId();
+
     // Collect all string values from StringNode and ObjectStringNode
     java.util.ArrayList<byte[]> stringSamples = new java.util.ArrayList<>();
-    
+
+    // Scan records[] for non-FlyweightNode string records (legacy path)
     for (final DataRecord record : records) {
       if (record == null) {
         continue;
@@ -2177,13 +2242,44 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
     }
 
+    // Scan slotted page for FlyweightNode strings (zero records[] path)
+    if (slottedPage != null) {
+      for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+        if (records[i] != null) continue; // Already scanned above
+        if (!PageLayout.isSlotPopulated(slottedPage, i)) continue;
+        final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, i);
+        if (nodeKindId == stringValueId || nodeKindId == objectStringValueId) {
+          final int heapOff = PageLayout.getDirHeapOffset(slottedPage, i);
+          final long recordBase = PageLayout.heapAbsoluteOffset(heapOff);
+          final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + i;
+          if (nodeKindId == stringValueId) {
+            fsstStringFlyweight.bind(slottedPage, recordBase, nodeKey, i);
+            try {
+              byte[] value = fsstStringFlyweight.getRawValueWithoutDecompression();
+              if (value != null && value.length > 0) stringSamples.add(value);
+            } finally {
+              fsstStringFlyweight.clearBinding();
+            }
+          } else {
+            fsstObjStringFlyweight.bind(slottedPage, recordBase, nodeKey, i);
+            try {
+              byte[] value = fsstObjStringFlyweight.getRawValueWithoutDecompression();
+              if (value != null && value.length > 0) stringSamples.add(value);
+            } finally {
+              fsstObjStringFlyweight.clearBinding();
+            }
+          }
+        }
+      }
+    }
+
     // Build symbol table only if we have enough strings to make it worthwhile
     if (stringSamples.size() >= FSSTCompressor.MIN_SAMPLES_FOR_TABLE) {
       byte[] candidateTable = FSSTCompressor.buildSymbolTable(stringSamples);
-      
+
       // Only apply FSST if trial compression shows >= 15% savings (adaptive threshold)
       // This prevents overhead from exceeding savings for low-entropy data
-      if (candidateTable != null && candidateTable.length > 0 
+      if (candidateTable != null && candidateTable.length > 0
           && FSSTCompressor.isCompressionBeneficial(stringSamples, candidateTable)) {
         this.fsstSymbolTable = candidateTable;
         return true;
@@ -2203,6 +2299,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       return;
     }
 
+    final int stringValueId = NodeKind.STRING_VALUE.getId();
+    final int objectStringValueId = NodeKind.OBJECT_STRING_VALUE.getId();
+
+    // Compress records[] strings (legacy path)
     for (final DataRecord record : records) {
       if (record == null) {
         continue;
@@ -2212,7 +2312,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
           byte[] originalValue = stringNode.getRawValueWithoutDecompression();
           if (originalValue != null && originalValue.length > 0) {
             byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
-            // Only use compressed value if it's actually smaller
             if (compressedValue.length < originalValue.length) {
               stringNode.setRawValue(compressedValue, true, fsstSymbolTable);
             }
@@ -2223,10 +2322,55 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
           byte[] originalValue = objectStringNode.getRawValueWithoutDecompression();
           if (originalValue != null && originalValue.length > 0) {
             byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
-            // Only use compressed value if it's actually smaller
             if (compressedValue.length < originalValue.length) {
               objectStringNode.setRawValue(compressedValue, true, fsstSymbolTable);
             }
+          }
+        }
+      }
+    }
+
+    // Compress slotted page strings (zero records[] path)
+    if (slottedPage != null) {
+      for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
+        if (records[i] != null) continue; // Already handled above
+        if (!PageLayout.isSlotPopulated(slottedPage, i)) continue;
+        final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, i);
+        if (nodeKindId != stringValueId && nodeKindId != objectStringValueId) continue;
+
+        final int heapOff = PageLayout.getDirHeapOffset(slottedPage, i);
+        final long recordBase = PageLayout.heapAbsoluteOffset(heapOff);
+        final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + i;
+
+        if (nodeKindId == stringValueId) {
+          fsstStringFlyweight.bind(slottedPage, recordBase, nodeKey, i);
+          fsstStringFlyweight.setOwnerPage(this); // Enable write-through
+          try {
+            byte[] originalValue = fsstStringFlyweight.getRawValueWithoutDecompression();
+            if (originalValue != null && originalValue.length > 0 && !fsstStringFlyweight.isCompressed()) {
+              byte[] compressed = FSSTCompressor.encode(originalValue, fsstSymbolTable);
+              if (compressed.length < originalValue.length) {
+                fsstStringFlyweight.setRawValue(compressed, true, fsstSymbolTable);
+              }
+            }
+          } finally {
+            fsstStringFlyweight.setOwnerPage(null);
+            fsstStringFlyweight.clearBinding();
+          }
+        } else {
+          fsstObjStringFlyweight.bind(slottedPage, recordBase, nodeKey, i);
+          fsstObjStringFlyweight.setOwnerPage(this); // Enable write-through
+          try {
+            byte[] originalValue = fsstObjStringFlyweight.getRawValueWithoutDecompression();
+            if (originalValue != null && originalValue.length > 0 && !fsstObjStringFlyweight.isCompressed()) {
+              byte[] compressed = FSSTCompressor.encode(originalValue, fsstSymbolTable);
+              if (compressed.length < originalValue.length) {
+                fsstObjStringFlyweight.setRawValue(compressed, true, fsstSymbolTable);
+              }
+            }
+          } finally {
+            fsstObjStringFlyweight.setOwnerPage(null);
+            fsstObjStringFlyweight.clearBinding();
           }
         }
       }

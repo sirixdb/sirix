@@ -2,6 +2,8 @@ package io.sirix.node.interfaces;
 
 import java.lang.foreign.MemorySegment;
 
+import io.sirix.page.KeyValueLeafPage;
+
 /**
  * Interface for nodes that support LeanStore-style flyweight binding to a slotted page MemorySegment.
  *
@@ -105,6 +107,26 @@ public interface FlyweightNode extends DataRecord {
    */
   default void setWriteSingleton(boolean writeSingleton) {
     // Default no-op; concrete types override
+  }
+
+  /**
+   * Get the owning KeyValueLeafPage for resize-in-place operations.
+   * Only valid when bound ({@link #isBound()} is true).
+   *
+   * @return the owner page, or null if not set
+   */
+  default KeyValueLeafPage getOwnerPage() {
+    return null;
+  }
+
+  /**
+   * Set the owning KeyValueLeafPage.
+   * Called after bind/serializeToHeap so resize-in-place can re-serialize on width changes.
+   *
+   * @param ownerPage the owner page
+   */
+  default void setOwnerPage(KeyValueLeafPage ownerPage) {
+    // Default no-op; concrete write-singleton types override
   }
 
   /**

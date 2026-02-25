@@ -54,6 +54,7 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.PageLayout;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageKind;
 import io.sirix.page.PageReference;
@@ -75,6 +76,7 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.foreign.MemorySegment;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.file.Files;
@@ -357,17 +359,32 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     // Fall back to complete (on-disk) page.
     final var completePage = cont.getCompleteAsKeyValuePage();
+
+    // Zero-copy path: copy raw slot bytes from complete page to modified page, then bind.
+    if (writeSingletonBinder != null && modifiedPage instanceof KeyValueLeafPage kvlMod
+        && completePage instanceof KeyValueLeafPage kvlComplete) {
+      final MemorySegment srcPage = kvlComplete.getSlottedPage();
+      if (srcPage != null && PageLayout.isSlotPopulated(srcPage, recordOffset)
+          && PageLayout.getDirNodeKindId(srcPage, recordOffset) > 0) {
+        kvlMod.copySlotFromPage(kvlComplete, recordOffset);
+        record = writeSingletonBinder.bind(kvlMod, recordOffset, recordKey);
+        if (record != null) {
+          return record;
+        }
+      }
+    }
+
+    // Fallback for non-binder, binder returned null, or non-FlyweightNode (nodeKindId=0)
     final DataRecord oldRecord = storageEngineReader.getValue(completePage, recordKey);
     if (oldRecord == null) {
-      // Diagnostic: understand why the record is not found
       final int offset = StorageEngineReader.recordPageOffset(recordKey);
-      final var kvlComplete = (io.sirix.page.KeyValueLeafPage) completePage;
+      final var kvlComplete = (KeyValueLeafPage) completePage;
       final var slottedPage = kvlComplete.getSlottedPage();
       final boolean slotPopulated = slottedPage != null
-          && io.sirix.page.PageLayout.isSlotPopulated(slottedPage, offset);
+          && PageLayout.isSlotPopulated(slottedPage, offset);
       final var slotData = completePage.getSlot(offset);
       final int populatedCount = slottedPage != null
-          ? io.sirix.page.PageLayout.getPopulatedCount(slottedPage) : -1;
+          ? PageLayout.getPopulatedCount(slottedPage) : -1;
       throw new SirixIOException("Cannot retrieve record from cache: (key: " + recordKey + ") (indexType: " + indexType
           + ") (index: " + index + ") (slotPopulated: " + slotPopulated
           + ") (populatedCount: " + populatedCount
@@ -441,12 +458,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
     final KeyValuePage<DataRecord> modified = cont.getModifiedAsKeyValuePage();
 
-    // Use setNewRecord for the create path: non-FlyweightNode records (e.g., XML nodes) are
-    // serialized to the slotted page heap immediately, because node factories reuse singleton
-    // objects. setRecord would store the singleton reference in records[], which becomes stale
-    // when the singleton is reused for the next node.
     if (modified instanceof KeyValueLeafPage kvl) {
-      kvl.setNewRecord(record);
+      if (record instanceof FlyweightNode fn) {
+        final int offset = (int) (createdRecordKey
+            - ((createdRecordKey >> Constants.NDP_NODE_COUNT_EXPONENT)
+               << Constants.NDP_NODE_COUNT_EXPONENT));
+        kvl.serializeNewRecord(fn, createdRecordKey, offset);
+      } else {
+        kvl.setNewRecord(record);
+      }
     } else {
       modified.setRecord(record);
     }
@@ -456,6 +476,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public void persistRecord(@NonNull final DataRecord record, @NonNull final IndexType indexType, final int index) {
+    if (record instanceof FlyweightNode fn && fn.isWriteSingleton() && fn.getOwnerPage() != null) {
+      return; // Bound write singleton — mutations already on heap
+    }
     storageEngineReader.assertNotClosed();
     requireNonNull(record);
     requireNonNull(indexType);

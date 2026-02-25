@@ -49,6 +49,7 @@ import io.sirix.node.interfaces.BooleanValueNode;
 import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.page.NodeFieldLayout;
 import io.sirix.page.PageLayout;
@@ -112,6 +113,12 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
   /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
   private boolean writeSingleton;
 
+  /** Owning page for resize-in-place on varint width changes. */
+  private KeyValueLeafPage ownerPage;
+
+  /** Pre-allocated offset array reused across serializations (zero-alloc hot path). */
+  private final int[] heapOffsets;
+
   private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_BOOLEAN_VALUE_FIELD_COUNT;
 
   /**
@@ -124,6 +131,7 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
   public ObjectBooleanNode(long nodeKey, LongHashFunction hashFunction) {
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -141,6 +149,7 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.lazyFieldsParsed = true;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
@@ -158,6 +167,7 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.lazyFieldsParsed = true;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   // ==================== FLYWEIGHT BIND/UNBIND ====================
@@ -198,11 +208,13 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
     this.value = readByteField(NodeFieldLayout.OBJBOOLVAL_VALUE) != 0;
     this.hash = readLongField(NodeFieldLayout.OBJBOOLVAL_HASH);
     this.page = null;
+    this.ownerPage = null;
   }
 
   @Override
   public void clearBinding() {
     this.page = null;
+    this.ownerPage = null;
   }
 
   /** Check if this node is bound to a page MemorySegment. */
@@ -242,39 +254,16 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
     return page.get(ValueLayout.JAVA_BYTE, dataRegionStart + fieldOff);
   }
 
-  // ==================== FLYWEIGHT FIELD WRITE HELPERS ====================
+  // ==================== OWNER PAGE (for resize-in-place) ====================
 
-  /**
-   * Write a delta-encoded field in-place if width matches, otherwise re-serialize.
-   */
-  private void setDeltaFieldInPlace(final int fieldIndex, final long newKey) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    final long absOff = dataRegionStart + fieldOff;
-    final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
-    final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(newKey, nodeKey);
-    if (newWidth == currentWidth) {
-      DeltaVarIntCodec.writeDeltaToSegment(page, absOff, newKey, nodeKey);
-    } else {
-      // Width changed: unbind, set field, re-serialize
-      unbind();
-      // The specific field will be set by the caller after this method returns
-    }
+  @Override
+  public KeyValueLeafPage getOwnerPage() {
+    return ownerPage;
   }
 
-  /**
-   * Write a signed varint field in-place if width matches, otherwise re-serialize.
-   */
-  private boolean setSignedFieldInPlace(final int fieldIndex, final int newValue) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    final long absOff = dataRegionStart + fieldOff;
-    final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
-    final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(newValue);
-    if (newWidth == currentWidth) {
-      DeltaVarIntCodec.writeSignedToSegment(page, absOff, newValue);
-      return true;
-    }
-    unbind();
-    return false; // Width changed
+  @Override
+  public void setOwnerPage(final KeyValueLeafPage ownerPage) {
+    this.ownerPage = ownerPage;
   }
 
   // ==================== SERIALIZE TO HEAP ====================
@@ -305,7 +294,7 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
 
     // Data region start
     final long dataStart = pos;
-    final int[] offsets = new int[FIELD_COUNT];
+    final int[] offsets = this.heapOffsets;
 
     // Field 0: parentKey (delta-varint)
     offsets[NodeFieldLayout.OBJBOOLVAL_PARENT_KEY] = (int) (pos - dataStart);
@@ -357,8 +346,22 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
 
   public void setParentKey(final long parentKey) {
     if (page != null) {
-      setDeltaFieldInPlace(NodeFieldLayout.OBJBOOLVAL_PARENT_KEY, parentKey);
-      if (page != null) return; // In-place write succeeded
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJBOOLVAL_PARENT_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(parentKey, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.parentKey = parentKey;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.parentKey = parentKey;
   }
@@ -380,6 +383,16 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
 
   @Override
   public void setDeweyID(final SirixDeweyID id) {
+    final var owner = this.ownerPage;
+    if (owner != null) {
+      final long nk = this.nodeKey;
+      final int slot = this.slotIndex;
+      unbind();
+      this.sirixDeweyID = id;
+      this.deweyIDBytes = null;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
     this.sirixDeweyID = id;
     this.deweyIDBytes = null;
   }
@@ -387,7 +400,22 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
   @Override
   public void setPreviousRevision(final int revision) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.OBJBOOLVAL_PREV_REVISION, revision)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJBOOLVAL_PREV_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.previousRevision = revision;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.previousRevision = revision;
   }
@@ -395,7 +423,22 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
   @Override
   public void setLastModifiedRevision(final int revision) {
     if (page != null) {
-      if (setSignedFieldInPlace(NodeFieldLayout.OBJBOOLVAL_LAST_MOD_REVISION, revision)) return;
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJBOOLVAL_LAST_MOD_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      final KeyValueLeafPage owner = this.ownerPage;
+      final int slot = this.slotIndex;
+      final long nk = this.nodeKey;
+      unbind();
+      this.lastModifiedRevision = revision;
+      owner.resizeRecord(this, nk, slot);
+      return;
     }
     this.lastModifiedRevision = revision;
   }

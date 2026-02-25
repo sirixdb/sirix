@@ -26,6 +26,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.settings.Fixed;
 import io.brackit.query.atomic.QNm;
@@ -359,6 +360,9 @@ public enum InsertPos {
   abstract void insertNode(final XmlNodeTrx wtx, final XmlNodeReadOnlyTrx rtx) throws SirixException;
 
   private static void persistUpdatedRecord(final XmlNodeTrx wtx, final DataRecord record) {
+    if (record instanceof FlyweightNode fn && fn.isWriteSingleton() && fn.getOwnerPage() != null) {
+      return; // Bound write singleton — mutations already on heap via inlined setters
+    }
     // Ensure the mutated record is stored in the TIL's modified page.
     wtx.getStorageEngineWriter().persistRecord(record, IndexType.DOCUMENT, -1);
   }
