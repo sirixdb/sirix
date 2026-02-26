@@ -808,10 +808,10 @@ final class JsonNodeTrxImpl extends
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      moveTo(nodeKey);
-
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(),
-          pathNodeKey);
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
 
       insertValue(value);
 
@@ -867,10 +867,10 @@ final class JsonNodeTrxImpl extends
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      moveTo(nodeKey);
-
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(),
-          pathNodeKey);
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
 
       insertValue(value);
 
@@ -1110,8 +1110,10 @@ final class JsonNodeTrxImpl extends
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(),
-          pathNodeKey);
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -1164,8 +1166,10 @@ final class JsonNodeTrxImpl extends
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(),
-          pathNodeKey);
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -1389,18 +1393,19 @@ final class JsonNodeTrxImpl extends
     // Restore cursor to new node (rollingAdd does this when hashing, but not when NONE).
     nodeReadOnlyTrx.moveTo(nodeKey);
 
-    // Get the path node key.
-    final long pathNodeKey;
-
-    if (buildPathSummary) {
-      moveToParentObjectKeyArrayOrDocumentRoot();
-      pathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
-      nodeReadOnlyTrx.moveTo(nodeKey);
-    } else {
-      pathNodeKey = 0;
+    if (indexController.hasAnyPrimitiveIndex()) {
+      // Resolve path node key and notify indexes — only when indexes exist.
+      final long pathNodeKey;
+      if (buildPathSummary) {
+        moveToParentObjectKeyArrayOrDocumentRoot();
+        pathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
+        nodeReadOnlyTrx.moveTo(nodeKey);
+      } else {
+        pathNodeKey = 0;
+      }
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+          (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
     }
-
-    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
   }
 
   /**
@@ -1455,7 +1460,7 @@ final class JsonNodeTrxImpl extends
       }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
-      final long pathNodeKey = notifyIndex
+      final long pathNodeKey = (notifyIndex && indexController.hasAnyPrimitiveIndex())
           ? getPathNodeKey(structNode)
           : 0;
       final long parentKey = structNode.getNodeKey();
@@ -1489,10 +1494,9 @@ final class JsonNodeTrxImpl extends
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      if (notifyIndex) {
-        moveTo(nodeKey);
-        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) nodeReadOnlyTrx.getCurrentNode(),
-            pathNodeKey);
+      if (notifyIndex && indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
       }
 
       if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {

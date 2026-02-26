@@ -97,6 +97,15 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   }
 
   /**
+   * Fast-path check: returns {@code true} if any primitive index (path, name, or CAS) exists.
+   * Used on the insert hot path to skip expensive moveTo + snapshot operations
+   * when no indexes are defined.
+   */
+  default boolean hasAnyPrimitiveIndex() {
+    return hasPathIndex() || hasNameIndex() || hasCASIndex();
+  }
+
+  /**
    * Determines if an index of the specified type is available.
    *
    * @param type type of index to lookup
