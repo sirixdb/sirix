@@ -351,7 +351,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
       bytes.write(rawValue);
     }
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override
@@ -680,41 +680,6 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     } else {
       throw new IllegalStateException("Unknown lazy source type: " + lazySource.getClass());
     }
-  }
-
-  // ==================== BULK INIT (zero branch checks) ====================
-
-  /**
-   * Initialize all fields for a newly created node. Must be called when unbound
-   * (after clearBinding()). Sets all Java fields directly — no if (page != null) checks.
-   *
-   * @param nodeKey              the node key
-   * @param parentKey            the parent node key
-   * @param previousRevision     the previous revision number
-   * @param lastModifiedRevision the last modified revision number
-   * @param hash                 the hash value
-   * @param rawValue             the raw string value bytes (possibly compressed)
-   * @param isCompressed         whether the value is FSST compressed
-   * @param fsstSymbolTable      the FSST symbol table (may be null)
-   * @param deweyID              the DeweyID (may be null)
-   */
-  public void initForCreation(final long nodeKey, final long parentKey,
-      final int previousRevision, final int lastModifiedRevision,
-      final long hash, final byte[] rawValue, final boolean isCompressed,
-      final byte[] fsstSymbolTable, final SirixDeweyID deweyID) {
-    this.nodeKey = nodeKey;
-    this.parentKey = parentKey;
-    this.previousRevision = previousRevision;
-    this.lastModifiedRevision = lastModifiedRevision;
-    this.hash = hash;
-    this.value = rawValue;
-    this.isCompressed = isCompressed;
-    this.fsstSymbolTable = fsstSymbolTable;
-    this.decodedValue = null;
-    this.sirixDeweyID = deweyID;
-    this.deweyIDBytes = null;
-    this.metadataParsed = true;
-    this.valueParsed = true;
   }
 
   // ==================== STATIC WRITE / HEAP OFFSETS / DEWEYID ====================

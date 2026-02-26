@@ -602,10 +602,7 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
       bytes.writeLong(getLastChildKey());
     }
 
-    final var buffer = ((java.nio.ByteBuffer) bytes.underlyingObject()).rewind();
-    buffer.limit((int) bytes.readLimit());
-
-    return hashFunction.hashBytes(buffer);
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

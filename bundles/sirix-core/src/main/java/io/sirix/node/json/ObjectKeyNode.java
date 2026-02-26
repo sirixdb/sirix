@@ -188,49 +188,6 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     this.heapOffsets = new int[FIELD_COUNT];
   }
 
-  // ==================== BULK INIT (zero branch checks) ====================
-
-  /**
-   * Initialize all fields for a newly created node. Must be called when unbound
-   * (after clearBinding()). Sets all Java fields directly — no if (page != null) checks.
-   *
-   * @param nodeKey           the node key
-   * @param parentKey         the parent node key
-   * @param rightSibKey       the right sibling key
-   * @param leftSibKey        the left sibling key
-   * @param firstChildKey     the first child key
-   * @param prevRev           the previous revision number
-   * @param lastModRev        the last modified revision number
-   * @param hash              the hash value
-   * @param descendantCount   the descendant count
-   * @param pathNodeKey       the path node key
-   * @param nameKey           the name key (hash of the name string)
-   * @param name              the name string (may be null)
-   * @param deweyId           the DeweyID (may be null)
-   */
-  public void initForCreation(final long nodeKey, final long parentKey,
-      final long rightSibKey, final long leftSibKey,
-      final long firstChildKey,
-      final int prevRev, final int lastModRev, final long hash,
-      final long descendantCount, final long pathNodeKey,
-      final int nameKey, final String name, final SirixDeweyID deweyId) {
-    this.nodeKey = nodeKey;
-    this.parentKey = parentKey;
-    this.rightSiblingKey = rightSibKey;
-    this.leftSiblingKey = leftSibKey;
-    this.firstChildKey = firstChildKey;
-    this.previousRevision = prevRev;
-    this.lastModifiedRevision = lastModRev;
-    this.hash = hash;
-    this.descendantCount = descendantCount;
-    this.pathNodeKey = pathNodeKey;
-    this.nameKey = nameKey;
-    this.cachedName = name != null ? new QNm(name) : null;
-    this.sirixDeweyID = deweyId;
-    this.deweyIDBytes = null;
-    this.lazyFieldsParsed = true;
-  }
-
   // ==================== FLYWEIGHT BIND/UNBIND ====================
 
   /**
@@ -613,7 +570,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
     bytes.writeInt(getNameKey());
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   public int getNameKey() {

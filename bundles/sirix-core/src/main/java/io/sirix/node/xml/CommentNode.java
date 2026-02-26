@@ -903,10 +903,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
     bytes.writeLong(getLeftSiblingKey()).writeLong(getRightSiblingKey());
     bytes.writeUtf8(new String(getRawValue(), Constants.DEFAULT_ENCODING));
 
-    final var buffer = ((java.nio.ByteBuffer) bytes.underlyingObject()).rewind();
-    buffer.limit((int) bytes.readLimit());
-
-    return hashFunction.hashBytes(buffer);
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

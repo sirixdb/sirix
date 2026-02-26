@@ -170,28 +170,6 @@ public final class NullNode implements StructNode, ImmutableJsonNode, FlyweightN
     this.heapOffsets = new int[FIELD_COUNT];
   }
 
-  // ==================== BULK INIT (zero branch checks) ====================
-
-  /**
-   * Initialize all fields for a newly created node. Must be called when unbound
-   * (after clearBinding()). Sets all Java fields directly — no if (page != null) checks.
-   */
-  public void initForCreation(final long nodeKey, final long parentKey,
-      final long rightSiblingKey, final long leftSiblingKey,
-      final int previousRevision, final int lastModifiedRevision,
-      final long hash, final SirixDeweyID deweyId) {
-    this.nodeKey = nodeKey;
-    this.parentKey = parentKey;
-    this.rightSiblingKey = rightSiblingKey;
-    this.leftSiblingKey = leftSiblingKey;
-    this.previousRevision = previousRevision;
-    this.lastModifiedRevision = lastModifiedRevision;
-    this.hash = hash;
-    this.sirixDeweyID = deweyId;
-    this.deweyIDBytes = null;
-    this.lazyFieldsParsed = true;
-  }
-
   // ==================== FLYWEIGHT BIND/UNBIND ====================
 
   /**
@@ -540,7 +518,7 @@ public final class NullNode implements StructNode, ImmutableJsonNode, FlyweightN
       bytes.writeLong(getLastChildKey());
     }
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

@@ -189,47 +189,6 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
     this.heapOffsets = new int[FIELD_COUNT];
   }
 
-  // ==================== BULK INIT (zero branch checks) ====================
-
-  /**
-   * Initialize all fields for a newly created node. Must be called when unbound
-   * (after clearBinding()). Sets all Java fields directly — no if (page != null) checks.
-   *
-   * @param nodeKey           the node key
-   * @param parentKey         the parent node key
-   * @param rightSibKey       the right sibling key
-   * @param leftSibKey        the left sibling key
-   * @param firstChildKey     the first child key
-   * @param lastChildKey      the last child key
-   * @param prevRev           the previous revision number
-   * @param lastModRev        the last modified revision number
-   * @param hash              the hash value
-   * @param childCount        the child count
-   * @param descendantCount   the descendant count
-   * @param deweyId           the DeweyID (may be null)
-   */
-  public void initForCreation(final long nodeKey, final long parentKey,
-      final long rightSibKey, final long leftSibKey,
-      final long firstChildKey, final long lastChildKey,
-      final int prevRev, final int lastModRev, final long hash,
-      final long childCount, final long descendantCount,
-      final SirixDeweyID deweyId) {
-    this.nodeKey = nodeKey;
-    this.parentKey = parentKey;
-    this.rightSiblingKey = rightSibKey;
-    this.leftSiblingKey = leftSibKey;
-    this.firstChildKey = firstChildKey;
-    this.lastChildKey = lastChildKey;
-    this.previousRevision = prevRev;
-    this.lastModifiedRevision = lastModRev;
-    this.hash = hash;
-    this.childCount = childCount;
-    this.descendantCount = descendantCount;
-    this.sirixDeweyID = deweyId;
-    this.deweyIDBytes = null;
-    this.lazyFieldsParsed = true;
-  }
-
   // ==================== FLYWEIGHT BIND/UNBIND ====================
 
   /**
@@ -610,7 +569,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
       bytes.writeLong(getLastChildKey());
     }
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

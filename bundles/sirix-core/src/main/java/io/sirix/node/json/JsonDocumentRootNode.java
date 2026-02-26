@@ -174,32 +174,6 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
     this.heapOffsets = new int[FIELD_COUNT];
   }
 
-  // ==================== BULK INIT (zero branch checks) ====================
-
-  /**
-   * Initialize all fields for a newly created node. Must be called when unbound
-   * (after clearBinding()). Sets all Java fields directly — no if (page != null) checks.
-   *
-   * @param nodeKey           the node key (always 0 for document root)
-   * @param firstChildKey     the first child key
-   * @param lastChildKey      the last child key
-   * @param childCount        the child count
-   * @param descendantCount   the descendant count
-   * @param previousRevision  the previous revision number
-   * @param lastModifiedRevision the last modified revision number
-   * @param hash              the hash value
-   */
-  public void initForCreation(final long nodeKey, final long firstChildKey,
-      final long lastChildKey, final long childCount, final long descendantCount,
-      final long hash) {
-    this.nodeKey = nodeKey;
-    this.firstChildKey = firstChildKey;
-    this.lastChildKey = lastChildKey;
-    this.childCount = childCount;
-    this.descendantCount = descendantCount;
-    this.hash = hash;
-  }
-
   // ==================== FLYWEIGHT BIND/UNBIND ====================
 
   /**
@@ -611,10 +585,7 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
       bytes.writeLong(getLastChildKey());
     }
 
-    final var buffer = ((java.nio.ByteBuffer) bytes.underlyingObject()).rewind();
-    buffer.limit((int) bytes.readLimit());
-
-    return hashFunction.hashBytes(buffer);
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

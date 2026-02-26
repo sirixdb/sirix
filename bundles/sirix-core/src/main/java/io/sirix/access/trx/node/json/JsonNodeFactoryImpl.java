@@ -1,6 +1,5 @@
 package io.sirix.access.trx.node.json;
 
-import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
@@ -30,7 +29,6 @@ import io.sirix.page.PageLayout;
 import io.sirix.page.PathSummaryPage;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
-import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.NamePageHash;
 import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.QNm;
@@ -139,102 +137,6 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     reusableObjectBooleanNode.setWriteSingleton(true);
     reusableObjectNumberNode.setWriteSingleton(true);
     reusableObjectStringNode.setWriteSingleton(true);
-  }
-
-  private long nextNodeKey() {
-    return storageEngineWriter.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex() + 1;
-  }
-
-  private ObjectNode bindObjectNode(final long nodeKey, final long parentKey, final long leftSibKey,
-      final long rightSibKey, final SirixDeweyID id) {
-    reusableObjectNode.clearBinding();
-    reusableObjectNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0, id);
-    return reusableObjectNode;
-  }
-
-  private ArrayNode bindArrayNode(final long nodeKey, final long parentKey, final long leftSibKey,
-      final long rightSibKey, final long pathNodeKey, final SirixDeweyID id) {
-    reusableArrayNode.clearBinding();
-    reusableArrayNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0, pathNodeKey, id);
-    return reusableArrayNode;
-  }
-
-  private ObjectKeyNode bindObjectKeyNode(final long nodeKey, final long parentKey, final long leftSibKey,
-      final long rightSibKey, final long pathNodeKey, final int nameKey, final String name, final long objectValueKey,
-      final SirixDeweyID id) {
-    reusableObjectKeyNode.clearBinding();
-    reusableObjectKeyNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
-        objectValueKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0,
-        pathNodeKey, nameKey, name, id);
-    return reusableObjectKeyNode;
-  }
-
-  private NullNode bindNullNode(final long nodeKey, final long parentKey, final long leftSibKey, final long rightSibKey,
-      final SirixDeweyID id) {
-    reusableNullNode.clearBinding();
-    reusableNullNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, id);
-    return reusableNullNode;
-  }
-
-  private BooleanNode bindBooleanNode(final long nodeKey, final long parentKey, final long leftSibKey,
-      final long rightSibKey, final boolean boolValue, final SirixDeweyID id) {
-    reusableBooleanNode.clearBinding();
-    reusableBooleanNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, boolValue, id);
-    return reusableBooleanNode;
-  }
-
-  private NumberNode bindNumberNode(final long nodeKey, final long parentKey, final long leftSibKey,
-      final long rightSibKey, final Number value, final SirixDeweyID id) {
-    reusableNumberNode.clearBinding();
-    reusableNumberNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value, id);
-    return reusableNumberNode;
-  }
-
-  private StringNode bindStringNode(final long nodeKey, final long parentKey, final long leftSibKey,
-      final long rightSibKey, final byte[] value, final boolean isCompressed, final byte[] fsstSymbolTable,
-      final SirixDeweyID id) {
-    reusableStringNode.clearBinding();
-    reusableStringNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value, isCompressed, fsstSymbolTable, id);
-    return reusableStringNode;
-  }
-
-  private ObjectNullNode bindObjectNullNode(final long nodeKey, final long parentKey, final SirixDeweyID id) {
-    reusableObjectNullNode.clearBinding();
-    reusableObjectNullNode.initForCreation(nodeKey, parentKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, id);
-    return reusableObjectNullNode;
-  }
-
-  private ObjectBooleanNode bindObjectBooleanNode(final long nodeKey, final long parentKey, final boolean boolValue,
-      final SirixDeweyID id) {
-    reusableObjectBooleanNode.clearBinding();
-    reusableObjectBooleanNode.initForCreation(nodeKey, parentKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, boolValue, id);
-    return reusableObjectBooleanNode;
-  }
-
-  private ObjectNumberNode bindObjectNumberNode(final long nodeKey, final long parentKey, final Number value,
-      final SirixDeweyID id) {
-    reusableObjectNumberNode.clearBinding();
-    reusableObjectNumberNode.initForCreation(nodeKey, parentKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value, id);
-    return reusableObjectNumberNode;
-  }
-
-  private ObjectStringNode bindObjectStringNode(final long nodeKey, final long parentKey, final byte[] value,
-      final boolean isCompressed, final byte[] fsstSymbolTable, final SirixDeweyID id) {
-    reusableObjectStringNode.clearBinding();
-    reusableObjectStringNode.initForCreation(nodeKey, parentKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value, isCompressed, fsstSymbolTable, id);
-    return reusableObjectStringNode;
   }
 
   @Override

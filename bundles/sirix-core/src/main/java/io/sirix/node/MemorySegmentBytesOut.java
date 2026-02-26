@@ -225,7 +225,9 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
     if (backingArray != null) {
       return hashFunction.hashBytes(backingArray, 0, growingSegment.getUsedSize());
     }
-    return hashFunction.hashBytes(growingSegment.getUsedSegment().asByteBuffer());
+    // Off-heap: hash directly from native address — no legacy ByteBuffer
+    final MemorySegment seg = growingSegment.getUsedSegment();
+    return hashFunction.hashMemory(seg.address(), seg.byteSize());
   }
 
   @Override

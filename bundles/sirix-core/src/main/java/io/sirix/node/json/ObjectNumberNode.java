@@ -182,35 +182,6 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     this.heapOffsets = new int[FIELD_COUNT];
   }
 
-  // ==================== BULK INIT (zero branch checks) ====================
-
-  /**
-   * Initialize all fields for a newly created node. Must be called when unbound
-   * (after clearBinding()). Sets all Java fields directly — no if (page != null) checks.
-   *
-   * @param nodeKey              the node key
-   * @param parentKey            the parent node key
-   * @param previousRevision     the previous revision number
-   * @param lastModifiedRevision the last modified revision number
-   * @param hash                 the hash value
-   * @param value                the number value
-   * @param deweyID              the DeweyID (may be null)
-   */
-  public void initForCreation(final long nodeKey, final long parentKey,
-      final int previousRevision, final int lastModifiedRevision,
-      final long hash, final Number value, final SirixDeweyID deweyID) {
-    this.nodeKey = nodeKey;
-    this.parentKey = parentKey;
-    this.previousRevision = previousRevision;
-    this.lastModifiedRevision = lastModifiedRevision;
-    this.hash = hash;
-    this.value = value;
-    this.sirixDeweyID = deweyID;
-    this.deweyIDBytes = null;
-    this.metadataParsed = true;
-    this.valueParsed = true;
-  }
-
   // ==================== STATIC WRITE / HEAP OFFSETS / DEWEYID ====================
 
   /**
@@ -582,7 +553,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
       default -> throw new IllegalStateException("Unexpected value: " + number);
     }
 
-    return hashFunction.hashBytes(bytes.toByteArray());
+    return bytes.hashDirect(hashFunction);
   }
 
   @Override

@@ -834,10 +834,7 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
     bytes.writeLong(getLeftSiblingKey()).writeLong(getRightSiblingKey());
     bytes.write(getRawValue());
 
-    final var buffer = ((java.nio.ByteBuffer) bytes.underlyingObject()).rewind();
-    buffer.limit((int) bytes.readLimit());
-
-    return hashFunction.hashBytes(buffer);
+    return bytes.hashDirect(hashFunction);
   }
 
   // === LAZY PARSING ===
