@@ -229,6 +229,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
     this.valueParsed = false; // Payload still needs lazy parsing from page
     this.lazyValueSource = null;
+    this.hash = 0;
   }
 
   /**
@@ -252,7 +253,6 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     this.uriKey = readSignedField(NodeFieldLayout.PI_URI_KEY);
     this.previousRevision = readSignedField(NodeFieldLayout.PI_PREV_REVISION);
     this.lastModifiedRevision = readSignedField(NodeFieldLayout.PI_LAST_MOD_REVISION);
-    this.hash = readLongField(NodeFieldLayout.PI_HASH);
     this.childCount = readSignedLongField(NodeFieldLayout.PI_CHILD_COUNT);
     this.descendantCount = readSignedLongField(NodeFieldLayout.PI_DESCENDANT_COUNT);
     // Payload needs to be read from page before unbinding
@@ -299,7 +299,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   @Override
   public int estimateSerializedSize() {
     final int payloadLen = value != null ? value.length : 0;
-    return 128 + payloadLen;
+    return 119 + payloadLen;
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================
@@ -317,11 +317,6 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   private long readSignedLongField(final int fieldIndex) {
     final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
     return DeltaVarIntCodec.decodeSignedLongFromSegment(page, dataRegionStart + fieldOff);
-  }
-
-  private long readLongField(final int fieldIndex) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
   /**
@@ -368,7 +363,6 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
    * @param uriKey          the URI key
    * @param prevRev         the previous revision number
    * @param lastModRev      the last modified revision number
-   * @param hash            the hash value
    * @param childCount      the child count
    * @param descendantCount the descendant count
    * @param rawValue        the raw value bytes (possibly compressed)
@@ -380,7 +374,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
       final long parentKey, final long rightSibKey, final long leftSibKey,
       final long firstChildKey, final long lastChildKey,
       final long pathNodeKey, final int prefixKey, final int localNameKey, final int uriKey,
-      final int prevRev, final int lastModRev, final long hash,
+      final int prevRev, final int lastModRev,
       final long childCount, final long descendantCount,
       final byte[] rawValue, final boolean isCompressed) {
     long pos = offset;
@@ -440,20 +434,15 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
     heapOffsets[NodeFieldLayout.PI_LAST_MOD_REVISION] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
-    // Field 11: hash (fixed 8 bytes)
-    heapOffsets[NodeFieldLayout.PI_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
-    // Field 12: childCount (signed long varint)
+    // Field 11: childCount (signed long varint)
     heapOffsets[NodeFieldLayout.PI_CHILD_COUNT] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, childCount);
 
-    // Field 13: descendantCount (signed long varint)
+    // Field 12: descendantCount (signed long varint)
     heapOffsets[NodeFieldLayout.PI_DESCENDANT_COUNT] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, descendantCount);
 
-    // Field 14: payload [isCompressed:1][valueLength:varint][value:bytes]
+    // Field 13: payload [isCompressed:1][valueLength:varint][value:bytes]
     heapOffsets[NodeFieldLayout.PI_PAYLOAD] = (int) (pos - dataStart);
     target.set(ValueLayout.JAVA_BYTE, pos, isCompressed ? (byte) 1 : (byte) 0);
     pos++;
@@ -481,7 +470,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         parentKey, rightSiblingKey, leftSiblingKey,
         firstChildKey, lastChildKey, pathNodeKey,
         prefixKey, localNameKey, uriKey,
-        previousRevision, lastModifiedRevision, hash,
+        previousRevision, lastModifiedRevision,
         childCount, descendantCount, value, isCompressed);
   }
 
@@ -960,17 +949,11 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   @Override
   public long getHash() {
-    if (page != null) {
-      final long h = readLongField(NodeFieldLayout.PI_HASH);
-      if (h != 0L) return h;
-      if (hashFunction != null) {
-        final long computed = computeHash(Bytes.threadLocalHashBuffer());
-        setHash(computed);
-        return computed;
-      }
-      return 0L;
+    // Return stored hash if set by rollingAdd/rollingUpdate, else compute on demand
+    if (hash != 0L) {
+      return hash;
     }
-    if (hash == 0L && hashFunction != null) {
+    if (hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
     return hash;
@@ -978,13 +961,6 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   @Override
   public void setHash(long hash) {
-    if (page != null) {
-      // Hash is ALWAYS in-place (fixed 8 bytes)
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.PI_HASH) & 0xFF;
-      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
-      return;
-    }
     this.hash = hash;
   }
 
@@ -1258,7 +1234,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
           readDeltaField(NodeFieldLayout.PI_LAST_CHILD_KEY, nk),
           readSignedLongField(NodeFieldLayout.PI_CHILD_COUNT),
           readSignedLongField(NodeFieldLayout.PI_DESCENDANT_COUNT),
-          readLongField(NodeFieldLayout.PI_HASH),
+          hash,
           readDeltaField(NodeFieldLayout.PI_PATH_NODE_KEY, nk),
           readSignedField(NodeFieldLayout.PI_PREFIX_KEY),
           readSignedField(NodeFieldLayout.PI_LOCAL_NAME_KEY),

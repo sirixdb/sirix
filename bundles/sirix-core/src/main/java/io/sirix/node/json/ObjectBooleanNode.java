@@ -31,9 +31,9 @@ package io.sirix.node.json;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.Bytes;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -52,7 +52,6 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.page.NodeFieldLayout;
-import io.sirix.page.PageLayout;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -94,7 +93,7 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
   private Object lazySource;
   private long lazyOffset;
   private boolean lazyFieldsParsed;
-  private boolean hasHash;
+
 
   // ==================== FLYWEIGHT BINDING (LeanStore page-direct access) ====================
 
@@ -184,13 +183,12 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
    * @param prevRev    the previous revision number
    * @param lastModRev the last modified revision number
    * @param boolValue  the boolean value
-   * @param hash       the hash value
    * @return the total number of bytes written
    */
   public static int writeNewRecord(final MemorySegment target, final long offset,
       final int[] heapOffsets, final long nodeKey,
       final long parentKey, final int prevRev, final int lastModRev,
-      final boolean boolValue, final long hash) {
+      final boolean boolValue) {
     long pos = offset;
 
     // Write nodeKind byte
@@ -220,11 +218,6 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
     heapOffsets[NodeFieldLayout.OBJBOOLVAL_VALUE] = (int) (pos - dataStart);
     target.set(ValueLayout.JAVA_BYTE, pos, (byte) (boolValue ? 1 : 0));
     pos += 1;
-
-    // Field 4: hash (fixed 8 bytes)
-    heapOffsets[NodeFieldLayout.OBJBOOLVAL_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
 
     // Write offset table
     for (int i = 0; i < FIELD_COUNT; i++) {
@@ -268,6 +261,7 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
     this.nodeKey = nodeKey;
     this.slotIndex = slotIndex;
     this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
+    this.hash = 0;
     this.lazyFieldsParsed = true; // No lazy state when bound
     this.lazySource = null;
   }
@@ -286,7 +280,6 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
     this.previousRevision = readSignedField(NodeFieldLayout.OBJBOOLVAL_PREV_REVISION);
     this.lastModifiedRevision = readSignedField(NodeFieldLayout.OBJBOOLVAL_LAST_MOD_REVISION);
     this.value = readByteField(NodeFieldLayout.OBJBOOLVAL_VALUE) != 0;
-    this.hash = readLongField(NodeFieldLayout.OBJBOOLVAL_HASH);
     this.page = null;
     this.ownerPage = null;
   }
@@ -322,11 +315,6 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
   private int readSignedField(final int fieldIndex) {
     final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
     return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
-  }
-
-  private long readLongField(final int fieldIndex) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
   private byte readByteField(final int fieldIndex) {
@@ -372,7 +360,7 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
       parseLazyFields();
     }
     return writeNewRecord(target, offset, heapOffsets, nodeKey,
-        parentKey, previousRevision, lastModifiedRevision, value, hash);
+        parentKey, previousRevision, lastModifiedRevision, value);
   }
 
   @Override
@@ -488,24 +476,17 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
 
   @Override
   public long getHash() {
-    if (page != null) {
-      return readLongField(NodeFieldLayout.OBJBOOLVAL_HASH);
+    if (hash != 0L) {
+      return hash;
     }
-    if (!lazyFieldsParsed) {
-      parseLazyFields();
+    if (hashFunction != null) {
+      return computeHash(Bytes.threadLocalHashBuffer());
     }
-    return hash;
+    return 0L;
   }
 
   @Override
   public void setHash(final long hash) {
-    if (page != null) {
-      // Hash is ALWAYS in-place (fixed 8 bytes)
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJBOOLVAL_HASH) & 0xFF;
-      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
-      return;
-    }
     this.hash = hash;
   }
 
@@ -685,8 +666,6 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
     this.lazySource = source.getSource();
     this.lazyOffset = source.position();
     this.lazyFieldsParsed = false;
-    this.hasHash = config.hashType != HashType.NONE;
-
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.value = false;
@@ -717,9 +696,6 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.value = bytesIn.readBoolean();
-    if (hasHash) {
-      this.hash = bytesIn.readLong();
-    }
     this.lazyFieldsParsed = true;
   }
 
@@ -730,7 +706,7 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
           readDeltaField(NodeFieldLayout.OBJBOOLVAL_PARENT_KEY, nodeKey),
           readSignedField(NodeFieldLayout.OBJBOOLVAL_PREV_REVISION),
           readSignedField(NodeFieldLayout.OBJBOOLVAL_LAST_MOD_REVISION),
-          readLongField(NodeFieldLayout.OBJBOOLVAL_HASH),
+          hash,
           readByteField(NodeFieldLayout.OBJBOOLVAL_VALUE) != 0,
           hashFunction,
           getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);

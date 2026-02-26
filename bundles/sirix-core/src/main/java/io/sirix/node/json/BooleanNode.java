@@ -31,9 +31,9 @@ package io.sirix.node.json;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.Bytes;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -52,7 +52,6 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NodeFieldLayout;
-import io.sirix.page.PageLayout;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -96,8 +95,6 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   private Object lazySource;
   private long lazyOffset;
   private boolean lazyFieldsParsed;
-  private boolean hasHash;
-
   // ==================== FLYWEIGHT BINDING (LeanStore page-direct access) ====================
 
   /** Page MemorySegment when bound (null = primitive mode). */
@@ -194,6 +191,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
     this.nodeKey = nodeKey;
     this.slotIndex = slotIndex;
     this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
+    this.hash = 0;
     this.lazyFieldsParsed = true; // No lazy state when bound
     this.lazySource = null;
   }
@@ -214,7 +212,6 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
     this.previousRevision = readSignedField(NodeFieldLayout.BOOLVAL_PREV_REVISION);
     this.lastModifiedRevision = readSignedField(NodeFieldLayout.BOOLVAL_LAST_MOD_REVISION);
     this.value = readByteField(NodeFieldLayout.BOOLVAL_VALUE) != 0;
-    this.hash = readLongField(NodeFieldLayout.BOOLVAL_HASH);
     this.page = null;
     this.ownerPage = null;
   }
@@ -250,11 +247,6 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
   private int readSignedField(final int fieldIndex) {
     final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
     return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
-  }
-
-  private long readLongField(final int fieldIndex) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
   private byte readByteField(final int fieldIndex) {
@@ -302,13 +294,12 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
    * @param prevRev     the previous revision number
    * @param lastModRev  the last modified revision number
    * @param boolValue   the boolean value
-   * @param hash        the hash value
    * @return the total number of bytes written
    */
   public static int writeNewRecord(final MemorySegment target, final long offset,
       final int[] heapOffsets, final long nodeKey,
       final long parentKey, final long rightSibKey, final long leftSibKey,
-      final int prevRev, final int lastModRev, final boolean boolValue, final long hash) {
+      final int prevRev, final int lastModRev, final boolean boolValue) {
     long pos = offset;
 
     // Write nodeKind byte
@@ -347,11 +338,6 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
     target.set(ValueLayout.JAVA_BYTE, pos, (byte) (boolValue ? 1 : 0));
     pos += 1;
 
-    // Field 6: hash (fixed 8 bytes)
-    heapOffsets[NodeFieldLayout.BOOLVAL_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
     // Write offset table
     for (int i = 0; i < FIELD_COUNT; i++) {
       target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
@@ -369,7 +355,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
     }
     return writeNewRecord(target, offset, heapOffsets, nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
-        previousRevision, lastModifiedRevision, value, hash);
+        previousRevision, lastModifiedRevision, value);
   }
 
   /**
@@ -501,24 +487,17 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
 
   @Override
   public long getHash() {
-    if (page != null) {
-      return readLongField(NodeFieldLayout.BOOLVAL_HASH);
+    if (hash != 0L) {
+      return hash;
     }
-    if (!lazyFieldsParsed) {
-      parseLazyFields();
+    if (hashFunction != null) {
+      return computeHash(Bytes.threadLocalHashBuffer());
     }
-    return hash;
+    return 0L;
   }
 
   @Override
   public void setHash(final long hash) {
-    if (page != null) {
-      // Hash is ALWAYS in-place (fixed 8 bytes)
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.BOOLVAL_HASH) & 0xFF;
-      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
-      return;
-    }
     this.hash = hash;
   }
 
@@ -742,8 +721,6 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
     this.lazySource = source.getSource();
     this.lazyOffset = source.position();
     this.lazyFieldsParsed = false;
-    this.hasHash = config.hashType != HashType.NONE;
-
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.value = false;
@@ -774,9 +751,6 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.value = bytesIn.readBoolean();
-    if (hasHash) {
-      this.hash = bytesIn.readLong();
-    }
     this.lazyFieldsParsed = true;
   }
 
@@ -789,7 +763,7 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
           readSignedField(NodeFieldLayout.BOOLVAL_LAST_MOD_REVISION),
           readDeltaField(NodeFieldLayout.BOOLVAL_RIGHT_SIB_KEY, nodeKey),
           readDeltaField(NodeFieldLayout.BOOLVAL_LEFT_SIB_KEY, nodeKey),
-          readLongField(NodeFieldLayout.BOOLVAL_HASH),
+          hash,
           readByteField(NodeFieldLayout.BOOLVAL_VALUE) != 0,
           hashFunction,
           getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);

@@ -31,9 +31,9 @@ package io.sirix.node.json;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.Bytes;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -99,7 +99,6 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
   private long lazyOffset;
   private boolean metadataParsed;
   private boolean valueParsed;
-  private boolean hasHash;
   private long valueOffset;
 
   // ==================== FLYWEIGHT BINDING (LeanStore page-direct access) ====================
@@ -195,14 +194,13 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
    * @param parentKey  the parent node key
    * @param prevRev    the previous revision number
    * @param lastModRev the last modified revision number
-   * @param hash       the hash value
    * @param value      the Number value
    * @return the total number of bytes written
    */
   public static int writeNewRecord(final MemorySegment target, final long offset,
       final int[] heapOffsets, final long nodeKey,
       final long parentKey, final int prevRev, final int lastModRev,
-      final long hash, final Number value) {
+      final Number value) {
     long pos = offset;
 
     // Write nodeKind byte
@@ -228,12 +226,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     heapOffsets[NodeFieldLayout.OBJNUMVAL_LAST_MOD_REVISION] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
-    // Field 3: hash (fixed 8 bytes)
-    heapOffsets[NodeFieldLayout.OBJNUMVAL_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
-    // Field 4: payload (number: [numberType:1][numberData:variable])
+    // Field 3: payload (number: [numberType:1][numberData:variable])
     heapOffsets[NodeFieldLayout.OBJNUMVAL_PAYLOAD] = (int) (pos - dataStart);
     final MemorySegmentBytesOut numBuf = TL_NUMBER_BUFFER.get();
     numBuf.clear();
@@ -285,6 +278,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     this.nodeKey = nodeKey;
     this.slotIndex = slotIndex;
     this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
+    this.hash = 0;
     this.metadataParsed = true; // No lazy state when bound
     this.valueParsed = false;   // Payload still needs lazy parsing from page
     this.lazySource = null;
@@ -303,7 +297,6 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     this.parentKey = readDeltaField(NodeFieldLayout.OBJNUMVAL_PARENT_KEY, nk);
     this.previousRevision = readSignedField(NodeFieldLayout.OBJNUMVAL_PREV_REVISION);
     this.lastModifiedRevision = readSignedField(NodeFieldLayout.OBJNUMVAL_LAST_MOD_REVISION);
-    this.hash = readLongField(NodeFieldLayout.OBJNUMVAL_HASH);
     // Payload needs to be read from page before unbinding
     if (!valueParsed) {
       readPayloadFromPage();
@@ -343,11 +336,6 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
   private int readSignedField(final int fieldIndex) {
     final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
     return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
-  }
-
-  private long readLongField(final int fieldIndex) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
   /**
@@ -406,7 +394,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
       parseValueField();
     }
     return writeNewRecord(target, offset, heapOffsets, nodeKey,
-        parentKey, previousRevision, lastModifiedRevision, hash, value);
+        parentKey, previousRevision, lastModifiedRevision, value);
   }
 
   @Override
@@ -520,24 +508,17 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
 
   @Override
   public long getHash() {
-    if (page != null) {
-      return readLongField(NodeFieldLayout.OBJNUMVAL_HASH);
+    if (hash != 0L) {
+      return hash;
     }
-    if (!metadataParsed) {
-      parseMetadataFields();
+    if (hashFunction != null) {
+      return computeHash(Bytes.threadLocalHashBuffer());
     }
-    return hash;
+    return 0L;
   }
 
   @Override
   public void setHash(final long hash) {
-    if (page != null) {
-      // Hash is ALWAYS in-place (fixed 8 bytes)
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJNUMVAL_HASH) & 0xFF;
-      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
-      return;
-    }
     this.hash = hash;
   }
 
@@ -709,7 +690,6 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     this.lazyOffset = source.position();
     this.metadataParsed = false;
     this.valueParsed = false;
-    this.hasHash = config.hashType != HashType.NONE;
     this.valueOffset = 0;
 
     this.previousRevision = 0;
@@ -732,9 +712,6 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
 
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
-    if (hasHash) {
-      this.hash = bytesIn.readLong();
-    }
     this.valueOffset = bytesIn.position();
     this.metadataParsed = true;
   }
@@ -786,7 +763,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
           readDeltaField(NodeFieldLayout.OBJNUMVAL_PARENT_KEY, nodeKey),
           readSignedField(NodeFieldLayout.OBJNUMVAL_PREV_REVISION),
           readSignedField(NodeFieldLayout.OBJNUMVAL_LAST_MOD_REVISION),
-          readLongField(NodeFieldLayout.OBJNUMVAL_HASH),
+          hash,
           value,
           hashFunction,
           getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);

@@ -172,6 +172,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
     this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
     this.valueParsed = false; // Payload still needs lazy parsing from page
     this.lazyValueSource = null;
+    this.hash = 0;
   }
 
   @Override
@@ -183,7 +184,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
     this.leftSiblingKey = readDeltaField(NodeFieldLayout.COMMENT_LEFT_SIB_KEY, nk);
     this.previousRevision = readSignedField(NodeFieldLayout.COMMENT_PREV_REVISION);
     this.lastModifiedRevision = readSignedField(NodeFieldLayout.COMMENT_LAST_MOD_REVISION);
-    this.hash = readLongField(NodeFieldLayout.COMMENT_HASH);
+    // Hash is not stored on the slotted page; keep current in-memory value
     // Payload needs to be read from page before unbinding
     if (!valueParsed) {
       readPayloadFromPage();
@@ -219,7 +220,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   @Override
   public int estimateSerializedSize() {
     final int payloadLen = value != null ? value.length : 0;
-    return 64 + payloadLen;
+    return 55 + payloadLen;
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================
@@ -232,11 +233,6 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   private int readSignedField(final int fieldIndex) {
     final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
     return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
-  }
-
-  private long readLongField(final int fieldIndex) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
   /**
@@ -277,7 +273,6 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
    * @param leftSibKey   the left sibling key
    * @param prevRev      the previous revision number
    * @param lastModRev   the last modified revision number
-   * @param hash         the hash value
    * @param rawValue     the raw value bytes (possibly compressed)
    * @param isCompressed whether the value is compressed
    * @return the total number of bytes written
@@ -285,7 +280,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   public static int writeNewRecord(final MemorySegment target, final long offset,
       final int[] heapOffsets, final long nodeKey,
       final long parentKey, final long rightSibKey, final long leftSibKey,
-      final int prevRev, final int lastModRev, final long hash,
+      final int prevRev, final int lastModRev,
       final byte[] rawValue, final boolean isCompressed) {
     long pos = offset;
 
@@ -320,12 +315,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
     heapOffsets[NodeFieldLayout.COMMENT_LAST_MOD_REVISION] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
-    // Field 5: hash (fixed 8 bytes)
-    heapOffsets[NodeFieldLayout.COMMENT_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
-    // Field 6: payload [isCompressed:1][length:varint][data:bytes]
+    // Field 5: payload [isCompressed:1][length:varint][data:bytes]
     heapOffsets[NodeFieldLayout.COMMENT_PAYLOAD] = (int) (pos - dataStart);
     target.set(ValueLayout.JAVA_BYTE, pos, isCompressed ? (byte) 1 : (byte) 0);
     pos++;
@@ -352,7 +342,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
     if (!valueParsed) parseLazyValue();
     return writeNewRecord(target, offset, heapOffsets, nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
-        previousRevision, lastModifiedRevision, hash, value, isCompressed);
+        previousRevision, lastModifiedRevision, value, isCompressed);
   }
 
   /**
@@ -555,34 +545,18 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
 
   @Override
   public long getHash() {
-    if (page != null) {
-      // Bound: read hash from MemorySegment. If non-zero (set by rollingAdd/rollingUpdate),
-      // return it as-is to preserve rolling hash arithmetic. If zero (never set), compute.
-      final long storedHash = readLongField(NodeFieldLayout.COMMENT_HASH);
-      if (storedHash != 0L) {
-        return storedHash;
-      }
-      if (hashFunction != null) {
-        return computeHash(Bytes.threadLocalHashBuffer());
-      }
-      return 0L;
+    if (hash != 0L) {
+      return hash;
     }
-    // Unbound (in-memory): return stored hash if set by rollingAdd, else compute
-    if (hash == 0L && hashFunction != null) {
-      hash = computeHash(Bytes.threadLocalHashBuffer());
+    // Hash not stored on page -- compute on demand from node fields
+    if (hashFunction != null) {
+      return computeHash(Bytes.threadLocalHashBuffer());
     }
-    return hash;
+    return 0L;
   }
 
   @Override
   public void setHash(final long hash) {
-    if (page != null) {
-      // Hash is ALWAYS in-place (fixed 8 bytes)
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.COMMENT_HASH) & 0xFF;
-      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
-      return;
-    }
     this.hash = hash;
   }
 
@@ -873,7 +847,7 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
           readSignedField(NodeFieldLayout.COMMENT_LAST_MOD_REVISION),
           readDeltaField(NodeFieldLayout.COMMENT_RIGHT_SIB_KEY, nodeKey),
           readDeltaField(NodeFieldLayout.COMMENT_LEFT_SIB_KEY, nodeKey),
-          readLongField(NodeFieldLayout.COMMENT_HASH),
+          hash,
           value != null ? value.clone() : null,
           isCompressed,
           hashFunction,

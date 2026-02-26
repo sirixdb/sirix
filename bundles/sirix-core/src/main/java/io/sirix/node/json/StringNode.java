@@ -34,6 +34,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.Bytes;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -224,6 +225,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     this.nodeKey = nodeKey;
     this.slotIndex = slotIndex;
     this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
+    this.hash = 0;
     this.metadataParsed = true;
     this.valueParsed = false; // Payload still needs lazy parsing from page
     this.lazySource = null;
@@ -237,7 +239,6 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     this.leftSiblingKey = readDeltaField(NodeFieldLayout.STRVAL_LEFT_SIB_KEY, nk);
     this.previousRevision = readSignedField(NodeFieldLayout.STRVAL_PREV_REVISION);
     this.lastModifiedRevision = readSignedField(NodeFieldLayout.STRVAL_LAST_MOD_REVISION);
-    this.hash = readLongField(NodeFieldLayout.STRVAL_HASH);
     // Payload needs to be read from page before unbinding
     if (!valueParsed) {
       readPayloadFromPage();
@@ -267,7 +268,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   @Override
   public int estimateSerializedSize() {
     final int payloadLen = value != null ? value.length : 0;
-    return 64 + payloadLen;
+    return 55 + payloadLen;
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================
@@ -282,10 +283,6 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
   }
 
-  private long readLongField(final int fieldIndex) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
-  }
 
   @Override
   public KeyValueLeafPage getOwnerPage() {
@@ -335,7 +332,6 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
    * @param leftSibKey    the left sibling key
    * @param prevRev       the previous revision number
    * @param lastModRev    the last modified revision number
-   * @param hash          the hash value
    * @param rawValue      the raw value bytes (possibly compressed)
    * @param isCompressed  whether the value is FSST compressed
    * @return the total number of bytes written
@@ -343,7 +339,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public static int writeNewRecord(final MemorySegment target, final long offset,
       final int[] heapOffsets, final long nodeKey,
       final long parentKey, final long rightSibKey, final long leftSibKey,
-      final int prevRev, final int lastModRev, final long hash,
+      final int prevRev, final int lastModRev,
       final byte[] rawValue, final boolean isCompressed) {
     long pos = offset;
 
@@ -378,12 +374,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     heapOffsets[NodeFieldLayout.STRVAL_LAST_MOD_REVISION] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
-    // Field 5: hash (fixed 8 bytes)
-    heapOffsets[NodeFieldLayout.STRVAL_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
-    // Field 6: payload [isCompressed:1][valueLength:varint][value:bytes]
+    // Field 5: payload [isCompressed:1][valueLength:varint][value:bytes]
     heapOffsets[NodeFieldLayout.STRVAL_PAYLOAD] = (int) (pos - dataStart);
     target.set(ValueLayout.JAVA_BYTE, pos, isCompressed ? (byte) 1 : (byte) 0);
     pos++;
@@ -410,7 +401,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     if (!valueParsed) parseValueField();
     return writeNewRecord(target, offset, heapOffsets, nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
-        previousRevision, lastModifiedRevision, hash, value, isCompressed);
+        previousRevision, lastModifiedRevision, value, isCompressed);
   }
 
   /**
@@ -557,24 +548,17 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
 
   @Override
   public long getHash() {
-    if (page != null) {
-      return readLongField(NodeFieldLayout.STRVAL_HASH);
+    if (hash != 0L) {
+      return hash;
     }
-    if (!metadataParsed) {
-      parseMetadataFields();
+    if (hashFunction != null) {
+      return computeHash(Bytes.threadLocalHashBuffer());
     }
-    return hash;
+    return 0L;
   }
 
   @Override
   public void setHash(final long hash) {
-    if (page != null) {
-      // Hash is ALWAYS in-place (fixed 8 bytes)
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.STRVAL_HASH) & 0xFF;
-      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
-      return;
-    }
     this.hash = hash;
   }
 
@@ -939,7 +923,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     if (hasHash) {
-      this.hash = bytesIn.readLong();
+      bytesIn.readLong(); // skip legacy hash field
     }
     // Store position where value starts (for separate value parsing)
     this.valueOffset = bytesIn.position();
@@ -1009,7 +993,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
           readSignedField(NodeFieldLayout.STRVAL_LAST_MOD_REVISION),
           readDeltaField(NodeFieldLayout.STRVAL_RIGHT_SIB_KEY, nodeKey),
           readDeltaField(NodeFieldLayout.STRVAL_LEFT_SIB_KEY, nodeKey),
-          readLongField(NodeFieldLayout.STRVAL_HASH),
+          hash,
           value != null ? value.clone() : null,
           hashFunction,
           getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,

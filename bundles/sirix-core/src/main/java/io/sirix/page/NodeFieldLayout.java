@@ -81,35 +81,33 @@ public final class NodeFieldLayout {
   // ==================== STRING_VALUE NODE (7 fields + payload) ====================
 
   /** Total field count for STRING_VALUE nodes (excluding payload). */
-  public static final int STRING_VALUE_FIELD_COUNT = 7;
+  public static final int STRING_VALUE_FIELD_COUNT = 6;
 
   public static final int STRVAL_PARENT_KEY = 0;
   public static final int STRVAL_RIGHT_SIB_KEY = 1;
   public static final int STRVAL_LEFT_SIB_KEY = 2;
   public static final int STRVAL_PREV_REVISION = 3;
   public static final int STRVAL_LAST_MOD_REVISION = 4;
-  public static final int STRVAL_HASH = 5;
   /** Points to the start of [isCompressed:1][valueLength:varint][value:bytes]. */
-  public static final int STRVAL_PAYLOAD = 6;
+  public static final int STRVAL_PAYLOAD = 5;
 
   // ==================== NUMBER_VALUE NODE (7 fields + payload) ====================
 
   /** Total field count for NUMBER_VALUE nodes (excluding payload). */
-  public static final int NUMBER_VALUE_FIELD_COUNT = 7;
+  public static final int NUMBER_VALUE_FIELD_COUNT = 6;
 
   public static final int NUMVAL_PARENT_KEY = 0;
   public static final int NUMVAL_RIGHT_SIB_KEY = 1;
   public static final int NUMVAL_LEFT_SIB_KEY = 2;
   public static final int NUMVAL_PREV_REVISION = 3;
   public static final int NUMVAL_LAST_MOD_REVISION = 4;
-  public static final int NUMVAL_HASH = 5;
   /** Points to the start of [numberType:1][numberData:variable]. */
-  public static final int NUMVAL_PAYLOAD = 6;
+  public static final int NUMVAL_PAYLOAD = 5;
 
   // ==================== BOOLEAN_VALUE NODE (7 fields) ====================
 
   /** Total field count for BOOLEAN_VALUE nodes. */
-  public static final int BOOLEAN_VALUE_FIELD_COUNT = 7;
+  public static final int BOOLEAN_VALUE_FIELD_COUNT = 6;
 
   public static final int BOOLVAL_PARENT_KEY = 0;
   public static final int BOOLVAL_RIGHT_SIB_KEY = 1;
@@ -117,64 +115,58 @@ public final class NodeFieldLayout {
   public static final int BOOLVAL_PREV_REVISION = 3;
   public static final int BOOLVAL_LAST_MOD_REVISION = 4;
   public static final int BOOLVAL_VALUE = 5;
-  public static final int BOOLVAL_HASH = 6;
 
   // ==================== NULL_VALUE NODE (6 fields) ====================
 
   /** Total field count for NULL_VALUE nodes. */
-  public static final int NULL_VALUE_FIELD_COUNT = 6;
+  public static final int NULL_VALUE_FIELD_COUNT = 5;
 
   public static final int NULLVAL_PARENT_KEY = 0;
   public static final int NULLVAL_RIGHT_SIB_KEY = 1;
   public static final int NULLVAL_LEFT_SIB_KEY = 2;
   public static final int NULLVAL_PREV_REVISION = 3;
   public static final int NULLVAL_LAST_MOD_REVISION = 4;
-  public static final int NULLVAL_HASH = 5;
 
   // ==================== OBJECT_STRING_VALUE NODE (5 fields + payload) ====================
 
   /** Total field count for OBJECT_STRING_VALUE nodes (excluding payload). */
-  public static final int OBJECT_STRING_VALUE_FIELD_COUNT = 5;
+  public static final int OBJECT_STRING_VALUE_FIELD_COUNT = 4;
 
   public static final int OBJSTRVAL_PARENT_KEY = 0;
   public static final int OBJSTRVAL_PREV_REVISION = 1;
   public static final int OBJSTRVAL_LAST_MOD_REVISION = 2;
-  public static final int OBJSTRVAL_HASH = 3;
   /** Points to the start of [isCompressed:1][valueLength:varint][value:bytes]. */
-  public static final int OBJSTRVAL_PAYLOAD = 4;
+  public static final int OBJSTRVAL_PAYLOAD = 3;
 
   // ==================== OBJECT_NUMBER_VALUE NODE (5 fields + payload) ====================
 
   /** Total field count for OBJECT_NUMBER_VALUE nodes (excluding payload). */
-  public static final int OBJECT_NUMBER_VALUE_FIELD_COUNT = 5;
+  public static final int OBJECT_NUMBER_VALUE_FIELD_COUNT = 4;
 
   public static final int OBJNUMVAL_PARENT_KEY = 0;
   public static final int OBJNUMVAL_PREV_REVISION = 1;
   public static final int OBJNUMVAL_LAST_MOD_REVISION = 2;
-  public static final int OBJNUMVAL_HASH = 3;
   /** Points to the start of [numberType:1][numberData:variable]. */
-  public static final int OBJNUMVAL_PAYLOAD = 4;
+  public static final int OBJNUMVAL_PAYLOAD = 3;
 
   // ==================== OBJECT_BOOLEAN_VALUE NODE (5 fields) ====================
 
   /** Total field count for OBJECT_BOOLEAN_VALUE nodes. */
-  public static final int OBJECT_BOOLEAN_VALUE_FIELD_COUNT = 5;
+  public static final int OBJECT_BOOLEAN_VALUE_FIELD_COUNT = 4;
 
   public static final int OBJBOOLVAL_PARENT_KEY = 0;
   public static final int OBJBOOLVAL_PREV_REVISION = 1;
   public static final int OBJBOOLVAL_LAST_MOD_REVISION = 2;
   public static final int OBJBOOLVAL_VALUE = 3;
-  public static final int OBJBOOLVAL_HASH = 4;
 
   // ==================== OBJECT_NULL_VALUE NODE (4 fields) ====================
 
   /** Total field count for OBJECT_NULL_VALUE nodes. */
-  public static final int OBJECT_NULL_VALUE_FIELD_COUNT = 4;
+  public static final int OBJECT_NULL_VALUE_FIELD_COUNT = 3;
 
   public static final int OBJNULLVAL_PARENT_KEY = 0;
   public static final int OBJNULLVAL_PREV_REVISION = 1;
   public static final int OBJNULLVAL_LAST_MOD_REVISION = 2;
-  public static final int OBJNULLVAL_HASH = 3;
 
   // ==================== JSON_DOCUMENT_ROOT (7 fields) ====================
 
@@ -214,7 +206,7 @@ public final class NodeFieldLayout {
   // ==================== XML ATTRIBUTE NODE (9 fields + payload) ====================
 
   /** Total field count for ATTRIBUTE nodes (excluding value payload). */
-  public static final int ATTRIBUTE_FIELD_COUNT = 9;
+  public static final int ATTRIBUTE_FIELD_COUNT = 8;
 
   public static final int ATTR_PARENT_KEY = 0;
   public static final int ATTR_PATH_NODE_KEY = 1;
@@ -223,42 +215,39 @@ public final class NodeFieldLayout {
   public static final int ATTR_URI_KEY = 4;
   public static final int ATTR_PREV_REVISION = 5;
   public static final int ATTR_LAST_MOD_REVISION = 6;
-  public static final int ATTR_HASH = 7;
   /** Points to [isCompressed:1][valueLength:varint][value:bytes]. */
-  public static final int ATTR_PAYLOAD = 8;
+  public static final int ATTR_PAYLOAD = 7;
 
   // ==================== XML TEXT NODE (7 fields + payload) ====================
 
   /** Total field count for TEXT nodes (excluding value payload). */
-  public static final int TEXT_FIELD_COUNT = 7;
+  public static final int TEXT_FIELD_COUNT = 6;
 
   public static final int TEXT_PARENT_KEY = 0;
   public static final int TEXT_RIGHT_SIB_KEY = 1;
   public static final int TEXT_LEFT_SIB_KEY = 2;
   public static final int TEXT_PREV_REVISION = 3;
   public static final int TEXT_LAST_MOD_REVISION = 4;
-  public static final int TEXT_HASH = 5;
   /** Points to [isCompressed:1][valueLength:varint][value:bytes]. */
-  public static final int TEXT_PAYLOAD = 6;
+  public static final int TEXT_PAYLOAD = 5;
 
   // ==================== XML COMMENT NODE (7 fields + payload) ====================
 
   /** Total field count for COMMENT nodes (excluding value payload). */
-  public static final int COMMENT_FIELD_COUNT = 7;
+  public static final int COMMENT_FIELD_COUNT = 6;
 
   public static final int COMMENT_PARENT_KEY = 0;
   public static final int COMMENT_RIGHT_SIB_KEY = 1;
   public static final int COMMENT_LEFT_SIB_KEY = 2;
   public static final int COMMENT_PREV_REVISION = 3;
   public static final int COMMENT_LAST_MOD_REVISION = 4;
-  public static final int COMMENT_HASH = 5;
   /** Points to [isCompressed:1][valueLength:varint][value:bytes]. */
-  public static final int COMMENT_PAYLOAD = 6;
+  public static final int COMMENT_PAYLOAD = 5;
 
   // ==================== XML PI NODE (15 fields + payload) ====================
 
   /** Total field count for PROCESSING_INSTRUCTION nodes (excluding value payload). */
-  public static final int PI_FIELD_COUNT = 15;
+  public static final int PI_FIELD_COUNT = 14;
 
   public static final int PI_PARENT_KEY = 0;
   public static final int PI_RIGHT_SIB_KEY = 1;
@@ -271,11 +260,10 @@ public final class NodeFieldLayout {
   public static final int PI_URI_KEY = 8;
   public static final int PI_PREV_REVISION = 9;
   public static final int PI_LAST_MOD_REVISION = 10;
-  public static final int PI_HASH = 11;
-  public static final int PI_CHILD_COUNT = 12;
-  public static final int PI_DESCENDANT_COUNT = 13;
+  public static final int PI_CHILD_COUNT = 11;
+  public static final int PI_DESCENDANT_COUNT = 12;
   /** Points to [isCompressed:1][valueLength:varint][value:bytes]. */
-  public static final int PI_PAYLOAD = 14;
+  public static final int PI_PAYLOAD = 13;
 
   // ==================== XML NAMESPACE NODE (8 fields) ====================
 

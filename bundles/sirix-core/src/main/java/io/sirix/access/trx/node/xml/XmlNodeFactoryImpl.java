@@ -191,10 +191,10 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
     final long absOffset = kvl.prepareHeapForDirectWrite(
-        64 + compressedValue.length, deweyIdLen);
+        55 + compressedValue.length, deweyIdLen);
     final int recordBytes = TextNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableTextNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, compressedValue, compression);
+        Constants.NULL_REVISION_NUMBER, revisionNumber, compressedValue, compression);
     kvl.completeDirectWrite(NodeKind.TEXT.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableTextNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableTextNode.setOwnerPage(kvl);
@@ -221,7 +221,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final int recordBytes = AttributeNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableAttributeNode.getHeapOffsets(), nodeKey, parentKey, pathNodeKey,
         prefixKey, localNameKey, uriKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value);
+        Constants.NULL_REVISION_NUMBER, revisionNumber, value);
     kvl.completeDirectWrite(NodeKind.ATTRIBUTE.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableAttributeNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableAttributeNode.setOwnerPage(kvl);
@@ -282,7 +282,7 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final int recordBytes = PINode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusablePINode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
         NULL_KEY, NULL_KEY, pathNodeKey, prefixKey, localNameKey, uriKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0,
         compressedContent, compression);
     kvl.completeDirectWrite(NodeKind.PROCESSING_INSTRUCTION.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusablePINode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
@@ -308,10 +308,10 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
     final long absOffset = kvl.prepareHeapForDirectWrite(
-        64 + compressedValue.length, deweyIdLen);
+        55 + compressedValue.length, deweyIdLen);
     final int recordBytes = CommentNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableCommentNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, compressedValue, compression);
+        Constants.NULL_REVISION_NUMBER, revisionNumber, compressedValue, compression);
     kvl.completeDirectWrite(NodeKind.COMMENT.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableCommentNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableCommentNode.setOwnerPage(kvl);

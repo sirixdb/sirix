@@ -34,6 +34,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.Bytes;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -188,6 +189,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     this.nodeKey = nodeKey;
     this.slotIndex = slotIndex;
     this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
+    this.hash = 0;
     this.metadataParsed = true;
     this.valueParsed = false;
     this.lazySource = null;
@@ -201,7 +203,6 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     this.leftSiblingKey = readDeltaField(NodeFieldLayout.NUMVAL_LEFT_SIB_KEY, nk);
     this.previousRevision = readSignedField(NodeFieldLayout.NUMVAL_PREV_REVISION);
     this.lastModifiedRevision = readSignedField(NodeFieldLayout.NUMVAL_LAST_MOD_REVISION);
-    this.hash = readLongField(NodeFieldLayout.NUMVAL_HASH);
     if (!valueParsed) {
       readPayloadFromPage();
     }
@@ -225,6 +226,13 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
   @Override
   public int getSlotIndex() {
     return slotIndex;
+  }
+
+  @Override
+  public int estimateSerializedSize() {
+    // 1 (nodeKind) + 6 (offset table) + ~30 (varint fields avg) + ~10 (number payload) = ~47
+    // Conservative upper bound without hash (was 56, minus 9 for removed 8-byte hash + 1-byte offset entry)
+    return 47;
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================
@@ -333,14 +341,13 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
    * @param leftSibKey  the left sibling key
    * @param prevRev     the previous revision number
    * @param lastModRev  the last modified revision number
-   * @param hash        the hash value
    * @param value       the Number value
    * @return the total number of bytes written
    */
   public static int writeNewRecord(final MemorySegment target, final long offset,
       final int[] heapOffsets, final long nodeKey,
       final long parentKey, final long rightSibKey, final long leftSibKey,
-      final int prevRev, final int lastModRev, final long hash, final Number value) {
+      final int prevRev, final int lastModRev, final Number value) {
     long pos = offset;
 
     // Write nodeKind byte
@@ -374,12 +381,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     heapOffsets[NodeFieldLayout.NUMVAL_LAST_MOD_REVISION] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
-    // Field 5: hash (fixed 8 bytes)
-    heapOffsets[NodeFieldLayout.NUMVAL_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
-    // Field 6: payload (Number type dispatch)
+    // Field 5: payload (Number type dispatch)
     heapOffsets[NodeFieldLayout.NUMVAL_PAYLOAD] = (int) (pos - dataStart);
     pos += serializeNumberToSegment(target, pos, value);
 
@@ -399,7 +401,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     if (!valueParsed) parseValueField();
     return writeNewRecord(target, offset, heapOffsets, nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
-        previousRevision, lastModifiedRevision, hash, value);
+        previousRevision, lastModifiedRevision, value);
   }
 
   /**
@@ -598,23 +600,17 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
 
   @Override
   public long getHash() {
-    if (page != null) {
-      return readLongField(NodeFieldLayout.NUMVAL_HASH);
+    if (hash != 0L) {
+      return hash;
     }
-    if (!metadataParsed) {
-      parseMetadataFields();
+    if (hashFunction != null) {
+      return computeHash(Bytes.threadLocalHashBuffer());
     }
-    return hash;
+    return 0L;
   }
 
   @Override
   public void setHash(final long hash) {
-    if (page != null) {
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.NUMVAL_HASH) & 0xFF;
-      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
-      return;
-    }
     this.hash = hash;
   }
 
@@ -893,9 +889,6 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
     
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
-    if (hasHash) {
-      this.hash = bytesIn.readLong();
-    }
     this.valueOffset = bytesIn.position();
     this.metadataParsed = true;
   }
@@ -952,7 +945,7 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
           readSignedField(NodeFieldLayout.NUMVAL_LAST_MOD_REVISION),
           readDeltaField(NodeFieldLayout.NUMVAL_RIGHT_SIB_KEY, nodeKey),
           readDeltaField(NodeFieldLayout.NUMVAL_LEFT_SIB_KEY, nodeKey),
-          readLongField(NodeFieldLayout.NUMVAL_HASH),
+          hash,
           value, hashFunction,
           getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
     }

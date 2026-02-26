@@ -31,9 +31,9 @@ package io.sirix.node.json;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.Bytes;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -107,7 +107,6 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   private long lazyOffset;              // Offset where lazy metadata fields start
   private boolean metadataParsed;       // Whether prevRev, lastModRev, hash are parsed
   private boolean valueParsed;          // Whether value byte[] is parsed
-  private boolean hasHash;              // Whether hash is stored (from config)
   private long valueOffset;             // Offset where value starts (after metadata)
 
   // ==================== FLYWEIGHT BINDING (LeanStore page-direct access) ====================
@@ -324,24 +323,17 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
 
   @Override
   public long getHash() {
-    if (page != null) {
-      return readLongField(NodeFieldLayout.OBJSTRVAL_HASH);
+    if (hash != 0L) {
+      return hash;
     }
-    if (!metadataParsed) {
-      parseMetadataFields();
+    if (hashFunction != null) {
+      return computeHash(Bytes.threadLocalHashBuffer());
     }
-    return hash;
+    return 0L;
   }
 
   @Override
   public void setHash(final long hash) {
-    if (page != null) {
-      // Hash is ALWAYS in-place (fixed 8 bytes)
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJSTRVAL_HASH) & 0xFF;
-      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
-      return;
-    }
     this.hash = hash;
   }
 
@@ -611,7 +603,6 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.lazyOffset = source.position();
     this.metadataParsed = false;
     this.valueParsed = false;
-    this.hasHash = config.hashType != HashType.NONE;
     this.valueOffset = 0;
     
     // Initialize lazy fields to defaults (will be populated on demand)
@@ -638,9 +629,6 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
-    if (hasHash) {
-      this.hash = bytesIn.readLong();
-    }
     this.valueOffset = bytesIn.position();
     this.metadataParsed = true;
   }
@@ -701,7 +689,6 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
    * @param parentKey    the parent node key
    * @param prevRev      the previous revision number
    * @param lastModRev   the last modified revision number
-   * @param hash         the hash value
    * @param rawValue     the raw string value bytes (possibly compressed)
    * @param isCompressed whether the value is FSST compressed
    * @return the total number of bytes written
@@ -709,7 +696,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   public static int writeNewRecord(final MemorySegment target, final long offset,
       final int[] heapOffsets, final long nodeKey,
       final long parentKey, final int prevRev, final int lastModRev,
-      final long hash, final byte[] rawValue, final boolean isCompressed) {
+      final byte[] rawValue, final boolean isCompressed) {
     long pos = offset;
 
     // Write nodeKind byte
@@ -735,12 +722,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     heapOffsets[NodeFieldLayout.OBJSTRVAL_LAST_MOD_REVISION] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
-    // Field 3: hash (fixed 8 bytes)
-    heapOffsets[NodeFieldLayout.OBJSTRVAL_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
-    // Field 4: payload [isCompressed:1][valueLength:varint][value:bytes]
+    // Field 3: payload [isCompressed:1][valueLength:varint][value:bytes]
     heapOffsets[NodeFieldLayout.OBJSTRVAL_PAYLOAD] = (int) (pos - dataStart);
     target.set(ValueLayout.JAVA_BYTE, pos, isCompressed ? (byte) 1 : (byte) 0);
     pos++;
@@ -793,6 +775,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.nodeKey = nodeKey;
     this.slotIndex = slotIndex;
     this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
+    this.hash = 0;
     this.metadataParsed = true;
     this.valueParsed = false; // Payload still needs lazy parsing from page
     this.lazySource = null;
@@ -808,7 +791,6 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     this.parentKey = readDeltaField(NodeFieldLayout.OBJSTRVAL_PARENT_KEY, nk);
     this.previousRevision = readSignedField(NodeFieldLayout.OBJSTRVAL_PREV_REVISION);
     this.lastModifiedRevision = readSignedField(NodeFieldLayout.OBJSTRVAL_LAST_MOD_REVISION);
-    this.hash = readLongField(NodeFieldLayout.OBJSTRVAL_HASH);
     // Payload needs to be read from page before unbinding
     if (!valueParsed) {
       readPayloadFromPage();
@@ -839,7 +821,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
   @Override
   public int estimateSerializedSize() {
     final int payloadLen = value != null ? value.length : 0;
-    return 64 + payloadLen;
+    return 55 + payloadLen;
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================
@@ -907,7 +889,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
     if (!metadataParsed) parseMetadataFields();
     if (!valueParsed) parseValueField();
     return writeNewRecord(target, offset, heapOffsets, nodeKey,
-        parentKey, previousRevision, lastModifiedRevision, hash, value, isCompressed);
+        parentKey, previousRevision, lastModifiedRevision, value, isCompressed);
   }
 
   /**
@@ -924,7 +906,7 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
           readDeltaField(NodeFieldLayout.OBJSTRVAL_PARENT_KEY, nodeKey),
           readSignedField(NodeFieldLayout.OBJSTRVAL_PREV_REVISION),
           readSignedField(NodeFieldLayout.OBJSTRVAL_LAST_MOD_REVISION),
-          readLongField(NodeFieldLayout.OBJSTRVAL_HASH),
+          hash,
           value != null ? value.clone() : null,
           hashFunction,
           getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,

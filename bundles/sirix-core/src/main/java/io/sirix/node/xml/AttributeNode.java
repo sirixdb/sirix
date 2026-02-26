@@ -396,20 +396,11 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
 
   @Override
   public long getHash() {
-    if (page != null) {
-      // Bound: read hash from MemorySegment. If non-zero (set by rollingAdd/rollingUpdate),
-      // return it as-is to preserve rolling hash arithmetic. If zero (never set), compute.
-      final long storedHash = readLongField(NodeFieldLayout.ATTR_HASH);
-      if (storedHash != 0L) {
-        return storedHash;
-      }
-      if (hashFunction != null) {
-        return computeHash(Bytes.threadLocalHashBuffer());
-      }
-      return 0L;
+    // Return stored hash if set by rollingAdd/rollingUpdate, else compute on demand
+    if (hash != 0L) {
+      return hash;
     }
-    // Unbound (in-memory): return stored hash if set by rollingAdd, else compute
-    if (hash == 0L && hashFunction != null) {
+    if (hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
     return hash;
@@ -417,13 +408,6 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
 
   @Override
   public void setHash(final long hash) {
-    if (page != null) {
-      // Hash is ALWAYS in-place (fixed 8 bytes)
-      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.ATTR_HASH) & 0xFF;
-      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
-      return;
-    }
     this.hash = hash;
   }
 
@@ -568,6 +552,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
     this.valueParsed = false;
     this.lazyValueSource = null;
+    this.hash = 0;
   }
 
   @Override
@@ -581,7 +566,6 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     this.uriKey = readSignedField(NodeFieldLayout.ATTR_URI_KEY);
     this.previousRevision = readSignedField(NodeFieldLayout.ATTR_PREV_REVISION);
     this.lastModifiedRevision = readSignedField(NodeFieldLayout.ATTR_LAST_MOD_REVISION);
-    this.hash = readLongField(NodeFieldLayout.ATTR_HASH);
     if (!valueParsed) {
       readPayloadFromPage();
     }
@@ -616,7 +600,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   @Override
   public int estimateSerializedSize() {
     final int payloadLen = value != null ? value.length : 0;
-    return 64 + payloadLen;
+    return 55 + payloadLen;
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================
@@ -629,11 +613,6 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
   private int readSignedField(final int fieldIndex) {
     final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
     return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
-  }
-
-  private long readLongField(final int fieldIndex) {
-    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
-    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
   /**
@@ -678,7 +657,6 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
    * @param uriKey       the URI key
    * @param prevRev      the previous revision number
    * @param lastModRev   the last modified revision number
-   * @param hash         the hash value
    * @param rawValue     the raw value bytes
    * @return the total number of bytes written
    */
@@ -686,7 +664,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
       final int[] heapOffsets, final long nodeKey,
       final long parentKey, final long pathNodeKey,
       final int prefixKey, final int localNameKey, final int uriKey,
-      final int prevRev, final int lastModRev, final long hash,
+      final int prevRev, final int lastModRev,
       final byte[] rawValue) {
     long pos = offset;
 
@@ -729,12 +707,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     heapOffsets[NodeFieldLayout.ATTR_LAST_MOD_REVISION] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
-    // Field 7: hash (fixed 8 bytes)
-    heapOffsets[NodeFieldLayout.ATTR_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
-    // Field 8: payload [isCompressed=0:1][valueLength:varint][value:bytes]
+    // Field 7: payload [isCompressed=0:1][valueLength:varint][value:bytes]
     heapOffsets[NodeFieldLayout.ATTR_PAYLOAD] = (int) (pos - dataStart);
     target.set(ValueLayout.JAVA_BYTE, pos, (byte) 0); // attributes are never compressed
     pos++;
@@ -767,7 +740,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     }
     return writeNewRecord(target, offset, heapOffsets, nodeKey,
         parentKey, pathNodeKey, prefixKey, localNameKey, uriKey,
-        previousRevision, lastModifiedRevision, hash, value);
+        previousRevision, lastModifiedRevision, value);
   }
 
   /**
@@ -806,7 +779,7 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
           readSignedField(NodeFieldLayout.ATTR_PREFIX_KEY),
           readSignedField(NodeFieldLayout.ATTR_LOCAL_NAME_KEY),
           readSignedField(NodeFieldLayout.ATTR_URI_KEY),
-          readLongField(NodeFieldLayout.ATTR_HASH),
+          hash,
           value != null ? value.clone() : null,
           hashFunction,
           getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
