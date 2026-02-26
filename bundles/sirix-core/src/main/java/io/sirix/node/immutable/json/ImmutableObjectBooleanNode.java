@@ -9,7 +9,6 @@ import io.sirix.node.json.ObjectBooleanNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.node.xml.TextNode;
 
-import java.nio.ByteBuffer;
 
 import static java.util.Objects.requireNonNull;
 

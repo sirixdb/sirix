@@ -11,7 +11,6 @@ import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.node.json.ObjectStringNode;
 
-import java.nio.ByteBuffer;
 
 import static java.util.Objects.requireNonNull;
 

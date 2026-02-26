@@ -7,7 +7,6 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.Node;
 
-import java.nio.ByteBuffer;
 
 /**
  * Skeletal implementation of {@link Node} interface.

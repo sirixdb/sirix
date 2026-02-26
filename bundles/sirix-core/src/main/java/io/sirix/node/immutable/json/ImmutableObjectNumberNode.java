@@ -8,7 +8,6 @@ import io.sirix.node.BytesOut;
 import io.sirix.node.json.NumberNode;
 import io.sirix.node.json.ObjectNumberNode;
 
-import java.nio.ByteBuffer;
 
 import static java.util.Objects.requireNonNull;
 

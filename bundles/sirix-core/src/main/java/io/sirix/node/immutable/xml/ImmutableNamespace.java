@@ -12,7 +12,6 @@ import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.node.xml.NamespaceNode;
 
-import java.nio.ByteBuffer;
 
 import static java.util.Objects.requireNonNull;
 

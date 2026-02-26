@@ -5,7 +5,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.nio.ByteBuffer;
 import net.openhft.hashing.LongHashFunction;
 
 /**
@@ -170,22 +169,6 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
   @Override
   public BytesOut<MemorySegment> writeSegment(MemorySegment source, long sourceOffset, long length) {
     segment.writeSegment(source, sourceOffset, length);
-    return this;
-  }
-
-  @Override
-  public BytesOut<MemorySegment> write(long position, ByteBuffer buffer, int bufferPosition, int length) {
-    long oldPos = segment.position();
-    segment.position(position);
-
-    byte[] temp = new byte[length];
-    int oldBufferPos = buffer.position();
-    buffer.position(bufferPosition);
-    buffer.get(temp);
-    buffer.position(oldBufferPos);
-
-    write(temp);
-    segment.position(oldPos);
     return this;
   }
 

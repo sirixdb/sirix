@@ -2,7 +2,6 @@ package io.sirix.node;
 
 import java.lang.foreign.MemorySegment;
 import java.math.BigInteger;
-import java.nio.ByteBuffer;
 import net.openhft.hashing.LongHashFunction;
 
 /**
@@ -148,17 +147,6 @@ public interface BytesOut<T> extends AutoCloseable {
     MemorySegment.copy(source, java.lang.foreign.ValueLayout.JAVA_BYTE, sourceOffset, temp, 0, (int) length);
     return write(temp);
   }
-
-  /**
-   * Write from a ByteBuffer at a specific position.
-   * 
-   * @param position the position to write at
-   * @param buffer the buffer to write from
-   * @param bufferPosition the position in the buffer
-   * @param length the number of bytes to write
-   * @return this BytesOut for method chaining
-   */
-  BytesOut<T> write(long position, ByteBuffer buffer, int bufferPosition, int length);
 
   /**
    * Get the current write position.

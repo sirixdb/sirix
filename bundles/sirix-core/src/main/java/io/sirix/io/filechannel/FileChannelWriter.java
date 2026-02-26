@@ -343,9 +343,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       isFirstUberPage = false;
       writePageReference(resourceConfiguration, pageReference, page, bufferedBytes, IOStorage.FIRST_BEACON >> 1);
 
-      @SuppressWarnings("DataFlowIssue")
-      final var buffer = ((ByteBuffer) bufferedBytes.underlyingObject()).rewind();
-      buffer.limit((int) bufferedBytes.readLimit());
+      final var segment = (MemorySegment) bufferedBytes.underlyingObject();
+      final var buffer = segment.asByteBuffer();
       dataFileChannel.write(buffer, 0L);
       // NOTE: force() removed here - now called via forceAll() at end of commit for single barrier
       bufferedBytes.clear();
@@ -381,9 +380,8 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
       offset = fileSize;
     }
 
-    @SuppressWarnings("DataFlowIssue")
-    final var buffer = ((ByteBuffer) bufferedBytes.underlyingObject()).rewind();
-    buffer.limit((int) bufferedBytes.readLimit());
+    final var segment = (MemorySegment) bufferedBytes.underlyingObject();
+    final var buffer = segment.asByteBuffer();
     dataFileChannel.write(buffer, offset);
     bufferedBytes.clear();
   }

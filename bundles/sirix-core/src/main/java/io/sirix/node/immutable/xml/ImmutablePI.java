@@ -14,7 +14,6 @@ import io.sirix.node.BytesOut;
 import io.brackit.query.atomic.QNm;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.nio.ByteBuffer;
 
 import static java.util.Objects.requireNonNull;
 

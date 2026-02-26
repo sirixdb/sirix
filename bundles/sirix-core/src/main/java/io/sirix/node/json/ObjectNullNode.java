@@ -34,16 +34,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
-import io.sirix.node.ByteArrayBytesIn;
-import io.sirix.node.BytesIn;
-import io.sirix.node.BytesOut;
-import io.sirix.node.DeltaVarIntCodec;
-import io.sirix.node.MemorySegmentBytesIn;
-import io.sirix.node.NodeKind;
-import io.sirix.node.SirixDeweyID;
-
-import java.lang.foreign.MemorySegment;
-import java.lang.foreign.ValueLayout;
+import io.sirix.node.*;
 import io.sirix.node.immutable.json.ImmutableObjectNullNode;
 import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
@@ -51,11 +42,13 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NodeFieldLayout;
-import io.sirix.page.PageLayout;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
+
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 
 /**
  * JSON Object Null node (direct child of ObjectKeyNode, no siblings).

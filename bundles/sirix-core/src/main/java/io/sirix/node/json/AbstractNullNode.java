@@ -37,7 +37,6 @@ import io.sirix.node.BytesOut;
 import io.sirix.node.xml.AbstractStructForwardingNode;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
-import java.nio.ByteBuffer;
 
 public abstract class AbstractNullNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
   private final StructNodeDelegate structNodeDelegate;

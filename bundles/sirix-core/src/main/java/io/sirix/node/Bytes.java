@@ -1,7 +1,6 @@
 package io.sirix.node;
 
 import java.lang.foreign.MemorySegment;
-import java.nio.ByteBuffer;
 
 /**
  * Utility class to replace Chronicle Bytes factory methods. Provides factory methods for creating
@@ -100,28 +99,6 @@ public final class Bytes {
    */
   public static BytesIn<MemorySegment> wrapForRead(MemorySegment segment) {
     return new MemorySegmentBytesIn(segment);
-  }
-
-  /**
-   * Factory method to wrap a ByteBuffer for reading. If the buffer has a backing array, uses
-   * zero-copy wrapping. Otherwise, copies the data to a new array.
-   * 
-   * @param buffer the ByteBuffer to wrap
-   * @return a BytesIn instance for reading
-   */
-  public static BytesIn<MemorySegment> wrapForRead(ByteBuffer buffer) {
-    if (buffer.hasArray()) {
-      // Zero-copy path for heap buffers with backing array
-      int offset = buffer.arrayOffset() + buffer.position();
-      int length = buffer.remaining();
-      MemorySegment segment = MemorySegment.ofArray(buffer.array()).asSlice(offset, length);
-      return new MemorySegmentBytesIn(segment);
-    } else {
-      // Fallback: copy data for direct buffers without backing array
-      byte[] data = new byte[buffer.remaining()];
-      buffer.get(data);
-      return wrapForRead(data);
-    }
   }
 
   /**
