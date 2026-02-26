@@ -486,17 +486,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.parentKey = parentKey;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeParentKey(parentKey);
       return;
     }
     this.parentKey = parentKey;
+  }
+
+  private void resizeParentKey(final long parentKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.PI_PARENT_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
   }
 
   @Override
@@ -522,17 +521,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, key, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.rightSiblingKey = key;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeRightSiblingKey(key);
       return;
     }
     this.rightSiblingKey = key;
+  }
+
+  private void resizeRightSiblingKey(final long key) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.PI_RIGHT_SIB_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, key, nodeKey));
   }
 
   @Override
@@ -558,17 +556,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, key, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.leftSiblingKey = key;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeLeftSiblingKey(key);
       return;
     }
     this.leftSiblingKey = key;
+  }
+
+  private void resizeLeftSiblingKey(final long key) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.PI_LEFT_SIB_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, key, nodeKey));
   }
 
   @Override
@@ -594,17 +591,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, key, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.firstChildKey = key;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeFirstChildKey(key);
       return;
     }
     this.firstChildKey = key;
+  }
+
+  private void resizeFirstChildKey(final long key) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.PI_FIRST_CHILD_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, key, nodeKey));
   }
 
   @Override
@@ -630,17 +626,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, key, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.lastChildKey = key;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeLastChildKey(key);
       return;
     }
     this.lastChildKey = key;
+  }
+
+  private void resizeLastChildKey(final long key) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.PI_LAST_CHILD_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, key, nodeKey));
   }
 
   @Override
@@ -666,17 +661,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         DeltaVarIntCodec.writeSignedLongToSegment(page, absOff, childCount);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.childCount = childCount;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeChildCount(childCount);
       return;
     }
     this.childCount = childCount;
+  }
+
+  private void resizeChildCount(final long childCount) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.PI_CHILD_COUNT, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedLongToSegment(target, off, childCount));
   }
 
   @Override
@@ -708,17 +702,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         DeltaVarIntCodec.writeSignedLongToSegment(page, absOff, descendantCount);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.descendantCount = descendantCount;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeDescendantCount(descendantCount);
       return;
     }
     this.descendantCount = descendantCount;
+  }
+
+  private void resizeDescendantCount(final long descendantCount) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.PI_DESCENDANT_COUNT, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedLongToSegment(target, off, descendantCount));
   }
 
   @Override
@@ -750,17 +743,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, pathNodeKey, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.pathNodeKey = pathNodeKey;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizePathNodeKey(pathNodeKey);
       return;
     }
     this.pathNodeKey = pathNodeKey;
+  }
+
+  private void resizePathNodeKey(final long pathNodeKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.PI_PATH_NODE_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, pathNodeKey, nodeKey));
   }
 
   @Override
@@ -782,17 +774,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, prefixKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.prefixKey = prefixKey;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizePrefixKey(prefixKey);
       return;
     }
     this.prefixKey = prefixKey;
+  }
+
+  private void resizePrefixKey(final int prefixKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.PI_PREFIX_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, prefixKey));
   }
 
   @Override
@@ -814,17 +805,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, localNameKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.localNameKey = localNameKey;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeLocalNameKey(localNameKey);
       return;
     }
     this.localNameKey = localNameKey;
+  }
+
+  private void resizeLocalNameKey(final int localNameKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.PI_LOCAL_NAME_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, localNameKey));
   }
 
   @Override
@@ -846,17 +836,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, uriKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.uriKey = uriKey;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeURIKey(uriKey);
       return;
     }
     this.uriKey = uriKey;
+  }
+
+  private void resizeURIKey(final int uriKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.PI_URI_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, uriKey));
   }
 
   @Override
@@ -878,17 +867,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.previousRevision = revision;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizePreviousRevision(revision);
       return;
     }
     this.previousRevision = revision;
+  }
+
+  private void resizePreviousRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.PI_PREV_REVISION, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
@@ -910,17 +898,16 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.lastModifiedRevision = revision;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeLastModifiedRevision(revision);
       return;
     }
     this.lastModifiedRevision = revision;
+  }
+
+  private void resizeLastModifiedRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.PI_LAST_MOD_REVISION, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override

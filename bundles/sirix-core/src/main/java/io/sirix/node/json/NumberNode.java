@@ -444,15 +444,16 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.parentKey = parentKey;
-      owner.resizeRecord(this, nk, slot);
+      resizeParentKey(parentKey);
       return;
     }
     this.parentKey = parentKey;
+  }
+
+  private void resizeParentKey(final long parentKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.NUMVAL_PARENT_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
   }
 
   @Override
@@ -498,15 +499,16 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.previousRevision = revision;
-      owner.resizeRecord(this, nk, slot);
+      resizePreviousRevision(revision);
       return;
     }
     this.previousRevision = revision;
+  }
+
+  private void resizePreviousRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.NUMVAL_PREV_REVISION, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
@@ -521,15 +523,16 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.lastModifiedRevision = revision;
-      owner.resizeRecord(this, nk, slot);
+      resizeLastModifiedRevision(revision);
       return;
     }
     this.lastModifiedRevision = revision;
+  }
+
+  private void resizeLastModifiedRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.NUMVAL_LAST_MOD_REVISION, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
@@ -604,15 +607,16 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, rightSibling, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.rightSiblingKey = rightSibling;
-      owner.resizeRecord(this, nk, slot);
+      resizeRightSiblingKey(rightSibling);
       return;
     }
     this.rightSiblingKey = rightSibling;
+  }
+
+  private void resizeRightSiblingKey(final long rightSibling) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.NUMVAL_RIGHT_SIB_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, rightSibling, nodeKey));
   }
 
   @Override
@@ -634,15 +638,16 @@ public final class NumberNode implements StructNode, ImmutableJsonNode, NumericV
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, leftSibling, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.leftSiblingKey = leftSibling;
-      owner.resizeRecord(this, nk, slot);
+      resizeLeftSiblingKey(leftSibling);
       return;
     }
     this.leftSiblingKey = leftSibling;
+  }
+
+  private void resizeLeftSiblingKey(final long leftSibling) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.NUMVAL_LEFT_SIB_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, leftSibling, nodeKey));
   }
 
   @Override

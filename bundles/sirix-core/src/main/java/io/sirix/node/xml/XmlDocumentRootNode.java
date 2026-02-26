@@ -414,17 +414,16 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, key, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.firstChildKey = key;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeFirstChildKey(key);
       return;
     }
     this.firstChildKey = key;
+  }
+
+  private void resizeFirstChildKey(final long key) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.XDOCROOT_FIRST_CHILD_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, key, nodeKey));
   }
 
   @Override
@@ -451,17 +450,16 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, key, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.lastChildKey = key;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeLastChildKey(key);
       return;
     }
     this.lastChildKey = key;
+  }
+
+  private void resizeLastChildKey(final long key) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.XDOCROOT_LAST_CHILD_KEY, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, key, nodeKey));
   }
 
   @Override
@@ -487,17 +485,16 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
         DeltaVarIntCodec.writeSignedLongToSegment(page, absOff, childCount);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.childCount = childCount;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeChildCount(childCount);
       return;
     }
     this.childCount = childCount;
+  }
+
+  private void resizeChildCount(final long childCount) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.XDOCROOT_CHILD_COUNT, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedLongToSegment(target, off, childCount));
   }
 
   @Override
@@ -529,17 +526,16 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
         DeltaVarIntCodec.writeSignedLongToSegment(page, absOff, descendantCount);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.descendantCount = descendantCount;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeDescendantCount(descendantCount);
       return;
     }
     this.descendantCount = descendantCount;
+  }
+
+  private void resizeDescendantCount(final long descendantCount) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.XDOCROOT_DESCENDANT_COUNT, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedLongToSegment(target, off, descendantCount));
   }
 
   @Override
@@ -628,16 +624,16 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizePreviousRevision(revision);
       return;
     }
     // Document root doesn't track previous revision in primitive mode
+  }
+
+  private void resizePreviousRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.XDOCROOT_PREV_REVISION, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
@@ -659,16 +655,16 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeLastModifiedRevision(revision);
       return;
     }
     // Document root doesn't track last modified revision in primitive mode
+  }
+
+  private void resizeLastModifiedRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.XDOCROOT_LAST_MOD_REVISION, FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override

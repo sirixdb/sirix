@@ -9,6 +9,7 @@ import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
+import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
@@ -645,6 +646,98 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     serializeToHeap(fn, nodeKey, offset);
   }
 
+  /**
+   * Resize a single field in a bound record by raw-copying unchanged fields and re-encoding
+   * only the changed field. Avoids the full unbind/re-serialize round-trip of {@link #resizeRecord}.
+   *
+   * <p>Bump-allocates new heap space, calls {@link DeltaVarIntCodec#resizeField} to perform
+   * three-segment copy (before + changed + after), preserves DeweyID trailer, updates directory,
+   * and re-binds the flyweight to the new location.
+   *
+   * <p><b>HFT note</b>: Zero allocations. Uses {@link MemorySegment#copy} (AVX/SSE intrinsics).
+   * Cold path — only called on varint width change, which is rare (~5% of mutations).
+   *
+   * @param fn         the bound flyweight node (must be bound to this page's slotted page)
+   * @param nodeKey    the node's key
+   * @param slotIndex  the slot index within the page (0-1023)
+   * @param fieldIndex the index of the field to resize (0 to fieldCount-1)
+   * @param fieldCount total number of fields in this record type's offset table
+   * @param encoder    encodes the new field value at the target offset
+   */
+  public void resizeRecordField(final FlyweightNode fn, final long nodeKey, final int slotIndex,
+      final int fieldIndex, final int fieldCount, final DeltaVarIntCodec.FieldEncoder encoder) {
+    assert slottedPage != null : "resizeRecordField requires slotted page";
+    assert PageLayout.isSlotPopulated(slottedPage, slotIndex) : "slot not populated: " + slotIndex;
+
+    compressedSegment = null;
+    bytes = null;
+
+    // --- Read old record metadata from directory ---
+    final int oldHeapOffset = PageLayout.getDirHeapOffset(slottedPage, slotIndex);
+    final int oldTotalLen = PageLayout.getDirDataLength(slottedPage, slotIndex);
+    final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, slotIndex);
+    final long oldRecordBase = PageLayout.heapAbsoluteOffset(oldHeapOffset);
+
+    // --- Compute record-only length (excluding DeweyID trailer) ---
+    final int oldRecordOnlyLen = PageLayout.getRecordOnlyLength(slottedPage, slotIndex);
+
+    // DeweyID portion (between record data and trailer)
+    final int deweyIdLen;
+    final int deweyIdTrailerSize;
+    if (areDeweyIDsStored) {
+      deweyIdLen = PageLayout.getDeweyIdLength(slottedPage, slotIndex);
+      deweyIdTrailerSize = PageLayout.DEWEY_ID_TRAILER_SIZE;
+    } else {
+      deweyIdLen = 0;
+      deweyIdTrailerSize = 0;
+    }
+
+    // --- Estimate new size (old size ± max varint growth of 9 bytes) ---
+    final int maxNewRecordLen = oldRecordOnlyLen + 9;
+    final int maxNewTotalLen = maxNewRecordLen + deweyIdLen + deweyIdTrailerSize;
+
+    // --- Ensure heap capacity ---
+    final int heapEnd = PageLayout.getHeapEnd(slottedPage);
+    while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < maxNewTotalLen) {
+      growSlottedPage();
+    }
+
+    // --- Raw-copy resize: copy unchanged fields, re-encode changed field ---
+    final long newRecordBase = PageLayout.heapAbsoluteOffset(heapEnd);
+    final int newRecordLen = DeltaVarIntCodec.resizeField(
+        slottedPage, oldRecordBase, oldRecordOnlyLen,
+        fieldCount, fieldIndex,
+        slottedPage, newRecordBase,
+        encoder);
+
+    // --- Copy DeweyID data + trailer from old location ---
+    final int newTotalLen;
+    if (areDeweyIDsStored) {
+      // Copy DeweyID bytes (may be 0 length)
+      if (deweyIdLen > 0) {
+        final long oldDeweyStart = oldRecordBase + oldRecordOnlyLen;
+        final long newDeweyStart = newRecordBase + newRecordLen;
+        MemorySegment.copy(slottedPage, oldDeweyStart, slottedPage, newDeweyStart, deweyIdLen);
+      }
+      newTotalLen = newRecordLen + deweyIdLen + deweyIdTrailerSize;
+      PageLayout.writeDeweyIdTrailer(slottedPage, newRecordBase + newTotalLen, deweyIdLen);
+    } else {
+      newTotalLen = newRecordLen;
+    }
+
+    // --- Update heap counters (old space becomes dead) ---
+    PageLayout.setHeapEnd(slottedPage, heapEnd + newTotalLen);
+    // heapUsed: subtract old, add new (net change = newTotalLen - oldTotalLen)
+    PageLayout.setHeapUsed(slottedPage,
+        PageLayout.getHeapUsed(slottedPage) + newTotalLen - oldTotalLen);
+
+    // --- Update directory entry ---
+    PageLayout.setDirEntry(slottedPage, slotIndex, heapEnd, newTotalLen, nodeKindId);
+
+    // --- Re-bind flyweight to new location ---
+    fn.bind(slottedPage, newRecordBase, nodeKey, slotIndex);
+    fn.setOwnerPage(this);
+  }
 
   /**
    * Zero-copy raw slot bytes from source page to this page's heap.

@@ -792,6 +792,116 @@ public final class DeltaVarIntCodec {
     return readVarintWidth(segment, offset);
   }
 
+  // ==================== RAW-COPY FIELD RESIZE ====================
+
+  /**
+   * Encoder for a single field during raw-copy resize.
+   * Called to write the new value of the changed field into the target segment.
+   */
+  @FunctionalInterface
+  public interface FieldEncoder {
+    /**
+     * Encode a field value into the target segment at the given absolute offset.
+     *
+     * @param target the target MemorySegment
+     * @param offset absolute byte offset to write at
+     * @return number of bytes written
+     */
+    int encode(MemorySegment target, long offset);
+  }
+
+  /**
+   * Resize a single field in a record by raw-copying unchanged fields and re-encoding
+   * only the changed field. This avoids the full unbind→re-serialize round-trip.
+   *
+   * <p>Uses three bulk {@link MemorySegment#copy} calls (AVX/SSE intrinsics on x86)
+   * for unchanged regions, plus one {@link FieldEncoder#encode} call for the changed field.
+   * The offset table is patched in-place to reflect the new field sizes.
+   *
+   * <h3>Record Layout Assumed</h3>
+   * <pre>
+   * [nodeKind: 1 byte][offsetTable: fieldCount × 1 byte][data region: varint fields]
+   * </pre>
+   *
+   * @param srcPage        source page MemorySegment
+   * @param srcRecordBase  absolute offset of the source record start
+   * @param srcRecordLen   byte length of the source record (excluding DeweyID trailer)
+   * @param fieldCount     number of fields in the offset table
+   * @param fieldIndex     index of the field to change (0 to fieldCount-1)
+   * @param dstPage        destination page MemorySegment (may be same as srcPage for different offset)
+   * @param dstRecordBase  absolute offset to write the new record at
+   * @param encoder        encodes the new field value
+   * @return total bytes written for the new record (excluding DeweyID trailer)
+   */
+  public static int resizeField(
+      final MemorySegment srcPage, final long srcRecordBase, final int srcRecordLen,
+      final int fieldCount, final int fieldIndex,
+      final MemorySegment dstPage, final long dstRecordBase,
+      final FieldEncoder encoder) {
+
+    // Offset table starts at recordBase + 1 (after nodeKind byte)
+    final long srcOffsetTable = srcRecordBase + 1;
+    final long srcDataRegion = srcRecordBase + 1 + fieldCount;
+
+    // Read old field offsets from source offset table
+    final int oldFieldStart = srcPage.get(ValueLayout.JAVA_BYTE, srcOffsetTable + fieldIndex) & 0xFF;
+    final int oldFieldEnd;
+    if (fieldIndex + 1 < fieldCount) {
+      oldFieldEnd = srcPage.get(ValueLayout.JAVA_BYTE, srcOffsetTable + fieldIndex + 1) & 0xFF;
+    } else {
+      // Last field: ends at record boundary
+      oldFieldEnd = srcRecordLen - 1 - fieldCount; // subtract header (1) + offset table (fieldCount)
+    }
+    final int oldFieldLen = oldFieldEnd - oldFieldStart;
+
+    // --- Step 1: Copy nodeKind byte ---
+    dstPage.set(ValueLayout.JAVA_BYTE, dstRecordBase,
+        srcPage.get(ValueLayout.JAVA_BYTE, srcRecordBase));
+
+    // --- Step 2: Reserve space for offset table (written after field data) ---
+    final long dstOffsetTable = dstRecordBase + 1;
+    final long dstDataRegion = dstRecordBase + 1 + fieldCount;
+
+    // --- Step 3: Copy data before changed field ---
+    long dstPos = dstDataRegion;
+    if (oldFieldStart > 0) {
+      MemorySegment.copy(srcPage, srcDataRegion, dstPage, dstDataRegion, oldFieldStart);
+      dstPos += oldFieldStart;
+    }
+
+    // --- Step 4: Encode the changed field ---
+    final int newFieldLen = encoder.encode(dstPage, dstPos);
+    dstPos += newFieldLen;
+
+    // --- Step 5: Copy data after changed field ---
+    final int dataRegionLen = srcRecordLen - 1 - fieldCount;
+    final int tailLen = dataRegionLen - oldFieldEnd;
+    if (tailLen > 0) {
+      MemorySegment.copy(srcPage, srcDataRegion + oldFieldEnd, dstPage, dstPos, tailLen);
+      dstPos += tailLen;
+    }
+
+    // --- Step 6: Patch offset table ---
+    final int widthDelta = newFieldLen - oldFieldLen;
+
+    // Copy offsets for fields before the changed field (unchanged)
+    for (int i = 0; i < fieldIndex; i++) {
+      dstPage.set(ValueLayout.JAVA_BYTE, dstOffsetTable + i,
+          srcPage.get(ValueLayout.JAVA_BYTE, srcOffsetTable + i));
+    }
+
+    // Changed field offset is the same as old (data before it hasn't moved)
+    dstPage.set(ValueLayout.JAVA_BYTE, dstOffsetTable + fieldIndex, (byte) oldFieldStart);
+
+    // Shift offsets for fields after the changed field
+    for (int i = fieldIndex + 1; i < fieldCount; i++) {
+      final int oldOff = srcPage.get(ValueLayout.JAVA_BYTE, srcOffsetTable + i) & 0xFF;
+      dstPage.set(ValueLayout.JAVA_BYTE, dstOffsetTable + i, (byte) (oldOff + widthDelta));
+    }
+
+    return (int) (dstPos - dstRecordBase);
+  }
+
   // ==================== LONG-OFFSET SEGMENT DECODE METHODS ====================
 
   /**

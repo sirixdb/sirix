@@ -265,6 +265,18 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
     return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
+  /**
+   * Resize a single field via raw-copy on the owning slotted page.
+   * Avoids the full unbind-to-primitives + re-serialize round-trip.
+   *
+   * @param fieldIndex the field index in the offset table (e.g. {@code OBJNUMVAL_PARENT_KEY})
+   * @param encoder    writes the new field value at the target offset
+   */
+  private void resizeRecordField(final int fieldIndex,
+      final DeltaVarIntCodec.FieldEncoder encoder) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, fieldIndex, FIELD_COUNT, encoder);
+  }
+
   // ==================== OWNER PAGE (for resize-in-place) ====================
 
   @Override
@@ -390,12 +402,8 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.parentKey = parentKey;
-      owner.resizeRecord(this, nk, slot);
+      resizeRecordField(NodeFieldLayout.OBJNUMVAL_PARENT_KEY,
+          (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
       return;
     }
     this.parentKey = parentKey;
@@ -442,12 +450,8 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.previousRevision = revision;
-      owner.resizeRecord(this, nk, slot);
+      resizeRecordField(NodeFieldLayout.OBJNUMVAL_PREV_REVISION,
+          (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
       return;
     }
     this.previousRevision = revision;
@@ -465,12 +469,8 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.lastModifiedRevision = revision;
-      owner.resizeRecord(this, nk, slot);
+      resizeRecordField(NodeFieldLayout.OBJNUMVAL_LAST_MOD_REVISION,
+          (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
       return;
     }
     this.lastModifiedRevision = revision;

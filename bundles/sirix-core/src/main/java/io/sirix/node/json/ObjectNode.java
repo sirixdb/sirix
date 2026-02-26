@@ -398,15 +398,16 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.parentKey = parentKey;
-      owner.resizeRecord(this, nk, slot);
+      resizeParentKey(parentKey);
       return;
     }
     this.parentKey = parentKey;
+  }
+
+  private void resizeParentKey(final long parentKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.OBJECT_PARENT_KEY, NodeFieldLayout.OBJECT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
   }
 
   @Override
@@ -452,15 +453,16 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.previousRevision = revision;
-      owner.resizeRecord(this, nk, slot);
+      resizePreviousRevision(revision);
       return;
     }
     this.previousRevision = revision;
+  }
+
+  private void resizePreviousRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.OBJECT_PREV_REVISION, NodeFieldLayout.OBJECT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
@@ -475,15 +477,16 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.lastModifiedRevision = revision;
-      owner.resizeRecord(this, nk, slot);
+      resizeLastModifiedRevision(revision);
       return;
     }
     this.lastModifiedRevision = revision;
+  }
+
+  private void resizeLastModifiedRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.OBJECT_LAST_MOD_REVISION, NodeFieldLayout.OBJECT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
@@ -548,15 +551,16 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, rightSibling, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.rightSiblingKey = rightSibling;
-      owner.resizeRecord(this, nk, slot);
+      resizeRightSiblingKey(rightSibling);
       return;
     }
     this.rightSiblingKey = rightSibling;
+  }
+
+  private void resizeRightSiblingKey(final long rightSibling) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.OBJECT_RIGHT_SIB_KEY, NodeFieldLayout.OBJECT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, rightSibling, nodeKey));
   }
 
   @Override
@@ -578,15 +582,16 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, leftSibling, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.leftSiblingKey = leftSibling;
-      owner.resizeRecord(this, nk, slot);
+      resizeLeftSiblingKey(leftSibling);
       return;
     }
     this.leftSiblingKey = leftSibling;
+  }
+
+  private void resizeLeftSiblingKey(final long leftSibling) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.OBJECT_LEFT_SIB_KEY, NodeFieldLayout.OBJECT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, leftSibling, nodeKey));
   }
 
   @Override
@@ -608,15 +613,16 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, firstChild, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.firstChildKey = firstChild;
-      owner.resizeRecord(this, nk, slot);
+      resizeFirstChildKey(firstChild);
       return;
     }
     this.firstChildKey = firstChild;
+  }
+
+  private void resizeFirstChildKey(final long firstChild) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.OBJECT_FIRST_CHILD_KEY, NodeFieldLayout.OBJECT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, firstChild, nodeKey));
   }
 
   @Override
@@ -638,15 +644,16 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, lastChild, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.lastChildKey = lastChild;
-      owner.resizeRecord(this, nk, slot);
+      resizeLastChildKey(lastChild);
       return;
     }
     this.lastChildKey = lastChild;
+  }
+
+  private void resizeLastChildKey(final long lastChild) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.OBJECT_LAST_CHILD_KEY, NodeFieldLayout.OBJECT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, lastChild, nodeKey));
   }
 
   @Override
@@ -671,15 +678,16 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
         DeltaVarIntCodec.writeSignedLongToSegment(page, absOff, childCount);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.childCount = childCount;
-      owner.resizeRecord(this, nk, slot);
+      resizeChildCount(childCount);
       return;
     }
     this.childCount = childCount;
+  }
+
+  private void resizeChildCount(final long childCount) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.OBJECT_CHILD_COUNT, NodeFieldLayout.OBJECT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedLongToSegment(target, off, childCount));
   }
 
   @Override
@@ -704,15 +712,16 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
         DeltaVarIntCodec.writeSignedLongToSegment(page, absOff, descendantCount);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.descendantCount = descendantCount;
-      owner.resizeRecord(this, nk, slot);
+      resizeDescendantCount(descendantCount);
       return;
     }
     this.descendantCount = descendantCount;
+  }
+
+  private void resizeDescendantCount(final long descendantCount) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.OBJECT_DESCENDANT_COUNT, NodeFieldLayout.OBJECT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedLongToSegment(target, off, descendantCount));
   }
 
   @Override

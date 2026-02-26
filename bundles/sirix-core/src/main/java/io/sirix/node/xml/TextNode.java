@@ -369,17 +369,16 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.parentKey = parentKey;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeParentKey(parentKey);
       return;
     }
     this.parentKey = parentKey;
+  }
+
+  private void resizeParentKey(final long parentKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.TEXT_PARENT_KEY, NodeFieldLayout.TEXT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
   }
 
   @Override
@@ -405,17 +404,16 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, key, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.rightSiblingKey = key;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeRightSiblingKey(key);
       return;
     }
     this.rightSiblingKey = key;
+  }
+
+  private void resizeRightSiblingKey(final long key) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.TEXT_RIGHT_SIB_KEY, NodeFieldLayout.TEXT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, key, nodeKey));
   }
 
   @Override
@@ -441,17 +439,16 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, key, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.leftSiblingKey = key;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeLeftSiblingKey(key);
       return;
     }
     this.leftSiblingKey = key;
+  }
+
+  private void resizeLeftSiblingKey(final long key) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.TEXT_LEFT_SIB_KEY, NodeFieldLayout.TEXT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, key, nodeKey));
   }
 
   @Override
@@ -482,17 +479,16 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.previousRevision = revision;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizePreviousRevision(revision);
       return;
     }
     this.previousRevision = revision;
+  }
+
+  private void resizePreviousRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.TEXT_PREV_REVISION, NodeFieldLayout.TEXT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
@@ -516,17 +512,16 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.lastModifiedRevision = revision;
-      if (owner != null) {
-        owner.resizeRecord(this, nk, slot);
-      }
+      resizeLastModifiedRevision(revision);
       return;
     }
     this.lastModifiedRevision = revision;
+  }
+
+  private void resizeLastModifiedRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.TEXT_LAST_MOD_REVISION, NodeFieldLayout.TEXT_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override

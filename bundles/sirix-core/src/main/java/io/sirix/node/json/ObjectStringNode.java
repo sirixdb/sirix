@@ -239,12 +239,9 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
         DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.parentKey = parentKey;
-      owner.resizeRecord(this, nk, slot);
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+          NodeFieldLayout.OBJSTRVAL_PARENT_KEY, FIELD_COUNT,
+          (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
       return;
     }
     this.parentKey = parentKey;
@@ -291,12 +288,9 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.previousRevision = revision;
-      owner.resizeRecord(this, nk, slot);
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+          NodeFieldLayout.OBJSTRVAL_PREV_REVISION, FIELD_COUNT,
+          (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
       return;
     }
     this.previousRevision = revision;
@@ -314,12 +308,9 @@ public final class ObjectStringNode implements StructNode, ValueNode, ImmutableJ
         DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
         return;
       }
-      final KeyValueLeafPage owner = this.ownerPage;
-      final int slot = this.slotIndex;
-      final long nk = this.nodeKey;
-      unbind();
-      this.lastModifiedRevision = revision;
-      owner.resizeRecord(this, nk, slot);
+      ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+          NodeFieldLayout.OBJSTRVAL_LAST_MOD_REVISION, FIELD_COUNT,
+          (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
       return;
     }
     this.lastModifiedRevision = revision;
