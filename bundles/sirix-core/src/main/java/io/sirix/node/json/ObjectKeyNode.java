@@ -188,6 +188,49 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     this.heapOffsets = new int[FIELD_COUNT];
   }
 
+  // ==================== BULK INIT (zero branch checks) ====================
+
+  /**
+   * Initialize all fields for a newly created node. Must be called when unbound
+   * (after clearBinding()). Sets all Java fields directly — no if (page != null) checks.
+   *
+   * @param nodeKey           the node key
+   * @param parentKey         the parent node key
+   * @param rightSibKey       the right sibling key
+   * @param leftSibKey        the left sibling key
+   * @param firstChildKey     the first child key
+   * @param prevRev           the previous revision number
+   * @param lastModRev        the last modified revision number
+   * @param hash              the hash value
+   * @param descendantCount   the descendant count
+   * @param pathNodeKey       the path node key
+   * @param nameKey           the name key (hash of the name string)
+   * @param name              the name string (may be null)
+   * @param deweyId           the DeweyID (may be null)
+   */
+  public void initForCreation(final long nodeKey, final long parentKey,
+      final long rightSibKey, final long leftSibKey,
+      final long firstChildKey,
+      final int prevRev, final int lastModRev, final long hash,
+      final long descendantCount, final long pathNodeKey,
+      final int nameKey, final String name, final SirixDeweyID deweyId) {
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
+    this.rightSiblingKey = rightSibKey;
+    this.leftSiblingKey = leftSibKey;
+    this.firstChildKey = firstChildKey;
+    this.previousRevision = prevRev;
+    this.lastModifiedRevision = lastModRev;
+    this.hash = hash;
+    this.descendantCount = descendantCount;
+    this.pathNodeKey = pathNodeKey;
+    this.nameKey = nameKey;
+    this.cachedName = name != null ? new QNm(name) : null;
+    this.sirixDeweyID = deweyId;
+    this.deweyIDBytes = null;
+    this.lazyFieldsParsed = true;
+  }
+
   // ==================== FLYWEIGHT BIND/UNBIND ====================
 
   /**
@@ -292,80 +335,121 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   // ==================== SERIALIZE TO HEAP ====================
 
   /**
-   * Serialize this node (from Java fields) into the new slotted page format with offset table.
-   * Writes: [nodeKind:1][offsetTable:FIELD_COUNT][data fields].
+   * Encode an ObjectKeyNode record directly to a MemorySegment from parameter values.
+   * Static -- reads nothing from any instance. Zero field intermediation.
    *
-   * @param target the target MemorySegment
-   * @param offset the absolute byte offset to write at
+   * @param target          the target MemorySegment (reinterpreted slotted page)
+   * @param offset          absolute byte offset to write at
+   * @param heapOffsets     pre-allocated offset array (reused, FIELD_COUNT elements)
+   * @param nodeKey         the node key (delta base for structural keys)
+   * @param parentKey       the parent node key
+   * @param rightSibKey     the right sibling key
+   * @param leftSibKey      the left sibling key
+   * @param firstChildKey   the first child key
+   * @param nameKey         the name key (hash of the name string)
+   * @param pathNodeKey     the path node key
+   * @param prevRev         the previous revision number
+   * @param lastModRev      the last modified revision number
+   * @param hash            the hash value
+   * @param descendantCount the descendant count
    * @return the total number of bytes written
    */
-  public int serializeToHeap(final MemorySegment target, final long offset) {
-    // Ensure all lazy fields are materialized
-    if (!lazyFieldsParsed) {
-      parseLazyFields();
-    }
-
+  public static int writeNewRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final long rightSibKey, final long leftSibKey,
+      final long firstChildKey, final int nameKey, final long pathNodeKey,
+      final int prevRev, final int lastModRev, final long hash,
+      final long descendantCount) {
     long pos = offset;
 
     // Write nodeKind byte
     target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.OBJECT_KEY.getId());
     pos++;
 
-    // Reserve space for offset table (will be written after computing offsets)
+    // Reserve space for offset table
     final long offsetTableStart = pos;
     pos += FIELD_COUNT;
 
     // Data region start
     final long dataStart = pos;
-    final int[] offsets = this.heapOffsets;
 
     // Field 0: parentKey (delta-varint)
-    offsets[NodeFieldLayout.OBJKEY_PARENT_KEY] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.OBJKEY_PARENT_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
 
     // Field 1: rightSiblingKey (delta-varint)
-    offsets[NodeFieldLayout.OBJKEY_RIGHT_SIB_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, rightSiblingKey, nodeKey);
+    heapOffsets[NodeFieldLayout.OBJKEY_RIGHT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, rightSibKey, nodeKey);
 
     // Field 2: leftSiblingKey (delta-varint)
-    offsets[NodeFieldLayout.OBJKEY_LEFT_SIB_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, leftSiblingKey, nodeKey);
+    heapOffsets[NodeFieldLayout.OBJKEY_LEFT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, leftSibKey, nodeKey);
 
     // Field 3: firstChildKey (delta-varint)
-    offsets[NodeFieldLayout.OBJKEY_FIRST_CHILD_KEY] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.OBJKEY_FIRST_CHILD_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, firstChildKey, nodeKey);
 
     // Field 4: nameKey (signed varint)
-    offsets[NodeFieldLayout.OBJKEY_NAME_KEY] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.OBJKEY_NAME_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, nameKey);
 
     // Field 5: pathNodeKey (delta-varint)
-    offsets[NodeFieldLayout.OBJKEY_PATH_NODE_KEY] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.OBJKEY_PATH_NODE_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, pathNodeKey, nodeKey);
 
     // Field 6: previousRevision (signed varint)
-    offsets[NodeFieldLayout.OBJKEY_PREV_REVISION] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, previousRevision);
+    heapOffsets[NodeFieldLayout.OBJKEY_PREV_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prevRev);
 
     // Field 7: lastModifiedRevision (signed varint)
-    offsets[NodeFieldLayout.OBJKEY_LAST_MOD_REVISION] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModifiedRevision);
+    heapOffsets[NodeFieldLayout.OBJKEY_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
     // Field 8: hash (fixed 8 bytes)
-    offsets[NodeFieldLayout.OBJKEY_HASH] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.OBJKEY_HASH] = (int) (pos - dataStart);
     DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
     pos += Long.BYTES;
 
     // Field 9: descendantCount (signed long varint)
-    offsets[NodeFieldLayout.OBJKEY_DESCENDANT_COUNT] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.OBJKEY_DESCENDANT_COUNT] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, descendantCount);
 
     // Write offset table
     for (int i = 0; i < FIELD_COUNT; i++) {
-      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) offsets[i]);
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
     }
 
     return (int) (pos - offset);
+  }
+
+  /**
+   * Serialize this node from Java fields. Delegates to static writeNewRecord.
+   */
+  public int serializeToHeap(final MemorySegment target, final long offset) {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
+    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+        parentKey, rightSiblingKey, leftSiblingKey,
+        firstChildKey, nameKey, pathNodeKey,
+        previousRevision, lastModifiedRevision,
+        hash, descendantCount);
+  }
+
+  /**
+   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
+   */
+  public int[] getHeapOffsets() {
+    return heapOffsets;
+  }
+
+  /**
+   * Set DeweyID fields directly after creation, bypassing write-through.
+   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   */
+  public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = bytes;
   }
 
   @Override

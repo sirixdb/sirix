@@ -397,15 +397,127 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     }
   }
 
-  // ==================== SERIALIZE TO HEAP ====================
+  // ==================== DIRECT WRITE ====================
 
   /**
-   * Serialize this node (from Java fields) into the new slotted page format with offset table.
-   * Writes: [nodeKind:1][offsetTable:FIELD_COUNT][data fields].
+   * Encode an ElementNode record directly to a MemorySegment from parameter values.
+   * Static -- reads nothing from any instance. Zero field intermediation.
+   * At creation time, attribute and namespace lists are always empty.
    *
-   * @param target the target MemorySegment
-   * @param offset the absolute byte offset to write at
+   * @param target          the target MemorySegment (reinterpreted slotted page)
+   * @param offset          absolute byte offset to write at
+   * @param heapOffsets     pre-allocated offset array (reused, FIELD_COUNT elements)
+   * @param nodeKey         the node key (delta base for structural keys)
+   * @param parentKey       the parent node key
+   * @param rightSibKey     the right sibling key
+   * @param leftSibKey      the left sibling key
+   * @param firstChildKey   the first child key
+   * @param lastChildKey    the last child key
+   * @param pathNodeKey     the path node key
+   * @param prefixKey       the prefix key
+   * @param localNameKey    the local name key
+   * @param uriKey          the URI key
+   * @param prevRev         the previous revision number
+   * @param lastModRev      the last modified revision number
+   * @param hash            the hash value
+   * @param childCount      the child count
+   * @param descendantCount the descendant count
    * @return the total number of bytes written
+   */
+  public static int writeNewRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final long rightSibKey, final long leftSibKey,
+      final long firstChildKey, final long lastChildKey,
+      final long pathNodeKey, final int prefixKey, final int localNameKey, final int uriKey,
+      final int prevRev, final int lastModRev, final long hash,
+      final long childCount, final long descendantCount) {
+    long pos = offset;
+
+    // Write nodeKind byte
+    target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.ELEMENT.getId());
+    pos++;
+
+    // Reserve space for offset table
+    final long offsetTableStart = pos;
+    pos += FIELD_COUNT;
+
+    // Data region start
+    final long dataStart = pos;
+
+    // Field 0: parentKey (delta-varint)
+    heapOffsets[NodeFieldLayout.ELEM_PARENT_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
+
+    // Field 1: rightSiblingKey (delta-varint)
+    heapOffsets[NodeFieldLayout.ELEM_RIGHT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, rightSibKey, nodeKey);
+
+    // Field 2: leftSiblingKey (delta-varint)
+    heapOffsets[NodeFieldLayout.ELEM_LEFT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, leftSibKey, nodeKey);
+
+    // Field 3: firstChildKey (delta-varint)
+    heapOffsets[NodeFieldLayout.ELEM_FIRST_CHILD_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, firstChildKey, nodeKey);
+
+    // Field 4: lastChildKey (delta-varint)
+    heapOffsets[NodeFieldLayout.ELEM_LAST_CHILD_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, lastChildKey, nodeKey);
+
+    // Field 5: pathNodeKey (delta-varint)
+    heapOffsets[NodeFieldLayout.ELEM_PATH_NODE_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, pathNodeKey, nodeKey);
+
+    // Field 6: prefixKey (signed varint)
+    heapOffsets[NodeFieldLayout.ELEM_PREFIX_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prefixKey);
+
+    // Field 7: localNameKey (signed varint)
+    heapOffsets[NodeFieldLayout.ELEM_LOCAL_NAME_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, localNameKey);
+
+    // Field 8: uriKey (signed varint)
+    heapOffsets[NodeFieldLayout.ELEM_URI_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, uriKey);
+
+    // Field 9: previousRevision (signed varint)
+    heapOffsets[NodeFieldLayout.ELEM_PREV_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prevRev);
+
+    // Field 10: lastModifiedRevision (signed varint)
+    heapOffsets[NodeFieldLayout.ELEM_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
+
+    // Field 11: hash (fixed 8 bytes)
+    heapOffsets[NodeFieldLayout.ELEM_HASH] = (int) (pos - dataStart);
+    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
+    pos += Long.BYTES;
+
+    // Field 12: childCount (signed long varint)
+    heapOffsets[NodeFieldLayout.ELEM_CHILD_COUNT] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, childCount);
+
+    // Field 13: descendantCount (signed long varint)
+    heapOffsets[NodeFieldLayout.ELEM_DESCENDANT_COUNT] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, descendantCount);
+
+    // Field 14: PAYLOAD -- at creation, attribute and namespace lists are always empty
+    heapOffsets[NodeFieldLayout.ELEM_PAYLOAD] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, 0); // attrCount = 0
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, 0); // nsCount = 0
+
+    // Write offset table
+    for (int i = 0; i < FIELD_COUNT; i++) {
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
+    }
+
+    return (int) (pos - offset);
+  }
+
+  /**
+   * Serialize this node from Java fields. Delegates to static writeNewRecord for structural fields,
+   * but writes the full payload (attribute/namespace keys) inline since writeNewRecord only writes
+   * empty lists.
    */
   @Override
   public int serializeToHeap(final MemorySegment target, final long offset) {
@@ -420,7 +532,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.ELEMENT.getId());
     pos++;
 
-    // Reserve space for offset table (will be written after computing offsets)
+    // Reserve space for offset table
     final long offsetTableStart = pos;
     pos += FIELD_COUNT;
 
@@ -487,13 +599,11 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
     // Field 14: PAYLOAD [attrCount:signed varint][attrKeys:delta...][nsCount:signed varint][nsKeys:delta...]
     offsets[NodeFieldLayout.ELEM_PAYLOAD] = (int) (pos - dataStart);
-    // Write attribute count and keys
     final int attrCount = attributeKeys != null ? attributeKeys.size() : 0;
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, attrCount);
     for (int i = 0; i < attrCount; i++) {
       pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, attributeKeys.getLong(i), nodeKey);
     }
-    // Write namespace count and keys
     final int nsCount = namespaceKeys != null ? namespaceKeys.size() : 0;
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, nsCount);
     for (int i = 0; i < nsCount; i++) {
@@ -506,6 +616,22 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     }
 
     return (int) (pos - offset);
+  }
+
+  /**
+   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
+   */
+  public int[] getHeapOffsets() {
+    return heapOffsets;
+  }
+
+  /**
+   * Set DeweyID fields directly after creation, bypassing write-through.
+   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   */
+  public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = bytes;
   }
 
   @Override

@@ -954,7 +954,7 @@ public final class DeltaVarIntCodec {
       result |= (long) (b & 0x7F) << shift;
       shift += 7;
 
-      if (shift > 63) {
+      if (shift > 70) {
         throw new IllegalStateException("Varint too long (more than 10 bytes)");
       }
     } while ((b & 0x80) != 0);

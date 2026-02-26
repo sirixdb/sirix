@@ -272,67 +272,100 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
     return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
   }
 
-  // ==================== SERIALIZE TO HEAP ====================
+  // ==================== DIRECT WRITE ====================
 
   /**
-   * Serialize this node (from Java fields) into the new slotted page format with offset table.
-   * Writes: [nodeKind:1][offsetTable:FIELD_COUNT][data fields].
+   * Encode an XmlDocumentRootNode record directly to a MemorySegment from parameter values.
+   * Static -- reads nothing from any instance. Zero field intermediation.
    *
-   * @param target the target MemorySegment
-   * @param offset the absolute byte offset to write at
+   * @param target          the target MemorySegment (reinterpreted slotted page)
+   * @param offset          absolute byte offset to write at
+   * @param heapOffsets     pre-allocated offset array (reused, FIELD_COUNT elements)
+   * @param nodeKey         the node key (delta base for structural keys)
+   * @param firstChildKey   the first child key
+   * @param lastChildKey    the last child key
+   * @param childCount      the child count
+   * @param descendantCount the descendant count
+   * @param hash            the hash value
    * @return the total number of bytes written
    */
-  @Override
-  public int serializeToHeap(final MemorySegment target, final long offset) {
+  public static int writeNewRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long firstChildKey, final long lastChildKey,
+      final long childCount, final long descendantCount, final long hash) {
     long pos = offset;
 
     // Write nodeKind byte
     target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.XML_DOCUMENT.getId());
     pos++;
 
-    // Reserve space for offset table (will be written after computing offsets)
+    // Reserve space for offset table
     final long offsetTableStart = pos;
     pos += FIELD_COUNT;
 
     // Data region start
     final long dataStart = pos;
-    final int[] offsets = this.heapOffsets;
 
     // Field 0: firstChildKey (delta-varint from nodeKey)
-    offsets[NodeFieldLayout.XDOCROOT_FIRST_CHILD_KEY] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.XDOCROOT_FIRST_CHILD_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, firstChildKey, nodeKey);
 
     // Field 1: lastChildKey (delta-varint from nodeKey)
-    offsets[NodeFieldLayout.XDOCROOT_LAST_CHILD_KEY] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.XDOCROOT_LAST_CHILD_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, lastChildKey, nodeKey);
 
     // Field 2: childCount (signed long varint)
-    offsets[NodeFieldLayout.XDOCROOT_CHILD_COUNT] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.XDOCROOT_CHILD_COUNT] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, childCount);
 
     // Field 3: descendantCount (signed long varint)
-    offsets[NodeFieldLayout.XDOCROOT_DESCENDANT_COUNT] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.XDOCROOT_DESCENDANT_COUNT] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, descendantCount);
 
     // Field 4: previousRevision (signed varint) -- always 0 for document root
-    offsets[NodeFieldLayout.XDOCROOT_PREV_REVISION] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.XDOCROOT_PREV_REVISION] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, 0);
 
     // Field 5: lastModifiedRevision (signed varint) -- always 0 for document root
-    offsets[NodeFieldLayout.XDOCROOT_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.XDOCROOT_LAST_MOD_REVISION] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, 0);
 
     // Field 6: hash (fixed 8 bytes)
-    offsets[NodeFieldLayout.XDOCROOT_HASH] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.XDOCROOT_HASH] = (int) (pos - dataStart);
     DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
     pos += Long.BYTES;
 
     // Write offset table
     for (int i = 0; i < FIELD_COUNT; i++) {
-      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) offsets[i]);
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
     }
 
     return (int) (pos - offset);
+  }
+
+  /**
+   * Serialize this node from Java fields. Delegates to static writeNewRecord.
+   */
+  @Override
+  public int serializeToHeap(final MemorySegment target, final long offset) {
+    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+        firstChildKey, lastChildKey, childCount, descendantCount, hash);
+  }
+
+  /**
+   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
+   */
+  public int[] getHeapOffsets() {
+    return heapOffsets;
+  }
+
+  /**
+   * Set DeweyID fields directly after creation, bypassing write-through.
+   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   */
+  public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = bytes;
   }
 
   @Override

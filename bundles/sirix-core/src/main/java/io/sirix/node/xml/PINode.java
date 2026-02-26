@@ -350,107 +350,155 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   // ==================== SERIALIZE TO HEAP ====================
 
   /**
-   * Serialize this node (from Java fields) into the new slotted page format with offset table.
-   * Writes: [nodeKind:1][offsetTable:FIELD_COUNT][data fields].
+   * Encode a PINode record directly to a MemorySegment from parameter values.
+   * Static -- reads nothing from any instance. Zero field intermediation.
    *
-   * @param target the target MemorySegment
-   * @param offset the absolute byte offset to write at
+   * @param target          the target MemorySegment (reinterpreted slotted page)
+   * @param offset          absolute byte offset to write at
+   * @param heapOffsets     pre-allocated offset array (reused, FIELD_COUNT elements)
+   * @param nodeKey         the node key (delta base for structural keys)
+   * @param parentKey       the parent node key
+   * @param rightSibKey     the right sibling key
+   * @param leftSibKey      the left sibling key
+   * @param firstChildKey   the first child key
+   * @param lastChildKey    the last child key
+   * @param pathNodeKey     the path node key
+   * @param prefixKey       the prefix key
+   * @param localNameKey    the local name key
+   * @param uriKey          the URI key
+   * @param prevRev         the previous revision number
+   * @param lastModRev      the last modified revision number
+   * @param hash            the hash value
+   * @param childCount      the child count
+   * @param descendantCount the descendant count
+   * @param rawValue        the raw value bytes (possibly compressed)
+   * @param isCompressed    whether the value is compressed
    * @return the total number of bytes written
    */
-  public int serializeToHeap(final MemorySegment target, final long offset) {
-    // Ensure all lazy fields are materialized
-    if (!valueParsed) {
-      parseLazyValue();
-    }
-
+  public static int writeNewRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final long rightSibKey, final long leftSibKey,
+      final long firstChildKey, final long lastChildKey,
+      final long pathNodeKey, final int prefixKey, final int localNameKey, final int uriKey,
+      final int prevRev, final int lastModRev, final long hash,
+      final long childCount, final long descendantCount,
+      final byte[] rawValue, final boolean isCompressed) {
     long pos = offset;
 
     // Write nodeKind byte
     target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.PROCESSING_INSTRUCTION.getId());
     pos++;
 
-    // Reserve space for offset table (will be written after computing offsets)
+    // Reserve space for offset table
     final long offsetTableStart = pos;
     pos += FIELD_COUNT;
 
     // Data region start
     final long dataStart = pos;
-    final int[] offsets = this.heapOffsets;
 
     // Field 0: parentKey (delta-varint)
-    offsets[NodeFieldLayout.PI_PARENT_KEY] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.PI_PARENT_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
 
     // Field 1: rightSiblingKey (delta-varint)
-    offsets[NodeFieldLayout.PI_RIGHT_SIB_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, rightSiblingKey, nodeKey);
+    heapOffsets[NodeFieldLayout.PI_RIGHT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, rightSibKey, nodeKey);
 
     // Field 2: leftSiblingKey (delta-varint)
-    offsets[NodeFieldLayout.PI_LEFT_SIB_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, leftSiblingKey, nodeKey);
+    heapOffsets[NodeFieldLayout.PI_LEFT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, leftSibKey, nodeKey);
 
     // Field 3: firstChildKey (delta-varint)
-    offsets[NodeFieldLayout.PI_FIRST_CHILD_KEY] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.PI_FIRST_CHILD_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, firstChildKey, nodeKey);
 
     // Field 4: lastChildKey (delta-varint)
-    offsets[NodeFieldLayout.PI_LAST_CHILD_KEY] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.PI_LAST_CHILD_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, lastChildKey, nodeKey);
 
     // Field 5: pathNodeKey (delta-varint)
-    offsets[NodeFieldLayout.PI_PATH_NODE_KEY] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.PI_PATH_NODE_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, pathNodeKey, nodeKey);
 
     // Field 6: prefixKey (signed varint)
-    offsets[NodeFieldLayout.PI_PREFIX_KEY] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.PI_PREFIX_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prefixKey);
 
     // Field 7: localNameKey (signed varint)
-    offsets[NodeFieldLayout.PI_LOCAL_NAME_KEY] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.PI_LOCAL_NAME_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, localNameKey);
 
     // Field 8: uriKey (signed varint)
-    offsets[NodeFieldLayout.PI_URI_KEY] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.PI_URI_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, uriKey);
 
     // Field 9: previousRevision (signed varint)
-    offsets[NodeFieldLayout.PI_PREV_REVISION] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, previousRevision);
+    heapOffsets[NodeFieldLayout.PI_PREV_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prevRev);
 
     // Field 10: lastModifiedRevision (signed varint)
-    offsets[NodeFieldLayout.PI_LAST_MOD_REVISION] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModifiedRevision);
+    heapOffsets[NodeFieldLayout.PI_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
     // Field 11: hash (fixed 8 bytes)
-    offsets[NodeFieldLayout.PI_HASH] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.PI_HASH] = (int) (pos - dataStart);
     DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
     pos += Long.BYTES;
 
     // Field 12: childCount (signed long varint)
-    offsets[NodeFieldLayout.PI_CHILD_COUNT] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.PI_CHILD_COUNT] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, childCount);
 
     // Field 13: descendantCount (signed long varint)
-    offsets[NodeFieldLayout.PI_DESCENDANT_COUNT] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.PI_DESCENDANT_COUNT] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, descendantCount);
 
     // Field 14: payload [isCompressed:1][valueLength:varint][value:bytes]
-    offsets[NodeFieldLayout.PI_PAYLOAD] = (int) (pos - dataStart);
+    heapOffsets[NodeFieldLayout.PI_PAYLOAD] = (int) (pos - dataStart);
     target.set(ValueLayout.JAVA_BYTE, pos, isCompressed ? (byte) 1 : (byte) 0);
     pos++;
-    final byte[] rawValue = value != null ? value : new byte[0];
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, rawValue.length);
-    if (rawValue.length > 0) {
-      MemorySegment.copy(rawValue, 0, target, ValueLayout.JAVA_BYTE, pos, rawValue.length);
-      pos += rawValue.length;
+    final byte[] val = rawValue != null ? rawValue : new byte[0];
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, val.length);
+    if (val.length > 0) {
+      MemorySegment.copy(val, 0, target, ValueLayout.JAVA_BYTE, pos, val.length);
+      pos += val.length;
     }
 
     // Write offset table
     for (int i = 0; i < FIELD_COUNT; i++) {
-      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) offsets[i]);
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
     }
 
     return (int) (pos - offset);
+  }
+
+  /**
+   * Serialize this node from Java fields. Delegates to static writeNewRecord.
+   */
+  public int serializeToHeap(final MemorySegment target, final long offset) {
+    if (!valueParsed) parseLazyValue();
+    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+        parentKey, rightSiblingKey, leftSiblingKey,
+        firstChildKey, lastChildKey, pathNodeKey,
+        prefixKey, localNameKey, uriKey,
+        previousRevision, lastModifiedRevision, hash,
+        childCount, descendantCount, value, isCompressed);
+  }
+
+  /**
+   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
+   */
+  public int[] getHeapOffsets() {
+    return heapOffsets;
+  }
+
+  /**
+   * Set DeweyID fields directly after creation, bypassing write-through.
+   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   */
+  public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = bytes;
   }
 
   @Override
@@ -1025,6 +1073,9 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   }
 
   public boolean isCompressed() {
+    if (page != null && !valueParsed) {
+      readPayloadFromPage();
+    }
     return isCompressed;
   }
 

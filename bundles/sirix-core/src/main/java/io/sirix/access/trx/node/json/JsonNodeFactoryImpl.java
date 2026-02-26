@@ -48,6 +48,9 @@ import static java.util.Objects.requireNonNull;
  */
 final class JsonNodeFactoryImpl implements JsonNodeFactory {
 
+  /** Cached null node key constant — avoids enum method call in hot path. */
+  private static final long NULL_KEY = Fixed.NULL_NODE_KEY.getStandardProperty();
+
   /**
    * Hash function used to hash nodes.
    */
@@ -144,180 +147,94 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
 
   private ObjectNode bindObjectNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final SirixDeweyID id) {
-    final ObjectNode node = reusableObjectNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setFirstChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
-    node.setLastChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
-    node.setChildCount(0);
-    node.setDescendantCount(0);
-    node.setHash(0);
-    node.setDeweyID(id);
-    return node;
+    reusableObjectNode.clearBinding();
+    reusableObjectNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0, id);
+    return reusableObjectNode;
   }
 
   private ArrayNode bindArrayNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final long pathNodeKey, final SirixDeweyID id) {
-    final ArrayNode node = reusableArrayNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPathNodeKey(pathNodeKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setFirstChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
-    node.setLastChildKey(Fixed.NULL_NODE_KEY.getStandardProperty());
-    node.setChildCount(0);
-    node.setDescendantCount(0);
-    node.setHash(0);
-    node.setDeweyID(id);
-    return node;
+    reusableArrayNode.clearBinding();
+    reusableArrayNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
+        Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(),
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0, pathNodeKey, id);
+    return reusableArrayNode;
   }
 
   private ObjectKeyNode bindObjectKeyNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final long pathNodeKey, final int nameKey, final String name, final long objectValueKey,
       final SirixDeweyID id) {
-    final ObjectKeyNode node = reusableObjectKeyNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPathNodeKey(pathNodeKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setFirstChildKey(objectValueKey);
-    node.setNameKey(nameKey);
-    node.setName(name);
-    node.setDescendantCount(0);
-    node.setHash(0);
-    node.setDeweyID(id);
-    return node;
+    reusableObjectKeyNode.clearBinding();
+    reusableObjectKeyNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
+        objectValueKey, Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0,
+        pathNodeKey, nameKey, name, id);
+    return reusableObjectKeyNode;
   }
 
   private NullNode bindNullNode(final long nodeKey, final long parentKey, final long leftSibKey, final long rightSibKey,
       final SirixDeweyID id) {
-    final NullNode node = reusableNullNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setHash(0);
-    node.setDeweyID(id);
-    return node;
+    reusableNullNode.clearBinding();
+    reusableNullNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, id);
+    return reusableNullNode;
   }
 
   private BooleanNode bindBooleanNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final boolean boolValue, final SirixDeweyID id) {
-    final BooleanNode node = reusableBooleanNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setHash(0);
-    node.setValue(boolValue);
-    node.setDeweyID(id);
-    return node;
+    reusableBooleanNode.clearBinding();
+    reusableBooleanNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, boolValue, id);
+    return reusableBooleanNode;
   }
 
   private NumberNode bindNumberNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final Number value, final SirixDeweyID id) {
-    final NumberNode node = reusableNumberNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setHash(0);
-    node.setValue(value);
-    node.setDeweyID(id);
-    return node;
+    reusableNumberNode.clearBinding();
+    reusableNumberNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value, id);
+    return reusableNumberNode;
   }
 
   private StringNode bindStringNode(final long nodeKey, final long parentKey, final long leftSibKey,
       final long rightSibKey, final byte[] value, final boolean isCompressed, final byte[] fsstSymbolTable,
       final SirixDeweyID id) {
-    final StringNode node = reusableStringNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setRightSiblingKey(rightSibKey);
-    node.setLeftSiblingKey(leftSibKey);
-    node.setHash(0);
-    node.setRawValue(value, isCompressed, fsstSymbolTable);
-    node.setDeweyID(id);
-    return node;
+    reusableStringNode.clearBinding();
+    reusableStringNode.initForCreation(nodeKey, parentKey, rightSibKey, leftSibKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value, isCompressed, fsstSymbolTable, id);
+    return reusableStringNode;
   }
 
   private ObjectNullNode bindObjectNullNode(final long nodeKey, final long parentKey, final SirixDeweyID id) {
-    final ObjectNullNode node = reusableObjectNullNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setHash(0);
-    node.setDeweyID(id);
-    return node;
+    reusableObjectNullNode.clearBinding();
+    reusableObjectNullNode.initForCreation(nodeKey, parentKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, id);
+    return reusableObjectNullNode;
   }
 
   private ObjectBooleanNode bindObjectBooleanNode(final long nodeKey, final long parentKey, final boolean boolValue,
       final SirixDeweyID id) {
-    final ObjectBooleanNode node = reusableObjectBooleanNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setHash(0);
-    node.setValue(boolValue);
-    node.setDeweyID(id);
-    return node;
+    reusableObjectBooleanNode.clearBinding();
+    reusableObjectBooleanNode.initForCreation(nodeKey, parentKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, boolValue, id);
+    return reusableObjectBooleanNode;
   }
 
   private ObjectNumberNode bindObjectNumberNode(final long nodeKey, final long parentKey, final Number value,
       final SirixDeweyID id) {
-    final ObjectNumberNode node = reusableObjectNumberNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setHash(0);
-    node.setValue(value);
-    node.setDeweyID(id);
-    return node;
+    reusableObjectNumberNode.clearBinding();
+    reusableObjectNumberNode.initForCreation(nodeKey, parentKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value, id);
+    return reusableObjectNumberNode;
   }
 
   private ObjectStringNode bindObjectStringNode(final long nodeKey, final long parentKey, final byte[] value,
       final boolean isCompressed, final byte[] fsstSymbolTable, final SirixDeweyID id) {
-    final ObjectStringNode node = reusableObjectStringNode;
-    node.clearBinding();
-    node.setNodeKey(nodeKey);
-    node.setParentKey(parentKey);
-    node.setPreviousRevision(Constants.NULL_REVISION_NUMBER);
-    node.setLastModifiedRevision(revisionNumber);
-    node.setHash(0);
-    node.setRawValue(value, isCompressed, fsstSymbolTable);
-    node.setDeweyID(id);
-    return node;
+    reusableObjectStringNode.clearBinding();
+    reusableObjectStringNode.initForCreation(nodeKey, parentKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value, isCompressed, fsstSymbolTable, id);
+    return reusableObjectStringNode;
   }
 
   @Override
@@ -346,106 +263,209 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public ArrayNode createJsonArrayNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
       SirixDeweyID id) {
-    final long nodeKey = nextNodeKey();
-    final ArrayNode node = bindArrayNode(nodeKey, parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
-    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
+    storageEngineWriter.allocateForDocumentCreation();
+    final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
+    final long nodeKey = storageEngineWriter.getAllocNodeKey();
+    final int slotOffset = storageEngineWriter.getAllocSlotOffset();
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
+    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(
+        reusableArrayNode.estimateSerializedSize(), deweyIdLen);
+    final int recordBytes = ArrayNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+        reusableArrayNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
+        NULL_KEY, NULL_KEY, pathNodeKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0);
+    kvl.completeDirectWrite(reusableArrayNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableArrayNode.setDeweyIDAfterCreation(id, deweyIdBytes);
+    return reusableArrayNode;
   }
 
   @Override
   public ObjectNode createJsonObjectNode(long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id) {
-    final long nodeKey = nextNodeKey();
-    final ObjectNode node = bindObjectNode(nodeKey, parentKey, leftSibKey, rightSibKey, id);
-    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
+    storageEngineWriter.allocateForDocumentCreation();
+    final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
+    final long nodeKey = storageEngineWriter.getAllocNodeKey();
+    final int slotOffset = storageEngineWriter.getAllocSlotOffset();
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
+    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(
+        reusableObjectNode.estimateSerializedSize(), deweyIdLen);
+    final int recordBytes = ObjectNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+        reusableObjectNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
+        NULL_KEY, NULL_KEY,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0);
+    kvl.completeDirectWrite(reusableObjectNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableObjectNode.setDeweyIDAfterCreation(id, deweyIdBytes);
+    return reusableObjectNode;
   }
 
   @Override
   public NullNode createJsonNullNode(long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id) {
-    final long nodeKey = nextNodeKey();
-    final NullNode node = bindNullNode(nodeKey, parentKey, leftSibKey, rightSibKey, id);
-    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
+    storageEngineWriter.allocateForDocumentCreation();
+    final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
+    final long nodeKey = storageEngineWriter.getAllocNodeKey();
+    final int slotOffset = storageEngineWriter.getAllocSlotOffset();
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
+    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(
+        reusableNullNode.estimateSerializedSize(), deweyIdLen);
+    final int recordBytes = NullNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+        reusableNullNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0);
+    kvl.completeDirectWrite(reusableNullNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableNullNode.setDeweyIDAfterCreation(id, deweyIdBytes);
+    return reusableNullNode;
   }
 
   @Override
   public ObjectKeyNode createJsonObjectKeyNode(long parentKey, long leftSibKey, long rightSibKey, long pathNodeKey,
       String name, long objectValueKey, SirixDeweyID id) {
     final int localNameKey = storageEngineWriter.createNameKey(name, NodeKind.OBJECT_KEY);
-    final long nodeKey = nextNodeKey();
-    final ObjectKeyNode node = bindObjectKeyNode(nodeKey, parentKey, leftSibKey, rightSibKey, pathNodeKey, localNameKey,
-        name, objectValueKey, id);
-    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
+    storageEngineWriter.allocateForDocumentCreation();
+    final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
+    final long nodeKey = storageEngineWriter.getAllocNodeKey();
+    final int slotOffset = storageEngineWriter.getAllocSlotOffset();
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
+    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(
+        reusableObjectKeyNode.estimateSerializedSize(), deweyIdLen);
+    final int recordBytes = ObjectKeyNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+        reusableObjectKeyNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
+        objectValueKey, localNameKey, pathNodeKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0);
+    kvl.completeDirectWrite(reusableObjectKeyNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableObjectKeyNode.setDeweyIDAfterCreation(id, deweyIdBytes);
+    return reusableObjectKeyNode;
   }
 
   @Override
   public StringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey, byte[] value,
       boolean doCompress, SirixDeweyID id) {
-    final long nodeKey = nextNodeKey();
-
-    // For FSST, page-level symbol tables are required for decoding.
-    // Until symbol table plumbing is complete, keep stored values uncompressed.
-    final ResourceConfiguration config = storageEngineWriter.getResourceSession().getResourceConfig();
-    final boolean shouldUseCompression = doCompress && config.stringCompressionType == StringCompressionType.FSST;
-    if (shouldUseCompression) {
-      // Intentionally not compressing here: no symbol table is available on this path yet.
-    }
-    final boolean isCompressed = false;
-
-    final StringNode node = bindStringNode(nodeKey, parentKey, leftSibKey, rightSibKey, value, isCompressed, null, id);
-    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
+    storageEngineWriter.allocateForDocumentCreation();
+    final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
+    final long nodeKey = storageEngineWriter.getAllocNodeKey();
+    final int slotOffset = storageEngineWriter.getAllocSlotOffset();
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
+    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(
+        64 + value.length, deweyIdLen);
+    final int recordBytes = StringNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+        reusableStringNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value, false);
+    kvl.completeDirectWrite(reusableStringNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableStringNode.setDeweyIDAfterCreation(id, deweyIdBytes);
+    return reusableStringNode;
   }
 
   @Override
   public BooleanNode createJsonBooleanNode(long parentKey, long leftSibKey, long rightSibKey, boolean boolValue,
       SirixDeweyID id) {
-    final long nodeKey = nextNodeKey();
-    final BooleanNode node = bindBooleanNode(nodeKey, parentKey, leftSibKey, rightSibKey, boolValue, id);
-    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
+    storageEngineWriter.allocateForDocumentCreation();
+    final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
+    final long nodeKey = storageEngineWriter.getAllocNodeKey();
+    final int slotOffset = storageEngineWriter.getAllocSlotOffset();
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
+    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(
+        reusableBooleanNode.estimateSerializedSize(), deweyIdLen);
+    final int recordBytes = BooleanNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+        reusableBooleanNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, boolValue, 0);
+    kvl.completeDirectWrite(reusableBooleanNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableBooleanNode.setDeweyIDAfterCreation(id, deweyIdBytes);
+    return reusableBooleanNode;
   }
 
   @Override
   public NumberNode createJsonNumberNode(long parentKey, long leftSibKey, long rightSibKey, Number value,
       SirixDeweyID id) {
-    final long nodeKey = nextNodeKey();
-    final NumberNode node = bindNumberNode(nodeKey, parentKey, leftSibKey, rightSibKey, value, id);
-    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
+    storageEngineWriter.allocateForDocumentCreation();
+    final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
+    final long nodeKey = storageEngineWriter.getAllocNodeKey();
+    final int slotOffset = storageEngineWriter.getAllocSlotOffset();
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
+    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(
+        reusableNumberNode.estimateSerializedSize(), deweyIdLen);
+    final int recordBytes = NumberNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+        reusableNumberNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value);
+    kvl.completeDirectWrite(reusableNumberNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableNumberNode.setDeweyIDAfterCreation(id, deweyIdBytes);
+    return reusableNumberNode;
   }
 
   @Override
   public ObjectNullNode createJsonObjectNullNode(long parentKey, SirixDeweyID id) {
-    final long nodeKey = nextNodeKey();
-    final ObjectNullNode node = bindObjectNullNode(nodeKey, parentKey, id);
-    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
+    storageEngineWriter.allocateForDocumentCreation();
+    final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
+    final long nodeKey = storageEngineWriter.getAllocNodeKey();
+    final int slotOffset = storageEngineWriter.getAllocSlotOffset();
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
+    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(
+        reusableObjectNullNode.estimateSerializedSize(), deweyIdLen);
+    final int recordBytes = ObjectNullNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+        reusableObjectNullNode.getHeapOffsets(), nodeKey, parentKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0);
+    kvl.completeDirectWrite(reusableObjectNullNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableObjectNullNode.setDeweyIDAfterCreation(id, deweyIdBytes);
+    return reusableObjectNullNode;
   }
 
   @Override
   public ObjectStringNode createJsonObjectStringNode(long parentKey, byte[] value, boolean doCompress,
       SirixDeweyID id) {
-    final long nodeKey = nextNodeKey();
-
-    // For FSST, page-level symbol tables are required for decoding.
-    // Until symbol table plumbing is complete, keep stored values uncompressed.
-    final ResourceConfiguration config = storageEngineWriter.getResourceSession().getResourceConfig();
-    final boolean shouldUseCompression = doCompress && config.stringCompressionType == StringCompressionType.FSST;
-    if (shouldUseCompression) {
-      // Intentionally not compressing here: no symbol table is available on this path yet.
-    }
-    final boolean isCompressed = false;
-
-    final ObjectStringNode node = bindObjectStringNode(nodeKey, parentKey, value, isCompressed, null, id);
-    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
+    storageEngineWriter.allocateForDocumentCreation();
+    final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
+    final long nodeKey = storageEngineWriter.getAllocNodeKey();
+    final int slotOffset = storageEngineWriter.getAllocSlotOffset();
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
+    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(
+        64 + value.length, deweyIdLen);
+    final int recordBytes = ObjectStringNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+        reusableObjectStringNode.getHeapOffsets(), nodeKey, parentKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value, false);
+    kvl.completeDirectWrite(reusableObjectStringNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableObjectStringNode.setDeweyIDAfterCreation(id, deweyIdBytes);
+    return reusableObjectStringNode;
   }
 
   @Override
   public ObjectBooleanNode createJsonObjectBooleanNode(long parentKey, boolean boolValue, SirixDeweyID id) {
-    final long nodeKey = nextNodeKey();
-    final ObjectBooleanNode node = bindObjectBooleanNode(nodeKey, parentKey, boolValue, id);
-    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
+    storageEngineWriter.allocateForDocumentCreation();
+    final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
+    final long nodeKey = storageEngineWriter.getAllocNodeKey();
+    final int slotOffset = storageEngineWriter.getAllocSlotOffset();
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
+    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(
+        reusableObjectBooleanNode.estimateSerializedSize(), deweyIdLen);
+    final int recordBytes = ObjectBooleanNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+        reusableObjectBooleanNode.getHeapOffsets(), nodeKey, parentKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, boolValue, 0);
+    kvl.completeDirectWrite(reusableObjectBooleanNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableObjectBooleanNode.setDeweyIDAfterCreation(id, deweyIdBytes);
+    return reusableObjectBooleanNode;
   }
 
   @Override
   public ObjectNumberNode createJsonObjectNumberNode(long parentKey, Number value, SirixDeweyID id) {
-    final long nodeKey = nextNodeKey();
-    final ObjectNumberNode node = bindObjectNumberNode(nodeKey, parentKey, value, id);
-    return storageEngineWriter.createRecord(node, IndexType.DOCUMENT, -1);
+    storageEngineWriter.allocateForDocumentCreation();
+    final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
+    final long nodeKey = storageEngineWriter.getAllocNodeKey();
+    final int slotOffset = storageEngineWriter.getAllocSlotOffset();
+    final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
+    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+    final long absOffset = kvl.prepareHeapForDirectWrite(
+        reusableObjectNumberNode.estimateSerializedSize(), deweyIdLen);
+    final int recordBytes = ObjectNumberNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
+        reusableObjectNumberNode.getHeapOffsets(), nodeKey, parentKey,
+        Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value);
+    kvl.completeDirectWrite(reusableObjectNumberNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableObjectNumberNode.setDeweyIDAfterCreation(id, deweyIdBytes);
+    return reusableObjectNumberNode;
   }
 
   @Override

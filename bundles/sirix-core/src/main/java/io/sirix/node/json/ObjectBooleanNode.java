@@ -170,6 +170,114 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
     this.heapOffsets = new int[FIELD_COUNT];
   }
 
+  // ==================== BULK INIT (zero branch checks) ====================
+
+  /**
+   * Initialize all fields for a newly created node. Must be called when unbound
+   * (after clearBinding()). Sets all Java fields directly — no if (page != null) checks.
+   *
+   * @param nodeKey              the node key
+   * @param parentKey            the parent node key
+   * @param previousRevision     the previous revision number
+   * @param lastModifiedRevision the last modified revision number
+   * @param hash                 the hash value
+   * @param boolValue            the boolean value
+   * @param deweyID              the DeweyID (may be null)
+   */
+  public void initForCreation(final long nodeKey, final long parentKey,
+      final int previousRevision, final int lastModifiedRevision,
+      final long hash, final boolean boolValue, final SirixDeweyID deweyID) {
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.hash = hash;
+    this.value = boolValue;
+    this.sirixDeweyID = deweyID;
+    this.deweyIDBytes = null;
+    this.lazyFieldsParsed = true;
+  }
+
+  // ==================== STATIC WRITE / HEAP OFFSETS / DEWEYID ====================
+
+  /**
+   * Encode an ObjectBooleanNode record directly to a MemorySegment from parameter values.
+   * Static -- reads nothing from any instance. Zero field intermediation.
+   *
+   * @param target     the target MemorySegment (reinterpreted slotted page)
+   * @param offset     absolute byte offset to write at
+   * @param heapOffsets pre-allocated offset array (reused, FIELD_COUNT elements)
+   * @param nodeKey    the node key (delta base for structural keys)
+   * @param parentKey  the parent node key
+   * @param prevRev    the previous revision number
+   * @param lastModRev the last modified revision number
+   * @param boolValue  the boolean value
+   * @param hash       the hash value
+   * @return the total number of bytes written
+   */
+  public static int writeNewRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final int prevRev, final int lastModRev,
+      final boolean boolValue, final long hash) {
+    long pos = offset;
+
+    // Write nodeKind byte
+    target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.OBJECT_BOOLEAN_VALUE.getId());
+    pos++;
+
+    // Reserve space for offset table
+    final long offsetTableStart = pos;
+    pos += FIELD_COUNT;
+
+    // Data region start
+    final long dataStart = pos;
+
+    // Field 0: parentKey (delta-varint)
+    heapOffsets[NodeFieldLayout.OBJBOOLVAL_PARENT_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
+
+    // Field 1: previousRevision (signed varint)
+    heapOffsets[NodeFieldLayout.OBJBOOLVAL_PREV_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prevRev);
+
+    // Field 2: lastModifiedRevision (signed varint)
+    heapOffsets[NodeFieldLayout.OBJBOOLVAL_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
+
+    // Field 3: value (1 byte boolean)
+    heapOffsets[NodeFieldLayout.OBJBOOLVAL_VALUE] = (int) (pos - dataStart);
+    target.set(ValueLayout.JAVA_BYTE, pos, (byte) (boolValue ? 1 : 0));
+    pos += 1;
+
+    // Field 4: hash (fixed 8 bytes)
+    heapOffsets[NodeFieldLayout.OBJBOOLVAL_HASH] = (int) (pos - dataStart);
+    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
+    pos += Long.BYTES;
+
+    // Write offset table
+    for (int i = 0; i < FIELD_COUNT; i++) {
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
+    }
+
+    return (int) (pos - offset);
+  }
+
+  /**
+   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
+   */
+  public int[] getHeapOffsets() {
+    return heapOffsets;
+  }
+
+  /**
+   * Set DeweyID fields directly after creation, bypassing write-through.
+   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   */
+  public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = bytes;
+  }
+
   // ==================== FLYWEIGHT BIND/UNBIND ====================
 
   /**
@@ -281,61 +389,18 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
   // ==================== SERIALIZE TO HEAP ====================
 
   /**
-   * Serialize this node (from Java fields) into the new slotted page format with offset table.
-   * Writes: [nodeKind:1][offsetTable:FIELD_COUNT][data fields].
+   * Serialize this node from Java fields. Delegates to static writeNewRecord.
    *
    * @param target the target MemorySegment
    * @param offset the absolute byte offset to write at
    * @return the total number of bytes written
    */
   public int serializeToHeap(final MemorySegment target, final long offset) {
-    // Ensure all lazy fields are materialized
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-
-    long pos = offset;
-
-    // Write nodeKind byte
-    target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.OBJECT_BOOLEAN_VALUE.getId());
-    pos++;
-
-    // Reserve space for offset table (will be written after computing offsets)
-    final long offsetTableStart = pos;
-    pos += FIELD_COUNT;
-
-    // Data region start
-    final long dataStart = pos;
-    final int[] offsets = this.heapOffsets;
-
-    // Field 0: parentKey (delta-varint)
-    offsets[NodeFieldLayout.OBJBOOLVAL_PARENT_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
-
-    // Field 1: previousRevision (signed varint)
-    offsets[NodeFieldLayout.OBJBOOLVAL_PREV_REVISION] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, previousRevision);
-
-    // Field 2: lastModifiedRevision (signed varint)
-    offsets[NodeFieldLayout.OBJBOOLVAL_LAST_MOD_REVISION] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModifiedRevision);
-
-    // Field 3: value (1 byte boolean)
-    offsets[NodeFieldLayout.OBJBOOLVAL_VALUE] = (int) (pos - dataStart);
-    target.set(ValueLayout.JAVA_BYTE, pos, (byte) (value ? 1 : 0));
-    pos += 1;
-
-    // Field 4: hash (fixed 8 bytes)
-    offsets[NodeFieldLayout.OBJBOOLVAL_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
-    // Write offset table
-    for (int i = 0; i < FIELD_COUNT; i++) {
-      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) offsets[i]);
-    }
-
-    return (int) (pos - offset);
+    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+        parentKey, previousRevision, lastModifiedRevision, value, hash);
   }
 
   @Override

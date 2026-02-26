@@ -262,58 +262,113 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
     this.valueParsed = true;
   }
 
-  // ==================== SERIALIZE TO HEAP ====================
+  // ==================== DIRECT WRITE ====================
 
-  @Override
-  public int serializeToHeap(final MemorySegment target, final long offset) {
-    if (!valueParsed) {
-      parseLazyValue();
-    }
-
+  /**
+   * Encode a CommentNode record directly to a MemorySegment from parameter values.
+   * Static -- reads nothing from any instance. Zero field intermediation.
+   *
+   * @param target       the target MemorySegment (reinterpreted slotted page)
+   * @param offset       absolute byte offset to write at
+   * @param heapOffsets  pre-allocated offset array (reused, FIELD_COUNT elements)
+   * @param nodeKey      the node key (delta base for structural keys)
+   * @param parentKey    the parent node key
+   * @param rightSibKey  the right sibling key
+   * @param leftSibKey   the left sibling key
+   * @param prevRev      the previous revision number
+   * @param lastModRev   the last modified revision number
+   * @param hash         the hash value
+   * @param rawValue     the raw value bytes (possibly compressed)
+   * @param isCompressed whether the value is compressed
+   * @return the total number of bytes written
+   */
+  public static int writeNewRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final long rightSibKey, final long leftSibKey,
+      final int prevRev, final int lastModRev, final long hash,
+      final byte[] rawValue, final boolean isCompressed) {
     long pos = offset;
+
+    // Write nodeKind byte
     target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.COMMENT.getId());
     pos++;
 
+    // Reserve space for offset table
     final long offsetTableStart = pos;
     pos += FIELD_COUNT;
-    final long dataStart = pos;
-    final int[] offsets = this.heapOffsets;
 
-    offsets[NodeFieldLayout.COMMENT_PARENT_KEY] = (int) (pos - dataStart);
+    // Data region start
+    final long dataStart = pos;
+
+    // Field 0: parentKey (delta-varint)
+    heapOffsets[NodeFieldLayout.COMMENT_PARENT_KEY] = (int) (pos - dataStart);
     pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
 
-    offsets[NodeFieldLayout.COMMENT_RIGHT_SIB_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, rightSiblingKey, nodeKey);
+    // Field 1: rightSiblingKey (delta-varint)
+    heapOffsets[NodeFieldLayout.COMMENT_RIGHT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, rightSibKey, nodeKey);
 
-    offsets[NodeFieldLayout.COMMENT_LEFT_SIB_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, leftSiblingKey, nodeKey);
+    // Field 2: leftSiblingKey (delta-varint)
+    heapOffsets[NodeFieldLayout.COMMENT_LEFT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, leftSibKey, nodeKey);
 
-    offsets[NodeFieldLayout.COMMENT_PREV_REVISION] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, previousRevision);
+    // Field 3: prevRevision (signed varint)
+    heapOffsets[NodeFieldLayout.COMMENT_PREV_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prevRev);
 
-    offsets[NodeFieldLayout.COMMENT_LAST_MOD_REVISION] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModifiedRevision);
+    // Field 4: lastModRevision (signed varint)
+    heapOffsets[NodeFieldLayout.COMMENT_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
 
-    offsets[NodeFieldLayout.COMMENT_HASH] = (int) (pos - dataStart);
+    // Field 5: hash (fixed 8 bytes)
+    heapOffsets[NodeFieldLayout.COMMENT_HASH] = (int) (pos - dataStart);
     DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
     pos += Long.BYTES;
 
-    // Payload: [isCompressed:1][valueLength:varint][value:bytes]
-    offsets[NodeFieldLayout.COMMENT_PAYLOAD] = (int) (pos - dataStart);
+    // Field 6: payload [isCompressed:1][length:varint][data:bytes]
+    heapOffsets[NodeFieldLayout.COMMENT_PAYLOAD] = (int) (pos - dataStart);
     target.set(ValueLayout.JAVA_BYTE, pos, isCompressed ? (byte) 1 : (byte) 0);
     pos++;
-    final byte[] rawValue = value != null ? value : new byte[0];
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, rawValue.length);
-    if (rawValue.length > 0) {
-      MemorySegment.copy(rawValue, 0, target, ValueLayout.JAVA_BYTE, pos, rawValue.length);
-      pos += rawValue.length;
+    final byte[] val = rawValue != null ? rawValue : new byte[0];
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, val.length);
+    if (val.length > 0) {
+      MemorySegment.copy(val, 0, target, ValueLayout.JAVA_BYTE, pos, val.length);
+      pos += val.length;
     }
 
+    // Write offset table
     for (int i = 0; i < FIELD_COUNT; i++) {
-      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) offsets[i]);
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
     }
 
     return (int) (pos - offset);
+  }
+
+  /**
+   * Serialize this node from Java fields. Delegates to static writeNewRecord.
+   */
+  @Override
+  public int serializeToHeap(final MemorySegment target, final long offset) {
+    if (!valueParsed) parseLazyValue();
+    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+        parentKey, rightSiblingKey, leftSiblingKey,
+        previousRevision, lastModifiedRevision, hash, value, isCompressed);
+  }
+
+  /**
+   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
+   */
+  public int[] getHeapOffsets() {
+    return heapOffsets;
+  }
+
+  /**
+   * Set DeweyID fields directly after creation, bypassing write-through.
+   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   */
+  public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = bytes;
   }
 
   @Override
@@ -796,6 +851,9 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
   }
 
   public boolean isCompressed() {
+    if (page != null && !valueParsed) {
+      readPayloadFromPage();
+    }
     return isCompressed;
   }
 

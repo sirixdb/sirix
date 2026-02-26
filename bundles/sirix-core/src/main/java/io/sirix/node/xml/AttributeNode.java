@@ -661,11 +661,103 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
     this.valueParsed = true;
   }
 
-  // ==================== SERIALIZE TO HEAP ====================
+  // ==================== DIRECT WRITE ====================
 
+  /**
+   * Encode an AttributeNode record directly to a MemorySegment from parameter values.
+   * Static -- reads nothing from any instance. Zero field intermediation.
+   *
+   * @param target       the target MemorySegment (reinterpreted slotted page)
+   * @param offset       absolute byte offset to write at
+   * @param heapOffsets  pre-allocated offset array (reused, FIELD_COUNT elements)
+   * @param nodeKey      the node key (delta base for structural keys)
+   * @param parentKey    the parent node key
+   * @param pathNodeKey  the path node key
+   * @param prefixKey    the prefix key
+   * @param localNameKey the local name key
+   * @param uriKey       the URI key
+   * @param prevRev      the previous revision number
+   * @param lastModRev   the last modified revision number
+   * @param hash         the hash value
+   * @param rawValue     the raw value bytes
+   * @return the total number of bytes written
+   */
+  public static int writeNewRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final long pathNodeKey,
+      final int prefixKey, final int localNameKey, final int uriKey,
+      final int prevRev, final int lastModRev, final long hash,
+      final byte[] rawValue) {
+    long pos = offset;
+
+    // Write nodeKind byte
+    target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.ATTRIBUTE.getId());
+    pos++;
+
+    // Reserve space for offset table
+    final long offsetTableStart = pos;
+    pos += FIELD_COUNT;
+
+    // Data region start
+    final long dataStart = pos;
+
+    // Field 0: parentKey (delta-varint)
+    heapOffsets[NodeFieldLayout.ATTR_PARENT_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
+
+    // Field 1: pathNodeKey (delta-varint)
+    heapOffsets[NodeFieldLayout.ATTR_PATH_NODE_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, pathNodeKey, nodeKey);
+
+    // Field 2: prefixKey (signed varint)
+    heapOffsets[NodeFieldLayout.ATTR_PREFIX_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prefixKey);
+
+    // Field 3: localNameKey (signed varint)
+    heapOffsets[NodeFieldLayout.ATTR_LOCAL_NAME_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, localNameKey);
+
+    // Field 4: uriKey (signed varint)
+    heapOffsets[NodeFieldLayout.ATTR_URI_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, uriKey);
+
+    // Field 5: prevRevision (signed varint)
+    heapOffsets[NodeFieldLayout.ATTR_PREV_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prevRev);
+
+    // Field 6: lastModRevision (signed varint)
+    heapOffsets[NodeFieldLayout.ATTR_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
+
+    // Field 7: hash (fixed 8 bytes)
+    heapOffsets[NodeFieldLayout.ATTR_HASH] = (int) (pos - dataStart);
+    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
+    pos += Long.BYTES;
+
+    // Field 8: payload [isCompressed=0:1][valueLength:varint][value:bytes]
+    heapOffsets[NodeFieldLayout.ATTR_PAYLOAD] = (int) (pos - dataStart);
+    target.set(ValueLayout.JAVA_BYTE, pos, (byte) 0); // attributes are never compressed
+    pos++;
+    final byte[] val = rawValue != null ? rawValue : new byte[0];
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, val.length);
+    if (val.length > 0) {
+      MemorySegment.copy(val, 0, target, ValueLayout.JAVA_BYTE, pos, val.length);
+      pos += val.length;
+    }
+
+    // Write offset table
+    for (int i = 0; i < FIELD_COUNT; i++) {
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
+    }
+
+    return (int) (pos - offset);
+  }
+
+  /**
+   * Serialize this node from Java fields. Delegates to static writeNewRecord.
+   */
   @Override
   public int serializeToHeap(final MemorySegment target, final long offset) {
-    // Ensure all fields are materialized before serialization
     if (!valueParsed) {
       if (page != null) {
         readPayloadFromPage();
@@ -673,66 +765,25 @@ public final class AttributeNode implements ValueNode, NameNode, ImmutableXmlNod
         parseLazyValue();
       }
     }
+    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+        parentKey, pathNodeKey, prefixKey, localNameKey, uriKey,
+        previousRevision, lastModifiedRevision, hash, value);
+  }
 
-    long pos = offset;
-    target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.ATTRIBUTE.getId());
-    pos++;
+  /**
+   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
+   */
+  public int[] getHeapOffsets() {
+    return heapOffsets;
+  }
 
-    final long offsetTableStart = pos;
-    pos += FIELD_COUNT;
-    final long dataStart = pos;
-    final int[] offsets = this.heapOffsets;
-
-    // Field 0: parentKey (delta-varint)
-    offsets[NodeFieldLayout.ATTR_PARENT_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
-
-    // Field 1: pathNodeKey (delta-varint)
-    offsets[NodeFieldLayout.ATTR_PATH_NODE_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, pathNodeKey, nodeKey);
-
-    // Field 2: prefixKey (signed varint)
-    offsets[NodeFieldLayout.ATTR_PREFIX_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prefixKey);
-
-    // Field 3: localNameKey (signed varint)
-    offsets[NodeFieldLayout.ATTR_LOCAL_NAME_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, localNameKey);
-
-    // Field 4: uriKey (signed varint)
-    offsets[NodeFieldLayout.ATTR_URI_KEY] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, uriKey);
-
-    // Field 5: prevRevision (signed varint)
-    offsets[NodeFieldLayout.ATTR_PREV_REVISION] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, previousRevision);
-
-    // Field 6: lastModRevision (signed varint)
-    offsets[NodeFieldLayout.ATTR_LAST_MOD_REVISION] = (int) (pos - dataStart);
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModifiedRevision);
-
-    // Field 7: hash (fixed 8 bytes)
-    offsets[NodeFieldLayout.ATTR_HASH] = (int) (pos - dataStart);
-    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
-    pos += Long.BYTES;
-
-    // Field 8: payload [isCompressed:1][valueLength:varint][value:bytes]
-    offsets[NodeFieldLayout.ATTR_PAYLOAD] = (int) (pos - dataStart);
-    target.set(ValueLayout.JAVA_BYTE, pos, (byte) 0); // attributes are never compressed
-    pos++;
-    final byte[] rawValue = value != null ? value : new byte[0];
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, rawValue.length);
-    if (rawValue.length > 0) {
-      MemorySegment.copy(rawValue, 0, target, ValueLayout.JAVA_BYTE, pos, rawValue.length);
-      pos += rawValue.length;
-    }
-
-    // Write offset table
-    for (int i = 0; i < FIELD_COUNT; i++) {
-      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) offsets[i]);
-    }
-
-    return (int) (pos - offset);
+  /**
+   * Set DeweyID fields directly after creation, bypassing write-through.
+   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   */
+  public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = bytes;
   }
 
   // ==================== SNAPSHOT ====================

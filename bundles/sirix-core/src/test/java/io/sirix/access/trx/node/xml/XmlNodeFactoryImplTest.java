@@ -1,7 +1,10 @@
 package io.sirix.access.trx.node.xml;
 
 import io.brackit.query.atomic.QNm;
+import io.sirix.XmlTestHelper;
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
@@ -11,9 +14,12 @@ import io.sirix.node.xml.ElementNode;
 import io.sirix.node.xml.NamespaceNode;
 import io.sirix.node.xml.PINode;
 import io.sirix.node.xml.TextNode;
-import io.sirix.settings.Fixed;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.RevisionRootPage;
+import io.sirix.settings.Constants;
+import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -28,6 +34,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -35,10 +42,16 @@ public final class XmlNodeFactoryImplTest {
 
   private StorageEngineWriter storageEngineWriter;
   private XmlNodeFactoryImpl factory;
+  private XmlResourceSession resourceSession;
   private long nodeCounter;
 
   @Before
   public void setUp() {
+    XmlTestHelper.deleteEverything();
+    final var database = XmlTestHelper.getDatabase(XmlTestHelper.PATHS.PATH1.getFile());
+    resourceSession = database.beginResourceSession(XmlTestHelper.RESOURCE);
+    final ResourceConfiguration resourceConfig = resourceSession.getResourceConfig();
+
     storageEngineWriter = mock(StorageEngineWriter.class);
     final RevisionRootPage revisionRootPage = mock(RevisionRootPage.class);
     when(storageEngineWriter.getActualRevisionRootPage()).thenReturn(revisionRootPage);
@@ -48,7 +61,28 @@ public final class XmlNodeFactoryImplTest {
         invocation -> invocation.getArgument(0));
     when(storageEngineWriter.createNameKey(anyString(), any(NodeKind.class))).thenAnswer(
         invocation -> Math.abs(invocation.getArgument(0, String.class).hashCode()));
+
+    // Mock allocation methods for direct-to-heap creation
+    final KeyValueLeafPage testKvl = new KeyValueLeafPage(0, IndexType.DOCUMENT, resourceConfig, 0, null, null);
+    final long[] allocatedKey = {0};
+    doAnswer(inv -> {
+      allocatedKey[0] = nodeCounter++;
+      return null;
+    }).when(storageEngineWriter).allocateForDocumentCreation();
+    when(storageEngineWriter.getAllocKvl()).thenReturn(testKvl);
+    when(storageEngineWriter.getAllocNodeKey()).thenAnswer(inv -> allocatedKey[0]);
+    when(storageEngineWriter.getAllocSlotOffset()).thenAnswer(
+        inv -> (int) (allocatedKey[0] % Constants.NDP_NODE_COUNT));
+
     factory = new XmlNodeFactoryImpl(LongHashFunction.xx3(), storageEngineWriter);
+  }
+
+  @After
+  public void tearDown() {
+    if (resourceSession != null) {
+      resourceSession.close();
+    }
+    XmlTestHelper.closeEverything();
   }
 
   @Test

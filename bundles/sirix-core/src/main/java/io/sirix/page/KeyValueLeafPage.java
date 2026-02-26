@@ -566,7 +566,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     compressedSegment = null;
     bytes = null;
     serializeToHeap(fn, nodeKey, offset);
-    fn.clearBinding();
+    // Node stays bound after creation — next factory clearBinding() handles transition
   }
 
   /**
@@ -629,6 +629,91 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Bind flyweight — all subsequent mutations go directly to page memory
     fn.bind(slottedPage, absOffset, nodeKey, offset);
     fn.setOwnerPage(this);
+  }
+
+  // ==================== DIRECT-TO-HEAP CREATION ====================
+
+  /**
+   * Prepare the heap for a direct record write. Ensures slotted page exists and has
+   * enough space. Returns the absolute offset where the caller should write.
+   *
+   * @param estimatedRecordSize upper bound on record bytes (from estimateSerializedSize)
+   * @param deweyIdLen          length of DeweyID bytes (0 if none)
+   * @return absolute byte offset in the slotted page MemorySegment to write at
+   */
+  public long prepareHeapForDirectWrite(final int estimatedRecordSize, final int deweyIdLen) {
+    ensureSlottedPage();
+    final int deweyOverhead = areDeweyIDsStored
+        ? deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE : 0;
+    final int totalEstimated = estimatedRecordSize + deweyOverhead;
+    int heapEnd = PageLayout.getHeapEnd(slottedPage);
+    while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < totalEstimated) {
+      growSlottedPage();
+      heapEnd = PageLayout.getHeapEnd(slottedPage);
+    }
+    return PageLayout.heapAbsoluteOffset(heapEnd);
+  }
+
+  /**
+   * Complete a direct record write. Handles DeweyID trailer, directory entry, bitmap,
+   * heap counters, and flyweight binding. Called after the caller has written the record
+   * bytes via a static writeNewRecord method.
+   *
+   * @param fn           the flyweight singleton to bind
+   * @param nodeKey      the node key
+   * @param slotOffset   the slot index (0-1023)
+   * @param recordBytes  number of bytes written by writeNewRecord
+   * @param deweyIdBytes DeweyID bytes (null if not stored)
+   */
+  public void completeDirectWrite(final FlyweightNode fn, final long nodeKey,
+      final int slotOffset, final int recordBytes, final byte[] deweyIdBytes) {
+    addedReferences = false;
+    compressedSegment = null;
+    bytes = null;
+
+    final int heapEnd = PageLayout.getHeapEnd(slottedPage);
+    final long absOffset = PageLayout.heapAbsoluteOffset(heapEnd);
+    final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
+
+    // DeweyID trailer
+    final int totalBytes;
+    if (areDeweyIDsStored) {
+      if (deweyIdLen > 0) {
+        MemorySegment.copy(deweyIdBytes, 0, slottedPage,
+            java.lang.foreign.ValueLayout.JAVA_BYTE, absOffset + recordBytes, deweyIdLen);
+      }
+      totalBytes = recordBytes + deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE;
+      PageLayout.writeDeweyIdTrailer(slottedPage, absOffset + totalBytes, deweyIdLen);
+    } else {
+      totalBytes = recordBytes;
+    }
+
+    // Update heap counters
+    PageLayout.setHeapEnd(slottedPage, heapEnd + totalBytes);
+    PageLayout.setHeapUsed(slottedPage, PageLayout.getHeapUsed(slottedPage) + totalBytes);
+
+    // Directory entry
+    PageLayout.setDirEntry(slottedPage, slotOffset, heapEnd, totalBytes,
+        ((NodeKind) fn.getKind()).getId());
+
+    // Bitmap
+    if (!PageLayout.isSlotPopulated(slottedPage, slotOffset)) {
+      PageLayout.markSlotPopulated(slottedPage, slotOffset);
+      PageLayout.setPopulatedCount(slottedPage,
+          PageLayout.getPopulatedCount(slottedPage) + 1);
+      lastSlotIndex = slotOffset;
+    }
+
+    // Bind flyweight — all subsequent mutations go directly to page memory
+    fn.bind(slottedPage, absOffset, nodeKey, slotOffset);
+    fn.setOwnerPage(this);
+  }
+
+  /**
+   * Check whether DeweyIDs are stored on this page.
+   */
+  public boolean areDeweyIDsStored() {
+    return areDeweyIDsStored;
   }
 
   /**

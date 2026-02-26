@@ -406,6 +406,34 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return record;
   }
 
+  // ==================== DIRECT-TO-HEAP CREATION ====================
+
+  /** Reusable allocation result — zero-alloc on hot path. */
+  private KeyValueLeafPage allocKvl;
+  private int allocSlotOffset;
+  private long allocNodeKey;
+
+  @Override
+  public void allocateForDocumentCreation() {
+    storageEngineReader.assertNotClosed();
+    final long nodeKey = newRevisionRootPage.incrementAndGetMaxNodeKeyInDocumentIndex();
+    final long recordPageKey = storageEngineReader.pageKey(nodeKey, IndexType.DOCUMENT);
+    final PageContainer cont = prepareRecordPage(recordPageKey, -1, IndexType.DOCUMENT);
+    this.allocKvl = (KeyValueLeafPage) cont.getModifiedAsKeyValuePage();
+    this.allocSlotOffset = (int) (nodeKey
+        - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+    this.allocNodeKey = nodeKey;
+  }
+
+  @Override
+  public KeyValueLeafPage getAllocKvl() { return allocKvl; }
+
+  @Override
+  public int getAllocSlotOffset() { return allocSlotOffset; }
+
+  @Override
+  public long getAllocNodeKey() { return allocNodeKey; }
+
   @Override
   public DataRecord createRecord(@NonNull final DataRecord record, @NonNull final IndexType indexType,
       @NonNegative final int index) {

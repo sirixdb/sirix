@@ -202,6 +202,37 @@ public interface StorageEngineWriter extends StorageEngineReader {
   }
 
   /**
+   * Allocate a record key and resolve the KVL page for direct-to-heap creation.
+   * After this call, read results from {@link #getAllocKvl()}, {@link #getAllocSlotOffset()},
+   * {@link #getAllocNodeKey()}.
+   * <p>Only supports DOCUMENT index (the hot path). Other index types use createRecord().</p>
+   */
+  default void allocateForDocumentCreation() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Get the KVL page from the last {@link #allocateForDocumentCreation()} call.
+   */
+  default KeyValueLeafPage getAllocKvl() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Get the slot offset from the last {@link #allocateForDocumentCreation()} call.
+   */
+  default int getAllocSlotOffset() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Get the node key from the last {@link #allocateForDocumentCreation()} call.
+   */
+  default long getAllocNodeKey() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
    * Get the underlying {@link StorageEngineReader}.
    *
    * @return the {@link StorageEngineReader} reference
