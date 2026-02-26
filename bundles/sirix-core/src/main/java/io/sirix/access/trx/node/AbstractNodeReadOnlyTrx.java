@@ -668,12 +668,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       fn.bind(page.getSlottedPage(), recordBase, nodeKey, slotOffset);
       // Propagate FSST symbol table for compressed string nodes
       propagateFsstToFlyweight(fn, page);
-      // Propagate DeweyID from page to flyweight node (stored inline after record data)
+      // Propagate DeweyID from page to flyweight node (stored inline after record data).
+      // setDeweyIDBytes stores raw bytes lazily — no SirixDeweyID parsing until getDeweyID() called.
+      // MUST always set (even null) to clear stale DeweyID from previous singleton reuse.
       if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
-        final byte[] deweyId = page.getDeweyIdAsByteArray(slotOffset);
-        if (deweyId != null) {
-          node.setDeweyID(new SirixDeweyID(deweyId));
-        }
+        node.setDeweyIDBytes(page.getDeweyIdAsByteArray(slotOffset));
       }
     } else {
       // Legacy format: populate from serialized data (NO ALLOCATION)
@@ -794,12 +793,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       fn.bind(page.getSlottedPage(), recordBase, nodeKey, slotOff);
       // Propagate FSST symbol table for compressed string nodes
       propagateFsstToFlyweight(fn, page);
-      // Propagate DeweyID from page to flyweight node (stored inline after record data)
+      // Propagate DeweyID from page to flyweight node (stored inline after record data).
+      // setDeweyIDBytes stores raw bytes lazily — no SirixDeweyID parsing until getDeweyID() called.
+      // MUST always set (even null) to clear stale DeweyID from previous singleton reuse.
       if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
-        final byte[] deweyId = page.getDeweyIdAsByteArray(slotOff);
-        if (deweyId != null) {
-          node.setDeweyID(new SirixDeweyID(deweyId));
-        }
+        node.setDeweyIDBytes(page.getDeweyIdAsByteArray(slotOff));
       }
     } else {
       // Legacy format: populate from serialized data (NO ALLOCATION)
@@ -905,11 +903,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       final int heapOffset = PageLayout.getDirHeapOffset(sp, slotOffset);
       final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
       fn.bind(sp, recordBase, nodeKey, slotOffset);
+      // Propagate DeweyID lazily — no SirixDeweyID parsing until getDeweyID() called.
+      // MUST always set (even null) to clear stale DeweyID from previous singleton reuse.
       if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
-        final byte[] deweyId = page.getDeweyIdAsByteArray(slotOffset);
-        if (deweyId != null) {
-          node.setDeweyID(new SirixDeweyID(deweyId));
-        }
+        node.setDeweyIDBytes(page.getDeweyIdAsByteArray(slotOffset));
       }
     } else {
       // Legacy format: populate singleton from serialized data (NO ALLOCATION)

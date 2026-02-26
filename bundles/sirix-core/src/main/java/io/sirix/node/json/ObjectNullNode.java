@@ -409,6 +409,12 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Flyw
   }
 
   @Override
+  public void setDeweyIDBytes(final byte[] bytes) {
+    this.deweyIDBytes = bytes;
+    this.sirixDeweyID = null;
+  }
+
+  @Override
   public void setPreviousRevision(final int revision) {
     if (page != null) {
       final int fieldOff = page.get(ValueLayout.JAVA_BYTE,

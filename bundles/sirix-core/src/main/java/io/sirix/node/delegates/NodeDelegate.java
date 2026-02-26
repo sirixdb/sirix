@@ -246,6 +246,13 @@ public class NodeDelegate implements Node {
   @Override
   public void setDeweyID(final SirixDeweyID id) {
     sirixDeweyID = id;
+    deweyIDData = null;
+  }
+
+  @Override
+  public void setDeweyIDBytes(final byte[] bytes) {
+    this.deweyIDData = bytes;
+    this.sirixDeweyID = null;
   }
 
   @Override

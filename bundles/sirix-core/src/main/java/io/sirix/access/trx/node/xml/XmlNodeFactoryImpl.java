@@ -9,8 +9,6 @@ import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
-import io.sirix.node.interfaces.FlyweightNode;
-import io.sirix.node.interfaces.Node;
 import io.sirix.node.xml.AttributeNode;
 import io.sirix.node.xml.CommentNode;
 import io.sirix.node.xml.ElementNode;
@@ -169,7 +167,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         reusableElementNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
         NULL_KEY, NULL_KEY, pathNodeKey, prefixKey, localNameKey, uriKey,
         Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0);
-    kvl.completeDirectWrite(reusableElementNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    kvl.completeDirectWrite(NodeKind.ELEMENT.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableElementNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
+    reusableElementNode.setOwnerPage(kvl);
     reusableElementNode.setDeweyIDAfterCreation(id, deweyIdBytes);
     reusableElementNode.setName(name);
     return reusableElementNode;
@@ -195,7 +195,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final int recordBytes = TextNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableTextNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
         Constants.NULL_REVISION_NUMBER, revisionNumber, 0, compressedValue, compression);
-    kvl.completeDirectWrite(reusableTextNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    kvl.completeDirectWrite(NodeKind.TEXT.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableTextNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
+    reusableTextNode.setOwnerPage(kvl);
     reusableTextNode.setDeweyIDAfterCreation(id, deweyIdBytes);
     return reusableTextNode;
   }
@@ -220,7 +222,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         reusableAttributeNode.getHeapOffsets(), nodeKey, parentKey, pathNodeKey,
         prefixKey, localNameKey, uriKey,
         Constants.NULL_REVISION_NUMBER, revisionNumber, 0, value);
-    kvl.completeDirectWrite(reusableAttributeNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    kvl.completeDirectWrite(NodeKind.ATTRIBUTE.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableAttributeNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
+    reusableAttributeNode.setOwnerPage(kvl);
     reusableAttributeNode.setDeweyIDAfterCreation(id, deweyIdBytes);
     reusableAttributeNode.setName(name);
     return reusableAttributeNode;
@@ -246,7 +250,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         reusableNamespaceNode.getHeapOffsets(), nodeKey, parentKey, pathNodeKey,
         prefixKey, -1, uriKey,
         Constants.NULL_REVISION_NUMBER, revisionNumber, 0);
-    kvl.completeDirectWrite(reusableNamespaceNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    kvl.completeDirectWrite(NodeKind.NAMESPACE.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableNamespaceNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
+    reusableNamespaceNode.setOwnerPage(kvl);
     reusableNamespaceNode.setDeweyIDAfterCreation(id, deweyIdBytes);
     reusableNamespaceNode.setName(name);
     return reusableNamespaceNode;
@@ -278,7 +284,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
         NULL_KEY, NULL_KEY, pathNodeKey, prefixKey, localNameKey, uriKey,
         Constants.NULL_REVISION_NUMBER, revisionNumber, 0, 0, 0,
         compressedContent, compression);
-    kvl.completeDirectWrite(reusablePINode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    kvl.completeDirectWrite(NodeKind.PROCESSING_INSTRUCTION.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusablePINode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
+    reusablePINode.setOwnerPage(kvl);
     reusablePINode.setDeweyIDAfterCreation(id, deweyIdBytes);
     reusablePINode.setName(target);
     return reusablePINode;
@@ -304,7 +312,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     final int recordBytes = CommentNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableCommentNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
         Constants.NULL_REVISION_NUMBER, revisionNumber, 0, compressedValue, compression);
-    kvl.completeDirectWrite(reusableCommentNode, nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    kvl.completeDirectWrite(NodeKind.COMMENT.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
+    reusableCommentNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
+    reusableCommentNode.setOwnerPage(kvl);
     reusableCommentNode.setDeweyIDAfterCreation(id, deweyIdBytes);
     return reusableCommentNode;
   }
@@ -325,45 +335,58 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
       return null;
     }
     final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, offset);
-    final FlyweightNode singleton = selectSingleton(nodeKindId);
-    if (singleton == null) {
-      return null;
-    }
-    // Skip isBound()/unbind() — bind() overwrites all fields unconditionally,
-    // and we avoid 2 megamorphic interface calls (itable stubs) per bind.
     final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, offset);
     final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
-    singleton.bind(slottedPage, recordBase, nodeKey, offset);
-    singleton.setOwnerPage(null); // Clear STALE owner from previous binding
+    final byte[] deweyIdBytes = page.getDeweyIdAsByteArray(offset);
 
-    // Propagate DeweyID — safe because ownerPage is null (no write-through).
-    // MUST always set — null clears stale DeweyID from previous singleton reuse.
-    if (singleton instanceof Node node) {
-      final byte[] deweyIdBytes = page.getDeweyIdAsByteArray(offset);
-      node.setDeweyID(deweyIdBytes != null ? new SirixDeweyID(deweyIdBytes) : null);
-    }
-
-    singleton.setOwnerPage(page); // Set CORRECT owner LAST
-
-    return (DataRecord) singleton;
-  }
-
-  /**
-   * Select the factory write singleton for a given nodeKindId.
-   *
-   * @param nodeKindId the node kind ID from the page directory
-   * @return the singleton, or null if not a managed XML type
-   */
-  private FlyweightNode selectSingleton(final int nodeKindId) {
+    // Concrete-type switch eliminates 3 itable stubs per bind (bind, setDeweyIDBytes, setOwnerPage).
+    // Each case is monomorphic — JVM can inline directly.
+    // setDeweyIDBytes stores raw bytes lazily (no SirixDeweyID parsing).
+    // No setOwnerPage(null) needed — setDeweyIDBytes doesn't trigger resize.
     return switch (nodeKindId) {
-      case 1 -> reusableElementNode;               // ELEMENT
-      case 2 -> reusableAttributeNode;              // ATTRIBUTE
-      case 3 -> reusableTextNode;                   // TEXT
-      case 7 -> reusablePINode;                     // PROCESSING_INSTRUCTION
-      case 8 -> reusableCommentNode;                // COMMENT
-      case 9 -> reusableXmlDocumentRootNode;        // XML_DOCUMENT
-      case 13 -> reusableNamespaceNode;             // NAMESPACE
-      default -> null;                              // Not an XML type or not managed
+      case 1 -> { // ELEMENT
+        reusableElementNode.bind(slottedPage, recordBase, nodeKey, offset);
+        reusableElementNode.setDeweyIDBytes(deweyIdBytes);
+        reusableElementNode.setOwnerPage(page);
+        yield reusableElementNode;
+      }
+      case 2 -> { // ATTRIBUTE
+        reusableAttributeNode.bind(slottedPage, recordBase, nodeKey, offset);
+        reusableAttributeNode.setDeweyIDBytes(deweyIdBytes);
+        reusableAttributeNode.setOwnerPage(page);
+        yield reusableAttributeNode;
+      }
+      case 3 -> { // TEXT
+        reusableTextNode.bind(slottedPage, recordBase, nodeKey, offset);
+        reusableTextNode.setDeweyIDBytes(deweyIdBytes);
+        reusableTextNode.setOwnerPage(page);
+        yield reusableTextNode;
+      }
+      case 7 -> { // PROCESSING_INSTRUCTION
+        reusablePINode.bind(slottedPage, recordBase, nodeKey, offset);
+        reusablePINode.setDeweyIDBytes(deweyIdBytes);
+        reusablePINode.setOwnerPage(page);
+        yield reusablePINode;
+      }
+      case 8 -> { // COMMENT
+        reusableCommentNode.bind(slottedPage, recordBase, nodeKey, offset);
+        reusableCommentNode.setDeweyIDBytes(deweyIdBytes);
+        reusableCommentNode.setOwnerPage(page);
+        yield reusableCommentNode;
+      }
+      case 9 -> { // XML_DOCUMENT
+        reusableXmlDocumentRootNode.bind(slottedPage, recordBase, nodeKey, offset);
+        reusableXmlDocumentRootNode.setDeweyIDBytes(deweyIdBytes);
+        reusableXmlDocumentRootNode.setOwnerPage(page);
+        yield reusableXmlDocumentRootNode;
+      }
+      case 13 -> { // NAMESPACE
+        reusableNamespaceNode.bind(slottedPage, recordBase, nodeKey, offset);
+        reusableNamespaceNode.setDeweyIDBytes(deweyIdBytes);
+        reusableNamespaceNode.setOwnerPage(page);
+        yield reusableNamespaceNode;
+      }
+      default -> null;
     };
   }
 }

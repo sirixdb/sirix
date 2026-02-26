@@ -659,13 +659,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * heap counters, and flyweight binding. Called after the caller has written the record
    * bytes via a static writeNewRecord method.
    *
-   * @param fn           the flyweight singleton to bind
+   * @param nodeKindId   the node kind ID (e.g. NodeKind.OBJECT.getId())
    * @param nodeKey      the node key
    * @param slotOffset   the slot index (0-1023)
    * @param recordBytes  number of bytes written by writeNewRecord
    * @param deweyIdBytes DeweyID bytes (null if not stored)
    */
-  public void completeDirectWrite(final FlyweightNode fn, final long nodeKey,
+  public void completeDirectWrite(final int nodeKindId, final long nodeKey,
       final int slotOffset, final int recordBytes, final byte[] deweyIdBytes) {
     addedReferences = false;
     compressedSegment = null;
@@ -693,8 +693,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     PageLayout.setHeapUsed(slottedPage, PageLayout.getHeapUsed(slottedPage) + totalBytes);
 
     // Directory entry
-    PageLayout.setDirEntry(slottedPage, slotOffset, heapEnd, totalBytes,
-        ((NodeKind) fn.getKind()).getId());
+    PageLayout.setDirEntry(slottedPage, slotOffset, heapEnd, totalBytes, nodeKindId);
 
     // Bitmap
     if (!PageLayout.isSlotPopulated(slottedPage, slotOffset)) {
@@ -703,10 +702,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
           PageLayout.getPopulatedCount(slottedPage) + 1);
       lastSlotIndex = slotOffset;
     }
-
-    // Bind flyweight — all subsequent mutations go directly to page memory
-    fn.bind(slottedPage, absOffset, nodeKey, slotOffset);
-    fn.setOwnerPage(this);
+    // NOTE: Caller is responsible for binding the flyweight and setting ownerPage.
+    // This eliminates interface dispatch (itable stubs) by letting the caller call
+    // bind()/setOwnerPage() on the concrete type directly.
   }
 
   /**

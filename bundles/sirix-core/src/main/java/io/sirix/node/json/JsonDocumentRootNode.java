@@ -731,6 +731,12 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
     this.deweyIDBytes = null;
   }
 
+  @Override
+  public void setDeweyIDBytes(final byte[] bytes) {
+    this.deweyIDBytes = bytes;
+    this.sirixDeweyID = null;
+  }
+
   /**
    * Get the hash function.
    *
