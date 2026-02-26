@@ -63,8 +63,6 @@ public abstract class AbstractStringNode extends AbstractStructForwardingNode im
          .writeLong(nodeDelegate.getParentKey())
          .writeByte(nodeDelegate.getKind().getId());
 
-    bytes.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey());
-
     bytes.writeUtf8(new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING));
 
     return bytes.hashDirect(nodeDelegate.getHashFunction());

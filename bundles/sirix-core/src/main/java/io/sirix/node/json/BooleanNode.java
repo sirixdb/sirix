@@ -508,16 +508,6 @@ public final class BooleanNode implements StructNode, ImmutableJsonNode, Boolean
          .writeLong(getParentKey())
          .writeByte(getKind().getId());
 
-    bytes.writeLong(getChildCount())
-         .writeLong(getDescendantCount())
-         .writeLong(getLeftSiblingKey())
-         .writeLong(getRightSiblingKey())
-         .writeLong(getFirstChildKey());
-
-    if (getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(getLastChildKey());
-    }
-
     bytes.writeBoolean(getValue());
 
     return bytes.hashDirect(hashFunction);

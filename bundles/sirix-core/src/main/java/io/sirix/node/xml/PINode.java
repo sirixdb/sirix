@@ -1196,14 +1196,6 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
       return 0L;
     bytes.clear();
     bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
-    bytes.writeLong(getChildCount())
-         .writeLong(getDescendantCount())
-         .writeLong(getLeftSiblingKey())
-         .writeLong(getRightSiblingKey())
-         .writeLong(getFirstChildKey());
-    if (getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(getLastChildKey());
-    }
     bytes.writeInt(getPrefixKey()).writeInt(getLocalNameKey()).writeInt(getURIKey());
     final byte[] rawValue = getRawValue();
     if (rawValue != null) {

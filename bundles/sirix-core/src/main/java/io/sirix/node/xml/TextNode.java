@@ -803,7 +803,6 @@ public final class TextNode implements StructNode, ValueNode, ImmutableXmlNode, 
     bytes.clear();
     bytes.writeLong(nodeKey).writeLong(getParentKey()).writeByte(NodeKind.TEXT.getId());
 
-    bytes.writeLong(getLeftSiblingKey()).writeLong(getRightSiblingKey());
     bytes.write(getRawValue());
 
     return bytes.hashDirect(hashFunction);

@@ -569,9 +569,6 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
          .writeLong(getParentKey())
          .writeByte(getKind().getId());
 
-    bytes.writeLong(getLeftSiblingKey())
-         .writeLong(getRightSiblingKey());
-
     final byte[] rawValue = getRawValue();
     if (rawValue != null) {
       bytes.write(rawValue);

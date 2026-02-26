@@ -31,7 +31,6 @@ package io.sirix.node.json;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
-import io.sirix.settings.Fixed;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.xml.AbstractStructForwardingNode;
@@ -56,16 +55,6 @@ public abstract class AbstractNullNode extends AbstractStructForwardingNode impl
     bytes.writeLong(nodeDelegate.getNodeKey())
          .writeLong(nodeDelegate.getParentKey())
          .writeByte(nodeDelegate.getKind().getId());
-
-    bytes.writeLong(structNodeDelegate.getChildCount())
-         .writeLong(structNodeDelegate.getDescendantCount())
-         .writeLong(structNodeDelegate.getLeftSiblingKey())
-         .writeLong(structNodeDelegate.getRightSiblingKey())
-         .writeLong(structNodeDelegate.getFirstChildKey());
-
-    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(structNodeDelegate.getLastChildKey());
-    }
 
     return bytes.hashDirect(nodeDelegate.getHashFunction());
   }

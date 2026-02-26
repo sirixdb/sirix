@@ -874,7 +874,6 @@ public final class CommentNode implements StructNode, ValueNode, ImmutableXmlNod
     bytes.clear();
     bytes.writeLong(nodeKey).writeLong(getParentKey()).writeByte(NodeKind.COMMENT.getId());
 
-    bytes.writeLong(getLeftSiblingKey()).writeLong(getRightSiblingKey());
     bytes.writeUtf8(new String(getRawValue(), Constants.DEFAULT_ENCODING));
 
     return bytes.hashDirect(hashFunction);
