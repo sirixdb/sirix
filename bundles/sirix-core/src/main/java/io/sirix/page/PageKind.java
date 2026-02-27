@@ -97,8 +97,8 @@ public enum PageKind {
       final MemorySegmentAllocator memorySegmentAllocator =
           OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
 
-      // 1. Read header (32B) + bitmap (128B) — 160 bytes
-      final byte[] headerBitmapBytes = new byte[PageLayout.DIR_OFF];
+      // 1. Read header (32B) + bitmap (128B) — 160 bytes (on-disk format, never changes)
+      final byte[] headerBitmapBytes = new byte[PageLayout.DISK_HEADER_BITMAP_SIZE];
       source.read(headerBitmapBytes);
       final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
       final int populatedCount = PageLayout.getPopulatedCount(headerBitmapSeg);
@@ -116,13 +116,16 @@ public enum PageKind {
       final int allocSize = Math.max(PageLayout.HEAP_START + heapSize, PageLayout.INITIAL_PAGE_SIZE);
       final MemorySegment slottedPage = memorySegmentAllocator.allocate(allocSize);
 
-      // 5. Copy header + bitmap into page
-      MemorySegment.copy(headerBitmapSeg, 0, slottedPage, 0, PageLayout.DIR_OFF);
+      // 5. Copy header + bitmap into page (first 160 bytes)
+      MemorySegment.copy(headerBitmapSeg, 0, slottedPage, 0, PageLayout.DISK_HEADER_BITMAP_SIZE);
 
-      // 6. Zero-fill directory region (will be rebuilt from compact dir)
+      // 6. Zero-fill preservation bitmap region (runtime-only, never on disk)
+      slottedPage.asSlice(PageLayout.PRESERVATION_BITMAP_OFF, PageLayout.PRESERVATION_BITMAP_SIZE).fill((byte) 0);
+
+      // 7. Zero-fill directory region (will be rebuilt from compact dir)
       slottedPage.asSlice(PageLayout.DIR_OFF, PageLayout.DIR_SIZE).fill((byte) 0);
 
-      // 7. Read heap data into page at HEAP_START
+      // 8. Read heap data into page at HEAP_START
       if (source instanceof MemorySegmentBytesIn msSource) {
         MemorySegment.copy(msSource.getSource(), source.position(), slottedPage, PageLayout.HEAP_START, heapSize);
         source.skip(heapSize);
@@ -132,13 +135,13 @@ public enum PageKind {
         MemorySegment.copy(heapData, 0, slottedPage, ValueLayout.JAVA_BYTE, PageLayout.HEAP_START, heapData.length);
       }
 
-      // 8. Zero-fill remainder of allocated page
+      // 9. Zero-fill remainder of allocated page
       final long usedEnd = PageLayout.HEAP_START + heapSize;
       if (allocSize > usedEnd) {
         slottedPage.asSlice(usedEnd, allocSize - usedEnd).fill((byte) 0);
       }
 
-      // 9. Rebuild full directory via prefix sums from compact dir entries
+      // 10. Rebuild full directory via prefix sums from compact dir entries
       int entryIdx = 0;
       int heapOffset = 0;
       for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
@@ -155,7 +158,7 @@ public enum PageKind {
         }
       }
 
-      // 10. Set heapEnd and heapUsed (both = heapSize since deserialized heap is contiguous/defragmented)
+      // 11. Set heapEnd and heapUsed (both = heapSize since deserialized heap is contiguous/defragmented)
       PageLayout.setHeapEnd(slottedPage, heapSize);
       PageLayout.setHeapUsed(slottedPage, heapSize);
 
@@ -189,7 +192,7 @@ public enum PageKind {
       final KeyValueLeafPage page = new KeyValueLeafPage(
           recordPageKey, revision, indexType, resourceConfig,
           areDeweyIDsStored, recordPersister, references,
-          dummySlotMemory, null, -1, -1);
+          dummySlotMemory, null, -1);
 
       page.setSlottedPage(slottedPage);
 
@@ -243,14 +246,11 @@ public enum PageKind {
       // Write compact on-disk format: header+bitmap, compact dir, heap (no 8KB slot directory)
       final MemorySegment slottedPage = keyValueLeafPage.getSlottedPage();
 
-      // 1. Write header (32B) + bitmap (128B) — 160 bytes
-      sink.writeSegment(slottedPage, 0, PageLayout.DIR_OFF);
+      // 1. Write header (32B) + bitmap (128B) — 160 bytes (on-disk format, never changes)
+      sink.writeSegment(slottedPage, 0, PageLayout.DISK_HEADER_BITMAP_SIZE);
 
-      // 2. Single-pass bitmap scan: write compact dir entries, collect heap copy info
+      // 2. First pass bitmap scan: write compact dir entries, compute total heap size
       final int populatedCount = PageLayout.getPopulatedCount(slottedPage);
-      final int[] slotHeapOffsets = new int[populatedCount];
-      final int[] slotDataLengths = new int[populatedCount];
-      int entryIdx = 0;
       int totalHeapSize = 0;
 
       for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
@@ -261,10 +261,7 @@ public enum PageKind {
           final int dataLength = PageLayout.getDirDataLength(slottedPage, slot);
           final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, slot);
           sink.writeInt(PageLayout.packCompactDirEntry(dataLength, nodeKindId));
-          slotHeapOffsets[entryIdx] = PageLayout.getDirHeapOffset(slottedPage, slot);
-          slotDataLengths[entryIdx] = dataLength;
           totalHeapSize += dataLength;
-          entryIdx++;
           word &= word - 1; // clear lowest set bit
         }
       }
@@ -272,9 +269,19 @@ public enum PageKind {
       // 3. Write heap size
       sink.writeInt(totalHeapSize);
 
-      // 4. Write heap data: slot by slot in bitmap order (contiguous on disk)
-      for (int i = 0; i < populatedCount; i++) {
-        sink.writeSegment(slottedPage, PageLayout.HEAP_START + slotHeapOffsets[i], slotDataLengths[i]);
+      // 4. Second pass bitmap scan: write heap data slot-by-slot in bitmap order (contiguous on disk)
+      if (populatedCount > 0) {
+        for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+          long word = PageLayout.getBitmapWord(slottedPage, w);
+          while (word != 0) {
+            final int bit = Long.numberOfTrailingZeros(word);
+            final int slot = (w << 6) | bit;
+            final int dataLength = PageLayout.getDirDataLength(slottedPage, slot);
+            final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, slot);
+            sink.writeSegment(slottedPage, PageLayout.HEAP_START + heapOffset, dataLength);
+            word &= word - 1; // clear lowest set bit
+          }
+        }
       }
 
       // Write overlong entries

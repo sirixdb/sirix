@@ -399,6 +399,40 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getPathNodeKey() {
     assertNotClosed();
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton != null) {
+      if (currentSingleton instanceof NameNode nameNode) {
+        return nameNode.getPathNodeKey();
+      }
+      if (currentSingleton instanceof ObjectKeyNode objectKeyNode) {
+        return objectKeyNode.getPathNodeKey();
+      }
+      if (currentSingleton instanceof ArrayNode arrayNode) {
+        return arrayNode.getPathNodeKey();
+      }
+      if (currentNodeKind == NodeKind.XML_DOCUMENT || currentNodeKind == NodeKind.JSON_DOCUMENT) {
+        return 0;
+      }
+      return -1;
+    }
+
+    if (FLYWEIGHT_ENABLED && flyweightMode) {
+      if (cachedFieldOffsets[FIELD_PATH_NODE_KEY] >= 0) {
+        return DeltaVarIntCodec.decodeDeltaFromSegment(currentSlot, cachedFieldOffsets[FIELD_PATH_NODE_KEY], currentNodeKey);
+      }
+
+      if (currentNodeKind == NodeKind.XML_DOCUMENT || currentNodeKind == NodeKind.JSON_DOCUMENT) {
+        return 0;
+      }
+
+      if (currentNodeKind == NodeKind.OBJECT || currentNodeKind == NodeKind.STRING_VALUE
+          || currentNodeKind == NodeKind.NUMBER_VALUE || currentNodeKind == NodeKind.BOOLEAN_VALUE
+          || currentNodeKind == NodeKind.NULL_VALUE || currentNodeKind == NodeKind.OBJECT_STRING_VALUE
+          || currentNodeKind == NodeKind.OBJECT_NUMBER_VALUE || currentNodeKind == NodeKind.OBJECT_BOOLEAN_VALUE
+          || currentNodeKind == NodeKind.OBJECT_NULL_VALUE) {
+        return -1;
+      }
+    }
+
     final ImmutableNode node = getCurrentNode();
     if (node instanceof NameNode) {
       return ((NameNode) node).getPathNodeKey();

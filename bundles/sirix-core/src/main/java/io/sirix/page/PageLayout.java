@@ -11,25 +11,26 @@ import java.lang.foreign.ValueLayout;
  * <p>All page metadata, slot directory, and record data live in a single contiguous
  * {@link MemorySegment}. In-memory format = on-disk format. ZERO conversion at commit time.
  *
- * <h2>Page Layout</h2>
+ * <h2>Page Layout (Runtime)</h2>
  * <pre>
- * Offset   Size      Field
- * ──────── ───────── ──────────────────────
- * 0        8         recordPageKey (long)
- * 8        4         revision (int)
- * 12       2         populatedCount (u16)
- * 14       4         heapEnd (int, relative to HEAP_START)
- * 18       4         heapUsed (int, bytes of live data)
- * 22       1         indexType (byte)
- * 23       1         flags (bit 0: areDeweyIDsStored, bit 1: hasFsstTable)
- * 24       8         reserved
- * ──────── ───────── ──────────────────────
- * 32       128       slotBitmap (16 longs = 1024 bits)
- * ──────── ───────── ──────────────────────
- * 160      8192      slotDirectory (1024 × 8 bytes)
- *                      [heapOffset:4][dataLength:3 + nodeKindId:1]
- * ──────── ───────── ──────────────────────
- * 8352     ...       heap (bump-allocated forward, compact varint records)
+ * Offset   Size      Field                      Disk?
+ * ──────── ───────── ────────────────────────── ─────
+ * 0        8         recordPageKey (long)        YES
+ * 8        4         revision (int)              YES
+ * 12       2         populatedCount (u16)        YES
+ * 14       4         heapEnd (int)               YES
+ * 18       4         heapUsed (int)              YES
+ * 22       1         indexType (byte)             YES
+ * 23       1         flags                       YES
+ * 24       8         reserved                    YES
+ * ──────── ───────── ────────────────────────── ─────
+ * 32       128       slotBitmap (1024 bits)      YES
+ * ─── DISK_HEADER_BITMAP_SIZE = 160 ────────── ─────
+ * 160      128       preservationBitmap          NO (runtime-only)
+ * ──────── ───────── ────────────────────────── ─────
+ * 288      8192      slotDirectory (1024 × 8B)   NO (rebuilt on read)
+ * ──────── ───────── ────────────────────────── ─────
+ * 8480     ...       heap                        YES (slot-by-slot)
  * </pre>
  *
  * <h2>Slot Directory Entry (8 bytes each)</h2>
@@ -111,10 +112,26 @@ public final class PageLayout {
   /** Total size of the bitmap region in bytes. */
   public static final int BITMAP_SIZE = BITMAP_WORDS * Long.BYTES; // 128
 
+  // ==================== DISK FORMAT BOUNDARY ====================
+
+  /**
+   * Size of the on-disk header + bitmap region (V0 format).
+   * The serializer writes exactly these bytes to disk. NEVER changes.
+   */
+  public static final int DISK_HEADER_BITMAP_SIZE = HEADER_SIZE + BITMAP_SIZE; // 160
+
+  // ==================== PRESERVATION BITMAP (runtime-only, 128 bytes) ====================
+
+  /** Offset where the runtime-only preservation bitmap starts. */
+  public static final int PRESERVATION_BITMAP_OFF = DISK_HEADER_BITMAP_SIZE; // 160
+
+  /** Total size of the preservation bitmap region in bytes. */
+  public static final int PRESERVATION_BITMAP_SIZE = BITMAP_WORDS * Long.BYTES; // 128
+
   // ==================== SLOT DIRECTORY LAYOUT (8192 bytes) ====================
 
-  /** Offset where the slot directory starts. */
-  public static final int DIR_OFF = BITMAP_OFF + BITMAP_SIZE; // 160
+  /** Offset where the slot directory starts (after preservation bitmap). */
+  public static final int DIR_OFF = PRESERVATION_BITMAP_OFF + PRESERVATION_BITMAP_SIZE; // 288
 
   /** Size of each directory entry in bytes. */
   public static final int DIR_ENTRY_SIZE = 8;
@@ -148,7 +165,7 @@ public final class PageLayout {
   // ==================== HEAP LAYOUT ====================
 
   /** Offset where the heap region starts (bump-allocated forward). */
-  public static final int HEAP_START = DIR_OFF + DIR_SIZE; // 8352
+  public static final int HEAP_START = DIR_OFF + DIR_SIZE; // 8480
 
   // ==================== DIRECTORY ENTRY FIELD OFFSETS ====================
 
@@ -171,6 +188,13 @@ public final class PageLayout {
 
   private static final ValueLayout.OfShort JAVA_SHORT_UNALIGNED =
       ValueLayout.JAVA_SHORT.withByteAlignment(1);
+
+  // ==================== STATIC ASSERTIONS ====================
+
+  static {
+    assert DISK_HEADER_BITMAP_SIZE == HEADER_SIZE + BITMAP_SIZE
+        : "DISK_HEADER_BITMAP_SIZE must equal HEADER_SIZE + BITMAP_SIZE";
+  }
 
   // ==================== HEADER ACCESSORS ====================
 
@@ -316,6 +340,47 @@ public final class PageLayout {
     for (int i = 0; i < BITMAP_WORDS; i++) {
       setBitmapWord(page, i, src[i]);
     }
+  }
+
+  // ==================== PRESERVATION BITMAP ACCESSORS ====================
+
+  /**
+   * Check if a slot is marked for preservation in the runtime-only preservation bitmap.
+   * Used by DIFFERENTIAL/INCREMENTAL/SLIDING_SNAPSHOT versioning at commit time.
+   */
+  public static boolean isSlotPreserved(final MemorySegment page, final int slotIndex) {
+    final long word = page.get(JAVA_LONG_UNALIGNED,
+        PRESERVATION_BITMAP_OFF + ((long) (slotIndex >>> 6) << 3));
+    return (word & (1L << (slotIndex & 63))) != 0;
+  }
+
+  /**
+   * Mark a slot for preservation in the runtime-only preservation bitmap.
+   */
+  public static void markSlotPreserved(final MemorySegment page, final int slotIndex) {
+    final int wordIndex = slotIndex >>> 6;
+    final long offset = PRESERVATION_BITMAP_OFF + ((long) wordIndex << 3);
+    final long word = page.get(JAVA_LONG_UNALIGNED, offset);
+    page.set(JAVA_LONG_UNALIGNED, offset, word | (1L << (slotIndex & 63)));
+  }
+
+  /**
+   * Clear the entire preservation bitmap (set all 128 bytes to 0).
+   */
+  public static void clearPreservationBitmap(final MemorySegment page) {
+    page.asSlice(PRESERVATION_BITMAP_OFF, PRESERVATION_BITMAP_SIZE).fill((byte) 0);
+  }
+
+  /**
+   * Check if any slot is marked for preservation.
+   */
+  public static boolean hasPreservedSlots(final MemorySegment page) {
+    for (int i = 0; i < BITMAP_WORDS; i++) {
+      if (page.get(JAVA_LONG_UNALIGNED, PRESERVATION_BITMAP_OFF + ((long) i << 3)) != 0) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // ==================== SLOT DIRECTORY ACCESSORS ====================

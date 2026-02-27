@@ -1,7 +1,6 @@
 package io.sirix.page;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
@@ -49,7 +48,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 
 /**
  * <p>
@@ -63,8 +61,6 @@ import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(KeyValueLeafPage.class);
-  private static final int INT_SIZE = Integer.BYTES;
-  
   /**
    * SIMD vector species for bitmap operations.
    * Uses the preferred species for the current platform (256-bit AVX2 or 512-bit AVX-512).
@@ -182,25 +178,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
 
 
-  /**
-   * Start of free space for string values.
-   */
-  private int stringValueMemoryFreeSpaceStart;
 
   /**
    * The index of the last slot (the slot with the largest offset).
    */
   private int lastSlotIndex;
 
-  /**
-   * The index of the last slot (the slot with the largest offset).
-   */
-  private int lastDeweyIdIndex;
-
-  /**
-   * The index of the last string value slot.
-   */
-  private int lastStringValueIndex;
 
   /**
    * Determines if references to {@link OverflowPage}s have been added or not.
@@ -219,15 +202,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   /**
    * The record-ID mapped to the records.
+   * Lazily allocated on first write to save ~8KB per page when FlyweightNode
+   * records go directly to the slotted page heap (zero records[] path).
    */
-  private final DataRecord[] records;
+  private DataRecord[] records;
+
+  private static final DataRecord[] EMPTY_RECORDS = new DataRecord[0];
+
+  private void ensureRecords() {
+    if (records == null) {
+      records = new DataRecord[Constants.NDP_NODE_COUNT];
+    }
+  }
 
 
-  /**
-   * Memory segment for string values (columnar storage for better compression).
-   * Stores all string content contiguously, separate from node metadata.
-   */
-  private MemorySegment stringValueMemory;
 
   /**
    * FSST symbol table for string compression (shared across all strings in page).
@@ -242,30 +230,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private final ObjectStringNode fsstObjStringFlyweight = new ObjectStringNode(0, null);
 
 
-  /**
-   * Offset array for string values (maps slot -> offset in stringValueMemory).
-   */
-  private final int[] stringValueOffsets;
-
-  /**
-   * Bitmap tracking which slots are populated (16 longs = 1024 bits).
-   * Used for O(k) iteration over populated slots instead of O(1024).
-   * Materialized from the slotted page bitmap when needed.
-   */
-  private final long[] slotBitmap;
 
   /**
    * Number of words in the slot bitmap (16 words * 64 bits = 1024 slots).
    */
   private static final int BITMAP_WORDS = 16;
 
-  /**
-   * Bitmap tracking which slots need preservation during lazy copy (16 longs = 1024 bits).
-   * Used by DIFFERENTIAL, INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning.
-   * Null means no preservation needed (e.g., INCREMENTAL non-full-dump or FULL versioning).
-   * At commit time, slots marked here but not in records[] are copied from completePageRef.
-   */
-  private long[] preservationBitmap;
 
   /**
    * Reference to the complete page for lazy slot copying at commit time.
@@ -296,8 +266,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
 
   private volatile byte[] hashCode;
-
-  private int hash;
 
   // Note: isClosed flag is now packed into stateFlags (bit 2) for lock-free access
 
@@ -374,20 +342,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     this.references = new ConcurrentHashMap<>();
     this.recordPageKey = recordPageKey;
-    this.records = new DataRecord[Constants.NDP_NODE_COUNT];
+    this.records = null;
     this.areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
     this.indexType = indexType;
     this.resourceConfig = resourceConfig;
     this.recordPersister = resourceConfig.recordPersister;
     this.revision = revisionNumber;
-    this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
-    this.slotBitmap = new long[BITMAP_WORDS];  // All bits initially 0 (no slots populated)
-    Arrays.fill(stringValueOffsets, -1);
 
     this.lastSlotIndex = -1;
-    this.lastDeweyIdIndex = -1;
-    this.stringValueMemoryFreeSpaceStart = 0;
-    this.lastStringValueIndex = -1;
     this.externallyAllocatedMemory = externallyAllocatedMemory;
 
     // Release passed-in legacy memory if not externally allocated (callers still pass it)
@@ -432,7 +394,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public KeyValueLeafPage(final long recordPageKey, final int revision, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final boolean areDeweyIDsStored,
       final RecordSerializer recordPersister, final Map<Long, PageReference> references, final MemorySegment slotMemory,
-      final MemorySegment deweyIdMemory, final int lastSlotIndex, final int lastDeweyIdIndex) {
+      final MemorySegment deweyIdMemory, final int lastSlotIndex) {
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = indexType;
@@ -440,18 +402,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     this.areDeweyIDsStored = areDeweyIDsStored;
     this.recordPersister = recordPersister;
     this.references = references;
-    this.records = new DataRecord[Constants.NDP_NODE_COUNT];
-    this.stringValueOffsets = new int[Constants.NDP_NODE_COUNT];
-    this.slotBitmap = new long[BITMAP_WORDS];  // Will be populated from slotted page bitmap
-    Arrays.fill(stringValueOffsets, -1);
-    this.stringValueMemoryFreeSpaceStart = 0;
-    this.lastStringValueIndex = -1;
+    this.records = null;
 
     this.lastSlotIndex = lastSlotIndex;
     // Memory allocated by global allocator (e.g., during deserialization) - release on close()
     this.externallyAllocatedMemory = false;
-
-    this.lastDeweyIdIndex = areDeweyIDsStored ? lastDeweyIdIndex : -1;
 
     // Release dummy slotMemory passed by callers (e.g., PageKind allocates a 1-byte dummy)
     if (slotMemory != null && slotMemory.byteSize() > 0) {
@@ -481,10 +436,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public int hashCode() {
-    if (hash == 0) {
-      hash = Objects.hashCode(recordPageKey, revision);
-    }
-    return hash;
+    // Manual primitive math — no Objects.hashCode() varargs/boxing
+    return (int) (recordPageKey ^ (recordPageKey >>> 32)) * 31 + revision;
   }
 
   @Override
@@ -502,7 +455,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public DataRecord getRecord(int offset) {
-    return records[offset];
+    return records != null ? records[offset] : null;
   }
 
   @Override
@@ -534,6 +487,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
     }
 
+    ensureRecords();
     records[offset] = record;
   }
 
@@ -558,6 +512,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     bytes = null;
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+    ensureRecords();
     records[offset] = record;
   }
 
@@ -1066,6 +1021,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * {@link io.sirix.access.trx.page.NodeStorageEngineReader#getValue}.
    */
   public void clearRecordsForGC() {
+    if (records == null) {
+      return;
+    }
     // Unbind flyweight nodes BEFORE clearing — cursors may still hold references.
     // Unbinding materializes all fields from page memory (still valid at this point)
     // into Java primitives, so reads after page release use correct field values.
@@ -1091,6 +1049,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public DataRecord[] records() {
+    ensureRecords();
     return records;
   }
 
@@ -1105,7 +1064,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @SuppressWarnings("rawtypes")
   @Override
   public <I extends Iterable<DataRecord>> I values() {
-    return (I) new ArrayIterator(records, records.length);
+    final DataRecord[] r = records;
+    return (I) new ArrayIterator(r != null ? r : EMPTY_RECORDS, r != null ? r.length : 0);
   }
 
   public Map<Long, PageReference> getReferencesMap() {
@@ -1138,10 +1098,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @param slotNumber the slot number to mark for preservation (0 to Constants.NDP_NODE_COUNT-1)
    */
   public void markSlotForPreservation(int slotNumber) {
-    if (preservationBitmap == null) {
-      preservationBitmap = new long[BITMAP_WORDS];
-    }
-    preservationBitmap[slotNumber >>> 6] |= (1L << (slotNumber & 63));
+    ensureSlottedPage();
+    PageLayout.markSlotPreserved(slottedPage, slotNumber);
   }
 
   /**
@@ -1151,26 +1109,34 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @return true if the slot needs preservation
    */
   public boolean isSlotMarkedForPreservation(int slotNumber) {
-    return preservationBitmap != null && 
-           (preservationBitmap[slotNumber >>> 6] & (1L << (slotNumber & 63))) != 0;
+    return slottedPage != null && PageLayout.isSlotPreserved(slottedPage, slotNumber);
   }
 
   /**
    * Get the preservation bitmap for testing/debugging.
+   * Returns a fresh copy from the slotted page MemorySegment.
    *
-   * @return the preservation bitmap, or null if no slots are marked
+   * @return a fresh long[16] copy, or null if slotted page is not initialized
    */
   public long[] getPreservationBitmap() {
-    return preservationBitmap;
+    if (slottedPage == null) {
+      return null;
+    }
+    final long[] copy = new long[BITMAP_WORDS];
+    for (int i = 0; i < BITMAP_WORDS; i++) {
+      copy[i] = slottedPage.get(ValueLayout.JAVA_LONG_UNALIGNED,
+          PageLayout.PRESERVATION_BITMAP_OFF + ((long) i << 3));
+    }
+    return copy;
   }
 
   /**
    * Check if any slots are marked for preservation.
    *
-   * @return true if preservation bitmap is set and has marked slots
+   * @return true if any slot in the preservation bitmap is set
    */
   public boolean hasPreservationSlots() {
-    return preservationBitmap != null;
+    return slottedPage != null && PageLayout.hasPreservedSlots(slottedPage);
   }
 
 
@@ -1233,37 +1199,32 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return lastSlotIndex;
   }
 
-  public int getLastDeweyIdIndex() {
-    return lastDeweyIdIndex;
-  }
 
 
   /**
    * Get the slot bitmap for O(k) iteration over populated slots.
-   * Bit i is set (1) iff slot i is populated (slotOffsets[i] >= 0).
-   * 
-   * @return the slot bitmap array (16 longs = 1024 bits, do not modify)
+   * Returns a mutable copy — callers may modify the returned array without
+   * affecting page state. Each call allocates a fresh array.
+   *
+   * @return a fresh long[16] copy of the bitmap (all zeros if page is closed)
    */
   public long[] getSlotBitmap() {
+    final long[] copy = new long[BITMAP_WORDS];
     if (slottedPage != null) {
-      // Materialize slotted page bitmap into the Java array for VersioningType compatibility
-      PageLayout.copyBitmapTo(slottedPage, slotBitmap);
+      PageLayout.copyBitmapTo(slottedPage, copy);
     }
-    return slotBitmap;
+    return copy;
   }
 
   /**
    * Check if a specific slot is populated using the bitmap.
    * This is O(1) and avoids memory access to slotOffsets.
-   * 
+   *
    * @param slotNumber the slot index (0-1023)
    * @return true if the slot is populated
    */
   public boolean hasSlot(int slotNumber) {
-    if (slottedPage != null) {
-      return PageLayout.isSlotPopulated(slottedPage, slotNumber);
-    }
-    return (slotBitmap[slotNumber >>> 6] & (1L << (slotNumber & 63))) != 0;
+    return slottedPage != null && PageLayout.isSlotPopulated(slottedPage, slotNumber);
   }
 
   /**
@@ -1298,9 +1259,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Second pass: collect slot indices using Brian Kernighan's algorithm
     for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
-      final long word = slottedPage != null
-          ? PageLayout.getBitmapWord(slottedPage, wordIndex)
-          : slotBitmap[wordIndex];
+      if (slottedPage == null) break;
+      final long word = PageLayout.getBitmapWord(slottedPage, wordIndex);
       long remaining = word;
       final int baseSlot = wordIndex << 6;  // wordIndex * 64
       while (remaining != 0) {
@@ -1346,9 +1306,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public int forEachPopulatedSlot(SlotConsumer consumer) {
     int processed = 0;
     for (int wordIndex = 0; wordIndex < BITMAP_WORDS; wordIndex++) {
-      long word = slottedPage != null
-          ? PageLayout.getBitmapWord(slottedPage, wordIndex)
-          : slotBitmap[wordIndex];
+      if (slottedPage == null) break;
+      long word = PageLayout.getBitmapWord(slottedPage, wordIndex);
       final int baseSlot = wordIndex << 6;  // wordIndex * 64
       while (word != 0) {
         final int bit = Long.numberOfTrailingZeros(word);
@@ -1371,29 +1330,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @return number of populated slots
    */
   public int populatedSlotCount() {
-    if (slottedPage != null) {
-      return PageLayout.countPopulatedSlots(slottedPage);
-    }
-    int count = 0;
-    int i = 0;
-
-    // SIMD loop: process LONG_SPECIES.length() longs at a time
-    final int simdWidth = LONG_SPECIES.length();
-    final int simdBound = BITMAP_WORDS - (BITMAP_WORDS % simdWidth);
-
-    for (; i < simdBound; i += simdWidth) {
-      LongVector vec = LongVector.fromArray(LONG_SPECIES, slotBitmap, i);
-      // BITCOUNT lane operation - counts bits in each lane
-      LongVector popcnt = vec.lanewise(VectorOperators.BIT_COUNT);
-      count += (int) popcnt.reduceLanes(VectorOperators.ADD);
-    }
-
-    // Scalar tail: process remaining longs
-    for (; i < BITMAP_WORDS; i++) {
-      count += Long.bitCount(slotBitmap[i]);
-    }
-
-    return count;
+    return slottedPage != null ? PageLayout.countPopulatedSlots(slottedPage) : 0;
   }
   
   /**
@@ -1402,29 +1339,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @return true if all 1024 slots are populated
    */
   public boolean isFullyPopulated() {
-    if (slottedPage != null) {
-      return PageLayout.countPopulatedSlots(slottedPage) == PageLayout.SLOT_COUNT;
-    }
-    // All bits set = 0xFFFFFFFFFFFFFFFF = -1L
-    int i = 0;
-    final int simdWidth = LONG_SPECIES.length();
-    final int simdBound = BITMAP_WORDS - (BITMAP_WORDS % simdWidth);
-    final LongVector allOnes = LongVector.broadcast(LONG_SPECIES, -1L);
-
-    for (; i < simdBound; i += simdWidth) {
-      LongVector vec = LongVector.fromArray(LONG_SPECIES, slotBitmap, i);
-      if (!vec.eq(allOnes).allTrue()) {
-        return false;
-      }
-    }
-    
-    // Scalar tail
-    for (; i < BITMAP_WORDS; i++) {
-      if (slotBitmap[i] != -1L) {
-        return false;
-      }
-    }
-    return true;
+    return slottedPage != null && PageLayout.countPopulatedSlots(slottedPage) == PageLayout.SLOT_COUNT;
   }
   
   /**
@@ -1703,9 +1618,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   @Override
   public String toString() {
     final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this).add("pagekey", recordPageKey);
-    for (final DataRecord record : records) {
-      if (record != null) {
-        helper.add("record", record);
+    if (records != null) {
+      for (final DataRecord record : records) {
+        if (record != null) {
+          helper.add("record", record);
+        }
       }
     }
     return helper.toString();
@@ -1713,14 +1630,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public int size() {
-    return getNumberOfNonNullEntries(records) + references.size();
+    return getNumberOfNonNullEntries() + references.size();
   }
 
-  private int getNumberOfNonNullEntries(final DataRecord[] entries) {
+  private int getNumberOfNonNullEntries() {
+    if (records == null) {
+      return populatedSlotCount();
+    }
     int count = 0;
     for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-      final DataRecord record = entries[i];
-      if (record != null || isSlotSet(i)) {
+      if (records[i] != null || isSlotSet(i)) {
         count++;
       }
     }
@@ -1833,25 +1752,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
       backingBufferReleaser = null;
       backingBuffer = null;
-      stringValueMemory = null;  // CRITICAL: Must be nulled for columnar string storage
-    } else if (!externallyAllocatedMemory) {
-      // Release memory segments to the allocator pool
-      try {
-        if (stringValueMemory != null && stringValueMemory.byteSize() > 0) {
-          segmentAllocator.release(stringValueMemory);
-        }
-      } catch (Throwable e) {
-        LOGGER.debug("Failed to release memory segments for page {}: {}", recordPageKey, e.getMessage());
-      }
-      stringValueMemory = null;
     }
     
     // Unbind all flyweight nodes BEFORE releasing memory — they may still be
     // referenced by cursors/transactions and must fall back to Java field values.
     if (slottedPage != null) {
-      for (final DataRecord record : records) {
-        if (record instanceof FlyweightNode fn && fn.isBound()) {
-          fn.unbind();
+      if (records != null) {
+        for (final DataRecord record : records) {
+          if (record instanceof FlyweightNode fn && fn.isBound()) {
+            fn.unbind();
+          }
         }
       }
       try {
@@ -1867,7 +1777,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     fsstSymbolTable = null;
 
     // Clear references to aid garbage collection
-    Arrays.fill(records, null);
+    if (records != null) {
+      Arrays.fill(records, null);
+    }
     references.clear();
     bytes = null;
     compressedSegment = null;
@@ -1881,14 +1793,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @return Total size in bytes of all memory segments used by this page
    */
   public long getActualMemorySize() {
-    long total = 0;
-    if (stringValueMemory != null) {
-      total += stringValueMemory.byteSize();
-    }
-    if (slottedPage != null) {
-      total += slottedPageCapacity;
-    }
-    return total;
+    return slottedPage != null ? slottedPageCapacity : 0;
   }
 
   /**
@@ -1907,117 +1812,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   public void setFsstSymbolTable(byte[] symbolTable) {
     this.fsstSymbolTable = symbolTable;
-  }
-
-  /**
-   * Get a string value segment for a slot (zero-copy access).
-   * 
-   * @param slotNumber the slot number (0 to NDP_NODE_COUNT-1)
-   * @return MemorySegment slice for the string value, or null if not set
-   */
-  public MemorySegment getStringValueSegment(int slotNumber) {
-    if (stringValueMemory == null || slotNumber < 0 || slotNumber >= stringValueOffsets.length) {
-      return null;
-    }
-    
-    int offset = stringValueOffsets[slotNumber];
-    if (offset < 0) {
-      return null;
-    }
-    
-    // Calculate length: either to next offset or to end of used space
-    int length;
-    if (slotNumber == lastStringValueIndex) {
-      length = stringValueMemoryFreeSpaceStart - offset;
-    } else {
-      // Find next valid offset
-      int nextOffset = -1;
-      for (int i = slotNumber + 1; i < stringValueOffsets.length; i++) {
-        if (stringValueOffsets[i] >= 0) {
-          nextOffset = stringValueOffsets[i];
-          break;
-        }
-      }
-      if (nextOffset >= 0) {
-        length = nextOffset - offset;
-      } else {
-        length = stringValueMemoryFreeSpaceStart - offset;
-      }
-    }
-    
-    if (length <= 0) {
-      return null;
-    }
-    
-    return stringValueMemory.asSlice(offset, length);
-  }
-
-  /**
-   * Set the string value memory and offsets (for deserialization).
-   * 
-   * @param stringValueMemory the memory segment containing all string values
-   * @param stringValueOffsets the offset array mapping slots to string positions
-   * @param lastStringValueIndex the index of the last string value slot
-   * @param stringValueMemoryFreeSpaceStart the end of used space in stringValueMemory
-   */
-  public void setStringValueData(
-      MemorySegment stringValueMemory,
-      int[] stringValueOffsets,
-      int lastStringValueIndex,
-      int stringValueMemoryFreeSpaceStart
-  ) {
-    this.stringValueMemory = stringValueMemory;
-    if (stringValueOffsets != null) {
-      System.arraycopy(stringValueOffsets, 0, this.stringValueOffsets, 0, 
-          Math.min(stringValueOffsets.length, this.stringValueOffsets.length));
-    }
-    this.lastStringValueIndex = lastStringValueIndex;
-    this.stringValueMemoryFreeSpaceStart = stringValueMemoryFreeSpaceStart;
-  }
-
-  /**
-   * Check if this page has string value columnar storage.
-   * 
-   * @return true if stringValueMemory is present
-   */
-  public boolean hasStringValueMemory() {
-    return stringValueMemory != null && stringValueMemory.byteSize() > 0;
-  }
-
-  /**
-   * Get the string value memory segment.
-   * 
-   * @return the memory segment, or null if not present
-   */
-  public MemorySegment getStringValueMemory() {
-    return stringValueMemory;
-  }
-
-  /**
-   * Get the string value offsets array.
-   * 
-   * @return the offsets array (copy to prevent modification)
-   */
-  public int[] getStringValueOffsets() {
-    return stringValueOffsets.clone();
-  }
-
-  /**
-   * Get the last string value index.
-   * 
-   * @return the index of the last slot with a string value, or -1 if none
-   */
-  public int getLastStringValueIndex() {
-    return lastStringValueIndex;
-  }
-
-  /**
-   * Get the end of used space in stringValueMemory.
-   * 
-   * @return the free space start position
-   */
-  public int getStringValueMemoryFreeSpaceStart() {
-    return stringValueMemoryFreeSpaceStart;
   }
 
   @Override
@@ -2229,10 +2023,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   public void reset() {
     // Clear record arrays
-    Arrays.fill(records, null);
-
-    // Clear slot bitmap (all slots now empty)
-    Arrays.fill(slotBitmap, 0L);
+    if (records != null) {
+      Arrays.fill(records, null);
+    }
 
     // Reset slotted page state (bitmap and heap pointers)
     if (slottedPage != null) {
@@ -2242,7 +2035,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Reset index trackers
     lastSlotIndex = -1;
-    lastDeweyIdIndex = -1;
     
     // Clear references
     references.clear();
@@ -2260,7 +2052,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
               "Page %d (%s) rev=%d guardCount=%d - this will cause guard count corruption!",
               recordPageKey, indexType, revision, currentGuardCount));
     }
-    hash = 0;
     
     // Clear HOT bit using lock-free operation
     clearHot();
@@ -2275,11 +2066,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       // Lazy copy: copy preserved slots that weren't modified from completePageRef
       // This is the deferred work from combineRecordPagesForModification for DIFFERENTIAL,
       // INCREMENTAL (full-dump), and SLIDING_SNAPSHOT versioning types.
-      if (preservationBitmap != null && completePageRef != null) {
+      if (completePageRef != null && slottedPage != null && PageLayout.hasPreservedSlots(slottedPage)) {
         for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
           // Check if slot needs preservation AND wasn't modified (neither in records[] nor in slot data)
-          boolean needsPreservation = (preservationBitmap[i >>> 6] & (1L << (i & 63))) != 0;
-          if (needsPreservation && records[i] == null && getSlot(i) == null) {
+          final boolean needsPreservation = PageLayout.isSlotPreserved(slottedPage, i);
+          if (needsPreservation && (records == null || records[i] == null) && getSlot(i) == null) {
             // Copy slot from completePage, preserving nodeKindId
             MemorySegment slotData = completePageRef.getSlot(i);
             if (slotData != null) {
@@ -2296,16 +2087,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         }
       }
 
-      if (areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
-        processEntries(resourceConfiguration, records);
-        for (int i = 0; i < records.length; i++) {
-          final DataRecord record = records[i];
-          if (record != null && record.getDeweyID() != null && record.getNodeKey() != 0) {
-            setDeweyId(record.getDeweyID().toBytes(), i);
+      if (records != null) {
+        if (areDeweyIDsStored && recordPersister instanceof DeweyIdSerializer) {
+          processEntries(resourceConfiguration, records);
+          for (int i = 0; i < records.length; i++) {
+            final DataRecord record = records[i];
+            if (record != null && record.getDeweyID() != null && record.getNodeKey() != 0) {
+              setDeweyId(record.getDeweyID().toBytes(), i);
+            }
           }
+        } else {
+          processEntries(resourceConfiguration, records);
         }
-      } else {
-        processEntries(resourceConfiguration, records);
       }
 
       addedReferences = true;
@@ -2401,19 +2194,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     java.util.ArrayList<byte[]> stringSamples = new java.util.ArrayList<>();
 
     // Scan records[] for non-FlyweightNode string records (legacy path)
-    for (final DataRecord record : records) {
-      if (record == null) {
-        continue;
-      }
-      if (record instanceof StringNode stringNode) {
-        byte[] value = stringNode.getRawValueWithoutDecompression();
-        if (value != null && value.length > 0) {
-          stringSamples.add(value);
+    if (records != null) {
+      for (final DataRecord record : records) {
+        if (record == null) {
+          continue;
         }
-      } else if (record instanceof ObjectStringNode objectStringNode) {
-        byte[] value = objectStringNode.getRawValueWithoutDecompression();
-        if (value != null && value.length > 0) {
-          stringSamples.add(value);
+        if (record instanceof StringNode stringNode) {
+          byte[] value = stringNode.getRawValueWithoutDecompression();
+          if (value != null && value.length > 0) {
+            stringSamples.add(value);
+          }
+        } else if (record instanceof ObjectStringNode objectStringNode) {
+          byte[] value = objectStringNode.getRawValueWithoutDecompression();
+          if (value != null && value.length > 0) {
+            stringSamples.add(value);
+          }
         }
       }
     }
@@ -2421,7 +2216,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Scan slotted page for FlyweightNode strings (zero records[] path)
     if (slottedPage != null) {
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-        if (records[i] != null) continue; // Already scanned above
+        if (records != null && records[i] != null) continue; // Already scanned above
         if (!PageLayout.isSlotPopulated(slottedPage, i)) continue;
         final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, i);
         if (nodeKindId == stringValueId || nodeKindId == objectStringValueId) {
@@ -2479,27 +2274,29 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final int objectStringValueId = NodeKind.OBJECT_STRING_VALUE.getId();
 
     // Compress records[] strings (legacy path)
-    for (final DataRecord record : records) {
-      if (record == null) {
-        continue;
-      }
-      if (record instanceof StringNode stringNode) {
-        if (!stringNode.isCompressed()) {
-          byte[] originalValue = stringNode.getRawValueWithoutDecompression();
-          if (originalValue != null && originalValue.length > 0) {
-            byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
-            if (compressedValue.length < originalValue.length) {
-              stringNode.setRawValue(compressedValue, true, fsstSymbolTable);
+    if (records != null) {
+      for (final DataRecord record : records) {
+        if (record == null) {
+          continue;
+        }
+        if (record instanceof StringNode stringNode) {
+          if (!stringNode.isCompressed()) {
+            byte[] originalValue = stringNode.getRawValueWithoutDecompression();
+            if (originalValue != null && originalValue.length > 0) {
+              byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
+              if (compressedValue.length < originalValue.length) {
+                stringNode.setRawValue(compressedValue, true, fsstSymbolTable);
+              }
             }
           }
-        }
-      } else if (record instanceof ObjectStringNode objectStringNode) {
-        if (!objectStringNode.isCompressed()) {
-          byte[] originalValue = objectStringNode.getRawValueWithoutDecompression();
-          if (originalValue != null && originalValue.length > 0) {
-            byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
-            if (compressedValue.length < originalValue.length) {
-              objectStringNode.setRawValue(compressedValue, true, fsstSymbolTable);
+        } else if (record instanceof ObjectStringNode objectStringNode) {
+          if (!objectStringNode.isCompressed()) {
+            byte[] originalValue = objectStringNode.getRawValueWithoutDecompression();
+            if (originalValue != null && originalValue.length > 0) {
+              byte[] compressedValue = FSSTCompressor.encode(originalValue, fsstSymbolTable);
+              if (compressedValue.length < originalValue.length) {
+                objectStringNode.setRawValue(compressedValue, true, fsstSymbolTable);
+              }
             }
           }
         }
@@ -2509,7 +2306,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Compress slotted page strings (zero records[] path)
     if (slottedPage != null) {
       for (int i = 0; i < Constants.NDP_NODE_COUNT; i++) {
-        if (records[i] != null) continue; // Already handled above
+        if (records != null && records[i] != null) continue; // Already handled above
         if (!PageLayout.isSlotPopulated(slottedPage, i)) continue;
         final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, i);
         if (nodeKindId != stringValueId && nodeKindId != objectStringValueId) continue;
@@ -2561,6 +2358,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     if (fsstSymbolTable == null || fsstSymbolTable.length == 0) {
       return;
     }
+    if (records == null) {
+      return;
+    }
 
     for (final DataRecord record : records) {
       if (record == null) {
@@ -2574,95 +2374,5 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
   }
 
-  /**
-   * Entry for tracking string values during columnar storage collection.
-   * 
-   * @param slotNumber the slot number in the page (0 to NDP_NODE_COUNT-1)
-   * @param value the raw string value bytes
-   */
-  private record StringValueEntry(int slotNumber, byte[] value) {}
-
-  /**
-   * Collect string values into columnar storage for better compression.
-   * Groups all string data contiguously in stringValueMemory, which enables
-   * better FSST compression patterns and more efficient storage.
-   * 
-   * <p>This should be called before serialization when columnar storage is desired.
-   * The columnar layout stores: [length1:4][data1:N][length2:4][data2:M]...
-   * with stringValueOffsets pointing to each entry's start.
-   * 
-   * <p>Invariants maintained:
-   * <ul>
-   *   <li>P4: All offsets are valid: 0 ≤ offset < stringValueMemory.byteSize()</li>
-   *   <li>No overlapping entries</li>
-   *   <li>Sequential layout with no gaps</li>
-   * </ul>
-   */
-  public void collectStringsForColumnarStorage() {
-    java.util.List<StringValueEntry> entries = new java.util.ArrayList<>();
-    int totalSize = 0;
-    
-    for (int i = 0; i < records.length; i++) {
-      DataRecord record = records[i];
-      byte[] value = null;
-      
-      if (record instanceof StringNode sn) {
-        value = sn.getRawValueWithoutDecompression();
-      } else if (record instanceof ObjectStringNode osn) {
-        value = osn.getRawValueWithoutDecompression();
-      }
-      
-      if (value != null && value.length > 0) {
-        entries.add(new StringValueEntry(i, value));
-        totalSize += INT_SIZE + value.length; // 4 bytes length prefix + data
-      }
-    }
-    
-    if (entries.isEmpty()) {
-      return;
-    }
-    
-    // Allocate columnar segment if needed
-    if (stringValueMemory == null || stringValueMemory.byteSize() < totalSize) {
-      if (stringValueMemory != null && !externallyAllocatedMemory) {
-        segmentAllocator.release(stringValueMemory);
-      }
-      stringValueMemory = segmentAllocator.allocate(totalSize);
-    }
-    
-    // Store all string values contiguously
-    int offset = 0;
-    for (StringValueEntry entry : entries) {
-      // Validate offset bounds (P4 invariant)
-      if (offset + INT_SIZE + entry.value.length > stringValueMemory.byteSize()) {
-        throw new IllegalStateException(String.format(
-            "Columnar storage overflow: offset=%d, entrySize=%d, memorySize=%d",
-            offset, INT_SIZE + entry.value.length, stringValueMemory.byteSize()));
-      }
-      
-      stringValueOffsets[entry.slotNumber] = offset;
-      
-      // Write length prefix
-      stringValueMemory.set(java.lang.foreign.ValueLayout.JAVA_INT, offset, entry.value.length);
-      
-      // Write data using bulk copy
-      MemorySegment.copy(entry.value, 0, stringValueMemory,
-          java.lang.foreign.ValueLayout.JAVA_BYTE, offset + INT_SIZE, entry.value.length);
-      
-      offset += INT_SIZE + entry.value.length;
-      lastStringValueIndex = Math.max(lastStringValueIndex, entry.slotNumber);
-    }
-    
-    stringValueMemoryFreeSpaceStart = offset;
-  }
-
-  /**
-   * Check if this page has populated columnar string storage.
-   * 
-   * @return true if stringValueMemory contains data
-   */
-  public boolean hasColumnarStringStorage() {
-    return stringValueMemory != null && stringValueMemoryFreeSpaceStart > 0;
-  }
 }
 

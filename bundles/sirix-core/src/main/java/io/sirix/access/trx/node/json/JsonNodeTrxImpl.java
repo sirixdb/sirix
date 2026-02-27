@@ -56,7 +56,6 @@ import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.BooleanValueNode;
-import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.NumericValueNode;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
@@ -170,6 +169,8 @@ final class JsonNodeTrxImpl extends
   private static final String INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE =
       "Insert is not allowed if parent node is not an array node!";
 
+  private static final QNm ARRAY_PATH_QNM = new QNm("__array__");
+  private static final QNm ARRAY_SIBLING_PATH_QNM = new QNm("array");
   private static final Str STR_TRUE = new Str("true");
   private static final Str STR_FALSE = new Str("false");
 
@@ -934,17 +935,6 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private long getPathNodeKey(final ImmutableNode node, final String name, final NodeKind kind) {
-    if (buildPathSummary) {
-      moveToParentObjectKeyArrayOrDocumentRoot();
-      final long pathNodeKey = pathSummaryWriter.getPathNodeKey(new QNm(name), kind);
-      nodeReadOnlyTrx.setCurrentNode(node);
-      return pathNodeKey;
-    }
-
-    return 0;
-  }
-
   /**
    * Get the path node key by restoring the cursor position via moveTo instead of setCurrentNode.
    * This avoids retaining a reference to the singleton structural node across cursor moves.
@@ -955,9 +945,13 @@ final class JsonNodeTrxImpl extends
    * @return the path node key, or 0 if path summary is not built
    */
   private long getPathNodeKey(final long restoreNodeKey, final String name, final NodeKind kind) {
+    return getPathNodeKey(restoreNodeKey, new QNm(name), kind);
+  }
+
+  private long getPathNodeKey(final long restoreNodeKey, final QNm name, final NodeKind kind) {
     if (buildPathSummary) {
       moveToParentObjectKeyArrayOrDocumentRoot();
-      final long pathNodeKey = pathSummaryWriter.getPathNodeKey(new QNm(name), kind);
+      final long pathNodeKey = pathSummaryWriter.getPathNodeKey(name, kind);
       nodeReadOnlyTrx.moveTo(restoreNodeKey);
       return pathNodeKey;
     }
@@ -1099,7 +1093,7 @@ final class JsonNodeTrxImpl extends
       final long rightSibKey = currentNode.getFirstChildKey();
       final NodeKind currentKind = currentNode.getKind();
 
-      final long pathNodeKey = getPathNodeKey(parentKey, "__array__", NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(parentKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
 
       final SirixDeweyID id = currentKind == NodeKind.OBJECT_KEY
           ? deweyIDManager.newRecordValueID()
@@ -1153,7 +1147,7 @@ final class JsonNodeTrxImpl extends
       final NodeKind currentKind = currentNode.getKind();
       final long firstChildKey = currentNode.getFirstChildKey();
 
-      final long pathNodeKey = getPathNodeKey(parentKey, "__array__", NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(parentKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
 
       final SirixDeweyID id = currentKind == NodeKind.OBJECT_KEY
           ? deweyIDManager.newRecordValueID()
@@ -1204,7 +1198,7 @@ final class JsonNodeTrxImpl extends
       final long rightSibKey = currentNode.getNodeKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(rightSibKey, "array", NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(rightSibKey, ARRAY_SIBLING_PATH_QNM, NodeKind.ARRAY);
       moveTo(rightSibKey);
 
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
@@ -1247,7 +1241,7 @@ final class JsonNodeTrxImpl extends
       final long rightSibKey = currentNode.getRightSiblingKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(leftSibKey, "array", NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(leftSibKey, ARRAY_SIBLING_PATH_QNM, NodeKind.ARRAY);
       moveTo(leftSibKey);
 
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();

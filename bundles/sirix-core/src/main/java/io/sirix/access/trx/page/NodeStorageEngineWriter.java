@@ -108,7 +108,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private static final Logger LOGGER = LoggerFactory.getLogger(NodeStorageEngineWriter.class);
 
-  private BytesOut<?> bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+  /**
+   * Buffered output for page writes.
+   *
+   * <p>Use 2x FLUSH_SIZE so single large page fragments do not force grow/copy on every write
+   * before the subsequent flush threshold check.
+   */
+  private BytesOut<?> bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE * 2);
 
   /**
    * Page writer to serialize.
