@@ -327,6 +327,107 @@ class HOTMultiLayerIndirectPageTest {
   class NavigationTests {
 
     @Test
+    @DisplayName("Cross-transaction write keeps all CAS entries after split")
+    @Timeout(value = 300, unit = TimeUnit.SECONDS)
+    void testCrossTransactionWriteAfterSplitPreservesEntries() throws IOException {
+      Databases.createJsonDatabase(new DatabaseConfiguration(DATABASE_PATH));
+
+      final var pathToId = parse("/records/[]/id", io.brackit.query.util.path.PathParser.Type.JSON);
+      final var casIndexDef =
+          IndexDefs.createCASIdxDef(false, Type.INR, Collections.singleton(pathToId), 0, IndexDef.DbType.JSON);
+
+      try (Database<JsonResourceSession> database = Databases.openJsonDatabase(DATABASE_PATH)) {
+        database.createResource(
+            ResourceConfiguration.newBuilder(RESOURCE_NAME).versioningApproach(VersioningType.FULL).build());
+
+        // Revision 1: Create index and insert enough unique keys to force multi-layer HOT structure.
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+          indexController.createIndexes(Set.of(casIndexDef), wtx);
+
+          final StringBuilder json = new StringBuilder("{\"records\": [");
+          for (int i = 0; i < 5000; i++) {
+            if (i > 0) {
+              json.append(",");
+            }
+            json.append("{\"id\": ").append(i).append("}");
+          }
+          json.append("]}");
+
+          wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()), JsonNodeTrx.Commit.NO);
+          wtx.commit();
+        }
+
+        // Revision 2 (new write transaction): verify existing entries, append one, verify again before commit.
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+            JsonNodeTrx wtx = session.beginNodeTrx()) {
+          final var indexController = session.getWtxIndexController(wtx.getRevisionNumber());
+
+          final var beforeInsert = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef,
+              indexController.createCASFilter(Set.of("/records/[]/id"), new Int32(0), SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(wtx)));
+          long beforeInsertNodeRefs = 0;
+          while (beforeInsert.hasNext()) {
+            beforeInsertNodeRefs += beforeInsert.next().getNodeKeys().getLongCardinality();
+          }
+          assertEquals(5000, beforeInsertNodeRefs, "Before insert, all 5000 CAS entries must be readable");
+
+          wtx.moveToDocumentRoot();
+          assertTrue(wtx.moveToFirstChild(), "Document should have root object");
+          assertTrue(wtx.moveToFirstChild(), "Root object should have 'records' key");
+          assertTrue(wtx.moveToFirstChild(), "'records' should be an array");
+          assertTrue(wtx.moveToLastChild(), "Records array should have existing entries");
+          wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"id\": 5000}"));
+
+          final var afterInsertBeforeCommit = indexController.openCASIndex(wtx.getStorageEngineReader(), casIndexDef,
+              indexController.createCASFilter(Set.of("/records/[]/id"), new Int32(0), SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(wtx)));
+          long afterInsertNodeRefs = 0;
+          while (afterInsertBeforeCommit.hasNext()) {
+            afterInsertNodeRefs += afterInsertBeforeCommit.next().getNodeKeys().getLongCardinality();
+          }
+          assertEquals(5001, afterInsertNodeRefs, "After insert (same trx), CAS index must expose 5001 entries");
+
+          wtx.commit();
+        }
+
+        // Revision 2 read-back: verify full set survived, including old and new values.
+        try (JsonResourceSession session = database.beginResourceSession(RESOURCE_NAME);
+            JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
+          final var indexController = session.getRtxIndexController(rtx.getRevisionNumber());
+
+          final var allEntries = indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef,
+              indexController.createCASFilter(Set.of("/records/[]/id"), new Int32(0), SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(rtx)));
+          long totalNodeRefs = 0;
+          while (allEntries.hasNext()) {
+            totalNodeRefs += allEntries.next().getNodeKeys().getLongCardinality();
+          }
+          assertEquals(5001, totalNodeRefs, "After reopen, CAS index must retain all pre-split and post-split entries");
+
+          final var fromMiddle = indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef,
+              indexController.createCASFilter(Set.of("/records/[]/id"), new Int32(2500), SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(rtx)));
+          long fromMiddleNodeRefs = 0;
+          while (fromMiddle.hasNext()) {
+            fromMiddleNodeRefs += fromMiddle.next().getNodeKeys().getLongCardinality();
+          }
+          assertEquals(2501, fromMiddleNodeRefs, "Range >=2500 must include all tail entries after rewrite");
+
+          final var newestOnly = indexController.openCASIndex(rtx.getStorageEngineReader(), casIndexDef,
+              indexController.createCASFilter(Set.of("/records/[]/id"), new Int32(5000), SearchMode.GREATER_OR_EQUAL,
+                  new JsonPCRCollector(rtx)));
+          long newestOnlyNodeRefs = 0;
+          while (newestOnly.hasNext()) {
+            newestOnlyNodeRefs += newestOnly.next().getNodeKeys().getLongCardinality();
+          }
+          assertEquals(1, newestOnlyNodeRefs, "Range >=5000 must include exactly the newly appended entry");
+        }
+      }
+    }
+
+    @Test
     @DisplayName("Force multi-layer indirect pages with massive dataset")
     @Timeout(value = 300, unit = TimeUnit.SECONDS)
     void testMultiLayerWithMassiveDataset() throws IOException {

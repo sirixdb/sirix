@@ -6,13 +6,17 @@
 
 package io.sirix.page;
 
+import io.sirix.JsonTestHelper;
+import io.sirix.access.ResourceConfiguration;
+import io.sirix.node.Bytes;
+import io.sirix.node.BytesIn;
+import io.sirix.node.BytesOut;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for HOTIndirectPage - verifies SIMD-accelerated child lookup.
@@ -251,6 +255,69 @@ class HOTIndirectPageTest {
       assertEquals(300, copy.getChildReference(1).getKey());
       // Left child unchanged
       assertEquals(100, copy.getChildReference(0).getKey());
+    }
+  }
+
+  @Nested
+  @DisplayName("Serialization Wiring")
+  class SerializationWiringTests {
+
+    @Test
+    @DisplayName("BiNode round-trip preserves explicit height")
+    void testBiNodeRoundTripPreservesHeight() {
+      final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).build();
+
+      final PageReference leftRef = new PageReference();
+      leftRef.setKey(101);
+      final PageReference rightRef = new PageReference();
+      rightRef.setKey(202);
+
+      final HOTIndirectPage original = HOTIndirectPage.createBiNode(99L, 7, 5, leftRef, rightRef, 13);
+      final HOTIndirectPage deserialized = serializeAndDeserialize(original, resourceConfig);
+
+      assertEquals(HOTIndirectPage.NodeType.BI_NODE, deserialized.getNodeType());
+      assertEquals(13, deserialized.getHeight(), "BiNode height must survive PageKind round-trip");
+      assertEquals(2, deserialized.getNumChildren());
+
+      assertEquals(0, deserialized.findChildIndex(new byte[] {0x00, 0x00, 0x00, 0x00}));
+      assertEquals(1, deserialized.findChildIndex(new byte[] {0x04, 0x00, 0x00, 0x00}));
+    }
+
+    @Test
+    @DisplayName("MultiNode round-trip reconstructs navigation from partial keys")
+    void testMultiNodeRoundTripUsesPartialKeysWhenChildIndexFallbackIsZeroed() {
+      final ResourceConfiguration resourceConfig = new ResourceConfiguration.Builder(JsonTestHelper.RESOURCE).build();
+
+      final PageReference[] children = new PageReference[3];
+      for (int i = 0; i < children.length; i++) {
+        children[i] = new PageReference();
+        children[i].setKey(1000L + i);
+      }
+
+      // Avoid sparse key 0 so lookup does not always match index 0.
+      final byte[] partialKeys = {0b001, 0b010, 0b100};
+      final long bitMask = 0b111L;
+      final HOTIndirectPage original = HOTIndirectPage.createMultiNode(123L, 5, 0, bitMask, partialKeys, children, 9);
+
+      final HOTIndirectPage deserialized = serializeAndDeserialize(original, resourceConfig);
+
+      assertEquals(HOTIndirectPage.NodeType.MULTI_NODE, deserialized.getNodeType());
+      assertEquals(9, deserialized.getHeight(), "MultiNode height must survive PageKind round-trip");
+      assertEquals(3, deserialized.getNumChildren());
+
+      assertEquals(0, deserialized.findChildIndex(new byte[] {0b001, 0, 0, 0}));
+      assertEquals(1, deserialized.findChildIndex(new byte[] {0b010, 0, 0, 0}));
+      assertEquals(2, deserialized.findChildIndex(new byte[] {0b100, 0, 0, 0}));
+    }
+
+    private static HOTIndirectPage serializeAndDeserialize(final HOTIndirectPage page,
+        final ResourceConfiguration resourceConfig) {
+      final BytesOut<?> sink = Bytes.elasticOffHeapByteBuffer();
+      PageKind.HOT_INDIRECT_PAGE.serializePage(resourceConfig, sink, page, SerializationType.DATA);
+
+      final BytesIn<?> source = sink.bytesForRead();
+      source.readByte(); // Skip page kind id.
+      return (HOTIndirectPage) PageKind.HOT_INDIRECT_PAGE.deserializePage(resourceConfig, source, SerializationType.DATA);
     }
   }
 }
