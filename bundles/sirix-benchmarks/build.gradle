@@ -11,6 +11,35 @@ dependencies {
 
 description = 'JMH benchmarks for SirixDB performance testing'
 
+def jmhIncludesProperty = (findProperty('jmh.includes') ?: '').toString().trim()
+def jmhBenchmarkParametersProperty = (findProperty('jmh.benchmarkParameters') ?: '').toString().trim()
+
+def parseBenchmarkParameters = { String raw ->
+    def params = [:]
+    raw.split(',')
+        .collect { it.trim() }
+        .findAll { !it.isEmpty() }
+        .each { entry ->
+            def separatorIndex = entry.indexOf('=')
+            if (separatorIndex <= 0 || separatorIndex == entry.length() - 1) {
+                throw new GradleException("Invalid jmh.benchmarkParameters entry '${entry}'. Expected key=value.")
+            }
+
+            def key = entry.substring(0, separatorIndex).trim()
+            def value = entry.substring(separatorIndex + 1).trim()
+
+            if (value.contains('|')) {
+                params[key] = value
+                    .split('\\|')
+                    .collect { it.trim() }
+                    .findAll { !it.isEmpty() }
+            } else {
+                params[key] = [value]
+            }
+        }
+    return params
+}
+
 jmh {
     warmupIterations = 2
     iterations = 3
@@ -28,4 +57,21 @@ jmh {
     
     // Use ASM generator instead of reflection
     // duplicateClassesStrategy = DuplicatesStrategy.WARN
+
+    if (!jmhIncludesProperty.isEmpty()) {
+        includes = jmhIncludesProperty
+            .split(',')
+            .collect { it.trim() }
+            .findAll { !it.isEmpty() }
+    }
+
+    if (!jmhBenchmarkParametersProperty.isEmpty()) {
+        def parsedParameters = parseBenchmarkParameters(jmhBenchmarkParametersProperty)
+        def typedParameters = parsedParameters.collectEntries { key, values ->
+            def listProperty = project.objects.listProperty(String)
+            listProperty.set(values)
+            [(key): listProperty]
+        }
+        benchmarkParameters = typedParameters
+    }
 }
