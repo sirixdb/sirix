@@ -122,6 +122,29 @@ public final class PageLayout {
   /** Total size of the slot directory region in bytes. */
   public static final int DIR_SIZE = SLOT_COUNT * DIR_ENTRY_SIZE; // 8192
 
+  // ==================== COMPACT DIRECTORY (on-disk only) ====================
+
+  /** Size of each compact directory entry in bytes (dataLength:3 + nodeKindId:1). */
+  public static final int COMPACT_DIR_ENTRY_SIZE = 4;
+
+  /**
+   * Pack a compact directory entry: top 3 bytes = dataLength, bottom byte = nodeKindId.
+   * Same bit layout as existing directory entry bytes 4-7.
+   */
+  public static int packCompactDirEntry(final int dataLength, final int nodeKindId) {
+    return (dataLength << 8) | (nodeKindId & 0xFF);
+  }
+
+  /** Unpack data length from a compact directory entry. */
+  public static int unpackDataLength(final int packed) {
+    return packed >>> 8;
+  }
+
+  /** Unpack node kind ID from a compact directory entry. */
+  public static int unpackNodeKindId(final int packed) {
+    return packed & 0xFF;
+  }
+
   // ==================== HEAP LAYOUT ====================
 
   /** Offset where the heap region starts (bump-allocated forward). */

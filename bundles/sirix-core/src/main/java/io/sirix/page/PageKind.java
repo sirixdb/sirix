@@ -94,26 +94,70 @@ public enum PageKind {
       final int revision = source.readInt();
       final IndexType indexType = IndexType.getType(source.readByte());
 
-      final int unifiedDataSize = source.readInt();
-
-      MemorySegmentAllocator memorySegmentAllocator =
+      final MemorySegmentAllocator memorySegmentAllocator =
           OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
 
-      final int allocSize = Math.max(unifiedDataSize, PageLayout.INITIAL_PAGE_SIZE);
+      // 1. Read header (32B) + bitmap (128B) — 160 bytes
+      final byte[] headerBitmapBytes = new byte[PageLayout.DIR_OFF];
+      source.read(headerBitmapBytes);
+      final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
+      final int populatedCount = PageLayout.getPopulatedCount(headerBitmapSeg);
+
+      // 2. Read compact dir entries: populatedCount × 4 bytes
+      final int[] compactDir = new int[populatedCount];
+      for (int i = 0; i < populatedCount; i++) {
+        compactDir[i] = source.readInt();
+      }
+
+      // 3. Read heap size
+      final int heapSize = source.readInt();
+
+      // 4. Allocate slotted page MemorySegment
+      final int allocSize = Math.max(PageLayout.HEAP_START + heapSize, PageLayout.INITIAL_PAGE_SIZE);
       final MemorySegment slottedPage = memorySegmentAllocator.allocate(allocSize);
 
+      // 5. Copy header + bitmap into page
+      MemorySegment.copy(headerBitmapSeg, 0, slottedPage, 0, PageLayout.DIR_OFF);
+
+      // 6. Zero-fill directory region (will be rebuilt from compact dir)
+      slottedPage.asSlice(PageLayout.DIR_OFF, PageLayout.DIR_SIZE).fill((byte) 0);
+
+      // 7. Read heap data into page at HEAP_START
       if (source instanceof MemorySegmentBytesIn msSource) {
-        MemorySegment.copy(msSource.getSource(), source.position(), slottedPage, 0, unifiedDataSize);
-        source.skip(unifiedDataSize);
+        MemorySegment.copy(msSource.getSource(), source.position(), slottedPage, PageLayout.HEAP_START, heapSize);
+        source.skip(heapSize);
       } else {
-        final byte[] pageData = new byte[unifiedDataSize];
-        source.read(pageData);
-        MemorySegment.copy(pageData, 0, slottedPage, ValueLayout.JAVA_BYTE, 0, unifiedDataSize);
+        final byte[] heapData = new byte[heapSize];
+        source.read(heapData);
+        MemorySegment.copy(heapData, 0, slottedPage, ValueLayout.JAVA_BYTE, PageLayout.HEAP_START, heapData.length);
       }
 
-      if (allocSize > unifiedDataSize) {
-        slottedPage.asSlice(unifiedDataSize, allocSize - unifiedDataSize).fill((byte) 0);
+      // 8. Zero-fill remainder of allocated page
+      final long usedEnd = PageLayout.HEAP_START + heapSize;
+      if (allocSize > usedEnd) {
+        slottedPage.asSlice(usedEnd, allocSize - usedEnd).fill((byte) 0);
       }
+
+      // 9. Rebuild full directory via prefix sums from compact dir entries
+      int entryIdx = 0;
+      int heapOffset = 0;
+      for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+        long word = PageLayout.getBitmapWord(slottedPage, w);
+        while (word != 0) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          final int slot = (w << 6) | bit;
+          final int packed = compactDir[entryIdx++];
+          final int dataLength = packed >>> 8;
+          final int nodeKindId = packed & 0xFF;
+          PageLayout.setDirEntry(slottedPage, slot, heapOffset, dataLength, nodeKindId);
+          heapOffset += dataLength;
+          word &= word - 1; // clear lowest set bit
+        }
+      }
+
+      // 10. Set heapEnd and heapUsed (both = heapSize since deserialized heap is contiguous/defragmented)
+      PageLayout.setHeapEnd(slottedPage, heapSize);
+      PageLayout.setHeapUsed(slottedPage, heapSize);
 
       final boolean areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
       final RecordSerializer recordPersister = resourceConfig.recordPersister;
@@ -196,13 +240,42 @@ public enum PageKind {
       sink.writeInt(keyValueLeafPage.getRevision());
       sink.writeByte(keyValueLeafPage.getIndexType().getID());
 
-      // Write slotted page: header(32) + bitmap(128) + directory(8192) + heap(heapEnd)
+      // Write compact on-disk format: header+bitmap, compact dir, heap (no 8KB slot directory)
       final MemorySegment slottedPage = keyValueLeafPage.getSlottedPage();
-      final int heapEnd = PageLayout.getHeapEnd(slottedPage);
-      final int unifiedDataSize = PageLayout.HEAP_START + heapEnd;
 
-      sink.writeInt(unifiedDataSize);
-      sink.writeSegment(slottedPage, 0, unifiedDataSize);
+      // 1. Write header (32B) + bitmap (128B) — 160 bytes
+      sink.writeSegment(slottedPage, 0, PageLayout.DIR_OFF);
+
+      // 2. Single-pass bitmap scan: write compact dir entries, collect heap copy info
+      final int populatedCount = PageLayout.getPopulatedCount(slottedPage);
+      final int[] slotHeapOffsets = new int[populatedCount];
+      final int[] slotDataLengths = new int[populatedCount];
+      int entryIdx = 0;
+      int totalHeapSize = 0;
+
+      for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+        long word = PageLayout.getBitmapWord(slottedPage, w);
+        while (word != 0) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          final int slot = (w << 6) | bit;
+          final int dataLength = PageLayout.getDirDataLength(slottedPage, slot);
+          final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, slot);
+          sink.writeInt(PageLayout.packCompactDirEntry(dataLength, nodeKindId));
+          slotHeapOffsets[entryIdx] = PageLayout.getDirHeapOffset(slottedPage, slot);
+          slotDataLengths[entryIdx] = dataLength;
+          totalHeapSize += dataLength;
+          entryIdx++;
+          word &= word - 1; // clear lowest set bit
+        }
+      }
+
+      // 3. Write heap size
+      sink.writeInt(totalHeapSize);
+
+      // 4. Write heap data: slot by slot in bitmap order (contiguous on disk)
+      for (int i = 0; i < populatedCount; i++) {
+        sink.writeSegment(slottedPage, PageLayout.HEAP_START + slotHeapOffsets[i], slotDataLengths[i]);
+      }
 
       // Write overlong entries
       writeOverlongEntries(sink, references);
