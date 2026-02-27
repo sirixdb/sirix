@@ -622,7 +622,7 @@ final class JsonNodeTrxImpl extends
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
@@ -673,7 +673,7 @@ final class JsonNodeTrxImpl extends
 
       adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
@@ -715,7 +715,7 @@ final class JsonNodeTrxImpl extends
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -759,7 +759,7 @@ final class JsonNodeTrxImpl extends
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -797,7 +797,6 @@ final class JsonNodeTrxImpl extends
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = structNode.getFirstChildKey();
-      final long firstChildKey = rightSibKey; // capture before getPathNodeKey moves cursor
 
       final long pathNodeKey = getPathNodeKey(parentKey, key, NodeKind.OBJECT_KEY);
 
@@ -997,7 +996,7 @@ final class JsonNodeTrxImpl extends
           nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
       insertValue(value);
 
@@ -1050,7 +1049,7 @@ final class JsonNodeTrxImpl extends
           nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
       insertValue(value);
 
@@ -1109,7 +1108,7 @@ final class JsonNodeTrxImpl extends
             (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
       }
 
-      if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
@@ -1165,7 +1164,7 @@ final class JsonNodeTrxImpl extends
             (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
       }
 
-      if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
@@ -1206,7 +1205,7 @@ final class JsonNodeTrxImpl extends
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, (ImmutableNode) node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -1249,7 +1248,7 @@ final class JsonNodeTrxImpl extends
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -1321,6 +1320,8 @@ final class JsonNodeTrxImpl extends
       pathNodeKey = ((ArrayNode) structNode).getPathNodeKey();
     } else if (structNode.getKind() == NodeKind.OBJECT_KEY) {
       pathNodeKey = ((ObjectKeyNode) structNode).getPathNodeKey();
+    } else if (structNode.getKind() == NodeKind.JSON_DOCUMENT) {
+      pathNodeKey = 0;
     } else {
       pathNodeKey = -1;
     }
@@ -1333,12 +1334,12 @@ final class JsonNodeTrxImpl extends
     // Old code did: moveTo(nodeKey) → adaptForInsert(getStructuralNodeView()) → moveTo(nodeKey) → hash.
     // New code: adaptForInsert(keys) → hash(nodeKey) → moveTo(nodeKey).
     // Net: eliminated 1 moveTo (the first one before adaptForInsert).
-    adaptForInsert(nodeKey, parentKey, leftSibKey, rightSibKey);
+    adaptForInsert(nodeKey, parentKey, leftSibKey, rightSibKey, false);
     nodeHashing.adaptHashesWithAdd(nodeKey);
-    // Restore cursor to new node — callers expect this (e.g., notifyPrimitiveIndexChange).
-    // When hashing runs, rollingAdd already does moveTo(startNodeKey) at end, so this is
-    // only needed when hashing is NONE (bulkInsert && !autoCommit).
-    nodeReadOnlyTrx.moveTo(nodeKey);
+    // Restore cursor to new node only if hashing did not already do so (HashType.NONE path).
+    if (nodeReadOnlyTrx.getNodeKey() != nodeKey) {
+      nodeReadOnlyTrx.moveTo(nodeKey);
+    }
   }
 
   @Override
@@ -1380,25 +1381,38 @@ final class JsonNodeTrxImpl extends
   }
 
   private void insertAsSibling(final long nodeKey, final long parentKey,
-      final long leftSibKey, final long rightSibKey, final ImmutableNode insertedNode) {
-    // Pass structural keys directly — eliminates moveTo before adaptForInsert.
-    adaptForInsert(nodeKey, parentKey, leftSibKey, rightSibKey);
-    nodeHashing.adaptHashesWithAdd(nodeKey);
-    // Restore cursor to new node (rollingAdd does this when hashing, but not when NONE).
-    nodeReadOnlyTrx.moveTo(nodeKey);
+      final long leftSibKey, final long rightSibKey) {
+    insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, false);
+  }
 
-    if (indexController.hasAnyPrimitiveIndex()) {
-      // Resolve path node key and notify indexes — only when indexes exist.
+  private void insertAsSibling(final long nodeKey, final long parentKey,
+      final long leftSibKey, final long rightSibKey, final boolean useParentPathNodeKeyIfAvailable) {
+    final boolean notifyPrimitiveIndexes = indexController.hasAnyPrimitiveIndex();
+    final boolean resolveParentPathNodeKey = useParentPathNodeKeyIfAvailable && notifyPrimitiveIndexes && buildPathSummary;
+    final long parentPathNodeKey = adaptForInsert(nodeKey, parentKey, leftSibKey, rightSibKey, resolveParentPathNodeKey);
+    nodeHashing.adaptHashesWithAdd(nodeKey);
+    if (nodeReadOnlyTrx.getNodeKey() != nodeKey) {
+      nodeReadOnlyTrx.moveTo(nodeKey);
+    }
+
+    if (notifyPrimitiveIndexes) {
       final long pathNodeKey;
       if (buildPathSummary) {
-        moveToParentObjectKeyArrayOrDocumentRoot();
-        pathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
-        nodeReadOnlyTrx.moveTo(nodeKey);
+        if (resolveParentPathNodeKey && parentPathNodeKey != -1) {
+          pathNodeKey = parentPathNodeKey;
+        } else {
+          moveToParentObjectKeyArrayOrDocumentRoot();
+          pathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
+          if (nodeReadOnlyTrx.getNodeKey() != nodeKey) {
+            nodeReadOnlyTrx.moveTo(nodeKey);
+          }
+        }
       } else {
         pathNodeKey = 0;
       }
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
-          (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+          (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(),
+          pathNodeKey);
     }
   }
 
@@ -1493,7 +1507,7 @@ final class JsonNodeTrxImpl extends
             (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
       }
 
-      if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
@@ -1539,7 +1553,7 @@ final class JsonNodeTrxImpl extends
           stringValue, numberValue, booleanValue, id);
       final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, (ImmutableNode) node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, true);
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -2059,16 +2073,21 @@ final class JsonNodeTrxImpl extends
    * @param parentKey     the new node's parent key
    * @param leftSibKey    the new node's left sibling key
    * @param rightSibKey   the new node's right sibling key
+   * @param resolveParentPathNodeKey whether to resolve and return the parent path node key
+   * @return the parent path node key if available, otherwise {@code -1}
    * @throws SirixIOException if anything weird happens
    */
-  private void adaptForInsert(final long structNodeKey, final long parentKey,
-      final long leftSibKey, final long rightSibKey) {
+  private long adaptForInsert(final long structNodeKey, final long parentKey,
+      final long leftSibKey, final long rightSibKey, final boolean resolveParentPathNodeKey) {
     final boolean hasLeft = leftSibKey != Fixed.NULL_NODE_KEY.getStandardProperty();
     final boolean hasRight = rightSibKey != Fixed.NULL_NODE_KEY.getStandardProperty();
 
     // Phase 1: Update parent — childCount + firstChild/lastChild if no siblings.
     // Complete all parent modifications and persist BEFORE acquiring any sibling singletons.
     final StructNode parent = storageEngineWriter.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
+    final long parentPathNodeKey = resolveParentPathNodeKey
+        ? getPathNodeKey(parent)
+        : -1;
     if (storeChildCount) {
       parent.incrementChildCount();
     }
@@ -2093,6 +2112,8 @@ final class JsonNodeTrxImpl extends
       rightSib.setLeftSiblingKey(structNodeKey);
       persistUpdatedRecord(rightSib);
     }
+
+    return parentPathNodeKey;
   }
 
   // ////////////////////////////////////////////////////////////
