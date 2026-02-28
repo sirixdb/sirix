@@ -394,13 +394,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public void allocateForDocumentCreation() {
-    storageEngineReader.assertNotClosed();
     final long nodeKey = newRevisionRootPage.incrementAndGetMaxNodeKeyInDocumentIndex();
-    final long recordPageKey = storageEngineReader.pageKey(nodeKey, IndexType.DOCUMENT);
+    final long recordPageKey = storageEngineReader.pageKeyDocument(nodeKey);
     final PageContainer cont = prepareRecordPage(recordPageKey, -1, IndexType.DOCUMENT);
     this.allocKvl = (KeyValueLeafPage) cont.getModifiedAsKeyValuePage();
-    this.allocSlotOffset = (int) (nodeKey
-        - ((nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+    this.allocSlotOffset = StorageEngineReader.recordPageOffset(nodeKey);
     this.allocNodeKey = nodeKey;
   }
 

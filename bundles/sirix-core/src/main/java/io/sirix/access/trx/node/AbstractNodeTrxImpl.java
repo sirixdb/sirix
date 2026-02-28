@@ -371,6 +371,17 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     intermediateCommitIfRequired();
   }
 
+  /**
+   * Fast-path for bulk insert: skips assertNotClosed/assertRunning (always true mid-shredder),
+   * keeps mod count + auto-commit logic.
+   */
+  protected final void checkAccessAndCommitBulk() {
+    modificationCount++;
+    if (maxNodeCount > 0 && modificationCount > maxNodeCount) {
+      commit("autoCommit");
+    }
+  }
+
   protected final void persistUpdatedRecord(final DataRecord record) {
     if (record instanceof FlyweightNode fn && fn.isWriteSingleton() && fn.getOwnerPage() != null) {
       return; // Bound write singleton — mutations already on heap via inlined setters

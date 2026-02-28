@@ -573,7 +573,11 @@ final class JsonNodeTrxImpl extends
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document-, an object key- or a json array node!");
 
-      checkAccessAndCommit();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+      }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
 
@@ -621,7 +625,11 @@ final class JsonNodeTrxImpl extends
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document-, an object key- or a json array node!");
 
-      checkAccessAndCommit();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+      }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
 
@@ -666,9 +674,10 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      checkAccessAndCommit();
-
-      if (!nodeHashing.isBulkInsert()) {
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
         if (getParentKind() != NodeKind.ARRAY) {
           throw new SirixUsageException(INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE);
         }
@@ -710,9 +719,10 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      checkAccessAndCommit();
-
-      if (!nodeHashing.isBulkInsert()) {
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
         if (getParentKind() != NodeKind.ARRAY) {
           throw new SirixUsageException(INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE);
         }
@@ -1067,7 +1077,11 @@ final class JsonNodeTrxImpl extends
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document node or an object key node!");
 
-      checkAccessAndCommit();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+      }
 
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
 
@@ -1120,7 +1134,11 @@ final class JsonNodeTrxImpl extends
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document node or an object key node!");
 
-      checkAccessAndCommit();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+      }
 
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
 
@@ -1171,8 +1189,12 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      checkAccessAndCommit();
-      checkPrecondition();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+        checkPrecondition();
+      }
 
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
 
@@ -1214,8 +1236,12 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      checkAccessAndCommit();
-      checkPrecondition();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+        checkPrecondition();
+      }
 
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
 
@@ -1508,7 +1534,11 @@ final class JsonNodeTrxImpl extends
         throw new SirixUsageException("Insert is not allowed if current node is not an object-key- or array-node!");
 
       if (kind != NodeKind.OBJECT_KEY) {
-        checkAccessAndCommit();
+        if (nodeHashing.isBulkInsert()) {
+          checkAccessAndCommitBulk();
+        } else {
+          checkAccessAndCommit();
+        }
       }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
@@ -1581,8 +1611,12 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      checkAccessAndCommit();
-      checkPrecondition();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+        checkPrecondition();
+      }
 
       final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
       final long parentKey = currentNode.getParentKey();
