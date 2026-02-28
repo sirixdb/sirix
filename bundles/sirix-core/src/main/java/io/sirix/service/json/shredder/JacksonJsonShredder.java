@@ -21,13 +21,14 @@ import com.fasterxml.jackson.core.JsonToken;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.json.InternalJsonNodeTrx;
 import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
 import io.sirix.access.trx.node.json.objectvalue.BooleanValue;
+import io.sirix.access.trx.node.json.objectvalue.ByteStringValue;
 import io.sirix.access.trx.node.json.objectvalue.NullValue;
 import io.sirix.access.trx.node.json.objectvalue.NumberValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
-import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
@@ -45,6 +46,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.Callable;
@@ -88,6 +90,12 @@ public final class JacksonJsonShredder implements Callable<Long> {
   /** {@link JsonNodeTrx}. */
   private final JsonNodeTrx wtx;
 
+  /** Internal interface for byte[] string insertion overloads. */
+  private final InternalJsonNodeTrx internalWtx;
+
+  /** Reusable value wrapper for pre-encoded UTF-8 string bytes (object record path). */
+  private final ByteStringValue reusableByteStringValue = new ByteStringValue();
+
   /** Jackson {@link JsonParser} implementation. */
   private final JsonParser parser;
 
@@ -106,17 +114,11 @@ public final class JacksonJsonShredder implements Callable<Long> {
   /** Whether to skip the root JSON token. */
   private final boolean skipRootJson;
 
-  /**
-   * Lookahead token buffer - enables Gson-like peek() behavior. When non-null, contains the next
-   * token that peek() will return. When null, peek() will advance the parser.
-   */
-  private JsonToken lookaheadToken;
+  /** First token — set by Builder to avoid PeekedTokenJsonParser wrapper. */
+  private final JsonToken firstToken;
 
-  /**
-   * Cached values for the lookahead token (used when the token contains data).
-   */
-  private String lookaheadTextValue;
-  private Boolean lookaheadBooleanValue;
+  /** Node key of the first inserted root node. */
+  private long insertedRootNodeKey;
 
   /**
    * Creates a shared JsonFactory with lenient parsing enabled. JsonFactory is thread-safe and should
@@ -152,6 +154,9 @@ public final class JacksonJsonShredder implements Callable<Long> {
 
     /** Whether to skip the root JSON token. */
     private boolean skipRootJsonToken;
+
+    /** First token — pre-consumed during validation, replayed by shredder. */
+    private JsonToken firstToken;
 
     /**
      * Constructor.
@@ -189,6 +194,17 @@ public final class JacksonJsonShredder implements Callable<Long> {
     }
 
     /**
+     * Set the first token (pre-consumed during validation).
+     *
+     * @param token the first token to replay
+     * @return this builder instance
+     */
+    public Builder firstToken(final JsonToken token) {
+      this.firstToken = token;
+      return this;
+    }
+
+    /**
      * Build an instance.
      *
      * @return {@link JacksonJsonShredder} instance
@@ -205,10 +221,16 @@ public final class JacksonJsonShredder implements Callable<Long> {
    */
   private JacksonJsonShredder(final Builder builder) {
     wtx = builder.wtx;
+    if (!(wtx instanceof InternalJsonNodeTrx internal)) {
+      throw new IllegalStateException(
+          "JacksonJsonShredder requires an InternalJsonNodeTrx implementation, got: " + wtx.getClass().getName());
+    }
+    internalWtx = internal;
     parser = builder.parser;
     insert = builder.insert;
     commit = builder.commit;
     skipRootJson = builder.skipRootJsonToken;
+    firstToken = builder.firstToken;
 
     parents = new LongArrayList();
     parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
@@ -228,324 +250,212 @@ public final class JacksonJsonShredder implements Callable<Long> {
     return revision;
   }
 
-  // ==================== Lookahead Buffer Methods (Gson-like peek/consume) ====================
+  // ==================== Main Content Insertion (token-forwarding pattern) ====================
 
   /**
-   * Peek at the next token WITHOUT consuming it. This emulates Gson's JsonReader.peek() behavior.
-   * 
-   * @return the next token, or null if end of input
-   * @throws IOException if parsing fails
+   * Sets the inserted root node key if not yet set.
+   *
+   * @param key the node key to record
    */
-  private JsonToken peek() throws IOException {
-    if (lookaheadToken == null) {
-      // No buffered token, advance the parser
-      lookaheadToken = parser.nextToken();
-      if (lookaheadToken != null) {
-        // Cache the value if applicable
-        cacheCurrentValue();
-      }
-    }
-    return lookaheadToken;
-  }
-
-  /**
-   * Consume the current (peeked) token and clear the lookahead buffer. After calling this, the next
-   * peek() will advance the parser.
-   */
-  private void consume() {
-    lookaheadToken = null;
-    lookaheadTextValue = null;
-    lookaheadBooleanValue = null;
-  }
-
-  /**
-   * Cache the current value from the parser (when we peek and buffer a token).
-   */
-  private void cacheCurrentValue() throws IOException {
-    switch (lookaheadToken) {
-      case VALUE_STRING, FIELD_NAME -> lookaheadTextValue = parser.getText();
-      case VALUE_NUMBER_INT, VALUE_NUMBER_FLOAT -> {
-        lookaheadTextValue = parser.getText(); // Store raw text for number parsing
-      }
-      case VALUE_TRUE -> lookaheadBooleanValue = Boolean.TRUE;
-      case VALUE_FALSE -> lookaheadBooleanValue = Boolean.FALSE;
-      default -> {
-        // No value to cache for structural tokens
-      }
+  private void markRootIfUnset(final long key) {
+    if (insertedRootNodeKey == -1) {
+      insertedRootNodeKey = key;
     }
   }
 
   /**
-   * Get the string value of the current (peeked) token. Must be called when peek() returned
-   * VALUE_STRING.
-   */
-  private String nextString() throws IOException {
-    if (lookaheadToken == null) {
-      throw new IllegalStateException("Must call peek() before nextString()");
-    }
-    String value = lookaheadTextValue;
-    consume();
-    return value;
-  }
-
-  /**
-   * Get the boolean value of the current (peeked) token. Must be called when peek() returned
-   * VALUE_TRUE or VALUE_FALSE.
-   */
-  private boolean nextBoolean() throws IOException {
-    if (lookaheadToken == null) {
-      throw new IllegalStateException("Must call peek() before nextBoolean()");
-    }
-    boolean value = lookaheadBooleanValue;
-    consume();
-    return value;
-  }
-
-  /**
-   * Consume a null token. Must be called when peek() returned VALUE_NULL.
-   */
-  private void nextNull() {
-    if (lookaheadToken == null) {
-      throw new IllegalStateException("Must call peek() before nextNull()");
-    }
-    consume();
-  }
-
-  /**
-   * Get the number value of the current (peeked) token. Must be called when peek() returned
-   * VALUE_NUMBER_INT or VALUE_NUMBER_FLOAT.
-   */
-  private Number nextNumber() throws IOException {
-    if (lookaheadToken == null) {
-      throw new IllegalStateException("Must call peek() before nextNumber()");
-    }
-    Number value = JsonNumber.stringToNumber(lookaheadTextValue);
-    consume();
-    return value;
-  }
-
-  /**
-   * Get the field name of the current (peeked) token. Must be called when peek() returned FIELD_NAME.
-   */
-  private String nextName() throws IOException {
-    if (lookaheadToken == null) {
-      throw new IllegalStateException("Must call peek() before nextName()");
-    }
-    String value = lookaheadTextValue;
-    consume();
-    return value;
-  }
-
-  /**
-   * Begin an object - consume START_OBJECT token.
-   */
-  private void beginObject() {
-    if (lookaheadToken != JsonToken.START_OBJECT) {
-      throw new IllegalStateException("Expected START_OBJECT but got " + lookaheadToken);
-    }
-    consume();
-  }
-
-  /**
-   * End an object - consume END_OBJECT token.
-   */
-  private void endObject() {
-    if (lookaheadToken != JsonToken.END_OBJECT) {
-      throw new IllegalStateException("Expected END_OBJECT but got " + lookaheadToken);
-    }
-    consume();
-  }
-
-  /**
-   * Begin an array - consume START_ARRAY token.
-   */
-  private void beginArray() {
-    if (lookaheadToken != JsonToken.START_ARRAY) {
-      throw new IllegalStateException("Expected START_ARRAY but got " + lookaheadToken);
-    }
-    consume();
-  }
-
-  /**
-   * End an array - consume END_ARRAY token.
-   */
-  private void endArray() {
-    if (lookaheadToken != JsonToken.END_ARRAY) {
-      throw new IllegalStateException("Expected END_ARRAY but got " + lookaheadToken);
-    }
-    consume();
-  }
-
-  // ==================== Main Content Insertion (matches Gson's logic exactly) ====================
-
-  /**
-   * Insert new content based on the Jackson streaming parser. This method matches the exact logic of
-   * Gson's JsonShredder.insertNewContent().
+   * Insert new content using Jackson's native pull-parsing with token-forwarding.
+   * Each process method reads the current token's value, advances the parser, and returns
+   * the next JsonToken for dispatch — eliminating all lookahead/peek/cache overhead.
    *
    * @throws SirixException if something went wrong while inserting
    */
   private void insertNewContent() {
     try {
       level = 0;
-      boolean endReached = false;
-      long insertedRootNodeKey = -1;
+      insertedRootNodeKey = -1;
+      var token = (firstToken != null) ? firstToken : parser.nextToken();
 
-      // Iterate over all tokens - peek() returns next token WITHOUT consuming
-      // This matches: while (reader.peek() != JsonToken.END_DOCUMENT && !endReached)
-      while (peek() != null && !endReached) {
-        final var nextToken = peek();
-
-        switch (nextToken) {
-          case START_OBJECT -> insertedRootNodeKey = processBeginObject(insertedRootNodeKey);
+      while (token != null) {
+        token = switch (token) {
+          case START_OBJECT -> processBeginObject();
           case FIELD_NAME -> processName();
-          case END_OBJECT -> endReached = processEndObject();
-          case START_ARRAY -> insertedRootNodeKey = processBeginArray(insertedRootNodeKey);
-          case END_ARRAY -> endReached = processEndArray();
-          case VALUE_STRING -> insertedRootNodeKey = processString(insertedRootNodeKey);
-          case VALUE_TRUE, VALUE_FALSE -> insertedRootNodeKey = processBoolean(insertedRootNodeKey);
-          case VALUE_NULL -> insertedRootNodeKey = processNull(insertedRootNodeKey);
-          case VALUE_NUMBER_INT, VALUE_NUMBER_FLOAT -> insertedRootNodeKey = processNumber(insertedRootNodeKey);
-          default -> consume(); // Skip unknown tokens
-        }
+          case END_OBJECT -> processEndObject();
+          case START_ARRAY -> processBeginArray();
+          case END_ARRAY -> processEndArray();
+          case VALUE_STRING -> processString();
+          case VALUE_TRUE, VALUE_FALSE -> processBoolean();
+          case VALUE_NULL -> processNull();
+          case VALUE_NUMBER_INT, VALUE_NUMBER_FLOAT -> processNumber();
+          default -> parser.nextToken();
+        };
       }
 
-      wtx.moveTo(insertedRootNodeKey);
+      if (insertedRootNodeKey != -1) {
+        wtx.moveTo(insertedRootNodeKey);
+      }
     } catch (final IOException e) {
       throw new SirixIOException(e);
     }
   }
 
-  // ==================== Process Methods (matching Gson's logic exactly) ====================
+  // ==================== Process Methods (token-forwarding) ====================
 
-  private long processNumber(long insertedRootNodeKey) throws IOException {
-    final var number = readNumber();
-    final var insertedNumberValueNodeKey =
-        insertNumberValue(number, peek() == JsonToken.FIELD_NAME || peek() == JsonToken.END_OBJECT);
-    if (insertedRootNodeKey == -1)
-      insertedRootNodeKey = insertedNumberValueNodeKey;
-    return insertedRootNodeKey;
+  private JsonToken processString() throws IOException {
+    final var utf8 = encodeCurrentTextToUtf8();
+    final var next = parser.nextToken();
+    final var nextIsParent = (next == JsonToken.FIELD_NAME || next == JsonToken.END_OBJECT);
+    final var key = insertStringValue(utf8, nextIsParent);
+    markRootIfUnset(key);
+    return next;
   }
 
-  private long processNull(long insertedRootNodeKey) throws IOException {
-    nextNull();
-    final var insertedNullValueNodeKey =
-        insertNullValue(peek() == JsonToken.FIELD_NAME || peek() == JsonToken.END_OBJECT);
-    if (insertedRootNodeKey == -1)
-      insertedRootNodeKey = insertedNullValueNodeKey;
-    return insertedRootNodeKey;
+  private JsonToken processNumber() throws IOException {
+    final var number = JsonNumber.stringToNumber(parser.getText());
+    final var next = parser.nextToken();
+    final var nextIsParent = (next == JsonToken.FIELD_NAME || next == JsonToken.END_OBJECT);
+    final var key = insertNumberValue(number, nextIsParent);
+    markRootIfUnset(key);
+    return next;
   }
 
-  private long processBoolean(long insertedRootNodeKey) throws IOException {
-    final var bool = nextBoolean();
-    final var insertedBooleanValueNodeKey =
-        insertBooleanValue(bool, peek() == JsonToken.FIELD_NAME || peek() == JsonToken.END_OBJECT);
-    if (insertedRootNodeKey == -1)
-      insertedRootNodeKey = insertedBooleanValueNodeKey;
-    return insertedRootNodeKey;
+  private JsonToken processBoolean() throws IOException {
+    final var bool = parser.getBooleanValue();
+    final var next = parser.nextToken();
+    final var nextIsParent = (next == JsonToken.FIELD_NAME || next == JsonToken.END_OBJECT);
+    final var key = insertBooleanValue(bool, nextIsParent);
+    markRootIfUnset(key);
+    return next;
   }
 
-  private long processString(long insertedRootNodeKey) throws IOException {
-    final var string = nextString();
-    final var insertedStringValueNodeKey =
-        insertStringValue(string, peek() == JsonToken.FIELD_NAME || peek() == JsonToken.END_OBJECT);
-    if (insertedRootNodeKey == -1)
-      insertedRootNodeKey = insertedStringValueNodeKey;
-    return insertedRootNodeKey;
+  private JsonToken processNull() throws IOException {
+    final var next = parser.nextToken();
+    final var nextIsParent = (next == JsonToken.FIELD_NAME || next == JsonToken.END_OBJECT);
+    final var key = insertNullValue(nextIsParent);
+    markRootIfUnset(key);
+    return next;
   }
 
-  private boolean processEndArray() throws IOException {
-    boolean endReached = false;
-    level--;
-    if (level == 0) {
-      endReached = true;
-    }
-    endArray();
-    processTrxMovement();
-    return endReached;
-  }
-
-  private long processBeginArray(long insertedRootNodeKey) throws IOException {
+  private JsonToken processBeginObject() throws IOException {
     level++;
-    beginArray();
     if (!(level == 1 && skipRootJson)) {
-      final var insertedArrayNodeKey = insertArray();
-
-      if (insertedRootNodeKey == -1)
-        insertedRootNodeKey = insertedArrayNodeKey;
+      final var key = addObject();
+      markRootIfUnset(key);
     }
-    return insertedRootNodeKey;
+    return parser.nextToken();
   }
 
-  private boolean processEndObject() throws IOException {
-    boolean endReached = false;
-    level--;
-    if (level == 0) {
-      endReached = true;
-    }
-    endObject();
-    processTrxMovement();
-    return endReached;
-  }
-
-  private void processName() throws IOException {
-    final String name = nextName();
-    addObjectRecord(name);
-  }
-
-  private long processBeginObject(long insertedRootNodeKey) throws IOException {
+  private JsonToken processBeginArray() throws IOException {
     level++;
-    beginObject();
     if (!(level == 1 && skipRootJson)) {
-      final long insertedObjectNodeKey = addObject();
-
-      if (insertedRootNodeKey == -1)
-        insertedRootNodeKey = insertedObjectNodeKey;
+      final var key = insertArray();
+      markRootIfUnset(key);
     }
+    return parser.nextToken();
+  }
 
-    return insertedRootNodeKey;
+  private JsonToken processEndObject() throws IOException {
+    level--;
+    final var next = parser.nextToken();
+    processTrxMovement(next);
+    if (level == 0) {
+      return null;
+    }
+    return next;
+  }
+
+  private JsonToken processEndArray() throws IOException {
+    level--;
+    final var next = parser.nextToken();
+    processTrxMovement(next);
+    if (level == 0) {
+      return null;
+    }
+    return next;
+  }
+
+  private JsonToken processName() throws IOException {
+    final var name = parser.getText();
+    final var valueToken = parser.nextToken();
+    return addObjectRecord(name, valueToken);
   }
 
   @SuppressWarnings("ConstantConditions")
-  private void processTrxMovement() throws IOException {
+  private void processTrxMovement(final JsonToken nextToken) {
     if (!(level == 0 && skipRootJson)) {
       parents.popLong();
       wtx.moveTo(parents.peekLong(0));
 
-      if (peek() == JsonToken.FIELD_NAME || peek() == JsonToken.END_OBJECT) {
+      if (nextToken == JsonToken.FIELD_NAME || nextToken == JsonToken.END_OBJECT) {
         parents.popLong();
         wtx.moveTo(parents.peekLong(0));
       }
     }
   }
 
-  private Number readNumber() throws IOException {
-    // Use nextNumber() which handles caching correctly
-    return nextNumber();
+  // ==================== UTF-8 Encoding ====================
+
+  /**
+   * Encode the current parser text to UTF-8 bytes without constructing a {@link String}.
+   *
+   * <p>Uses Jackson's {@code getTextCharacters()} which returns the internal char buffer
+   * without String allocation. For ASCII-only content (the common case in JSON), this
+   * performs a direct 1:1 char-to-byte copy. Non-ASCII content falls back to the JDK's
+   * {@link StandardCharsets#UTF_8} encoder for correctness with surrogates, BMP multi-byte,
+   * and emoji.
+   *
+   * @return UTF-8 encoded byte array
+   * @throws IOException if the parser cannot provide text
+   */
+  private byte[] encodeCurrentTextToUtf8() throws IOException {
+    final var chars = parser.getTextCharacters();
+    final var off = parser.getTextOffset();
+    final var len = parser.getTextLength();
+
+    // Fast path: check if all ASCII
+    boolean allAscii = true;
+    for (int i = off, end = off + len; i < end; i++) {
+      if (chars[i] >= 0x80) {
+        allAscii = false;
+        break;
+      }
+    }
+
+    if (allAscii) {
+      final var bytes = new byte[len];
+      for (int i = 0; i < len; i++) {
+        bytes[i] = (byte) chars[off + i];
+      }
+      return bytes;
+    }
+
+    // Non-ASCII fallback: delegate to JDK for correctness (surrogates, BMP multi-byte, emoji)
+    return new String(chars, off, len).getBytes(StandardCharsets.UTF_8);
   }
 
-  // ==================== Insert Methods (identical to Gson version) ====================
+  // ==================== Insert Methods ====================
 
-  private long insertStringValue(final String stringValue, final boolean nextTokenIsParent) {
-    final String value = requireNonNull(stringValue);
+  private long insertStringValue(final byte[] utf8Value, final boolean nextTokenIsParent) {
+    requireNonNull(utf8Value);
     final long key;
 
     switch (insert) {
       case AS_FIRST_CHILD -> {
         if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-          key = wtx.insertStringValueAsFirstChild(value).getNodeKey();
+          key = internalWtx.insertStringValueAsFirstChild(utf8Value).getNodeKey();
         } else {
-          key = wtx.insertStringValueAsRightSibling(value).getNodeKey();
+          key = internalWtx.insertStringValueAsRightSibling(utf8Value).getNodeKey();
         }
       }
       case AS_LAST_CHILD -> {
         if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-          key = wtx.insertStringValueAsLastChild(value).getNodeKey();
+          key = internalWtx.insertStringValueAsLastChild(utf8Value).getNodeKey();
         } else {
-          key = wtx.insertStringValueAsRightSibling(value).getNodeKey();
+          key = internalWtx.insertStringValueAsRightSibling(utf8Value).getNodeKey();
         }
       }
-      case AS_LEFT_SIBLING -> key = wtx.insertStringValueAsLeftSibling(value).getNodeKey();
-      case AS_RIGHT_SIBLING -> key = wtx.insertStringValueAsRightSibling(value).getNodeKey();
+      case AS_LEFT_SIBLING -> key = internalWtx.insertStringValueAsLeftSibling(utf8Value).getNodeKey();
+      case AS_RIGHT_SIBLING -> key = internalWtx.insertStringValueAsRightSibling(utf8Value).getNodeKey();
       default -> throw new AssertionError("Unknown insert position: " + insert);
     }
 
@@ -737,10 +647,35 @@ public final class JacksonJsonShredder implements Callable<Long> {
     return key;
   }
 
-  private void addObjectRecord(final String name) throws IOException {
+  private JsonToken addObjectRecord(final String name, final JsonToken valueToken) throws IOException {
     assert name != null;
 
-    final ObjectRecordValue<?> value = getObjectRecordValue();
+    final ObjectRecordValue<?> value;
+    var isContainerValue = false;
+
+    switch (valueToken) {
+      case START_OBJECT -> {
+        level++;
+        value = ObjectValue.INSTANCE;
+        isContainerValue = true;
+      }
+      case START_ARRAY -> {
+        level++;
+        value = ArrayValue.INSTANCE;
+        isContainerValue = true;
+      }
+      case VALUE_STRING -> {
+        reusableByteStringValue.set(encodeCurrentTextToUtf8());
+        value = reusableByteStringValue;
+      }
+      case VALUE_TRUE -> value = BooleanValue.of(true);
+      case VALUE_FALSE -> value = BooleanValue.of(false);
+      case VALUE_NULL -> value = NullValue.INSTANCE;
+      case VALUE_NUMBER_INT, VALUE_NUMBER_FLOAT ->
+          value = new NumberValue(JsonNumber.stringToNumber(parser.getText()));
+      default -> throw new AssertionError("Unexpected value token: " + valueToken);
+    }
+
     final long key;
 
     switch (insert) {
@@ -767,54 +702,17 @@ public final class JacksonJsonShredder implements Callable<Long> {
     parents.push(wtx.getParentKey());
     parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
 
-    if (wtx.getKind() == NodeKind.OBJECT || wtx.getKind() == NodeKind.ARRAY) {
+    if (isContainerValue) {
       parents.popLong();
       parents.push(key);
       parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
+      return parser.nextToken();
     } else {
-      // Peek to check what's next - matches reader.peek() in Gson version
-      final boolean isNextTokenParentToken = peek() == JsonToken.FIELD_NAME || peek() == JsonToken.END_OBJECT;
-
-      adaptTrxPosAndStack(isNextTokenParentToken, key);
+      final var next = parser.nextToken();
+      final var isNextTokenParent = (next == JsonToken.FIELD_NAME || next == JsonToken.END_OBJECT);
+      adaptTrxPosAndStack(isNextTokenParent, key);
+      return next;
     }
-  }
-
-  /**
-   * Get the value for an object record by examining the next token. Matches Gson's
-   * getObjectRecordValue() exactly.
-   */
-  public ObjectRecordValue<?> getObjectRecordValue() throws IOException {
-    final var nextToken = peek();
-
-    return switch (nextToken) {
-      case START_OBJECT -> {
-        level++;
-        beginObject();
-        yield ObjectValue.INSTANCE;
-      }
-      case START_ARRAY -> {
-        level++;
-        beginArray();
-        yield ArrayValue.INSTANCE;
-      }
-      case VALUE_TRUE, VALUE_FALSE -> {
-        final boolean booleanVal = nextBoolean();
-        yield BooleanValue.of(booleanVal);
-      }
-      case VALUE_STRING -> {
-        final String stringVal = nextString();
-        yield new StringValue(stringVal);
-      }
-      case VALUE_NULL -> {
-        nextNull();
-        yield NullValue.INSTANCE;
-      }
-      case VALUE_NUMBER_INT, VALUE_NUMBER_FLOAT -> {
-        final Number numberVal = nextNumber();
-        yield new NumberValue(numberVal);
-      }
-      default -> throw new AssertionError("Unexpected token for object record value: " + nextToken);
-    };
   }
 
   // ==================== Factory Methods ====================

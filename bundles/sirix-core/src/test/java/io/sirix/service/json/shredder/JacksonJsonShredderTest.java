@@ -462,6 +462,101 @@ public final class JacksonJsonShredderTest {
     testRoundTrip("{\"sci1\":1.23e10,\"sci2\":1.23E-10}");
   }
 
+  // ==================== Skip-Root Edge Case Tests ====================
+
+  @Test
+  public void testSkipRootEmptyObject() throws IOException {
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = manager.beginNodeTrx()) {
+      // First insert a root array so we can insert under it
+      try (final var parser = JacksonJsonShredder.createStringParser("[1]")) {
+        trx.insertSubtreeAsFirstChild(parser);
+      }
+
+      // Now insert an empty object as right sibling of the "1" value
+      trx.moveTo(2);
+      try (final var parser = JacksonJsonShredder.createStringParser("{}")) {
+        trx.insertSubtreeAsRightSibling(parser);
+      }
+
+      trx.commit();
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        JSONAssert.assertEquals("[1,{}]", writer.toString(), true);
+      }
+    }
+  }
+
+  @Test
+  public void testSkipRootEmptyArray() throws IOException {
+    final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = manager.beginNodeTrx()) {
+      // First insert a root array so we can insert under it
+      try (final var parser = JacksonJsonShredder.createStringParser("[1]")) {
+        trx.insertSubtreeAsFirstChild(parser);
+      }
+
+      // Now insert an empty array as right sibling of the "1" value
+      trx.moveTo(2);
+      try (final var parser = JacksonJsonShredder.createStringParser("[]")) {
+        trx.insertSubtreeAsRightSibling(parser);
+      }
+
+      trx.commit();
+      try (final Writer writer = new StringWriter()) {
+        final var serializer = new JsonSerializer.Builder(manager, writer).build();
+        serializer.call();
+        JSONAssert.assertEquals("[1,[]]", writer.toString(), true);
+      }
+    }
+  }
+
+  // ==================== UTF-8 Encoding Correctness Tests ====================
+
+  @Test
+  public void testAsciiOnlyStrings() throws IOException {
+    testRoundTrip("{\"greeting\":\"Hello, World!\",\"path\":\"/usr/bin/env\"}");
+  }
+
+  @Test
+  public void testMultibyteBmpCharacters() throws IOException {
+    testRoundTrip("{\"french\":\"café\",\"japanese\":\"日本語\",\"german\":\"Ä Ö Ü ß\"}");
+  }
+
+  @Test
+  public void testEmojiSurrogatePairs() throws IOException {
+    testRoundTrip("{\"emoji\":\"Hello 😀🎉\",\"flags\":\"🇺🇸🇩🇪\"}");
+  }
+
+  @Test
+  public void testEscapedUnicodeSequences() throws IOException {
+    // Jackson decodes unicode escapes to char[] before we see them
+    testRoundTrip("{\"accent\":\"caf\\u00e9\",\"smiley\":\"\\uD83D\\uDE00\"}");
+  }
+
+  @Test
+  public void testMixedAsciiAndNonAscii() throws IOException {
+    testRoundTrip("{\"mixed\":\"abc 日本 xyz 🎉 end\"}");
+  }
+
+  @Test
+  public void testStringArrayValues() throws IOException {
+    testRoundTrip("[\"ascii\",\"café\",\"日本語\",\"😀🎉\",\"mixed abc 日本 🌍\"]");
+  }
+
+  @Test
+  public void testObjectRecordStringValues() throws IOException {
+    testRoundTrip("{\"a\":{\"v\":\"café\"},\"b\":{\"v\":\"日本語\"},\"c\":{\"v\":\"😀\"}}");
+  }
+
+  @Test
+  public void testEmptyString() throws IOException {
+    testRoundTrip("{\"empty\":\"\"}");
+  }
+
   // ==================== Performance Test ====================
 
   @Disabled("Manual performance test")
@@ -499,7 +594,7 @@ public final class JacksonJsonShredderTest {
     logger.info("Speedup: " + String.format("%.2fx", (double) gsonTotal / jacksonTotal));
   }
 
-  @Disabled("Large file test - run manually")
+  //@Disabled("Large file test - run manually")
   @Test
   public void testShredderAndTraverseChicago() {
     logger.info("start");
@@ -521,12 +616,12 @@ public final class JacksonJsonShredderTest {
                                                  .storeChildCount(true)
                                                  .hashKind(HashType.ROLLING)
                                                  .useTextCompression(false)
-                                                 .storageType(StorageType.MEMORY_MAPPED)
+                                                 .storageType(StorageType.FILE_CHANNEL)
                                                  .useDeweyIDs(false)
                                                  .byteHandlerPipeline(new ByteHandlerPipeline(new FFILz4Compressor()))
                                                  .build());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var trx = manager.beginNodeTrx((262_144 << 3));
+        final var trx = manager.beginNodeTrx((262_144 << 4) + 262_144);
         final var parser = JacksonJsonShredder.createFileParser(jsonPath)) {
       trx.insertSubtreeAsFirstChild(parser);
     } catch (IOException e) {

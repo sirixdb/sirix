@@ -369,56 +369,25 @@ final class JsonNodeTrxImpl extends
   private JsonNodeTrx insertSubtree(final JsonParser parser, final InsertPosition insertionPosition,
       final Commit commit, final CheckParentNode checkParentNode, final SkipRootToken doSkipRootJsonToken) {
     requireNonNull(parser);
+    final var tokenHolder = new com.fasterxml.jackson.core.JsonToken[1];
 
     return insertSubtreeInternal(insertionPosition, commit, checkParentNode, doSkipRootJsonToken, () -> {
-      final com.fasterxml.jackson.core.JsonToken peekedToken = parser.nextToken();
-      if (peekedToken != com.fasterxml.jackson.core.JsonToken.START_OBJECT
-          && peekedToken != com.fasterxml.jackson.core.JsonToken.START_ARRAY) {
+      final com.fasterxml.jackson.core.JsonToken firstToken = parser.nextToken();
+      if (firstToken != com.fasterxml.jackson.core.JsonToken.START_OBJECT
+          && firstToken != com.fasterxml.jackson.core.JsonToken.START_ARRAY) {
         throw new SirixUsageException("JSON to insert must begin with an array or object.");
       }
-      return new InputShape(peekedToken == com.fasterxml.jackson.core.JsonToken.START_OBJECT,
-          peekedToken == com.fasterxml.jackson.core.JsonToken.START_ARRAY);
+      tokenHolder[0] = firstToken;
+      return new InputShape(firstToken == com.fasterxml.jackson.core.JsonToken.START_OBJECT,
+          firstToken == com.fasterxml.jackson.core.JsonToken.START_ARRAY);
     }, (skipToken, position) -> {
-      // Create a wrapper parser that replays the peeked token (consumed during validation)
-      final var wrappedParser = new PeekedTokenJsonParser(parser, parser.currentToken());
-      final var shredderBuilder = new JacksonJsonShredder.Builder(this, wrappedParser, position);
+      final var shredderBuilder = new JacksonJsonShredder.Builder(this, parser, position);
+      shredderBuilder.firstToken(tokenHolder[0]);
       if (skipToken == SkipRootToken.YES) {
         shredderBuilder.skipRootJsonToken();
       }
       shredderBuilder.build().call();
     });
-  }
-
-  /**
-   * Wrapper parser that replays a peeked token before delegating to the underlying parser. This is
-   * needed because Jackson's parser doesn't have a true peek() - we consumed the first token to
-   * validate it, so we need to replay it for the shredder.
-   */
-  private static class PeekedTokenJsonParser extends com.fasterxml.jackson.core.util.JsonParserDelegate {
-    private com.fasterxml.jackson.core.JsonToken peekedToken;
-    private boolean peekedTokenConsumed = false;
-
-    PeekedTokenJsonParser(JsonParser delegate, com.fasterxml.jackson.core.JsonToken peekedToken) {
-      super(delegate);
-      this.peekedToken = peekedToken;
-    }
-
-    @Override
-    public com.fasterxml.jackson.core.JsonToken nextToken() throws IOException {
-      if (!peekedTokenConsumed) {
-        peekedTokenConsumed = true;
-        return peekedToken;
-      }
-      return super.nextToken();
-    }
-
-    @Override
-    public com.fasterxml.jackson.core.JsonToken getCurrentToken() {
-      if (!peekedTokenConsumed) {
-        return peekedToken;
-      }
-      return super.getCurrentToken();
-    }
   }
 
   @Override
@@ -926,7 +895,17 @@ final class JsonNodeTrxImpl extends
     switch (valueKind) {
       case OBJECT -> insertObjectAsFirstChild();
       case ARRAY -> insertArrayAsFirstChild();
-      case STRING_VALUE -> insertStringValueAsFirstChild((String) value.getValue());
+      case STRING_VALUE -> {
+        final Object raw = value.getValue();
+        if (raw instanceof byte[] utf8) {
+          insertStringValueAsFirstChild(utf8);
+        } else if (raw instanceof String s) {
+          insertStringValueAsFirstChild(s);
+        } else {
+          throw new IllegalStateException("STRING_VALUE payload must be String or byte[], got: "
+              + (raw == null ? "null" : raw.getClass().getName()));
+        }
+      }
       case BOOLEAN_VALUE -> insertBooleanValueAsFirstChild((Boolean) value.getValue());
       case NUMBER_VALUE -> insertNumberValueAsFirstChild((Number) value.getValue());
       case NULL_VALUE -> insertNullValueAsFirstChild();
@@ -1313,6 +1292,18 @@ final class JsonNodeTrxImpl extends
     return insertPrimitiveAsChild(PrimitiveNodeType.STRING, getBytes(value), null, false, true, false);
   }
 
+  @Override
+  public JsonNodeTrx insertStringValueAsFirstChild(final byte[] utf8Value) {
+    requireNonNull(utf8Value);
+    return insertPrimitiveAsChild(PrimitiveNodeType.STRING, utf8Value, null, false, true, true);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsLastChild(final byte[] utf8Value) {
+    requireNonNull(utf8Value);
+    return insertPrimitiveAsChild(PrimitiveNodeType.STRING, utf8Value, null, false, true, false);
+  }
+
   private long getPathNodeKey(StructNode structNode) {
     final long pathNodeKey;
 
@@ -1352,6 +1343,18 @@ final class JsonNodeTrxImpl extends
   public JsonNodeTrx insertStringValueAsRightSibling(final String value) {
     requireNonNull(value);
     return insertPrimitiveAsSibling(PrimitiveNodeType.STRING, getBytes(value), null, false, false);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsLeftSibling(final byte[] utf8Value) {
+    requireNonNull(utf8Value);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.STRING, utf8Value, null, false, true);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsRightSibling(final byte[] utf8Value) {
+    requireNonNull(utf8Value);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.STRING, utf8Value, null, false, false);
   }
 
   @Override
