@@ -311,6 +311,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private int slottedPageCapacity;
 
+  // ==================== CACHED PAGE HEADER VALUES ====================
+  // Mirror of header fields from slottedPage MemorySegment.
+  // All hot-path reads use these Java fields (zero MemorySegment overhead).
+  // Writes use write-through helpers that update both field and segment.
+
+  private int cachedHeapEnd;
+  private int cachedHeapUsed;
+  private int cachedPopulatedCount;
+
   /**
    * Constructor which initializes a new {@link KeyValueLeafPage}.
    * Memory is externally provided (e.g., by Arena in tests) and will NOT be released by close().
@@ -541,7 +550,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
 
     // Ensure heap has enough space for this record (value nodes can be large)
-    final int heapEnd = PageLayout.getHeapEnd(slottedPage);
+    final int heapEnd = cachedHeapEnd;
     final int estimatedSize = fn.estimateSerializedSize() + deweyIdLen
         + (areDeweyIDsStored ? PageLayout.DEWEY_ID_TRAILER_SIZE : 0);
     while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < estimatedSize) {
@@ -566,8 +575,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // Update heap end and used counters
-    PageLayout.setHeapEnd(slottedPage, heapEnd + totalBytes);
-    PageLayout.setHeapUsed(slottedPage, PageLayout.getHeapUsed(slottedPage) + totalBytes);
+    updateHeapEnd(heapEnd + totalBytes);
+    updateHeapUsed(cachedHeapUsed + totalBytes);
 
     // Update directory entry: [heapOffset][dataLength | nodeKindId]
     PageLayout.setDirEntry(slottedPage, offset, heapEnd, totalBytes,
@@ -576,8 +585,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Mark slot populated in bitmap and track last slot index (new slots only)
     if (!PageLayout.isSlotPopulated(slottedPage, offset)) {
       PageLayout.markSlotPopulated(slottedPage, offset);
-      PageLayout.setPopulatedCount(slottedPage,
-          PageLayout.getPopulatedCount(slottedPage) + 1);
+      updatePopulatedCount(cachedPopulatedCount + 1);
       lastSlotIndex = offset;
     }
 
@@ -601,10 +609,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final int deweyOverhead = areDeweyIDsStored
         ? deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE : 0;
     final int totalEstimated = estimatedRecordSize + deweyOverhead;
-    int heapEnd = PageLayout.getHeapEnd(slottedPage);
+    final int heapEnd = cachedHeapEnd;
     while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < totalEstimated) {
       growSlottedPage();
-      heapEnd = PageLayout.getHeapEnd(slottedPage);
     }
     return PageLayout.heapAbsoluteOffset(heapEnd);
   }
@@ -626,7 +633,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     compressedSegment = null;
     bytes = null;
 
-    final int heapEnd = PageLayout.getHeapEnd(slottedPage);
+    final int heapEnd = cachedHeapEnd;
     final long absOffset = PageLayout.heapAbsoluteOffset(heapEnd);
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
 
@@ -644,8 +651,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // Update heap counters
-    PageLayout.setHeapEnd(slottedPage, heapEnd + totalBytes);
-    PageLayout.setHeapUsed(slottedPage, PageLayout.getHeapUsed(slottedPage) + totalBytes);
+    updateHeapEnd(heapEnd + totalBytes);
+    updateHeapUsed(cachedHeapUsed + totalBytes);
 
     // Directory entry
     PageLayout.setDirEntry(slottedPage, slotOffset, heapEnd, totalBytes, nodeKindId);
@@ -653,8 +660,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Bitmap
     if (!PageLayout.isSlotPopulated(slottedPage, slotOffset)) {
       PageLayout.markSlotPopulated(slottedPage, slotOffset);
-      PageLayout.setPopulatedCount(slottedPage,
-          PageLayout.getPopulatedCount(slottedPage) + 1);
+      updatePopulatedCount(cachedPopulatedCount + 1);
       lastSlotIndex = slotOffset;
     }
     // NOTE: Caller is responsible for binding the flyweight and setting ownerPage.
@@ -735,7 +741,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final int maxNewTotalLen = maxNewRecordLen + deweyIdLen + deweyIdTrailerSize;
 
     // --- Ensure heap capacity ---
-    final int heapEnd = PageLayout.getHeapEnd(slottedPage);
+    final int heapEnd = cachedHeapEnd;
     while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < maxNewTotalLen) {
       growSlottedPage();
     }
@@ -764,10 +770,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // --- Update heap counters (old space becomes dead) ---
-    PageLayout.setHeapEnd(slottedPage, heapEnd + newTotalLen);
+    updateHeapEnd(heapEnd + newTotalLen);
     // heapUsed: subtract old, add new (net change = newTotalLen - oldTotalLen)
-    PageLayout.setHeapUsed(slottedPage,
-        PageLayout.getHeapUsed(slottedPage) + newTotalLen - oldTotalLen);
+    updateHeapUsed(cachedHeapUsed + newTotalLen - oldTotalLen);
 
     // --- Update directory entry ---
     PageLayout.setDirEntry(slottedPage, slotIndex, heapEnd, newTotalLen, nodeKindId);
@@ -797,7 +802,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final int srcNodeKindId = PageLayout.getDirNodeKindId(srcPage, slotIndex);
 
     // Ensure destination has enough space
-    final int heapEnd = PageLayout.getHeapEnd(slottedPage);
+    final int heapEnd = cachedHeapEnd;
     while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < srcTotalLen) {
       growSlottedPage();
     }
@@ -808,8 +813,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     MemorySegment.copy(srcPage, srcAbs, slottedPage, dstAbs, srcTotalLen);
 
     // Update destination heap end and used counters
-    PageLayout.setHeapEnd(slottedPage, heapEnd + srcTotalLen);
-    PageLayout.setHeapUsed(slottedPage, PageLayout.getHeapUsed(slottedPage) + srcTotalLen);
+    updateHeapEnd(heapEnd + srcTotalLen);
+    updateHeapUsed(cachedHeapUsed + srcTotalLen);
 
     // Update destination directory entry
     PageLayout.setDirEntry(slottedPage, slotIndex, heapEnd, srcTotalLen, srcNodeKindId);
@@ -817,7 +822,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Mark slot populated in bitmap
     if (!PageLayout.isSlotPopulated(slottedPage, slotIndex)) {
       PageLayout.markSlotPopulated(slottedPage, slotIndex);
-      PageLayout.setPopulatedCount(slottedPage, PageLayout.getPopulatedCount(slottedPage) + 1);
+      updatePopulatedCount(cachedPopulatedCount + 1);
       lastSlotIndex = slotIndex;
     }
 
@@ -853,6 +858,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     slottedPageCapacity = (int) allocated.byteSize();
     PageLayout.initializePage(allocated, recordPageKey, revision, indexType.getID(), areDeweyIDsStored);
     slottedPage = allocated.reinterpret(Long.MAX_VALUE);
+    cachedHeapEnd = 0;
+    cachedHeapUsed = 0;
+    cachedPopulatedCount = 0;
   }
 
   /**
@@ -870,6 +878,45 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     slottedPageCapacity = (int) grown.byteSize();
     slottedPage = grown.reinterpret(Long.MAX_VALUE);
     // No rebind needed: the caller (serializeToHeap) will rebind the active flyweight.
+    // Cached header values remain valid — grow copies all data including header.
+  }
+
+  // ==================== WRITE-THROUGH HELPERS ====================
+
+  private void updateHeapEnd(final int val) {
+    cachedHeapEnd = val;
+    PageLayout.setHeapEnd(slottedPage, val);
+  }
+
+  private void updateHeapUsed(final int val) {
+    cachedHeapUsed = val;
+    PageLayout.setHeapUsed(slottedPage, val);
+  }
+
+  private void updatePopulatedCount(final int val) {
+    cachedPopulatedCount = val;
+    PageLayout.setPopulatedCount(slottedPage, val);
+  }
+
+  int getCachedHeapEnd() {
+    return cachedHeapEnd;
+  }
+
+  int getCachedHeapUsed() {
+    return cachedHeapUsed;
+  }
+
+  int getCachedPopulatedCount() {
+    return cachedPopulatedCount;
+  }
+
+  void assertNoDrift() {
+    assert cachedHeapEnd == PageLayout.getHeapEnd(slottedPage)
+        : "heapEnd drift: cached=" + cachedHeapEnd + " segment=" + PageLayout.getHeapEnd(slottedPage);
+    assert cachedHeapUsed == PageLayout.getHeapUsed(slottedPage)
+        : "heapUsed drift: cached=" + cachedHeapUsed + " segment=" + PageLayout.getHeapUsed(slottedPage);
+    assert cachedPopulatedCount == PageLayout.getPopulatedCount(slottedPage)
+        : "populatedCount drift: cached=" + cachedPopulatedCount + " segment=" + PageLayout.getPopulatedCount(slottedPage);
   }
 
   /**
@@ -893,13 +940,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         : recordSize;
 
     // Ensure heap has enough space
-    int heapEnd = PageLayout.getHeapEnd(slottedPage);
-    int remaining = slottedPageCapacity - PageLayout.HEAP_START - heapEnd;
+    int heapEnd = cachedHeapEnd;
+    final int remaining = slottedPageCapacity - PageLayout.HEAP_START - heapEnd;
     if (remaining < totalSize) {
       while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < totalSize) {
         growSlottedPage();
       }
-      heapEnd = PageLayout.getHeapEnd(slottedPage);
+      heapEnd = cachedHeapEnd;
     }
 
     // Bump-allocate and copy record data to heap
@@ -912,8 +959,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // Update heap end and used counters
-    PageLayout.setHeapEnd(slottedPage, heapEnd + totalSize);
-    PageLayout.setHeapUsed(slottedPage, PageLayout.getHeapUsed(slottedPage) + totalSize);
+    updateHeapEnd(heapEnd + totalSize);
+    updateHeapUsed(cachedHeapUsed + totalSize);
 
     // Update directory entry with the provided nodeKindId
     PageLayout.setDirEntry(slottedPage, slotNumber, heapEnd, totalSize, nodeKindId);
@@ -921,8 +968,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Mark slot populated in bitmap and track last slot index (new slots only)
     if (!PageLayout.isSlotPopulated(slottedPage, slotNumber)) {
       PageLayout.markSlotPopulated(slottedPage, slotNumber);
-      PageLayout.setPopulatedCount(slottedPage,
-          PageLayout.getPopulatedCount(slottedPage) + 1);
+      updatePopulatedCount(cachedPopulatedCount + 1);
       lastSlotIndex = slotNumber;
     }
   }
@@ -944,13 +990,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // Ensure heap has enough space
-    int heapEnd = PageLayout.getHeapEnd(slottedPage);
+    int heapEnd = cachedHeapEnd;
     final int remaining = slottedPageCapacity - PageLayout.HEAP_START - heapEnd;
     if (remaining < dataSize) {
       while (slottedPageCapacity - PageLayout.HEAP_START - heapEnd < dataSize) {
         growSlottedPage();
       }
-      heapEnd = PageLayout.getHeapEnd(slottedPage);
+      heapEnd = cachedHeapEnd;
     }
 
     // Bump-allocate and copy data to heap
@@ -958,8 +1004,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     MemorySegment.copy(source, sourceOffset, slottedPage, absOffset, dataSize);
 
     // Update heap end and used counters
-    PageLayout.setHeapEnd(slottedPage, heapEnd + dataSize);
-    PageLayout.setHeapUsed(slottedPage, PageLayout.getHeapUsed(slottedPage) + dataSize);
+    updateHeapEnd(heapEnd + dataSize);
+    updateHeapUsed(cachedHeapUsed + dataSize);
 
     // Update directory entry
     PageLayout.setDirEntry(slottedPage, slotNumber, heapEnd, dataSize, nodeKindId);
@@ -967,8 +1013,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Mark slot populated in bitmap
     if (!PageLayout.isSlotPopulated(slottedPage, slotNumber)) {
       PageLayout.markSlotPopulated(slottedPage, slotNumber);
-      PageLayout.setPopulatedCount(slottedPage,
-          PageLayout.getPopulatedCount(slottedPage) + 1);
+      updatePopulatedCount(cachedPopulatedCount + 1);
     }
   }
 
@@ -1423,6 +1468,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
     this.slottedPageCapacity = (int) newSlottedPage.byteSize();
     this.slottedPage = newSlottedPage.reinterpret(Long.MAX_VALUE);
+    this.cachedHeapEnd = PageLayout.getHeapEnd(this.slottedPage);
+    this.cachedHeapUsed = PageLayout.getHeapUsed(this.slottedPage);
+    this.cachedPopulatedCount = PageLayout.getPopulatedCount(this.slottedPage);
   }
 
 
@@ -1435,11 +1483,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public int getUsedSlotsSize() {
-    return slottedPage != null ? PageLayout.getHeapUsed(slottedPage) : 0;
+    return slottedPage != null ? cachedHeapUsed : 0;
   }
 
   public int getSlotMemoryByteSize() {
-    return slottedPage != null ? PageLayout.HEAP_START + PageLayout.getHeapEnd(slottedPage) : 0;
+    return slottedPage != null ? PageLayout.HEAP_START + cachedHeapEnd : 0;
   }
 
 
@@ -1542,11 +1590,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final int newTotalLen = recordLen + deweyIdLen + PageLayout.DEWEY_ID_TRAILER_SIZE;
 
     // Ensure heap has enough space
-    int heapEnd = PageLayout.getHeapEnd(slottedPage);
+    int heapEnd = cachedHeapEnd;
     int remaining = slottedPageCapacity - PageLayout.HEAP_START - heapEnd;
     while (remaining < newTotalLen) {
       growSlottedPage();
-      heapEnd = PageLayout.getHeapEnd(slottedPage);
+      heapEnd = cachedHeapEnd;
       remaining = slottedPageCapacity - PageLayout.HEAP_START - heapEnd;
     }
 
@@ -1565,9 +1613,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     PageLayout.writeDeweyIdTrailer(slottedPage, newAbsStart + newTotalLen, deweyIdLen);
 
     // Update heap end (heapUsed: add new, subtract old dead space)
-    PageLayout.setHeapEnd(slottedPage, heapEnd + newTotalLen);
-    PageLayout.setHeapUsed(slottedPage,
-        PageLayout.getHeapUsed(slottedPage) + newTotalLen - oldDataLength);
+    updateHeapEnd(heapEnd + newTotalLen);
+    updateHeapUsed(cachedHeapUsed + newTotalLen - oldDataLength);
 
     // Update directory entry
     PageLayout.setDirEntry(slottedPage, slotNumber, heapEnd, newTotalLen, nodeKindId);
@@ -1575,8 +1622,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // Mark slot populated if new
     if (!slotExists) {
       PageLayout.markSlotPopulated(slottedPage, slotNumber);
-      PageLayout.setPopulatedCount(slottedPage,
-          PageLayout.getPopulatedCount(slottedPage) + 1);
+      updatePopulatedCount(cachedPopulatedCount + 1);
     }
   }
 
@@ -2031,6 +2077,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     if (slottedPage != null) {
       PageLayout.initializePage(slottedPage, recordPageKey, revision,
           indexType.getID(), areDeweyIDsStored);
+      cachedHeapEnd = 0;
+      cachedHeapUsed = 0;
+      cachedPopulatedCount = 0;
     }
 
     // Reset index trackers

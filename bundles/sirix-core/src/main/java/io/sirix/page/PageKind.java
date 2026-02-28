@@ -246,12 +246,18 @@ public enum PageKind {
       // Write compact on-disk format: header+bitmap, compact dir, heap (no 8KB slot directory)
       final MemorySegment slottedPage = keyValueLeafPage.getSlottedPage();
 
+      // Debug: verify cached header fields match segment values
+      assert keyValueLeafPage.getCachedPopulatedCount() >= 0 : "negative populatedCount";
+      keyValueLeafPage.assertNoDrift();
+
       // 1. Write header (32B) + bitmap (128B) — 160 bytes (on-disk format, never changes)
       sink.writeSegment(slottedPage, 0, PageLayout.DISK_HEADER_BITMAP_SIZE);
 
-      // 2. First pass bitmap scan: write compact dir entries, compute total heap size
-      final int populatedCount = PageLayout.getPopulatedCount(slottedPage);
+      // 2. Single-pass bitmap scan: write compact dir entries, collect heap info into scratch
+      final int populatedCount = keyValueLeafPage.getCachedPopulatedCount();
+      final int[] scratch = SERIALIZE_SCRATCH.get();
       int totalHeapSize = 0;
+      int idx = 0;
 
       for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
         long word = PageLayout.getBitmapWord(slottedPage, w);
@@ -260,7 +266,11 @@ public enum PageKind {
           final int slot = (w << 6) | bit;
           final int dataLength = PageLayout.getDirDataLength(slottedPage, slot);
           final int nodeKindId = PageLayout.getDirNodeKindId(slottedPage, slot);
+          final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, slot);
+
           sink.writeInt(PageLayout.packCompactDirEntry(dataLength, nodeKindId));
+          scratch[idx++] = heapOffset;
+          scratch[idx++] = dataLength;
           totalHeapSize += dataLength;
           word &= word - 1; // clear lowest set bit
         }
@@ -269,19 +279,9 @@ public enum PageKind {
       // 3. Write heap size
       sink.writeInt(totalHeapSize);
 
-      // 4. Second pass bitmap scan: write heap data slot-by-slot in bitmap order (contiguous on disk)
-      if (populatedCount > 0) {
-        for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
-          long word = PageLayout.getBitmapWord(slottedPage, w);
-          while (word != 0) {
-            final int bit = Long.numberOfTrailingZeros(word);
-            final int slot = (w << 6) | bit;
-            final int dataLength = PageLayout.getDirDataLength(slottedPage, slot);
-            final int heapOffset = PageLayout.getDirHeapOffset(slottedPage, slot);
-            sink.writeSegment(slottedPage, PageLayout.HEAP_START + heapOffset, dataLength);
-            word &= word - 1; // clear lowest set bit
-          }
-        }
+      // 4. Write heap data from scratch array (no second bitmap scan)
+      for (int i = 0; i < idx; i += 2) {
+        sink.writeSegment(slottedPage, PageLayout.HEAP_START + scratch[i], scratch[i + 1]);
       }
 
       // Write overlong entries
@@ -1083,6 +1083,14 @@ public enum PageKind {
    * Mapping of class -> page.
    */
   private static final Map<Class<? extends Page>, PageKind> INSTANCEFORCLASS = new HashMap<>();
+
+  /**
+   * Per-thread scratch array for single-pass serializePage.
+   * Layout: [heapOffset0, dataLength0, heapOffset1, dataLength1, ...].
+   * Max 1024 slots x 2 ints = 8 KB per thread.
+   */
+  private static final ThreadLocal<int[]> SERIALIZE_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT * 2]);
 
   static {
     for (final PageKind page : values()) {
