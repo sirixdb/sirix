@@ -1491,6 +1491,17 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     };
   }
 
+  /**
+   * Fast-path page key computation for DOCUMENT index type.
+   * Skips assertNotClosed() and the IndexType switch — inlines the DOCUMENT case directly.
+   *
+   * @param recordKey the record key
+   * @return the page key
+   */
+  public long pageKeyDocument(final long recordKey) {
+    return recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
+  }
+
   @Override
   public int getCurrentMaxIndirectPageTreeLevel(final IndexType indexType, final int index,
       final RevisionRootPage revisionRootPage) {

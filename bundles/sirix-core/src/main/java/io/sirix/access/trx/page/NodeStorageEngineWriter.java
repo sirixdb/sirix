@@ -353,6 +353,38 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return record;
   }
 
+  /**
+   * Fast-path variant for the DOCUMENT index type on the insert hot path.
+   * Skips assertNotClosed(), argument validation, and the IndexType switch in pageKey().
+   */
+  @SuppressWarnings("unchecked")
+  @Override
+  public DataRecord prepareRecordForModificationDocument(final long recordKey) {
+    final long recordPageKey = storageEngineReader.pageKeyDocument(recordKey);
+    final PageContainer cont = prepareRecordPage(recordPageKey, -1, IndexType.DOCUMENT);
+    final var modifiedPage = cont.getModifiedAsKeyValuePage();
+
+    final int recordOffset = StorageEngineReader.recordPageOffset(recordKey);
+
+    // Honour any fresher in-memory object in records[] (mixed-path safety).
+    final DataRecord cached = modifiedPage.getRecord(recordOffset);
+    if (cached != null) {
+      return cached;
+    }
+
+    // Singleton binding fast path.
+    if (writeSingletonBinder != null && modifiedPage instanceof KeyValueLeafPage kvl
+        && kvl.hasSlottedPageSlot(recordKey)) {
+      final DataRecord record = writeSingletonBinder.bind(kvl, recordOffset, recordKey);
+      if (record != null) {
+        return record;
+      }
+    }
+
+    // Fallback to full method for edge cases (non-slotted page, bind failure).
+    return prepareRecordForModification(recordKey, IndexType.DOCUMENT, -1);
+  }
+
   // ==================== DIRECT-TO-HEAP CREATION ====================
 
   /** Reusable allocation result — zero-alloc on hot path. */

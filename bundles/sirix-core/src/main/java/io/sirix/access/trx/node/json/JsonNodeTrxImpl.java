@@ -2134,8 +2134,8 @@ final class JsonNodeTrxImpl extends
     final boolean hasRight = rightSibKey != Fixed.NULL_NODE_KEY.getStandardProperty();
 
     // Phase 1: Update parent — childCount + firstChild/lastChild if no siblings.
-    // Complete all parent modifications and persist BEFORE acquiring any sibling singletons.
-    final StructNode parent = storageEngineWriter.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
+    // Complete all parent modifications BEFORE acquiring any sibling singletons.
+    final StructNode parent = storageEngineWriter.prepareRecordForModificationDocument(parentKey);
     final long parentPathNodeKey = resolveParentPathNodeKey
         ? getPathNodeKey(parent)
         : -1;
@@ -2148,20 +2148,18 @@ final class JsonNodeTrxImpl extends
     if (!hasRight) {
       parent.setLastChildKey(structNodeKey);
     }
-    persistUpdatedRecord(parent);
+    // No persistUpdatedRecord — bound write singletons mutate directly on heap
 
-    // Phase 2: Update left sibling (safe — parent already persisted)
+    // Phase 2: Update left sibling
     if (hasLeft) {
-      final StructNode leftSib = storageEngineWriter.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
+      final StructNode leftSib = storageEngineWriter.prepareRecordForModificationDocument(leftSibKey);
       leftSib.setRightSiblingKey(structNodeKey);
-      persistUpdatedRecord(leftSib);
     }
 
     // Phase 3: Update right sibling
     if (hasRight) {
-      final StructNode rightSib = storageEngineWriter.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
+      final StructNode rightSib = storageEngineWriter.prepareRecordForModificationDocument(rightSibKey);
       rightSib.setLeftSiblingKey(structNodeKey);
-      persistUpdatedRecord(rightSib);
     }
 
     return parentPathNodeKey;

@@ -86,6 +86,19 @@ public interface StorageEngineWriter extends StorageEngineReader {
   <V extends DataRecord> V prepareRecordForModification(@NonNegative long key, @NonNull IndexType indexType, int index);
 
   /**
+   * Fast-path variant of {@link #prepareRecordForModification} for the DOCUMENT index type.
+   * Skips assertNotClosed(), argument validation, and the IndexType switch in pageKey().
+   * Used on the insert hot path where keys are always valid and indexType is always DOCUMENT.
+   *
+   * @param key key of the entry to be modified (must be >= 0)
+   * @return instance of the class implementing the {@link DataRecord} instance
+   */
+  @SuppressWarnings("unchecked")
+  default <V extends DataRecord> V prepareRecordForModificationDocument(final long key) {
+    return prepareRecordForModification(key, IndexType.DOCUMENT, -1);
+  }
+
+  /**
    * Persist a mutated record into the TIL's modified page.
    * Ensures the record's page is prepared for modification in the TIL
    * and stores the record in the modified page's records[].
