@@ -34,6 +34,7 @@ import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.access.trx.node.RecordToRevisionsIndex;
+import io.sirix.access.trx.node.json.objectvalue.ByteStringValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -896,14 +897,18 @@ final class JsonNodeTrxImpl extends
       case OBJECT -> insertObjectAsFirstChild();
       case ARRAY -> insertArrayAsFirstChild();
       case STRING_VALUE -> {
-        final Object raw = value.getValue();
-        if (raw instanceof byte[] utf8) {
-          insertStringValueAsFirstChild(utf8);
-        } else if (raw instanceof String s) {
-          insertStringValueAsFirstChild(s);
+        if (value instanceof ByteStringValue bsv) {
+          insertStringValueAsFirstChild(bsv.getValue(), bsv.getOffset(), bsv.getLength());
         } else {
-          throw new IllegalStateException("STRING_VALUE payload must be String or byte[], got: "
-              + (raw == null ? "null" : raw.getClass().getName()));
+          final Object raw = value.getValue();
+          if (raw instanceof byte[] utf8) {
+            insertStringValueAsFirstChild(utf8);
+          } else if (raw instanceof String s) {
+            insertStringValueAsFirstChild(s);
+          } else {
+            throw new IllegalStateException("STRING_VALUE payload must be String or byte[], got: "
+                + (raw == null ? "null" : raw.getClass().getName()));
+          }
         }
       }
       case BOOLEAN_VALUE -> insertBooleanValueAsFirstChild((Boolean) value.getValue());
@@ -1358,6 +1363,30 @@ final class JsonNodeTrxImpl extends
   }
 
   @Override
+  public JsonNodeTrx insertStringValueAsFirstChild(final byte[] buf, final int off, final int len) {
+    requireNonNull(buf);
+    return insertPrimitiveAsChild(PrimitiveNodeType.STRING, buf, off, len, null, false, true, true);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsLastChild(final byte[] buf, final int off, final int len) {
+    requireNonNull(buf);
+    return insertPrimitiveAsChild(PrimitiveNodeType.STRING, buf, off, len, null, false, true, false);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsLeftSibling(final byte[] buf, final int off, final int len) {
+    requireNonNull(buf);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.STRING, buf, off, len, null, false, true);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsRightSibling(final byte[] buf, final int off, final int len) {
+    requireNonNull(buf);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.STRING, buf, off, len, null, false, false);
+  }
+
+  @Override
   public JsonNodeTrx insertBooleanValueAsFirstChild(boolean value) {
     return insertPrimitiveAsChild(PrimitiveNodeType.BOOLEAN, null, null, value, true, true);
   }
@@ -1428,11 +1457,14 @@ final class JsonNodeTrxImpl extends
 
   /**
    * Create an object-key child node (direct child of ObjectKeyNode) based on primitive type.
+   * For STRING type, uses (stringValue, stringOff, stringLen); other types ignore off/len.
    */
   private StructNode createObjectKeyNode(final PrimitiveNodeType type, final long parentKey,
-      final byte[] stringValue, final Number numberValue, final boolean booleanValue, final SirixDeweyID id) {
+      final byte[] stringValue, final int stringOff, final int stringLen,
+      final Number numberValue, final boolean booleanValue, final SirixDeweyID id) {
     return switch (type) {
-      case STRING -> nodeFactory.createJsonObjectStringNode(parentKey, stringValue, useTextCompression, id);
+      case STRING -> nodeFactory.createJsonObjectStringNode(parentKey, stringValue, stringOff, stringLen,
+          useTextCompression, id);
       case NUMBER -> nodeFactory.createJsonObjectNumberNode(parentKey, numberValue, id);
       case BOOLEAN -> nodeFactory.createJsonObjectBooleanNode(parentKey, booleanValue, id);
       case NULL -> nodeFactory.createJsonObjectNullNode(parentKey, id);
@@ -1441,13 +1473,15 @@ final class JsonNodeTrxImpl extends
 
   /**
    * Create a sibling node (child of array) based on primitive type.
+   * For STRING type, uses (stringValue, stringOff, stringLen); other types ignore off/len.
    */
   private StructNode createSiblingNode(final PrimitiveNodeType type, final long parentKey,
-      final long leftSibKey, final long rightSibKey, final byte[] stringValue, final Number numberValue,
-      final boolean booleanValue, final SirixDeweyID id) {
+      final long leftSibKey, final long rightSibKey,
+      final byte[] stringValue, final int stringOff, final int stringLen,
+      final Number numberValue, final boolean booleanValue, final SirixDeweyID id) {
     return switch (type) {
       case STRING -> nodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey,
-          stringValue, useTextCompression, id);
+          stringValue, stringOff, stringLen, useTextCompression, id);
       case NUMBER -> nodeFactory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, numberValue, id);
       case BOOLEAN -> nodeFactory.createJsonBooleanNode(parentKey, leftSibKey, rightSibKey, booleanValue, id);
       case NULL -> nodeFactory.createJsonNullNode(parentKey, leftSibKey, rightSibKey, id);
@@ -1455,6 +1489,13 @@ final class JsonNodeTrxImpl extends
   }
 
   private JsonNodeTrx insertPrimitiveAsChild(final PrimitiveNodeType type, final byte[] stringValue,
+      final Number numberValue, final boolean booleanValue, final boolean notifyIndex, final boolean isFirstChild) {
+    return insertPrimitiveAsChild(type, stringValue, 0, stringValue != null ? stringValue.length : 0,
+        numberValue, booleanValue, notifyIndex, isFirstChild);
+  }
+
+  private JsonNodeTrx insertPrimitiveAsChild(final PrimitiveNodeType type,
+      final byte[] stringValue, final int stringOff, final int stringLen,
       final Number numberValue, final boolean booleanValue, final boolean notifyIndex, final boolean isFirstChild) {
     if (lock != null) {
       lock.lock();
@@ -1486,19 +1527,19 @@ final class JsonNodeTrxImpl extends
         id = deweyIDManager.newRecordValueID();
         leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-        node = createObjectKeyNode(type, parentKey, stringValue, numberValue, booleanValue, id);
+        node = createObjectKeyNode(type, parentKey, stringValue, stringOff, stringLen, numberValue, booleanValue, id);
       } else if (isFirstChild) {
         id = deweyIDManager.newFirstChildID();
         leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
         rightSibKey = firstChildKey;
-        node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey, stringValue, numberValue, booleanValue, id);
+        node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey, stringValue, stringOff, stringLen, numberValue, booleanValue, id);
       } else {
         id = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
             ? deweyIDManager.newFirstChildID()
             : deweyIDManager.newLastChildID();
         leftSibKey = lastChildKey;
         rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-        node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey, stringValue, numberValue, booleanValue, id);
+        node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey, stringValue, stringOff, stringLen, numberValue, booleanValue, id);
       }
 
       final long nodeKey = node.getNodeKey();
@@ -1528,6 +1569,13 @@ final class JsonNodeTrxImpl extends
 
   private JsonNodeTrx insertPrimitiveAsSibling(final PrimitiveNodeType type, final byte[] stringValue,
       final Number numberValue, final boolean booleanValue, final boolean isLeftSibling) {
+    return insertPrimitiveAsSibling(type, stringValue, 0, stringValue != null ? stringValue.length : 0,
+        numberValue, booleanValue, isLeftSibling);
+  }
+
+  private JsonNodeTrx insertPrimitiveAsSibling(final PrimitiveNodeType type,
+      final byte[] stringValue, final int stringOff, final int stringLen,
+      final Number numberValue, final boolean booleanValue, final boolean isLeftSibling) {
     if (lock != null) {
       lock.lock();
     }
@@ -1553,7 +1601,7 @@ final class JsonNodeTrxImpl extends
       }
 
       final StructNode node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey,
-          stringValue, numberValue, booleanValue, id);
+          stringValue, stringOff, stringLen, numberValue, booleanValue, id);
       final long nodeKey = node.getNodeKey();
 
       insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, true);

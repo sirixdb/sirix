@@ -96,6 +96,12 @@ public final class JacksonJsonShredder implements Callable<Long> {
   /** Reusable value wrapper for pre-encoded UTF-8 string bytes (object record path). */
   private final ByteStringValue reusableByteStringValue = new ByteStringValue();
 
+  /** Reusable encode buffer — grows as needed, never shrinks. */
+  private byte[] encodeBuf = new byte[256];
+
+  /** Valid length in encodeBuf after last encodeCurrentTextToUtf8 call. */
+  private int encodeLen;
+
   /** Jackson {@link JsonParser} implementation. */
   private final JsonParser parser;
 
@@ -302,10 +308,10 @@ public final class JacksonJsonShredder implements Callable<Long> {
   // ==================== Process Methods (token-forwarding) ====================
 
   private JsonToken processString() throws IOException {
-    final var utf8 = encodeCurrentTextToUtf8();
+    encodeCurrentTextToUtf8();
     final var next = parser.nextToken();
     final var nextIsParent = (next == JsonToken.FIELD_NAME || next == JsonToken.END_OBJECT);
-    final var key = insertStringValue(utf8, nextIsParent);
+    final var key = insertStringValue(nextIsParent);
     markRootIfUnset(key);
     return next;
   }
@@ -396,18 +402,19 @@ public final class JacksonJsonShredder implements Callable<Long> {
   // ==================== UTF-8 Encoding ====================
 
   /**
-   * Encode the current parser text to UTF-8 bytes without constructing a {@link String}.
+   * Encode the current parser text to UTF-8 bytes into the reusable {@link #encodeBuf}.
    *
    * <p>Uses Jackson's {@code getTextCharacters()} which returns the internal char buffer
    * without String allocation. For ASCII-only content (the common case in JSON), this
-   * performs a direct 1:1 char-to-byte copy. Non-ASCII content falls back to the JDK's
-   * {@link StandardCharsets#UTF_8} encoder for correctness with surrogates, BMP multi-byte,
-   * and emoji.
+   * performs a direct 1:1 char-to-byte copy into the reusable buffer (zero allocation).
+   * Non-ASCII content falls back to the JDK's {@link StandardCharsets#UTF_8} encoder
+   * for correctness with surrogates, BMP multi-byte, and emoji.
    *
-   * @return UTF-8 encoded byte array
+   * <p>After this call, the encoded data is in {@code encodeBuf[0..encodeLen)}.
+   *
    * @throws IOException if the parser cannot provide text
    */
-  private byte[] encodeCurrentTextToUtf8() throws IOException {
+  private void encodeCurrentTextToUtf8() throws IOException {
     final var chars = parser.getTextCharacters();
     final var off = parser.getTextOffset();
     final var len = parser.getTextLength();
@@ -422,40 +429,48 @@ public final class JacksonJsonShredder implements Callable<Long> {
     }
 
     if (allAscii) {
-      final var bytes = new byte[len];
-      for (int i = 0; i < len; i++) {
-        bytes[i] = (byte) chars[off + i];
+      if (encodeBuf.length < len) {
+        encodeBuf = new byte[len];
       }
-      return bytes;
+      for (int i = 0; i < len; i++) {
+        encodeBuf[i] = (byte) chars[off + i];
+      }
+      encodeLen = len;
+      return;
     }
 
     // Non-ASCII fallback: delegate to JDK for correctness (surrogates, BMP multi-byte, emoji)
-    return new String(chars, off, len).getBytes(StandardCharsets.UTF_8);
+    final byte[] fallback = new String(chars, off, len).getBytes(StandardCharsets.UTF_8);
+    if (encodeBuf.length < fallback.length) {
+      encodeBuf = fallback;
+    } else {
+      System.arraycopy(fallback, 0, encodeBuf, 0, fallback.length);
+    }
+    encodeLen = fallback.length;
   }
 
   // ==================== Insert Methods ====================
 
-  private long insertStringValue(final byte[] utf8Value, final boolean nextTokenIsParent) {
-    requireNonNull(utf8Value);
+  private long insertStringValue(final boolean nextTokenIsParent) {
     final long key;
 
     switch (insert) {
       case AS_FIRST_CHILD -> {
         if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-          key = internalWtx.insertStringValueAsFirstChild(utf8Value).getNodeKey();
+          key = internalWtx.insertStringValueAsFirstChild(encodeBuf, 0, encodeLen).getNodeKey();
         } else {
-          key = internalWtx.insertStringValueAsRightSibling(utf8Value).getNodeKey();
+          key = internalWtx.insertStringValueAsRightSibling(encodeBuf, 0, encodeLen).getNodeKey();
         }
       }
       case AS_LAST_CHILD -> {
         if (parents.peekLong(0) == Fixed.NULL_NODE_KEY.getStandardProperty()) {
-          key = internalWtx.insertStringValueAsLastChild(utf8Value).getNodeKey();
+          key = internalWtx.insertStringValueAsLastChild(encodeBuf, 0, encodeLen).getNodeKey();
         } else {
-          key = internalWtx.insertStringValueAsRightSibling(utf8Value).getNodeKey();
+          key = internalWtx.insertStringValueAsRightSibling(encodeBuf, 0, encodeLen).getNodeKey();
         }
       }
-      case AS_LEFT_SIBLING -> key = internalWtx.insertStringValueAsLeftSibling(utf8Value).getNodeKey();
-      case AS_RIGHT_SIBLING -> key = internalWtx.insertStringValueAsRightSibling(utf8Value).getNodeKey();
+      case AS_LEFT_SIBLING -> key = internalWtx.insertStringValueAsLeftSibling(encodeBuf, 0, encodeLen).getNodeKey();
+      case AS_RIGHT_SIBLING -> key = internalWtx.insertStringValueAsRightSibling(encodeBuf, 0, encodeLen).getNodeKey();
       default -> throw new AssertionError("Unknown insert position: " + insert);
     }
 
@@ -665,7 +680,8 @@ public final class JacksonJsonShredder implements Callable<Long> {
         isContainerValue = true;
       }
       case VALUE_STRING -> {
-        reusableByteStringValue.set(encodeCurrentTextToUtf8());
+        encodeCurrentTextToUtf8();
+        reusableByteStringValue.set(encodeBuf, 0, encodeLen);
         value = reusableByteStringValue;
       }
       case VALUE_TRUE -> value = BooleanValue.of(true);

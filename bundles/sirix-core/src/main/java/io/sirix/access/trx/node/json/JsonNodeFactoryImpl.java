@@ -249,6 +249,12 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public StringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey, byte[] value,
       boolean doCompress, SirixDeweyID id) {
+    return createJsonStringNode(parentKey, leftSibKey, rightSibKey, value, 0, value.length, doCompress, id);
+  }
+
+  @Override
+  public StringNode createJsonStringNode(long parentKey, long leftSibKey, long rightSibKey,
+      byte[] value, int valueOff, int valueLen, boolean doCompress, SirixDeweyID id) {
     storageEngineWriter.allocateForDocumentCreation();
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
@@ -256,10 +262,10 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
     final long absOffset = kvl.prepareHeapForDirectWrite(
-        55 + value.length, deweyIdLen);
+        55 + valueLen, deweyIdLen);
     final int recordBytes = StringNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableStringNode.getHeapOffsets(), nodeKey, parentKey, rightSibKey, leftSibKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, value, false);
+        Constants.NULL_REVISION_NUMBER, revisionNumber, value, valueOff, valueLen, false);
     kvl.completeDirectWrite(NodeKind.STRING_VALUE.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableStringNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableStringNode.setOwnerPage(kvl);
@@ -332,6 +338,12 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   @Override
   public ObjectStringNode createJsonObjectStringNode(long parentKey, byte[] value, boolean doCompress,
       SirixDeweyID id) {
+    return createJsonObjectStringNode(parentKey, value, 0, value.length, doCompress, id);
+  }
+
+  @Override
+  public ObjectStringNode createJsonObjectStringNode(long parentKey, byte[] value, int valueOff,
+      int valueLen, boolean doCompress, SirixDeweyID id) {
     storageEngineWriter.allocateForDocumentCreation();
     final KeyValueLeafPage kvl = storageEngineWriter.getAllocKvl();
     final long nodeKey = storageEngineWriter.getAllocNodeKey();
@@ -339,10 +351,10 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
     final byte[] deweyIdBytes = (id != null && kvl.areDeweyIDsStored()) ? id.toBytes() : null;
     final int deweyIdLen = deweyIdBytes != null ? deweyIdBytes.length : 0;
     final long absOffset = kvl.prepareHeapForDirectWrite(
-        55 + value.length, deweyIdLen);
+        55 + valueLen, deweyIdLen);
     final int recordBytes = ObjectStringNode.writeNewRecord(kvl.getSlottedPage(), absOffset,
         reusableObjectStringNode.getHeapOffsets(), nodeKey, parentKey,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, value, false);
+        Constants.NULL_REVISION_NUMBER, revisionNumber, value, valueOff, valueLen, false);
     kvl.completeDirectWrite(NodeKind.OBJECT_STRING_VALUE.getId(), nodeKey, slotOffset, recordBytes, deweyIdBytes);
     reusableObjectStringNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableObjectStringNode.setOwnerPage(kvl);

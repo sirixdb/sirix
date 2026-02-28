@@ -341,6 +341,16 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
       final long parentKey, final long rightSibKey, final long leftSibKey,
       final int prevRev, final int lastModRev,
       final byte[] rawValue, final boolean isCompressed) {
+    final byte[] val = rawValue != null ? rawValue : new byte[0];
+    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey,
+        prevRev, lastModRev, val, 0, val.length, isCompressed);
+  }
+
+  public static int writeNewRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final long rightSibKey, final long leftSibKey,
+      final int prevRev, final int lastModRev,
+      final byte[] rawValue, final int rawOff, final int rawLen, final boolean isCompressed) {
     long pos = offset;
 
     // Write nodeKind byte
@@ -378,11 +388,10 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     heapOffsets[NodeFieldLayout.STRVAL_PAYLOAD] = (int) (pos - dataStart);
     target.set(ValueLayout.JAVA_BYTE, pos, isCompressed ? (byte) 1 : (byte) 0);
     pos++;
-    final byte[] val = rawValue != null ? rawValue : new byte[0];
-    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, val.length);
-    if (val.length > 0) {
-      MemorySegment.copy(val, 0, target, ValueLayout.JAVA_BYTE, pos, val.length);
-      pos += val.length;
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, rawLen);
+    if (rawLen > 0) {
+      MemorySegment.copy(rawValue, rawOff, target, ValueLayout.JAVA_BYTE, pos, rawLen);
+      pos += rawLen;
     }
 
     // Write offset table
