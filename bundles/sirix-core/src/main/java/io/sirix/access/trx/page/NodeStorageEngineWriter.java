@@ -602,12 +602,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public UberPage commit(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
-      final boolean isAutoCommitting) {
+      final boolean isAutoCommitting, final boolean isIntermediateCommit) {
     storageEngineReader.assertNotClosed();
 
     storageEngineReader.resourceSession.getCommitLock().lock();
 
     try {
+      final boolean timing = LOGGER.isDebugEnabled();
+
       final Path commitFile = storageEngineReader.resourceSession.getCommitFile();
 
       // Issues with windows that it's not created in the first time?
@@ -623,13 +625,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       // PIPELINING: Serialize pages WHILE previous fsync may still be running.
       // This overlaps CPU work (serialization) with IO work (fsync).
+      final long t0 = timing ? System.nanoTime() : 0;
       parallelSerializationOfKeyValuePages();
 
       // Recursively write indirectly referenced pages (serializes to buffers).
+      final long t1 = timing ? System.nanoTime() : 0;
       uberPage.commit(this);
 
       // Wait for the previous commit's async UberPage fsync to complete.
       // This ensures the previous revision is fully durable before we proceed.
+      final long t2 = timing ? System.nanoTime() : 0;
       final var fsync = pendingFsync;
       if (fsync != null) {
         fsync.join();
@@ -641,12 +646,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // If the process crashes between writing data pages and writing the UberPage, the OS
       // kernel may flush the UberPage before the data pages, leaving the database pointing at
       // pages that are not yet on disk.  An explicit forceAll() here prevents that window.
+      final long t3 = timing ? System.nanoTime() : 0;
       storagePageReaderWriter.forceAll();
 
       // Write UberPage — all data pages are now durable, safe to update the root pointer.
+      final long t4 = timing ? System.nanoTime() : 0;
       storagePageReaderWriter.writeUberPageReference(getResourceSession().getResourceConfig(), uberPageReference,
           uberPage, bufferBytes);
 
+      final long t5 = timing ? System.nanoTime() : 0;
       if (isAutoCommitting) {
         // Auto-commit mode: queue an async fsync for the UberPage so the next commit's
         // serialization can overlap with this IO.  The next commit will call pendingFsync.join()
@@ -668,8 +676,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         pendingFsync = null;
       }
 
+      final long t6 = timing ? System.nanoTime() : 0;
       final int revision = uberPage.getRevisionNumber();
-      serializeIndexDefinitions(revision);
+
+      // Skip index definition serialization on intermediate auto-commits when indexes are unchanged.
+      // Final/explicit commits always serialize to ensure the last revision has a valid XML snapshot.
+      if (!isIntermediateCommit || indexController.getIndexes().isDirty()) {
+        serializeIndexDefinitions(revision);
+        indexController.getIndexes().clearDirty();
+      }
+
+      final long t7 = timing ? System.nanoTime() : 0;
 
       // CRITICAL: Release current page guard BEFORE TIL.clear()
       // If guard is on a TIL page, the page won't close (guardCount > 0 check)
@@ -686,17 +703,28 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       secondMostRecentPageContainer = mostRecentPageContainer;
       mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
 
+      final long t8 = timing ? System.nanoTime() : 0;
+
       // Delete commit file which denotes that a commit must write the log in the data file.
       try {
         deleteIfExists(commitFile);
       } catch (final IOException e) {
         throw new SirixIOException("Commit file couldn't be deleted!");
       }
+
+      if (timing) {
+        LOGGER.debug("Commit r{}: serialize={}ms recursive={}ms waitFsync={}ms "
+            + "force={}ms uberWrite={}ms fsync={}ms indexDefs={}ms tilClear={}ms total={}ms",
+            revision, ms(t1 - t0), ms(t2 - t1), ms(t3 - t2), ms(t4 - t3), ms(t5 - t4),
+            ms(t6 - t5), ms(t7 - t6), ms(t8 - t7), ms(t8 - t0));
+      }
+
+      // Return the in-memory UberPage directly — it was modified in-place by uberPage.commit(this)
+      // and then written to disk. Its in-memory state is already current and canonical.
+      return uberPage;
     } finally {
       storageEngineReader.resourceSession.getCommitLock().unlock();
     }
-
-    return readUberPage();
   }
 
   private void setCommitMessageAndTimestampIfRequired(@Nullable String commitMessage,
@@ -760,6 +788,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         SerializationBufferPool.INSTANCE.release(pooledSeg);
       }
     });
+  }
+
+  private static long ms(final long nanos) {
+    return nanos / 1_000_000;
   }
 
   private UberPage readUberPage() {
