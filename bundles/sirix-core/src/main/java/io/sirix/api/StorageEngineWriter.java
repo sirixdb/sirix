@@ -181,7 +181,26 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @return UberPage the revision after commit
    * @throws SirixException if Sirix fails to commit
    */
-  UberPage commit(@Nullable String commitMessage, @Nullable Instant commitTimeStamp, boolean isAutoCommitting);
+  default UberPage commit(@Nullable String commitMessage, @Nullable Instant commitTimeStamp,
+      boolean isAutoCommitting) {
+    return commit(commitMessage, commitTimeStamp, isAutoCommitting, false);
+  }
+
+  /**
+   * Commit the transaction, that is persist changes if any and create a new revision. The commit
+   * message is going to be persisted as well.
+   *
+   * @param commitMessage the commit message
+   * @param commitTimeStamp the commit timestamp
+   * @param isAutoCommitting if true, fsync runs asynchronously for better throughput; if false,
+   *        commit blocks until data is durable (strict sync)
+   * @param isIntermediateCommit if true, this is an intermediate auto-commit during bulk insert;
+   *        redundant I/O (e.g. unchanged index definitions) may be skipped
+   * @return UberPage the revision after commit
+   * @throws SirixException if Sirix fails to commit
+   */
+  UberPage commit(@Nullable String commitMessage, @Nullable Instant commitTimeStamp,
+      boolean isAutoCommitting, boolean isIntermediateCommit);
 
   /**
    * Committing a {@link StorageEngineWriter}. This method is recursively invoked by all

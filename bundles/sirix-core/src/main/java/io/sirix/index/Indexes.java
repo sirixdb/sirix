@@ -39,6 +39,12 @@ public final class Indexes implements Materializable {
    */
   private final Set<IndexDef> indexes;
 
+  /**
+   * Tracks whether index definitions have been mutated since last serialization.
+   * Used to skip redundant index XML writes during intermediate auto-commits.
+   */
+  private volatile boolean dirty;
+
   public Indexes() {
     indexes = new CopyOnWriteArraySet<>();
   }
@@ -95,6 +101,9 @@ public final class Indexes implements Materializable {
         indexes.add(indexDefinition);
       }
     }
+
+    // Loading from disk is not a mutation — clear dirty flag.
+    dirty = false;
   }
 
   /**
@@ -115,9 +124,24 @@ public final class Indexes implements Materializable {
   }
 
   /**
+   * Returns whether index definitions have been mutated since last serialization or init.
+   */
+  public boolean isDirty() {
+    return dirty;
+  }
+
+  /**
+   * Clears the dirty flag after successful serialization.
+   */
+  public void clearDirty() {
+    dirty = false;
+  }
+
+  /**
    * Adds an index definition. Thread-safe: CopyOnWriteArraySet handles concurrent modifications.
    */
   public void add(IndexDef indexDefinition) {
+    dirty = true;
     indexes.add(indexDefinition);
   }
 
@@ -127,6 +151,7 @@ public final class Indexes implements Materializable {
    */
   public void removeIndex(final @NonNegative int indexID) {
     checkArgument(indexID >= 0, "indexID must be >= 0!");
+    dirty = true;
     indexes.removeIf(indexDef -> indexDef.getID() == indexID);
   }
 

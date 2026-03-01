@@ -316,6 +316,21 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       throw new IllegalStateException("Custom commit timestamps are not enabled for the resource.");
     }
 
+    // Public commit() is always a final (non-intermediate) commit.
+    return commitInternal(commitMessage, commitTimestamp, false);
+  }
+
+  /**
+   * Internal commit implementation shared by explicit commit() and intermediate auto-commit.
+   *
+   * @param commitMessage optional commit message
+   * @param commitTimestamp optional commit timestamp
+   * @param isIntermediateCommit if true, this is an intermediate auto-commit during bulk insert;
+   *        redundant I/O (e.g. unchanged index definitions) may be skipped
+   * @return this transaction for chaining
+   */
+  private W commitInternal(@Nullable final String commitMessage, @Nullable final Instant commitTimestamp,
+      final boolean isIntermediateCommit) {
     runLocked(() -> {
       state = State.COMMITTING;
 
@@ -329,7 +344,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       final var preCommitRevision = getRevisionNumber();
 
-      final UberPage uberPage = storageEngineWriter.commit(commitMessage, commitTimestamp, isAutoCommitting);
+      final UberPage uberPage = storageEngineWriter.commit(commitMessage, commitTimestamp,
+          isAutoCommitting, isIntermediateCommit);
 
       // Remember successfully committed uber page in resource session.
       resourceSession.setLastCommittedUberPage(uberPage);
@@ -373,12 +389,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   /**
    * Fast-path for bulk insert: skips assertNotClosed/assertRunning (always true mid-shredder),
-   * keeps mod count + auto-commit logic.
+   * keeps mod count + auto-commit logic. Uses intermediate commit to skip redundant I/O.
    */
   protected final void checkAccessAndCommitBulk() {
     modificationCount++;
     if (maxNodeCount > 0 && modificationCount > maxNodeCount) {
-      commit("autoCommit");
+      commitInternal("autoCommit", null, true);
     }
   }
 
@@ -403,7 +419,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     nodeReadOnlyTrx.assertNotClosed();
     if (maxNodeCount > 0 && modificationCount > maxNodeCount) {
       LOGGER.debug("AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
-      commit("autoCommit");
+      commitInternal("autoCommit", null, true);
       LOGGER.debug("AUTO-COMMIT completed");
     }
   }
@@ -417,16 +433,24 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * @param revNumber revision number
    */
   private void reInstantiate(final @NonNegative int trxID, final @NonNegative int revNumber) {
+    final boolean timing = LOGGER.isDebugEnabled();
+    final long r0 = timing ? System.nanoTime() : 0;
+
     // Save the current cursor position. getNodeKey() reads from a Java field, always valid.
     final long currentNodeKey = nodeReadOnlyTrx.getNodeKey();
 
     // Reset page transaction to new uber page.
     resourceSession.closeNodePageWriteTransaction(getId());
+
+    final long r1 = timing ? System.nanoTime() : 0;
+
     storageEngineWriter =
         resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.NO, true);
     nodeReadOnlyTrx.setPageReadTransaction(null);
     nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
     resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
+
+    final long r2 = timing ? System.nanoTime() : 0;
 
     nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
 
@@ -443,6 +467,17 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     // FlyweightNode getters read from the page MemorySegment; after closing the old transaction,
     // that MemorySegment is stale. Re-reading creates a fresh node from the new transaction.
     nodeReadOnlyTrx.moveTo(currentNodeKey);
+
+    final long r3 = timing ? System.nanoTime() : 0;
+
+    if (timing) {
+      LOGGER.debug("reInstantiate: close={}ms createPageTrx={}ms rest={}ms total={}ms",
+          ms(r1 - r0), ms(r2 - r1), ms(r3 - r2), ms(r3 - r0));
+    }
+  }
+
+  private static long ms(final long nanos) {
+    return nanos / 1_000_000;
   }
 
   protected abstract AbstractNodeHashing<N, R> reInstantiateNodeHashing(StorageEngineWriter storageEngineWriter);
