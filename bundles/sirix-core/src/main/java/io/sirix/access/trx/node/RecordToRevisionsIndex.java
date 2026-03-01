@@ -49,6 +49,5 @@ public final class RecordToRevisionsIndex {
     final RevisionReferencesNode revisionReferencesNode =
         storageEngineWriter.prepareRecordForModification(recordKey, IndexType.RECORD_TO_REVISIONS, 0);
     revisionReferencesNode.addRevision(storageEngineWriter.getRevisionNumber());
-    storageEngineWriter.updateRecordSlot(revisionReferencesNode, IndexType.RECORD_TO_REVISIONS, 0);
   }
 }

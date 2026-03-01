@@ -49,7 +49,6 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.nio.ByteBuffer;
 import java.time.Instant;
 
 import static java.util.Objects.requireNonNull;
@@ -211,7 +210,7 @@ public final class FileReader implements Reader {
       dataFile.read(page);
 
       // Perform byte operations.
-      final BytesIn<?> input = Bytes.wrapForRead(ByteBuffer.wrap(page)); // byteHandler.deserialize(Bytes.wrapForRead(ByteBuffer.wrap(page)));
+      final BytesIn<?> input = Bytes.wrapForRead(page);
 
       // Return reader required to instantiate and deserialize page.
       return (RevisionRootPage) pagePersiter.deserializePage(resourceConfiguration, input, serializationType);

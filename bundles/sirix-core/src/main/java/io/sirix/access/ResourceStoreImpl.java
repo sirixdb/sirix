@@ -60,7 +60,10 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
 
   @Override
   public void close() {
-    resourceSessions.forEach((_, resourceSession) -> resourceSession.close());
+    resourceSessions.forEach((resourceFile, resourceSession) -> {
+      resourceSession.close();
+      allResourceSessions.removeObject(resourceFile, resourceSession);
+    });
     resourceSessions.clear();
   }
 

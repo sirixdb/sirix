@@ -88,4 +88,17 @@ public interface Node extends ImmutableNode {
    * @param nodeKey the new node key
    */
   void setNodeKey(long nodeKey);
+
+  /**
+   * Set the raw DeweyID bytes without parsing. The full {@link SirixDeweyID} is reconstructed
+   * lazily on the first {@link io.sirix.node.interfaces.immutable.ImmutableNode#getDeweyID()} call.
+   *
+   * <p>Unlike {@link #setDeweyID(SirixDeweyID)}, this method does NOT trigger resize on bound
+   * flyweight nodes — it's used during binding when the bytes are already in the page trailer.</p>
+   *
+   * @param deweyIdBytes the raw DeweyID bytes, or null to clear
+   */
+  default void setDeweyIDBytes(final byte[] deweyIdBytes) {
+    setDeweyID(deweyIdBytes != null ? new SirixDeweyID(deweyIdBytes) : null);
+  }
 }

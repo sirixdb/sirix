@@ -13,8 +13,6 @@ import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
-import io.sirix.node.immutable.json.ImmutableArrayNode;
-import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.immutable.xml.ImmutableElement;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.NameNode;
@@ -136,7 +134,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @throws SirixException if anything went wrong
    */
   public long getPathNodeKey(final QNm name, final NodeKind pathKind) {
-    final NodeKind kind = nodeRtx.getNode().getKind();
+    final NodeKind kind = nodeRtx.getKind();
     int level = 0;
     if (kind == NodeKind.XML_DOCUMENT || kind == NodeKind.JSON_DOCUMENT) {
       pathSummaryReader.moveTo(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
@@ -176,19 +174,24 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * Move path summary cursor to the path node which is references by the current node.
    */
   private void movePathSummary() {
-    if (nodeRtx.getKind() == NodeKind.OBJECT) {
+    NodeKind currentKind = nodeRtx.getKind();
+    if (currentKind == NodeKind.OBJECT) {
       nodeRtx.moveToParent();
+      currentKind = nodeRtx.getKind();
     }
 
-    if (nodeRtx.getKind() == NodeKind.OBJECT_KEY) {
-      pathSummaryReader.moveTo(((ImmutableObjectKeyNode) nodeRtx.getNode()).getPathNodeKey());
-    } else if (nodeRtx.getKind() == NodeKind.ARRAY) {
-      pathSummaryReader.moveTo(((ImmutableArrayNode) nodeRtx.getNode()).getPathNodeKey());
-    } else if (nodeRtx.getNode() instanceof ImmutableNameNode) {
-      pathSummaryReader.moveTo(((ImmutableNameNode) nodeRtx.getNode()).getPathNodeKey());
-    } else {
-      throw new IllegalStateException();
+    final long pathNodeKey = nodeRtx.getPathNodeKey();
+    if (pathNodeKey >= 0) {
+      pathSummaryReader.moveTo(pathNodeKey);
+      return;
     }
+
+    final var node = nodeRtx.getNode();
+    throw new IllegalStateException("movePathSummary: unexpected node kind=" + currentKind
+        + " nodeClass=" + (node != null ? node.getClass().getName() : "null")
+        + " nodeKey=" + nodeRtx.getNodeKey()
+        + " pathNodeKey=" + pathNodeKey
+        + " instanceOfImmutableNameNode=" + (node instanceof ImmutableNameNode));
   }
 
   /**
@@ -750,11 +753,13 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void persistDocumentRecord(final DataRecord record) {
-    storageEngineWriter.updateRecordSlot(record, IndexType.DOCUMENT, -1);
+    // No-op: records are mutated in-place via prepareRecordForModification()
+    // and serialized at commit time via processEntries(). No slot sync needed.
   }
 
   private void persistPathSummaryRecord(final DataRecord record) {
-    storageEngineWriter.updateRecordSlot(record, IndexType.PATH_SUMMARY, 0);
+    // No-op: records are mutated in-place via prepareRecordForModification()
+    // and serialized at commit time via processEntries(). No slot sync needed.
   }
 
   @Override

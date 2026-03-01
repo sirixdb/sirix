@@ -1,10 +1,15 @@
 package io.sirix.access.trx.node;
 
-import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.access.trx.page.NodeStorageEngineReader;
-import io.sirix.api.*;
+import io.sirix.api.ItemList;
+import io.sirix.api.NodeCursor;
+import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.NodeTrx;
+import io.sirix.api.ResourceSession;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.PageGuard;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
@@ -14,15 +19,11 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import io.sirix.node.layout.FixedSlotRecordMaterializer;
-import io.sirix.node.layout.FixedSlotRecordProjector;
-import io.sirix.node.layout.NodeKindLayout;
-import io.sirix.node.layout.SlotLayoutAccessors;
-import io.sirix.node.layout.StructuralField;
 import io.sirix.node.BytesIn;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.json.ArrayNode;
 import io.sirix.node.json.BooleanNode;
+import io.sirix.node.json.JsonDocumentRootNode;
 import io.sirix.node.json.NumberNode;
 import io.sirix.node.json.ObjectBooleanNode;
 import io.sirix.node.json.ObjectKeyNode;
@@ -30,9 +31,10 @@ import io.sirix.node.json.ObjectNode;
 import io.sirix.node.json.ObjectNullNode;
 import io.sirix.node.json.ObjectNumberNode;
 import io.sirix.node.json.ObjectStringNode;
-import io.sirix.node.json.JsonDocumentRootNode;
 import io.sirix.node.json.NullNode;
 import io.sirix.node.json.StringNode;
+import io.sirix.node.interfaces.FlyweightNode;
+import io.sirix.node.interfaces.Node;
 import io.sirix.node.xml.AttributeNode;
 import io.sirix.node.xml.CommentNode;
 import io.sirix.node.xml.ElementNode;
@@ -41,7 +43,9 @@ import io.sirix.node.xml.PINode;
 import io.sirix.node.xml.TextNode;
 import io.sirix.node.xml.XmlDocumentRootNode;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.PageLayout;
 import io.sirix.service.xml.xpath.AtomicValue;
+import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -62,7 +66,7 @@ import static java.util.Objects.requireNonNull;
  * @param <T> the type of node cursor
  */
 public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnlyTrx, W extends NodeTrx & NodeCursor, N extends ImmutableNode>
-    implements InternalNodeReadOnlyTrx<N> {
+    implements InternalNodeReadOnlyTrx<N>, NodeCursor, NodeReadOnlyTrx {
 
   /**
    * ID of transaction.
@@ -75,12 +79,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   protected StorageEngineReader storageEngineReader;
 
   /**
-   * The current node fallback object.
+   * The current node.
    */
   private N currentNode;
 
   /**
-   * Resource session this transaction is bound to.
+   * Resource manager this write transaction is bound to.
    */
   protected final InternalResourceSession<T, W> resourceSession;
 
@@ -93,81 +97,74 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * Read-transaction-exclusive item list.
    */
   protected final ItemList<AtomicValue> itemList;
-
-  // ==================== CURSOR SLOT STATE ====================
-
+  
+  // ==================== CURSOR STATE ====================
+  
   /**
    * The current node's key (used for delta decoding).
    */
   private long currentNodeKey;
-
+  
   /**
    * The current node's kind.
    */
   private NodeKind currentNodeKind;
-
+  
   /**
-   * Page guard protecting the current page from eviction. MUST be released when moving to a different
-   * node or closing the transaction.
+   * Page guard protecting the current page from eviction.
+   * MUST be released when moving to a different node or closing the transaction.
    */
   private PageGuard currentPageGuard;
-
+  
   /**
-   * The page key of the currently held page guard. Used to detect same-page moves and avoid guard
-   * release/reacquire overhead.
+   * The page key of the currently held page guard.
+   * Used to detect same-page moves and avoid guard release/reacquire overhead.
    */
   private long currentPageKey = -1;
-
+  
   /**
-   * The current page reference (same page as currentPageGuard). Cached to avoid re-lookup when moving
-   * within the same page.
+   * The current page reference (same page as currentPageGuard).
+   * Cached to avoid re-lookup when moving within the same page.
    */
   private KeyValueLeafPage currentPage;
-
+  
   /**
-   * Slot offset of the current singleton node in {@link #currentPage}.
-   */
-  private int currentSlotOffset = -1;
-
-  /**
-   * Reusable BytesIn instance for reading node data. Avoids allocation on every moveTo() call.
+   * Reusable BytesIn instance for reading node data.
+   * Avoids allocation on every moveTo() call.
    */
   private final MemorySegmentBytesIn reusableBytesIn = new MemorySegmentBytesIn(MemorySegment.NULL);
-
+  
   /**
    * Resource configuration cached for hash type checks.
    */
   protected final ResourceConfiguration resourceConfig;
 
   /**
-   * Whether singleton-mode hot-path rebinding is enabled for this resource. JSON and XML resources
-   * use singleton rebinding.
+   * Cached {@link NodeStorageEngineReader} resolved once from {@link #storageEngineReader}.
+   * For read-only transactions, this is the reader itself.
+   * For write transactions, this is the delegate reader extracted from the writer.
+   * Used by {@link #moveTo(long)} to enable singleton mode without per-call instanceof checks.
    */
-  private final boolean singletonOptimizedResource;
+  private NodeStorageEngineReader cachedNodeReader;
 
   /**
-   * Whether the current resource is an XML resource.
+   * Cached {@link StorageEngineWriter} reference, non-null only for write transactions.
+   * Used by {@link #moveToSingletonSlowPath} to resolve TIL modified pages.
    */
-  private final boolean xmlSingletonResource;
-
-  /**
-   * Tracks if Dewey bytes are already bound for the current singleton. Deferred binding avoids a
-   * byte[] allocation on every moveTo.
-   */
-  private boolean singletonDeweyBound = true;
+  private StorageEngineWriter cachedWriter;
 
   /**
    * Constructor.
    *
-   * @param trxId the transaction ID
+   * @param trxId               the transaction ID
    * @param pageReadTransaction the underlying read-only page transaction
-   * @param documentNode the document root node
-   * @param resourceSession The resource session for the current transaction
-   * @param itemList Read-transaction-exclusive item list.
+   * @param documentNode        the document root node
+   * @param resourceSession     The resource manager for the current transaction
+   * @param itemList            Read-transaction-exclusive item list.
    */
-  protected AbstractNodeReadOnlyTrx(final @NonNegative int trxId,
-      final @NonNull StorageEngineReader pageReadTransaction, final @NonNull N documentNode,
-      final InternalResourceSession<T, W> resourceSession, final ItemList<AtomicValue> itemList) {
+  protected AbstractNodeReadOnlyTrx(final @NonNegative int trxId, final @NonNull StorageEngineReader pageReadTransaction,
+      final @NonNull N documentNode, final InternalResourceSession<T, W> resourceSession,
+      final ItemList<AtomicValue> itemList) {
     this.itemList = itemList;
     this.resourceSession = requireNonNull(resourceSession);
     this.id = trxId;
@@ -175,12 +172,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     this.currentNode = requireNonNull(documentNode);
     this.isClosed = false;
     this.resourceConfig = resourceSession.getResourceConfig();
+    this.cachedNodeReader = resolveNodeReader(pageReadTransaction);
+    this.cachedWriter = (pageReadTransaction instanceof StorageEngineWriter w) ? w : null;
 
     // Initialize cursor state from document node.
     this.currentNodeKey = documentNode.getNodeKey();
     this.currentNodeKind = documentNode.getKind();
-    this.xmlSingletonResource = documentNode.getKind() == NodeKind.XML_DOCUMENT;
-    this.singletonOptimizedResource = documentNode.getKind() == NodeKind.JSON_DOCUMENT || xmlSingletonResource;
   }
 
   @Override
@@ -190,16 +187,18 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
 
     // When in singleton mode, create a snapshot (deep copy) of the singleton.
-    if (singletonMode && currentSingleton != null) {
+    // Snapshot semantics are required because singleton instances are reused across moveTo calls.
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton != null) {
       currentNode = createSingletonSnapshot();
+      return currentNode;
     }
 
     return currentNode;
   }
-
+  
   /**
-   * Create a deep copy snapshot of the current singleton node. The snapshot is a new object with all
-   * values copied, safe to hold across cursor moves.
+   * Create a deep copy snapshot of the current singleton node.
+   * The snapshot is a new object with all values copied, safe to hold across cursor moves.
    *
    * @return a snapshot of the current singleton
    */
@@ -218,24 +217,23 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       case OBJECT_BOOLEAN_VALUE -> (N) ((ObjectBooleanNode) currentSingleton).toSnapshot();
       case OBJECT_NULL_VALUE -> (N) ((ObjectNullNode) currentSingleton).toSnapshot();
       case JSON_DOCUMENT -> (N) ((JsonDocumentRootNode) currentSingleton).toSnapshot();
-      case XML_DOCUMENT -> (N) ((XmlDocumentRootNode) currentSingleton).toSnapshot();
       case ELEMENT -> (N) ((ElementNode) currentSingleton).toSnapshot();
       case ATTRIBUTE -> (N) ((AttributeNode) currentSingleton).toSnapshot();
-      case NAMESPACE -> (N) ((NamespaceNode) currentSingleton).toSnapshot();
       case TEXT -> (N) ((TextNode) currentSingleton).toSnapshot();
       case COMMENT -> (N) ((CommentNode) currentSingleton).toSnapshot();
       case PROCESSING_INSTRUCTION -> (N) ((PINode) currentSingleton).toSnapshot();
+      case NAMESPACE -> (N) ((NamespaceNode) currentSingleton).toSnapshot();
+      case XML_DOCUMENT -> (N) ((XmlDocumentRootNode) currentSingleton).toSnapshot();
       default -> throw new IllegalStateException("Unexpected singleton kind: " + currentNodeKind);
     };
   }
-
+  
   @Override
   public void setCurrentNode(final @Nullable N currentNode) {
     assertNotClosed();
     this.currentNode = currentNode;
-
+    
     if (currentNode != null) {
-      // Disable singleton mode and use the provided node object.
       this.singletonMode = false;
       this.currentSingleton = null;
       this.currentNodeKey = currentNode.getNodeKey();
@@ -263,7 +261,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean moveToPrevious() {
     assertNotClosed();
-    // Use cursor getters to avoid unnecessary materialization.
+    // Use flyweight getters to avoid node materialization
     if (hasLeftSibling()) {
       // Left sibling node.
       boolean leftSiblMove = moveTo(getLeftSiblingKey());
@@ -281,7 +279,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public NodeKind getLeftSiblingKind() {
     assertNotClosed();
     if (hasLeftSibling()) {
-      // Save current position using cursor-compatible getters.
+      // Save current position using flyweight-compatible getters
       final long savedNodeKey = getNodeKey();
       moveToLeftSibling();
       final NodeKind leftSiblingKind = getKind();
@@ -294,7 +292,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getLeftSiblingKey() {
     assertNotClosed();
-    if (singletonMode && currentSingleton instanceof StructNode sn) {
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getLeftSiblingKey();
     }
     return getStructuralNode().getLeftSiblingKey();
@@ -303,7 +301,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasLeftSibling() {
     assertNotClosed();
-    if (singletonMode) {
+    if (SINGLETON_ENABLED && singletonMode) {
       return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
     return getStructuralNode().hasLeftSibling();
@@ -312,7 +310,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean moveToLeftSibling() {
     assertNotClosed();
-    // Use cursor getter and avoid unnecessary materialization.
+    // Use flyweight getter if available to avoid node materialization
     if (!hasLeftSibling()) {
       return false;
     }
@@ -334,17 +332,23 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getPathNodeKey() {
     assertNotClosed();
-    final NodeKind kind = getKind();
-    if (kind == NodeKind.XML_DOCUMENT || kind == NodeKind.JSON_DOCUMENT) {
-      return 0;
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton != null) {
+      if (currentSingleton instanceof NameNode nameNode) {
+        return nameNode.getPathNodeKey();
+      }
+      if (currentSingleton instanceof ObjectKeyNode objectKeyNode) {
+        return objectKeyNode.getPathNodeKey();
+      }
+      if (currentSingleton instanceof ArrayNode arrayNode) {
+        return arrayNode.getPathNodeKey();
+      }
+      if (currentNodeKind == NodeKind.XML_DOCUMENT || currentNodeKind == NodeKind.JSON_DOCUMENT) {
+        return 0;
+      }
+      return -1;
     }
 
-    final ImmutableNode node;
-    if (singletonMode && currentSingleton != null) {
-      node = currentSingleton;
-    } else {
-      node = getCurrentNode();
-    }
+    final ImmutableNode node = getCurrentNode();
     if (node instanceof NameNode) {
       return ((NameNode) node).getPathNodeKey();
     }
@@ -353,6 +357,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
     if (node instanceof ArrayNode arrayNode) {
       return arrayNode.getPathNodeKey();
+    }
+    if (node.getKind() == NodeKind.XML_DOCUMENT || node.getKind() == NodeKind.JSON_DOCUMENT) {
+      return 0;
     }
     return -1;
   }
@@ -390,7 +397,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean moveToFirstChild() {
     assertNotClosed();
-    // Use cursor getter and avoid unnecessary materialization.
+    // Use flyweight getter if available to avoid node materialization
     if (!hasFirstChild()) {
       return false;
     }
@@ -406,98 +413,102 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return moveToItemList(nodeKey);
     }
 
-    if (singletonOptimizedResource && storageEngineReader instanceof NodeStorageEngineReader reader) {
-      return moveToSingleton(nodeKey, reader);
+    // Use singleton mode for READ-ONLY transactions (cachedWriter == null).
+    // Write transactions fall through to moveToLegacy for now — the writer's overridden
+    // getRecord() provides TIL-aware page resolution that moveToSingleton needs.
+    if (SINGLETON_ENABLED && cachedNodeReader != null && cachedWriter == null) {
+      return moveToSingleton(nodeKey, cachedNodeReader);
     }
 
-    // Fallback to traditional object mode.
+    // Write path: use moveToSingletonWrite for TIL-aware singleton mode
+    if (SINGLETON_ENABLED && cachedWriter != null && cachedNodeReader != null) {
+      return moveToSingletonWrite(nodeKey, cachedNodeReader, cachedWriter);
+    }
+
+    // Fallback to traditional object mode
     return moveToLegacy(nodeKey);
   }
-
-  // ==================== SINGLETON NODE INSTANCES ====================
-  // These mutable singleton nodes are reused across moveTo() operations.
-  // Each supported JSON/XML node type has a dedicated singleton instance.
-
-  private static final QNm EMPTY_QNM = new QNm("");
-
-  private ObjectNode singletonObject;
-  private ArrayNode singletonArray;
-  private ObjectKeyNode singletonObjectKey;
-  private StringNode singletonString;
-  private NumberNode singletonNumber;
-  private BooleanNode singletonBoolean;
-  private NullNode singletonNull;
-  private ObjectStringNode singletonObjectString;
-  private ObjectNumberNode singletonObjectNumber;
-  private ObjectBooleanNode singletonObjectBoolean;
-  private ObjectNullNode singletonObjectNull;
-  private JsonDocumentRootNode singletonJsonDocumentRoot;
-  private XmlDocumentRootNode singletonXmlDocumentRoot;
-  private ElementNode singletonElement;
-  private AttributeNode singletonAttribute;
-  private NamespaceNode singletonNamespace;
-  private TextNode singletonText;
-  private CommentNode singletonComment;
-  private PINode singletonPI;
-
+  
+  /**
+   * Toggle for singleton mode. Set to true to enable singleton node reuse.
+   * Singleton mode uses mutable singleton nodes that are repopulated on each moveTo().
+   * When combined with cache checking, uses cached records when available.
+   */
+  private static final boolean SINGLETON_ENABLED = true;
+  
   /**
    * Whether currently in singleton mode (using singleton nodes).
    */
   private boolean singletonMode = false;
-
+  
   /**
    * The current singleton node (set when in singletonMode).
    */
   private ImmutableNode currentSingleton;
 
-
   /**
-   * Move to a node using singleton mode (zero allocation). Repopulates a mutable singleton instance
-   * from serialized data. NO allocation happens here - only when getCurrentNode() is called.
+   * Array-based singleton lookup indexed by NodeKind.getId().
+   * Replaces the 19-case switch in getSingletonForKind with O(1) array access.
+   * Lazily populated on first access per kind. Max NodeKind ID is 55.
+   */
+  private final ImmutableNode[] singletonByKindId = new ImmutableNode[56];
+  
+  /**
+   * Move to a node using singleton mode (zero allocation).
+   * Repopulates a mutable singleton instance from serialized data.
+   * NO allocation happens here - only when getCurrentNode() is called.
    *
    * @param nodeKey the node key to move to
-   * @param reader the storage engine reader
+   * @param reader  the storage engine reader
    * @return true if the move was successful
    */
   private boolean moveToSingleton(final long nodeKey, final NodeStorageEngineReader reader) {
-    // Calculate target page key to check for same-page access
-    final long targetPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
-    final int slotOffset = StorageEngineReader.recordPageOffset(nodeKey);
+    // Inline pageKey: all index types use exponent 10, avoids assertNotClosed + switch overhead
+    final long targetPageKey = nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
+    final int slotOffset = (int) (nodeKey & ((1 << Constants.NDP_NODE_COUNT_EXPONENT) - 1));
 
+    MemorySegment data;
     KeyValueLeafPage page;
 
     // OPTIMIZATION: Check if we're moving within the same page
     if (currentPageKey == targetPageKey && currentPage != null && !currentPage.isClosed()) {
       // Same page! Skip guard management entirely
       page = currentPage;
+
+      // Check records[] first: Java objects are authoritative during write transactions
+      // (modifications via prepareRecordForModification are NOT synced back to page heap)
+      final DataRecord fromRecords = page.getRecord(slotOffset);
+      if (fromRecords != null) {
+        if (fromRecords.getKind() == NodeKind.DELETE) {
+          return false;
+        }
+        @SuppressWarnings("unchecked")
+        final N node = (N) fromRecords;
+        this.currentNode = node;
+        this.currentNodeKind = (NodeKind) fromRecords.getKind();
+        this.currentNodeKey = nodeKey;
+        this.currentSingleton = null;
+        this.singletonMode = false;
+        return true;
+      }
+
+      data = page.getSlot(slotOffset);
+      if (data == null) {
+        // Slot not found on current page - try overflow or fail
+        return moveToSingletonSlowPath(nodeKey, reader);
+      }
     } else {
       // Different page - use the slow path with guard management
       return moveToSingletonSlowPath(nodeKey, reader);
     }
 
-    // Read slot metadata without allocating an asSlice
-    final int dataLength = page.getSlotDataLength(slotOffset);
-    if (dataLength < 0) {
-      // Slot not found on current page - try overflow or fail
-      return moveToSingletonSlowPath(nodeKey, reader);
-    }
-    final MemorySegment slotMemory = page.getSlotMemory();
-    final long baseOffset = page.getSlotDataOffset(slotOffset);
+    // Read node kind from first byte
+    byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+    NodeKind kind = NodeKind.getKind(kindByte);
 
-    final boolean fixedSlotFormat = page.isFixedSlotFormat(slotOffset);
-    final NodeKind kind;
-    if (fixedSlotFormat) {
-      kind = page.getFixedSlotNodeKind(slotOffset);
-      if (kind == null) {
-        return moveToLegacy(nodeKey);
-      }
-    } else {
-      // Read node kind from first byte (zero-copy: read directly from slotMemory).
-      final byte kindByte = slotMemory.get(java.lang.foreign.ValueLayout.JAVA_BYTE, baseOffset);
-      kind = NodeKind.getKind(kindByte);
-      if (kind == NodeKind.DELETE) {
-        return false;
-      }
+    // Check for deleted node
+    if (kind == NodeKind.DELETE) {
+      return false;
     }
 
     // Get singleton instance for this node type
@@ -507,598 +518,389 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return moveToLegacy(nodeKey);
     }
 
-    // Populate singleton from slot bytes (no allocation on the singleton path).
-    // Note: no guard management needed, we're on the same page.
-    // Dewey bytes are bound lazily on demand to avoid byte[] allocation per moveTo.
-    if (fixedSlotFormat) {
-      if (!populateSingletonFromFixedSlot(singleton, kind, slotMemory, baseOffset, dataLength, nodeKey, null, page)) {
-        return moveToLegacy(nodeKey);
+    // Check if this is a flyweight record in slotted page
+    final boolean isFlyweightSlot = page.getSlottedPage() != null && page.getSlotNodeKindId(slotOffset) > 0
+        && singleton instanceof FlyweightNode;
+    if (isFlyweightSlot) {
+      final FlyweightNode fn = (FlyweightNode) singleton;
+      // Bind flyweight directly to slotted page (zero-copy, no legacy parsing)
+      final int heapOffset = PageLayout.getDirHeapOffset(page.getSlottedPage(), slotOffset);
+      final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
+      fn.bind(page.getSlottedPage(), recordBase, nodeKey, slotOffset);
+      // Propagate FSST symbol table for compressed string nodes
+      propagateFsstToFlyweight(fn, page);
+      // Propagate DeweyID from page to flyweight node (stored inline after record data).
+      // setDeweyIDBytes stores raw bytes lazily — no SirixDeweyID parsing until getDeweyID() called.
+      // MUST always set (even null) to clear stale DeweyID from previous singleton reuse.
+      if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
+        node.setDeweyIDBytes(page.getDeweyIdAsByteArray(slotOffset));
       }
     } else {
-      reusableBytesIn.reset(slotMemory, baseOffset + 1);
-      populateSingleton(singleton, reusableBytesIn, nodeKey, null, kind, page);
+      // Legacy format: populate from serialized data (NO ALLOCATION)
+      // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
+      reusableBytesIn.reset(data, 1);
+      // Only fetch DeweyID if actually stored (avoids byte[] allocation)
+      byte[] deweyId = resourceConfig.areDeweyIDsStored ? page.getDeweyIdAsByteArray(slotOffset) : null;
+      populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
     }
 
     // Update state - we're in singleton mode now (page guard unchanged)
     this.currentSingleton = singleton;
     this.currentNodeKind = kind;
     this.currentNodeKey = nodeKey;
-    this.currentSlotOffset = slotOffset;
-    this.singletonDeweyBound = !resourceConfig.areDeweyIDsStored;
-    this.currentNode = null; // Clear - will be created lazily by getCurrentNode()
+    this.currentNode = null;  // Clear - will be created lazily by getCurrentNode()
     this.singletonMode = true;
 
     return true;
   }
 
   /**
-   * Slow path for moveToSingleton when moving to a different page. Handles guard acquisition and
-   * release.
+   * Slow path for moveToSingleton when moving to a different page (read-only transactions only).
+   * Uses the reader's lookupSlotWithGuard with guard management.
    */
   private boolean moveToSingletonSlowPath(final long nodeKey, final NodeStorageEngineReader reader) {
-    // Get raw slot data with full guard management
     var slotLocation = reader.lookupSlotWithGuard(nodeKey, IndexType.DOCUMENT, -1);
     if (slotLocation == null) {
       return false;
     }
 
-    final KeyValueLeafPage slotPage = slotLocation.page();
-    final int slotOff = slotLocation.offset();
-    final MemorySegment slotMemory = slotPage.getSlotMemory();
-    final long baseOffset = slotPage.getSlotDataOffset(slotOff);
-    final int dataLength = slotPage.getSlotDataLength(slotOff);
-    final boolean fixedSlotFormat = slotPage.isFixedSlotFormat(slotOff);
-    final NodeKind kind;
-    if (fixedSlotFormat) {
-      kind = slotPage.getFixedSlotNodeKind(slotOff);
-      if (kind == null) {
-        slotLocation.guard().close();
-        return moveToLegacy(nodeKey);
-      }
-    } else {
-      final byte kindByte = slotMemory.get(java.lang.foreign.ValueLayout.JAVA_BYTE, baseOffset);
-      kind = NodeKind.getKind(kindByte);
-      if (kind == NodeKind.DELETE) {
-        slotLocation.guard().close();
+    return moveToSingletonFromPage(nodeKey, slotLocation.page(), reader,
+        nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT, slotLocation.guard());
+  }
+
+  /**
+   * Move to a node on a given page using singleton mode.
+   * Shared logic for both write (TIL modified page) and read (guarded page) paths.
+   *
+   * @param nodeKey the node key
+   * @param page the page to read from
+   * @param reader the storage engine reader (for pageKey calculation)
+   * @param pageKey the pre-calculated page key
+   * @param newGuard the new page guard (null for TIL pages which don't need guarding)
+   * @return true if move succeeded
+   */
+  private boolean moveToSingletonFromPage(final long nodeKey, final KeyValueLeafPage page,
+      final NodeStorageEngineReader reader, final long pageKey, final @Nullable PageGuard newGuard) {
+    final int slotOff = (int) (nodeKey & ((1 << Constants.NDP_NODE_COUNT_EXPONENT) - 1));
+
+    // Check records[] first: Java objects are authoritative during write transactions
+    // (modifications via prepareRecordForModification are NOT synced back to page heap)
+    final DataRecord fromRecords = page.getRecord(slotOff);
+    if (fromRecords != null) {
+      if (fromRecords.getKind() == NodeKind.DELETE) {
+        if (newGuard != null) {
+          newGuard.close();
+        }
         return false;
       }
+      releaseCurrentPageGuard();
+      @SuppressWarnings("unchecked")
+      final N node = (N) fromRecords;
+      this.currentNode = node;
+      this.currentNodeKind = (NodeKind) fromRecords.getKind();
+      this.currentNodeKey = nodeKey;
+      this.currentSingleton = null;
+      this.singletonMode = false;
+      this.currentPageGuard = newGuard;
+      this.currentPage = page;
+      this.currentPageKey = pageKey;
+      return true;
+    }
+
+    // Get slot data from page heap
+    MemorySegment data = page.getSlot(slotOff);
+    if (data == null) {
+      if (newGuard != null) {
+        newGuard.close();
+      }
+      return false;
+    }
+
+    // Read node kind from first byte
+    byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+    NodeKind kind = NodeKind.getKind(kindByte);
+
+    // Check for deleted node
+    if (kind == NodeKind.DELETE) {
+      if (newGuard != null) {
+        newGuard.close();
+      }
+      return false;
     }
 
     // Get singleton instance for this node type
     ImmutableNode singleton = getSingletonForKind(kind);
     if (singleton == null) {
       // No singleton for this type (e.g., document root), fall back to legacy
-      slotLocation.guard().close();
+      if (newGuard != null) {
+        newGuard.close();
+      }
       return moveToLegacy(nodeKey);
     }
 
     // Release previous page guard ONLY NOW (after we know the new page is valid)
     releaseCurrentPageGuard();
 
-    // Populate singleton from serialized data (NO ALLOCATION)
-    // Reuse BytesIn instance - just reset to new segment and offset (skip kind byte)
-    // Dewey bytes are bound lazily on demand to avoid byte[] allocation per moveTo.
-    if (fixedSlotFormat) {
-      if (!populateSingletonFromFixedSlot(singleton, kind, slotMemory, baseOffset, dataLength, nodeKey, null,
-          slotPage)) {
-        slotLocation.guard().close();
-        return moveToLegacy(nodeKey);
+    // Check if this is a flyweight record in slotted page
+    final boolean isFlyweight = page.getSlottedPage() != null && page.getSlotNodeKindId(slotOff) > 0
+        && singleton instanceof FlyweightNode;
+    if (isFlyweight) {
+      final FlyweightNode fn = (FlyweightNode) singleton;
+      // Bind flyweight directly to slotted page (zero-copy, no legacy parsing)
+      final int heapOffset = PageLayout.getDirHeapOffset(page.getSlottedPage(), slotOff);
+      final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
+      fn.bind(page.getSlottedPage(), recordBase, nodeKey, slotOff);
+      // Propagate FSST symbol table for compressed string nodes
+      propagateFsstToFlyweight(fn, page);
+      // Propagate DeweyID from page to flyweight node (stored inline after record data).
+      // setDeweyIDBytes stores raw bytes lazily — no SirixDeweyID parsing until getDeweyID() called.
+      // MUST always set (even null) to clear stale DeweyID from previous singleton reuse.
+      if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
+        node.setDeweyIDBytes(page.getDeweyIdAsByteArray(slotOff));
       }
     } else {
-      reusableBytesIn.reset(slotMemory, baseOffset + 1);
-      populateSingleton(singleton, reusableBytesIn, nodeKey, null, kind, slotPage);
+      // Legacy format: populate from serialized data (NO ALLOCATION)
+      reusableBytesIn.reset(data, 1);
+      byte[] deweyId = resourceConfig.areDeweyIDsStored
+          ? page.getDeweyIdAsByteArray(slotOff) : null;
+      populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
     }
 
     // Update state - we're in singleton mode now with new page
-    this.currentPageGuard = slotLocation.guard();
-    this.currentPage = slotLocation.page();
-    this.currentPageKey = reader.pageKey(nodeKey, IndexType.DOCUMENT);
+    this.currentPageGuard = newGuard;
+    this.currentPage = page;
+    this.currentPageKey = pageKey;
     this.currentSingleton = singleton;
     this.currentNodeKind = kind;
     this.currentNodeKey = nodeKey;
-    this.currentSlotOffset = slotOff;
-    this.singletonDeweyBound = !resourceConfig.areDeweyIDsStored;
-    this.currentNode = null; // Clear - will be created lazily by getCurrentNode()
+    this.currentNode = null;  // Clear - will be created lazily by getCurrentNode()
     this.singletonMode = true;
 
     return true;
   }
 
-  private boolean populateSingletonFromFixedSlot(final ImmutableNode singleton, final NodeKind kind,
-      final MemorySegment slotMemory, final long baseOffset, final int dataLength, final long nodeKey,
-      final byte[] deweyIdBytes, final KeyValueLeafPage page) {
-    final NodeKindLayout layout = kind.layoutDescriptor();
-    if (!layout.isFixedSlotSupported() || dataLength < layout.fixedSlotSizeInBytes()) {
-      return false;
+  /**
+   * Write-transaction singleton moveTo. Uses the writer's TIL for page resolution (modified pages).
+   * Same-page optimization caches the modified page between calls.
+   * Falls back to moveToLegacy if the page is not in TIL.
+   *
+   * @param nodeKey the node key to move to
+   * @param reader the underlying storage engine reader (for pageKey calculation)
+   * @param writer the storage engine writer (for TIL page resolution)
+   * @return true if the move was successful
+   */
+  private boolean moveToSingletonWrite(final long nodeKey, final NodeStorageEngineReader reader,
+      final StorageEngineWriter writer) {
+    // Inline pageKey: all index types use exponent 10, avoids assertNotClosed + switch overhead
+    final long targetPageKey = nodeKey >> Constants.NDP_NODE_COUNT_EXPONENT;
+    final int slotOffset = (int) (nodeKey & ((1 << Constants.NDP_NODE_COUNT_EXPONENT) - 1));
+    KeyValueLeafPage page;
+
+    // Same-page fast path: reuse cached modified page
+    if (currentPageKey == targetPageKey && currentPage != null && !currentPage.isClosed()) {
+      page = currentPage;
+    } else {
+      // Different page: get modified page from writer's TIL
+      page = writer.getModifiedPageForRead(targetPageKey, IndexType.DOCUMENT, -1);
+      if (page == null) {
+        // Page not in TIL — fall back to legacy (allocating) moveTo
+        return moveToLegacy(nodeKey);
+      }
+      // Release previous guard (if any) and update page tracking
+      // TIL pages don't need guarding — they're pinned by the transaction
+      if (currentPageGuard != null) {
+        currentPageGuard.close();
+        currentPageGuard = null;
+      }
+      currentPage = page;
+      currentPageKey = targetPageKey;
     }
-    // Reject payload-bearing nodes with non-VALUE_BLOB payload refs (e.g., ATTRIBUTE_VECTOR)
-    if (layout.payloadRefCount() > 0 && !layout.hasSupportedPayloads()) {
+
+    // Check records[] first: authoritative for writes (prepareRecordForModification stores here)
+    final DataRecord fromRecords = page.getRecord(slotOffset);
+    if (fromRecords != null) {
+      if (fromRecords.getKind() == NodeKind.DELETE) {
+        return false;
+      }
+      @SuppressWarnings("unchecked")
+      final N node = (N) fromRecords;
+      this.currentNode = node;
+      this.currentNodeKind = (NodeKind) fromRecords.getKind();
+      this.currentNodeKey = nodeKey;
+      this.currentSingleton = null;
+      this.singletonMode = false;
+      return true;
+    }
+
+    // Check slot data on modified page
+    final MemorySegment data = page.getSlot(slotOffset);
+    if (data == null) {
+      // Not in modified page heap either — fall back to legacy
+      return moveToLegacy(nodeKey);
+    }
+
+    // Read node kind from first byte
+    final byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+    final NodeKind kind = NodeKind.getKind(kindByte);
+
+    if (kind == NodeKind.DELETE) {
       return false;
     }
 
-    switch (kind) {
-      case JSON_DOCUMENT -> {
-        if (!(singleton instanceof JsonDocumentRootNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LAST_CHILD_KEY));
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
+    // Get singleton instance for this node type
+    final ImmutableNode singleton = getSingletonForKind(kind);
+    if (singleton == null) {
+      return moveToLegacy(nodeKey);
+    }
+
+    // Bind singleton to page data (zero allocation)
+    // Cache slottedPage locally to avoid repeated virtual calls to getSlottedPage()
+    final MemorySegment sp = page.getSlottedPage();
+    if (sp != null && singleton instanceof FlyweightNode fn) {
+      final int heapOffset = PageLayout.getDirHeapOffset(sp, slotOffset);
+      final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
+      fn.bind(sp, recordBase, nodeKey, slotOffset);
+      // Propagate DeweyID lazily — no SirixDeweyID parsing until getDeweyID() called.
+      // MUST always set (even null) to clear stale DeweyID from previous singleton reuse.
+      if (resourceConfig.areDeweyIDsStored && fn instanceof Node node) {
+        node.setDeweyIDBytes(page.getDeweyIdAsByteArray(slotOffset));
       }
-      case XML_DOCUMENT -> {
-        if (!(singleton instanceof XmlDocumentRootNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setLastChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LAST_CHILD_KEY));
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case OBJECT -> {
-        if (!(singleton instanceof ObjectNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case ARRAY -> {
-        if (!(singleton instanceof ArrayNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setPathNodeKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PATH_NODE_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case OBJECT_KEY -> {
-        if (!(singleton instanceof ObjectKeyNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setNameKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.NAME_KEY));
-        node.clearCachedName();
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case BOOLEAN_VALUE -> {
-        if (!(singleton instanceof BooleanNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setValue(SlotLayoutAccessors.readBooleanField(slotMemory, baseOffset, layout, StructuralField.BOOLEAN_VALUE));
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case NULL_VALUE -> {
-        if (!(singleton instanceof NullNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case OBJECT_BOOLEAN_VALUE -> {
-        if (!(singleton instanceof ObjectBooleanNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setValue(SlotLayoutAccessors.readBooleanField(slotMemory, baseOffset, layout, StructuralField.BOOLEAN_VALUE));
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case OBJECT_NULL_VALUE -> {
-        if (!(singleton instanceof ObjectNullNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case NAMESPACE -> {
-        if (!(singleton instanceof NamespaceNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.PREFIX_KEY));
-        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.LOCAL_NAME_KEY));
-        node.setURIKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.URI_KEY));
-        node.setName(EMPTY_QNM);
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case ELEMENT -> {
-        if (!(singleton instanceof ElementNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.PREFIX_KEY));
-        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.LOCAL_NAME_KEY));
-        FixedSlotRecordMaterializer.readInlineVectorPayload(node, slotMemory, baseOffset, layout, 0, true);
-        FixedSlotRecordMaterializer.readInlineVectorPayload(node, slotMemory, baseOffset, layout, 1, false);
-        node.setName(EMPTY_QNM);
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case STRING_VALUE -> {
-        if (!(singleton instanceof StringNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazySource and
-        // metadataParsed=true
-        final long strPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
-        final int strLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
-        final int strFlags = SlotLayoutAccessors.readPayloadFlags(slotMemory, baseOffset, layout, 0);
-        node.setLazyRawValue(slotMemory, baseOffset + strPointer, strLength, (strFlags & 1) != 0);
-        // Propagate FSST symbol table for decompression (use pre-parsed symbols)
-        final byte[] strFsstSymbols = page.getFsstSymbolTable();
-        if (strFsstSymbols != null && strFsstSymbols.length > 0) {
-          node.setFsstSymbolTable(strFsstSymbols, page.getParsedFsstSymbols());
-        }
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case OBJECT_STRING_VALUE -> {
-        if (!(singleton instanceof ObjectStringNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazySource and
-        // metadataParsed=true
-        final long objStrPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
-        final int objStrLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
-        final int objStrFlags = SlotLayoutAccessors.readPayloadFlags(slotMemory, baseOffset, layout, 0);
-        node.setLazyRawValue(slotMemory, baseOffset + objStrPointer, objStrLength, (objStrFlags & 1) != 0);
-        // Propagate FSST symbol table for decompression (use pre-parsed symbols)
-        final byte[] objStrFsstSymbols = page.getFsstSymbolTable();
-        if (objStrFsstSymbols != null && objStrFsstSymbols.length > 0) {
-          node.setFsstSymbolTable(objStrFsstSymbols, page.getParsedFsstSymbols());
-        }
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case NUMBER_VALUE -> {
-        if (!(singleton instanceof NumberNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        // setLazyNumberValue BEFORE bindFixedSlotLazy — setLazyNumberValue sets lazySource and
-        // metadataParsed=true
-        final long numPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
-        final int numLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
-        node.setLazyNumberValue(slotMemory, baseOffset + numPointer, numLength);
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case OBJECT_NUMBER_VALUE -> {
-        if (!(singleton instanceof ObjectNumberNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        // setLazyNumberValue BEFORE bindFixedSlotLazy — setLazyNumberValue sets lazySource and
-        // metadataParsed=true
-        final long objNumPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
-        final int objNumLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
-        node.setLazyNumberValue(slotMemory, baseOffset + objNumPointer, objNumLength);
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case TEXT -> {
-        if (!(singleton instanceof TextNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazySource and
-        // metadataParsed=true
-        final long textPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
-        final int textLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
-        final int textFlags = SlotLayoutAccessors.readPayloadFlags(slotMemory, baseOffset, layout, 0);
-        node.setLazyRawValue(slotMemory, baseOffset + textPointer, textLength, (textFlags & 1) != 0);
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case COMMENT -> {
-        if (!(singleton instanceof CommentNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazyValueSource
-        final long commentPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
-        final int commentLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
-        final int commentFlags = SlotLayoutAccessors.readPayloadFlags(slotMemory, baseOffset, layout, 0);
-        node.setLazyRawValue(slotMemory, baseOffset + commentPointer, commentLength, (commentFlags & 1) != 0);
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case ATTRIBUTE -> {
-        if (!(singleton instanceof AttributeNode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.PREFIX_KEY));
-        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.LOCAL_NAME_KEY));
-        node.setURIKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.URI_KEY));
-        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazyValueSource
-        final long attrPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
-        final int attrLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
-        node.setLazyRawValue(slotMemory, baseOffset + attrPointer, attrLength);
-        node.setName(EMPTY_QNM);
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      case PROCESSING_INSTRUCTION -> {
-        if (!(singleton instanceof PINode node)) {
-          return false;
-        }
-        node.setNodeKey(nodeKey);
-        node.setParentKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.PARENT_KEY));
-        node.setRightSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.RIGHT_SIBLING_KEY));
-        node.setLeftSiblingKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.LEFT_SIBLING_KEY));
-        node.setFirstChildKey(SlotLayoutAccessors.readLongField(slotMemory, baseOffset, layout, StructuralField.FIRST_CHILD_KEY));
-        node.setPrefixKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.PREFIX_KEY));
-        node.setLocalNameKey(SlotLayoutAccessors.readIntField(slotMemory, baseOffset, layout, StructuralField.LOCAL_NAME_KEY));
-        // setLazyRawValue BEFORE bindFixedSlotLazy — setLazyRawValue sets lazyValueSource
-        final long piPointer = SlotLayoutAccessors.readPayloadPointer(slotMemory, baseOffset, layout, 0);
-        final int piLength = SlotLayoutAccessors.readPayloadLength(slotMemory, baseOffset, layout, 0);
-        final int piFlags = SlotLayoutAccessors.readPayloadFlags(slotMemory, baseOffset, layout, 0);
-        node.setLazyRawValue(slotMemory, baseOffset + piPointer, piLength, (piFlags & 1) != 0);
-        node.setName(EMPTY_QNM);
-        node.setDeweyIDBytes(deweyIdBytes);
-        node.bindFixedSlotLazy(slotMemory, baseOffset, layout);
-        return true;
-      }
-      default -> {
-        return false;
+    } else {
+      // Legacy format: populate singleton from serialized data (NO ALLOCATION)
+      reusableBytesIn.reset(data, 1);
+      final byte[] deweyId = resourceConfig.areDeweyIDsStored
+          ? page.getDeweyIdAsByteArray(slotOffset) : null;
+      populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
+    }
+
+    // Update state — singleton mode, no guard needed for TIL pages
+    this.currentSingleton = singleton;
+    this.currentNodeKind = kind;
+    this.currentNodeKey = nodeKey;
+    this.currentNode = null;
+    this.singletonMode = true;
+
+    return true;
+  }
+
+  /**
+   * Propagate FSST symbol table from page to a flyweight string node.
+   * Required for lazy decompression of FSST-compressed strings in singleton mode.
+   */
+  private static void propagateFsstToFlyweight(final FlyweightNode fn, final KeyValueLeafPage page) {
+    final byte[] fsstTable = page.getFsstSymbolTable();
+    if (fsstTable != null && fsstTable.length > 0) {
+      if (fn instanceof StringNode sn) {
+        sn.setFsstSymbolTable(fsstTable);
+      } else if (fn instanceof ObjectStringNode osn) {
+        osn.setFsstSymbolTable(fsstTable);
       }
     }
   }
 
   /**
-   * Get the singleton instance for a given node kind. Lazily creates singletons on first use.
+   * Get the singleton instance for a given node kind.
+   * Lazily creates singletons on first use.
    *
    * @param kind the node kind
    * @return the singleton instance, or null if not supported
    */
   private ImmutableNode getSingletonForKind(NodeKind kind) {
+    final int id = kind.getId() & 0xFF;
+    if (id >= singletonByKindId.length) {
+      return null;
+    }
+    ImmutableNode singleton = singletonByKindId[id];
+    if (singleton != null) {
+      return singleton;
+    }
+    singleton = createSingletonForKind(kind);
+    if (singleton != null) {
+      singletonByKindId[id] = singleton;
+    }
+    return singleton;
+  }
+
+  /**
+   * Create a singleton instance for the given node kind (cold path, called once per kind).
+   */
+  private ImmutableNode createSingletonForKind(NodeKind kind) {
     return switch (kind) {
-      case OBJECT -> {
-        if (singletonObject == null) {
-          singletonObject =
-              new ObjectNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonObject;
-      }
-      case ARRAY -> {
-        if (singletonArray == null) {
-          singletonArray =
-              new ArrayNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonArray;
-      }
-      case OBJECT_KEY -> {
-        if (singletonObjectKey == null) {
-          singletonObjectKey =
-              new ObjectKeyNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonObjectKey;
-      }
-      case STRING_VALUE -> {
-        if (singletonString == null) {
-          singletonString = new StringNode(0, 0, 0, 0, 0, 0, 0, null, resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonString;
-      }
-      case NUMBER_VALUE -> {
-        if (singletonNumber == null) {
-          singletonNumber = new NumberNode(0, 0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonNumber;
-      }
-      case BOOLEAN_VALUE -> {
-        if (singletonBoolean == null) {
-          singletonBoolean =
-              new BooleanNode(0, 0, 0, 0, 0, 0, 0, false, resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonBoolean;
-      }
-      case NULL_VALUE -> {
-        if (singletonNull == null) {
-          singletonNull = new NullNode(0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonNull;
-      }
-      case OBJECT_STRING_VALUE -> {
-        if (singletonObjectString == null) {
-          singletonObjectString =
-              new ObjectStringNode(0, 0, 0, 0, 0, null, resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonObjectString;
-      }
-      case OBJECT_NUMBER_VALUE -> {
-        if (singletonObjectNumber == null) {
-          singletonObjectNumber =
-              new ObjectNumberNode(0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonObjectNumber;
-      }
-      case OBJECT_BOOLEAN_VALUE -> {
-        if (singletonObjectBoolean == null) {
-          singletonObjectBoolean =
-              new ObjectBooleanNode(0, 0, 0, 0, 0, false, resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonObjectBoolean;
-      }
-      case OBJECT_NULL_VALUE -> {
-        if (singletonObjectNull == null) {
-          singletonObjectNull = new ObjectNullNode(0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonObjectNull;
-      }
-      case JSON_DOCUMENT -> {
-        if (singletonJsonDocumentRoot == null) {
-          singletonJsonDocumentRoot = new JsonDocumentRootNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-              Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0,
-              resourceConfig.nodeHashFunction);
-        }
-        yield singletonJsonDocumentRoot;
-      }
-      case XML_DOCUMENT -> {
-        if (singletonXmlDocumentRoot == null) {
-          singletonXmlDocumentRoot = new XmlDocumentRootNode(Fixed.DOCUMENT_NODE_KEY.getStandardProperty(),
-              Fixed.NULL_NODE_KEY.getStandardProperty(), Fixed.NULL_NODE_KEY.getStandardProperty(), 0, 0,
-              resourceConfig.nodeHashFunction);
-        }
-        yield singletonXmlDocumentRoot;
-      }
-      case ELEMENT -> {
-        if (singletonElement == null) {
-          singletonElement = new ElementNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-              resourceConfig.nodeHashFunction, (byte[]) null, null, null, EMPTY_QNM);
-        }
-        yield singletonElement;
-      }
-      case ATTRIBUTE -> {
-        if (singletonAttribute == null) {
-          singletonAttribute = new AttributeNode(0, 0, 0, 0, 0, 0, 0, 0, 0, new byte[0],
-              resourceConfig.nodeHashFunction, (byte[]) null, EMPTY_QNM);
-        }
-        yield singletonAttribute;
-      }
-      case NAMESPACE -> {
-        if (singletonNamespace == null) {
-          singletonNamespace =
-              new NamespaceNode(0, 0, 0, 0, 0, 0, 0, 0, 0, resourceConfig.nodeHashFunction, (byte[]) null, EMPTY_QNM);
-        }
-        yield singletonNamespace;
-      }
-      case TEXT -> {
-        if (singletonText == null) {
-          singletonText =
-              new TextNode(0, 0, 0, 0, 0, 0, 0, new byte[0], false, resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonText;
-      }
-      case COMMENT -> {
-        if (singletonComment == null) {
-          singletonComment =
-              new CommentNode(0, 0, 0, 0, 0, 0, 0, new byte[0], false, resourceConfig.nodeHashFunction, (byte[]) null);
-        }
-        yield singletonComment;
-      }
-      case PROCESSING_INSTRUCTION -> {
-        if (singletonPI == null) {
-          singletonPI = new PINode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, new byte[0], false,
-              resourceConfig.nodeHashFunction, (byte[]) null, EMPTY_QNM);
-        }
-        yield singletonPI;
-      }
-      // Other types fall back to legacy mode.
+      case OBJECT -> new ObjectNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case ARRAY -> new ArrayNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case OBJECT_KEY -> new ObjectKeyNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case STRING_VALUE -> new StringNode(0, 0, 0, 0, 0, 0, 0, null,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case NUMBER_VALUE -> new NumberNode(0, 0, 0, 0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case BOOLEAN_VALUE -> new BooleanNode(0, 0, 0, 0, 0, 0, 0, false,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case NULL_VALUE -> new NullNode(0, 0, 0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case OBJECT_STRING_VALUE -> new ObjectStringNode(0, 0, 0, 0, 0, null,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case OBJECT_NUMBER_VALUE -> new ObjectNumberNode(0, 0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case OBJECT_BOOLEAN_VALUE -> new ObjectBooleanNode(0, 0, 0, 0, 0, false,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case OBJECT_NULL_VALUE -> new ObjectNullNode(0, 0, 0, 0, 0,
+          resourceConfig.nodeHashFunction, (byte[]) null);
+      case JSON_DOCUMENT -> new JsonDocumentRootNode(0, resourceConfig.nodeHashFunction);
+      case ELEMENT -> new ElementNode(0, resourceConfig.nodeHashFunction);
+      case ATTRIBUTE -> new AttributeNode(0, resourceConfig.nodeHashFunction);
+      case TEXT -> new TextNode(0, resourceConfig.nodeHashFunction);
+      case COMMENT -> new CommentNode(0, resourceConfig.nodeHashFunction);
+      case PROCESSING_INSTRUCTION -> new PINode(0, resourceConfig.nodeHashFunction);
+      case NAMESPACE -> new NamespaceNode(0, resourceConfig.nodeHashFunction);
+      case XML_DOCUMENT -> new XmlDocumentRootNode(0, resourceConfig.nodeHashFunction);
       default -> null;
     };
   }
-
+  
   /**
    * Populate a singleton node from serialized data.
    *
    * @param singleton the singleton to populate
-   * @param source the BytesIn source positioned after the kind byte
-   * @param nodeKey the node key
-   * @param deweyId the DeweyID bytes
-   * @param kind the node kind
+   * @param source    the BytesIn source positioned after the kind byte
+   * @param nodeKey   the node key
+   * @param deweyId   the DeweyID bytes
+   * @param kind      the node kind
    */
-  private void populateSingleton(ImmutableNode singleton, BytesIn<?> source, long nodeKey, byte[] deweyId,
-      NodeKind kind, KeyValueLeafPage page) {
+  private void populateSingleton(ImmutableNode singleton, BytesIn<?> source, 
+                                  long nodeKey, byte[] deweyId, NodeKind kind,
+                                  KeyValueLeafPage page) {
     switch (kind) {
-      case OBJECT ->
-        ((ObjectNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-      case ARRAY ->
-        ((ArrayNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-      case OBJECT_KEY ->
-        ((ObjectKeyNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT -> ((ObjectNode) singleton).readFrom(source, nodeKey, deweyId, 
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case ARRAY -> ((ArrayNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT_KEY -> ((ObjectKeyNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
       case STRING_VALUE -> {
         StringNode stringNode = (StringNode) singleton;
         stringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-        // Propagate FSST symbol table for decompression (use pre-parsed symbols)
+        // Propagate FSST symbol table for decompression
         byte[] fsstSymbolTable = page.getFsstSymbolTable();
         if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
-          stringNode.setFsstSymbolTable(fsstSymbolTable, page.getParsedFsstSymbols());
+          stringNode.setFsstSymbolTable(fsstSymbolTable);
         }
       }
-      case NUMBER_VALUE ->
-        ((NumberNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-      case BOOLEAN_VALUE ->
-        ((BooleanNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-      case NULL_VALUE ->
-        ((NullNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
+      case NUMBER_VALUE -> ((NumberNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case BOOLEAN_VALUE -> ((BooleanNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case NULL_VALUE -> ((NullNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
       case OBJECT_STRING_VALUE -> {
         ObjectStringNode objectStringNode = (ObjectStringNode) singleton;
         objectStringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-        // Propagate FSST symbol table for decompression (use pre-parsed symbols)
+        // Propagate FSST symbol table for decompression
         byte[] fsstSymbolTable = page.getFsstSymbolTable();
         if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
-          objectStringNode.setFsstSymbolTable(fsstSymbolTable, page.getParsedFsstSymbols());
+          objectStringNode.setFsstSymbolTable(fsstSymbolTable);
         }
       }
       case OBJECT_NUMBER_VALUE -> ((ObjectNumberNode) singleton).readFrom(source, nodeKey, deweyId,
@@ -1109,27 +911,27 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           resourceConfig.nodeHashFunction, resourceConfig);
       case JSON_DOCUMENT -> ((JsonDocumentRootNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
+      case ELEMENT -> ((ElementNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case ATTRIBUTE -> ((AttributeNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case TEXT -> ((TextNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case COMMENT -> ((CommentNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case PROCESSING_INSTRUCTION -> ((PINode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case NAMESPACE -> ((NamespaceNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
       case XML_DOCUMENT -> ((XmlDocumentRootNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
-      case ELEMENT ->
-        ((ElementNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-      case ATTRIBUTE ->
-        ((AttributeNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-      case NAMESPACE ->
-        ((NamespaceNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-      case TEXT ->
-        ((TextNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-      case COMMENT ->
-        ((CommentNode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-      case PROCESSING_INSTRUCTION ->
-        ((PINode) singleton).readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
       default -> throw new IllegalStateException("Unexpected singleton kind: " + kind);
     }
   }
-
+  
   /**
-   * Move to an item in the item list (negative keys). Falls back to object mode since item list uses
-   * objects.
+   * Move to an item in the item list (negative keys).
+   * Falls back to object mode since item list uses objects.
    *
    * @param nodeKey the negative node key
    * @return true if the move was successful
@@ -1138,9 +940,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (itemList.size() > 0) {
       DataRecord item = itemList.getItem(nodeKey);
       if (item != null) {
-        // Move succeeded - release previous page guard and switch to object mode.
+        // Move succeeded - release previous page guard and switch to object mode
         releaseCurrentPageGuard();
-        // noinspection unchecked
+        //noinspection unchecked
         setCurrentNode((N) item);
         this.currentNodeKey = nodeKey;
         return true;
@@ -1149,9 +951,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     // Item not found - keep the current position unchanged
     return false;
   }
-
+  
   /**
-   * Legacy object-based moveTo path.
+   * Legacy object-based moveTo for when flyweight mode is not available.
    *
    * @param nodeKey the node key to move to
    * @return true if the move was successful
@@ -1160,7 +962,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     DataRecord newNode;
     try {
       newNode = storageEngineReader.getRecord(nodeKey, IndexType.DOCUMENT, -1);
-    } catch (final SirixIOException | UncheckedIOException | IllegalArgumentException | IllegalStateException e) {
+    } catch (final SirixIOException | UncheckedIOException | IllegalArgumentException e) {
       newNode = null;
     }
 
@@ -1172,31 +974,30 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         releaseCurrentPageGuard();
         singletonMode = false;
       }
-      // noinspection unchecked
+      //noinspection unchecked
       setCurrentNode((N) newNode);
       this.currentNodeKey = nodeKey;
       return true;
     }
   }
-
+  
   /**
-   * Release the current page guard if one is held. This allows the page to be evicted if needed.
+   * Release the current page guard if one is held.
+   * This allows the page to be evicted if needed.
    */
   protected void releaseCurrentPageGuard() {
     if (currentPageGuard != null) {
       currentPageGuard.close();
       currentPageGuard = null;
+      currentPage = null;
+      currentPageKey = -1;
     }
-    currentPage = null;
-    currentPageKey = -1;
-    currentSlotOffset = -1;
-    singletonDeweyBound = true;
   }
-
+  
   @Override
   public boolean moveToRightSibling() {
     assertNotClosed();
-    // Use cursor getter and avoid unnecessary materialization.
+    // Use flyweight getter if available to avoid node materialization
     if (!hasRightSibling()) {
       return false;
     }
@@ -1206,7 +1007,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getNodeKey() {
     assertNotClosed();
-    if (singletonMode) {
+    if (SINGLETON_ENABLED && singletonMode) {
       return currentNodeKey;
     }
     return getCurrentNode().getNodeKey();
@@ -1215,20 +1016,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getHash() {
     assertNotClosed();
-    if (singletonMode) {
-      return currentSingleton != null
-          ? currentSingleton.getHash()
-          : 0L;
+    if (SINGLETON_ENABLED && singletonMode) {
+      return currentSingleton != null ? currentSingleton.getHash() : 0L;
     }
-    return currentNode != null
-        ? currentNode.getHash()
-        : 0L;
+    return currentNode != null ? currentNode.getHash() : 0L;
   }
 
   @Override
   public NodeKind getKind() {
     assertNotClosed();
-    if (singletonMode) {
+    if (SINGLETON_ENABLED && singletonMode) {
       return currentNodeKind;
     }
     return getCurrentNode().getKind();
@@ -1236,12 +1033,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
 
   /**
    * Make sure that the transaction is not yet closed when calling this method.
-   * Uses {@code assert} so the volatile read of {@code isClosed} is eliminated
-   * when assertions are disabled (the production default), removing a memory
-   * barrier from every getter on the read hot path.
    */
   public void assertNotClosed() {
-    assert !isClosed : "Transaction is already closed.";
+    if (isClosed) {
+      throw new IllegalStateException("Transaction is already closed.");
+    }
   }
 
   /**
@@ -1262,6 +1058,25 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public final void setPageReadTransaction(@Nullable final StorageEngineReader pageReadTransaction) {
     assertNotClosed();
     storageEngineReader = pageReadTransaction;
+    cachedNodeReader = resolveNodeReader(pageReadTransaction);
+    cachedWriter = (pageReadTransaction instanceof StorageEngineWriter w) ? w : null;
+  }
+
+  /**
+   * Resolve the underlying {@link NodeStorageEngineReader} from a storage engine reader.
+   * For read-only transactions, this is the reader itself.
+   * For write transactions (where the reader is a {@link StorageEngineWriter}),
+   * extracts the delegate reader via {@link StorageEngineWriter#getStorageEngineReader()}.
+   */
+  private static NodeStorageEngineReader resolveNodeReader(@Nullable final StorageEngineReader reader) {
+    if (reader instanceof NodeStorageEngineReader r) {
+      return r;
+    }
+    if (reader instanceof StorageEngineWriter w
+        && w.getStorageEngineReader() instanceof NodeStorageEngineReader r) {
+      return r;
+    }
+    return null;
   }
 
   @Override
@@ -1276,22 +1091,28 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @return structural node instance of current node
    */
   public final StructNode getStructuralNode() {
-    if (singletonMode && currentSingleton instanceof StructNode structNode) {
-      return structNode;
-    }
-
-    // Materialize a structural node only when needed.
-    final N node = getCurrentNode();
-    if (node instanceof final StructNode structNode) {
+    N node = getCurrentNode();
+    if (node instanceof StructNode structNode) {
       return structNode;
     }
     return new io.sirix.node.NullNode(node);
   }
 
   @Override
+  public final StructNode getStructuralNodeView() {
+    if (currentNode instanceof StructNode structNode) {
+      return structNode;
+    }
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode structNode) {
+      return structNode;
+    }
+    return getStructuralNode();
+  }
+
+  @Override
   public boolean moveToNextFollowing() {
     assertNotClosed();
-    // Use cursor getters to avoid unnecessary materialization.
+    // Use flyweight getters to avoid node materialization
     while (!hasRightSibling() && hasParent()) {
       moveToParent();
     }
@@ -1301,7 +1122,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasNode(final @NonNegative long key) {
     assertNotClosed();
-    // Save current position using cursor-compatible getters.
+    // Save current position using flyweight-compatible getters
     final long savedNodeKey = getNodeKey();
     final boolean retVal = moveTo(key);
     // Restore to the saved position
@@ -1312,16 +1133,13 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasParent() {
     assertNotClosed();
-    if (singletonMode && currentSingleton != null) {
-      return currentSingleton.hasParent();
-    }
-    return getCurrentNode().hasParent();
+    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasFirstChild() {
     assertNotClosed();
-    if (singletonMode) {
+    if (SINGLETON_ENABLED && singletonMode) {
       return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
     return getStructuralNode().hasFirstChild();
@@ -1330,7 +1148,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasRightSibling() {
     assertNotClosed();
-    if (singletonMode) {
+    if (SINGLETON_ENABLED && singletonMode) {
       return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
     return getStructuralNode().hasRightSibling();
@@ -1339,7 +1157,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getRightSiblingKey() {
     assertNotClosed();
-    if (singletonMode && currentSingleton instanceof StructNode sn) {
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getRightSiblingKey();
     }
     return getStructuralNode().getRightSiblingKey();
@@ -1348,7 +1166,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getFirstChildKey() {
     assertNotClosed();
-    if (singletonMode && currentSingleton instanceof StructNode sn) {
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getFirstChildKey();
     }
     return getStructuralNode().getFirstChildKey();
@@ -1357,7 +1175,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getParentKey() {
     assertNotClosed();
-    if (singletonMode && currentSingleton != null) {
+    if (SINGLETON_ENABLED && singletonMode && currentSingleton != null) {
       return currentSingleton.getParentKey();
     }
     return getCurrentNode().getParentKey();
@@ -1366,10 +1184,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public NodeKind getParentKind() {
     assertNotClosed();
-    if (getParentKey() == Fixed.NULL_NODE_KEY.getStandardProperty()) {
+    final long parentKey = getParentKey();
+    if (parentKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {
       return NodeKind.UNKNOWN;
     }
-    // Save current position using cursor-compatible getters.
     final long savedNodeKey = getNodeKey();
     moveToParent();
     final NodeKind parentKind = getKind();
@@ -1380,7 +1198,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean moveToNext() {
     assertNotClosed();
-    // Use cursor getter directly.
+    // Use flyweight getter if available
     if (hasRightSibling()) {
       // Right sibling node.
       return moveTo(getRightSiblingKey());
@@ -1392,7 +1210,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasLastChild() {
     assertNotClosed();
-    // If it has a first child, it has a last child.
+    // Use flyweight getter - if it has a first child, it also has a last child
     return hasFirstChild();
   }
 
@@ -1400,7 +1218,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public NodeKind getLastChildKind() {
     assertNotClosed();
     if (hasLastChild()) {
-      // Save current position using cursor-compatible getters.
+      // Save current position using flyweight-compatible getters
       final long savedNodeKey = getNodeKey();
       moveToLastChild();
       final NodeKind lastChildKind = getKind();
@@ -1414,7 +1232,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public NodeKind getFirstChildKind() {
     assertNotClosed();
     if (hasFirstChild()) {
-      // Save current position using cursor-compatible getters.
+      // Save current position using flyweight-compatible getters
       final long savedNodeKey = getNodeKey();
       moveToFirstChild();
       final NodeKind firstChildKind = getKind();
@@ -1428,7 +1246,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public long getLastChildKey() {
     assertNotClosed();
     if (hasLastChild()) {
-      // Save current position using cursor-compatible getters.
+      // Save current position using flyweight-compatible getters
       final long savedNodeKey = getNodeKey();
       moveToLastChild();
       final long lastChildNodeKey = getNodeKey();
@@ -1447,7 +1265,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasChildren() {
     assertNotClosed();
-    if (singletonMode) {
+    if (SINGLETON_ENABLED && singletonMode) {
       return hasFirstChild();
     }
     return getStructuralNode().hasFirstChild();
@@ -1469,7 +1287,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public NodeKind getRightSiblingKind() {
     assertNotClosed();
     if (hasRightSibling()) {
-      // Save current position using cursor-compatible getters.
+      // Save current position using flyweight-compatible getters
       final long savedNodeKey = getNodeKey();
       moveToRightSibling();
       final NodeKind rightSiblingKind = getKind();
@@ -1494,59 +1312,15 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public SirixDeweyID getDeweyID() {
     assertNotClosed();
-    if (singletonMode) {
-      bindSingletonDeweyBytesIfNeeded();
-      return currentSingleton != null
-          ? currentSingleton.getDeweyID()
-          : null;
+    if (SINGLETON_ENABLED && singletonMode) {
+      return currentSingleton != null ? currentSingleton.getDeweyID() : null;
     }
-    return currentNode != null
-        ? currentNode.getDeweyID()
-        : null;
-  }
-
-  private void bindSingletonDeweyBytesIfNeeded() {
-    if (singletonDeweyBound || currentSingleton == null || !resourceConfig.areDeweyIDsStored || currentPage == null
-        || currentSlotOffset < 0) {
-      return;
-    }
-
-    final byte[] deweyIdBytes = currentPage.getDeweyIdAsByteArray(currentSlotOffset);
-    switch (currentNodeKind) {
-      // JSON node kinds
-      case JSON_DOCUMENT -> ((JsonDocumentRootNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case OBJECT -> ((ObjectNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case ARRAY -> ((ArrayNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case OBJECT_KEY -> ((ObjectKeyNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case STRING_VALUE -> ((StringNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case OBJECT_STRING_VALUE -> ((ObjectStringNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case NUMBER_VALUE -> ((NumberNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case OBJECT_NUMBER_VALUE -> ((ObjectNumberNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case BOOLEAN_VALUE -> ((BooleanNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case OBJECT_BOOLEAN_VALUE -> ((ObjectBooleanNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case NULL_VALUE -> ((NullNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case OBJECT_NULL_VALUE -> ((ObjectNullNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      // XML node kinds
-      case XML_DOCUMENT -> ((XmlDocumentRootNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case ELEMENT -> ((ElementNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case ATTRIBUTE -> ((AttributeNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case NAMESPACE -> ((NamespaceNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case TEXT -> ((TextNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case COMMENT -> ((CommentNode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      case PROCESSING_INSTRUCTION -> ((PINode) currentSingleton).setDeweyIDBytes(deweyIdBytes);
-      default -> {
-        // Unknown singleton kind - harmless.
-      }
-    }
-    singletonDeweyBound = true;
+    return currentNode != null ? currentNode.getDeweyID() : null;
   }
 
   @Override
   public int getPreviousRevisionNumber() {
     assertNotClosed();
-    if (singletonMode && currentSingleton != null) {
-      return currentSingleton.getPreviousRevisionNumber();
-    }
     return getCurrentNode().getPreviousRevisionNumber();
   }
 
@@ -1554,20 +1328,32 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   public boolean isClosed() {
     return isClosed;
   }
-
+  
   /**
-   * Check if singleton mode is currently active. Package-private for testing purposes.
+   * Check if flyweight mode is currently active.
+   * Package-private for testing purposes.
+   *
+   * @return always {@code false}; flyweight mode has been removed.
+   */
+  boolean isFlyweightMode() {
+    return false;
+  }
+  
+  /**
+   * Check if singleton mode is currently active.
+   * Package-private for testing purposes.
    *
    * @return true if singleton mode is active (using mutable singleton nodes)
    */
   boolean isSingletonMode() {
     return singletonMode;
   }
-
+  
   /**
-   * Check if zero-allocation mode is active. Package-private for testing purposes.
+   * Check if zero-allocation mode is active.
+   * Package-private for testing purposes.
    *
-   * @return true if zero-allocation mode is active
+   * @return true if singleton mode is active
    */
   boolean isZeroAllocationMode() {
     return singletonMode;
@@ -1578,7 +1364,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (!isClosed) {
       // Release page guard first to allow page eviction.
       releaseCurrentPageGuard();
-
+      
       // Callback on session to make sure everything is cleaned up.
       resourceSession.closeReadTransaction(id);
 

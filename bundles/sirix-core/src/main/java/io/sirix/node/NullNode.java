@@ -29,7 +29,6 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.settings.Fixed;
 
-import java.nio.ByteBuffer;
 
 import static java.util.Objects.requireNonNull;
 

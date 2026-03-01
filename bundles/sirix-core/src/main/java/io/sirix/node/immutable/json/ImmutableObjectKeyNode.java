@@ -10,7 +10,6 @@ import io.sirix.node.json.ObjectKeyNode;
 import io.sirix.node.json.ObjectNode;
 import io.sirix.node.BytesOut;
 
-import java.nio.ByteBuffer;
 
 import static java.util.Objects.requireNonNull;
 

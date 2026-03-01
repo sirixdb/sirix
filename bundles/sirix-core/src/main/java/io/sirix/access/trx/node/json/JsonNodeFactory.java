@@ -59,6 +59,9 @@ public interface JsonNodeFactory extends NodeFactory {
   StringNode createJsonStringNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey, byte[] value,
       boolean isCompressed, SirixDeweyID id);
 
+  StringNode createJsonStringNode(@NonNegative long parentKey, long leftSibKey, long rightSibKey,
+      byte[] value, int valueOff, int valueLen, boolean isCompressed, SirixDeweyID id);
+
   /**
    * Create a {@link BooleanNode}.
    *
@@ -99,6 +102,9 @@ public interface JsonNodeFactory extends NodeFactory {
    */
   ObjectStringNode createJsonObjectStringNode(@NonNegative long parentKey, byte[] value, boolean isCompressed,
       SirixDeweyID id);
+
+  ObjectStringNode createJsonObjectStringNode(@NonNegative long parentKey, byte[] value, int valueOff,
+      int valueLen, boolean isCompressed, SirixDeweyID id);
 
   /**
    * Create a {@link ObjectBooleanNode}.

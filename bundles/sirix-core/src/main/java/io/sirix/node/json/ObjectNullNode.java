@@ -31,9 +31,9 @@ package io.sirix.node.json;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.Bytes;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -41,31 +41,29 @@ import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-
-import java.lang.foreign.MemorySegment;
 import io.sirix.node.immutable.json.ImmutableObjectNullNode;
-import io.sirix.node.layout.NodeKindLayout;
-import io.sirix.node.layout.SlotLayoutAccessors;
-import io.sirix.node.layout.StructuralField;
+import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
-import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.NodeFieldLayout;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+
 /**
  * JSON Object Null node (direct child of ObjectKeyNode, no siblings).
  *
- * <p>
- * Uses primitive fields for efficient storage with delta+varint encoding.
- * </p>
- * 
+ * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
+ *
  * @author Johannes Lichtenberger
  */
-public final class ObjectNullNode implements StructNode, ImmutableJsonNode, ReusableNodeProxy {
+public final class ObjectNullNode implements StructNode, ImmutableJsonNode, FlyweightNode {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
@@ -89,18 +87,53 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Reus
 
   // Lazy parsing state (single-stage since there's no value to parse)
   private Object lazySource;
-  private long lazyBaseOffset;
   private long lazyOffset;
   private boolean lazyFieldsParsed;
-  private boolean hasHash;
 
-  // Fixed-slot lazy support
-  private NodeKindLayout fixedSlotLayout;
+
+  // ==================== FLYWEIGHT BINDING (LeanStore page-direct access) ====================
+
+  /** Page MemorySegment when bound (null = primitive mode). */
+  private MemorySegment page;
+
+  /** Absolute byte offset of this record in the page (after HEAP_START + heapOffset). */
+  private long recordBase;
+
+  /** Absolute byte offset where the data region starts (recordBase + 1 + FIELD_COUNT). */
+  private long dataRegionStart;
+
+  /** Slot index in the page directory (for re-serialization). */
+  private int slotIndex;
+
+  /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
+  private boolean writeSingleton;
+
+  /** Owning page for resize-in-place on varint width changes. */
+  private KeyValueLeafPage ownerPage;
+
+  /** Pre-allocated offset array reused across serializations (zero-alloc hot path). */
+  private final int[] heapOffsets;
+
+  private static final int FIELD_COUNT = NodeFieldLayout.OBJECT_NULL_VALUE_FIELD_COUNT;
+
+  /**
+   * Constructor for flyweight binding.
+   * All fields except nodeKey and hashFunction will be read from page memory after bind().
+   *
+   * @param nodeKey the node key
+   * @param hashFunction the hash function from resource config
+   */
+  public ObjectNullNode(long nodeKey, LongHashFunction hashFunction) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+    this.heapOffsets = new int[FIELD_COUNT];
+  }
 
   /**
    * Primary constructor with all primitive fields.
    */
-  public ObjectNullNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long hash,
+  public ObjectNullNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long hash,
       LongHashFunction hashFunction, byte[] deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -110,12 +143,14 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Reus
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.lazyFieldsParsed = true;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
    * Constructor with SirixDeweyID instead of byte array.
    */
-  public ObjectNullNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long hash,
+  public ObjectNullNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long hash,
       LongHashFunction hashFunction, SirixDeweyID deweyID) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -125,6 +160,182 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Reus
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.lazyFieldsParsed = true;
+    this.heapOffsets = new int[FIELD_COUNT];
+  }
+
+  // ==================== FLYWEIGHT BIND/UNBIND ====================
+
+  /**
+   * Bind this node as a flyweight to a page MemorySegment.
+   * When bound, getters/setters read/write directly to page memory via the offset table.
+   *
+   * @param page       the page MemorySegment
+   * @param recordBase absolute byte offset of this record in the page
+   * @param nodeKey    the node key (for delta decoding)
+   * @param slotIndex  the slot index in the page directory
+   */
+  public void bind(final MemorySegment page, final long recordBase, final long nodeKey,
+      final int slotIndex) {
+    this.page = page;
+    this.recordBase = recordBase;
+    this.nodeKey = nodeKey;
+    this.slotIndex = slotIndex;
+    this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
+    this.hash = 0;
+    this.lazyFieldsParsed = true; // No lazy state when bound
+    this.lazySource = null;
+  }
+
+  /**
+   * Unbind from page memory and materialize all fields into Java primitives.
+   * After unbind, the node operates in primitive mode.
+   */
+  public void unbind() {
+    if (page == null) {
+      return;
+    }
+    // Materialize all fields from page to Java primitives
+    final long nk = this.nodeKey;
+    this.parentKey = readDeltaField(NodeFieldLayout.OBJNULLVAL_PARENT_KEY, nk);
+    this.previousRevision = readSignedField(NodeFieldLayout.OBJNULLVAL_PREV_REVISION);
+    this.lastModifiedRevision = readSignedField(NodeFieldLayout.OBJNULLVAL_LAST_MOD_REVISION);
+    this.page = null;
+    this.ownerPage = null;
+  }
+
+  @Override
+  public void clearBinding() {
+    this.page = null;
+    this.ownerPage = null;
+  }
+
+  /** Check if this node is bound to a page MemorySegment. */
+  public boolean isBound() {
+    return page != null;
+  }
+
+  @Override
+  public boolean isBoundTo(final MemorySegment page) {
+    return this.page == page;
+  }
+
+  @Override
+  public int getSlotIndex() {
+    return slotIndex;
+  }
+
+  // ==================== FLYWEIGHT FIELD READ HELPERS ====================
+
+  private long readDeltaField(final int fieldIndex, final long baseKey) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(page, dataRegionStart + fieldOff, baseKey);
+  }
+
+  private int readSignedField(final int fieldIndex) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
+  }
+
+  /**
+   * Resize a single field via raw-copy on the owning slotted page.
+   * Avoids the full unbind-to-primitives + re-serialize round-trip.
+   *
+   * @param fieldIndex the field index in the offset table (e.g. {@code OBJNULLVAL_PARENT_KEY})
+   * @param encoder    writes the new field value at the target offset
+   */
+  private void resizeRecordField(final int fieldIndex,
+      final DeltaVarIntCodec.FieldEncoder encoder) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex, fieldIndex, FIELD_COUNT, encoder);
+  }
+
+  // ==================== OWNER PAGE (for resize-in-place) ====================
+
+  @Override
+  public KeyValueLeafPage getOwnerPage() {
+    return ownerPage;
+  }
+
+  @Override
+  public void setOwnerPage(final KeyValueLeafPage ownerPage) {
+    this.ownerPage = ownerPage;
+  }
+
+  // ==================== SERIALIZE TO HEAP ====================
+
+  /**
+   * Encode an ObjectNullNode record directly to a MemorySegment from parameter values.
+   * Static -- reads nothing from any instance. Zero field intermediation.
+   *
+   * @param target      the target MemorySegment (reinterpreted slotted page)
+   * @param offset      absolute byte offset to write at
+   * @param heapOffsets pre-allocated offset array (reused, FIELD_COUNT elements)
+   * @param nodeKey     the node key (delta base for structural keys)
+   * @param parentKey   the parent node key
+   * @param prevRev     the previous revision number
+   * @param lastModRev  the last modified revision number
+   * @return the total number of bytes written
+   */
+  public static int writeNewRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final int prevRev, final int lastModRev) {
+    long pos = offset;
+
+    // Write nodeKind byte
+    target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.OBJECT_NULL_VALUE.getId());
+    pos++;
+
+    // Reserve space for offset table
+    final long offsetTableStart = pos;
+    pos += FIELD_COUNT;
+
+    // Data region start
+    final long dataStart = pos;
+
+    // Field 0: parentKey (delta-varint)
+    heapOffsets[NodeFieldLayout.OBJNULLVAL_PARENT_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
+
+    // Field 1: previousRevision (signed varint)
+    heapOffsets[NodeFieldLayout.OBJNULLVAL_PREV_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prevRev);
+
+    // Field 2: lastModifiedRevision (signed varint)
+    heapOffsets[NodeFieldLayout.OBJNULLVAL_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
+
+    // Write offset table
+    for (int i = 0; i < FIELD_COUNT; i++) {
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
+    }
+
+    return (int) (pos - offset);
+  }
+
+  /**
+   * Serialize this node from Java fields. Delegates to static writeNewRecord.
+   */
+  public int serializeToHeap(final MemorySegment target, final long offset) {
+    if (!lazyFieldsParsed) {
+      parseLazyFields();
+    }
+    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+        parentKey, previousRevision, lastModifiedRevision);
+  }
+
+  /**
+   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
+   */
+  public int[] getHeapOffsets() {
+    return heapOffsets;
+  }
+
+  /**
+   * Set DeweyID fields directly after creation, bypassing write-through.
+   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   */
+  public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = bytes;
   }
 
   @Override
@@ -139,16 +350,33 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Reus
 
   @Override
   public long getParentKey() {
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.OBJNULLVAL_PARENT_KEY, nodeKey);
+    }
     return parentKey;
   }
 
   public void setParentKey(final long parentKey) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJNULLVAL_PARENT_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(parentKey, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
+        return;
+      }
+      resizeRecordField(NodeFieldLayout.OBJNULLVAL_PARENT_KEY,
+          (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
+      return;
+    }
     this.parentKey = parentKey;
   }
 
   @Override
   public boolean hasParent() {
-    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -161,31 +389,73 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Reus
 
   @Override
   public void setDeweyID(final SirixDeweyID id) {
+    final var owner = this.ownerPage;
+    if (owner != null) {
+      final long nk = this.nodeKey;
+      final int slot = this.slotIndex;
+      unbind();
+      this.sirixDeweyID = id;
+      this.deweyIDBytes = null;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
     this.sirixDeweyID = id;
     this.deweyIDBytes = null;
   }
 
-  public void setDeweyIDBytes(final byte[] deweyIDBytes) {
-    this.deweyIDBytes = deweyIDBytes;
+  @Override
+  public void setDeweyIDBytes(final byte[] bytes) {
+    this.deweyIDBytes = bytes;
     this.sirixDeweyID = null;
   }
 
   @Override
   public void setPreviousRevision(final int revision) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJNULLVAL_PREV_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      resizeRecordField(NodeFieldLayout.OBJNULLVAL_PREV_REVISION,
+          (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
+      return;
+    }
     this.previousRevision = revision;
   }
 
   @Override
   public void setLastModifiedRevision(final int revision) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.OBJNULLVAL_LAST_MOD_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      resizeRecordField(NodeFieldLayout.OBJNULLVAL_LAST_MOD_REVISION,
+          (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
+      return;
+    }
     this.lastModifiedRevision = revision;
   }
 
   @Override
   public long getHash() {
-    if (!lazyFieldsParsed) {
-      parseLazyFields();
+    if (hash != 0L) {
+      return hash;
     }
-    return hash;
+    if (hashFunction != null) {
+      return computeHash(Bytes.threadLocalHashBuffer());
+    }
+    return 0L;
   }
 
   @Override
@@ -196,7 +466,9 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Reus
   @Override
   public long computeHash(final BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey())
+         .writeLong(getParentKey())
+         .writeByte(getKind().getId());
     return bytes.hashDirect(hashFunction);
   }
 
@@ -276,6 +548,9 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Reus
 
   @Override
   public int getPreviousRevisionNumber() {
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.OBJNULLVAL_PREV_REVISION);
+    }
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
@@ -284,6 +559,9 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Reus
 
   @Override
   public int getLastModifiedRevisionNumber() {
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.OBJNULLVAL_LAST_MOD_REVISION);
+    }
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
@@ -300,7 +578,9 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Reus
   }
 
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-      final LongHashFunction hashFunction, final ResourceConfiguration config) {
+                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+    // Unbind flyweight — ensures getters use Java fields, not stale page reference
+    this.page = null;
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
@@ -313,34 +593,14 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Reus
     this.lazySource = source.getSource();
     this.lazyOffset = source.position();
     this.lazyFieldsParsed = false;
-    this.hasHash = config.hashType != HashType.NONE;
 
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.hash = 0;
   }
 
-  public void bindFixedSlotLazy(final MemorySegment slotData, final long baseOffset, final NodeKindLayout layout) {
-    this.lazyBaseOffset = baseOffset;
-    this.lazySource = slotData;
-    this.fixedSlotLayout = layout;
-    this.lazyFieldsParsed = false;
-  }
-
   private void parseLazyFields() {
     if (lazyFieldsParsed) {
-      return;
-    }
-
-    if (fixedSlotLayout != null) {
-      final MemorySegment sd = (MemorySegment) lazySource;
-      final NodeKindLayout ly = fixedSlotLayout;
-      final long off = this.lazyBaseOffset;
-      this.previousRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.PREVIOUS_REVISION);
-      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.LAST_MODIFIED_REVISION);
-      this.hash = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.HASH);
-      this.fixedSlotLayout = null;
-      this.lazyFieldsParsed = true;
       return;
     }
 
@@ -362,20 +622,36 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Reus
 
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
-    if (hasHash) {
-      this.hash = bytesIn.readLong();
-    }
     this.lazyFieldsParsed = true;
   }
 
   public ObjectNullNode toSnapshot() {
+    if (page != null) {
+      // Bound mode: read all fields from page
+      return new ObjectNullNode(nodeKey,
+          readDeltaField(NodeFieldLayout.OBJNULLVAL_PARENT_KEY, nodeKey),
+          readSignedField(NodeFieldLayout.OBJNULLVAL_PREV_REVISION),
+          readSignedField(NodeFieldLayout.OBJNULLVAL_LAST_MOD_REVISION),
+          hash,
+          hashFunction,
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
+    }
     if (!lazyFieldsParsed) {
       parseLazyFields();
     }
-    return new ObjectNullNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, hash, hashFunction,
-        deweyIDBytes != null
-            ? deweyIDBytes.clone()
-            : null);
+    return new ObjectNullNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
+        hash, hashFunction,
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
+  }
+
+  @Override
+  public boolean isWriteSingleton() {
+    return writeSingleton;
+  }
+
+  @Override
+  public void setWriteSingleton(final boolean writeSingleton) {
+    this.writeSingleton = writeSingleton;
   }
 
   @Override
@@ -419,6 +695,7 @@ public final class ObjectNullNode implements StructNode, ImmutableJsonNode, Reus
     if (!(obj instanceof final ObjectNullNode other))
       return false;
 
-    return nodeKey == other.nodeKey && parentKey == other.parentKey;
+    return nodeKey == other.nodeKey
+        && parentKey == other.parentKey;
   }
 }

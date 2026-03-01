@@ -75,16 +75,6 @@ public abstract class AbstractNumberNode extends AbstractStructForwardingNode im
          .writeLong(nodeDelegate.getParentKey())
          .writeByte(nodeDelegate.getKind().getId());
 
-    bytes.writeLong(structNodeDelegate.getChildCount())
-         .writeLong(structNodeDelegate.getDescendantCount())
-         .writeLong(structNodeDelegate.getLeftSiblingKey())
-         .writeLong(structNodeDelegate.getRightSiblingKey())
-         .writeLong(structNodeDelegate.getFirstChildKey());
-
-    if (structNodeDelegate.getLastChildKey() != Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()) {
-      bytes.writeLong(structNodeDelegate.getLastChildKey());
-    }
-
     switch (number) {
       case Float floatVal -> bytes.writeFloat(floatVal);
       case Double doubleVal -> bytes.writeDouble(doubleVal);

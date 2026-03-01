@@ -120,7 +120,7 @@ public final class XmlNodeReadOnlyTrxImplTest {
   }
 
   @Test
-  public void testMoveToReusesXmlElementSingleton() {
+  public void testMoveToReadsCorrectXmlElements() {
     final InternalXmlNodeReadOnlyTrx rtx = (InternalXmlNodeReadOnlyTrx) holder.getXmlNodeReadTrx();
     assertTrue(rtx.moveToDocumentRoot());
 
@@ -143,13 +143,16 @@ public final class XmlNodeReadOnlyTrxImplTest {
     assertTrue(secondElementKey != Fixed.NULL_NODE_KEY.getStandardProperty());
 
     assertTrue(rtx.moveTo(firstElementKey));
-    final StructNode firstSingleton = rtx.getStructuralNode();
-    assertEquals(firstElementKey, firstSingleton.getNodeKey());
+    final StructNode firstNode = rtx.getStructuralNode();
+    assertEquals(firstElementKey, firstNode.getNodeKey());
 
     assertTrue(rtx.moveTo(secondElementKey));
-    final StructNode secondSingleton = rtx.getStructuralNode();
-    assertSame(firstSingleton, secondSingleton);
-    assertEquals(secondElementKey, secondSingleton.getNodeKey());
+    final StructNode secondNode = rtx.getStructuralNode();
+    assertEquals(secondElementKey, secondNode.getNodeKey());
+
+    // Verify moving back reads correct data
+    assertTrue(rtx.moveTo(firstElementKey));
+    assertEquals(firstElementKey, rtx.getStructuralNode().getNodeKey());
   }
 
 }

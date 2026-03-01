@@ -21,7 +21,6 @@
 
 package io.sirix.access.trx.page;
 
-import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
@@ -39,48 +38,24 @@ import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.SerializationBufferPool;
 import io.sirix.node.PooledBytesOut;
-import io.sirix.node.MemorySegmentBytesIn;
-import io.sirix.node.MemorySegmentBytesOut;
 import io.sirix.utils.OS;
 import io.sirix.index.IndexType;
 import io.sirix.io.Writer;
 import io.sirix.node.DeletedNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.json.ArrayNode;
-import io.sirix.node.json.BooleanNode;
-import io.sirix.node.json.JsonDocumentRootNode;
-import io.sirix.node.json.NullNode;
-import io.sirix.node.json.NumberNode;
-import io.sirix.node.json.ObjectBooleanNode;
-import io.sirix.node.json.ObjectKeyNode;
-import io.sirix.node.json.ObjectNode;
-import io.sirix.node.json.ObjectNullNode;
-import io.sirix.node.json.ObjectNumberNode;
-import io.sirix.node.json.ObjectStringNode;
-import io.sirix.node.json.StringNode;
-import io.sirix.node.xml.AttributeNode;
-import io.sirix.node.xml.CommentNode;
-import io.sirix.node.xml.NamespaceNode;
-import io.sirix.node.xml.PINode;
-import io.sirix.node.xml.TextNode;
-import io.sirix.node.xml.ElementNode;
-import io.sirix.node.xml.XmlDocumentRootNode;
-import io.sirix.node.layout.FixedSlotRecordMaterializer;
-import io.sirix.node.layout.FixedSlotRecordProjector;
-import io.sirix.node.layout.NodeKindLayout;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
-import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.PageLayout;
 import io.sirix.page.NamePage;
-import io.sirix.page.PageConstants;
 import io.sirix.page.PageKind;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
@@ -91,7 +66,6 @@ import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
-import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.Fixed;
 import io.sirix.settings.VersioningType;
 import io.sirix.node.BytesOut;
@@ -102,9 +76,9 @@ import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.foreign.MemorySegment;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.lang.foreign.MemorySegment;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -135,16 +109,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private static final Logger LOGGER = LoggerFactory.getLogger(NodeStorageEngineWriter.class);
 
   /**
-   * Debug flag for memory leak tracking.
-   * 
-   * @see DiagnosticSettings#MEMORY_LEAK_TRACKING
+   * Buffered output for page writes.
+   *
+   * <p>Use 2x FLUSH_SIZE so single large page fragments do not force grow/copy on every write
+   * before the subsequent flush threshold check.
    */
-  private static final boolean DEBUG_MEMORY_LEAKS = DiagnosticSettings.MEMORY_LEAK_TRACKING;
-
-  private BytesOut<?> bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
-  private MemorySegmentBytesOut demotionBuffer;
-  private MemorySegment fixedSlotProjectionBuffer;
-
+  private BytesOut<?> bufferBytes = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE * 2);
 
   /**
    * Page writer to serialize.
@@ -188,25 +158,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private final TrieWriter trieWriter;
 
   /**
-   * The HOT trie writer - manages HOT (Height Optimized Trie) structure. Used for cache-friendly
-   * secondary indexes (PATH, CAS, NAME).
-   */
-  private final HOTTrieWriter hotTrieWriter;
-
-  /**
    * The revision to represent.
    */
   private final int representRevision;
-
-  /**
-   * Trie type for routing page operations.
-   */
-  public enum TrieType {
-    /** Traditional bit-decomposed IndirectPage trie (existing approach). */
-    KEYED_TRIE,
-    /** HOT (Height Optimized Trie) for cache-friendly secondary indexes (new approach). */
-    HOT
-  }
 
   /**
    * {@code true} if this storage engine writer will be bound to a node trx, {@code false} otherwise
@@ -232,28 +186,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private IndexLogKeyToPageContainer mostRecentPathSummaryPageContainer;
 
-  // Write-path singletons — one per XML/JSON node kind (lazily allocated)
-  private ObjectNode writeObjectSingleton;
-  private ArrayNode writeArraySingleton;
-  private ObjectKeyNode writeObjectKeySingleton;
-  private StringNode writeStringSingleton;
-  private NumberNode writeNumberSingleton;
-  private BooleanNode writeBooleanSingleton;
-  private NullNode writeNullSingleton;
-  private ObjectStringNode writeObjectStringSingleton;
-  private ObjectNumberNode writeObjectNumberSingleton;
-  private ObjectBooleanNode writeObjectBooleanSingleton;
-  private ObjectNullNode writeObjectNullSingleton;
-  private JsonDocumentRootNode writeJsonDocumentSingleton;
-  private XmlDocumentRootNode writeXmlDocumentSingleton;
-  private ElementNode writeElementSingleton;
-  private TextNode writeTextSingleton;
-  private CommentNode writeCommentSingleton;
-  private AttributeNode writeAttributeSingleton;
-  private NamespaceNode writeNamespaceSingleton;
-  private PINode writePISingleton;
-
   private final LinkedHashMap<IndexLogKey, PageContainer> pageContainerCache;
+
+  /**
+   * Optional binder for write-path singletons.
+   * When set, prepareRecordForModification uses factory singletons instead of allocating new nodes.
+   */
+  private WriteSingletonBinder writeSingletonBinder;
 
   /**
    * Constructor.
@@ -271,7 +210,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final NodeStorageEngineReader storageEngineReader, final IndexController<?, ?> indexController, final int representRevision,
       final boolean isBoundToNodeTrx) {
     this.trieWriter = new TrieWriter();
-    this.hotTrieWriter = new HOTTrieWriter();
     storagePageReaderWriter = requireNonNull(writer);
     this.log = requireNonNull(log);
     newRevisionRootPage = requireNonNull(revisionRootPage);
@@ -301,46 +239,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     };
   }
 
-  /**
-   * Determine which trie type to use for the given index.
-   * 
-   * <p>
-   * Currently all indexes use KEYED_TRIE. HOT is available but requires HOTLeafPage to implement
-   * setRecord()/getRecord() compatible with existing API.
-   * </p>
-   * 
-   * <p>
-   * TODO to enable HOT:
-   * </p>
-   * <ul>
-   * <li>Implement HOTLeafPage.setRecord() to store DataRecords</li>
-   * <li>Implement HOTLeafPage.getRecord() to retrieve DataRecords</li>
-   * <li>Bridge between HOT key-value storage and DataRecord storage</li>
-   * </ul>
-   *
-   * @param indexType the index type
-   * @param indexNumber the index number
-   * @return the trie type to use
-   */
-  @SuppressWarnings("unused") // indexType/indexNumber will be used when HOT is enabled
-  private TrieType getTrieType(@NonNull IndexType indexType, int indexNumber) {
-    // HOT is not yet fully integrated with DataRecord storage.
-    // HOTLeafPage needs to implement setRecord()/getRecord() to be compatible.
-    // Once implemented, enable with:
-    // return switch (indexType) {
-    // case PATH, CAS, NAME -> TrieType.HOT;
-    // default -> TrieType.KEYED_TRIE;
-    // };
-    return TrieType.KEYED_TRIE;
-  }
-
-  /**
-   * Get the HOT trie writer for HOT index operations.
-   * 
-   * @return the HOT trie writer
-   */
-  public HOTTrieWriter getHOTTrieWriter() {
-    return hotTrieWriter;
+  @Override
+  public void setWriteSingletonBinder(final WriteSingletonBinder binder) {
+    this.writeSingletonBinder = binder;
   }
 
   @Override
@@ -385,31 +286,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return record;
     }
 
-    // Try fixed-slot singleton path — zero allocation hot path.
-    // The write singleton is populated from fixed-slot bytes (authoritative state).
-    // Callers must use the returned object immediately, mutate, and persist via
-    // updateRecordSlot before the next prepareRecordForModification call for the
-    // same node kind (use-persist-discard rule).
-    if (modifiedPage instanceof KeyValueLeafPage modifiedLeafPage && modifiedLeafPage.isFixedSlotFormat(recordOffset)) {
-      final NodeKind nodeKind = modifiedLeafPage.getFixedSlotNodeKind(recordOffset);
-      if (nodeKind != null) {
-        final long dataOffset = modifiedLeafPage.getSlotDataOffset(recordOffset);
-        if (dataOffset >= 0) {
-          final DataRecord singleton = getOrCreateWriteSingleton(nodeKind);
-          if (singleton != null) {
-            final int dataLength = modifiedLeafPage.getSlotDataLength(recordOffset);
-            final byte[] deweyIdBytes = modifiedLeafPage.getDeweyIdAsByteArray(recordOffset);
-            if (FixedSlotRecordMaterializer.populateExisting(singleton, nodeKind, recordKey,
-                modifiedLeafPage.getSlotMemory(), dataOffset, dataLength, deweyIdBytes,
-                storageEngineReader.getResourceSession().getResourceConfig())) {
-              return singleton; // Zero-allocation hot path
-            }
-          }
-        }
+    // Zero-allocation fast path: bind write singleton to modified page's slotted page.
+    // Write singletons are NOT stored in records[], so this path is hit on every access
+    // to a previously created/modified record. The bind is cheap (4 field assignments).
+    if (writeSingletonBinder != null && modifiedPage instanceof KeyValueLeafPage kvl
+        && kvl.hasSlottedPageSlot(recordKey)) {
+      record = writeSingletonBinder.bind(kvl, recordOffset, recordKey);
+      if (record != null) {
+        return record;
       }
     }
 
-    // Try compact-format / records[] on the modified page.
+    // Try deserialization from modified page's slotted page (non-singleton path).
     record = storageEngineReader.getValue(modifiedPage, recordKey);
     if (record != null) {
       modifiedPage.setRecord(record);
@@ -417,132 +305,111 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     // Fall back to complete (on-disk) page.
-    final DataRecord oldRecord = storageEngineReader.getValue(cont.getCompleteAsKeyValuePage(), recordKey);
+    final var completePage = cont.getCompleteAsKeyValuePage();
+
+    // Zero-copy path: copy raw slot bytes from complete page to modified page, then bind.
+    if (writeSingletonBinder != null && modifiedPage instanceof KeyValueLeafPage kvlMod
+        && completePage instanceof KeyValueLeafPage kvlComplete) {
+      final MemorySegment srcPage = kvlComplete.getSlottedPage();
+      if (srcPage != null && PageLayout.isSlotPopulated(srcPage, recordOffset)
+          && PageLayout.getDirNodeKindId(srcPage, recordOffset) > 0) {
+        kvlMod.copySlotFromPage(kvlComplete, recordOffset);
+        record = writeSingletonBinder.bind(kvlMod, recordOffset, recordKey);
+        if (record != null) {
+          return record;
+        }
+      }
+    }
+
+    // Fallback for non-binder, binder returned null, or non-FlyweightNode (nodeKindId=0)
+    final DataRecord oldRecord = storageEngineReader.getValue(completePage, recordKey);
     if (oldRecord == null) {
+      final int offset = StorageEngineReader.recordPageOffset(recordKey);
+      final var kvlComplete = (KeyValueLeafPage) completePage;
+      final var slottedPage = kvlComplete.getSlottedPage();
+      final boolean slotPopulated = slottedPage != null
+          && PageLayout.isSlotPopulated(slottedPage, offset);
+      final var slotData = completePage.getSlot(offset);
+      final int populatedCount = slottedPage != null
+          ? PageLayout.getPopulatedCount(slottedPage) : -1;
       throw new SirixIOException("Cannot retrieve record from cache: (key: " + recordKey + ") (indexType: " + indexType
-          + ") (index: " + index + ")");
+          + ") (index: " + index + ") (slotPopulated: " + slotPopulated
+          + ") (populatedCount: " + populatedCount
+          + ") (slotData: " + (slotData != null ? slotData.byteSize() + " bytes" : "null")
+          + ") (completePage.pageKey: " + completePage.getPageKey()
+          + ") (completePage.revision: " + completePage.getRevision()
+          + ") (modifiedPage.pageKey: " + modifiedPage.getPageKey() + ")");
     }
     record = oldRecord;
 
-    // Project disk-read records to fixed-slot format if eligible.
-    // Fixed-slot bytes are now authoritative. Don't cache in records[] —
-    // next access will use write singleton via fixed-slot path.
-    if (modifiedPage instanceof KeyValueLeafPage modifiedLeafPage && indexType == IndexType.DOCUMENT) {
-      final ResourceConfiguration resourceConfiguration = storageEngineReader.getResourceSession().getResourceConfig();
-      if (tryProjectRecordIntoFixedSlot(record, modifiedLeafPage, resourceConfiguration)) {
-        return record;
-      }
+    // Unbind flyweight from complete page — ensures mutations go to Java fields,
+    // not the old revision's MemorySegment. setRecord will re-serialize to modified page.
+    if (record instanceof FlyweightNode fn && fn.isBound()) {
+      fn.unbind();
     }
-    // Non-fixed-slot: cache in records[] for stable reference identity.
+
     modifiedPage.setRecord(record);
 
     return record;
   }
 
+  /**
+   * Fast-path variant for the DOCUMENT index type on the insert hot path.
+   * Skips assertNotClosed(), argument validation, and the IndexType switch in pageKey().
+   */
+  @SuppressWarnings("unchecked")
   @Override
-  public void updateRecordSlot(@NonNull final DataRecord record, @NonNull final IndexType indexType, final int index) {
-    storageEngineReader.assertNotClosed();
-    requireNonNull(record);
-    requireNonNull(indexType);
-    checkArgument(record.getNodeKey() >= 0, "recordKey must be >= 0!");
+  public DataRecord prepareRecordForModificationDocument(final long recordKey) {
+    final long recordPageKey = storageEngineReader.pageKeyDocument(recordKey);
+    final PageContainer cont = prepareRecordPage(recordPageKey, -1, IndexType.DOCUMENT);
+    final var modifiedPage = cont.getModifiedAsKeyValuePage();
 
-    final long recordKey = record.getNodeKey();
-    final long recordPageKey = storageEngineReader.pageKey(recordKey, indexType);
-    final PageContainer container = prepareRecordPage(recordPageKey, index, indexType);
-    final KeyValuePage<DataRecord> modifiedPage = container.getModifiedAsKeyValuePage();
+    final int recordOffset = StorageEngineReader.recordPageOffset(recordKey);
 
-    if (!(modifiedPage instanceof KeyValueLeafPage modifiedLeafPage)) {
-      modifiedPage.setRecord(record);
-      return;
+    // Honour any fresher in-memory object in records[] (mixed-path safety).
+    final DataRecord cached = modifiedPage.getRecord(recordOffset);
+    if (cached != null) {
+      return cached;
     }
 
-    final ResourceConfiguration resourceConfiguration = storageEngineReader.getResourceSession().getResourceConfig();
-    if (tryProjectRecordIntoFixedSlot(record, modifiedLeafPage, resourceConfiguration)) {
-      // Fixed-slot projection succeeded — fixed-slot bytes are the authoritative
-      // in-memory representation. No records[] entry needed; compactFixedSlotsForCommit
-      // handles serialization at commit time.
-      return;
-    }
-
-    // Non-fixed-slot records (payload-bearing kinds like StringNode/NumberNode):
-    // store in records[] for commit-time serialization via processEntries().
-    modifiedPage.setRecord(record);
-  }
-
-  private boolean tryProjectRecordIntoFixedSlot(final DataRecord record, final KeyValueLeafPage modifiedLeafPage,
-      final ResourceConfiguration resourceConfiguration) {
-    if (!(record.getKind() instanceof NodeKind nodeKind)) {
-      return false;
-    }
-
-    final NodeKindLayout layout = nodeKind.layoutDescriptor();
-    if (!layout.isFixedSlotSupported()) {
-      return false;
-    }
-
-    // Only VALUE_BLOB payload refs are supported for inline projection.
-    if (!layout.hasSupportedPayloads()) {
-      return false;
-    }
-
-    final int fixedSlotSize = layout.fixedSlotSizeInBytes();
-    if (fixedSlotSize <= 0) {
-      return false;
-    }
-
-    // Compute inline payload length for payload-bearing nodes (strings, numbers).
-    final int inlinePayloadLength = FixedSlotRecordProjector.computeInlinePayloadLength(record, layout);
-    if (inlinePayloadLength < 0) {
-      return false;
-    }
-
-    final int totalSlotSize = fixedSlotSize + inlinePayloadLength;
-    if (totalSlotSize > PageConstants.MAX_RECORD_SIZE) {
-      return false;
-    }
-
-    final int recordOffset = StorageEngineReader.recordPageOffset(record.getNodeKey());
-    long dataOffset = modifiedLeafPage.getSlotDataOffset(recordOffset);
-    int dataLength = (dataOffset >= 0)
-        ? modifiedLeafPage.getSlotDataLength(recordOffset)
-        : -1;
-    if (dataOffset < 0 || dataLength != totalSlotSize) {
-      final MemorySegment projectionBuffer = ensureFixedSlotProjectionBuffer(totalSlotSize);
-      modifiedLeafPage.setSlot(projectionBuffer.asSlice(0, totalSlotSize), recordOffset);
-      dataOffset = modifiedLeafPage.getSlotDataOffset(recordOffset);
-      dataLength = (dataOffset >= 0)
-          ? modifiedLeafPage.getSlotDataLength(recordOffset)
-          : -1;
-      if (dataOffset < 0 || dataLength != totalSlotSize) {
-        return false;
+    // Singleton binding fast path.
+    if (writeSingletonBinder != null && modifiedPage instanceof KeyValueLeafPage kvl
+        && kvl.hasSlottedPageSlot(recordKey)) {
+      final DataRecord record = writeSingletonBinder.bind(kvl, recordOffset, recordKey);
+      if (record != null) {
+        return record;
       }
     }
 
-    if (!FixedSlotRecordProjector.project(record, layout, modifiedLeafPage.getSlotMemory(), dataOffset)) {
-      return false;
-    }
-    modifiedLeafPage.markSlotAsFixedFormat(recordOffset, nodeKind);
-
-    if (resourceConfiguration.areDeweyIDsStored) {
-      final byte[] deweyId = record.getDeweyIDAsBytes();
-      if (deweyId != null && deweyId.length > 0) {
-        modifiedLeafPage.setDeweyId(deweyId, recordOffset);
-      }
-    }
-
-    return true;
+    // Fallback to full method for edge cases (non-slotted page, bind failure).
+    return prepareRecordForModification(recordKey, IndexType.DOCUMENT, -1);
   }
 
-  private MemorySegment ensureFixedSlotProjectionBuffer(final int requiredSize) {
-    if (fixedSlotProjectionBuffer == null || fixedSlotProjectionBuffer.byteSize() < requiredSize) {
-      int newSize = 256;
-      while (newSize < requiredSize) {
-        newSize <<= 1;
-      }
-      fixedSlotProjectionBuffer = MemorySegment.ofArray(new byte[newSize]);
-    }
-    return fixedSlotProjectionBuffer;
+  // ==================== DIRECT-TO-HEAP CREATION ====================
+
+  /** Reusable allocation result — zero-alloc on hot path. */
+  private KeyValueLeafPage allocKvl;
+  private int allocSlotOffset;
+  private long allocNodeKey;
+
+  @Override
+  public void allocateForDocumentCreation() {
+    final long nodeKey = newRevisionRootPage.incrementAndGetMaxNodeKeyInDocumentIndex();
+    final long recordPageKey = storageEngineReader.pageKeyDocument(nodeKey);
+    final PageContainer cont = prepareRecordPage(recordPageKey, -1, IndexType.DOCUMENT);
+    this.allocKvl = (KeyValueLeafPage) cont.getModifiedAsKeyValuePage();
+    this.allocSlotOffset = StorageEngineReader.recordPageOffset(nodeKey);
+    this.allocNodeKey = nodeKey;
   }
+
+  @Override
+  public KeyValueLeafPage getAllocKvl() { return allocKvl; }
+
+  @Override
+  public int getAllocSlotOffset() { return allocSlotOffset; }
+
+  @Override
+  public long getAllocNodeKey() { return allocNodeKey; }
 
   @Override
   public DataRecord createRecord(@NonNull final DataRecord record, @NonNull final IndexType indexType,
@@ -595,69 +462,35 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final long recordPageKey = storageEngineReader.pageKey(createdRecordKey, indexType);
     final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
     final KeyValuePage<DataRecord> modified = cont.getModifiedAsKeyValuePage();
-    final boolean storedAsReusableProxy =
-        persistReusableProxyRecordIfSupported(record, createdRecordKey, indexType, modified);
-    if (!storedAsReusableProxy) {
-      modified.setRecord(record);
 
-      if (modified instanceof KeyValueLeafPage modifiedLeafPage && modifiedLeafPage.shouldDemoteRecords(indexType)) {
-        if (demotionBuffer == null) {
-          demotionBuffer = new MemorySegmentBytesOut(256);
-        }
-        modifiedLeafPage.demoteRecordsToSlots(storageEngineReader.getResourceSession().getResourceConfig(), demotionBuffer);
+    if (modified instanceof KeyValueLeafPage kvl) {
+      if (record instanceof FlyweightNode fn) {
+        final int offset = (int) (createdRecordKey
+            - ((createdRecordKey >> Constants.NDP_NODE_COUNT_EXPONENT)
+               << Constants.NDP_NODE_COUNT_EXPONENT));
+        kvl.serializeNewRecord(fn, createdRecordKey, offset);
+      } else {
+        kvl.setNewRecord(record);
       }
+    } else {
+      modified.setRecord(record);
     }
 
     return record;
   }
 
-  private boolean persistReusableProxyRecordIfSupported(final DataRecord record, final long createdRecordKey,
-      @NonNull final IndexType indexType, final KeyValuePage<DataRecord> modified) {
-    if (indexType != IndexType.DOCUMENT || !(record instanceof ReusableNodeProxy)
-        || !(modified instanceof KeyValueLeafPage modifiedLeafPage) || record.getNodeKey() != createdRecordKey) {
-      return false;
+  @Override
+  public void persistRecord(@NonNull final DataRecord record, @NonNull final IndexType indexType, final int index) {
+    if (record instanceof FlyweightNode fn && fn.isWriteSingleton() && fn.getOwnerPage() != null) {
+      return; // Bound write singleton — mutations already on heap
     }
+    storageEngineReader.assertNotClosed();
+    requireNonNull(record);
+    requireNonNull(indexType);
 
-    if (demotionBuffer == null) {
-      demotionBuffer = new MemorySegmentBytesOut(256);
-    }
-    demotionBuffer.clear();
-
-    final ResourceConfiguration resourceConfiguration = storageEngineReader.getResourceSession().getResourceConfig();
-    if (tryProjectRecordIntoFixedSlot(record, modifiedLeafPage, resourceConfiguration)) {
-      return true;
-    }
-
-    resourceConfiguration.recordPersister.serialize(demotionBuffer, record, resourceConfiguration);
-    final var serializedRecord = demotionBuffer.getDestination();
-
-    if (serializedRecord.byteSize() > PageConstants.MAX_RECORD_SIZE) {
-      final DataRecord detachedRecord = materializeDetachedRecord(serializedRecord, record, resourceConfiguration);
-      modified.setRecord(detachedRecord);
-      if (modifiedLeafPage.shouldDemoteRecords(indexType)) {
-        modifiedLeafPage.demoteRecordsToSlots(resourceConfiguration, demotionBuffer);
-      }
-      return true;
-    }
-
-    final int recordOffset = StorageEngineReader.recordPageOffset(record.getNodeKey());
-    modifiedLeafPage.setSlot(serializedRecord, recordOffset);
-    modifiedLeafPage.markSlotAsCompactFormat(recordOffset);
-
-    if (resourceConfiguration.areDeweyIDsStored) {
-      final byte[] deweyId = record.getDeweyIDAsBytes();
-      if (deweyId != null && deweyId.length > 0) {
-        modifiedLeafPage.setDeweyId(deweyId, recordOffset);
-      }
-    }
-
-    return true;
-  }
-
-  private DataRecord materializeDetachedRecord(final java.lang.foreign.MemorySegment serializedRecord,
-      final DataRecord sourceRecord, final ResourceConfiguration resourceConfiguration) {
-    return resourceConfiguration.recordPersister.deserialize(new MemorySegmentBytesIn(serializedRecord),
-        sourceRecord.getNodeKey(), sourceRecord.getDeweyIDAsBytes(), resourceConfiguration);
+    final long recordPageKey = storageEngineReader.pageKey(record.getNodeKey(), indexType);
+    final PageContainer cont = prepareRecordPage(recordPageKey, index, indexType);
+    cont.getModifiedAsKeyValuePage().setRecord(record);
   }
 
   @Override
@@ -691,7 +524,17 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final PageContainer pageCont = getPageContainer(recordPageKey, index, indexType);
 
     if (pageCont == null) {
-      return storageEngineReader.getRecord(recordKey, indexType, index);
+      // Fallback to underlying reader. The reader may return a FlyweightNode bound to a page
+      // whose MemorySegment lifecycle is managed by the reader (guard-based eviction).
+      // Since the writer cannot hold the reader's page guard, the segment may be freed and
+      // reused at any time (e.g., by the clock sweeper between successive reader calls).
+      // Unbinding materializes all fields to Java primitives, making the node independent
+      // of the page segment and preventing use-after-free.
+      final V record = storageEngineReader.getRecord(recordKey, indexType, index);
+      if (record instanceof FlyweightNode fn && fn.isBound()) {
+        fn.unbind();
+      }
+      return record;
     } else {
       DataRecord node = getRecordForWriteAccess(((KeyValueLeafPage) pageCont.getModified()), recordKey);
       if (node == null) {
@@ -707,29 +550,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final DataRecord cachedRecord = page.getRecord(recordOffset);
     if (cachedRecord != null) {
       return cachedRecord;
-    }
-
-    if (page instanceof KeyValueLeafPage leafPage && leafPage.isFixedSlotFormat(recordOffset)) {
-      final NodeKind nodeKind = leafPage.getFixedSlotNodeKind(recordOffset);
-      if (nodeKind == null) {
-        throw new IllegalStateException("Fixed-slot bitmap set but node kind metadata is missing (key=" + recordKey
-            + ", slot=" + recordOffset + ").");
-      }
-
-      final MemorySegment fixedSlotBytes = leafPage.getSlot(recordOffset);
-      if (fixedSlotBytes == null) {
-        throw new IllegalStateException(
-            "Fixed-slot bitmap set but slot bytes are missing (key=" + recordKey + ", slot=" + recordOffset + ").");
-      }
-
-      final byte[] deweyIdBytes = leafPage.getDeweyIdAsByteArray(recordOffset);
-      final DataRecord materialized = FixedSlotRecordMaterializer.materialize(nodeKind, recordKey, fixedSlotBytes,
-          deweyIdBytes, storageEngineReader.getResourceSession().getResourceConfig());
-      if (materialized == null) {
-        throw new IllegalStateException("Unsupported fixed-slot write-path materialization for node kind " + nodeKind
-            + " (key=" + recordKey + ", slot=" + recordOffset + ").");
-      }
-      return materialized;
     }
 
     return storageEngineReader.getValue(page, recordKey);
@@ -773,17 +593,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     page.commit(this);
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
 
-    // DIAGNOSTIC: Track page closes during commit
-    if (DEBUG_MEMORY_LEAKS && container.getComplete() instanceof KeyValueLeafPage completePage) {
-      LOGGER.debug("[WRITER-COMMIT] Closing complete page: pageKey={}, indexType={}, instance={}",
-          completePage.getPageKey(), completePage.getIndexType(), System.identityHashCode(completePage));
-    }
     container.getComplete().close();
-
-    if (DEBUG_MEMORY_LEAKS && page instanceof KeyValueLeafPage kvPage) {
-      LOGGER.debug("[WRITER-COMMIT] Closing modified page: pageKey={}, indexType={}, instance={}", kvPage.getPageKey(),
-          kvPage.getIndexType(), System.identityHashCode(kvPage));
-    }
     page.close();
 
     // Remove page reference.
@@ -864,10 +674,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // CRITICAL: Release current page guard BEFORE TIL.clear()
       // If guard is on a TIL page, the page won't close (guardCount > 0 check)
       storageEngineReader.closeCurrentPageGuard();
-
-      if (DEBUG_MEMORY_LEAKS) {
-        LOGGER.debug("[WRITER-COMMIT] Clearing TIL with {} entries before commit", log.size());
-      }
 
       // Clear TransactionIntentLog - closes all modified pages
       log.clear();
@@ -980,10 +786,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public UberPage rollback() {
     storageEngineReader.assertNotClosed();
 
-    if (DEBUG_MEMORY_LEAKS) {
-      LOGGER.debug("[WRITER-ROLLBACK] Rolling back transaction with {} TIL entries", log.size());
-    }
-
     // CRITICAL: Release current page guard BEFORE TIL.clear()
     // If guard is on a TIL page, the page won't close (guardCount > 0 check)
     storageEngineReader.closeCurrentPageGuard();
@@ -1014,12 +816,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           LOGGER.error("Pending async fsync failed during close", e);
         }
         pendingFsync = null;
-      }
-
-      // Release the demotion buffer's off-heap memory.
-      if (demotionBuffer != null) {
-        demotionBuffer.close();
-        demotionBuffer = null;
       }
 
       // Don't clear the cached containers here - they've either been:
@@ -1170,14 +966,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private PageContainer prepareRecordPage(final @NonNegative long recordPageKey, final int indexNumber,
       final IndexType indexType) {
     assert indexType != null;
-
-    // Route to appropriate trie implementation
-    TrieType trieType = getTrieType(indexType, indexNumber);
-    if (trieType == TrieType.HOT) {
-      return prepareRecordPageViaHOT(recordPageKey, indexNumber, indexType);
-    }
-
-    // Traditional KEYED_TRIE path (bit-decomposed)
+    // Traditional KEYED_TRIE path (bit-decomposed).
+    // HOT secondary indexes use dedicated HOT*IndexWriter/Reader implementations.
     return prepareRecordPageViaKeyedTrie(recordPageKey, indexNumber, indexType);
   }
 
@@ -1230,11 +1020,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
             false // Memory from allocator - release on close()
         );
 
-        if (DEBUG_MEMORY_LEAKS && recordPageKey == 0) {
-          LOGGER.debug("[WRITER-CREATE] Created Page 0 pair: indexType={}, rev={}, complete={}, modify={}", indexType,
-              storageEngineReader.getRevisionNumber(), System.identityHashCode(completePage), System.identityHashCode(modifyPage));
-        }
-
         pageContainer = PageContainer.getInstance(completePage, modifyPage);
         appendLogRecord(reference, pageContainer);
         return pageContainer;
@@ -1257,80 +1042,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     }
 
     return currPageContainer;
-  }
-
-  /**
-   * Prepare record page using HOT (Height Optimized Trie).
-   * 
-   * <p>
-   * This method uses the HOTTrieWriter for cache-friendly secondary index operations. HOT uses
-   * semantic byte[] keys instead of bit-decomposed numeric keys.
-   * </p>
-   *
-   * @param recordPageKey the record page key (used as fallback key encoding)
-   * @param indexNumber the index number
-   * @param indexType the index type (PATH, CAS, or NAME)
-   * @return PageContainer with the HOT leaf page
-   */
-  private PageContainer prepareRecordPageViaHOT(final @NonNegative long recordPageKey, final int indexNumber,
-      final IndexType indexType) {
-
-    // Get the root reference for this index
-    final PageReference rootRef = storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
-
-    // Encode the recordPageKey as a byte[] key for HOT navigation
-    // For proper integration, the caller should pass the semantic key directly
-    // This is a compatibility bridge for the existing API
-    byte[] key = encodeRecordPageKeyForHOT(recordPageKey);
-
-    // Use HOT trie writer to navigate and prepare the leaf
-    PageContainer container =
-        hotTrieWriter.prepareKeyedLeafForModification(this, log, rootRef, key, indexType, indexNumber);
-
-    if (container != null) {
-      return container;
-    }
-
-    // Fallback: If HOT navigation fails (e.g., empty tree),
-    // create a new HOT leaf page
-    HOTLeafPage newLeaf = new HOTLeafPage(recordPageKey, storageEngineReader.getRevisionNumber(), indexType);
-    container = PageContainer.getInstance(newLeaf, newLeaf);
-
-    PageReference newRef = new PageReference();
-    newRef.setKey(recordPageKey);
-    log.put(newRef, container);
-
-    // Update root reference to point to new leaf
-    if (rootRef.getKey() == Constants.NULL_ID_LONG) {
-      rootRef.setKey(recordPageKey);
-      log.put(rootRef, container);
-    }
-
-    return container;
-  }
-
-  /**
-   * Encode a recordPageKey as a byte[] for HOT navigation.
-   * 
-   * <p>
-   * This is a compatibility bridge. For optimal performance, callers should pass semantic keys
-   * directly to HOT methods.
-   * </p>
-   *
-   * @param recordPageKey the numeric page key
-   * @return the key as a byte array (big-endian)
-   */
-  private static byte[] encodeRecordPageKeyForHOT(long recordPageKey) {
-    byte[] key = new byte[8];
-    key[0] = (byte) (recordPageKey >>> 56);
-    key[1] = (byte) (recordPageKey >>> 48);
-    key[2] = (byte) (recordPageKey >>> 40);
-    key[3] = (byte) (recordPageKey >>> 32);
-    key[4] = (byte) (recordPageKey >>> 24);
-    key[5] = (byte) (recordPageKey >>> 16);
-    key[6] = (byte) (recordPageKey >>> 8);
-    key[7] = (byte) recordPageKey;
-    return key;
   }
 
   /**
@@ -1481,6 +1192,19 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  public KeyValueLeafPage getModifiedPageForRead(final long recordPageKey,
+      @NonNull final IndexType indexType, final int index) {
+    final PageContainer pc = getPageContainer(recordPageKey, index, indexType);
+    if (pc != null) {
+      final var modified = pc.getModified();
+      if (modified instanceof KeyValueLeafPage kvl && !kvl.isClosed()) {
+        return kvl;
+      }
+    }
+    return null;
+  }
+
+  @Override
   public StorageEngineWriter appendLogRecord(@NonNull final PageReference reference,
       @NonNull final PageContainer pageContainer) {
     requireNonNull(pageContainer);
@@ -1513,10 +1237,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   @Override
   @SuppressWarnings("deprecation")
   protected void finalize() {
-    // DIAGNOSTIC: Detect if NodeStorageEngineWriter is GC'd without being closed
-    if (!isClosed && KeyValueLeafPage.DEBUG_MEMORY_LEAKS) {
+    if (!isClosed) {
       LOGGER.warn(
-          "⚠️  NodeStorageEngineWriter FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL",
+          "NodeStorageEngineWriter FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL",
           storageEngineReader.getTrxId(), System.identityHashCode(this), System.identityHashCode(log), log.getList().size());
     }
   }
@@ -1536,137 +1259,6 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       throw new IllegalStateException("No current page - cannot acquire guard");
     }
     return new PageGuard(currentPage);
-  }
-
-  private static final QNm EMPTY_QNM = new QNm("");
-
-  /**
-   * Get or lazily create a write-path singleton for the given node kind. Returns null for unsupported
-   * kinds (non-XML/JSON).
-   */
-  private DataRecord getOrCreateWriteSingleton(final NodeKind kind) {
-    final var hashFunction = storageEngineReader.getResourceSession().getResourceConfig().nodeHashFunction;
-    return switch (kind) {
-      case OBJECT -> {
-        if (writeObjectSingleton == null) {
-          writeObjectSingleton = new ObjectNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null);
-        }
-        yield writeObjectSingleton;
-      }
-      case ARRAY -> {
-        if (writeArraySingleton == null) {
-          writeArraySingleton = new ArrayNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null);
-        }
-        yield writeArraySingleton;
-      }
-      case OBJECT_KEY -> {
-        if (writeObjectKeySingleton == null) {
-          writeObjectKeySingleton = new ObjectKeyNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null);
-        }
-        yield writeObjectKeySingleton;
-      }
-      case STRING_VALUE -> {
-        if (writeStringSingleton == null) {
-          writeStringSingleton = new StringNode(0, 0, 0, 0, 0, 0, 0, null, hashFunction, (byte[]) null);
-        }
-        yield writeStringSingleton;
-      }
-      case NUMBER_VALUE -> {
-        if (writeNumberSingleton == null) {
-          writeNumberSingleton = new NumberNode(0, 0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null);
-        }
-        yield writeNumberSingleton;
-      }
-      case BOOLEAN_VALUE -> {
-        if (writeBooleanSingleton == null) {
-          writeBooleanSingleton = new BooleanNode(0, 0, 0, 0, 0, 0, 0, false, hashFunction, (byte[]) null);
-        }
-        yield writeBooleanSingleton;
-      }
-      case NULL_VALUE -> {
-        if (writeNullSingleton == null) {
-          writeNullSingleton = new NullNode(0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null);
-        }
-        yield writeNullSingleton;
-      }
-      case OBJECT_STRING_VALUE -> {
-        if (writeObjectStringSingleton == null) {
-          writeObjectStringSingleton = new ObjectStringNode(0, 0, 0, 0, 0, null, hashFunction, (byte[]) null);
-        }
-        yield writeObjectStringSingleton;
-      }
-      case OBJECT_NUMBER_VALUE -> {
-        if (writeObjectNumberSingleton == null) {
-          writeObjectNumberSingleton = new ObjectNumberNode(0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null);
-        }
-        yield writeObjectNumberSingleton;
-      }
-      case OBJECT_BOOLEAN_VALUE -> {
-        if (writeObjectBooleanSingleton == null) {
-          writeObjectBooleanSingleton = new ObjectBooleanNode(0, 0, 0, 0, 0, false, hashFunction, (byte[]) null);
-        }
-        yield writeObjectBooleanSingleton;
-      }
-      case OBJECT_NULL_VALUE -> {
-        if (writeObjectNullSingleton == null) {
-          writeObjectNullSingleton = new ObjectNullNode(0, 0, 0, 0, 0, hashFunction, (byte[]) null);
-        }
-        yield writeObjectNullSingleton;
-      }
-      case JSON_DOCUMENT -> {
-        if (writeJsonDocumentSingleton == null) {
-          writeJsonDocumentSingleton = new JsonDocumentRootNode(0, 0, 0, 0, 0, hashFunction);
-        }
-        yield writeJsonDocumentSingleton;
-      }
-      case XML_DOCUMENT -> {
-        if (writeXmlDocumentSingleton == null) {
-          writeXmlDocumentSingleton = new XmlDocumentRootNode(0, 0, 0, 0, 0, hashFunction);
-        }
-        yield writeXmlDocumentSingleton;
-      }
-      case ELEMENT -> {
-        if (writeElementSingleton == null) {
-          writeElementSingleton = new ElementNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction,
-              (byte[]) null, null, null, EMPTY_QNM);
-        }
-        yield writeElementSingleton;
-      }
-      case TEXT -> {
-        if (writeTextSingleton == null) {
-          writeTextSingleton = new TextNode(0, 0, 0, 0, 0, 0, 0, new byte[0], false, hashFunction, (byte[]) null);
-        }
-        yield writeTextSingleton;
-      }
-      case COMMENT -> {
-        if (writeCommentSingleton == null) {
-          writeCommentSingleton = new CommentNode(0, 0, 0, 0, 0, 0, 0, new byte[0], false, hashFunction, (byte[]) null);
-        }
-        yield writeCommentSingleton;
-      }
-      case ATTRIBUTE -> {
-        if (writeAttributeSingleton == null) {
-          writeAttributeSingleton =
-              new AttributeNode(0, 0, 0, 0, 0, 0, 0, 0, 0, new byte[0], hashFunction, (byte[]) null, EMPTY_QNM);
-        }
-        yield writeAttributeSingleton;
-      }
-      case NAMESPACE -> {
-        if (writeNamespaceSingleton == null) {
-          writeNamespaceSingleton =
-              new NamespaceNode(0, 0, 0, 0, 0, 0, 0, 0, 0, hashFunction, (byte[]) null, EMPTY_QNM);
-        }
-        yield writeNamespaceSingleton;
-      }
-      case PROCESSING_INSTRUCTION -> {
-        if (writePISingleton == null) {
-          writePISingleton = new PINode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, new byte[0], false, hashFunction,
-              (byte[]) null, EMPTY_QNM);
-        }
-        yield writePISingleton;
-      }
-      default -> null;
-    };
   }
 
   /**

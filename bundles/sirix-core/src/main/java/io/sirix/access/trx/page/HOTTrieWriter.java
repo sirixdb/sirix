@@ -507,14 +507,13 @@ public final class HOTTrieWriter {
     } else {
       // Root split - create new BiNode as root
       // CRITICAL: When pathDepth=0, leafRef may be the same object as rootReference.
-      // We need to create a SEPARATE reference for the left child to avoid circular references.
+      // We need a SEPARATE reference for the left child, and it MUST be in the log
+      // so that HOTIndirectPage.commit() can find and write it to disk.
       PageReference leftChildRef;
       if (leafRef == rootReference) {
-        // Create a new reference for the left child that points to the leaf's log entry
+        // Put the left child in the log so commit can find it by identity
         leftChildRef = new PageReference();
-        leftChildRef.setLogKey(leafRef.getLogKey());
-        leftChildRef.setKey(fullPage.getPageKey());
-        leftChildRef.setPage(fullPage);
+        log.put(leftChildRef, PageContainer.getInstance(fullPage, fullPage));
       } else {
         leftChildRef = leafRef;
       }

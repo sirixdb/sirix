@@ -34,35 +34,39 @@ import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.XmlNodeVisitor;
-import io.sirix.node.BytesIn;
 import io.sirix.node.Bytes;
+import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 import io.sirix.node.DeltaVarIntCodec;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.xml.ImmutableNamespace;
+import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.NameNode;
 import io.sirix.node.interfaces.Node;
-import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import io.sirix.node.layout.NodeKindLayout;
-import io.sirix.node.layout.SlotLayoutAccessors;
-import io.sirix.node.layout.StructuralField;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.NodeFieldLayout;
 import io.sirix.settings.Fixed;
-
-import java.lang.foreign.MemorySegment;
 import io.sirix.utils.NamePageHash;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+
 /**
  * Node representing an XML namespace, using primitive fields.
  *
+ * <p>Supports LeanStore-style flyweight binding: when bound to a slotted page MemorySegment,
+ * getters/setters read/write directly to page memory via the per-record offset table.
+ * When unbound, they operate on Java primitive fields (normal mode).</p>
+ *
  * @author Johannes Lichtenberger
  */
-public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, ReusableNodeProxy {
+public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, FlyweightNode {
 
   // === PRIMITIVE FIELDS ===
   private long nodeKey;
@@ -75,23 +79,51 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   private int lastModifiedRevision;
   private long hash;
 
-  // === FIXED-SLOT LAZY SUPPORT ===
-  private Object lazySource;
-  private long lazyBaseOffset;
-  private NodeKindLayout fixedSlotLayout;
-  private boolean lazyFieldsParsed = true;
-
   // === NON-SERIALIZED FIELDS ===
   private LongHashFunction hashFunction;
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
   private QNm qNm;
 
+  // ==================== FLYWEIGHT BINDING (LeanStore page-direct access) ====================
+
+  /** Page MemorySegment when bound (null = primitive mode). */
+  private MemorySegment page;
+
+  /** Absolute byte offset of this record in the page (after HEAP_START + heapOffset). */
+  private long recordBase;
+
+  /** Absolute byte offset where the data region starts (recordBase + 1 + FIELD_COUNT). */
+  private long dataRegionStart;
+
+  /** Slot index in the page directory (for re-serialization). */
+  private int slotIndex;
+  private boolean writeSingleton;
+  private KeyValueLeafPage ownerPage;
+  private final int[] heapOffsets;
+
+  private static final int FIELD_COUNT = NodeFieldLayout.NAMESPACE_FIELD_COUNT;
+
+  /**
+   * Constructor for flyweight binding.
+   * All fields except nodeKey and hashFunction will be read from page memory after bind().
+   *
+   * @param nodeKey the node key
+   * @param hashFunction the hash function from resource config
+   */
+  public NamespaceNode(final long nodeKey, final LongHashFunction hashFunction) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+    this.heapOffsets = new int[FIELD_COUNT];
+  }
+
   /**
    * Primary constructor with all primitive fields.
    */
-  public NamespaceNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long pathNodeKey,
-      int prefixKey, int localNameKey, int uriKey, long hash, LongHashFunction hashFunction, byte[] deweyID, QNm qNm) {
+  public NamespaceNode(final long nodeKey, final long parentKey, final int previousRevision,
+      final int lastModifiedRevision, final long pathNodeKey, final int prefixKey,
+      final int localNameKey, final int uriKey, final long hash,
+      final LongHashFunction hashFunction, final byte[] deweyID, final QNm qNm) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -104,14 +136,16 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyID;
     this.qNm = qNm;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
    * Constructor with SirixDeweyID.
    */
-  public NamespaceNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long pathNodeKey,
-      int prefixKey, int localNameKey, int uriKey, long hash, LongHashFunction hashFunction, SirixDeweyID deweyID,
-      QNm qNm) {
+  public NamespaceNode(final long nodeKey, final long parentKey, final int previousRevision,
+      final int lastModifiedRevision, final long pathNodeKey, final int prefixKey,
+      final int localNameKey, final int uriKey, final long hash,
+      final LongHashFunction hashFunction, final SirixDeweyID deweyID, final QNm qNm) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -124,7 +158,210 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
     this.hashFunction = hashFunction;
     this.sirixDeweyID = deweyID;
     this.qNm = qNm;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
+
+  // ==================== FLYWEIGHT BIND/UNBIND ====================
+
+  /**
+   * Bind this node as a flyweight to a page MemorySegment.
+   * When bound, getters/setters read/write directly to page memory via the offset table.
+   *
+   * @param page       the page MemorySegment
+   * @param recordBase absolute byte offset of this record in the page
+   * @param nodeKey    the node key (for delta decoding)
+   * @param slotIndex  the slot index in the page directory
+   */
+  @Override
+  public void bind(final MemorySegment page, final long recordBase, final long nodeKey,
+      final int slotIndex) {
+    this.page = page;
+    this.recordBase = recordBase;
+    this.nodeKey = nodeKey;
+    this.slotIndex = slotIndex;
+    this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
+  }
+
+  /**
+   * Unbind from page memory and materialize all fields into Java primitives.
+   * After unbind, the node operates in primitive mode.
+   */
+  @Override
+  public void unbind() {
+    if (page == null) {
+      return;
+    }
+    // Materialize all fields from page to Java primitives
+    final long nk = this.nodeKey;
+    this.parentKey = readDeltaField(NodeFieldLayout.NS_PARENT_KEY, nk);
+    this.pathNodeKey = readDeltaField(NodeFieldLayout.NS_PATH_NODE_KEY, nk);
+    this.prefixKey = readSignedField(NodeFieldLayout.NS_PREFIX_KEY);
+    this.localNameKey = readSignedField(NodeFieldLayout.NS_LOCAL_NAME_KEY);
+    this.uriKey = readSignedField(NodeFieldLayout.NS_URI_KEY);
+    this.previousRevision = readSignedField(NodeFieldLayout.NS_PREV_REVISION);
+    this.lastModifiedRevision = readSignedField(NodeFieldLayout.NS_LAST_MOD_REVISION);
+    this.hash = readLongField(NodeFieldLayout.NS_HASH);
+    this.ownerPage = null;
+    this.page = null;
+  }
+
+  @Override
+  public void clearBinding() {
+    this.page = null;
+    this.ownerPage = null;
+  }
+
+  /** Check if this node is bound to a page MemorySegment. */
+  @Override
+  public boolean isBound() {
+    return page != null;
+  }
+
+  @Override
+  public boolean isBoundTo(final MemorySegment page) {
+    return this.page == page;
+  }
+
+  @Override
+  public int getSlotIndex() {
+    return slotIndex;
+  }
+
+  @Override public boolean isWriteSingleton() { return writeSingleton; }
+  @Override public void setWriteSingleton(final boolean ws) { this.writeSingleton = ws; }
+  @Override public KeyValueLeafPage getOwnerPage() { return ownerPage; }
+  @Override public void setOwnerPage(final KeyValueLeafPage p) { this.ownerPage = p; }
+
+  // ==================== FLYWEIGHT FIELD READ HELPERS ====================
+
+  private long readDeltaField(final int fieldIndex, final long baseKey) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(page, dataRegionStart + fieldOff, baseKey);
+  }
+
+  private int readSignedField(final int fieldIndex) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
+  }
+
+  private long readLongField(final int fieldIndex) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.readLongFromSegment(page, (int) (dataRegionStart + fieldOff));
+  }
+
+  // ==================== SERIALIZE TO HEAP ====================
+
+  // ==================== DIRECT WRITE ====================
+
+  /**
+   * Encode a NamespaceNode record directly to a MemorySegment from parameter values.
+   * Static -- reads nothing from any instance. Zero field intermediation.
+   *
+   * @param target       the target MemorySegment (reinterpreted slotted page)
+   * @param offset       absolute byte offset to write at
+   * @param heapOffsets  pre-allocated offset array (reused, FIELD_COUNT elements)
+   * @param nodeKey      the node key (delta base for structural keys)
+   * @param parentKey    the parent node key
+   * @param pathNodeKey  the path node key
+   * @param prefixKey    the prefix key
+   * @param localNameKey the local name key
+   * @param uriKey       the URI key
+   * @param prevRev      the previous revision number
+   * @param lastModRev   the last modified revision number
+   * @param hash         the hash value
+   * @return the total number of bytes written
+   */
+  public static int writeNewRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final long pathNodeKey,
+      final int prefixKey, final int localNameKey, final int uriKey,
+      final int prevRev, final int lastModRev, final long hash) {
+    long pos = offset;
+
+    // Write nodeKind byte
+    target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.NAMESPACE.getId());
+    pos++;
+
+    // Reserve space for offset table
+    final long offsetTableStart = pos;
+    pos += FIELD_COUNT;
+
+    // Data region start
+    final long dataStart = pos;
+
+    // Field 0: parentKey (delta-varint)
+    heapOffsets[NodeFieldLayout.NS_PARENT_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
+
+    // Field 1: pathNodeKey (delta-varint)
+    heapOffsets[NodeFieldLayout.NS_PATH_NODE_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, pathNodeKey, nodeKey);
+
+    // Field 2: prefixKey (signed varint)
+    heapOffsets[NodeFieldLayout.NS_PREFIX_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prefixKey);
+
+    // Field 3: localNameKey (signed varint)
+    heapOffsets[NodeFieldLayout.NS_LOCAL_NAME_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, localNameKey);
+
+    // Field 4: uriKey (signed varint)
+    heapOffsets[NodeFieldLayout.NS_URI_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, uriKey);
+
+    // Field 5: previousRevision (signed varint)
+    heapOffsets[NodeFieldLayout.NS_PREV_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prevRev);
+
+    // Field 6: lastModifiedRevision (signed varint)
+    heapOffsets[NodeFieldLayout.NS_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
+
+    // Field 7: hash (fixed 8 bytes)
+    heapOffsets[NodeFieldLayout.NS_HASH] = (int) (pos - dataStart);
+    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
+    pos += Long.BYTES;
+
+    // Write offset table
+    for (int i = 0; i < FIELD_COUNT; i++) {
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
+    }
+
+    return (int) (pos - offset);
+  }
+
+  /**
+   * Serialize this node from Java fields. Delegates to static writeNewRecord.
+   */
+  @Override
+  public int serializeToHeap(final MemorySegment target, final long offset) {
+    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+        parentKey, pathNodeKey, prefixKey, localNameKey, uriKey,
+        previousRevision, lastModifiedRevision, hash);
+  }
+
+  /**
+   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
+   */
+  public int[] getHeapOffsets() {
+    return heapOffsets;
+  }
+
+  /**
+   * Set DeweyID fields directly after creation, bypassing write-through.
+   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   */
+  public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = bytes;
+  }
+
+  @Override
+  public int estimateSerializedSize() {
+    return 64;
+  }
+
+  // ==================== NODE IDENTITY ====================
 
   @Override
   public NodeKind getKind() {
@@ -137,94 +374,248 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   }
 
   @Override
-  public void setNodeKey(long nodeKey) {
+  public void setNodeKey(final long nodeKey) {
     this.nodeKey = nodeKey;
   }
 
+  // ==================== DUAL-MODE GETTERS/SETTERS ====================
+
   @Override
   public long getParentKey() {
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.NS_PARENT_KEY, nodeKey);
+    }
     return parentKey;
   }
 
-  public void setParentKey(long parentKey) {
+  public void setParentKey(final long parentKey) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.NS_PARENT_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(parentKey, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
+        return;
+      }
+      resizeParentKey(parentKey);
+      return;
+    }
     this.parentKey = parentKey;
+  }
+
+  private void resizeParentKey(final long parentKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.NS_PARENT_KEY, NodeFieldLayout.NAMESPACE_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
   }
 
   @Override
   public boolean hasParent() {
-    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public long getPathNodeKey() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.NS_PATH_NODE_KEY, nodeKey);
+    }
     return pathNodeKey;
   }
 
   @Override
-  public void setPathNodeKey(@NonNegative long pathNodeKey) {
+  public void setPathNodeKey(@NonNegative final long pathNodeKey) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.NS_PATH_NODE_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(pathNodeKey, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, pathNodeKey, nodeKey);
+        return;
+      }
+      resizePathNodeKey(pathNodeKey);
+      return;
+    }
     this.pathNodeKey = pathNodeKey;
+  }
+
+  private void resizePathNodeKey(final long pathNodeKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.NS_PATH_NODE_KEY, NodeFieldLayout.NAMESPACE_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, pathNodeKey, nodeKey));
   }
 
   @Override
   public int getPrefixKey() {
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.NS_PREFIX_KEY);
+    }
     return prefixKey;
   }
 
   @Override
-  public void setPrefixKey(int prefixKey) {
+  public void setPrefixKey(final int prefixKey) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.NS_PREFIX_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(prefixKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, prefixKey);
+        return;
+      }
+      resizePrefixKey(prefixKey);
+      return;
+    }
     this.prefixKey = prefixKey;
+  }
+
+  private void resizePrefixKey(final int prefixKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.NS_PREFIX_KEY, NodeFieldLayout.NAMESPACE_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, prefixKey));
   }
 
   @Override
   public int getLocalNameKey() {
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.NS_LOCAL_NAME_KEY);
+    }
     return localNameKey;
   }
 
   @Override
-  public void setLocalNameKey(int localNameKey) {
+  public void setLocalNameKey(final int localNameKey) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.NS_LOCAL_NAME_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(localNameKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, localNameKey);
+        return;
+      }
+      resizeLocalNameKey(localNameKey);
+      return;
+    }
     this.localNameKey = localNameKey;
+  }
+
+  private void resizeLocalNameKey(final int localNameKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.NS_LOCAL_NAME_KEY, NodeFieldLayout.NAMESPACE_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, localNameKey));
   }
 
   @Override
   public int getURIKey() {
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.NS_URI_KEY);
+    }
     return uriKey;
   }
 
   @Override
-  public void setURIKey(int uriKey) {
+  public void setURIKey(final int uriKey) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.NS_URI_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(uriKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, uriKey);
+        return;
+      }
+      resizeURIKey(uriKey);
+      return;
+    }
     this.uriKey = uriKey;
+  }
+
+  private void resizeURIKey(final int uriKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.NS_URI_KEY, NodeFieldLayout.NAMESPACE_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, uriKey));
   }
 
   @Override
   public int getPreviousRevisionNumber() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.NS_PREV_REVISION);
+    }
     return previousRevision;
   }
 
   @Override
-  public void setPreviousRevision(int revision) {
+  public void setPreviousRevision(final int revision) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.NS_PREV_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      resizePreviousRevision(revision);
+      return;
+    }
     this.previousRevision = revision;
+  }
+
+  private void resizePreviousRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.NS_PREV_REVISION, NodeFieldLayout.NAMESPACE_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
   public int getLastModifiedRevisionNumber() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.NS_LAST_MOD_REVISION);
+    }
     return lastModifiedRevision;
   }
 
   @Override
-  public void setLastModifiedRevision(int revision) {
+  public void setLastModifiedRevision(final int revision) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.NS_LAST_MOD_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      resizeLastModifiedRevision(revision);
+      return;
+    }
     this.lastModifiedRevision = revision;
+  }
+
+  private void resizeLastModifiedRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.NS_LAST_MOD_REVISION, NodeFieldLayout.NAMESPACE_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
   public long getHash() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
+    if (page != null) {
+      // Bound: read hash from MemorySegment. If non-zero (set by rollingAdd/rollingUpdate),
+      // return it as-is to preserve rolling hash arithmetic. If zero (never set), compute.
+      final long storedHash = readLongField(NodeFieldLayout.NS_HASH);
+      if (storedHash != 0L) {
+        return storedHash;
+      }
+      if (hashFunction != null) {
+        return computeHash(Bytes.threadLocalHashBuffer());
+      }
+      return 0L;
+    }
+    // Unbound (in-memory): return stored hash if set by rollingAdd, else compute
     if (hash == 0L && hashFunction != null) {
       hash = computeHash(Bytes.threadLocalHashBuffer());
     }
@@ -232,21 +623,30 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   }
 
   @Override
-  public void setHash(long hash) {
+  public void setHash(final long hash) {
+    if (page != null) {
+      // Hash is ALWAYS in-place (fixed 8 bytes)
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.NS_HASH) & 0xFF;
+      DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
+      return;
+    }
     this.hash = hash;
   }
+
+  // ==================== OTHER GETTERS/SETTERS ====================
 
   @Override
   public QNm getName() {
     return qNm;
   }
 
-  public void setName(QNm name) {
+  public void setName(final QNm name) {
     this.qNm = name;
   }
 
   @Override
-  public boolean isSameItem(@Nullable Node other) {
+  public boolean isSameItem(@Nullable final Node other) {
     return other != null && other.getNodeKey() == nodeKey;
   }
 
@@ -256,15 +656,25 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   }
 
   @Override
-  public void setTypeKey(int typeKey) {}
+  public void setTypeKey(final int typeKey) {}
 
   @Override
-  public void setDeweyID(SirixDeweyID id) {
+  public void setDeweyID(final SirixDeweyID id) {
+    final var owner = this.ownerPage;
+    if (owner != null) {
+      final long nk = this.nodeKey;
+      final int slot = this.slotIndex;
+      unbind();
+      this.sirixDeweyID = id;
+      this.deweyIDBytes = null;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
     this.sirixDeweyID = id;
     this.deweyIDBytes = null;
   }
 
-  public void setDeweyIDBytes(byte[] deweyIDBytes) {
+  public void setDeweyIDBytes(final byte[] deweyIDBytes) {
     this.deweyIDBytes = deweyIDBytes;
     this.sirixDeweyID = null;
   }
@@ -289,11 +699,15 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
     return hashFunction;
   }
 
+  // ==================== DESERIALIZATION ====================
+
   /**
    * Populate this node from a BytesIn source for singleton reuse.
    */
-  public void readFrom(BytesIn<?> source, long nodeKey, byte[] deweyId, LongHashFunction hashFunction,
-      ResourceConfiguration config) {
+  public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
+      final LongHashFunction hashFunction, final ResourceConfiguration config) {
+    // Unbind flyweight — ensures getters use Java fields, not stale page reference
+    this.page = null;
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
@@ -312,55 +726,46 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   }
 
   @Override
-  public long computeHash(BytesOut<?> bytes) {
+  public long computeHash(final BytesOut<?> bytes) {
     if (hashFunction == null)
       return 0L;
     bytes.clear();
-    bytes.writeLong(nodeKey).writeLong(parentKey).writeByte(getKind().getId());
-    bytes.writeInt(prefixKey).writeInt(localNameKey).writeInt(uriKey);
+    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
+    bytes.writeInt(getPrefixKey()).writeInt(getLocalNameKey()).writeInt(getURIKey());
     return bytes.hashDirect(hashFunction);
   }
 
-  public void bindFixedSlotLazy(final MemorySegment slotData, final long baseOffset, final NodeKindLayout layout) {
-    this.lazyBaseOffset = baseOffset;
-    this.lazySource = slotData;
-    this.fixedSlotLayout = layout;
-    this.lazyFieldsParsed = false;
-  }
+  // ==================== SNAPSHOT ====================
 
-  private void parseLazyFields() {
-    if (lazyFieldsParsed) {
-      return;
-    }
-
-    if (fixedSlotLayout != null) {
-      final MemorySegment sd = (MemorySegment) lazySource;
-      final NodeKindLayout ly = fixedSlotLayout;
-      final long off = this.lazyBaseOffset;
-      this.previousRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.PREVIOUS_REVISION);
-      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.LAST_MODIFIED_REVISION);
-      this.hash = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.HASH);
-      this.pathNodeKey = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.PATH_NODE_KEY);
-      this.fixedSlotLayout = null;
-      this.lazyFieldsParsed = true;
-      return;
-    }
-
-    this.lazyFieldsParsed = true;
-  }
-
+  /**
+   * Create a deep copy snapshot of this node.
+   * When bound, reads all fields from page memory. When unbound, uses Java fields.
+   */
   public NamespaceNode toSnapshot() {
-    if (!lazyFieldsParsed)
-      parseLazyFields();
-    return new NamespaceNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, pathNodeKey, prefixKey,
-        localNameKey, uriKey, hash, hashFunction, deweyIDBytes != null
-            ? deweyIDBytes.clone()
-            : null,
-        qNm);
+    if (page != null) {
+      // Bound mode: read all fields from page
+      return new NamespaceNode(nodeKey,
+          readDeltaField(NodeFieldLayout.NS_PARENT_KEY, nodeKey),
+          readSignedField(NodeFieldLayout.NS_PREV_REVISION),
+          readSignedField(NodeFieldLayout.NS_LAST_MOD_REVISION),
+          readDeltaField(NodeFieldLayout.NS_PATH_NODE_KEY, nodeKey),
+          readSignedField(NodeFieldLayout.NS_PREFIX_KEY),
+          readSignedField(NodeFieldLayout.NS_LOCAL_NAME_KEY),
+          readSignedField(NodeFieldLayout.NS_URI_KEY),
+          readLongField(NodeFieldLayout.NS_HASH),
+          hashFunction,
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
+          qNm);
+    }
+    return new NamespaceNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
+        pathNodeKey, prefixKey, localNameKey, uriKey, hash, hashFunction,
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null, qNm);
   }
+
+  // ==================== VISITOR / OBJECT METHODS ====================
 
   @Override
-  public VisitResult acceptVisitor(XmlNodeVisitor visitor) {
+  public VisitResult acceptVisitor(final XmlNodeVisitor visitor) {
     return visitor.visit(ImmutableNamespace.of(this));
   }
 
@@ -370,7 +775,7 @@ public final class NamespaceNode implements NameNode, ImmutableXmlNode, Node, Re
   }
 
   @Override
-  public boolean equals(Object obj) {
+  public boolean equals(final Object obj) {
     if (!(obj instanceof NamespaceNode other))
       return false;
     return nodeKey == other.nodeKey && parentKey == other.parentKey && prefixKey == other.prefixKey

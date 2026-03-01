@@ -5,7 +5,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.math.BigDecimal;
 import java.math.BigInteger;
-import java.nio.ByteBuffer;
+import net.openhft.hashing.LongHashFunction;
 
 /**
  * A BytesOut implementation backed by a PooledGrowingSegment.
@@ -173,22 +173,6 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
   }
 
   @Override
-  public BytesOut<MemorySegment> write(long position, ByteBuffer buffer, int bufferPosition, int length) {
-    long oldPos = segment.position();
-    segment.position(position);
-
-    byte[] temp = new byte[length];
-    int oldBufferPos = buffer.position();
-    buffer.position(bufferPosition);
-    buffer.get(temp);
-    buffer.position(oldBufferPos);
-
-    write(temp);
-    segment.position(oldPos);
-    return this;
-  }
-
-  @Override
   public long position() {
     return segment.position();
   }
@@ -224,6 +208,22 @@ public final class PooledBytesOut implements BytesOut<MemorySegment> {
     byte[] result = new byte[(int) pos];
     MemorySegment.copy(segment.getCurrentSegment(), ValueLayout.JAVA_BYTE, 0, result, 0, (int) pos);
     return result;
+  }
+
+  @Override
+  public long hashDirect(LongHashFunction hashFunction) {
+    final long len = segment.position();
+    if (len == 0) {
+      return hashFunction.hashBytes(new byte[0]);
+    }
+    final MemorySegment seg = segment.getCurrentSegment();
+    final Object heapBase = seg.heapBase().orElse(null);
+    if (heapBase instanceof byte[] backingArray) {
+      // Heap-backed: hash directly from backing array — zero allocation
+      return hashFunction.hashBytes(backingArray, 0, (int) len);
+    }
+    // Native segment: hash directly from native address — zero allocation
+    return hashFunction.hashMemory(seg.address(), len);
   }
 
   @Override

@@ -6,7 +6,6 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.BytesOut;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.nio.ByteBuffer;
 
 /**
  * An immutable node.

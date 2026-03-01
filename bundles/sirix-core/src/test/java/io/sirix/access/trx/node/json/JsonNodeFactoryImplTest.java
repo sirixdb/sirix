@@ -47,7 +47,9 @@ import io.sirix.node.json.ObjectNullNode;
 import io.sirix.node.json.ObjectNumberNode;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.RevisionRootPage;
+import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.After;
@@ -95,12 +97,24 @@ public class JsonNodeFactoryImplTest {
     doReturn(resourceSession).when(storageEngineWriter).getResourceSession();
     when(storageEngineWriter.getRevisionNumber()).thenReturn(0);
 
-    // Mock createRecord to return the node passed to it
+    // Mock createRecord to return the node passed to it (used by PathNode, DeweyIDNode)
     when(storageEngineWriter.createRecord(any(DataRecord.class), any(IndexType.class), anyInt())).thenAnswer(
         invocation -> invocation.getArgument(0));
 
     // Mock createNameKey for ObjectKeyNode
     when(storageEngineWriter.createNameKey(anyString(), any(NodeKind.class))).thenReturn(5); // Return a dummy name key
+
+    // Mock allocation methods for direct-to-heap creation
+    final KeyValueLeafPage testKvl = new KeyValueLeafPage(0, IndexType.DOCUMENT, resourceConfig, 0, null, null);
+    final long[] allocatedKey = {0};
+    doAnswer(inv -> {
+      allocatedKey[0] = nodeCounter++;
+      return null;
+    }).when(storageEngineWriter).allocateForDocumentCreation();
+    when(storageEngineWriter.getAllocKvl()).thenReturn(testKvl);
+    when(storageEngineWriter.getAllocNodeKey()).thenAnswer(inv -> allocatedKey[0]);
+    when(storageEngineWriter.getAllocSlotOffset()).thenAnswer(
+        inv -> (int) (allocatedKey[0] % Constants.NDP_NODE_COUNT));
 
     factory = new JsonNodeFactoryImpl(LongHashFunction.xx3(), storageEngineWriter);
   }
@@ -133,8 +147,8 @@ public class JsonNodeFactoryImplTest {
     // CRITICAL: Object* value nodes should have NO children
     assertEquals(Fixed.NULL_NODE_KEY.getStandardProperty(), node.getFirstChildKey());
 
-    // Verify storageEngineWriter.createRecord was called
-    verify(storageEngineWriter).createRecord(eq(node), eq(IndexType.DOCUMENT), eq(-1));
+    // Verify allocateForDocumentCreation was called (direct-to-heap path)
+    verify(storageEngineWriter).allocateForDocumentCreation();
   }
 
   @Test

@@ -28,8 +28,6 @@ import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
 import io.sirix.node.BytesOut;
 
-import java.nio.ByteBuffer;
-
 /**
  * Interface to provide the abstract layer related to write access of the Sirix-backend.
  *

@@ -265,79 +265,63 @@ public abstract class AbstractHOTIndexWriter<K> {
     int pathDepth = 0;
     PageReference currentRef = rootRef;
     final byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
+    Page page = resolveHOTPageForTraversal(currentRef);
 
-    // Check transaction log first (uncommitted modifications)
-    PageContainer container = storageEngineWriter.getLog().get(currentRef);
-    if (container != null) {
-      Page page = container.getModified();
+    // Navigate through indirect pages, tracking the path into pre-allocated arrays.
+    while (page instanceof HOTIndirectPage indirectPage) {
+      if (pathDepth >= MAX_PATH_DEPTH) {
+        throw new IllegalStateException("HOT tree depth exceeds MAX_PATH_DEPTH=" + MAX_PATH_DEPTH);
+      }
+      _pathNodes[pathDepth] = indirectPage;
+      _pathRefs[pathDepth] = currentRef;
 
-      // Navigate through indirect pages, tracking the path into pre-allocated arrays
-      while (page instanceof HOTIndirectPage indirectPage) {
-        if (pathDepth >= MAX_PATH_DEPTH) {
-          throw new IllegalStateException("HOT tree depth exceeds MAX_PATH_DEPTH=" + MAX_PATH_DEPTH);
-        }
-        _pathNodes[pathDepth] = indirectPage;
-        _pathRefs[pathDepth] = currentRef;
+      int childIndex = indirectPage.findChildIndex(keySlice);
+      if (childIndex < 0) {
+        childIndex = 0; // Default to first child
+      }
+      _pathChildIndices[pathDepth] = childIndex;
+      pathDepth++;
 
-        int childIndex = indirectPage.findChildIndex(keySlice);
-        if (childIndex < 0) {
-          childIndex = 0; // Default to first child
-        }
-        _pathChildIndices[pathDepth] = childIndex;
-        pathDepth++;
-
-        PageReference childRef = indirectPage.getChildReference(childIndex);
-        if (childRef == null) {
-          throw new IllegalStateException("Null child reference in indirect page");
-        }
-        currentRef = childRef;
-
-        // Get child page from log, swizzled cache, or storage
-        PageContainer childContainer = storageEngineWriter.getLog().get(childRef);
-        if (childContainer != null) {
-          page = childContainer.getModified();
-        } else if (childRef.getPage() != null) {
-          page = childRef.getPage();
-        } else {
-          // Load from storage and prepare for modification
-          page = storageEngineWriter.loadHOTPage(childRef);
-          if (page instanceof HOTLeafPage loadedLeaf) {
-            HOTLeafPage modifiedLeaf = loadedLeaf.copy();
-            childContainer = PageContainer.getInstance(loadedLeaf, modifiedLeaf);
-            storageEngineWriter.getLog().put(childRef, childContainer);
-            page = modifiedLeaf;
-          }
-        }
+      final PageReference childRef = indirectPage.getChildReference(childIndex);
+      if (childRef == null) {
+        throw new IllegalStateException("Null child reference in HOTIndirectPage");
       }
 
-      if (page instanceof HOTLeafPage hotLeaf) {
-        // Trim the pre-allocated arrays to exact depth — small allocation, avoids boxing
-        final HOTIndirectPage[] pathNodes = pathDepth == 0 ? new HOTIndirectPage[0]
-            : Arrays.copyOf(_pathNodes, pathDepth);
-        final PageReference[] pathRefs = pathDepth == 0 ? new PageReference[0]
-            : Arrays.copyOf(_pathRefs, pathDepth);
-        final int[] pathChildIndices = pathDepth == 0 ? new int[0]
-            : Arrays.copyOf(_pathChildIndices, pathDepth);
-        return new LeafNavigationResult(hotLeaf, currentRef, pathNodes, pathRefs, pathChildIndices, pathDepth);
+      currentRef = childRef;
+      page = resolveHOTPageForTraversal(currentRef);
+    }
+
+    if (page instanceof HOTLeafPage hotLeaf) {
+      // If leaf is already in log, return the modified instance directly.
+      final PageContainer existingLeafContainer = storageEngineWriter.getLog().get(currentRef);
+      if (existingLeafContainer != null && existingLeafContainer.getModified() instanceof HOTLeafPage modifiedLeaf) {
+        return buildNavigationResult(modifiedLeaf, currentRef, pathDepth);
       }
+
+      // COW leaf for write path and persist COW path to keep parent references in sync.
+      final HOTLeafPage modifiedLeaf = hotLeaf.copy();
+      final PageContainer leafContainer = PageContainer.getInstance(hotLeaf, modifiedLeaf);
+      storageEngineWriter.getLog().put(currentRef, leafContainer);
+
+      // If this is not the root leaf, COW all ancestors so child log keys are persisted.
+      if (pathDepth > 0) {
+        propagateCowPathToRoot(pathDepth, currentRef);
+      }
+
+      return buildNavigationResult(modifiedLeaf, currentRef, pathDepth);
     }
 
-    // Use storage engine's versioning-aware page loading for committed data
-    HOTLeafPage existingLeaf = storageEngineWriter.getHOTLeafPage(indexType, indexNumber);
-    if (existingLeaf != null) {
-      HOTLeafPage modifiedLeaf = existingLeaf.copy();
-      container = PageContainer.getInstance(existingLeaf, modifiedLeaf);
-      storageEngineWriter.getLog().put(rootRef, container);
-      return new LeafNavigationResult(modifiedLeaf, rootRef, new HOTIndirectPage[0], new PageReference[0], new int[0],
-          0);
-    }
-
-    // Create new leaf page if none exists
-    HOTLeafPage newLeaf = new HOTLeafPage(rootRef.getKey() >= 0 ? rootRef.getKey() : 0,
+    // Empty tree path: create a new leaf at currentRef (root or missing child).
+    final HOTLeafPage newLeaf = new HOTLeafPage(currentRef.getKey() >= 0 ? currentRef.getKey() : 0,
         storageEngineWriter.getRevisionNumber(), indexType);
-    container = PageContainer.getInstance(newLeaf, newLeaf);
-    storageEngineWriter.getLog().put(rootRef, container);
-    return new LeafNavigationResult(newLeaf, rootRef, new HOTIndirectPage[0], new PageReference[0], new int[0], 0);
+    final PageContainer container = PageContainer.getInstance(newLeaf, newLeaf);
+    storageEngineWriter.getLog().put(currentRef, container);
+
+    if (pathDepth > 0) {
+      propagateCowPathToRoot(pathDepth, currentRef);
+    }
+
+    return buildNavigationResult(newLeaf, currentRef, pathDepth);
   }
 
   /**
@@ -419,41 +403,89 @@ public abstract class AbstractHOTIndexWriter<K> {
       return null;
     }
 
-    // Check transaction log first (uncommitted modifications)
-    PageContainer container = storageEngineWriter.getLog().get(currentRef);
-    if (container != null) {
-      Page page = container.getComplete();
-
-      // Navigate through indirect pages
-      while (page instanceof HOTIndirectPage indirectPage) {
-        int childIndex = indirectPage.findChildIndex(keyBuf);
-        if (childIndex < 0) {
-          childIndex = 0;
-        }
-
-        PageReference childRef = indirectPage.getChildReference(childIndex);
-        if (childRef == null) {
-          return null;
-        }
-        currentRef = childRef;
-
-        PageContainer childContainer = storageEngineWriter.getLog().get(childRef);
-        if (childContainer != null) {
-          page = childContainer.getComplete();
-        } else if (childRef.getPage() != null) {
-          page = childRef.getPage();
-        } else {
-          page = storageEngineWriter.loadHOTPage(childRef);
-        }
+    Page page = resolveHOTPageForTraversal(currentRef);
+    while (page instanceof HOTIndirectPage indirectPage) {
+      int childIndex = indirectPage.findChildIndex(keyBuf);
+      if (childIndex < 0) {
+        childIndex = 0;
       }
 
-      if (page instanceof HOTLeafPage hotLeaf) {
-        return hotLeaf;
+      final PageReference childRef = indirectPage.getChildReference(childIndex);
+      if (childRef == null) {
+        return null;
+      }
+
+      currentRef = childRef;
+      page = resolveHOTPageForTraversal(currentRef);
+      if (page == null) {
+        return null;
       }
     }
 
-    // Use storage engine's versioning-aware page loading for committed data
-    return storageEngineWriter.getHOTLeafPage(indexType, indexNumber);
+    return page instanceof HOTLeafPage hotLeaf ? hotLeaf : null;
+  }
+
+  /**
+   * Resolve a HOT page from TIL/swizzled/storage for traversal.
+   *
+   * <p>Prefers the modified TIL page so in-transaction reads see latest writes.</p>
+   */
+  private @Nullable Page resolveHOTPageForTraversal(final PageReference ref) {
+    final PageContainer container = storageEngineWriter.getLog().get(ref);
+    if (container != null) {
+      final Page modified = container.getModified();
+      if (modified != null) {
+        return modified;
+      }
+      return container.getComplete();
+    }
+
+    final Page swizzled = ref.getPage();
+    if (swizzled != null) {
+      return swizzled;
+    }
+
+    if (ref.getKey() < 0 && ref.getLogKey() < 0) {
+      return null;
+    }
+
+    return storageEngineWriter.loadHOTPage(ref);
+  }
+
+  /**
+   * COW all ancestors from leaf parent up to root so updated child references are committed.
+   */
+  private void propagateCowPathToRoot(final int pathDepth, PageReference modifiedChildRef) {
+    PageReference childRef = modifiedChildRef;
+
+    for (int i = pathDepth - 1; i >= 0; i--) {
+      final PageReference parentRef = _pathRefs[i];
+      final int childIndex = _pathChildIndices[i];
+      final PageContainer existingParentContainer = storageEngineWriter.getLog().get(parentRef);
+
+      if (existingParentContainer != null && existingParentContainer.getModified() instanceof HOTIndirectPage parentInLog) {
+        parentInLog.setChildReference(childIndex, childRef);
+        _pathNodes[i] = parentInLog;
+        childRef = parentRef;
+        continue;
+      }
+
+      final HOTIndirectPage parentNode = _pathNodes[i];
+      final HOTIndirectPage updatedParent = parentNode.copyWithUpdatedChild(childIndex, childRef);
+      storageEngineWriter.getLog().put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
+      _pathNodes[i] = updatedParent;
+      childRef = parentRef;
+    }
+  }
+
+  /**
+   * Build immutable navigation result by trimming reusable path buffers.
+   */
+  private LeafNavigationResult buildNavigationResult(final HOTLeafPage leaf, final PageReference leafRef, final int pathDepth) {
+    final HOTIndirectPage[] pathNodes = pathDepth == 0 ? new HOTIndirectPage[0] : Arrays.copyOf(_pathNodes, pathDepth);
+    final PageReference[] pathRefs = pathDepth == 0 ? new PageReference[0] : Arrays.copyOf(_pathRefs, pathDepth);
+    final int[] pathChildIndices = pathDepth == 0 ? new int[0] : Arrays.copyOf(_pathChildIndices, pathDepth);
+    return new LeafNavigationResult(leaf, leafRef, pathNodes, pathRefs, pathChildIndices, pathDepth);
   }
 
   /**

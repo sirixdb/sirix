@@ -39,7 +39,6 @@ import io.sirix.node.Bytes;
 import io.sirix.node.xml.AbstractStructForwardingNode;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
-import java.nio.ByteBuffer;
 
 public abstract class AbstractStringNode extends AbstractStructForwardingNode implements ValueNode, ImmutableJsonNode {
 
@@ -63,8 +62,6 @@ public abstract class AbstractStringNode extends AbstractStructForwardingNode im
     bytes.writeLong(nodeDelegate.getNodeKey())
          .writeLong(nodeDelegate.getParentKey())
          .writeByte(nodeDelegate.getKind().getId());
-
-    bytes.writeLong(structNodeDelegate.getLeftSiblingKey()).writeLong(structNodeDelegate.getRightSiblingKey());
 
     bytes.writeUtf8(new String(valueNodeDelegate.getRawValue(), Constants.DEFAULT_ENCODING));
 

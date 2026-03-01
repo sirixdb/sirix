@@ -9,6 +9,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
+import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -85,18 +86,31 @@ public interface StorageEngineWriter extends StorageEngineReader {
   <V extends DataRecord> V prepareRecordForModification(@NonNegative long key, @NonNull IndexType indexType, int index);
 
   /**
-   * Persist a modified record directly back into its record-page slot.
+   * Fast-path variant of {@link #prepareRecordForModification} for the DOCUMENT index type.
+   * Skips assertNotClosed(), argument validation, and the IndexType switch in pageKey().
+   * Used on the insert hot path where keys are always valid and indexType is always DOCUMENT.
    *
-   * <p>
-   * This is the hot update path used to keep page slot memory in sync with in-memory mutable records
-   * without waiting for commit-time materialization.
-   * </p>
-   *
-   * @param record modified record to persist
-   * @param indexType the index type
-   * @param index the index number
+   * @param key key of the entry to be modified (must be >= 0)
+   * @return instance of the class implementing the {@link DataRecord} instance
    */
-  void updateRecordSlot(@NonNull DataRecord record, @NonNull IndexType indexType, int index);
+  @SuppressWarnings("unchecked")
+  default <V extends DataRecord> V prepareRecordForModificationDocument(final long key) {
+    return prepareRecordForModification(key, IndexType.DOCUMENT, -1);
+  }
+
+  /**
+   * Persist a mutated record into the TIL's modified page.
+   * Ensures the record's page is prepared for modification in the TIL
+   * and stores the record in the modified page's records[].
+   *
+   * <p>This is used by mutation operations (setName, setValue, hash updates) that
+   * mutate the current node directly without going through prepareRecordForModification.</p>
+   *
+   * @param record    the mutated record to persist
+   * @param indexType the index type
+   * @param index     the index number
+   */
+  void persistRecord(@NonNull DataRecord record, @NonNull IndexType indexType, int index);
 
   /**
    * Remove an entry from the storage.
@@ -182,6 +196,56 @@ public interface StorageEngineWriter extends StorageEngineReader {
   PageContainer dereferenceRecordPageForModification(PageReference reference);
 
   /**
+   * Functional interface for binding a write-path singleton to a slotted page slot.
+   * Set by the node transaction to enable zero-allocation write path.
+   */
+  @FunctionalInterface
+  interface WriteSingletonBinder {
+    DataRecord bind(KeyValueLeafPage page, int offset, long nodeKey);
+  }
+
+  /**
+   * Set the write singleton binder for zero-allocation write path.
+   * When set, prepareRecordForModification rebinds factory singletons instead of allocating.
+   *
+   * @param binder the write singleton binder from the node factory
+   */
+  default void setWriteSingletonBinder(final WriteSingletonBinder binder) {
+    // Default no-op; NodeStorageEngineWriter overrides
+  }
+
+  /**
+   * Allocate a record key and resolve the KVL page for direct-to-heap creation.
+   * After this call, read results from {@link #getAllocKvl()}, {@link #getAllocSlotOffset()},
+   * {@link #getAllocNodeKey()}.
+   * <p>Only supports DOCUMENT index (the hot path). Other index types use createRecord().</p>
+   */
+  default void allocateForDocumentCreation() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Get the KVL page from the last {@link #allocateForDocumentCreation()} call.
+   */
+  default KeyValueLeafPage getAllocKvl() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Get the slot offset from the last {@link #allocateForDocumentCreation()} call.
+   */
+  default int getAllocSlotOffset() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
+   * Get the node key from the last {@link #allocateForDocumentCreation()} call.
+   */
+  default long getAllocNodeKey() {
+    throw new UnsupportedOperationException();
+  }
+
+  /**
    * Get the underlying {@link StorageEngineReader}.
    *
    * @return the {@link StorageEngineReader} reference
@@ -225,4 +289,17 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @return a PageGuard that must be closed when done with the node
    */
   PageGuard acquireGuardForCurrentNode();
+
+  /**
+   * Get the TIL's modified {@link KeyValueLeafPage} for a given record page key, or null if not in TIL.
+   * Used by the singleton moveTo path to read from the correct (modified) page during write transactions.
+   *
+   * @param recordPageKey the record page key
+   * @param indexType the index type
+   * @param index the index number
+   * @return the modified page if in TIL, null otherwise
+   */
+  default @Nullable KeyValueLeafPage getModifiedPageForRead(long recordPageKey, @NonNull IndexType indexType, int index) {
+    return null;
+  }
 }

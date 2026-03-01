@@ -71,7 +71,7 @@ public final class SerializationDeserializationTest {
   @Test
   public void testPermutedSlotInsertions() {
     KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
-        new LinkedHashMap<>(), allocator.allocate(10_000), null, 0, 0);
+        new LinkedHashMap<>(), allocator.allocate(10_000), null, 0);
     KeyValueLeafPage deserializedPage = null;
 
     try {
@@ -128,7 +128,7 @@ public final class SerializationDeserializationTest {
   @RepeatedTest(100)
   public void testRandomSlotInsertions() {
     KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
-        new LinkedHashMap<>(), allocator.allocate(110_000), null, -1, -1);
+        new LinkedHashMap<>(), allocator.allocate(110_000), null, -1);
     KeyValueLeafPage deserializedPage = null;
 
     try {
@@ -182,7 +182,7 @@ public final class SerializationDeserializationTest {
   @Test
   public void testBasicSerialization() {
     KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
-        new LinkedHashMap<>(), allocator.allocate(1), null, -1, -1);
+        new LinkedHashMap<>(), allocator.allocate(1), null, -1);
     KeyValueLeafPage deserializedPage = null;
 
     try {
@@ -208,7 +208,7 @@ public final class SerializationDeserializationTest {
   @Test
   public void testSlotsSerialization() {
     KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
-        new LinkedHashMap<>(), allocator.allocate(1000), null, -1, -1);
+        new LinkedHashMap<>(), allocator.allocate(1000), null, -1);
     KeyValueLeafPage deserializedPage = null;
 
     try {
@@ -239,7 +239,7 @@ public final class SerializationDeserializationTest {
   public void testDeweyIdSerialization() {
     ResourceConfiguration configWithDeweyIDs = createResourceConfigurationWithDeweyIDs();
     KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, configWithDeweyIDs, true,
-        new NodeSerializerImpl(), new LinkedHashMap<>(), allocator.allocate(1000), allocator.allocate(1000), -1, -1);
+        new NodeSerializerImpl(), new LinkedHashMap<>(), allocator.allocate(1000), allocator.allocate(1000), -1);
     KeyValueLeafPage deserializedPage = null;
 
     try {
@@ -267,7 +267,7 @@ public final class SerializationDeserializationTest {
   @Test
   public void testEmptyPageSerialization() {
     KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
-        new LinkedHashMap<>(), allocator.allocate(1), null, -1, -1);
+        new LinkedHashMap<>(), allocator.allocate(1), null, -1);
     KeyValueLeafPage deserializedPage = null;
 
     try {
@@ -293,7 +293,7 @@ public final class SerializationDeserializationTest {
   @Test
   public void testMaxSlotsSerialization() {
     KeyValueLeafPage originalPage = new KeyValueLeafPage(1, 0, IndexType.DOCUMENT, config, false, null,
-        new LinkedHashMap<>(), allocator.allocate(10000), null, 0, 0);
+        new LinkedHashMap<>(), allocator.allocate(10000), null, 0);
     KeyValueLeafPage deserializedPage = null;
 
     try {

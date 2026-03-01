@@ -323,7 +323,8 @@ public class VersioningTest {
         assertEquals((Constants.NDP_NODE_COUNT * 10) - 1, wtx.getNodeKey());
         try (final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx()) {
           for (int i = 0; i < Constants.NDP_NODE_COUNT - 1; i++) {
-            assertTrue(rtx.moveToFirstChild());
+            final boolean moved = rtx.moveToFirstChild();
+            assertTrue(moved);
           }
           move(rtx);
           move(rtx);

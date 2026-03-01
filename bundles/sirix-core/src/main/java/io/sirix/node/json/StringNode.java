@@ -34,6 +34,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
+import io.sirix.node.Bytes;
 import io.sirix.node.ByteArrayBytesIn;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
@@ -42,55 +43,54 @@ import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.immutable.json.ImmutableStringNode;
+import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
-import io.sirix.node.layout.NodeKindLayout;
-import io.sirix.node.layout.SlotLayoutAccessors;
-import io.sirix.node.layout.StructuralField;
-import io.sirix.node.interfaces.ReusableNodeProxy;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
+import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.NodeFieldLayout;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
+import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
 import net.openhft.hashing.LongHashFunction;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 
 /**
  * JSON String node.
  *
- * <p>
- * Uses primitive fields for efficient storage with delta+varint encoding.
- * </p>
+ * <p>Uses primitive fields for efficient storage with delta+varint encoding.</p>
  * 
  * @author Johannes Lichtenberger
  */
-public final class StringNode implements StructNode, ValueNode, ImmutableJsonNode, ReusableNodeProxy {
+public final class StringNode implements StructNode, ValueNode, ImmutableJsonNode, FlyweightNode {
 
   // Node identity (mutable for singleton reuse)
   private long nodeKey;
-
+  
   // Mutable structural fields
   private long parentKey;
   private long rightSiblingKey;
   private long leftSiblingKey;
-
+  
   // Mutable revision tracking
   private int previousRevision;
   private int lastModifiedRevision;
-
+  
   // Mutable hash (computed on demand for value nodes)
   private long hash;
-
+  
   // String value (stored as bytes)
   private byte[] value;
-
+  
   // Hash function for computing node hashes (mutable for singleton reuse)
   private LongHashFunction hashFunction;
-
+  
   // DeweyID support (lazily parsed)
   private SirixDeweyID sirixDeweyID;
   private byte[] deweyIDBytes;
@@ -100,46 +100,67 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   private boolean isCompressed;
   /** FSST symbol table for decompression (shared from KeyValueLeafPage) */
   private byte[] fsstSymbolTable;
-  /** Pre-parsed FSST symbol table (avoids re-parsing on every decode) */
-  private byte[][] parsedFsstSymbols;
   /** Decompressed value (lazy allocated on first access if compressed) */
   private byte[] decodedValue;
 
   // Lazy parsing state (for singleton reuse optimization)
   // Two-stage lazy parsing: metadata (cheap) vs value (expensive byte[] allocation)
-  private Object lazySource; // Source for lazy parsing (MemorySegment or byte[])
-  private long lazyOffset; // Offset where lazy metadata fields start
-  private boolean metadataParsed; // Whether prevRev, lastModRev, hash are parsed
-  private boolean valueParsed; // Whether value byte[] is parsed
-  private boolean hasHash; // Whether hash is stored (from config)
-  private long valueOffset; // Offset where value starts (after metadata)
+  private Object lazySource;            // Source for lazy parsing (MemorySegment or byte[])
+  private long lazyOffset;              // Offset where lazy metadata fields start
+  private boolean metadataParsed;       // Whether prevRev, lastModRev, hash are parsed
+  private boolean valueParsed;          // Whether value byte[] is parsed
+  private boolean hasHash;              // Whether hash is stored (from config)
+  private long valueOffset;             // Offset where value starts (after metadata)
 
-  // Fixed-slot value encoding state (for read path via populateSingletonFromFixedSlot)
-  private boolean fixedValueEncoding; // Whether value comes from fixed-slot inline payload
-  private int fixedValueLength; // Length of inline payload bytes
-  private boolean fixedValueCompressed; // Whether inline payload is FSST compressed
+  // ==================== FLYWEIGHT BINDING (LeanStore page-direct access) ====================
+  private MemorySegment page;
+  private long recordBase;
+  private long dataRegionStart;
+  private int slotIndex;
 
-  // Fixed-slot lazy metadata support
-  private long lazyBaseOffset;
-  private NodeKindLayout fixedSlotLayout;
+  /** True if this node is a factory-managed write singleton (must not be stored in records[]). */
+  private boolean writeSingleton;
+
+  /** Owning page for resize-in-place on varint width changes. */
+  private KeyValueLeafPage ownerPage;
+
+  /** Pre-allocated offset array reused across serializations (zero-alloc hot path). */
+  private final int[] heapOffsets;
+
+  private static final int FIELD_COUNT = NodeFieldLayout.STRING_VALUE_FIELD_COUNT;
 
   /**
-   * Primary constructor with all primitive fields. All fields are already parsed - no lazy loading
-   * needed.
+   * Constructor for flyweight binding.
+   * All fields except nodeKey and hashFunction will be read from page memory after bind().
+   *
+   * @param nodeKey the node key
+   * @param hashFunction the hash function from resource config
    */
-  public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
-      long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, byte[] deweyID) {
-    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey, hash, value,
-        hashFunction, deweyID, false, null);
+  public StringNode(long nodeKey, LongHashFunction hashFunction) {
+    this.nodeKey = nodeKey;
+    this.hashFunction = hashFunction;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
-   * Primary constructor with all primitive fields and compression support. All fields are already
-   * parsed - no lazy loading needed.
+   * Primary constructor with all primitive fields.
+   * All fields are already parsed - no lazy loading needed.
    */
-  public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
-      long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, byte[] deweyID, boolean isCompressed,
-      byte[] fsstSymbolTable) {
+  public StringNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
+      byte[] value, LongHashFunction hashFunction, byte[] deweyID) {
+    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey,
+        leftSiblingKey, hash, value, hashFunction, deweyID, false, null);
+  }
+
+  /**
+   * Primary constructor with all primitive fields and compression support.
+   * All fields are already parsed - no lazy loading needed.
+   */
+  public StringNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
+      byte[] value, LongHashFunction hashFunction, byte[] deweyID,
+      boolean isCompressed, byte[] fsstSymbolTable) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
     this.previousRevision = previousRevision;
@@ -155,24 +176,27 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     // Constructed with all values - mark as fully parsed
     this.metadataParsed = true;
     this.valueParsed = true;
+    this.heapOffsets = new int[FIELD_COUNT];
   }
 
   /**
-   * Constructor with SirixDeweyID instead of byte array. All fields are already parsed - no lazy
-   * loading needed.
+   * Constructor with SirixDeweyID instead of byte array.
+   * All fields are already parsed - no lazy loading needed.
    */
-  public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
-      long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
-    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey, hash, value,
-        hashFunction, deweyID, false, null);
+  public StringNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
+      byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID) {
+    this(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey,
+        leftSiblingKey, hash, value, hashFunction, deweyID, false, null);
   }
 
   /**
-   * Constructor with SirixDeweyID and compression support. All fields are already parsed - no lazy
-   * loading needed.
+   * Constructor with SirixDeweyID and compression support.
+   * All fields are already parsed - no lazy loading needed.
    */
-  public StringNode(long nodeKey, long parentKey, int previousRevision, int lastModifiedRevision, long rightSiblingKey,
-      long leftSiblingKey, long hash, byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID,
+  public StringNode(long nodeKey, long parentKey, int previousRevision,
+      int lastModifiedRevision, long rightSiblingKey, long leftSiblingKey, long hash,
+      byte[] value, LongHashFunction hashFunction, SirixDeweyID deweyID,
       boolean isCompressed, byte[] fsstSymbolTable) {
     this.nodeKey = nodeKey;
     this.parentKey = parentKey;
@@ -189,6 +213,220 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     // Constructed with all values - mark as fully parsed
     this.metadataParsed = true;
     this.valueParsed = true;
+    this.heapOffsets = new int[FIELD_COUNT];
+  }
+
+  // ==================== FLYWEIGHT BIND/UNBIND ====================
+
+  public void bind(final MemorySegment page, final long recordBase, final long nodeKey,
+      final int slotIndex) {
+    this.page = page;
+    this.recordBase = recordBase;
+    this.nodeKey = nodeKey;
+    this.slotIndex = slotIndex;
+    this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
+    this.hash = 0;
+    this.metadataParsed = true;
+    this.valueParsed = false; // Payload still needs lazy parsing from page
+    this.lazySource = null;
+  }
+
+  public void unbind() {
+    if (page == null) return;
+    final long nk = this.nodeKey;
+    this.parentKey = readDeltaField(NodeFieldLayout.STRVAL_PARENT_KEY, nk);
+    this.rightSiblingKey = readDeltaField(NodeFieldLayout.STRVAL_RIGHT_SIB_KEY, nk);
+    this.leftSiblingKey = readDeltaField(NodeFieldLayout.STRVAL_LEFT_SIB_KEY, nk);
+    this.previousRevision = readSignedField(NodeFieldLayout.STRVAL_PREV_REVISION);
+    this.lastModifiedRevision = readSignedField(NodeFieldLayout.STRVAL_LAST_MOD_REVISION);
+    // Payload needs to be read from page before unbinding
+    if (!valueParsed) {
+      readPayloadFromPage();
+    }
+    this.page = null;
+    this.ownerPage = null;
+  }
+
+  @Override
+  public void clearBinding() {
+    this.page = null;
+    this.ownerPage = null;
+  }
+
+  public boolean isBound() { return page != null; }
+
+  @Override
+  public boolean isBoundTo(final MemorySegment page) {
+    return this.page == page;
+  }
+
+  @Override
+  public int getSlotIndex() {
+    return slotIndex;
+  }
+
+  @Override
+  public int estimateSerializedSize() {
+    final int payloadLen = value != null ? value.length : 0;
+    return 55 + payloadLen;
+  }
+
+  // ==================== FLYWEIGHT FIELD READ HELPERS ====================
+
+  private long readDeltaField(final int fieldIndex, final long baseKey) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(page, dataRegionStart + fieldOff, baseKey);
+  }
+
+  private int readSignedField(final int fieldIndex) {
+    final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
+    return DeltaVarIntCodec.decodeSignedFromSegment(page, dataRegionStart + fieldOff);
+  }
+
+
+  @Override
+  public KeyValueLeafPage getOwnerPage() {
+    return ownerPage;
+  }
+
+  @Override
+  public void setOwnerPage(final KeyValueLeafPage ownerPage) {
+    this.ownerPage = ownerPage;
+  }
+
+  /**
+   * Read the payload (value bytes) directly from page memory when bound.
+   */
+  private void readPayloadFromPage() {
+    final int payloadFieldOff = page.get(ValueLayout.JAVA_BYTE,
+        recordBase + 1 + NodeFieldLayout.STRVAL_PAYLOAD) & 0xFF;
+    final long payloadStart = dataRegionStart + payloadFieldOff;
+
+    // Read isCompressed flag (1 byte)
+    this.isCompressed = page.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
+
+    // Read value length (varint)
+    final long lenOffset = payloadStart + 1;
+    final int length = DeltaVarIntCodec.decodeSignedFromSegment(page, lenOffset);
+    final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(page, lenOffset);
+
+    // Read value bytes
+    final long dataOffset = lenOffset + lenBytes;
+    this.value = new byte[length];
+    MemorySegment.copy(page, ValueLayout.JAVA_BYTE, dataOffset, this.value, 0, length);
+    this.valueParsed = true;
+  }
+
+  // ==================== SERIALIZE TO HEAP ====================
+
+  /**
+   * Encode a StringNode record directly to a MemorySegment from parameter values.
+   * Static -- reads nothing from any instance. Zero field intermediation.
+   *
+   * @param target        the target MemorySegment (reinterpreted slotted page)
+   * @param offset        absolute byte offset to write at
+   * @param heapOffsets   pre-allocated offset array (reused, FIELD_COUNT elements)
+   * @param nodeKey       the node key (delta base for structural keys)
+   * @param parentKey     the parent node key
+   * @param rightSibKey   the right sibling key
+   * @param leftSibKey    the left sibling key
+   * @param prevRev       the previous revision number
+   * @param lastModRev    the last modified revision number
+   * @param rawValue      the raw value bytes (possibly compressed)
+   * @param isCompressed  whether the value is FSST compressed
+   * @return the total number of bytes written
+   */
+  public static int writeNewRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final long rightSibKey, final long leftSibKey,
+      final int prevRev, final int lastModRev,
+      final byte[] rawValue, final boolean isCompressed) {
+    final byte[] val = rawValue != null ? rawValue : new byte[0];
+    return writeNewRecord(target, offset, heapOffsets, nodeKey, parentKey, rightSibKey, leftSibKey,
+        prevRev, lastModRev, val, 0, val.length, isCompressed);
+  }
+
+  public static int writeNewRecord(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final long rightSibKey, final long leftSibKey,
+      final int prevRev, final int lastModRev,
+      final byte[] rawValue, final int rawOff, final int rawLen, final boolean isCompressed) {
+    long pos = offset;
+
+    // Write nodeKind byte
+    target.set(ValueLayout.JAVA_BYTE, pos, NodeKind.STRING_VALUE.getId());
+    pos++;
+
+    // Reserve space for offset table
+    final long offsetTableStart = pos;
+    pos += FIELD_COUNT;
+
+    // Data region start
+    final long dataStart = pos;
+
+    // Field 0: parentKey (delta-varint)
+    heapOffsets[NodeFieldLayout.STRVAL_PARENT_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
+
+    // Field 1: rightSiblingKey (delta-varint)
+    heapOffsets[NodeFieldLayout.STRVAL_RIGHT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, rightSibKey, nodeKey);
+
+    // Field 2: leftSiblingKey (delta-varint)
+    heapOffsets[NodeFieldLayout.STRVAL_LEFT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, leftSibKey, nodeKey);
+
+    // Field 3: previousRevision (signed varint)
+    heapOffsets[NodeFieldLayout.STRVAL_PREV_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prevRev);
+
+    // Field 4: lastModifiedRevision (signed varint)
+    heapOffsets[NodeFieldLayout.STRVAL_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
+
+    // Field 5: payload [isCompressed:1][valueLength:varint][value:bytes]
+    heapOffsets[NodeFieldLayout.STRVAL_PAYLOAD] = (int) (pos - dataStart);
+    target.set(ValueLayout.JAVA_BYTE, pos, isCompressed ? (byte) 1 : (byte) 0);
+    pos++;
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, rawLen);
+    if (rawLen > 0) {
+      MemorySegment.copy(rawValue, rawOff, target, ValueLayout.JAVA_BYTE, pos, rawLen);
+      pos += rawLen;
+    }
+
+    // Write offset table
+    for (int i = 0; i < FIELD_COUNT; i++) {
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
+    }
+
+    return (int) (pos - offset);
+  }
+
+  /**
+   * Serialize this node from Java fields. Delegates to static writeNewRecord.
+   */
+  public int serializeToHeap(final MemorySegment target, final long offset) {
+    if (!metadataParsed) parseMetadataFields();
+    if (!valueParsed) parseValueField();
+    return writeNewRecord(target, offset, heapOffsets, nodeKey,
+        parentKey, rightSiblingKey, leftSiblingKey,
+        previousRevision, lastModifiedRevision, value, isCompressed);
+  }
+
+  /**
+   * Get the pre-allocated heap offsets array for use with static writeNewRecord.
+   */
+  public int[] getHeapOffsets() {
+    return heapOffsets;
+  }
+
+  /**
+   * Set DeweyID fields directly after creation, bypassing write-through.
+   * The DeweyID is already in the page trailer -- this just sets the Java cache fields.
+   */
+  public void setDeweyIDAfterCreation(final SirixDeweyID id, final byte[] bytes) {
+    this.sirixDeweyID = id;
+    this.deweyIDBytes = bytes;
   }
 
   @Override
@@ -203,16 +441,38 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
 
   @Override
   public long getParentKey() {
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.STRVAL_PARENT_KEY, nodeKey);
+    }
     return parentKey;
   }
 
   public void setParentKey(final long parentKey) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.STRVAL_PARENT_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(parentKey, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, parentKey, nodeKey);
+        return;
+      }
+      resizeParentKey(parentKey);
+      return;
+    }
     this.parentKey = parentKey;
+  }
+
+  private void resizeParentKey(final long parentKey) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.STRVAL_PARENT_KEY, NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, parentKey, nodeKey));
   }
 
   @Override
   public boolean hasParent() {
-    return parentKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getParentKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
@@ -227,26 +487,83 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
 
   @Override
   public void setDeweyID(final SirixDeweyID id) {
+    final var owner = this.ownerPage;
+    if (owner != null) {
+      final long nk = this.nodeKey;
+      final int slot = this.slotIndex;
+      unbind();
+      this.sirixDeweyID = id;
+      this.deweyIDBytes = null;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
     this.sirixDeweyID = id;
     this.deweyIDBytes = null;
   }
 
   @Override
+  public void setDeweyIDBytes(final byte[] bytes) {
+    this.deweyIDBytes = bytes;
+    this.sirixDeweyID = null;
+  }
+
+  @Override
   public void setPreviousRevision(final int revision) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.STRVAL_PREV_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      resizePreviousRevision(revision);
+      return;
+    }
     this.previousRevision = revision;
+  }
+
+  private void resizePreviousRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.STRVAL_PREV_REVISION, NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
   public void setLastModifiedRevision(final int revision) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.STRVAL_LAST_MOD_REVISION) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeSignedToSegment(page, absOff, revision);
+        return;
+      }
+      resizeLastModifiedRevision(revision);
+      return;
+    }
     this.lastModifiedRevision = revision;
+  }
+
+  private void resizeLastModifiedRevision(final int revision) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.STRVAL_LAST_MOD_REVISION, NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
   public long getHash() {
-    if (!metadataParsed) {
-      parseMetadataFields();
+    if (hash != 0L) {
+      return hash;
     }
-    return hash;
+    if (hashFunction != null) {
+      return computeHash(Bytes.threadLocalHashBuffer());
+    }
+    return 0L;
   }
 
   @Override
@@ -257,38 +574,85 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   @Override
   public long computeHash(final BytesOut<?> bytes) {
     bytes.clear();
-    bytes.writeLong(getNodeKey()).writeLong(getParentKey()).writeByte(getKind().getId());
+    bytes.writeLong(getNodeKey())
+         .writeLong(getParentKey())
+         .writeByte(getKind().getId());
 
-    bytes.writeLong(getLeftSiblingKey()).writeLong(getRightSiblingKey());
-
-    bytes.writeUtf8(getValue());
+    final byte[] rawValue = getRawValue();
+    if (rawValue != null) {
+      bytes.write(rawValue);
+    }
 
     return bytes.hashDirect(hashFunction);
   }
 
   @Override
   public long getRightSiblingKey() {
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.STRVAL_RIGHT_SIB_KEY, nodeKey);
+    }
     return rightSiblingKey;
   }
 
   public void setRightSiblingKey(final long rightSibling) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.STRVAL_RIGHT_SIB_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(rightSibling, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, rightSibling, nodeKey);
+        return;
+      }
+      resizeRightSiblingKey(rightSibling);
+      return;
+    }
     this.rightSiblingKey = rightSibling;
+  }
+
+  private void resizeRightSiblingKey(final long rightSibling) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.STRVAL_RIGHT_SIB_KEY, NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, rightSibling, nodeKey));
   }
 
   @Override
   public long getLeftSiblingKey() {
+    if (page != null) {
+      return readDeltaField(NodeFieldLayout.STRVAL_LEFT_SIB_KEY, nodeKey);
+    }
     return leftSiblingKey;
   }
 
   public void setLeftSiblingKey(final long leftSibling) {
+    if (page != null) {
+      final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
+          recordBase + 1 + NodeFieldLayout.STRVAL_LEFT_SIB_KEY) & 0xFF;
+      final long absOff = dataRegionStart + fieldOff;
+      final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
+      final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(leftSibling, nodeKey);
+      if (newWidth == currentWidth) {
+        DeltaVarIntCodec.writeDeltaToSegment(page, absOff, leftSibling, nodeKey);
+        return;
+      }
+      resizeLeftSiblingKey(leftSibling);
+      return;
+    }
     this.leftSiblingKey = leftSibling;
+  }
+
+  private void resizeLeftSiblingKey(final long leftSibling) {
+    ownerPage.resizeRecordField(this, nodeKey, slotIndex,
+        NodeFieldLayout.STRVAL_LEFT_SIB_KEY, NodeFieldLayout.STRING_VALUE_FIELD_COUNT,
+        (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, leftSibling, nodeKey));
   }
 
   @Override
   public long getFirstChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-
+  
   public void setFirstChildKey(final long firstChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -297,7 +661,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public long getLastChildKey() {
     return Fixed.NULL_NODE_KEY.getStandardProperty();
   }
-
+  
   public void setLastChildKey(final long lastChild) {
     // Value nodes are leaf nodes - no-op
   }
@@ -306,7 +670,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public long getChildCount() {
     return 0;
   }
-
+  
   public void setChildCount(final long childCount) {
     // Value nodes are leaf nodes - no-op
   }
@@ -315,34 +679,35 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   public long getDescendantCount() {
     return 0;
   }
-
+  
   public void setDescendantCount(final long descendantCount) {
     // Value nodes are leaf nodes - no-op
   }
 
   @Override
   public byte[] getRawValue() {
-    if (!valueParsed) {
+    if (page != null && !valueParsed) {
+      readPayloadFromPage();
+    } else if (!valueParsed) {
       parseValueField();
     }
-    // If compressed, decode on first access using pre-parsed symbols when available
+    // If compressed, decode on first access
     if (isCompressed && decodedValue == null && value != null) {
-      final byte[][] parsed = parsedFsstSymbols;
-      decodedValue = (parsed != null) ? FSSTCompressor.decode(value, parsed) : FSSTCompressor.decode(value, fsstSymbolTable);
+      decodedValue = FSSTCompressor.decode(value, fsstSymbolTable);
     }
-    return isCompressed
-        ? decodedValue
-        : value;
+    return isCompressed ? decodedValue : value;
   }
 
   /**
-   * Get the raw (possibly compressed) value bytes without FSST decoding. Use this for serialization
-   * to preserve compression.
+   * Get the raw (possibly compressed) value bytes without FSST decoding.
+   * Use this for serialization to preserve compression.
    * 
    * @return the raw bytes as stored, possibly FSST compressed
    */
   public byte[] getRawValueWithoutDecompression() {
-    if (!valueParsed) {
+    if (page != null && !valueParsed) {
+      readPayloadFromPage();
+    } else if (!valueParsed) {
       parseValueField();
     }
     return value;
@@ -350,10 +715,19 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
 
   @Override
   public void setRawValue(final byte[] value) {
+    final var owner = this.ownerPage;
+    if (owner != null) {
+      final long nk = this.nodeKey;
+      final int slot = this.slotIndex;
+      unbind();
+      this.value = value;
+      this.decodedValue = null;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
+    if (page != null) unbind();
     this.value = value;
     this.decodedValue = null;
-    this.fixedValueEncoding = false;
-    this.valueParsed = true;
   }
 
   /**
@@ -364,12 +738,23 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
    * @param fsstSymbolTable the symbol table for decompression (or null if not compressed)
    */
   public void setRawValue(final byte[] value, boolean isCompressed, byte[] fsstSymbolTable) {
+    final var owner = this.ownerPage;
+    if (owner != null) {
+      final long nk = this.nodeKey;
+      final int slot = this.slotIndex;
+      unbind();
+      this.value = value;
+      this.isCompressed = isCompressed;
+      this.fsstSymbolTable = fsstSymbolTable;
+      this.decodedValue = null;
+      owner.resizeRecord(this, nk, slot);
+      return;
+    }
+    if (page != null) unbind();
     this.value = value;
     this.isCompressed = isCompressed;
     this.fsstSymbolTable = fsstSymbolTable;
     this.decodedValue = null;
-    this.fixedValueEncoding = false;
-    this.valueParsed = true;
   }
 
   /**
@@ -378,12 +763,15 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
    * @return true if compressed
    */
   public boolean isCompressed() {
+    if (page != null && !valueParsed) {
+      readPayloadFromPage();
+    }
     return isCompressed;
   }
 
   /**
    * Set compression state.
-   * 
+   *
    * @param isCompressed true if value is compressed
    */
   public void setCompressed(boolean isCompressed) {
@@ -401,25 +789,12 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
 
   /**
    * Set the FSST symbol table.
-   *
+   * 
    * @param fsstSymbolTable the symbol table
    */
   public void setFsstSymbolTable(byte[] fsstSymbolTable) {
     this.fsstSymbolTable = fsstSymbolTable;
-    this.parsedFsstSymbols = null;
     this.decodedValue = null; // Reset decoded value when table changes
-  }
-
-  /**
-   * Set the FSST symbol table with pre-parsed symbols to avoid redundant parsing.
-   *
-   * @param fsstSymbolTable the raw symbol table bytes
-   * @param parsedFsstSymbols the pre-parsed symbol arrays
-   */
-  public void setFsstSymbolTable(byte[] fsstSymbolTable, byte[][] parsedFsstSymbols) {
-    this.fsstSymbolTable = fsstSymbolTable;
-    this.parsedFsstSymbols = parsedFsstSymbols;
-    this.decodedValue = null;
   }
 
   @Override
@@ -461,16 +836,19 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
 
   @Override
   public boolean hasLeftSibling() {
-    return leftSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public boolean hasRightSibling() {
-    return rightSiblingKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
   public int getPreviousRevisionNumber() {
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.STRVAL_PREV_REVISION);
+    }
     if (!metadataParsed) {
       parseMetadataFields();
     }
@@ -479,6 +857,9 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
 
   @Override
   public int getLastModifiedRevisionNumber() {
+    if (page != null) {
+      return readSignedField(NodeFieldLayout.STRVAL_LAST_MOD_REVISION);
+    }
     if (!metadataParsed) {
       parseMetadataFields();
     }
@@ -494,18 +875,15 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     this.nodeKey = nodeKey;
   }
 
-  public void setDeweyIDBytes(final byte[] deweyIDBytes) {
-    this.deweyIDBytes = deweyIDBytes;
-    this.sirixDeweyID = null;
-  }
-
   /**
-   * Populate this node from a BytesIn source for singleton reuse. LAZY OPTIMIZATION: Only parses
-   * structural fields immediately. Two-stage lazy parsing: metadata (cheap) vs value (expensive
-   * byte[] allocation).
+   * Populate this node from a BytesIn source for singleton reuse.
+   * LAZY OPTIMIZATION: Only parses structural fields immediately.
+   * Two-stage lazy parsing: metadata (cheap) vs value (expensive byte[] allocation).
    */
   public void readFrom(final BytesIn<?> source, final long nodeKey, final byte[] deweyId,
-      final LongHashFunction hashFunction, final ResourceConfiguration config) {
+                       final LongHashFunction hashFunction, final ResourceConfiguration config) {
+    // Unbind flyweight — ensures getters use Java fields, not stale page reference
+    this.page = null;
     this.nodeKey = nodeKey;
     this.hashFunction = hashFunction;
     this.deweyIDBytes = deweyId;
@@ -523,126 +901,71 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     this.valueParsed = false;
     this.hasHash = config.hashType != HashType.NONE;
     this.valueOffset = 0;
-
+    
     // Initialize lazy fields to defaults (will be populated on demand)
     this.previousRevision = 0;
     this.lastModifiedRevision = 0;
     this.hash = 0;
     this.value = null;
   }
-
+  
   /**
-   * Populate this singleton from fixed-slot inline payload (zero allocation). Sets up lazy value
-   * parsing from the fixed-slot MemorySegment. CRITICAL: Resets hash to 0 — caller MUST call
-   * setHash() AFTER this method.
-   *
-   * @param source the slot data (MemorySegment) containing inline payload
-   * @param valueOffset byte offset within source where payload bytes start
-   * @param valueLength length of payload bytes
-   * @param compressed whether the payload is FSST compressed
-   */
-  public void setLazyRawValue(final Object source, final long valueOffset, final int valueLength,
-      final boolean compressed) {
-    this.lazySource = source;
-    this.valueOffset = valueOffset;
-    this.metadataParsed = true;
-    this.valueParsed = false;
-    this.fixedValueEncoding = true;
-    this.fixedValueLength = valueLength;
-    this.fixedValueCompressed = compressed;
-    this.value = null;
-    this.fsstSymbolTable = null;
-    this.parsedFsstSymbols = null;
-    this.decodedValue = null;
-    this.hash = 0L;
-  }
-
-  public void bindFixedSlotLazy(final MemorySegment slotData, final long baseOffset, final NodeKindLayout layout) {
-    this.lazyBaseOffset = baseOffset;
-    this.fixedSlotLayout = layout;
-    this.metadataParsed = false;
-  }
-
-  /**
-   * Parse metadata fields on demand (cheap - just varints and optionally a long). Called by getters
-   * that access prevRev, lastModRev, or hash.
+   * Parse metadata fields on demand (cheap - just varints and optionally a long).
+   * Called by getters that access prevRev, lastModRev, or hash.
    */
   private void parseMetadataFields() {
     if (metadataParsed) {
       return;
     }
-
-    if (fixedSlotLayout != null) {
-      final MemorySegment sd = (MemorySegment) lazySource;
-      final NodeKindLayout ly = fixedSlotLayout;
-      final long off = this.lazyBaseOffset;
-      this.previousRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.PREVIOUS_REVISION);
-      this.lastModifiedRevision = SlotLayoutAccessors.readIntField(sd, off, ly, StructuralField.LAST_MODIFIED_REVISION);
-      this.hash = SlotLayoutAccessors.readLongField(sd, off, ly, StructuralField.HASH);
-      this.fixedSlotLayout = null;
-      this.metadataParsed = true;
-      return;
-    }
-
+    
     if (lazySource == null) {
+      // Already fully constructed (e.g., from constructor)
       metadataParsed = true;
       return;
     }
-
+    
     BytesIn<?> bytesIn = createBytesIn(lazyOffset);
-
+    
     this.previousRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.lastModifiedRevision = DeltaVarIntCodec.decodeSigned(bytesIn);
     if (hasHash) {
-      this.hash = bytesIn.readLong();
+      bytesIn.readLong(); // skip legacy hash field
     }
     // Store position where value starts (for separate value parsing)
     this.valueOffset = bytesIn.position();
     this.metadataParsed = true;
   }
-
+  
   /**
-   * Parse value field on demand (expensive - allocates byte[]). Called by getValue() and
-   * getRawValue().
+   * Parse value field on demand (expensive - allocates byte[]).
+   * Called by getValue() and getRawValue().
    */
   private void parseValueField() {
     if (valueParsed) {
       return;
     }
-
-    // Fixed-slot inline payload path (from setLazyRawValue)
-    if (fixedValueEncoding) {
-      final BytesIn<?> bytesIn = createBytesIn(valueOffset);
-      this.isCompressed = fixedValueCompressed;
-      this.value = new byte[fixedValueLength];
-      if (fixedValueLength > 0) {
-        bytesIn.read(this.value, 0, fixedValueLength);
-      }
-      this.valueParsed = true;
-      return;
-    }
-
+    
     // Must parse metadata first to know where value starts
     if (!metadataParsed) {
       parseMetadataFields();
     }
-
+    
     if (lazySource == null) {
       valueParsed = true;
       return;
     }
-
-    final BytesIn<?> bytesIn = createBytesIn(valueOffset);
-
+    
+    BytesIn<?> bytesIn = createBytesIn(valueOffset);
+    
     // Read compression flag (1 byte: 0 = none, 1 = FSST)
     this.isCompressed = bytesIn.readByte() == 1;
-
-    final int length = DeltaVarIntCodec.decodeSigned(bytesIn);
+    
+    int length = DeltaVarIntCodec.decodeSigned(bytesIn);
     this.value = new byte[length];
     bytesIn.read(this.value);
     this.valueParsed = true;
   }
-
+  
   /**
    * Create a BytesIn for reading from the lazy source at the given offset.
    */
@@ -661,10 +984,27 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   }
 
   /**
-   * Create a deep copy snapshot of this node. Forces parsing of all lazy fields since snapshot must
-   * be independent.
+   * Create a deep copy snapshot of this node.
+   * Forces parsing of all lazy fields since snapshot must be independent.
    */
   public StringNode toSnapshot() {
+    if (page != null) {
+      // Bound mode: read all fields from page
+      if (!valueParsed) {
+        readPayloadFromPage();
+      }
+      return new StringNode(nodeKey,
+          readDeltaField(NodeFieldLayout.STRVAL_PARENT_KEY, nodeKey),
+          readSignedField(NodeFieldLayout.STRVAL_PREV_REVISION),
+          readSignedField(NodeFieldLayout.STRVAL_LAST_MOD_REVISION),
+          readDeltaField(NodeFieldLayout.STRVAL_RIGHT_SIB_KEY, nodeKey),
+          readDeltaField(NodeFieldLayout.STRVAL_LEFT_SIB_KEY, nodeKey),
+          hash,
+          value != null ? value.clone() : null,
+          hashFunction,
+          getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
+          isCompressed, fsstSymbolTable != null ? fsstSymbolTable.clone() : null);
+    }
     // Force parse all lazy fields for snapshot (must be complete and independent)
     if (!metadataParsed) {
       parseMetadataFields();
@@ -672,16 +1012,22 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     if (!valueParsed) {
       parseValueField();
     }
-    return new StringNode(nodeKey, parentKey, previousRevision, lastModifiedRevision, rightSiblingKey, leftSiblingKey,
-        hash, value != null
-            ? value.clone()
-            : null,
-        hashFunction, deweyIDBytes != null
-            ? deweyIDBytes.clone()
-            : null,
-        isCompressed, fsstSymbolTable != null
-            ? fsstSymbolTable.clone()
-            : null);
+    return new StringNode(nodeKey, parentKey, previousRevision, lastModifiedRevision,
+        rightSiblingKey, leftSiblingKey, hash,
+        value != null ? value.clone() : null,
+        hashFunction,
+        getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null,
+        isCompressed, fsstSymbolTable != null ? fsstSymbolTable.clone() : null);
+  }
+
+  @Override
+  public boolean isWriteSingleton() {
+    return writeSingleton;
+  }
+
+  @Override
+  public void setWriteSingleton(final boolean writeSingleton) {
+    this.writeSingleton = writeSingleton;
   }
 
   @Override
@@ -728,6 +1074,8 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
     if (!(obj instanceof final StringNode other))
       return false;
 
-    return nodeKey == other.nodeKey && parentKey == other.parentKey && Objects.equal(getValue(), other.getValue());
+    return nodeKey == other.nodeKey
+        && parentKey == other.parentKey
+        && Objects.equal(getValue(), other.getValue());
   }
 }

@@ -34,6 +34,7 @@ import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.access.trx.node.RecordToRevisionsIndex;
+import io.sirix.access.trx.node.json.objectvalue.ByteStringValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -56,7 +57,6 @@ import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.BooleanValueNode;
-import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.NumericValueNode;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
@@ -170,6 +170,8 @@ final class JsonNodeTrxImpl extends
   private static final String INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE =
       "Insert is not allowed if parent node is not an array node!";
 
+  private static final QNm ARRAY_PATH_QNM = new QNm("__array__");
+  private static final QNm ARRAY_SIBLING_PATH_QNM = new QNm("array");
   private static final Str STR_TRUE = new Str("true");
   private static final Str STR_FALSE = new Str("false");
 
@@ -220,6 +222,11 @@ final class JsonNodeTrxImpl extends
 
     // Auto-create CAS indexes for valid time paths on bootstrap
     createValidTimeIndexesIfNeeded(resourceSession.getResourceConfig());
+
+    // Wire write singleton binder for zero-allocation write path.
+    if (nodeFactory instanceof JsonNodeFactoryImpl factoryImpl) {
+      wireWriteSingletonBinder(factoryImpl, storageEngineWriter);
+    }
   }
 
   /**
@@ -363,56 +370,25 @@ final class JsonNodeTrxImpl extends
   private JsonNodeTrx insertSubtree(final JsonParser parser, final InsertPosition insertionPosition,
       final Commit commit, final CheckParentNode checkParentNode, final SkipRootToken doSkipRootJsonToken) {
     requireNonNull(parser);
+    final var tokenHolder = new com.fasterxml.jackson.core.JsonToken[1];
 
     return insertSubtreeInternal(insertionPosition, commit, checkParentNode, doSkipRootJsonToken, () -> {
-      final com.fasterxml.jackson.core.JsonToken peekedToken = parser.nextToken();
-      if (peekedToken != com.fasterxml.jackson.core.JsonToken.START_OBJECT
-          && peekedToken != com.fasterxml.jackson.core.JsonToken.START_ARRAY) {
+      final com.fasterxml.jackson.core.JsonToken firstToken = parser.nextToken();
+      if (firstToken != com.fasterxml.jackson.core.JsonToken.START_OBJECT
+          && firstToken != com.fasterxml.jackson.core.JsonToken.START_ARRAY) {
         throw new SirixUsageException("JSON to insert must begin with an array or object.");
       }
-      return new InputShape(peekedToken == com.fasterxml.jackson.core.JsonToken.START_OBJECT,
-          peekedToken == com.fasterxml.jackson.core.JsonToken.START_ARRAY);
+      tokenHolder[0] = firstToken;
+      return new InputShape(firstToken == com.fasterxml.jackson.core.JsonToken.START_OBJECT,
+          firstToken == com.fasterxml.jackson.core.JsonToken.START_ARRAY);
     }, (skipToken, position) -> {
-      // Create a wrapper parser that replays the peeked token (consumed during validation)
-      final var wrappedParser = new PeekedTokenJsonParser(parser, parser.currentToken());
-      final var shredderBuilder = new JacksonJsonShredder.Builder(this, wrappedParser, position);
+      final var shredderBuilder = new JacksonJsonShredder.Builder(this, parser, position);
+      shredderBuilder.firstToken(tokenHolder[0]);
       if (skipToken == SkipRootToken.YES) {
         shredderBuilder.skipRootJsonToken();
       }
       shredderBuilder.build().call();
     });
-  }
-
-  /**
-   * Wrapper parser that replays a peeked token before delegating to the underlying parser. This is
-   * needed because Jackson's parser doesn't have a true peek() - we consumed the first token to
-   * validate it, so we need to replay it for the shredder.
-   */
-  private static class PeekedTokenJsonParser extends com.fasterxml.jackson.core.util.JsonParserDelegate {
-    private com.fasterxml.jackson.core.JsonToken peekedToken;
-    private boolean peekedTokenConsumed = false;
-
-    PeekedTokenJsonParser(JsonParser delegate, com.fasterxml.jackson.core.JsonToken peekedToken) {
-      super(delegate);
-      this.peekedToken = peekedToken;
-    }
-
-    @Override
-    public com.fasterxml.jackson.core.JsonToken nextToken() throws IOException {
-      if (!peekedTokenConsumed) {
-        peekedTokenConsumed = true;
-        return peekedToken;
-      }
-      return super.nextToken();
-    }
-
-    @Override
-    public com.fasterxml.jackson.core.JsonToken getCurrentToken() {
-      if (!peekedTokenConsumed) {
-        return peekedToken;
-      }
-      return super.getCurrentToken();
-    }
   }
 
   @Override
@@ -597,9 +573,13 @@ final class JsonNodeTrxImpl extends
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document-, an object key- or a json array node!");
 
-      checkAccessAndCommit();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+      }
 
-      final StructNode structNode = nodeReadOnlyTrx.getStructuralNode();
+      final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
 
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
@@ -612,15 +592,16 @@ final class JsonNodeTrxImpl extends
           : deweyIDManager.newFirstChildID();
 
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -644,32 +625,38 @@ final class JsonNodeTrxImpl extends
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document-, an object key- or a json array node!");
 
-      checkAccessAndCommit();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+      }
 
-      final StructNode structNode = nodeReadOnlyTrx.getStructuralNode();
+      final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
 
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey = kind == NodeKind.OBJECT_KEY
           ? Fixed.NULL_NODE_KEY.getStandardProperty()
           : structNode.getLastChildKey();
       final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+      final long firstChildKey = structNode.getFirstChildKey();
 
       final SirixDeweyID id = structNode.getKind() == NodeKind.OBJECT_KEY
           ? deweyIDManager.newRecordValueID()
-          : (structNode.getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
+          : (firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
               ? deweyIDManager.newFirstChildID()
               : deweyIDManager.newLastChildID());
 
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -687,15 +674,16 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      checkAccessAndCommit();
-
-      if (!nodeHashing.isBulkInsert()) {
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
         if (getParentKind() != NodeKind.ARRAY) {
           throw new SirixUsageException(INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE);
         }
       }
 
-      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
 
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getLeftSiblingKey();
@@ -704,15 +692,16 @@ final class JsonNodeTrxImpl extends
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
 
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -730,15 +719,16 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      checkAccessAndCommit();
-
-      if (!nodeHashing.isBulkInsert()) {
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
         if (getParentKind() != NodeKind.ARRAY) {
           throw new SirixUsageException(INSERT_NOT_ALLOWED_SINCE_PARENT_NOT_IN_AN_ARRAY_NODE);
         }
       }
 
-      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
 
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getNodeKey();
@@ -747,15 +737,16 @@ final class JsonNodeTrxImpl extends
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
       final ObjectNode node = nodeFactory.createJsonObjectNode(parentKey, leftSibKey, rightSibKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -781,35 +772,37 @@ final class JsonNodeTrxImpl extends
 
       checkAccessAndCommit();
 
-      final StructNode structNode = nodeReadOnlyTrx.getStructuralNode();
+      final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
 
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = structNode.getFirstChildKey();
 
-      final long pathNodeKey = getPathNodeKey(structNode, key, NodeKind.OBJECT_KEY);
+      final long pathNodeKey = getPathNodeKey(parentKey, key, NodeKind.OBJECT_KEY);
 
       final SirixDeweyID id = deweyIDManager.newFirstChildID();
 
       final ObjectKeyNode node = nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey,
           key, Fixed.NULL_NODE_KEY.getStandardProperty(), id);
+      final long nodeKey = node.getNodeKey();
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      nodeReadOnlyTrx.setCurrentNode(node);
-
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
 
       insertValue(value);
 
-      setFirstChildOfObjectKeyNode(node);
+      setFirstChildOfObjectKeyNode(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -835,37 +828,40 @@ final class JsonNodeTrxImpl extends
 
       checkAccessAndCommit();
 
-      final StructNode structNode = nodeReadOnlyTrx.getStructuralNode();
+      final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
 
       final long parentKey = structNode.getNodeKey();
       final long leftSibKey = structNode.getLastChildKey();
       final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+      final long firstChildKey = structNode.getFirstChildKey(); // capture before getPathNodeKey moves cursor
 
-      final long pathNodeKey = getPathNodeKey(structNode, key, NodeKind.OBJECT_KEY);
+      final long pathNodeKey = getPathNodeKey(parentKey, key, NodeKind.OBJECT_KEY);
 
-      final SirixDeweyID id = structNode.getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
+      final SirixDeweyID id = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
           ? deweyIDManager.newFirstChildID()
           : deweyIDManager.newLastChildID();
 
       final ObjectKeyNode node = nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey,
           key, Fixed.NULL_NODE_KEY.getStandardProperty(), id);
+      final long nodeKey = node.getNodeKey();
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      nodeReadOnlyTrx.setCurrentNode(node);
-
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
 
       insertValue(value);
 
-      setFirstChildOfObjectKeyNode(node);
+      setFirstChildOfObjectKeyNode(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -897,8 +893,8 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private void setFirstChildOfObjectKeyNode(final ObjectKeyNode node) {
-    final ObjectKeyNode objectKeyNode = storageEngineWriter.prepareRecordForModification(node.getNodeKey(), IndexType.DOCUMENT, -1);
+  private void setFirstChildOfObjectKeyNode(final long objectKeyNodeKey) {
+    final ObjectKeyNode objectKeyNode = storageEngineWriter.prepareRecordForModification(objectKeyNodeKey, IndexType.DOCUMENT, -1);
     objectKeyNode.setFirstChildKey(getNodeKey());
     persistUpdatedRecord(objectKeyNode);
   }
@@ -910,7 +906,21 @@ final class JsonNodeTrxImpl extends
     switch (valueKind) {
       case OBJECT -> insertObjectAsFirstChild();
       case ARRAY -> insertArrayAsFirstChild();
-      case STRING_VALUE -> insertStringValueAsFirstChild((String) value.getValue());
+      case STRING_VALUE -> {
+        if (value instanceof ByteStringValue bsv) {
+          insertStringValueAsFirstChild(bsv.getValue(), bsv.getOffset(), bsv.getLength());
+        } else {
+          final Object raw = value.getValue();
+          if (raw instanceof byte[] utf8) {
+            insertStringValueAsFirstChild(utf8);
+          } else if (raw instanceof String s) {
+            insertStringValueAsFirstChild(s);
+          } else {
+            throw new IllegalStateException("STRING_VALUE payload must be String or byte[], got: "
+                + (raw == null ? "null" : raw.getClass().getName()));
+          }
+        }
+      }
       case BOOLEAN_VALUE -> insertBooleanValueAsFirstChild((Boolean) value.getValue());
       case NUMBER_VALUE -> insertNumberValueAsFirstChild((Number) value.getValue());
       case NULL_VALUE -> insertNullValueAsFirstChild();
@@ -918,14 +928,26 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private long getPathNodeKey(final ImmutableNode node, final String name, final NodeKind kind) {
+  /**
+   * Get the path node key by restoring the cursor position via moveTo instead of setCurrentNode.
+   * This avoids retaining a reference to the singleton structural node across cursor moves.
+   *
+   * @param restoreNodeKey the node key to restore the cursor to after path summary lookup
+   * @param name the name for the path summary
+   * @param kind the node kind
+   * @return the path node key, or 0 if path summary is not built
+   */
+  private long getPathNodeKey(final long restoreNodeKey, final String name, final NodeKind kind) {
+    return getPathNodeKey(restoreNodeKey, new QNm(name), kind);
+  }
+
+  private long getPathNodeKey(final long restoreNodeKey, final QNm name, final NodeKind kind) {
     if (buildPathSummary) {
       moveToParentObjectKeyArrayOrDocumentRoot();
-      final long pathNodeKey = pathSummaryWriter.getPathNodeKey(new QNm(name), kind);
-      nodeReadOnlyTrx.setCurrentNode(node);
+      final long pathNodeKey = pathSummaryWriter.getPathNodeKey(name, kind);
+      nodeReadOnlyTrx.moveTo(restoreNodeKey);
       return pathNodeKey;
     }
-
     return 0;
   }
 
@@ -952,33 +974,34 @@ final class JsonNodeTrxImpl extends
 
       checkAccessAndCommit();
 
-      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
 
       final long parentKey = currentNode.getParentKey();
       final long rightSibKey = currentNode.getNodeKey();
       final long leftSibKey = currentNode.getLeftSiblingKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(currentNode, key, NodeKind.OBJECT_KEY);
+      final long pathNodeKey = getPathNodeKey(rightSibKey, key, NodeKind.OBJECT_KEY);
       moveTo(rightSibKey);
 
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
 
       final ObjectKeyNode node =
           nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
       insertValue(value);
 
-      setFirstChildOfObjectKeyNode(node);
+      setFirstChildOfObjectKeyNode(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1004,33 +1027,34 @@ final class JsonNodeTrxImpl extends
 
       checkAccessAndCommit();
 
-      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
 
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(currentNode, key, NodeKind.OBJECT_KEY);
+      final long pathNodeKey = getPathNodeKey(leftSibKey, key, NodeKind.OBJECT_KEY);
       moveTo(leftSibKey);
 
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
       final ObjectKeyNode node =
           nodeFactory.createJsonObjectKeyNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, key, -1, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
       insertValue(value);
 
-      setFirstChildOfObjectKeyNode(node);
+      setFirstChildOfObjectKeyNode(nodeKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1053,32 +1077,41 @@ final class JsonNodeTrxImpl extends
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document node or an object key node!");
 
-      checkAccessAndCommit();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+      }
 
-      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
 
       final long parentKey = currentNode.getNodeKey();
       final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
       final long rightSibKey = currentNode.getFirstChildKey();
+      final NodeKind currentKind = currentNode.getKind();
 
-      final long pathNodeKey = getPathNodeKey(currentNode, "__array__", NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(parentKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
 
-      final SirixDeweyID id = currentNode.getKind() == NodeKind.OBJECT_KEY
+      final SirixDeweyID id = currentKind == NodeKind.OBJECT_KEY
           ? deweyIDManager.newRecordValueID()
           : deweyIDManager.newFirstChildID();
 
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
 
-      if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1101,34 +1134,44 @@ final class JsonNodeTrxImpl extends
         throw new SirixUsageException(
             "Insert is not allowed if current node is not the document node or an object key node!");
 
-      checkAccessAndCommit();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+      }
 
-      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
 
       final long parentKey = currentNode.getNodeKey();
       final long leftSibKey = currentNode.getLastChildKey();
       final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+      final NodeKind currentKind = currentNode.getKind();
+      final long firstChildKey = currentNode.getFirstChildKey();
 
-      final long pathNodeKey = getPathNodeKey(currentNode, "__array__", NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(parentKey, ARRAY_PATH_QNM, NodeKind.ARRAY);
 
-      final SirixDeweyID id = currentNode.getKind() == NodeKind.OBJECT_KEY
+      final SirixDeweyID id = currentKind == NodeKind.OBJECT_KEY
           ? deweyIDManager.newRecordValueID()
-          : currentNode.getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
+          : firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
               ? deweyIDManager.newFirstChildID()
               : deweyIDManager.newLastChildID();
 
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
 
-      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
 
-      if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1146,31 +1189,36 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      checkAccessAndCommit();
-      checkPrecondition();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+        checkPrecondition();
+      }
 
-      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
 
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getLeftSiblingKey();
       final long rightSibKey = currentNode.getNodeKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(currentNode, "array", NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(rightSibKey, ARRAY_SIBLING_PATH_QNM, NodeKind.ARRAY);
       moveTo(rightSibKey);
 
       final SirixDeweyID id = deweyIDManager.newLeftSiblingID();
 
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1188,31 +1236,36 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      checkAccessAndCommit();
-      checkPrecondition();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+        checkPrecondition();
+      }
 
-      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
 
       final long parentKey = currentNode.getParentKey();
       final long leftSibKey = currentNode.getNodeKey();
       final long rightSibKey = currentNode.getRightSiblingKey();
 
       moveToParent();
-      final long pathNodeKey = getPathNodeKey(currentNode, "array", NodeKind.ARRAY);
+      final long pathNodeKey = getPathNodeKey(leftSibKey, ARRAY_SIBLING_PATH_QNM, NodeKind.ARRAY);
       moveTo(leftSibKey);
 
       final SirixDeweyID id = deweyIDManager.newRightSiblingID();
 
       final ArrayNode node = nodeFactory.createJsonArrayNode(parentKey, leftSibKey, rightSibKey, pathNodeKey, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling(node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1261,23 +1314,25 @@ final class JsonNodeTrxImpl extends
   @Override
   public JsonNodeTrx insertStringValueAsFirstChild(final String value) {
     requireNonNull(value);
-    final byte[] textValue = getBytes(value);
-    return insertPrimitiveAsChild(
-        (parentKey, id) -> nodeFactory.createJsonObjectStringNode(parentKey, textValue, useTextCompression, id),
-        (parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonStringNode(parentKey, leftSib, rightSib, textValue,
-            useTextCompression, id),
-        true, true);
+    return insertPrimitiveAsChild(PrimitiveNodeType.STRING, getBytes(value), null, false, true, true);
   }
 
   @Override
   public JsonNodeTrx insertStringValueAsLastChild(final String value) {
     requireNonNull(value);
-    final byte[] textValue = getBytes(value);
-    return insertPrimitiveAsChild(
-        (parentKey, id) -> nodeFactory.createJsonObjectStringNode(parentKey, textValue, useTextCompression, id),
-        (parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonStringNode(parentKey, leftSib, rightSib, textValue,
-            useTextCompression, id),
-        true, false);
+    return insertPrimitiveAsChild(PrimitiveNodeType.STRING, getBytes(value), null, false, true, false);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsFirstChild(final byte[] utf8Value) {
+    requireNonNull(utf8Value);
+    return insertPrimitiveAsChild(PrimitiveNodeType.STRING, utf8Value, null, false, true, true);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsLastChild(final byte[] utf8Value) {
+    requireNonNull(utf8Value);
+    return insertPrimitiveAsChild(PrimitiveNodeType.STRING, utf8Value, null, false, true, false);
   }
 
   private long getPathNodeKey(StructNode structNode) {
@@ -1287,62 +1342,94 @@ final class JsonNodeTrxImpl extends
       pathNodeKey = ((ArrayNode) structNode).getPathNodeKey();
     } else if (structNode.getKind() == NodeKind.OBJECT_KEY) {
       pathNodeKey = ((ObjectKeyNode) structNode).getPathNodeKey();
+    } else if (structNode.getKind() == NodeKind.JSON_DOCUMENT) {
+      pathNodeKey = 0;
     } else {
       pathNodeKey = -1;
     }
     return pathNodeKey;
   }
 
-  private void adaptNodesAndHashesForInsertAsChild(final ImmutableJsonNode node) {
-    // Adapt local nodes and hashes.
-    nodeReadOnlyTrx.setCurrentNode(node);
-    adaptForInsert((StructNode) node);
-    nodeReadOnlyTrx.setCurrentNode(node);
-    nodeHashing.adaptHashesWithAdd();
+  private void adaptNodesAndHashesForInsertAsChild(final long nodeKey, final long parentKey,
+      final long leftSibKey, final long rightSibKey) {
+    // Pass structural keys directly — eliminates moveTo before adaptForInsert.
+    // Old code did: moveTo(nodeKey) → adaptForInsert(getStructuralNodeView()) → moveTo(nodeKey) → hash.
+    // New code: adaptForInsert(keys) → hash(nodeKey) → moveTo(nodeKey).
+    // Net: eliminated 1 moveTo (the first one before adaptForInsert).
+    adaptForInsert(nodeKey, parentKey, leftSibKey, rightSibKey, false);
+    nodeHashing.adaptHashesWithAdd(nodeKey);
+    // Restore cursor to new node only if hashing did not already do so (HashType.NONE path).
+    if (nodeReadOnlyTrx.getNodeKey() != nodeKey) {
+      nodeReadOnlyTrx.moveTo(nodeKey);
+    }
   }
 
   @Override
   public JsonNodeTrx insertStringValueAsLeftSibling(final String value) {
     requireNonNull(value);
-    final byte[] textValue = getBytes(value);
-    return insertPrimitiveAsSibling((parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonStringNode(parentKey,
-        leftSib, rightSib, textValue, useTextCompression, id), true);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.STRING, getBytes(value), null, false, true);
   }
 
   @Override
   public JsonNodeTrx insertStringValueAsRightSibling(final String value) {
     requireNonNull(value);
-    final byte[] textValue = getBytes(value);
-    return insertPrimitiveAsSibling((parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonStringNode(parentKey,
-        leftSib, rightSib, textValue, useTextCompression, id), false);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.STRING, getBytes(value), null, false, false);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsLeftSibling(final byte[] utf8Value) {
+    requireNonNull(utf8Value);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.STRING, utf8Value, null, false, true);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsRightSibling(final byte[] utf8Value) {
+    requireNonNull(utf8Value);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.STRING, utf8Value, null, false, false);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsFirstChild(final byte[] buf, final int off, final int len) {
+    requireNonNull(buf);
+    return insertPrimitiveAsChild(PrimitiveNodeType.STRING, buf, off, len, null, false, true, true);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsLastChild(final byte[] buf, final int off, final int len) {
+    requireNonNull(buf);
+    return insertPrimitiveAsChild(PrimitiveNodeType.STRING, buf, off, len, null, false, true, false);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsLeftSibling(final byte[] buf, final int off, final int len) {
+    requireNonNull(buf);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.STRING, buf, off, len, null, false, true);
+  }
+
+  @Override
+  public JsonNodeTrx insertStringValueAsRightSibling(final byte[] buf, final int off, final int len) {
+    requireNonNull(buf);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.STRING, buf, off, len, null, false, false);
   }
 
   @Override
   public JsonNodeTrx insertBooleanValueAsFirstChild(boolean value) {
-    return insertPrimitiveAsChild((parentKey, id) -> nodeFactory.createJsonObjectBooleanNode(parentKey, value, id),
-        (parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonBooleanNode(parentKey, leftSib, rightSib, value,
-            id),
-        true, true);
+    return insertPrimitiveAsChild(PrimitiveNodeType.BOOLEAN, null, null, value, true, true);
   }
 
   @Override
   public JsonNodeTrx insertBooleanValueAsLastChild(boolean value) {
-    return insertPrimitiveAsChild((parentKey, id) -> nodeFactory.createJsonObjectBooleanNode(parentKey, value, id),
-        (parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonBooleanNode(parentKey, leftSib, rightSib, value,
-            id),
-        true, false);
+    return insertPrimitiveAsChild(PrimitiveNodeType.BOOLEAN, null, null, value, true, false);
   }
 
   @Override
   public JsonNodeTrx insertBooleanValueAsLeftSibling(boolean value) {
-    return insertPrimitiveAsSibling((parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonBooleanNode(parentKey,
-        leftSib, rightSib, value, id), true);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.BOOLEAN, null, null, value, true);
   }
 
   @Override
   public JsonNodeTrx insertBooleanValueAsRightSibling(boolean value) {
-    return insertPrimitiveAsSibling((parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonBooleanNode(parentKey,
-        leftSib, rightSib, value, id), false);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.BOOLEAN, null, null, value, false);
   }
 
   private void checkPrecondition() {
@@ -1351,40 +1438,91 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private void insertAsSibling(final ImmutableJsonNode node) {
-    // Adapt local nodes and hashes.
-    nodeReadOnlyTrx.setCurrentNode(node);
-    adaptForInsert((StructNode) node);
-    nodeReadOnlyTrx.setCurrentNode(node);
-    nodeHashing.adaptHashesWithAdd();
+  private void insertAsSibling(final long nodeKey, final long parentKey,
+      final long leftSibKey, final long rightSibKey) {
+    insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, false);
+  }
 
-    // Get the path node key.
-    final long pathNodeKey;
-
-    if (buildPathSummary) {
-      moveToParentObjectKeyArrayOrDocumentRoot();
-      pathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNode());
-    } else {
-      pathNodeKey = 0;
+  private void insertAsSibling(final long nodeKey, final long parentKey,
+      final long leftSibKey, final long rightSibKey, final boolean useParentPathNodeKeyIfAvailable) {
+    final boolean notifyPrimitiveIndexes = indexController.hasAnyPrimitiveIndex();
+    final boolean resolveParentPathNodeKey = useParentPathNodeKeyIfAvailable && notifyPrimitiveIndexes && buildPathSummary;
+    final long parentPathNodeKey = adaptForInsert(nodeKey, parentKey, leftSibKey, rightSibKey, resolveParentPathNodeKey);
+    nodeHashing.adaptHashesWithAdd(nodeKey);
+    if (nodeReadOnlyTrx.getNodeKey() != nodeKey) {
+      nodeReadOnlyTrx.moveTo(nodeKey);
     }
 
-    nodeReadOnlyTrx.setCurrentNode(node);
-
-    notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+    if (notifyPrimitiveIndexes) {
+      final long pathNodeKey;
+      if (buildPathSummary) {
+        if (resolveParentPathNodeKey && parentPathNodeKey != -1) {
+          pathNodeKey = parentPathNodeKey;
+        } else {
+          moveToParentObjectKeyArrayOrDocumentRoot();
+          pathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
+          if (nodeReadOnlyTrx.getNodeKey() != nodeKey) {
+            nodeReadOnlyTrx.moveTo(nodeKey);
+          }
+        }
+      } else {
+        pathNodeKey = 0;
+      }
+      notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+          (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(),
+          pathNodeKey);
+    }
   }
 
-  @FunctionalInterface
-  private interface ObjectKeyNodeCreator {
-    StructNode create(long parentKey, SirixDeweyID id);
+  /**
+   * Enumeration of primitive node types to avoid lambda allocation on the insert hot path.
+   */
+  private enum PrimitiveNodeType {
+    STRING, NUMBER, BOOLEAN, NULL
   }
 
-  @FunctionalInterface
-  private interface SiblingNodeCreator {
-    StructNode create(long parentKey, long leftSibKey, long rightSibKey, SirixDeweyID id);
+  /**
+   * Create an object-key child node (direct child of ObjectKeyNode) based on primitive type.
+   * For STRING type, uses (stringValue, stringOff, stringLen); other types ignore off/len.
+   */
+  private StructNode createObjectKeyNode(final PrimitiveNodeType type, final long parentKey,
+      final byte[] stringValue, final int stringOff, final int stringLen,
+      final Number numberValue, final boolean booleanValue, final SirixDeweyID id) {
+    return switch (type) {
+      case STRING -> nodeFactory.createJsonObjectStringNode(parentKey, stringValue, stringOff, stringLen,
+          useTextCompression, id);
+      case NUMBER -> nodeFactory.createJsonObjectNumberNode(parentKey, numberValue, id);
+      case BOOLEAN -> nodeFactory.createJsonObjectBooleanNode(parentKey, booleanValue, id);
+      case NULL -> nodeFactory.createJsonObjectNullNode(parentKey, id);
+    };
   }
 
-  private JsonNodeTrx insertPrimitiveAsChild(final ObjectKeyNodeCreator objectKeyCreator,
-      final SiblingNodeCreator arrayCreator, final boolean notifyIndex, final boolean isFirstChild) {
+  /**
+   * Create a sibling node (child of array) based on primitive type.
+   * For STRING type, uses (stringValue, stringOff, stringLen); other types ignore off/len.
+   */
+  private StructNode createSiblingNode(final PrimitiveNodeType type, final long parentKey,
+      final long leftSibKey, final long rightSibKey,
+      final byte[] stringValue, final int stringOff, final int stringLen,
+      final Number numberValue, final boolean booleanValue, final SirixDeweyID id) {
+    return switch (type) {
+      case STRING -> nodeFactory.createJsonStringNode(parentKey, leftSibKey, rightSibKey,
+          stringValue, stringOff, stringLen, useTextCompression, id);
+      case NUMBER -> nodeFactory.createJsonNumberNode(parentKey, leftSibKey, rightSibKey, numberValue, id);
+      case BOOLEAN -> nodeFactory.createJsonBooleanNode(parentKey, leftSibKey, rightSibKey, booleanValue, id);
+      case NULL -> nodeFactory.createJsonNullNode(parentKey, leftSibKey, rightSibKey, id);
+    };
+  }
+
+  private JsonNodeTrx insertPrimitiveAsChild(final PrimitiveNodeType type, final byte[] stringValue,
+      final Number numberValue, final boolean booleanValue, final boolean notifyIndex, final boolean isFirstChild) {
+    return insertPrimitiveAsChild(type, stringValue, 0, stringValue != null ? stringValue.length : 0,
+        numberValue, booleanValue, notifyIndex, isFirstChild);
+  }
+
+  private JsonNodeTrx insertPrimitiveAsChild(final PrimitiveNodeType type,
+      final byte[] stringValue, final int stringOff, final int stringLen,
+      final Number numberValue, final boolean booleanValue, final boolean notifyIndex, final boolean isFirstChild) {
     if (lock != null) {
       lock.lock();
     }
@@ -1396,46 +1534,59 @@ final class JsonNodeTrxImpl extends
         throw new SirixUsageException("Insert is not allowed if current node is not an object-key- or array-node!");
 
       if (kind != NodeKind.OBJECT_KEY) {
-        checkAccessAndCommit();
+        if (nodeHashing.isBulkInsert()) {
+          checkAccessAndCommitBulk();
+        } else {
+          checkAccessAndCommit();
+        }
       }
 
-      final StructNode structNode = nodeReadOnlyTrx.getStructuralNode();
-      final long pathNodeKey = notifyIndex
+      final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
+      final long pathNodeKey = (notifyIndex && indexController.hasAnyPrimitiveIndex())
           ? getPathNodeKey(structNode)
           : 0;
       final long parentKey = structNode.getNodeKey();
+      final long firstChildKey = structNode.getFirstChildKey();
+      final long lastChildKey = structNode.getLastChildKey();
 
       final SirixDeweyID id;
       final StructNode node;
+      final long leftSibKey;
+      final long rightSibKey;
       if (kind == NodeKind.OBJECT_KEY) {
         id = deweyIDManager.newRecordValueID();
-        node = objectKeyCreator.create(parentKey, id);
+        leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+        rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+        node = createObjectKeyNode(type, parentKey, stringValue, stringOff, stringLen, numberValue, booleanValue, id);
       } else if (isFirstChild) {
         id = deweyIDManager.newFirstChildID();
-        final long rightSibKey = structNode.getFirstChildKey();
-        final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-        node = arrayCreator.create(parentKey, leftSibKey, rightSibKey, id);
+        leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+        rightSibKey = firstChildKey;
+        node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey, stringValue, stringOff, stringLen, numberValue, booleanValue, id);
       } else {
-        id = structNode.getFirstChildKey() == Fixed.NULL_NODE_KEY.getStandardProperty()
+        id = firstChildKey == Fixed.NULL_NODE_KEY.getStandardProperty()
             ? deweyIDManager.newFirstChildID()
             : deweyIDManager.newLastChildID();
-        final long leftSibKey = structNode.getLastChildKey();
-        final long rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
-        node = arrayCreator.create(parentKey, leftSibKey, rightSibKey, id);
+        leftSibKey = lastChildKey;
+        rightSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+        node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey, stringValue, stringOff, stringLen, numberValue, booleanValue, id);
       }
 
-      adaptNodesAndHashesForInsertAsChild((ImmutableJsonNode) node);
+      final long nodeKey = node.getNodeKey();
 
-      if (notifyIndex) {
-        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, node, pathNodeKey);
+      adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
+
+      if (notifyIndex && indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
       }
 
-      if (getParentKind() != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+      if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1446,16 +1597,28 @@ final class JsonNodeTrxImpl extends
     }
   }
 
-  private JsonNodeTrx insertPrimitiveAsSibling(final SiblingNodeCreator nodeCreator, final boolean isLeftSibling) {
+  private JsonNodeTrx insertPrimitiveAsSibling(final PrimitiveNodeType type, final byte[] stringValue,
+      final Number numberValue, final boolean booleanValue, final boolean isLeftSibling) {
+    return insertPrimitiveAsSibling(type, stringValue, 0, stringValue != null ? stringValue.length : 0,
+        numberValue, booleanValue, isLeftSibling);
+  }
+
+  private JsonNodeTrx insertPrimitiveAsSibling(final PrimitiveNodeType type,
+      final byte[] stringValue, final int stringOff, final int stringLen,
+      final Number numberValue, final boolean booleanValue, final boolean isLeftSibling) {
     if (lock != null) {
       lock.lock();
     }
 
     try {
-      checkAccessAndCommit();
-      checkPrecondition();
+      if (nodeHashing.isBulkInsert()) {
+        checkAccessAndCommitBulk();
+      } else {
+        checkAccessAndCommit();
+        checkPrecondition();
+      }
 
-      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNode();
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
       final long parentKey = currentNode.getParentKey();
 
       final long leftSibKey;
@@ -1471,16 +1634,18 @@ final class JsonNodeTrxImpl extends
         id = deweyIDManager.newRightSiblingID();
       }
 
-      final StructNode node = nodeCreator.create(parentKey, leftSibKey, rightSibKey, id);
+      final StructNode node = createSiblingNode(type, parentKey, leftSibKey, rightSibKey,
+          stringValue, stringOff, stringLen, numberValue, booleanValue, id);
+      final long nodeKey = node.getNodeKey();
 
-      insertAsSibling((ImmutableJsonNode) node);
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, true);
 
       if (!nodeHashing.isBulkInsert()) {
-        adaptUpdateOperationsForInsert(id, node.getNodeKey());
+        adaptUpdateOperationsForInsert(id, nodeKey);
       }
 
       if (storeNodeHistory) {
-        nodeToRevisionsIndex.addToRecordToRevisionsIndex(node.getNodeKey());
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
       }
 
       return this;
@@ -1494,25 +1659,19 @@ final class JsonNodeTrxImpl extends
   @Override
   public JsonNodeTrx insertNumberValueAsFirstChild(Number value) {
     requireNonNull(value);
-    return insertPrimitiveAsChild((parentKey, id) -> nodeFactory.createJsonObjectNumberNode(parentKey, value, id),
-        (parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonNumberNode(parentKey, leftSib, rightSib, value, id),
-        true, true);
+    return insertPrimitiveAsChild(PrimitiveNodeType.NUMBER, null, value, false, true, true);
   }
 
   @Override
   public JsonNodeTrx insertNumberValueAsLastChild(Number value) {
     requireNonNull(value);
-    return insertPrimitiveAsChild((parentKey, id) -> nodeFactory.createJsonObjectNumberNode(parentKey, value, id),
-        (parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonNumberNode(parentKey, leftSib, rightSib, value, id),
-        true, false);
+    return insertPrimitiveAsChild(PrimitiveNodeType.NUMBER, null, value, false, true, false);
   }
 
   @Override
   public JsonNodeTrx insertNumberValueAsLeftSibling(Number value) {
     requireNonNull(value);
-    return insertPrimitiveAsSibling(
-        (parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonNumberNode(parentKey, leftSib, rightSib, value, id),
-        true);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.NUMBER, null, value, false, true);
   }
 
   @Override
@@ -1523,35 +1682,27 @@ final class JsonNodeTrxImpl extends
   @Override
   public JsonNodeTrx insertNumberValueAsRightSibling(Number value) {
     requireNonNull(value);
-    return insertPrimitiveAsSibling(
-        (parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonNumberNode(parentKey, leftSib, rightSib, value, id),
-        false);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.NUMBER, null, value, false, false);
   }
 
   @Override
   public JsonNodeTrx insertNullValueAsFirstChild() {
-    return insertPrimitiveAsChild((parentKey, id) -> nodeFactory.createJsonObjectNullNode(parentKey, id),
-        (parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonNullNode(parentKey, leftSib, rightSib, id), false,
-        true);
+    return insertPrimitiveAsChild(PrimitiveNodeType.NULL, null, null, false, false, true);
   }
 
   @Override
   public JsonNodeTrx insertNullValueAsLastChild() {
-    return insertPrimitiveAsChild((parentKey, id) -> nodeFactory.createJsonObjectNullNode(parentKey, id),
-        (parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonNullNode(parentKey, leftSib, rightSib, id), false,
-        false);
+    return insertPrimitiveAsChild(PrimitiveNodeType.NULL, null, null, false, false, false);
   }
 
   @Override
   public JsonNodeTrx insertNullValueAsLeftSibling() {
-    return insertPrimitiveAsSibling(
-        (parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonNullNode(parentKey, leftSib, rightSib, id), true);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.NULL, null, null, false, true);
   }
 
   @Override
   public JsonNodeTrx insertNullValueAsRightSibling() {
-    return insertPrimitiveAsSibling(
-        (parentKey, leftSib, rightSib, id) -> nodeFactory.createJsonNullNode(parentKey, leftSib, rightSib, id), false);
+    return insertPrimitiveAsSibling(PrimitiveNodeType.NULL, null, null, false, false);
   }
 
   /**
@@ -1676,7 +1827,17 @@ final class JsonNodeTrxImpl extends
 
     final QNm name;
     if (kind == NodeKind.OBJECT_KEY && indexController.hasNameIndex() && node instanceof ObjectKeyNode objectKeyNode) {
-      name = objectKeyNode.getName();
+      // getName() may be null for flyweight-bound nodes (cachedName is a Java field, not in MemorySegment).
+      // Fall back to resolving the name from the name key via the storage engine.
+      QNm resolvedName = objectKeyNode.getName();
+      if (resolvedName == null) {
+        final int nameKey = objectKeyNode.getNameKey();
+        final String localName = storageEngineWriter.getName(nameKey, NodeKind.OBJECT_KEY);
+        if (localName != null) {
+          resolvedName = new QNm(localName);
+        }
+      }
+      name = resolvedName;
     } else {
       name = null;
     }
@@ -1990,26 +2151,28 @@ final class JsonNodeTrxImpl extends
   // ////////////////////////////////////////////////////////////
 
   /**
-   * Adapting everything for insert operations.
+   * Adapting everything for insert operations. Accepts the new node's structural keys directly
+   * to avoid a moveTo call — the caller already knows these values from the factory call.
    *
-   * @param structNode pointer of the new node to be inserted
+   * @param structNodeKey the new node's key
+   * @param parentKey     the new node's parent key
+   * @param leftSibKey    the new node's left sibling key
+   * @param rightSibKey   the new node's right sibling key
+   * @param resolveParentPathNodeKey whether to resolve and return the parent path node key
+   * @return the parent path node key if available, otherwise {@code -1}
    * @throws SirixIOException if anything weird happens
    */
-  private void adaptForInsert(final StructNode structNode) {
-    assert structNode != null;
-    // Capture all needed keys from structNode before any prepareRecordForModification calls.
-    // With write-path singletons, prepareRecordForModification for a node of the same kind
-    // would overwrite the singleton, invalidating prior references.
-    final long structNodeKey = structNode.getNodeKey();
-    final long parentKey = structNode.getParentKey();
-    final long leftSibKey = structNode.getLeftSiblingKey();
-    final long rightSibKey = structNode.getRightSiblingKey();
-    final boolean hasLeft = structNode.hasLeftSibling();
-    final boolean hasRight = structNode.hasRightSibling();
+  private long adaptForInsert(final long structNodeKey, final long parentKey,
+      final long leftSibKey, final long rightSibKey, final boolean resolveParentPathNodeKey) {
+    final boolean hasLeft = leftSibKey != Fixed.NULL_NODE_KEY.getStandardProperty();
+    final boolean hasRight = rightSibKey != Fixed.NULL_NODE_KEY.getStandardProperty();
 
     // Phase 1: Update parent — childCount + firstChild/lastChild if no siblings.
-    // Complete all parent modifications and persist BEFORE acquiring any sibling singletons.
-    final StructNode parent = storageEngineWriter.prepareRecordForModification(parentKey, IndexType.DOCUMENT, -1);
+    // Complete all parent modifications BEFORE acquiring any sibling singletons.
+    final StructNode parent = storageEngineWriter.prepareRecordForModificationDocument(parentKey);
+    final long parentPathNodeKey = resolveParentPathNodeKey
+        ? getPathNodeKey(parent)
+        : -1;
     if (storeChildCount) {
       parent.incrementChildCount();
     }
@@ -2019,21 +2182,21 @@ final class JsonNodeTrxImpl extends
     if (!hasRight) {
       parent.setLastChildKey(structNodeKey);
     }
-    persistUpdatedRecord(parent);
+    // No persistUpdatedRecord — bound write singletons mutate directly on heap
 
-    // Phase 2: Update left sibling (safe — parent already persisted)
+    // Phase 2: Update left sibling
     if (hasLeft) {
-      final StructNode leftSib = storageEngineWriter.prepareRecordForModification(leftSibKey, IndexType.DOCUMENT, -1);
+      final StructNode leftSib = storageEngineWriter.prepareRecordForModificationDocument(leftSibKey);
       leftSib.setRightSiblingKey(structNodeKey);
-      persistUpdatedRecord(leftSib);
     }
 
     // Phase 3: Update right sibling
     if (hasRight) {
-      final StructNode rightSib = storageEngineWriter.prepareRecordForModification(rightSibKey, IndexType.DOCUMENT, -1);
+      final StructNode rightSib = storageEngineWriter.prepareRecordForModificationDocument(rightSibKey);
       rightSib.setLeftSiblingKey(structNodeKey);
-      persistUpdatedRecord(rightSib);
     }
+
+    return parentPathNodeKey;
   }
 
   // ////////////////////////////////////////////////////////////
@@ -2156,7 +2319,14 @@ final class JsonNodeTrxImpl extends
 
   @Override
   protected JsonNodeFactory reInstantiateNodeFactory(StorageEngineWriter storageEngineWriter) {
-    return new JsonNodeFactoryImpl(hashFunction, storageEngineWriter);
+    final var factory = new JsonNodeFactoryImpl(hashFunction, storageEngineWriter);
+    wireWriteSingletonBinder(factory, storageEngineWriter);
+    return factory;
+  }
+
+  private static void wireWriteSingletonBinder(final JsonNodeFactoryImpl factory,
+      final StorageEngineWriter storageEngineWriter) {
+    storageEngineWriter.setWriteSingletonBinder(factory::bindWriteSingleton);
   }
 
   @Override

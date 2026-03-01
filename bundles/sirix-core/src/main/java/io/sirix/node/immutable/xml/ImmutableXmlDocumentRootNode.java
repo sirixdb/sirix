@@ -11,7 +11,6 @@ import io.sirix.settings.Fixed;
 import io.sirix.node.BytesOut;
 import io.sirix.node.xml.XmlDocumentRootNode;
 
-import java.nio.ByteBuffer;
 
 import static java.util.Objects.requireNonNull;
 

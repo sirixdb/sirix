@@ -260,13 +260,21 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
       throws IOException {
     final BytesIn<?> uncompressedBytes = byteBufferBytes.bytesForRead();
 
-    if (page instanceof KeyValueLeafPage keyValueLeafPage && keyValueLeafPage.getBytes() != null) {
-      final var cached = keyValueLeafPage.getBytes();
-      if (cached instanceof MemorySegmentBytesOut msOut) {
-        MemorySegment segment = msOut.getDestination();
-        return segment.toArray(ValueLayout.JAVA_BYTE);
+    if (page instanceof KeyValueLeafPage keyValueLeafPage) {
+      // Check compressed MemorySegment cache first (slotted page format path)
+      final MemorySegment cachedSegment = keyValueLeafPage.getCompressedSegment();
+      if (cachedSegment != null) {
+        return cachedSegment.toArray(ValueLayout.JAVA_BYTE);
       }
-      return cached.toByteArray();
+      // Check legacy byte[] cache
+      final var cached = keyValueLeafPage.getBytes();
+      if (cached != null) {
+        if (cached instanceof MemorySegmentBytesOut msOut) {
+          MemorySegment segment = msOut.getDestination();
+          return segment.toArray(ValueLayout.JAVA_BYTE);
+        }
+        return cached.toByteArray();
+      }
     }
 
     final var pipeline = resourceConfiguration.byteHandlePipeline;

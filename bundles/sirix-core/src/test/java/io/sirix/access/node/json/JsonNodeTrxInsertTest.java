@@ -374,6 +374,62 @@ public final class JsonNodeTrxInsertTest {
     }
   }
 
+  /**
+   * Regression test for fast-path prepareRecordForModificationDocument.
+   * Verifies that parent/sibling links remain correct after inserting children
+   * into a parent that was already mutated in the same transaction.
+   */
+  @Test
+  public void testParentSiblingLinksAfterInsert() throws IOException {
+    try (final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+        final var session = database.beginResourceSession(RESOURCE);
+        final var wtx = session.beginNodeTrx();
+        final Writer writer = new StringWriter()) {
+
+      // Create array with three children: [1, 2, 3]
+      wtx.insertArrayAsFirstChild();
+      wtx.insertNumberValueAsFirstChild(1);
+      final long firstChildKey = wtx.getNodeKey();
+      wtx.moveToParent();
+      wtx.insertNumberValueAsLastChild(3);
+      final long lastChildKey = wtx.getNodeKey();
+      // Insert 2 as right sibling of 1 (between 1 and 3)
+      wtx.moveTo(firstChildKey);
+      wtx.insertNumberValueAsRightSibling(2);
+      final long middleChildKey = wtx.getNodeKey();
+
+      // Verify parent links
+      wtx.moveTo(1); // array node
+      assertEquals(3, wtx.getChildCount());
+      assertEquals(firstChildKey, wtx.getFirstChildKey());
+      assertEquals(lastChildKey, wtx.getLastChildKey());
+
+      // Verify sibling chain: 1 -> 2 -> 3
+      wtx.moveTo(firstChildKey);
+      assertFalse(wtx.hasLeftSibling());
+      assertTrue(wtx.hasRightSibling());
+      assertEquals(middleChildKey, wtx.getRightSiblingKey());
+
+      wtx.moveTo(middleChildKey);
+      assertTrue(wtx.hasLeftSibling());
+      assertTrue(wtx.hasRightSibling());
+      assertEquals(firstChildKey, wtx.getLeftSiblingKey());
+      assertEquals(lastChildKey, wtx.getRightSiblingKey());
+
+      wtx.moveTo(lastChildKey);
+      assertTrue(wtx.hasLeftSibling());
+      assertFalse(wtx.hasRightSibling());
+      assertEquals(middleChildKey, wtx.getLeftSiblingKey());
+
+      wtx.commit();
+
+      // Verify serialization produces correct output
+      final var serializer = new JsonSerializer.Builder(session, writer).build();
+      serializer.call();
+      assertEquals("[1,2,3]", writer.toString());
+    }
+  }
+
   @Test
   public void testInsertObjectWithFsstCompression() throws IOException {
     final DatabaseConfiguration config = new DatabaseConfiguration(PATHS.PATH1.getFile());

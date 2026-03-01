@@ -4,8 +4,6 @@ import java.io.OutputStream;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.math.BigInteger;
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import net.openhft.hashing.LongHashFunction;
 
 /**
@@ -173,22 +171,6 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
   }
 
   @Override
-  public BytesOut<MemorySegment> write(long position, ByteBuffer buffer, int bufferPosition, int length) {
-    long oldPos = growingSegment.position();
-    growingSegment.setPosition(position);
-
-    byte[] temp = new byte[length];
-    int oldBufferPos = buffer.position();
-    buffer.position(bufferPosition);
-    buffer.get(temp);
-    buffer.position(oldBufferPos);
-
-    write(temp);
-    growingSegment.setPosition(oldPos);
-    return this;
-  }
-
-  @Override
   public long position() {
     return growingSegment.position();
   }
@@ -225,7 +207,9 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
     if (backingArray != null) {
       return hashFunction.hashBytes(backingArray, 0, growingSegment.getUsedSize());
     }
-    return hashFunction.hashBytes(growingSegment.getUsedSegment().asByteBuffer());
+    // Off-heap: hash directly from native address — no legacy ByteBuffer
+    final MemorySegment seg = growingSegment.getUsedSegment();
+    return hashFunction.hashMemory(seg.address(), seg.byteSize());
   }
 
   @Override
@@ -246,9 +230,7 @@ public class MemorySegmentBytesOut implements BytesOut<MemorySegment> {
 
   @Override
   public Object underlyingObject() {
-    // Return a ByteBuffer view for compatibility with FileChannelWriter
-    // Set native byte order to match FileChannelWriter expectations
-    return growingSegment.getUsedSegment().asByteBuffer().order(ByteOrder.nativeOrder());
+    return growingSegment.getUsedSegment();
   }
 
   @Override

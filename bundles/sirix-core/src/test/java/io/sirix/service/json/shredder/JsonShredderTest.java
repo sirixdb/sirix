@@ -20,7 +20,6 @@ import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.LogWrapper;
 import org.checkerframework.org.apache.commons.lang3.time.StopWatch;
-import org.junit.Ignore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;

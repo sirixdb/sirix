@@ -26,7 +26,7 @@ final class JsonNodeHashing extends AbstractNodeHashing<ImmutableNode, JsonNodeR
 
   @Override
   protected StructNode getStructuralNode() {
-    return nodeReadOnlyTrx.getStructuralNode();
+    return nodeReadOnlyTrx.getStructuralNodeView();
   }
 
 }
