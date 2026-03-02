@@ -230,6 +230,7 @@ subprojects {
 
     task testsJar(type: Jar) {
         archiveClassifier = 'tests'
+        zip64 = true
         from(sourceSets.test.output)
     }
 
