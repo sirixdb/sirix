@@ -251,6 +251,51 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
     return insertSubtreeAsRightSibling(item, commit, checkParentNode, SkipRootToken.NO);
   }
 
+  // ==================== LDJSON (Line-Delimited JSON) Methods ====================
+
+  /**
+   * Result of an LDJSON ingestion operation.
+   *
+   * @param documentCount the number of top-level documents ingested
+   * @param arrayNodeKey  the node key of the wrapper array that contains all documents
+   */
+  record LdjsonResult(long documentCount, long arrayNodeKey) {
+  }
+
+  /**
+   * Ingest a stream of LDJSON (line-delimited JSON) documents, wrapping them in a single array
+   * inserted as the first child of the current node.
+   *
+   * <p>The current node must be a {@code JSON_DOCUMENT} or {@code ARRAY} node. Each top-level
+   * value in the parser must be an object or array (scalars are rejected with
+   * {@link io.sirix.exception.SirixUsageException}).
+   *
+   * @param parser the Jackson parser positioned before the first token
+   * @param commit whether to commit implicitly after insertion
+   * @return the ingestion result containing document count and wrapper array node key
+   * @throws UnsupportedOperationException by default; override in implementations
+   */
+  default LdjsonResult insertLdjsonAsFirstChild(JsonParser parser, Commit commit) {
+    throw new UnsupportedOperationException("LDJSON ingestion not supported by this implementation.");
+  }
+
+  /**
+   * Ingest a stream of LDJSON (line-delimited JSON) documents, wrapping them in a single array
+   * inserted as the last child of the current node.
+   *
+   * <p>The current node must be a {@code JSON_DOCUMENT} or {@code ARRAY} node. Each top-level
+   * value in the parser must be an object or array (scalars are rejected with
+   * {@link io.sirix.exception.SirixUsageException}).
+   *
+   * @param parser the Jackson parser positioned before the first token
+   * @param commit whether to commit implicitly after insertion
+   * @return the ingestion result containing document count and wrapper array node key
+   * @throws UnsupportedOperationException by default; override in implementations
+   */
+  default LdjsonResult insertLdjsonAsLastChild(JsonParser parser, Commit commit) {
+    throw new UnsupportedOperationException("LDJSON ingestion not supported by this implementation.");
+  }
+
   // ==================== Jackson JsonParser Methods ====================
 
   JsonNodeTrx insertSubtreeAsFirstChild(JsonParser parser, Commit commit, CheckParentNode checkParentNode,

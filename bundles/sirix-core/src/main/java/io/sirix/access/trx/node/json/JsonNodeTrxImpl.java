@@ -341,6 +341,37 @@ final class JsonNodeTrxImpl extends
     });
   }
 
+  // ==================== LDJSON Methods ====================
+
+  @Override
+  public LdjsonResult insertLdjsonAsFirstChild(final JsonParser parser, final Commit commit) {
+    return insertLdjson(parser, InsertPosition.AS_FIRST_CHILD, commit);
+  }
+
+  @Override
+  public LdjsonResult insertLdjsonAsLastChild(final JsonParser parser, final Commit commit) {
+    return insertLdjson(parser, InsertPosition.AS_LAST_CHILD, commit);
+  }
+
+  private LdjsonResult insertLdjson(final JsonParser parser, final InsertPosition insertionPosition,
+      final Commit commit) {
+    requireNonNull(parser);
+    final var resultHolder = new LdjsonResult[1];
+
+    insertSubtreeInternal(insertionPosition, commit, CheckParentNode.NO, SkipRootToken.NO, () -> {
+      // LDJSON wrapper is an array
+      return new InputShape(false, true);
+    }, (skipToken, position) -> {
+      final var shredderBuilder = new JacksonJsonShredder.Builder(this, parser, position);
+      shredderBuilder.ldjsonMode();
+      final var shredder = shredderBuilder.build();
+      shredder.call();
+      resultHolder[0] = new LdjsonResult(shredder.getDocumentCount(), shredder.getLdjsonArrayKey());
+    });
+
+    return resultHolder[0];
+  }
+
   // ==================== Jackson JsonParser Methods ====================
 
   @Override
