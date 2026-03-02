@@ -32,6 +32,7 @@ import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
+import io.sirix.exception.SirixUsageException;
 import io.sirix.node.NodeKind;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.ShredderCommit;
@@ -126,6 +127,15 @@ public final class JacksonJsonShredder implements Callable<Long> {
   /** Node key of the first inserted root node. */
   private long insertedRootNodeKey;
 
+  /** Whether this shredder operates in LDJSON (line-delimited JSON) mode. */
+  private final boolean ldjsonMode;
+
+  /** Number of top-level documents ingested in LDJSON mode. */
+  private long documentCount;
+
+  /** Node key of the wrapper array inserted in LDJSON mode. */
+  private long ldjsonArrayKey;
+
   /**
    * Creates a shared JsonFactory with lenient parsing enabled. JsonFactory is thread-safe and should
    * be reused.
@@ -163,6 +173,9 @@ public final class JacksonJsonShredder implements Callable<Long> {
 
     /** First token — pre-consumed during validation, replayed by shredder. */
     private JsonToken firstToken;
+
+    /** Whether to operate in LDJSON (line-delimited JSON) mode. */
+    private boolean ldjsonMode;
 
     /**
      * Constructor.
@@ -211,6 +224,23 @@ public final class JacksonJsonShredder implements Callable<Long> {
     }
 
     /**
+     * Enable LDJSON (line-delimited JSON) mode. Each top-level JSON object or array in the input
+     * is treated as a separate document, wrapped in a single container array.
+     *
+     * <p>Incompatible with {@link #skipRootJsonToken()}.
+     *
+     * @return this builder instance
+     * @throws SirixUsageException if {@code skipRootJsonToken} was already set
+     */
+    public Builder ldjsonMode() {
+      if (skipRootJsonToken) {
+        throw new SirixUsageException("LDJSON mode is incompatible with skipRootJsonToken.");
+      }
+      this.ldjsonMode = true;
+      return this;
+    }
+
+    /**
      * Build an instance.
      *
      * @return {@link JacksonJsonShredder} instance
@@ -237,6 +267,7 @@ public final class JacksonJsonShredder implements Callable<Long> {
     commit = builder.commit;
     skipRootJson = builder.skipRootJsonToken;
     firstToken = builder.firstToken;
+    ldjsonMode = builder.ldjsonMode;
 
     parents = new LongArrayList();
     parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
@@ -251,9 +282,31 @@ public final class JacksonJsonShredder implements Callable<Long> {
   @Override
   public Long call() {
     final long revision = wtx.getRevisionNumber();
-    insertNewContent();
+    if (ldjsonMode) {
+      insertLdjsonContent();
+    } else {
+      insertNewContent();
+    }
     commit.commit(wtx);
     return revision;
+  }
+
+  /**
+   * Returns the number of top-level documents ingested in LDJSON mode.
+   *
+   * @return the document count (0 if not in LDJSON mode or input was empty)
+   */
+  public long getDocumentCount() {
+    return documentCount;
+  }
+
+  /**
+   * Returns the node key of the wrapper array inserted in LDJSON mode.
+   *
+   * @return the wrapper array node key, or 0 if not in LDJSON mode
+   */
+  public long getLdjsonArrayKey() {
+    return ldjsonArrayKey;
   }
 
   // ==================== Main Content Insertion (token-forwarding pattern) ====================
@@ -270,6 +323,34 @@ public final class JacksonJsonShredder implements Callable<Long> {
   }
 
   /**
+   * Insert LDJSON content: wraps all top-level documents in a single array, then delegates
+   * to the standard token-dispatch loop which continues across document boundaries.
+   */
+  private void insertLdjsonContent() {
+    // Insert the wrapper array
+    ldjsonArrayKey = insertArray();
+    // Delegate to the standard loop — processEndObject/processEndArray will
+    // continue across document boundaries in LDJSON mode
+    insertNewContent();
+    // Ensure cursor is on the wrapper array even for empty input
+    wtx.moveTo(ldjsonArrayKey);
+  }
+
+  /**
+   * Validates that the given token is a container start token (START_OBJECT or START_ARRAY)
+   * when operating in LDJSON mode. Scalar top-level values are not supported.
+   *
+   * @param token the token to validate
+   * @throws SirixUsageException if the token is a scalar value in LDJSON mode
+   */
+  private void validateLdjsonToken(final JsonToken token) {
+    if (token != null && token != JsonToken.START_OBJECT && token != JsonToken.START_ARRAY) {
+      throw new SirixUsageException(
+          "LDJSON mode requires each document to be an object or array, got: " + token);
+    }
+  }
+
+  /**
    * Insert new content using Jackson's native pull-parsing with token-forwarding.
    * Each process method reads the current token's value, advances the parser, and returns
    * the next JsonToken for dispatch — eliminating all lookahead/peek/cache overhead.
@@ -281,6 +362,10 @@ public final class JacksonJsonShredder implements Callable<Long> {
       level = 0;
       insertedRootNodeKey = -1;
       var token = (firstToken != null) ? firstToken : parser.nextToken();
+
+      if (ldjsonMode) {
+        validateLdjsonToken(token);
+      }
 
       while (token != null) {
         token = switch (token) {
@@ -365,6 +450,13 @@ public final class JacksonJsonShredder implements Callable<Long> {
     final var next = parser.nextToken();
     processTrxMovement(next);
     if (level == 0) {
+      if (ldjsonMode) {
+        documentCount++;
+        if (next != null) {
+          validateLdjsonToken(next);
+          return next;
+        }
+      }
       return null;
     }
     return next;
@@ -375,6 +467,13 @@ public final class JacksonJsonShredder implements Callable<Long> {
     final var next = parser.nextToken();
     processTrxMovement(next);
     if (level == 0) {
+      if (ldjsonMode) {
+        documentCount++;
+        if (next != null) {
+          validateLdjsonToken(next);
+          return next;
+        }
+      }
       return null;
     }
     return next;
