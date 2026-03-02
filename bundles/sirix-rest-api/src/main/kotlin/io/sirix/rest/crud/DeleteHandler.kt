@@ -19,7 +19,7 @@ class DeleteHandler(private val location: Path, private val authz: Authorization
             val openDatabases = DatabasesInternals.getOpenDatabases()
 
             if (openDatabases.isNotEmpty()) {
-                throw IllegalStateException("Open databases found: $openDatabases")
+                openDatabases.values.flatten().forEach { it.close() }
             }
 
             val databases = withContext(Dispatchers.IO) {
