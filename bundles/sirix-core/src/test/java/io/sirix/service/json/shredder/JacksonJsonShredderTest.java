@@ -20,8 +20,10 @@ import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.Database;
+import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -603,6 +605,45 @@ public final class JacksonJsonShredderTest {
     try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
       createResourceWithJackson(jsonPath, database);
     }
+  }
+
+  @Disabled("Large file test - run manually")
+  @Test
+  public void testShredderAndTraverseChicagoAsyncAutoCommit() {
+    logger.info("start async auto-commit Chicago test");
+    final var jsonPath = JSON.resolve("cityofchicago.json");
+    Databases.createJsonDatabase(new DatabaseConfiguration(PATHS.PATH1.getFile()));
+    try (final var database = Databases.openJsonDatabase(PATHS.PATH1.getFile())) {
+      createResourceWithJacksonAsync(jsonPath, database);
+    }
+    logger.info("async auto-commit Chicago test done");
+  }
+
+  private void createResourceWithJacksonAsync(Path jsonPath, Database<JsonResourceSession> database) {
+    var stopWatch = new StopWatch();
+    stopWatch.start();
+    database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
+                                                 .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
+                                                 .buildPathSummary(true)
+                                                 .storeDiffs(true)
+                                                 .storeNodeHistory(false)
+                                                 .storeChildCount(true)
+                                                 .hashKind(HashType.ROLLING)
+                                                 .useTextCompression(false)
+                                                 .storageType(StorageType.FILE_CHANNEL)
+                                                 .useDeweyIDs(false)
+                                                 .byteHandlerPipeline(new ByteHandlerPipeline(new FFILz4Compressor()))
+                                                 .build());
+    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = manager.beginNodeTrx((262_144 << 4) + 262_144, AfterCommitState.KEEP_OPEN_ASYNC);
+        final var parser = JacksonJsonShredder.createFileParser(jsonPath)) {
+      trx.insertSubtreeAsFirstChild(parser, JsonNodeTrx.Commit.NO);
+      trx.commit();
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+
+    logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
   }
 
   private void createResourceWithJackson(Path jsonPath, Database<JsonResourceSession> database) {

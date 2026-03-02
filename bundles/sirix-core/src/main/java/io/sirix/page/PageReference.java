@@ -50,6 +50,9 @@ public final class PageReference {
   /** Log key. */
   private int logKey = Constants.NULL_ID_INT;
 
+  /** TIL generation counter for epoch-based snapshot disambiguation. */
+  private int activeTilGeneration = -1;
+
   /** Unique database ID to distinguish pages from different databases in global BufferManager. */
   private long databaseId = Constants.NULL_ID_LONG;
 
@@ -84,6 +87,7 @@ public final class PageReference {
    */
   public PageReference(final PageReference reference) {
     logKey = reference.logKey;
+    activeTilGeneration = reference.activeTilGeneration;
     page = reference.page;
     key = reference.key;
     databaseId = reference.databaseId;
@@ -186,6 +190,26 @@ public final class PageReference {
   public PageReference setLogKey(final int key) {
     hash = 0; // Clear cached hashCode since it includes logKey
     logKey = key;
+    return this;
+  }
+
+  /**
+   * Get the TIL generation this reference belongs to.
+   *
+   * @return TIL generation counter, or -1 if not in any TIL
+   */
+  public int getActiveTilGeneration() {
+    return activeTilGeneration;
+  }
+
+  /**
+   * Set the TIL generation this reference belongs to.
+   *
+   * @param generation the TIL generation counter
+   * @return this instance
+   */
+  public PageReference setActiveTilGeneration(final int generation) {
+    this.activeTilGeneration = generation;
     return this;
   }
 

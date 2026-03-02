@@ -88,6 +88,7 @@ public final class FullReferencesPage implements Page {
         pageReference.setPage(pageReferenceToClone.getPage());
         pageReference.setKey(pageReferenceToClone.getKey());
         pageReference.setLogKey(pageReferenceToClone.getLogKey());
+        pageReference.setActiveTilGeneration(pageReferenceToClone.getActiveTilGeneration());
         pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
         pageReference.setResourceId(pageReferenceToClone.getResourceId());
         pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));

@@ -83,6 +83,14 @@ public interface Writer extends Reader {
   Writer truncate();
 
   /**
+   * Flush buffered writes from the given buffer to storage without forcing to durable storage.
+   * Used by background async commit threads to batch-flush their writes.
+   *
+   * @param bufferedBytes the buffer containing accumulated writes
+   */
+  default void flushBufferedWrites(final BytesOut<?> bufferedBytes) {}
+
+  /**
    * Force all pending writes to durable storage. This is a single fsync barrier that ensures all
    * written data is persisted. Should be called once at the end of a commit after all pages and
    * uberpage beacons are written.
