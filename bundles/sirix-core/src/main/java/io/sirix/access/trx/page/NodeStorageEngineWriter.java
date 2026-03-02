@@ -85,6 +85,8 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Semaphore;
 import java.util.function.Function;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -193,6 +195,20 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * When set, prepareRecordForModification uses factory singletons instead of allocating new nodes.
    */
   private WriteSingletonBinder writeSingletonBinder;
+
+  // ==================== ASYNC AUTO-COMMIT STATE ====================
+
+  /** Backpressure: at most one background snapshot flush in-flight. */
+  private final Semaphore commitPermit = new Semaphore(1);
+
+  /** True while a background snapshot flush is running. */
+  private volatile boolean asyncCommitInFlight;
+
+  /** Error from background thread — checked and cleared by insert thread. */
+  private volatile Throwable asyncCommitError;
+
+  /** Terminal failure latch — once true, NEVER reset. Transaction is permanently failed. */
+  private volatile boolean asyncTerminalFailure;
 
   /**
    * Constructor.
@@ -575,6 +591,199 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return namePage.setName(string, nodeKind, this);
   }
 
+  // ==================== ASYNC AUTO-COMMIT ====================
+
+  @Override
+  public void asyncIntermediateCommit() {
+    // Fail-fast: terminal failure is a permanent latch — transaction is unusable.
+    if (asyncTerminalFailure) {
+      throw new SirixIOException(
+          "Transaction in terminal failure state from prior async commit error");
+    }
+
+    // Backpressure: block if previous background flush still running
+    commitPermit.acquireUninterruptibly();
+
+    // CRITICAL double-check: error may have been set by background thread
+    // between our latch check above and the acquire completing.
+    final Throwable priorError = asyncCommitError;
+    if (priorError != null) {
+      asyncCommitError = null;
+      asyncTerminalFailure = true;
+      commitPermit.release();
+      throw new SirixIOException("Prior async commit failed", priorError);
+    }
+
+    // If previous snapshot completed, clean it up first
+    if (log.getSnapshotSize() > 0 && log.isSnapshotCommitComplete()) {
+      log.cleanupSnapshot();
+    }
+
+    // O(1) snapshot — array swap + generation increment
+    final int snapshotSize = log.snapshot();
+    if (snapshotSize == 0) {
+      commitPermit.release();
+      return;
+    }
+
+    // CRITICAL: Invalidate all local container caches. Cached containers point
+    // to frozen-zone pages. Without invalidation, cache fast paths return frozen containers.
+    clearLocalContainerCaches();
+
+    // Re-add structural pages to fresh TIL for continued operation
+    reAddStructuralPagesToTil();
+
+    asyncCommitInFlight = true;
+
+    // Background thread: write KVL pages to disk.
+    // CRITICAL: If submission throws (RejectedExecutionException), release permit
+    // and latch terminal failure — snapshot state is dangling, no bg thread to process it.
+    try {
+      CompletableFuture.runAsync(this::executeSnapshotWrite);
+    } catch (final Throwable t) {
+      asyncCommitInFlight = false;
+      asyncTerminalFailure = true;
+      commitPermit.release();
+      throw new SirixIOException("Failed to submit async commit", t);
+    }
+  }
+
+  @Override
+  public void awaitPendingAsyncCommit() {
+    if (!asyncCommitInFlight) {
+      return;
+    }
+
+    // Block until background thread releases permit
+    commitPermit.acquireUninterruptibly();
+    commitPermit.release();
+    asyncCommitInFlight = false;
+
+    // Check for background thread errors — latch terminal failure
+    final Throwable error = asyncCommitError;
+    if (error != null) {
+      asyncCommitError = null;
+      asyncTerminalFailure = true;
+      throw new SirixIOException("Async commit failed", error);
+    }
+
+    // Clean up: close KVL pages (written to disk), promote IndirectPages
+    log.cleanupSnapshot();
+  }
+
+  /**
+   * Background thread: write all KVL pages from the frozen snapshot to disk.
+   * Uses thread-local buffer and shadow PageReference — NEVER writes to real refs.
+   * <p>
+   * CRITICAL: Each KVL page is deep-copied before serialization. The serialization path
+   * mutates the page (addReferences → processEntries, FSST compression, string compression).
+   * Without the copy, the insert thread's concurrent deep-copy for CoW would race against
+   * these mutations, producing corrupted pages (e.g., zeroed headers, inconsistent slot data).
+   */
+  private void executeSnapshotWrite() {
+    try {
+      final BytesOut<?> bgBuffer = Bytes.elasticOffHeapByteBuffer(Writer.FLUSH_SIZE);
+      final PageReference shadowRef = new PageReference();
+      try {
+        final ResourceConfiguration config = getResourceSession().getResourceConfig();
+        shadowRef.setDatabaseId(storageEngineReader.getDatabaseId());
+        shadowRef.setResourceId(storageEngineReader.getResourceId());
+        final int size = log.getSnapshotSize();
+        for (int i = 0; i < size; i++) {
+          final PageContainer container = log.getSnapshotEntry(i);
+          if (container == null) {
+            continue;
+          }
+          final Page modified = container.getModified();
+          if (!(modified instanceof KeyValueLeafPage kvl)) {
+            continue;
+          }
+
+          final KeyValueLeafPage serializationCopy = kvl.deepCopy();
+          shadowRef.setKey(Constants.NULL_ID_LONG);
+          storagePageReaderWriter.write(config, shadowRef, serializationCopy, bgBuffer);
+          log.setSnapshotDiskOffset(i, shadowRef.getKey());
+          log.setSnapshotHash(i, shadowRef.getHash());
+          serializationCopy.close();
+        }
+        storagePageReaderWriter.flushBufferedWrites(bgBuffer);
+      } finally {
+        bgBuffer.close();
+      }
+      log.markSnapshotCommitComplete();
+    } catch (final Throwable t) {
+      asyncCommitError = t;
+      asyncTerminalFailure = true;
+    } finally {
+      commitPermit.release();
+    }
+  }
+
+  /**
+   * Invalidate all local container caches to prevent stale cache hits
+   * returning frozen-zone containers after snapshot.
+   */
+  private void clearLocalContainerCaches() {
+    pageContainerCache.clear();
+    mostRecentPageContainer = new IndexLogKeyToPageContainer(
+        IndexType.DOCUMENT, -1, -1, -1, null);
+    secondMostRecentPageContainer = mostRecentPageContainer;
+    mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(
+        IndexType.PATH_SUMMARY, -1, -1, -1, null);
+  }
+
+  /**
+   * Re-add structural pages to the fresh TIL after snapshot.
+   * <p>
+   * After snapshot, the current TIL is empty. Structural pages (RevisionRootPage,
+   * PathSummaryPage, NamePage, etc.) are in the frozen snapshot. We re-add them
+   * to the current TIL so the insert thread can continue without CoW overhead
+   * for these frequently-accessed pages.
+   * <p>
+   * IndirectPages in the trie are NOT re-added — they will be CoW'd on first
+   * access via prepareIndirectPage() if needed.
+   */
+  private void reAddStructuralPagesToTil() {
+    // Re-add structural pages referenced by RevisionRootPage.
+    // These are the top-level index root pages that get modified during insertion
+    // (e.g., NamePage for name keys, PathSummaryPage for path summaries).
+    reAddPageIfFrozen(newRevisionRootPage.getPathSummaryPageReference());
+    reAddPageIfFrozen(newRevisionRootPage.getNamePageReference());
+    reAddPageIfFrozen(newRevisionRootPage.getCASPageReference());
+    reAddPageIfFrozen(newRevisionRootPage.getPathPageReference());
+    reAddPageIfFrozen(newRevisionRootPage.getDeweyIdPageReference());
+  }
+
+  /**
+   * If a page reference is in the frozen snapshot, re-add its container to the current TIL.
+   * This ensures the insert thread can continue modifying structural pages without CoW.
+   */
+  private void reAddPageIfFrozen(final PageReference ref) {
+    if (ref != null && log.isFrozen(ref)) {
+      final PageContainer container = log.get(ref);
+      if (container != null) {
+        log.put(ref, container);
+      }
+    }
+  }
+
+  /**
+   * Deep-copy a frozen PageContainer for Copy-on-Write. Both complete and modified KVL pages
+   * are deep-copied to ensure full independence from the frozen originals.
+   *
+   * @param container the frozen container to copy
+   * @return a fully independent deep copy
+   */
+  private PageContainer deepCopyFrozenContainer(final PageContainer container) {
+    final var frozenModified = (KeyValueLeafPage) container.getModified();
+    final var frozenComplete = (KeyValueLeafPage) container.getComplete();
+    final var cowModified = frozenModified.deepCopy();
+    final var cowComplete = (frozenComplete == frozenModified)
+        ? cowModified
+        : frozenComplete.deepCopy();
+    return PageContainer.getInstance(cowComplete, cowModified);
+  }
+
   @Override
   public void commit(final @Nullable PageReference reference) {
     if (reference == null) {
@@ -818,18 +1027,23 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public UberPage rollback() {
     storageEngineReader.assertNotClosed();
 
+    // Best-effort: await + cleanup even if async errored.
+    // We still need to drain the snapshot and clear TIL regardless.
+    try {
+      awaitPendingAsyncCommit();
+    } catch (final SirixIOException e) {
+      LOGGER.error("Async commit failed during rollback — cleaning up anyway", e);
+    }
+
     // CRITICAL: Release current page guard BEFORE TIL.clear()
     // If guard is on a TIL page, the page won't close (guardCount > 0 check)
     storageEngineReader.closeCurrentPageGuard();
 
-    // Clear TransactionIntentLog - closes all modified pages
+    // Clear TransactionIntentLog - closes all modified pages (including snapshot pages)
     log.clear();
 
     // Clear local cache and reset references (pages already handled by log.clear())
-    pageContainerCache.clear();
-    mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
-    secondMostRecentPageContainer = mostRecentPageContainer;
-    mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
+    clearLocalContainerCaches();
 
     return readUberPage();
   }
@@ -838,6 +1052,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public void close() {
     if (!isClosed) {
       storageEngineReader.assertNotClosed();
+
+      // Best-effort: await + cleanup async commit even if errored
+      try {
+        awaitPendingAsyncCommit();
+      } catch (final SirixIOException e) {
+        LOGGER.error("Async commit failed during close — cleaning up anyway", e);
+      }
 
       // Wait for any pending async fsync to complete before closing
       final var fsync = pendingFsync;
@@ -952,9 +1173,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return pageContainerCache.computeIfAbsent(
         new IndexLogKey(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision()), _ -> {
           final PageReference pageReference = storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
-          final var leafPageReference =
-              storageEngineReader.getLeafPageReference(pageReference, recordPageKey, indexNumber, indexType, newRevisionRootPage);
-          return log.get(leafPageReference);
+          // Use writer's TIL-aware trie traversal instead of reader's disk-only traversal.
+          // After async epoch rotation, IndirectPages may be in the TIL but not yet on disk;
+          // the reader's getLeafPageReference would try to load them from disk with key=-1.
+          final PageReference reference = trieWriter.prepareLeafOfTree(this, log,
+              getUberPage().getPageCountExp(indexType), pageReference, recordPageKey, indexNumber,
+              indexType, newRevisionRootPage);
+          return log.get(reference);
         });
   }
 
@@ -1027,6 +1252,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       var pageContainer = log.get(reference);
 
       if (pageContainer != null) {
+        // CoW: if page is in frozen snapshot, deep-copy to active TIL
+        if (log.isFrozen(reference)) {
+          pageContainer = deepCopyFrozenContainer(pageContainer);
+          log.put(reference, pageContainer);
+        }
         return pageContainer;
       }
 
@@ -1391,6 +1621,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
         newReference.setKey(reference.getKey());
         newReference.setLogKey(reference.getLogKey());
+        newReference.setActiveTilGeneration(reference.getActiveTilGeneration());
         newReference.setPage(reference.getPage());
         newReference.setPageFragments(reference.getPageFragments());
 
@@ -1409,6 +1640,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           height = inpLevelPageCountExp.length; level < height; level++) {
         offset = (int) (levelKey >> inpLevelPageCountExp[level]);
         levelKey -= (long) offset << inpLevelPageCountExp[level];
+
         final IndirectPage page = prepareIndirectPage(storageEngineReader, log, reference);
         reference = page.getOrCreateReference(offset);
       }
@@ -1439,6 +1671,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           final IndirectPage indirectPage = storageEngineReader.dereferenceIndirectPageReference(reference);
           page = new IndirectPage(indirectPage);
         }
+        log.put(reference, PageContainer.getInstance(page, page));
+      } else if (log.isFrozen(reference)) {
+        // CoW: frozen IndirectPage — copy to active TIL before modification.
+        // IndirectPage copy constructor deep-copies its references array.
+        page = new IndirectPage(page);
         log.put(reference, PageContainer.getInstance(page, page));
       }
       return page;

@@ -39,6 +39,7 @@ import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionIndex;
 import io.sirix.io.RevisionIndexHolder;
+import io.sirix.io.StorageType;
 import io.sirix.io.Writer;
 import io.sirix.node.interfaces.Node;
 import io.sirix.page.UberPage;
@@ -467,7 +468,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   @Override
   public W beginNodeTrx(final @NonNegative int maxNodeCount, final @NonNull AfterCommitState afterCommitState) {
-    return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS);
+    return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS, afterCommitState);
   }
 
   @Override
@@ -485,6 +486,19 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       throw new SirixUsageException("maxNodeCount may not be < 0!");
     }
     requireNonNull(timeUnit);
+
+    // KEEP_OPEN_ASYNC runtime guards
+    if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
+      if (getResourceConfig().getStorageType() != StorageType.FILE_CHANNEL) {
+        throw new IllegalArgumentException(
+            "KEEP_OPEN_ASYNC requires FILE_CHANNEL storage backend; got "
+                + getResourceConfig().getStorageType());
+      }
+      if (maxTime > 0) {
+        throw new IllegalArgumentException(
+            "KEEP_OPEN_ASYNC does not support timed auto-commit; use count-based only");
+      }
+    }
 
     // Make sure not to exceed available number of write transactions.
     // The writeLock is shared across ALL ResourceSession instances for the same resource

@@ -344,6 +344,9 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
       final var preCommitRevision = getRevisionNumber();
 
+      // Await any pending async background flush before sync commit
+      storageEngineWriter.awaitPendingAsyncCommit();
+
       final UberPage uberPage = storageEngineWriter.commit(commitMessage, commitTimestamp,
           isAutoCommitting, isIntermediateCommit);
 
@@ -355,7 +358,8 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       }
 
       // Reinstantiate everything.
-      if (afterCommitState == AfterCommitState.KEEP_OPEN) {
+      if (afterCommitState == AfterCommitState.KEEP_OPEN
+          || afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
         // Use the newly committed revision number, not the pre-commit revision.
         // After commit, uberPage represents the new revision, and we need to
         // create a page transaction that will prepare the NEXT revision.
@@ -394,7 +398,17 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   protected final void checkAccessAndCommitBulk() {
     modificationCount++;
     if (maxNodeCount > 0 && modificationCount > maxNodeCount) {
-      commitInternal("autoCommit", null, true);
+      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
+        storageEngineWriter.asyncIntermediateCommit();
+        modificationCount = 0;
+        // Match sync reInstantiate() behavior: new nodeHashing has autoCommit=false.
+        // Without this, rollingAdd() walks the full ancestor chain on every insert,
+        // consuming ~42% of CPU. With bulkInsert=true and autoCommit=false, hashing
+        // is skipped during intermediate epochs (same as sync path).
+        nodeHashing.setAutoCommit(false);
+      } else {
+        commitInternal("autoCommit", null, true);
+      }
     }
   }
 
@@ -418,9 +432,15 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
   private void intermediateCommitIfRequired() {
     nodeReadOnlyTrx.assertNotClosed();
     if (maxNodeCount > 0 && modificationCount > maxNodeCount) {
-      LOGGER.debug("AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
-      commitInternal("autoCommit", null, true);
-      LOGGER.debug("AUTO-COMMIT completed");
+      if (afterCommitState == AfterCommitState.KEEP_OPEN_ASYNC) {
+        storageEngineWriter.asyncIntermediateCommit();
+        modificationCount = 0;
+        nodeHashing.setAutoCommit(false);
+      } else {
+        LOGGER.debug("AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
+        commitInternal("autoCommit", null, true);
+        LOGGER.debug("AUTO-COMMIT completed");
+      }
     }
   }
 

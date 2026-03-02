@@ -441,7 +441,56 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
   }
 
+  /**
+   * Create a deep copy of this page for Copy-on-Write during async epoch boundaries.
+   * Copies slotted page MemorySegment, records[], references map, FSST symbol table.
+   * The copy is fully independent — no shared mutable state with the original.
+   *
+   * <p>Uses the deserialization constructor to set lastSlotIndex directly (no public setter).
+   * Slotted page is deep-copied via allocate + MemorySegment.copy, then set via setSlottedPage().
+   * records[] is shallow-copied (DataRecord objects are not mutated concurrently).
+   * Serialization caches (compressedSegment, bytes, hashCode) are left null — copy is dirty.</p>
+   *
+   * @return a fully independent deep copy of this page
+   */
+  public KeyValueLeafPage deepCopy() {
+    // Deep-copy the references map (each PageReference cloned via copy constructor)
+    final var refsCopy = new ConcurrentHashMap<Long, PageReference>(references.size());
+    for (final var entry : references.entrySet()) {
+      refsCopy.put(entry.getKey(), new PageReference(entry.getValue()));
+    }
 
+    // Use deserialization constructor:
+    //   - sets lastSlotIndex, externallyAllocatedMemory=false
+    //   - records=null, no slotted page allocation (caller sets via setSlottedPage)
+    //   - releases slotMemory/deweyIdMemory if non-null (we pass null)
+    final var copy = new KeyValueLeafPage(
+        recordPageKey, revision, indexType, resourceConfig,
+        areDeweyIDsStored, recordPersister, refsCopy,
+        null, null,
+        lastSlotIndex);
+
+    // Deep-copy slotted page MemorySegment (primary data store)
+    if (slottedPage != null) {
+      final MemorySegment freshSegment = segmentAllocator.allocate(slottedPageCapacity);
+      MemorySegment.copy(slottedPage, 0, freshSegment, 0, slottedPageCapacity);
+      copy.setSlottedPage(freshSegment);
+    }
+
+    // Shallow-copy records[] if non-null (pending unflushed mutations from setRecord).
+    // DataRecord objects are not mutated concurrently — safe to share references.
+    // processEntries() at commit time will serialize them to the COPY's slotted page.
+    if (records != null) {
+      copy.records = Arrays.copyOf(records, records.length);
+    }
+
+    // Copy FSST symbol table if present (byte[] treated as immutable after construction)
+    if (fsstSymbolTable != null) {
+      copy.fsstSymbolTable = Arrays.copyOf(fsstSymbolTable, fsstSymbolTable.length);
+    }
+
+    return copy;
+  }
 
   @Override
   public int hashCode() {

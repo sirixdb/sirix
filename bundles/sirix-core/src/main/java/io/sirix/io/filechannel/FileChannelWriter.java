@@ -378,6 +378,17 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
   }
 
   @Override
+  public void flushBufferedWrites(final BytesOut<?> bufferedBytes) {
+    if (bufferedBytes.writePosition() > 0) {
+      try {
+        flushBuffer(bufferedBytes);
+      } catch (final IOException e) {
+        throw new SirixIOException(e);
+      }
+    }
+  }
+
+  @Override
   public void forceAll() {
     try {
       if (dataFileChannel != null) {
