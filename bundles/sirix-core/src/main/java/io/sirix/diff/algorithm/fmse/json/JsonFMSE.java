@@ -415,14 +415,10 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
         LOGWRAPPER.error("Something went wrong: First child and child may never be the same!");
       } else {
         if (wtx.moveTo(child)) {
+          // JSON_DOCUMENT is in the allowed kinds for moveSubtreeToFirstChild,
+          // so no special case is needed (unlike XML where document root required copy).
           wtx.moveTo(parent);
-          if (wtx.getKind() == NodeKind.JSON_DOCUMENT) {
-            // Document root: can't moveSubtree, copy instead.
-            rtx.moveTo(child);
-            wtx.moveTo(wtx.copySubtreeAsFirstChild(rtx).getNodeKey());
-          } else {
-            wtx.moveTo(wtx.moveSubtreeToFirstChild(child).getNodeKey());
-          }
+          wtx.moveTo(wtx.moveSubtreeToFirstChild(child).getNodeKey());
         }
       }
     } else {
@@ -489,8 +485,12 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     assert rtx != null;
 
     // Determines if node has been already inserted (for subtrees).
+    // Return the old-revision key (not the new-revision key "child") since the caller
+    // uses this return value as an old-revision key (e.g., in alignChildren(w, x, wtx, rtx)).
     if (alreadyInserted.containsKey(child) && alreadyInserted.get(child)) {
-      return child;
+      final long oldKey = totalMatching.reversePartner(child);
+      assert oldKey != JsonMatching.NO_PARTNER : "Already-inserted node must have a partner";
+      return oldKey;
     }
 
     wtx.moveTo(parent);
@@ -662,6 +662,8 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
 
   @Override
   public void close() {
-    wtx.commit();
+    if (wtx != null) {
+      wtx.commit();
+    }
   }
 }

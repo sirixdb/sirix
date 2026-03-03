@@ -1849,6 +1849,9 @@ final class JsonNodeTrxImpl extends
         if (nodeAnchor.getRightSiblingKey() != toMove.getNodeKey()) {
           final long parentKey = nodeAnchor.getParentKey();
 
+          // Adapt index-structures (before move).
+          adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
+
           // Adapt hashes.
           adaptHashesForMove(toMove);
 
@@ -1868,6 +1871,9 @@ final class JsonNodeTrxImpl extends
                   moved.getPrefixKey(), moved.getLocalNameKey(), type);
             }
           }
+
+          // Adapt index-structures (after move).
+          adaptSubtreeForMove(toMove, IndexController.ChangeType.INSERT);
 
           // Recompute DeweyIDs if they are used.
           if (storeDeweyIDs()) {
