@@ -75,16 +75,23 @@ public final class JsonMatching {
    * @param nodeY partner node key (in new revision)
    */
   public void add(final @NonNegative long nodeX, final @NonNegative long nodeY) {
-    rtxOld.moveTo(nodeX);
-    rtxNew.moveTo(nodeY);
-    if (rtxOld.getKind() != rtxNew.getKind()) {
-      throw new AssertionError(
-          "Matched nodes must have same kind: " + rtxOld.getKind() + " vs " + rtxNew.getKind());
+    final long savedOld = rtxOld.getNodeKey();
+    final long savedNew = rtxNew.getNodeKey();
+    try {
+      rtxOld.moveTo(nodeX);
+      rtxNew.moveTo(nodeY);
+      if (rtxOld.getKind() != rtxNew.getKind()) {
+        throw new AssertionError(
+            "Matched nodes must have same kind: " + rtxOld.getKind() + " vs " + rtxNew.getKind());
+      }
+      mapping.put(nodeX, nodeY);
+      reverseMapping.put(nodeY, nodeX);
+      updateSubtreeMap(nodeX, rtxOld);
+      updateSubtreeMap(nodeY, rtxNew);
+    } finally {
+      rtxOld.moveTo(savedOld);
+      rtxNew.moveTo(savedNew);
     }
-    mapping.put(nodeX, nodeY);
-    reverseMapping.put(nodeY, nodeX);
-    updateSubtreeMap(nodeX, rtxOld);
-    updateSubtreeMap(nodeY, rtxNew);
   }
 
   /**
@@ -136,16 +143,21 @@ public final class JsonMatching {
    * @return number of matched descendants
    */
   public long containedDescendants(final @NonNegative long nodeX, final @NonNegative long nodeY) {
-    long retVal = 0;
-    rtxOld.moveTo(nodeX);
-    for (final Axis axis = new DescendantAxis(rtxOld, IncludeSelf.YES); axis.hasNext();) {
-      axis.nextLong();
-      final long partnerKey = partner(rtxOld.getNodeKey());
-      if (partnerKey != NO_PARTNER && isInSubtree.get(nodeY, partnerKey)) {
-        retVal++;
+    final long savedOld = rtxOld.getNodeKey();
+    try {
+      long retVal = 0;
+      rtxOld.moveTo(nodeX);
+      for (final Axis axis = new DescendantAxis(rtxOld, IncludeSelf.YES); axis.hasNext();) {
+        axis.nextLong();
+        final long partnerKey = partner(rtxOld.getNodeKey());
+        if (partnerKey != NO_PARTNER && isInSubtree.get(nodeY, partnerKey)) {
+          retVal++;
+        }
       }
+      return retVal;
+    } finally {
+      rtxOld.moveTo(savedOld);
     }
-    return retVal;
   }
 
   /**

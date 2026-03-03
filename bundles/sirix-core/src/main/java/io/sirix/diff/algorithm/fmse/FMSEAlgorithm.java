@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import io.sirix.node.NodeKind;
 import io.sirix.utils.Pair;
 
+import java.util.EnumSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -43,8 +44,9 @@ public final class FMSEAlgorithm {
     assert addMatch != null;
     assert cmp != null;
 
-    final Set<NodeKind> labels = oldLabels.keySet();
-    labels.retainAll(newLabels.keySet()); // intersection
+    // Compute the intersection of labels without mutating the input maps' keySets.
+    final Set<NodeKind> labels = EnumSet.copyOf(oldLabels.keySet());
+    labels.retainAll(newLabels.keySet());
 
     // 2 - for each label do
     for (final NodeKind label : labels) {

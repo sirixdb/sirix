@@ -46,12 +46,15 @@ public final class ConnectionMap<T> {
   }
 
   /**
-   * Copy constructor.
-   * 
+   * Copy constructor. Performs a deep copy so inner maps are independent.
+   *
    * @param map the original {@link ConnectionMap}
    */
   public ConnectionMap(final ConnectionMap<T> map) {
-    this.map = new HashMap<>(map.map);
+    this.map = new HashMap<>(map.map.size());
+    for (final Map.Entry<T, HashMap<T, Boolean>> entry : map.map.entrySet()) {
+      this.map.put(entry.getKey(), new HashMap<>(entry.getValue()));
+    }
   }
 
   /**

@@ -521,7 +521,8 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
       process(wtx.getNodeKey(), rtx.getNodeKey());
     }
 
-    return wtx.getNodeKey();
+    // Return the key of the inserted subtree root, not the last descendant.
+    return oldKey;
   }
 
   /**
@@ -572,7 +573,7 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
    * @return its position, with respect to already inserted/deleted nodes
    */
   private int findPos(final long x, final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx) {
-    assert x > 0;
+    assert x >= 0;
     assert wtx != null;
     assert rtx != null;
 
@@ -594,16 +595,20 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     // 3 - Find v in T2 where v is the rightmost sibling of x that is to the left
     // of x and is marked "in order".
     rtx.moveTo(nodeKey);
+    if (!rtx.hasLeftSibling()) {
+      // x is the first child — no left sibling is "in order" to the left of x.
+      return 0;
+    }
     rtx.moveToLeftSibling();
     long v = rtx.getNodeKey();
-    while (rtx.hasLeftSibling() && !inOrderNewRev.get(v)) {
+    while (!inOrderNewRev.get(v) && rtx.hasLeftSibling()) {
       rtx.moveToLeftSibling();
       v = rtx.getNodeKey();
     }
 
     // Check if we found an "in order" node.
     if (!inOrderNewRev.get(v)) {
-      // Assume it is the first node (undefined in the paper).
+      // No left sibling is "in order" — insert at position 0.
       return 0;
     }
 
