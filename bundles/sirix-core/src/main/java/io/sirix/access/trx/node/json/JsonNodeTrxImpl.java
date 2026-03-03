@@ -34,12 +34,21 @@ import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.access.trx.node.RecordToRevisionsIndex;
+import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
+import io.sirix.access.trx.node.json.objectvalue.BooleanValue;
 import io.sirix.access.trx.node.json.objectvalue.ByteStringValue;
+import io.sirix.access.trx.node.json.objectvalue.NullValue;
+import io.sirix.access.trx.node.json.objectvalue.NumberValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
+import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
+import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
+import io.sirix.api.Axis;
+import io.sirix.axis.DescendantAxis;
+import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.PostOrderAxis;
 import io.sirix.diff.DiffDepth;
 import io.sirix.diff.DiffFactory;
@@ -57,6 +66,9 @@ import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.BooleanValueNode;
+import io.sirix.node.interfaces.DataRecord;
+import io.sirix.node.interfaces.NameNode;
+import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.NumericValueNode;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.ValueNode;
@@ -1747,6 +1759,442 @@ final class JsonNodeTrxImpl extends
   }
 
   @Override
+  public JsonNodeTrx moveSubtreeToFirstChild(final long fromKey) {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
+      if (fromKey < 0 || fromKey > getMaxNodeKey()) {
+        throw new IllegalArgumentException("Argument must be a valid node key!");
+      }
+      if (fromKey == getNodeKey()) {
+        throw new IllegalArgumentException("Can't move itself to first child of itself!");
+      }
+
+      final DataRecord node = storageEngineWriter.getRecord(fromKey, IndexType.DOCUMENT, -1);
+      if (node == null) {
+        throw new IllegalStateException("Node to move must exist!");
+      }
+
+      if (node instanceof StructNode toMove) {
+        final NodeKind anchorKind = getKind();
+        if (anchorKind != NodeKind.OBJECT && anchorKind != NodeKind.ARRAY
+            && anchorKind != NodeKind.OBJECT_KEY && anchorKind != NodeKind.JSON_DOCUMENT) {
+          throw new SirixUsageException(
+              "Move is not allowed if the anchor node is not an OBJECT, ARRAY, OBJECT_KEY, or JSON_DOCUMENT node!");
+        }
+
+        checkMoveAncestors(toMove);
+        checkAccessAndCommit();
+
+        final StructNode nodeAnchor = nodeReadOnlyTrx.getStructuralNode();
+
+        if (nodeAnchor.getFirstChildKey() != toMove.getNodeKey()) {
+          // Save original parent key before the move (toMove may be a flyweight singleton that gets
+          // mutated during adaptForMove).
+          final long originalParentKey = toMove.getParentKey();
+
+          // Adapt index-structures (before move).
+          adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
+
+          // Adapt hashes.
+          adaptHashesForMove(toMove);
+
+          // Adapt pointers (no text node merging for JSON).
+          adaptForMove(toMove, nodeAnchor, MovePosition.AS_FIRST_CHILD);
+          nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
+          nodeHashing.adaptHashesWithAdd();
+
+          // Adapt path summary.
+          if (buildPathSummary && toMove instanceof NameNode moved) {
+            pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(),
+                moved.getPrefixKey(), moved.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
+          } else if (buildPathSummary
+              && originalParentKey != nodeAnchor.getNodeKey()) {
+            // Non-NameNode (OBJECT/ARRAY) moved to a different parent: adapt descendant NameNodes.
+            adaptDescendantNameNodePaths(toMove);
+          }
+
+          // Adapt index-structures (after move).
+          adaptSubtreeForMove(toMove, IndexController.ChangeType.INSERT);
+
+          // Compute and assign new DeweyIDs.
+          if (storeDeweyIDs()) {
+            deweyIDManager.computeNewDeweyIDs();
+          }
+        }
+        return this;
+      } else {
+        throw new SirixUsageException("Node to move must be a StructNode!");
+      }
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
+  @Override
+  public JsonNodeTrx moveSubtreeToRightSibling(final long fromKey) {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
+      if (fromKey < 0 || fromKey > getMaxNodeKey()) {
+        throw new IllegalArgumentException("Argument must be a valid node key!");
+      }
+      if (fromKey == getNodeKey()) {
+        throw new IllegalArgumentException("Can't move itself to right sibling of itself!");
+      }
+
+      final DataRecord node = storageEngineWriter.getRecord(fromKey, IndexType.DOCUMENT, -1);
+      if (node == null) {
+        throw new IllegalStateException("Node to move must exist: " + fromKey);
+      }
+
+      if (node instanceof StructNode toMove) {
+        checkMoveAncestors(toMove);
+        checkAccessAndCommit();
+
+        final StructNode nodeAnchor = nodeReadOnlyTrx.getStructuralNode();
+
+        if (nodeAnchor.getRightSiblingKey() != toMove.getNodeKey()) {
+          final long parentKey = nodeAnchor.getParentKey();
+          final long originalParentKey = toMove.getParentKey();
+
+          // Adapt index-structures (before move).
+          adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
+
+          // Adapt hashes.
+          adaptHashesForMove(toMove);
+
+          // Adapt pointers (no text node merging for JSON).
+          adaptForMove(toMove, nodeAnchor, MovePosition.AS_RIGHT_SIBLING);
+          nodeReadOnlyTrx.moveTo(toMove.getNodeKey());
+          nodeHashing.adaptHashesWithAdd();
+
+          // Adapt path summary.
+          if (buildPathSummary && toMove instanceof NameNode moved) {
+            final PathSummaryWriter.OPType type = originalParentKey == parentKey
+                ? PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL
+                : PathSummaryWriter.OPType.MOVED;
+
+            if (type != PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL) {
+              pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(),
+                  moved.getPrefixKey(), moved.getLocalNameKey(), type);
+            }
+          } else if (buildPathSummary && originalParentKey != parentKey) {
+            // Non-NameNode (OBJECT/ARRAY) moved to a different parent: adapt descendant NameNodes.
+            adaptDescendantNameNodePaths(toMove);
+          }
+
+          // Adapt index-structures (after move).
+          adaptSubtreeForMove(toMove, IndexController.ChangeType.INSERT);
+
+          // Recompute DeweyIDs if they are used.
+          if (storeDeweyIDs()) {
+            deweyIDManager.computeNewDeweyIDs();
+          }
+        }
+        return this;
+      } else {
+        throw new SirixUsageException("Node to move must be a StructNode!");
+      }
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
+  @Override
+  public JsonNodeTrx moveSubtreeToLeftSibling(final long fromKey) {
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
+      if (nodeReadOnlyTrx.getStructuralNode().hasLeftSibling()) {
+        moveToLeftSibling();
+        return moveSubtreeToRightSibling(fromKey);
+      } else {
+        moveToParent();
+        return moveSubtreeToFirstChild(fromKey);
+      }
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
+  /**
+   * Checks that the node to move is not an ancestor of the current node (prevents cycles).
+   *
+   * @param nodeToMove the node to be moved
+   * @throws IllegalStateException if moving an ancestor is detected
+   */
+  private void checkMoveAncestors(final Node nodeToMove) {
+    assert nodeToMove != null;
+    final long startNodeKey = getNodeKey();
+    while (hasParent()) {
+      moveToParent();
+      if (getNodeKey() == nodeToMove.getNodeKey()) {
+        throw new IllegalStateException("Moving one of the ancestor nodes is not permitted!");
+      }
+    }
+    moveTo(startNodeKey);
+  }
+
+  /**
+   * Adapt subtree regarding the index-structures for move operations.
+   *
+   * @param node  node which is moved
+   * @param type  the type of change (DELETE from old position or INSERT into new position)
+   */
+  private void adaptSubtreeForMove(final Node node, final IndexController.ChangeType type) {
+    assert type != null;
+    final long beforeNodeKey = getNodeKey();
+    moveTo(node.getNodeKey());
+    final Axis axis = new DescendantAxis(this, IncludeSelf.YES);
+    while (axis.hasNext()) {
+      axis.nextLong();
+      final ImmutableNode currentNode = nodeReadOnlyTrx.getNode();
+      long pathNodeKey = -1;
+      if (currentNode instanceof ValueNode
+          && currentNode.getParentKey() != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+        final long nodeKey = currentNode.getNodeKey();
+        moveToParent();
+        pathNodeKey = getPathNodeKey();
+        moveTo(nodeKey);
+      } else if (currentNode instanceof NameNode nameNode) {
+        pathNodeKey = nameNode.getPathNodeKey();
+      }
+      if (pathNodeKey != -1 && indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(type, currentNode, pathNodeKey);
+      }
+    }
+    moveTo(beforeNodeKey);
+  }
+
+  /**
+   * Adapt hashes for move operation ("remove" phase).
+   *
+   * @param nodeToMove node which implements {@link StructNode} and is moved
+   */
+  private void adaptHashesForMove(final StructNode nodeToMove) {
+    assert nodeToMove != null;
+    nodeReadOnlyTrx.setCurrentNode((ImmutableJsonNode) nodeToMove);
+    nodeHashing.adaptHashesWithRemove();
+  }
+
+  /**
+   * Adapts path summary for descendant NameNode children when a non-NameNode (OBJECT or ARRAY) is
+   * moved to a different parent. Without this, nested OBJECT_KEY nodes would retain stale
+   * pathNodeKey references after the container node moves.
+   *
+   * <p>Only processes the <b>shallowest</b> NameNode descendants (first OBJECT_KEY layer reached
+   * in each branch), because {@code adaptPathForChangedNode} internally handles deeper descendants
+   * via its own descendant traversal.</p>
+   *
+   * @param movedNode the non-NameNode that was moved
+   */
+  private void adaptDescendantNameNodePaths(final StructNode movedNode) {
+    final long savedKey = getNodeKey();
+    moveTo(movedNode.getNodeKey());
+    collectAndAdaptShallowNameNodes(movedNode.getNodeKey());
+    moveTo(savedKey);
+  }
+
+  /**
+   * Recursively finds the shallowest NameNode descendants under a non-NameNode container and
+   * adapts their path summary entries. Stops recursing once a NameNode is found (because
+   * {@code adaptPathForChangedNode} handles deeper descendants).
+   */
+  private void collectAndAdaptShallowNameNodes(final long parentKey) {
+    moveTo(parentKey);
+    if (!hasFirstChild()) {
+      return;
+    }
+    moveToFirstChild();
+    do {
+      final long childKey = getNodeKey();
+      final ImmutableNode childNode = nodeReadOnlyTrx.getNode();
+      if (childNode instanceof NameNode nameNode) {
+        // Found a NameNode — adapt its path (which also fixes all its descendants).
+        // No need to recurse deeper.
+        moveTo(childKey);
+        pathSummaryWriter.adaptPathForChangedNode(nameNode, getName(), nameNode.getURIKey(),
+            nameNode.getPrefixKey(), nameNode.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
+        moveTo(childKey);
+      } else if (childNode instanceof StructNode structChild && structChild.hasFirstChild()) {
+        // Non-NameNode with children (e.g., OBJECT inside ARRAY) — recurse to find NameNodes.
+        collectAndAdaptShallowNameNodes(childKey);
+      }
+      moveTo(childKey);
+    } while (hasRightSibling() && moveToRightSibling());
+  }
+
+  /**
+   * Insert position for move operations.
+   */
+  private enum MovePosition {
+    AS_FIRST_CHILD,
+    AS_RIGHT_SIBLING
+  }
+
+  /**
+   * Adapts pointers for move operations. JSON-specific: no text node merging.
+   *
+   * @param fromNode root {@link StructNode} of the subtree to be moved
+   * @param toNode   the {@link StructNode} which is the anchor of the new subtree
+   * @param pos      determines if it has to be inserted as a first child or a right sibling
+   */
+  private void adaptForMove(final StructNode fromNode, final StructNode toNode,
+      final MovePosition pos) {
+    assert fromNode != null;
+    assert toNode != null;
+    assert pos != null;
+
+    // === Source side: detach fromNode from its current position ===
+
+    // Modify parent's child count.
+    final StructNode parent =
+        storageEngineWriter.prepareRecordForModification(fromNode.getParentKey(), IndexType.DOCUMENT, -1);
+    switch (pos) {
+      case AS_RIGHT_SIBLING -> {
+        if (fromNode.getParentKey() != toNode.getParentKey() && storeChildCount) {
+          parent.decrementChildCount();
+        }
+      }
+      case AS_FIRST_CHILD -> {
+        if (fromNode.getParentKey() != toNode.getNodeKey() && storeChildCount) {
+          parent.decrementChildCount();
+        }
+      }
+    }
+    // Adapt first child key of former parent.
+    if (parent.getFirstChildKey() == fromNode.getNodeKey()) {
+      parent.setFirstChildKey(fromNode.getRightSiblingKey());
+    }
+    persistUpdatedRecord(parent);
+
+    // Adapt left sibling key of former right sibling.
+    if (fromNode.hasRightSibling()) {
+      final StructNode rightSibling =
+          storageEngineWriter.prepareRecordForModification(fromNode.getRightSiblingKey(), IndexType.DOCUMENT, -1);
+      rightSibling.setLeftSiblingKey(fromNode.getLeftSiblingKey());
+      persistUpdatedRecord(rightSibling);
+    }
+
+    // Adapt right sibling key of former left sibling.
+    if (fromNode.hasLeftSibling()) {
+      final StructNode leftSibling =
+          storageEngineWriter.prepareRecordForModification(fromNode.getLeftSiblingKey(), IndexType.DOCUMENT, -1);
+      leftSibling.setRightSiblingKey(fromNode.getRightSiblingKey());
+      persistUpdatedRecord(leftSibling);
+    }
+
+    // No text node merging for JSON (unlike XML).
+
+    // === Target side: insert fromNode at new position ===
+    switch (pos) {
+      case AS_FIRST_CHILD -> processMoveAsFirstChild(fromNode, toNode);
+      case AS_RIGHT_SIBLING -> processMoveAsRightSibling(fromNode, toNode);
+    }
+  }
+
+  /**
+   * Process moving a node as the first child of the target node.
+   */
+  private void processMoveAsFirstChild(final StructNode fromNode, final StructNode toNode) {
+    // Increment child count of new parent (if not already parent).
+    StructNode newParent =
+        storageEngineWriter.prepareRecordForModification(toNode.getNodeKey(), IndexType.DOCUMENT, -1);
+    if (fromNode.getParentKey() != toNode.getNodeKey() && storeChildCount) {
+      newParent.incrementChildCount();
+    }
+
+    if (toNode.hasFirstChild()) {
+      // Adapt left sibling key of former first child.
+      final StructNode oldFirstChild =
+          storageEngineWriter.prepareRecordForModification(toNode.getFirstChildKey(), IndexType.DOCUMENT, -1);
+      oldFirstChild.setLeftSiblingKey(fromNode.getNodeKey());
+      final long oldFirstChildNodeKey = oldFirstChild.getNodeKey();
+      persistUpdatedRecord(oldFirstChild);
+
+      // Adapt right sibling key of moved node.
+      final StructNode moved =
+          storageEngineWriter.prepareRecordForModification(fromNode.getNodeKey(), IndexType.DOCUMENT, -1);
+      moved.setRightSiblingKey(oldFirstChildNodeKey);
+      persistUpdatedRecord(moved);
+    } else {
+      // Adapt right sibling key of moved node (no siblings).
+      final StructNode moved =
+          storageEngineWriter.prepareRecordForModification(fromNode.getNodeKey(), IndexType.DOCUMENT, -1);
+      moved.setRightSiblingKey(Fixed.NULL_NODE_KEY.getStandardProperty());
+      persistUpdatedRecord(moved);
+    }
+
+    // Set fromNode as new first child of parent.
+    newParent = storageEngineWriter.prepareRecordForModification(toNode.getNodeKey(), IndexType.DOCUMENT, -1);
+    newParent.setFirstChildKey(fromNode.getNodeKey());
+    persistUpdatedRecord(newParent);
+
+    // Adapt left sibling key and parent key of moved node.
+    final StructNode moved =
+        storageEngineWriter.prepareRecordForModification(fromNode.getNodeKey(), IndexType.DOCUMENT, -1);
+    moved.setLeftSiblingKey(Fixed.NULL_NODE_KEY.getStandardProperty());
+    moved.setParentKey(toNode.getNodeKey());
+    persistUpdatedRecord(moved);
+  }
+
+  /**
+   * Process moving a node as the right sibling of the target node.
+   */
+  private void processMoveAsRightSibling(final StructNode fromNode, final StructNode toNode) {
+    // Increment child count of parent if moving between different parents.
+    if (fromNode.getParentKey() != toNode.getParentKey() && storeChildCount) {
+      final StructNode parentNode =
+          storageEngineWriter.prepareRecordForModification(toNode.getParentKey(), IndexType.DOCUMENT, -1);
+      parentNode.incrementChildCount();
+      persistUpdatedRecord(parentNode);
+    }
+
+    // Adapt right sibling key of anchor node.
+    final StructNode insertAnchor =
+        storageEngineWriter.prepareRecordForModification(toNode.getNodeKey(), IndexType.DOCUMENT, -1);
+    final long rightSiblKey = insertAnchor.getRightSiblingKey();
+    insertAnchor.setRightSiblingKey(fromNode.getNodeKey());
+    persistUpdatedRecord(insertAnchor);
+
+    final long insertAnchorNodeKey = insertAnchor.getNodeKey();
+
+    if (rightSiblKey > -1) {
+      // Adapt left sibling key of former right sibling.
+      final StructNode oldRightSibling =
+          storageEngineWriter.prepareRecordForModification(rightSiblKey, IndexType.DOCUMENT, -1);
+      oldRightSibling.setLeftSiblingKey(fromNode.getNodeKey());
+      persistUpdatedRecord(oldRightSibling);
+    }
+
+    // Adapt right- and left-sibling key of moved node.
+    final StructNode movedNode =
+        storageEngineWriter.prepareRecordForModification(fromNode.getNodeKey(), IndexType.DOCUMENT, -1);
+    movedNode.setRightSiblingKey(rightSiblKey);
+    movedNode.setLeftSiblingKey(insertAnchorNodeKey);
+    persistUpdatedRecord(movedNode);
+
+    // Adapt parent key of moved node.
+    final StructNode movedForParent =
+        storageEngineWriter.prepareRecordForModification(fromNode.getNodeKey(), IndexType.DOCUMENT, -1);
+    movedForParent.setParentKey(toNode.getParentKey());
+    persistUpdatedRecord(movedForParent);
+  }
+
+  @Override
   public JsonNodeTrx remove() {
     checkAccessAndCommit();
     if (lock != null) {
@@ -2441,9 +2889,25 @@ final class JsonNodeTrxImpl extends
       rtx.moveToFirstChild();
     }
 
+    try {
+      copyNode(rtx, insert);
+    } finally {
+      rtx.close();
+    }
+  }
+
+  /**
+   * Recursively copies a single node and its entire subtree at the given insertion position.
+   * After this method returns, the write-transaction cursor is positioned on the newly inserted
+   * subtree root.
+   *
+   * @param rtx    source read-only transaction positioned at the node to copy
+   * @param insert where to insert relative to the current write-transaction cursor
+   */
+  private void copyNode(final JsonNodeReadOnlyTrx rtx, final InsertPosition insert) {
     final NodeKind kind = rtx.getKind();
     switch (kind) {
-      case NULL_VALUE -> {
+      case NULL_VALUE, OBJECT_NULL_VALUE -> {
         switch (insert) {
           case AS_FIRST_CHILD -> insertNullValueAsFirstChild();
           case AS_LEFT_SIBLING -> insertNullValueAsLeftSibling();
@@ -2451,7 +2915,7 @@ final class JsonNodeTrxImpl extends
           default -> throw new IllegalStateException();
         }
       }
-      case STRING_VALUE -> {
+      case STRING_VALUE, OBJECT_STRING_VALUE -> {
         final String textValue = rtx.getValue();
         switch (insert) {
           case AS_FIRST_CHILD -> insertStringValueAsFirstChild(textValue);
@@ -2460,28 +2924,126 @@ final class JsonNodeTrxImpl extends
           default -> throw new IllegalStateException();
         }
       }
-      case BOOLEAN_VALUE -> {
+      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE -> {
+        final boolean boolVal = rtx.getBooleanValue();
         switch (insert) {
-          case AS_FIRST_CHILD -> insertBooleanValueAsFirstChild(rtx.getBooleanValue());
-          case AS_LEFT_SIBLING -> insertBooleanValueAsLeftSibling(rtx.getBooleanValue());
-          case AS_RIGHT_SIBLING -> insertBooleanValueAsRightSibling(rtx.getBooleanValue());
+          case AS_FIRST_CHILD -> insertBooleanValueAsFirstChild(boolVal);
+          case AS_LEFT_SIBLING -> insertBooleanValueAsLeftSibling(boolVal);
+          case AS_RIGHT_SIBLING -> insertBooleanValueAsRightSibling(boolVal);
           default -> throw new IllegalStateException();
         }
       }
-      case NUMBER_VALUE -> {
+      case NUMBER_VALUE, OBJECT_NUMBER_VALUE -> {
+        final Number numVal = rtx.getNumberValue();
         switch (insert) {
-          case AS_FIRST_CHILD -> insertNumberValueAsFirstChild(rtx.getNumberValue());
-          case AS_LEFT_SIBLING -> insertNumberValueAsLeftSibling(rtx.getNumberValue());
-          case AS_RIGHT_SIBLING -> insertNumberValueAsRightSibling(rtx.getNumberValue());
+          case AS_FIRST_CHILD -> insertNumberValueAsFirstChild(numVal);
+          case AS_LEFT_SIBLING -> insertNumberValueAsLeftSibling(numVal);
+          case AS_RIGHT_SIBLING -> insertNumberValueAsRightSibling(numVal);
           default -> throw new IllegalStateException();
         }
       }
+      case OBJECT -> {
+        switch (insert) {
+          case AS_FIRST_CHILD -> insertObjectAsFirstChild();
+          case AS_LEFT_SIBLING -> insertObjectAsLeftSibling();
+          case AS_RIGHT_SIBLING -> insertObjectAsRightSibling();
+          default -> throw new IllegalStateException();
+        }
+        copyChildren(rtx);
+      }
+      case ARRAY -> {
+        switch (insert) {
+          case AS_FIRST_CHILD -> insertArrayAsFirstChild();
+          case AS_LEFT_SIBLING -> insertArrayAsLeftSibling();
+          case AS_RIGHT_SIBLING -> insertArrayAsRightSibling();
+          default -> throw new IllegalStateException();
+        }
+        copyChildren(rtx);
+      }
+      case OBJECT_KEY -> copyObjectKey(rtx, insert);
       // $CASES-OMITTED$
       default -> throw new UnsupportedOperationException(
-          "Copying complex JSON node kinds (OBJECT, ARRAY, OBJECT_KEY) via copySubtree* "
-              + "is not yet implemented. Node kind: " + kind);
+          "Copying node kind " + kind + " is not supported.");
     }
-    rtx.close();
+  }
+
+  /**
+   * Copies an OBJECT_KEY node and its child value subtree. OBJECT_KEY nodes are special because they
+   * carry a key name and always have exactly one child (the value). For leaf values, we use the
+   * existing {@code insertObjectRecordAs*} API. For complex values (OBJECT/ARRAY), we insert an
+   * empty container and then recursively copy its children.
+   *
+   * @param rtx    source read-only transaction positioned at the OBJECT_KEY node
+   * @param insert where to insert relative to the current write-transaction cursor
+   */
+  private void copyObjectKey(final JsonNodeReadOnlyTrx rtx, final InsertPosition insert) {
+    final String keyName = rtx.getName().getLocalName();
+    final long objectKeySourceKey = rtx.getNodeKey();
+
+    // Peek at the child value to determine its type.
+    rtx.moveToFirstChild();
+    final NodeKind childKind = rtx.getKind();
+    final ObjectRecordValue<?> value = switch (childKind) {
+      case STRING_VALUE, OBJECT_STRING_VALUE -> new StringValue(rtx.getValue());
+      case NUMBER_VALUE, OBJECT_NUMBER_VALUE -> new NumberValue(rtx.getNumberValue());
+      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE -> BooleanValue.of(rtx.getBooleanValue());
+      case NULL_VALUE, OBJECT_NULL_VALUE -> NullValue.INSTANCE;
+      case OBJECT -> ObjectValue.INSTANCE;
+      case ARRAY -> ArrayValue.INSTANCE;
+      default -> throw new IllegalStateException("Unexpected child kind under OBJECT_KEY: " + childKind);
+    };
+    // Restore rtx to OBJECT_KEY before inserting.
+    rtx.moveTo(objectKeySourceKey);
+
+    // Insert the object record (OBJECT_KEY + value child) using the high-level API.
+    switch (insert) {
+      case AS_FIRST_CHILD -> insertObjectRecordAsFirstChild(keyName, value);
+      case AS_LEFT_SIBLING -> insertObjectRecordAsLeftSibling(keyName, value);
+      case AS_RIGHT_SIBLING -> insertObjectRecordAsRightSibling(keyName, value);
+      default -> throw new IllegalStateException();
+    }
+    // After insertObjectRecord*, cursor is on the value child node.
+
+    // For complex value children (OBJECT/ARRAY), recursively copy their children into the
+    // newly created empty container.
+    if (childKind == NodeKind.OBJECT || childKind == NodeKind.ARRAY) {
+      // wtx cursor is already on the empty container (value child).
+      // Move rtx to the source's value child to copy from.
+      rtx.moveToFirstChild();
+      copyChildren(rtx);
+      rtx.moveTo(objectKeySourceKey);
+    }
+
+    // Move cursor up to the OBJECT_KEY node for consistent post-condition.
+    moveToParent();
+  }
+
+  /**
+   * Copies all children of the source node (at rtx's current position) as children of the
+   * write-transaction's current node. After this method, both cursors are restored to their
+   * original positions.
+   *
+   * @param rtx source read-only transaction positioned at the parent whose children are to be copied
+   */
+  private void copyChildren(final JsonNodeReadOnlyTrx rtx) {
+    if (!rtx.hasFirstChild()) {
+      return;
+    }
+
+    final long wtxParentKey = getNodeKey();
+    final long rtxParentKey = rtx.getNodeKey();
+
+    rtx.moveToFirstChild();
+    copyNode(rtx, InsertPosition.AS_FIRST_CHILD);
+
+    while (rtx.hasRightSibling()) {
+      rtx.moveToRightSibling();
+      copyNode(rtx, InsertPosition.AS_RIGHT_SIBLING);
+    }
+
+    // Restore both cursors to the parent nodes.
+    rtx.moveTo(rtxParentKey);
+    moveTo(wtxParentKey);
   }
 
   private static final class JsonNodeTrxThreadFactory implements ThreadFactory {
