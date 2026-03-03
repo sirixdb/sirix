@@ -142,7 +142,8 @@ public final class Matching {
    * @return true iff add(x, y) was invoked first
    */
   public boolean contains(final @NonNegative long nodeX, final @NonNegative long nodeY) {
-    return mapping.get(nodeX) != null && mapping.get(nodeX).equals(nodeY);
+    final Long val = mapping.get(nodeX);
+    return val != null && val == nodeY;
   }
 
   /**

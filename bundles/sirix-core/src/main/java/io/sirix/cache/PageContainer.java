@@ -153,7 +153,7 @@ public final class PageContainer {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(complete, modified);
+    return 31 * System.identityHashCode(complete) + System.identityHashCode(modified);
   }
 
   @Override

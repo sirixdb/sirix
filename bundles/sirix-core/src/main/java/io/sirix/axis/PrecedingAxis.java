@@ -21,10 +21,9 @@
 
 package io.sirix.axis;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
 import io.sirix.api.NodeCursor;
 import io.sirix.node.NodeKind;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 
 /**
  * <p>
@@ -37,8 +36,8 @@ public final class PrecedingAxis extends AbstractAxis {
   /** Determines if it's the first call or not. */
   private boolean mIsFirst;
 
-  /** Stack to save nodeKeys. */
-  private Deque<Long> mStack;
+  /** Stack to save nodeKeys (primitive long, no autoboxing). */
+  private LongArrayList mStack;
 
   /**
    * Constructor initializing internal state.
@@ -48,14 +47,18 @@ public final class PrecedingAxis extends AbstractAxis {
   public PrecedingAxis(final NodeCursor cursor) {
     super(cursor);
     mIsFirst = true;
-    mStack = new ArrayDeque<>();
+    mStack = new LongArrayList();
   }
 
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
     mIsFirst = true;
-    mStack = new ArrayDeque<>();
+    if (mStack == null) {
+      mStack = new LongArrayList();
+    } else {
+      mStack.clear();
+    }
   }
 
   @Override
@@ -75,7 +78,7 @@ public final class PrecedingAxis extends AbstractAxis {
 
     if (!mStack.isEmpty()) {
       // Return all nodes of the current subtree in reverse document order.
-      return mStack.pop();
+      return mStack.popLong();
     }
 
     if (cursor.hasLeftSibling()) {
@@ -122,7 +125,7 @@ public final class PrecedingAxis extends AbstractAxis {
      */
     if (cursor.hasFirstChild()) {
       while (cursor.hasFirstChild()) {
-        mStack.push(cursor.getNodeKey());
+        mStack.add(cursor.getNodeKey());
         cursor.moveToFirstChild();
       }
 
@@ -131,7 +134,7 @@ public final class PrecedingAxis extends AbstractAxis {
        * the stack
        */
       while (cursor.hasRightSibling()) {
-        mStack.push(cursor.getNodeKey());
+        mStack.add(cursor.getNodeKey());
         cursor.moveToRightSibling();
         getLastChild();
       }
@@ -141,7 +144,7 @@ public final class PrecedingAxis extends AbstractAxis {
        * descendants on each step.
        */
       if (cursor.hasParent() && (cursor.getParentKey() != parent)) {
-        mStack.push(cursor.getNodeKey());
+        mStack.add(cursor.getNodeKey());
         while (cursor.hasParent() && (cursor.getParentKey() != parent)) {
           cursor.moveToParent();
 
@@ -152,14 +155,14 @@ public final class PrecedingAxis extends AbstractAxis {
           while (cursor.hasRightSibling()) {
             cursor.moveToRightSibling();
             getLastChild();
-            mStack.push(cursor.getNodeKey());
+            mStack.add(cursor.getNodeKey());
           }
         }
 
         /*
          * Set cursor to the node in the subtree that is last in document order.
          */
-        cursor.moveTo(mStack.pop());
+        cursor.moveTo(mStack.popLong());
       }
     }
   }

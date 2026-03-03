@@ -26,8 +26,6 @@ import io.sirix.api.NodeCursor;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.node.NodeKind;
 
-import java.util.Deque;
-
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -50,8 +48,11 @@ public final class LevelOrderAxis extends AbstractAxis {
     NONSTRUCTURAL
   }
 
-  /** {@link Deque} for remembering next nodeKey in document order. */
+  /** Queue for remembering next nodeKey in document order. */
   private LongArrayList firstChilds;
+
+  /** Read index into firstChilds to avoid O(n) removal from front. */
+  private int firstChildReadIndex;
 
   /**
    * Determines if {@code attribute-} and {@code namespace-} nodes should be included or not.
@@ -159,7 +160,12 @@ public final class LevelOrderAxis extends AbstractAxis {
   public void reset(final long pNodeKey) {
     super.reset(pNodeKey);
     isFirst = true;
-    firstChilds = new LongArrayList();
+    if (firstChilds == null) {
+      firstChilds = new LongArrayList();
+    } else {
+      firstChilds.clear();
+    }
+    firstChildReadIndex = 0;
   }
 
   @Override
@@ -201,8 +207,8 @@ public final class LevelOrderAxis extends AbstractAxis {
       firstChilds.add(cursor.getFirstChildKey());
     }
 
-    // Then follow first child on stack.
-    if (!firstChilds.isEmpty()) {
+    // Then follow first child from queue.
+    if (firstChildReadIndex < firstChilds.size()) {
       level++;
 
       // End traversal if level is reached.
@@ -210,7 +216,7 @@ public final class LevelOrderAxis extends AbstractAxis {
         return done();
       }
 
-      return firstChilds.removeLong(0);
+      return firstChilds.getLong(firstChildReadIndex++);
     }
 
     // Then follow first child if there is one.

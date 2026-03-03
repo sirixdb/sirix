@@ -51,7 +51,11 @@ public final class IndexLogKey {
   @Override
   public int hashCode() {
     if (hash == 0) {
-      hash = indexType.getID() + Long.hashCode(recordPageKey) + indexNumber + revisionNumber;
+      int h = indexType.getID();
+      h = 31 * h + (int) (recordPageKey ^ (recordPageKey >>> 32));
+      h = 31 * h + indexNumber;
+      h = 31 * h + revisionNumber;
+      hash = h;
     }
     return hash;
   }

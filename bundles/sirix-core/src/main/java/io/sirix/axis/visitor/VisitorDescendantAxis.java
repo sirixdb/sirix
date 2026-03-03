@@ -23,7 +23,11 @@ package io.sirix.axis.visitor;
 
 import io.sirix.api.NodeCursor;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
-import io.sirix.api.visitor.*;
+import io.sirix.api.visitor.JsonNodeVisitor;
+import io.sirix.api.visitor.NodeVisitor;
+import io.sirix.api.visitor.VisitResult;
+import io.sirix.api.visitor.VisitResultType;
+import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.AbstractAxis;
 import io.sirix.axis.DescendantAxis;
@@ -32,8 +36,7 @@ import io.sirix.settings.Fixed;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 
 import static java.util.Objects.requireNonNull;
 
@@ -52,8 +55,8 @@ import static java.util.Objects.requireNonNull;
  */
 public final class VisitorDescendantAxis extends AbstractAxis {
 
-  /** Stack for remembering next nodeKey in document order. */
-  private Deque<Long> rightSiblingKeyStack;
+  /** Stack for remembering next nodeKey in document order (primitive long, no autoboxing). */
+  private LongArrayList rightSiblingKeyStack;
 
   /** Optional visitor. */
   private NodeVisitor visitor;
@@ -137,7 +140,11 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
     isFirstCall = true;
-    rightSiblingKeyStack = new ArrayDeque<>();
+    if (rightSiblingKeyStack == null) {
+      rightSiblingKeyStack = new LongArrayList();
+    } else {
+      rightSiblingKeyStack.clear();
+    }
   }
 
   @Override
@@ -173,7 +180,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
 
     // If visitor is present and the the right sibling stack must be adapted.
     if (LocalVisitResult.SKIPSUBTREEPOPSTACK == result) {
-      rightSiblingKeyStack.pop();
+      rightSiblingKeyStack.popLong();
     }
 
     // If visitor is present and result is not VisitResult.SKIPSUBTREE/VisitResult.SKIPSUBTREEPOPSTACK
@@ -185,8 +192,8 @@ public final class VisitorDescendantAxis extends AbstractAxis {
         final long key = cursor.getFirstChildKey();
         final long rightSiblNodeKey = cursor.getRightSiblingKey();
         if (cursor.hasRightSibling()
-            && (rightSiblingKeyStack.isEmpty() || rightSiblingKeyStack.peek() != rightSiblNodeKey)) {
-          rightSiblingKeyStack.push(rightSiblNodeKey);
+            && (rightSiblingKeyStack.isEmpty() || rightSiblingKeyStack.topLong() != rightSiblNodeKey)) {
+          rightSiblingKeyStack.add(rightSiblNodeKey);
         }
         return key;
       }
@@ -208,7 +215,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
   @Nullable
   private long nextSiblingNodeKeyIfAvailable(VisitResult result, final NodeCursor cursor) {
     if (!rightSiblingKeyStack.isEmpty()) {
-      final var nextKey = rightSiblingKeyStack.pop();
+      final long nextKey = rightSiblingKeyStack.popLong();
       final var nextNodeKey = getNextNodeKey(nextKey, cursor.getNodeKey());
 
       if (nextNodeKey == Fixed.NULL_NODE_KEY.getStandardProperty()) {

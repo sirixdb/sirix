@@ -28,8 +28,8 @@ import io.sirix.page.interfaces.PageFragmentKey;
 import io.sirix.settings.Constants;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -76,7 +76,7 @@ public final class PageReference {
    * Default constructor setting up an uninitialized page reference.
    */
   public PageReference() {
-    pageFragments = new ArrayList<>();
+    pageFragments = Collections.emptyList();
   }
 
   /**
@@ -148,6 +148,9 @@ public final class PageReference {
    * @return this instance
    */
   public PageReference addPageFragment(final PageFragmentKey key) {
+    if (pageFragments.isEmpty()) {
+      pageFragments = new ArrayList<>(2);
+    }
     pageFragments.add(key);
     return this;
   }
@@ -278,7 +281,11 @@ public final class PageReference {
   @Override
   public int hashCode() {
     if (hash == 0) {
-      hash = Objects.hash(databaseId, resourceId, logKey, key);
+      int h = (int) (databaseId ^ (databaseId >>> 32));
+      h = 31 * h + (int) (resourceId ^ (resourceId >>> 32));
+      h = 31 * h + logKey;
+      h = 31 * h + (int) (key ^ (key >>> 32));
+      hash = h;
     }
     return hash;
   }

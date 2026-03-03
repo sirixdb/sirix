@@ -18,11 +18,33 @@ import io.sirix.api.visitor.VisitResult;
 import io.sirix.diff.JsonDiffSerializer;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.immutable.json.*;
+import io.sirix.node.immutable.json.ImmutableArrayNode;
+import io.sirix.node.immutable.json.ImmutableBooleanNode;
+import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
+import io.sirix.node.immutable.json.ImmutableNullNode;
+import io.sirix.node.immutable.json.ImmutableNumberNode;
+import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
+import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
+import io.sirix.node.immutable.json.ImmutableObjectNode;
+import io.sirix.node.immutable.json.ImmutableObjectNullNode;
+import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
+import io.sirix.node.immutable.json.ImmutableObjectStringNode;
+import io.sirix.node.immutable.json.ImmutableStringNode;
 import io.sirix.node.interfaces.ValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import io.sirix.node.json.*;
+import io.sirix.node.json.ArrayNode;
+import io.sirix.node.json.BooleanNode;
+import io.sirix.node.json.JsonDocumentRootNode;
+import io.sirix.node.json.NullNode;
+import io.sirix.node.json.NumberNode;
+import io.sirix.node.json.ObjectBooleanNode;
+import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNode;
+import io.sirix.node.json.ObjectNullNode;
+import io.sirix.node.json.ObjectNumberNode;
+import io.sirix.node.json.ObjectStringNode;
+import io.sirix.node.json.StringNode;
 import io.sirix.service.xml.xpath.ItemListImpl;
 import io.sirix.settings.Constants;
 import io.brackit.query.atomic.QNm;
@@ -57,10 +79,10 @@ public final class JsonNodeReadOnlyTrxImpl extends
     super(trxId, pageReadTransaction, documentNode, resourceSession, new ItemListImpl());
   }
 
-  private final String INSERT = InsertOperations.INSERT.getName();
-  private final String UPDATE = InsertOperations.UPDATE.getName();
-  private final String DELETE = InsertOperations.DELETE.getName();
-  private final String REPLACE = InsertOperations.REPLACE.getName();
+  private static final String INSERT = InsertOperations.INSERT.getName();
+  private static final String UPDATE = InsertOperations.UPDATE.getName();
+  private static final String DELETE = InsertOperations.DELETE.getName();
+  private static final String REPLACE = InsertOperations.REPLACE.getName();
 
   @Override
   public boolean hasLastChild() {

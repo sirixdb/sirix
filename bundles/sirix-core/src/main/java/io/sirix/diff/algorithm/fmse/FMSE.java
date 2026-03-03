@@ -359,7 +359,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
         inOrderOldRev.put(a, true);
         inOrderNewRev.put(b, true);
         final int k = findPos(b, wtx, rtx);
-        logger.debug("Move in align children: " + k);
+        logger.debug("Move in align children: {}", k);
         emitMove(a, w, k, wtx, rtx);
       }
     }
