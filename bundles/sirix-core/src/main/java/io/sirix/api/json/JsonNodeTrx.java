@@ -95,6 +95,36 @@ public interface JsonNodeTrx extends JsonNodeReadOnlyTrx, NodeTrx {
 
   JsonNodeTrx remove();
 
+  /**
+   * Move a subtree rooted at {@code fromKey} to be the first child of the current node.
+   *
+   * @param fromKey root node key of the subtree to move
+   * @return this transaction instance
+   * @throws SirixException if an error occurs during the move
+   * @throws IllegalArgumentException if the node to move doesn't exist or is invalid
+   */
+  JsonNodeTrx moveSubtreeToFirstChild(long fromKey);
+
+  /**
+   * Move a subtree rooted at {@code fromKey} to be the right sibling of the current node.
+   *
+   * @param fromKey root node key of the subtree to move
+   * @return this transaction instance
+   * @throws SirixException if an error occurs during the move
+   * @throws IllegalArgumentException if the node to move doesn't exist or is invalid
+   */
+  JsonNodeTrx moveSubtreeToRightSibling(long fromKey);
+
+  /**
+   * Move a subtree rooted at {@code fromKey} to be the left sibling of the current node.
+   *
+   * @param fromKey root node key of the subtree to move
+   * @return this transaction instance
+   * @throws SirixException if an error occurs during the move
+   * @throws IllegalArgumentException if the node to move doesn't exist or is invalid
+   */
+  JsonNodeTrx moveSubtreeToLeftSibling(long fromKey);
+
   JsonNodeTrx insertStringValueAsFirstChild(String value);
 
   JsonNodeTrx insertStringValueAsLastChild(String value);

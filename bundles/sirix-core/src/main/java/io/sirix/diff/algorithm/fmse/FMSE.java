@@ -49,7 +49,6 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -898,68 +897,7 @@ public final class FMSE implements ImportDiff, AutoCloseable {
    */
   private static void match(final Map<NodeKind, List<Long>> oldLabels, final Map<NodeKind, List<Long>> newLabels,
       final Matching matching, final NodeComparator<Long> cmp) {
-    final Set<NodeKind> labels = oldLabels.keySet();
-    labels.retainAll(newLabels.keySet()); // intersection
-
-    // 2 - for each label do
-    for (final NodeKind label : labels) {
-      final List<Long> first = oldLabels.get(label); // 2(a)
-      final List<Long> second = newLabels.get(label); // 2(b)
-
-      // 2(c)
-      final List<Pair<Long, Long>> common = Util.longestCommonSubsequence(first, second, cmp);
-      // Used to remove the nodes in common from s1 and s2 in step 2(e).
-      final Map<Long, Boolean> seen = new HashMap<>();
-
-      // 2(d) - for each pair of nodes in the lcs: add to matching.
-      for (final Pair<Long, Long> p : common) {
-        matching.add(p.getFirst(), p.getSecond());
-        seen.put(p.getFirst(), true);
-        seen.put(p.getSecond(), true);
-      }
-
-      // 2(e) (prepare) - remove nodes in common from s1, s2.
-      removeCommonNodes(first, seen);
-      removeCommonNodes(second, seen);
-
-      // 2(e) - For each unmatched node x \in s1.
-      final Iterator<Long> firstIterator = first.iterator();
-      while (firstIterator.hasNext()) {
-        final Long firstItem = firstIterator.next();
-        boolean firstIter = true;
-        // If there is an unmatched node y \in s2.
-        final Iterator<Long> secondIterator = second.iterator();
-        while (secondIterator.hasNext()) {
-          final Long secondItem = secondIterator.next();
-          // Such that equal.
-          if (cmp.isEqual(firstItem, secondItem)) {
-            // 2(e)A
-            matching.add(firstItem, secondItem);
-
-            // 2(e)B
-            if (firstIter) {
-              firstIter = false;
-              firstIterator.remove();
-            }
-            secondIterator.remove();
-            break;
-          }
-        }
-      }
-    }
-  }
-
-  /**
-   * Remove nodes in common.
-   *
-   * @param list {@link List} of {@link Node}s
-   * @param seen {@link Map} of {@link Node}s
-   */
-  private static void removeCommonNodes(final List<Long> list, final Map<Long, Boolean> seen) {
-    assert list != null;
-    assert seen != null;
-
-    list.removeIf(seen::containsKey);
+    FMSEAlgorithm.match(oldLabels, newLabels, matching::add, cmp);
   }
 
   /**
