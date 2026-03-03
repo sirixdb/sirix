@@ -34,8 +34,14 @@ import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.access.trx.node.RecordToRevisionsIndex;
+import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
+import io.sirix.access.trx.node.json.objectvalue.BooleanValue;
 import io.sirix.access.trx.node.json.objectvalue.ByteStringValue;
+import io.sirix.access.trx.node.json.objectvalue.NullValue;
+import io.sirix.access.trx.node.json.objectvalue.NumberValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
+import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
+import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -2824,9 +2830,25 @@ final class JsonNodeTrxImpl extends
       rtx.moveToFirstChild();
     }
 
+    try {
+      copyNode(rtx, insert);
+    } finally {
+      rtx.close();
+    }
+  }
+
+  /**
+   * Recursively copies a single node and its entire subtree at the given insertion position.
+   * After this method returns, the write-transaction cursor is positioned on the newly inserted
+   * subtree root.
+   *
+   * @param rtx    source read-only transaction positioned at the node to copy
+   * @param insert where to insert relative to the current write-transaction cursor
+   */
+  private void copyNode(final JsonNodeReadOnlyTrx rtx, final InsertPosition insert) {
     final NodeKind kind = rtx.getKind();
     switch (kind) {
-      case NULL_VALUE -> {
+      case NULL_VALUE, OBJECT_NULL_VALUE -> {
         switch (insert) {
           case AS_FIRST_CHILD -> insertNullValueAsFirstChild();
           case AS_LEFT_SIBLING -> insertNullValueAsLeftSibling();
@@ -2834,7 +2856,7 @@ final class JsonNodeTrxImpl extends
           default -> throw new IllegalStateException();
         }
       }
-      case STRING_VALUE -> {
+      case STRING_VALUE, OBJECT_STRING_VALUE -> {
         final String textValue = rtx.getValue();
         switch (insert) {
           case AS_FIRST_CHILD -> insertStringValueAsFirstChild(textValue);
@@ -2843,28 +2865,126 @@ final class JsonNodeTrxImpl extends
           default -> throw new IllegalStateException();
         }
       }
-      case BOOLEAN_VALUE -> {
+      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE -> {
+        final boolean boolVal = rtx.getBooleanValue();
         switch (insert) {
-          case AS_FIRST_CHILD -> insertBooleanValueAsFirstChild(rtx.getBooleanValue());
-          case AS_LEFT_SIBLING -> insertBooleanValueAsLeftSibling(rtx.getBooleanValue());
-          case AS_RIGHT_SIBLING -> insertBooleanValueAsRightSibling(rtx.getBooleanValue());
+          case AS_FIRST_CHILD -> insertBooleanValueAsFirstChild(boolVal);
+          case AS_LEFT_SIBLING -> insertBooleanValueAsLeftSibling(boolVal);
+          case AS_RIGHT_SIBLING -> insertBooleanValueAsRightSibling(boolVal);
           default -> throw new IllegalStateException();
         }
       }
-      case NUMBER_VALUE -> {
+      case NUMBER_VALUE, OBJECT_NUMBER_VALUE -> {
+        final Number numVal = rtx.getNumberValue();
         switch (insert) {
-          case AS_FIRST_CHILD -> insertNumberValueAsFirstChild(rtx.getNumberValue());
-          case AS_LEFT_SIBLING -> insertNumberValueAsLeftSibling(rtx.getNumberValue());
-          case AS_RIGHT_SIBLING -> insertNumberValueAsRightSibling(rtx.getNumberValue());
+          case AS_FIRST_CHILD -> insertNumberValueAsFirstChild(numVal);
+          case AS_LEFT_SIBLING -> insertNumberValueAsLeftSibling(numVal);
+          case AS_RIGHT_SIBLING -> insertNumberValueAsRightSibling(numVal);
           default -> throw new IllegalStateException();
         }
       }
+      case OBJECT -> {
+        switch (insert) {
+          case AS_FIRST_CHILD -> insertObjectAsFirstChild();
+          case AS_LEFT_SIBLING -> insertObjectAsLeftSibling();
+          case AS_RIGHT_SIBLING -> insertObjectAsRightSibling();
+          default -> throw new IllegalStateException();
+        }
+        copyChildren(rtx);
+      }
+      case ARRAY -> {
+        switch (insert) {
+          case AS_FIRST_CHILD -> insertArrayAsFirstChild();
+          case AS_LEFT_SIBLING -> insertArrayAsLeftSibling();
+          case AS_RIGHT_SIBLING -> insertArrayAsRightSibling();
+          default -> throw new IllegalStateException();
+        }
+        copyChildren(rtx);
+      }
+      case OBJECT_KEY -> copyObjectKey(rtx, insert);
       // $CASES-OMITTED$
       default -> throw new UnsupportedOperationException(
-          "Copying complex JSON node kinds (OBJECT, ARRAY, OBJECT_KEY) via copySubtree* "
-              + "is not yet implemented. Node kind: " + kind);
+          "Copying node kind " + kind + " is not supported.");
     }
-    rtx.close();
+  }
+
+  /**
+   * Copies an OBJECT_KEY node and its child value subtree. OBJECT_KEY nodes are special because they
+   * carry a key name and always have exactly one child (the value). For leaf values, we use the
+   * existing {@code insertObjectRecordAs*} API. For complex values (OBJECT/ARRAY), we insert an
+   * empty container and then recursively copy its children.
+   *
+   * @param rtx    source read-only transaction positioned at the OBJECT_KEY node
+   * @param insert where to insert relative to the current write-transaction cursor
+   */
+  private void copyObjectKey(final JsonNodeReadOnlyTrx rtx, final InsertPosition insert) {
+    final String keyName = rtx.getName().getLocalName();
+    final long objectKeySourceKey = rtx.getNodeKey();
+
+    // Peek at the child value to determine its type.
+    rtx.moveToFirstChild();
+    final NodeKind childKind = rtx.getKind();
+    final ObjectRecordValue<?> value = switch (childKind) {
+      case STRING_VALUE, OBJECT_STRING_VALUE -> new StringValue(rtx.getValue());
+      case NUMBER_VALUE, OBJECT_NUMBER_VALUE -> new NumberValue(rtx.getNumberValue());
+      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE -> BooleanValue.of(rtx.getBooleanValue());
+      case NULL_VALUE, OBJECT_NULL_VALUE -> NullValue.INSTANCE;
+      case OBJECT -> ObjectValue.INSTANCE;
+      case ARRAY -> ArrayValue.INSTANCE;
+      default -> throw new IllegalStateException("Unexpected child kind under OBJECT_KEY: " + childKind);
+    };
+    // Restore rtx to OBJECT_KEY before inserting.
+    rtx.moveTo(objectKeySourceKey);
+
+    // Insert the object record (OBJECT_KEY + value child) using the high-level API.
+    switch (insert) {
+      case AS_FIRST_CHILD -> insertObjectRecordAsFirstChild(keyName, value);
+      case AS_LEFT_SIBLING -> insertObjectRecordAsLeftSibling(keyName, value);
+      case AS_RIGHT_SIBLING -> insertObjectRecordAsRightSibling(keyName, value);
+      default -> throw new IllegalStateException();
+    }
+    // After insertObjectRecord*, cursor is on the value child node.
+
+    // For complex value children (OBJECT/ARRAY), recursively copy their children into the
+    // newly created empty container.
+    if (childKind == NodeKind.OBJECT || childKind == NodeKind.ARRAY) {
+      // wtx cursor is already on the empty container (value child).
+      // Move rtx to the source's value child to copy from.
+      rtx.moveToFirstChild();
+      copyChildren(rtx);
+      rtx.moveTo(objectKeySourceKey);
+    }
+
+    // Move cursor up to the OBJECT_KEY node for consistent post-condition.
+    moveToParent();
+  }
+
+  /**
+   * Copies all children of the source node (at rtx's current position) as children of the
+   * write-transaction's current node. After this method, both cursors are restored to their
+   * original positions.
+   *
+   * @param rtx source read-only transaction positioned at the parent whose children are to be copied
+   */
+  private void copyChildren(final JsonNodeReadOnlyTrx rtx) {
+    if (!rtx.hasFirstChild()) {
+      return;
+    }
+
+    final long wtxParentKey = getNodeKey();
+    final long rtxParentKey = rtx.getNodeKey();
+
+    rtx.moveToFirstChild();
+    copyNode(rtx, InsertPosition.AS_FIRST_CHILD);
+
+    while (rtx.hasRightSibling()) {
+      rtx.moveToRightSibling();
+      copyNode(rtx, InsertPosition.AS_RIGHT_SIBLING);
+    }
+
+    // Restore both cursors to the parent nodes.
+    rtx.moveTo(rtxParentKey);
+    moveTo(wtxParentKey);
   }
 
   private static final class JsonNodeTrxThreadFactory implements ThreadFactory {
