@@ -113,8 +113,8 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     labelOldRevVisitor = new JsonLabelFMSEVisitor(this.wtx);
     labelNewRevVisitor = new JsonLabelFMSEVisitor(this.rtx);
 
-    init(this.wtx, oldRevVisitor);
-    init(this.rtx, newRevVisitor);
+    postOrderVisit(this.wtx, oldRevVisitor);
+    postOrderVisit(this.rtx, newRevVisitor);
 
     final var fastMatching = fastMatch(this.wtx, this.rtx);
     totalMatching = new JsonMatching(fastMatching);
@@ -125,27 +125,10 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   // ==================== Initialization ====================
 
   /**
-   * Initialize data structures via post-order traversal.
+   * Performs a post-order traversal, visiting each descendant and then the root node itself.
+   * Used for both initialization and label collection.
    */
-  private static void init(final JsonNodeReadOnlyTrx rtx, final JsonNodeVisitor visitor) {
-    assert visitor != null;
-
-    final long nodeKey = rtx.getNodeKey();
-    for (final Axis axis = new PostOrderAxis(rtx); axis.hasNext();) {
-      axis.nextLong();
-      if (rtx.getNodeKey() == nodeKey) {
-        break;
-      }
-      rtx.acceptVisitor(visitor);
-    }
-    rtx.acceptVisitor(visitor);
-  }
-
-  /**
-   * Creates a flat list of all nodes by doing a post-order traversal. For each node type there is a
-   * separate list.
-   */
-  private static void getLabels(final JsonNodeReadOnlyTrx rtx, final JsonLabelFMSEVisitor visitor) {
+  private static void postOrderVisit(final JsonNodeReadOnlyTrx rtx, final JsonNodeVisitor visitor) {
     assert rtx != null;
     assert visitor != null;
 
@@ -173,8 +156,8 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
         new JsonFMSENodeComparisonUtils(oldStartKey, newStartKey, this.wtx, this.rtx);
 
     // Chain all nodes with a given label together.
-    getLabels(wtx, labelOldRevVisitor);
-    getLabels(rtx, labelNewRevVisitor);
+    postOrderVisit(wtx, labelOldRevVisitor);
+    postOrderVisit(rtx, labelNewRevVisitor);
 
     // Do the matching job on the leaf nodes.
     final var matching = new JsonMatching(wtx, rtx);
@@ -329,22 +312,25 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     final Long2LongOpenHashMap seen = new Long2LongOpenHashMap(s.size());
     seen.defaultReturnValue(JsonMatching.NO_PARTNER);
     for (final Pair<Long, Long> p : s) {
-      inOrderOldRev.put(p.getFirst().longValue(), true);
-      inOrderNewRev.put(p.getSecond().longValue(), true);
-      seen.put(p.getFirst().longValue(), p.getSecond().longValue());
+      final long first0 = p.getFirst();
+      final long second0 = p.getSecond();
+      inOrderOldRev.put(first0, true);
+      inOrderNewRev.put(second0, true);
+      seen.put(first0, second0);
     }
 
     // 6
     for (final Long a : first) {
-      wtx.moveTo(a);
-      final long b = totalMatching.partner(a);
-      if (seen.get(a.longValue()) == JsonMatching.NO_PARTNER
-          && wtx.moveTo(a) && b != JsonMatching.NO_PARTNER && rtx.moveTo(b)) {
-        inOrderOldRev.put(a.longValue(), true);
+      final long aKey = a;
+      wtx.moveTo(aKey);
+      final long b = totalMatching.partner(aKey);
+      if (seen.get(aKey) == JsonMatching.NO_PARTNER
+          && b != JsonMatching.NO_PARTNER && rtx.moveTo(b)) {
+        inOrderOldRev.put(aKey, true);
         inOrderNewRev.put(b, true);
         final int k = findPos(b, wtx, rtx);
-        LOGWRAPPER.debug("Move in align children: " + k);
-        emitMove(a, w, k, wtx, rtx);
+        LOGWRAPPER.debug("Move in align children: {}", k);
+        emitMove(aKey, w, k, wtx, rtx);
       }
     }
   }
@@ -431,9 +417,6 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
       }
 
       // Move.
-      final long nodeKey = wtx.getNodeKey();
-      moved = wtx.moveTo(nodeKey);
-      assert moved;
       assert wtx.getNodeKey() != child;
 
       wtx.moveTo(wtx.moveSubtreeToRightSibling(child).getNodeKey());

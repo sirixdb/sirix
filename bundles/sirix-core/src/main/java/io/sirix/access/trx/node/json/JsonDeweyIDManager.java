@@ -45,10 +45,10 @@ final class JsonDeweyIDManager extends AbstractDeweyIDManager<InternalJsonNodeTr
     final long nodeKey = nodeTrx.getNodeKey();
 
     if (nodeTrx.hasLeftSibling() && nodeTrx.hasRightSibling()) {
+      final long rightKey = nodeTrx.getRightSiblingKey();
       nodeTrx.moveToLeftSibling();
       final SirixDeweyID leftId = nodeTrx.getDeweyID();
-      nodeTrx.moveTo(nodeKey);
-      nodeTrx.moveToRightSibling();
+      nodeTrx.moveTo(rightKey);
       final SirixDeweyID rightId = nodeTrx.getDeweyID();
       nodeTrx.moveTo(nodeKey);
       id = SirixDeweyID.newBetween(leftId, rightId);

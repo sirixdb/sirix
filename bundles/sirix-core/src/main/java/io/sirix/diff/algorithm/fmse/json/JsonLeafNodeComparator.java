@@ -38,8 +38,7 @@ final class JsonLeafNodeComparator implements NodeComparator<Long> {
 
     if (ratio > FMESF) {
       // Check parent context (for OBJECT_* values, parent is OBJECT_KEY).
-      oldRtx.moveTo(firstNode);
-      newRtx.moveTo(secondNode);
+      // Cursors already at firstNode/secondNode — computeValueRatio() does not move them.
       if (oldRtx.hasParent() && newRtx.hasParent()) {
         oldRtx.moveToParent();
         newRtx.moveToParent();
