@@ -44,6 +44,11 @@ public final class FMSEAlgorithm {
     assert addMatch != null;
     assert cmp != null;
 
+    // Early exit if either label map is empty — no possible matches.
+    if (oldLabels.isEmpty() || newLabels.isEmpty()) {
+      return;
+    }
+
     // Compute the intersection of labels without mutating the input maps' keySets.
     final Set<NodeKind> labels = EnumSet.copyOf(oldLabels.keySet());
     labels.retainAll(newLabels.keySet());
