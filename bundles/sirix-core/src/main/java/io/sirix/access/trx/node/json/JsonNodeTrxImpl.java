@@ -1791,6 +1791,10 @@ final class JsonNodeTrxImpl extends
         final StructNode nodeAnchor = nodeReadOnlyTrx.getStructuralNode();
 
         if (nodeAnchor.getFirstChildKey() != toMove.getNodeKey()) {
+          // Save original parent key before the move (toMove may be a flyweight singleton that gets
+          // mutated during adaptForMove).
+          final long originalParentKey = toMove.getParentKey();
+
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
 
@@ -1806,6 +1810,10 @@ final class JsonNodeTrxImpl extends
           if (buildPathSummary && toMove instanceof NameNode moved) {
             pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(),
                 moved.getPrefixKey(), moved.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
+          } else if (buildPathSummary
+              && originalParentKey != nodeAnchor.getNodeKey()) {
+            // Non-NameNode (OBJECT/ARRAY) moved to a different parent: adapt descendant NameNodes.
+            adaptDescendantNameNodePaths(toMove);
           }
 
           // Adapt index-structures (after move).
@@ -1854,6 +1862,7 @@ final class JsonNodeTrxImpl extends
 
         if (nodeAnchor.getRightSiblingKey() != toMove.getNodeKey()) {
           final long parentKey = nodeAnchor.getParentKey();
+          final long originalParentKey = toMove.getParentKey();
 
           // Adapt index-structures (before move).
           adaptSubtreeForMove(toMove, IndexController.ChangeType.DELETE);
@@ -1868,7 +1877,7 @@ final class JsonNodeTrxImpl extends
 
           // Adapt path summary.
           if (buildPathSummary && toMove instanceof NameNode moved) {
-            final PathSummaryWriter.OPType type = moved.getParentKey() == parentKey
+            final PathSummaryWriter.OPType type = originalParentKey == parentKey
                 ? PathSummaryWriter.OPType.MOVED_ON_SAME_LEVEL
                 : PathSummaryWriter.OPType.MOVED;
 
@@ -1876,6 +1885,9 @@ final class JsonNodeTrxImpl extends
               pathSummaryWriter.adaptPathForChangedNode(moved, getName(), moved.getURIKey(),
                   moved.getPrefixKey(), moved.getLocalNameKey(), type);
             }
+          } else if (buildPathSummary && originalParentKey != parentKey) {
+            // Non-NameNode (OBJECT/ARRAY) moved to a different parent: adapt descendant NameNodes.
+            adaptDescendantNameNodePaths(toMove);
           }
 
           // Adapt index-structures (after move).
@@ -1976,6 +1988,53 @@ final class JsonNodeTrxImpl extends
     assert nodeToMove != null;
     nodeReadOnlyTrx.setCurrentNode((ImmutableJsonNode) nodeToMove);
     nodeHashing.adaptHashesWithRemove();
+  }
+
+  /**
+   * Adapts path summary for descendant NameNode children when a non-NameNode (OBJECT or ARRAY) is
+   * moved to a different parent. Without this, nested OBJECT_KEY nodes would retain stale
+   * pathNodeKey references after the container node moves.
+   *
+   * <p>Only processes the <b>shallowest</b> NameNode descendants (first OBJECT_KEY layer reached
+   * in each branch), because {@code adaptPathForChangedNode} internally handles deeper descendants
+   * via its own descendant traversal.</p>
+   *
+   * @param movedNode the non-NameNode that was moved
+   */
+  private void adaptDescendantNameNodePaths(final StructNode movedNode) {
+    final long savedKey = getNodeKey();
+    moveTo(movedNode.getNodeKey());
+    collectAndAdaptShallowNameNodes(movedNode.getNodeKey());
+    moveTo(savedKey);
+  }
+
+  /**
+   * Recursively finds the shallowest NameNode descendants under a non-NameNode container and
+   * adapts their path summary entries. Stops recursing once a NameNode is found (because
+   * {@code adaptPathForChangedNode} handles deeper descendants).
+   */
+  private void collectAndAdaptShallowNameNodes(final long parentKey) {
+    moveTo(parentKey);
+    if (!hasFirstChild()) {
+      return;
+    }
+    moveToFirstChild();
+    do {
+      final long childKey = getNodeKey();
+      final ImmutableNode childNode = nodeReadOnlyTrx.getNode();
+      if (childNode instanceof NameNode nameNode) {
+        // Found a NameNode — adapt its path (which also fixes all its descendants).
+        // No need to recurse deeper.
+        moveTo(childKey);
+        pathSummaryWriter.adaptPathForChangedNode(nameNode, getName(), nameNode.getURIKey(),
+            nameNode.getPrefixKey(), nameNode.getLocalNameKey(), PathSummaryWriter.OPType.MOVED);
+        moveTo(childKey);
+      } else if (childNode instanceof StructNode structChild && structChild.hasFirstChild()) {
+        // Non-NameNode with children (e.g., OBJECT inside ARRAY) — recurse to find NameNodes.
+        collectAndAdaptShallowNameNodes(childKey);
+      }
+      moveTo(childKey);
+    } while (hasRightSibling() && moveToRightSibling());
   }
 
   /**
