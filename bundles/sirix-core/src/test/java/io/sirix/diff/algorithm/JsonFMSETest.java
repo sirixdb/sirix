@@ -1407,6 +1407,411 @@ public final class JsonFMSETest {
         "{\"a\":{},\"b\":[]}");
   }
 
+  // ==================== Corner Case Tests ====================
+
+  @Test
+  public void testArrayWithDuplicateIdenticalValues() throws Exception {
+    // Tests LCS/matching behavior when multiple identical leaf nodes exist
+    testDiff(
+        "[1,1,1,1,1]",
+        "[1,1,1]",
+        "[1,1,1]");
+  }
+
+  @Test
+  public void testArrayWithDuplicateIdenticalValuesGrow() throws Exception {
+    testDiff(
+        "[1,1]",
+        "[1,1,1,1,1]",
+        "[1,1,1,1,1]");
+  }
+
+  @Test
+  public void testArrayWithDuplicateNullsAndNumbers() throws Exception {
+    // Mix of duplicates across types
+    testDiff(
+        "[null,null,1,1,true,true]",
+        "[null,1,true]",
+        "[null,1,true]");
+  }
+
+  @Test
+  public void testUnicodeInValues() throws Exception {
+    testDiff(
+        "{\"greeting\":\"hello\"}",
+        "{\"greeting\":\"\u00e9l\u00e8ve\"}",
+        "{\"greeting\":\"\u00e9l\u00e8ve\"}");
+  }
+
+  @Test
+  public void testUnicodeInKeys() throws Exception {
+    testDiff(
+        "{\"name\":\"Alice\"}",
+        "{\"nom\":\"Alice\",\"pr\u00e9nom\":\"B\"}",
+        "{\"nom\":\"Alice\",\"pr\u00e9nom\":\"B\"}");
+  }
+
+  @Test
+  public void testUnicodeChineseCharacters() throws Exception {
+    testDiff(
+        "{\"lang\":\"en\"}",
+        "{\"lang\":\"\u65e5\u672c\u8a9e\"}",
+        "{\"lang\":\"\u65e5\u672c\u8a9e\"}");
+  }
+
+  @Test
+  public void testEmptyStringAsObjectKey() throws Exception {
+    testDiff(
+        "{\"\":1}",
+        "{\"\":2}",
+        "{\"\":2}");
+  }
+
+  @Test
+  public void testEmptyStringKeyInsertAndDelete() throws Exception {
+    testDiff(
+        "{\"\":1,\"a\":2}",
+        "{\"\":3}",
+        "{\"\":3}");
+  }
+
+  @Test
+  public void testObjectReorderWithinArray() throws Exception {
+    // Different object structures reordered in an array
+    testDiff(
+        "[{\"a\":1},{\"b\":2}]",
+        "[{\"b\":2},{\"a\":1}]",
+        "[{\"b\":2},{\"a\":1}]");
+  }
+
+  @Test
+  public void testObjectReorderWithinArrayComplex() throws Exception {
+    testDiff(
+        "[{\"id\":1,\"name\":\"first\"},{\"id\":2,\"name\":\"second\"},{\"id\":3,\"name\":\"third\"}]",
+        "[{\"id\":3,\"name\":\"third\"},{\"id\":1,\"name\":\"first\"},{\"id\":2,\"name\":\"second\"}]",
+        "[{\"id\":3,\"name\":\"third\"},{\"id\":1,\"name\":\"first\"},{\"id\":2,\"name\":\"second\"}]");
+  }
+
+  @Test
+  public void testBooleanArrayManipulation() throws Exception {
+    testDiff(
+        "[true,false,true]",
+        "[false,true,false]",
+        "[false,true,false]");
+  }
+
+  @Test
+  public void testBooleanArrayGrow() throws Exception {
+    testDiff(
+        "[true]",
+        "[true,false,true,false]",
+        "[true,false,true,false]");
+  }
+
+  @Test
+  public void testBooleanArrayShrink() throws Exception {
+    testDiff(
+        "[true,false,true,false]",
+        "[false]",
+        "[false]");
+  }
+
+  @Test
+  public void testNestedIdenticalStructures() throws Exception {
+    // Multiple isomorphic objects — challenges the matcher to distinguish them
+    testDiff(
+        "[{\"x\":1,\"y\":2},{\"x\":1,\"y\":2},{\"x\":1,\"y\":2}]",
+        "[{\"x\":1,\"y\":2},{\"x\":1,\"y\":3}]",
+        "[{\"x\":1,\"y\":2},{\"x\":1,\"y\":3}]");
+  }
+
+  @Test
+  public void testNestedIdenticalStructuresInsert() throws Exception {
+    testDiff(
+        "[{\"x\":1}]",
+        "[{\"x\":1},{\"x\":1},{\"x\":1}]",
+        "[{\"x\":1},{\"x\":1},{\"x\":1}]");
+  }
+
+  @Test
+  public void testVeryWideObject() throws Exception {
+    // 15 keys at the same level
+    testDiff(
+        "{\"a\":1,\"b\":2,\"c\":3,\"d\":4,\"e\":5,"
+            + "\"f\":6,\"g\":7,\"h\":8,\"i\":9,\"j\":10,"
+            + "\"k\":11,\"l\":12,\"m\":13,\"n\":14,\"o\":15}",
+        "{\"a\":10,\"b\":20,\"c\":30,\"d\":40,\"e\":50,"
+            + "\"f\":60,\"g\":70,\"h\":80,\"i\":90,\"j\":100,"
+            + "\"k\":110,\"l\":120,\"m\":130,\"n\":140,\"o\":150}",
+        "{\"a\":10,\"b\":20,\"c\":30,\"d\":40,\"e\":50,"
+            + "\"f\":60,\"g\":70,\"h\":80,\"i\":90,\"j\":100,"
+            + "\"k\":110,\"l\":120,\"m\":130,\"n\":140,\"o\":150}");
+  }
+
+  @Test
+  public void testVeryWideObjectPartialDeleteAndInsert() throws Exception {
+    testDiff(
+        "{\"a\":1,\"b\":2,\"c\":3,\"d\":4,\"e\":5,"
+            + "\"f\":6,\"g\":7,\"h\":8,\"i\":9,\"j\":10}",
+        "{\"a\":1,\"c\":3,\"e\":5,\"g\":7,\"i\":9,"
+            + "\"k\":11,\"l\":12,\"m\":13}",
+        "{\"a\":1,\"c\":3,\"e\":5,\"g\":7,\"i\":9,"
+            + "\"k\":11,\"l\":12,\"m\":13}");
+  }
+
+  @Test
+  public void testMultipleMovesInSameDiff() throws Exception {
+    // Non-monotonic shuffle of 8 elements requiring multiple moves
+    testDiff(
+        "[1,2,3,4,5,6,7,8]",
+        "[8,2,6,4,5,3,7,1]",
+        "[8,2,6,4,5,3,7,1]");
+  }
+
+  @Test
+  public void testLargeArrayShuffleNonMonotonic() throws Exception {
+    // Full shuffle of 10 elements
+    testDiff(
+        "[1,2,3,4,5,6,7,8,9,10]",
+        "[7,2,9,1,4,10,3,8,5,6]",
+        "[7,2,9,1,4,10,3,8,5,6]");
+  }
+
+  @Test
+  public void testAllFourOperationsCombined() throws Exception {
+    // Insert "d":4 + Delete "b":2 + Update "a":1→10 + Move/reorder "c" (via matching)
+    testDiff(
+        "{\"a\":1,\"b\":2,\"c\":{\"inner\":true}}",
+        "{\"c\":{\"inner\":false},\"a\":10,\"d\":4}",
+        "{\"c\":{\"inner\":false},\"a\":10,\"d\":4}");
+  }
+
+  @Test
+  public void testStringThatLooksLikeNumber() throws Exception {
+    // Type coercion: string "42" becomes number 42 under the same key
+    testDiff(
+        "{\"val\":\"42\"}",
+        "{\"val\":42}",
+        "{\"val\":42}");
+  }
+
+  @Test
+  public void testNumberThatBecomesString() throws Exception {
+    testDiff(
+        "{\"val\":42}",
+        "{\"val\":\"42\"}",
+        "{\"val\":\"42\"}");
+  }
+
+  @Test
+  public void testHeterogeneousObjectsInArray() throws Exception {
+    // Objects with different key sets — partial overlap
+    testDiff(
+        "[{\"a\":1,\"b\":2},{\"b\":2,\"c\":3}]",
+        "[{\"a\":1,\"c\":3},{\"b\":2,\"d\":4}]",
+        "[{\"a\":1,\"c\":3},{\"b\":2,\"d\":4}]");
+  }
+
+  @Test
+  public void testHeterogeneousObjectsWithVaryingSizes() throws Exception {
+    testDiff(
+        "[{\"x\":1},{\"x\":1,\"y\":2},{\"x\":1,\"y\":2,\"z\":3}]",
+        "[{\"x\":10,\"y\":20,\"z\":30},{\"x\":10,\"y\":20},{\"x\":10}]",
+        "[{\"x\":10,\"y\":20,\"z\":30},{\"x\":10,\"y\":20},{\"x\":10}]");
+  }
+
+  @Test
+  public void testVeryDeepNesting7Levels() throws Exception {
+    testDiff(
+        "{\"l1\":{\"l2\":{\"l3\":{\"l4\":{\"l5\":{\"l6\":{\"l7\":\"deep\"}}}}}}}",
+        "{\"l1\":{\"l2\":{\"l3\":{\"l4\":{\"l5\":{\"l6\":{\"l7\":\"deeper\",\"l8\":true}}}}}}}",
+        "{\"l1\":{\"l2\":{\"l3\":{\"l4\":{\"l5\":{\"l6\":{\"l7\":\"deeper\",\"l8\":true}}}}}}}");
+  }
+
+  @Test
+  public void testVeryDeepNestingArrays() throws Exception {
+    // 6 levels of nested arrays
+    testDiff(
+        "[[[[[[1]]]]]]",
+        "[[[[[[2,3]]]]]]",
+        "[[[[[[2,3]]]]]]");
+  }
+
+  @Test
+  public void testFlatArrayBecomingDeeplyNested() throws Exception {
+    testDiff(
+        "[[1,2,3]]",
+        "[[1,[2,[3]]]]",
+        "[[1,[2,[3]]]]");
+  }
+
+  @Test
+  public void testDeeplyNestedBecomingFlat() throws Exception {
+    testDiff(
+        "[[1,[2,[3]]]]",
+        "[[1,2,3]]",
+        "[[1,2,3]]");
+  }
+
+  @Test
+  public void testCheckAncestorsIncompatible() throws Exception {
+    // Two leaf values under different ancestor key names (incompatible paths)
+    shredJson(PATHS.PATH1.getFile(), "{\"alpha\":{\"child\":1}}");
+    shredJson(PATHS.PATH2.getFile(), "{\"zzzzzz\":{\"child\":2}}");
+
+    try (final var db1 = Databases.openJsonDatabase(PATHS.PATH1.getFile());
+        final var db2 = Databases.openJsonDatabase(PATHS.PATH2.getFile());
+        final var res1 = db1.beginResourceSession(RESOURCE);
+        final var res2 = db2.beginResourceSession(RESOURCE);
+        final var rtx1 = res1.beginNodeReadOnlyTrx();
+        final var rtx2 = res2.beginNodeReadOnlyTrx()) {
+      // Navigate to the leaf values: doc -> object -> key -> inner_object -> key -> value
+      rtx1.moveToDocumentRoot();
+      rtx1.moveToFirstChild();
+      rtx1.moveToFirstChild();
+      rtx1.moveToFirstChild();
+      rtx1.moveToFirstChild();
+      final long leafKey1 = rtx1.getNodeKey();
+
+      rtx2.moveToDocumentRoot();
+      rtx2.moveToFirstChild();
+      rtx2.moveToFirstChild();
+      rtx2.moveToFirstChild();
+      rtx2.moveToFirstChild();
+      final long leafKey2 = rtx2.getNodeKey();
+
+      // Start keys at document root so the whole ancestor chain is checked
+      final var utils = new JsonFMSENodeComparisonUtils(0L, 0L, rtx1, rtx2);
+      // "alpha" vs "zzzzzz" have low Levenshtein similarity (<0.7) → ancestors incompatible
+      assertFalse("Ancestor paths should be incompatible due to different key names",
+          utils.checkAncestors(leafKey1, leafKey2));
+    }
+  }
+
+  @Test
+  public void testDeleteOnlyChild() throws Exception {
+    // Object with single key → empty object (tests delete-only-child cursor positioning)
+    testDiff(
+        "{\"only\":1}",
+        "{}",
+        "{}");
+  }
+
+  @Test
+  public void testDeleteFirstChildKeepRest() throws Exception {
+    // Delete the first sibling, keep the rest
+    testDiff(
+        "[1,2,3,4]",
+        "[2,3,4]",
+        "[2,3,4]");
+  }
+
+  @Test
+  public void testDeleteLastChildKeepRest() throws Exception {
+    // Delete the last sibling, keep the rest
+    testDiff(
+        "[1,2,3,4]",
+        "[1,2,3]",
+        "[1,2,3]");
+  }
+
+  @Test
+  public void testDeleteMiddleChildKeepRest() throws Exception {
+    // Delete only the middle child
+    testDiff(
+        "[1,2,3]",
+        "[1,3]",
+        "[1,3]");
+  }
+
+  @Test
+  public void testDeleteOnlyChildOfNestedObject() throws Exception {
+    // Tests cursor positioning when deleting the only child under a nested structure
+    testDiff(
+        "{\"parent\":{\"child\":{\"grandchild\":1}}}",
+        "{\"parent\":{\"child\":{}}}",
+        "{\"parent\":{\"child\":{}}}");
+  }
+
+  @Test
+  public void testEmptyContainerVsPopulatedContainer() throws Exception {
+    // Inner node comparator: one empty array, one with children → should not match
+    testDiff(
+        "{\"a\":[],\"b\":[1,2,3]}",
+        "{\"a\":[4,5],\"b\":[]}",
+        "{\"a\":[4,5],\"b\":[]}");
+  }
+
+  @Test
+  public void testEmptyObjectVsPopulatedObject() throws Exception {
+    testDiff(
+        "{\"a\":{},\"b\":{\"x\":1}}",
+        "{\"a\":{\"y\":2},\"b\":{}}",
+        "{\"a\":{\"y\":2},\"b\":{}}");
+  }
+
+  @Test
+  public void testArrayOfOnlyNulls() throws Exception {
+    testDiff(
+        "[null,null,null,null,null]",
+        "[null,null,null]",
+        "[null,null,null]");
+  }
+
+  @Test
+  public void testArrayOfOnlyTrues() throws Exception {
+    testDiff(
+        "[true,true,true]",
+        "[true,true,true,true,true]",
+        "[true,true,true,true,true]");
+  }
+
+  @Test
+  public void testMixedTypeArrayWithContainers() throws Exception {
+    // Array mixing scalars and containers
+    testDiff(
+        "[1,{\"a\":2},[3],null,\"five\"]",
+        "[\"five\",null,[3,4],{\"a\":20},1]",
+        "[\"five\",null,[3,4],{\"a\":20},1]");
+  }
+
+  @Test
+  public void testKeyDeleteAndDifferentKeyAdd() throws Exception {
+    // Explicit test: remove one key, add a completely different key at same level
+    testDiff(
+        "{\"remove_me\":1,\"keep\":2}",
+        "{\"keep\":2,\"brand_new\":3}",
+        "{\"keep\":2,\"brand_new\":3}");
+  }
+
+  @Test
+  public void testNumberEdgeCasesMaxMin() throws Exception {
+    testDiff(
+        "{\"big\":2147483647,\"small\":-2147483648}",
+        "{\"big\":-2147483648,\"small\":2147483647}",
+        "{\"big\":-2147483648,\"small\":2147483647}");
+  }
+
+  @Test
+  public void testVeryLongStringValue() throws Exception {
+    // String longer than MAX_LENGTH (50) to exercise quickRatio path
+    final String longOld = "a".repeat(100);
+    final String longNew = "b".repeat(100);
+    testDiff(
+        "{\"s\":\"" + longOld + "\"}",
+        "{\"s\":\"" + longNew + "\"}",
+        "{\"s\":\"" + longNew + "\"}");
+  }
+
+  @Test
+  public void testObjectWithMixedNestedChanges() throws Exception {
+    // Complex scenario: updates + structural changes at multiple nesting levels
+    testDiff(
+        "{\"config\":{\"db\":{\"host\":\"localhost\",\"port\":5432},\"cache\":{\"ttl\":300}},\"version\":1}",
+        "{\"config\":{\"db\":{\"host\":\"remote.io\",\"port\":5433,\"ssl\":true},\"log\":{\"level\":\"debug\"}},\"version\":2}",
+        "{\"config\":{\"db\":{\"host\":\"remote.io\",\"port\":5433,\"ssl\":true},\"log\":{\"level\":\"debug\"}},\"version\":2}");
+  }
+
   // ==================== Helper Methods ====================
 
   /**
