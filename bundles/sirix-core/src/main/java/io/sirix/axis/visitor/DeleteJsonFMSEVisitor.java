@@ -29,7 +29,7 @@ import static java.util.Objects.requireNonNull;
  * Visitor for the second step of the JSON FMSE algorithm: deletes unmatched nodes. No text node
  * merging is needed for JSON (unlike XML).
  */
-public class DeleteJsonFMSEVisitor extends AbstractJsonNodeVisitor {
+public final class DeleteJsonFMSEVisitor extends AbstractJsonNodeVisitor {
 
   private static final LogWrapper LOGWRAPPER =
       new LogWrapper(LoggerFactory.getLogger(DeleteJsonFMSEVisitor.class));

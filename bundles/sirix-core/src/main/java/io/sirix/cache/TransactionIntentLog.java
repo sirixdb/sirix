@@ -6,10 +6,12 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
 
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import java.util.AbstractList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 
 /**
@@ -78,11 +80,11 @@ public final class TransactionIntentLog implements AutoCloseable {
   // (generation << 32 | logKey) → diskOffset so that stale copies can be transparently
   // resolved in get(). Entries are removed on access (auto-pruning).
 
-  /** Completed disk offsets indexed by packed (generation << 32 | logKey). */
-  private final HashMap<Long, Long> completedDiskOffsets = new HashMap<>();
+  /** Completed disk offsets indexed by packed (generation << 32 | logKey). No autoboxing. */
+  private final Long2LongOpenHashMap completedDiskOffsets;
 
-  /** Completed page hashes indexed by the same packed key. */
-  private final HashMap<Long, byte[]> completedDiskHashes = new HashMap<>();
+  /** Completed page hashes indexed by the same packed key. No autoboxing on key. */
+  private final Long2ObjectOpenHashMap<byte[]> completedDiskHashes = new Long2ObjectOpenHashMap<>();
 
   /** Counter: Layer 3 hits (stale references resolved from completed disk offsets). */
   private long layer3Hits;
@@ -105,6 +107,8 @@ public final class TransactionIntentLog implements AutoCloseable {
     entryRefs = new PageReference[initialCapacity];
     size = 0;
     currentGeneration = 0;
+    completedDiskOffsets = new Long2LongOpenHashMap();
+    completedDiskOffsets.defaultReturnValue(Constants.NULL_ID_LONG);
   }
 
   /**
@@ -141,8 +145,8 @@ public final class TransactionIntentLog implements AutoCloseable {
     // This layer resolves stale copies by applying the disk offset from the completed map.
     if (!completedDiskOffsets.isEmpty()) {
       final long packedKey = ((long) ref.getActiveTilGeneration() << 32) | (logKey & 0xFFFFFFFFL);
-      final Long diskOffset = completedDiskOffsets.remove(packedKey);
-      if (diskOffset != null) {
+      final long diskOffset = completedDiskOffsets.remove(packedKey);
+      if (diskOffset != Constants.NULL_ID_LONG) {
         ref.setKey(diskOffset);
         final byte[] hash = completedDiskHashes.remove(packedKey);
         if (hash != null) {

@@ -29,8 +29,6 @@
 
 package io.sirix.diff.algorithm.fmse;
 
-import io.sirix.diff.algorithm.fmse.utils.SubCost01;
-import io.sirix.diff.algorithm.fmse.utils.SubstitutionCost;
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 import static java.util.Objects.requireNonNull;
@@ -54,11 +52,6 @@ public final class Levenshtein {
 
   /** A constant for calculating the estimated timing cost. */
   private static final float ESTIMATEDTIMINGCONST = 1.8e-4f;
-
-  /**
-   * The private cost function used in the levenstein distance.
-   */
-  private static final SubstitutionCost COSTFUNC = new SubCost01();
 
   /**
    * Get the description.
@@ -87,12 +80,6 @@ public final class Levenshtein {
    * @return the estimated time in milliseconds taken to perform the similarity measure
    */
   public static float getSimilarityTimingEstimated(final String first, @NonNull final String second) {
-    // timed millisecond times with string lengths from 1 + 50 each increment
-    // 0 0.31 1.12 2.4 4.41 6.77 11.28 14.5 24.33 31.29 43.6 51 54.5 67.67 68 78
-    // 88.67 101.5 109 117.5
-    // 140.5 148.5 156 180 187.5 219 203 250 250 312 297 328 297 359 360 406 453
-    // 422 437 469 500 516 578
-    // 578 578 609 672 656 688 766 765 781 829 843 875 891 984 954 984 1078
     final float str1Length = first.length();
     final float str2Length = second.length();
     return (str1Length * str2Length) * ESTIMATEDTIMINGCONST;
@@ -125,12 +112,7 @@ public final class Levenshtein {
     final float levenshteinDistance = getUnNormalisedSimilarity(first, second);
 
     // Convert into zero to one and return value.
-    // ================================================
-
-    // Get the max possible levenshtein distance score for string.
-    final float maxLen = firstLength > secondLength
-        ? firstLength
-        : secondLength;
+    final float maxLen = Math.max(firstLength, secondLength);
 
     // Actual / possible levenshtein distance to get 0-1 range.
     final float norm = 1f - (levenshteinDistance / maxLen);
@@ -140,67 +122,48 @@ public final class Levenshtein {
   }
 
   /**
-   * Implements the levenstein distance function.
-   *
-   * Copy character from string1 over to string2 (cost 0) Delete a character in string1 (cost 1)
-   * Insert a character in string2 (cost 1) Substitute one character for another (cost 1)
-   *
-   * <pre>
-   * D(i - 1, j - 1) + d(si, tj) // subst/copy D(i,j) = min D(i-1,j)+1 //insert
-   *                             // D(i,j-1)+1 //delete
-   * </pre>
-   *
-   * <pre>
-   * d(i,j) is a function whereby d(c,d)=0 if c=d, 1 else.
-   * </pre>
+   * Implements the levenstein distance function using two-row optimization.
+   * Only two rows of the DP matrix are kept in memory at any time,
+   * reducing allocation from O(n*m) to O(m).
    *
    * @param s first string
    * @param t second string to compare
    * @return the levenstein distance between given strings
    */
   private static float getUnNormalisedSimilarity(final String s, final String t) {
-    assert s != null;
-    assert t != null;
-    final float[][] d; // matrix
-    final int n; // length of s
-    final int m; // length of t
-    int i; // iterates through s
-    int j; // iterates through t
-    float cost; // cost
-
-    // Step 1
-    n = s.length();
-    m = t.length();
+    final int n = s.length();
+    final int m = t.length();
     if (n == 0) {
       return m;
     }
     if (m == 0) {
       return n;
     }
-    d = new float[n + 1][m + 1];
 
-    // Step 2
-    for (i = 0; i <= n; i++) {
-      d[i][0] = i;
+    // Two-row optimization: only keep previous and current rows
+    float[] prev = new float[m + 1];
+    float[] curr = new float[m + 1];
+
+    // Initialize first row
+    for (int j = 0; j <= m; j++) {
+      prev[j] = j;
     }
-    for (j = 0; j <= m; j++) {
-      d[0][j] = j;
-    }
 
-    // Step 3
-    for (i = 1; i <= n; i++) {
-      // Step 4
-      for (j = 1; j <= m; j++) {
-        // Step 5
-        cost = COSTFUNC.getCost(s, i - 1, t, j - 1);
-
-        // Step 6
-        d[i][j] = min3(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost);
+    for (int i = 1; i <= n; i++) {
+      curr[0] = i;
+      final char si = s.charAt(i - 1);
+      for (int j = 1; j <= m; j++) {
+        // Inlined cost function: 0 if chars match, 1 otherwise
+        final float cost = (si == t.charAt(j - 1)) ? 0.0f : 1.0f;
+        curr[j] = min3(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
       }
+      // Swap rows
+      final float[] temp = prev;
+      prev = curr;
+      curr = temp;
     }
 
-    // Step 7
-    return d[n][m];
+    return prev[m];
   }
 
   /**

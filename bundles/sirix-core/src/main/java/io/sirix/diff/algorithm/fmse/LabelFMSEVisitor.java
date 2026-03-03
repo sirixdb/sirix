@@ -28,7 +28,7 @@ import io.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
 import io.sirix.node.immutable.xml.ImmutableElement;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 
@@ -58,8 +58,8 @@ public final class LabelFMSEVisitor extends AbstractXmlNodeVisitor {
    */
   public LabelFMSEVisitor(final XmlNodeReadOnlyTrx readTrx) {
     rtx = requireNonNull(readTrx);
-    labels = new HashMap<>();
-    leafLabels = new HashMap<>();
+    labels = new EnumMap<>(NodeKind.class);
+    leafLabels = new EnumMap<>(NodeKind.class);
   }
 
   @Override
@@ -76,10 +76,7 @@ public final class LabelFMSEVisitor extends AbstractXmlNodeVisitor {
       addLeafLabel();
       rtx.moveTo(nodeKey);
     }
-    if (!labels.containsKey(node.getKind())) {
-      labels.put(node.getKind(), new ArrayList<Long>());
-    }
-    labels.get(node.getKind()).add(node.getNodeKey());
+    labels.computeIfAbsent(node.getKind(), k -> new ArrayList<>()).add(node.getNodeKey());
     return VisitResultType.CONTINUE;
   }
 
@@ -95,10 +92,7 @@ public final class LabelFMSEVisitor extends AbstractXmlNodeVisitor {
    */
   private void addLeafLabel() {
     final NodeKind nodeKind = rtx.getKind();
-    if (!leafLabels.containsKey(nodeKind)) {
-      leafLabels.put(nodeKind, new ArrayList<>());
-    }
-    leafLabels.get(nodeKind).add(rtx.getNodeKey());
+    leafLabels.computeIfAbsent(nodeKind, k -> new ArrayList<>()).add(rtx.getNodeKey());
   }
 
   /**

@@ -57,10 +57,10 @@ public final class JsonNodeReadOnlyTrxImpl extends
     super(trxId, pageReadTransaction, documentNode, resourceSession, new ItemListImpl());
   }
 
-  private final String INSERT = InsertOperations.INSERT.getName();
-  private final String UPDATE = InsertOperations.UPDATE.getName();
-  private final String DELETE = InsertOperations.DELETE.getName();
-  private final String REPLACE = InsertOperations.REPLACE.getName();
+  private static final String INSERT = InsertOperations.INSERT.getName();
+  private static final String UPDATE = InsertOperations.UPDATE.getName();
+  private static final String DELETE = InsertOperations.DELETE.getName();
+  private static final String REPLACE = InsertOperations.REPLACE.getName();
 
   @Override
   public boolean hasLastChild() {

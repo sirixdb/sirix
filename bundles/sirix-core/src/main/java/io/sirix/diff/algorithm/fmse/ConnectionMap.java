@@ -66,10 +66,8 @@ public final class ConnectionMap<T> {
    */
   public void set(final T origin, final T destination, final boolean bool) {
     requireNonNull(destination);
-    if (!map.containsKey(requireNonNull(origin))) {
-      map.put(origin, new HashMap<>());
-    }
-    map.get(origin).put(destination, bool);
+    map.computeIfAbsent(requireNonNull(origin), k -> new HashMap<>())
+       .put(destination, bool);
   }
 
   /**
@@ -81,10 +79,11 @@ public final class ConnectionMap<T> {
    * @return true, iff there is a connection from a to b
    */
   public boolean get(final T origin, final T destination) {
-    if (!map.containsKey(origin)) {
+    final var inner = map.get(origin);
+    if (inner == null) {
       return false;
     }
-    final Boolean bool = map.get(origin).get(destination);
+    final Boolean bool = inner.get(destination);
     return bool != null && bool;
   }
 

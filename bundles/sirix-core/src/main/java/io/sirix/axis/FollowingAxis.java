@@ -21,9 +21,8 @@
 
 package io.sirix.axis;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
 import io.sirix.api.NodeCursor;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 
 /**
  * <p>
@@ -36,8 +35,8 @@ public final class FollowingAxis extends AbstractAxis {
   /** Determines if it's the first node. */
   private boolean isFirst;
 
-  /** {@link Deque} reference to save right sibling keys. */
-  private Deque<Long> rightSiblingStack;
+  /** Stack to save right sibling keys (primitive long, no autoboxing). */
+  private LongArrayList rightSiblingStack;
 
   /**
    * Constructor initializing internal state.
@@ -47,14 +46,18 @@ public final class FollowingAxis extends AbstractAxis {
   public FollowingAxis(final NodeCursor cursor) {
     super(cursor);
     isFirst = true;
-    rightSiblingStack = new ArrayDeque<>();
+    rightSiblingStack = new LongArrayList();
   }
 
   @Override
   public void reset(final long nodeKey) {
     super.reset(nodeKey);
     isFirst = true;
-    rightSiblingStack = new ArrayDeque<>();
+    if (rightSiblingStack == null) {
+      rightSiblingStack = new LongArrayList();
+    } else {
+      rightSiblingStack.clear();
+    }
   }
 
   @Override
@@ -86,7 +89,7 @@ public final class FollowingAxis extends AbstractAxis {
 
         if (cursor.hasRightSibling()) {
           // Push right sibling on a stack to reduce path traversal.
-          rightSiblingStack.push(cursor.getRightSiblingKey());
+          rightSiblingStack.add(cursor.getRightSiblingKey());
         }
 
         cursor.moveTo(currKey);
@@ -101,7 +104,7 @@ public final class FollowingAxis extends AbstractAxis {
           final long key = cursor.getNodeKey();
 
           if (cursor.hasRightSibling()) {
-            rightSiblingStack.push(cursor.getRightSiblingKey());
+            rightSiblingStack.add(cursor.getRightSiblingKey());
           }
           cursor.moveTo(currKey);
           return key;
@@ -119,7 +122,7 @@ public final class FollowingAxis extends AbstractAxis {
 
       if (cursor.hasRightSibling()) {
         // Push right sibling on a stack to reduce path traversal.
-        rightSiblingStack.push(cursor.getRightSiblingKey());
+        rightSiblingStack.add(cursor.getRightSiblingKey());
       }
 
       cursor.moveTo(currKey);
@@ -137,7 +140,7 @@ public final class FollowingAxis extends AbstractAxis {
           if (cursor.hasRightSibling()) {
             // Push right sibling on a stack to reduce path
             // traversal.
-            rightSiblingStack.push(cursor.getRightSiblingKey());
+            rightSiblingStack.add(cursor.getRightSiblingKey());
           }
 
           cursor.moveTo(currKey);
@@ -146,12 +149,12 @@ public final class FollowingAxis extends AbstractAxis {
       }
     } else {
       // Get root key of sibling subtree.
-      cursor.moveTo(rightSiblingStack.pop());
+      cursor.moveTo(rightSiblingStack.popLong());
       final long key = cursor.getNodeKey();
 
       if (cursor.hasRightSibling()) {
         // Push right sibling on a stack to reduce path traversal.
-        rightSiblingStack.push(cursor.getRightSiblingKey());
+        rightSiblingStack.add(cursor.getRightSiblingKey());
       }
 
       cursor.moveTo(currKey);

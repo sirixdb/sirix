@@ -21,7 +21,6 @@
 package io.sirix.node.delegates;
 
 import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.Node;
@@ -179,7 +178,10 @@ public class NodeDelegate implements Node {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey, typeKey, parentKey);
+    int result = (int) (nodeKey ^ (nodeKey >>> 32));
+    result = 31 * result + typeKey;
+    result = 31 * result + (int) (parentKey ^ (parentKey >>> 32));
+    return result;
   }
 
   @Override
@@ -187,8 +189,8 @@ public class NodeDelegate implements Node {
     if (!(otherObj instanceof final NodeDelegate other))
       return false;
 
-    return Objects.equal(nodeKey, other.nodeKey) && Objects.equal(typeKey, other.typeKey)
-        && Objects.equal(parentKey, other.parentKey);
+    return nodeKey == other.nodeKey && typeKey == other.typeKey
+        && parentKey == other.parentKey;
   }
 
   @Override

@@ -1,11 +1,8 @@
 package io.sirix.diff.algorithm.fmse;
 
-import javax.xml.namespace.QName;
-
 import io.sirix.access.Utils;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.brackit.query.atomic.QNm;
-import io.sirix.node.xml.TextNode;
 
 import java.util.Objects;
 
@@ -190,17 +187,11 @@ class FMSENodeComparisonUtils {
     assert nodeKey >= 0;
     assert rtx != null;
     rtx.moveTo(nodeKey);
-    final StringBuilder retVal = new StringBuilder();
-    switch (rtx.getKind()) {
-      case ELEMENT, NAMESPACE, ATTRIBUTE -> retVal.append(Utils.buildName(rtx.getName()));
-      case TEXT, COMMENT -> retVal.append(rtx.getValue());
-      case PROCESSING_INSTRUCTION -> retVal.append(rtx.getName().getLocalName()).append(" ").append(rtx.getValue());
-
-      // $CASES-OMITTED$
-      default -> {
-      }
-      // Do nothing.
-    }
-    return retVal.toString();
+    return switch (rtx.getKind()) {
+      case ELEMENT, NAMESPACE, ATTRIBUTE -> Utils.buildName(rtx.getName());
+      case TEXT, COMMENT -> rtx.getValue();
+      case PROCESSING_INSTRUCTION -> rtx.getName().getLocalName() + " " + rtx.getValue();
+      default -> "";
+    };
   }
 }
