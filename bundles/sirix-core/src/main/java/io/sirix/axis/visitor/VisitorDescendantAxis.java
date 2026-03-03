@@ -24,7 +24,6 @@ package io.sirix.axis.visitor;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.visitor.JsonNodeVisitor;
-import io.sirix.api.visitor.LocalVisitResult;
 import io.sirix.api.visitor.NodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.VisitResultType;
