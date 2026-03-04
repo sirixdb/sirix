@@ -71,10 +71,9 @@ public final class JsonSerializerProperties {
     try {
       for (final Field f : getClass().getFields()) {
         final Object obj = f.get(null);
-        if (!(obj instanceof Object[])) {
+        if (!(obj instanceof Object[] arr)) {
           continue;
         }
-        final Object[] arr = (Object[]) obj;
         mProps.put(arr[0].toString(), arr[1]);
       }
     } catch (final IllegalArgumentException | IllegalAccessException e) {

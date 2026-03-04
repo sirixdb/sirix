@@ -78,6 +78,7 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -970,11 +971,14 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     final var resourceConfig = getResourceSession().getResourceConfig();
 
     // Filter KeyValueLeafPages first to get accurate count
-    var keyValuePages = log.getList()
-                           .stream()
-                           .map(PageContainer::getModified)
-                           .filter(page -> page instanceof KeyValueLeafPage)
-                           .toList();
+    final var logList = log.getList();
+    final var keyValuePages = new ArrayList<Page>(logList.size());
+    for (final var container : logList) {
+      final var modified = container.getModified();
+      if (modified instanceof KeyValueLeafPage) {
+        keyValuePages.add(modified);
+      }
+    }
 
     // Adaptive: use sequential for small commits to avoid parallel stream overhead
     var stream = keyValuePages.size() < PARALLEL_SERIALIZATION_THRESHOLD
@@ -987,11 +991,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       try {
         var bytes = new PooledBytesOut(pooledSeg);
         PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
-      } catch (final SirixIOException e) {
-        throw e;
-      } catch (final RuntimeException e) {
-        throw e;
       } catch (final Exception e) {
+        if (e instanceof RuntimeException re) {
+          throw re;
+        }
         throw new SirixIOException(e);
       } finally {
         SerializationBufferPool.INSTANCE.release(pooledSeg);

@@ -509,28 +509,6 @@ public final class PipelineBuilder {
 
         throw new IllegalStateException("function fn:position() is not implemented yet.");
 
-        // getExpression().add(
-        // new PosFilter(transaction, (int)
-        // Double.parseDouble(transaction
-        // .getValue())));
-        // return; // TODO: YES! it is dirty!
-
-        // AtomicValue pos =
-        // new AtomicValue(mTransaction.getItem().getRawValue(),
-        // mTransaction
-        // .keyForName("xs:integer"));
-        // long position = mTransaction.getItemList().addItem(pos);
-        // mPredicate.reset(mTransaction.getItem().getKey());
-        // IAxis function =
-        // new FNPosition(mTransaction, new ArrayList<IAxis>(),
-        // FuncDef.POS.getMin(), FuncDef.POS
-        // .getMax(),
-        // mTransaction.keyForName(FuncDef.POS.getReturnType()));
-        // IAxis expectedPos = new LiteralExpr(mTransaction, position);
-        //
-        // mPredicate = new ValueComp(mTransaction, function,
-        // expectedPos, CompKind.EQ);
-
       }
     }
 

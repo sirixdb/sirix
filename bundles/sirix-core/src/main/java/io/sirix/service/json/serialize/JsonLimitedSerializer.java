@@ -483,7 +483,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
       case BOOLEAN_VALUE:
       case OBJECT_BOOLEAN_VALUE:
         emitMetaData(rtx);
-        appendObjectValue(Boolean.valueOf(rtx.getValue()).toString());
+        appendObjectValue(rtx.getValue());
         if (withMetaDataField()) {
           appendObjectEnd(true);
         }

@@ -603,14 +603,6 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
   @Override
   XmlNodeTrx addPostCommitHook(PostCommitHook hook);
 
-  // /**
-  // * Get the storage engine writer used within the write transaction.
-  // *
-  // * @return the {@link StorageEngineWriter} instance
-  // */
-  // @Beta
-  // StorageEngineWriter<Long, Record, UnorderedKeyValuePage> getPageTransaction();
-
   @Override
   XmlNodeTrx truncateTo(int revision);
 }

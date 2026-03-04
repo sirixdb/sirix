@@ -75,10 +75,8 @@ public final class PathNameFilter extends AbstractFilter<PathSummaryReader> {
 
   @Override
   public boolean filter() {
-    boolean returnVal = false;
-    if (getTrx().isNameNode()) {
-      returnVal = (getTrx().getLocalNameKey() == localNameKey && getTrx().getPrefixKey() == prefixKey);
-    }
-    return returnVal;
+    return getTrx().isNameNode()
+        && getTrx().getLocalNameKey() == localNameKey
+        && getTrx().getPrefixKey() == prefixKey;
   }
 }

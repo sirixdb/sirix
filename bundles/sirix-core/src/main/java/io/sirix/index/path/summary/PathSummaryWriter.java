@@ -374,18 +374,6 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
           }
         }
 
-        // /*
-        // * Remove path nodes with zero node references.
-        // *
-        // * (TODO: Johannes: might not be necessary, as it's likely that future
-        // * updates will reinsert the path).
-        // */
-        // for (final long key : nodesToDelete) {
-        // if (mPathSummaryReader.moveTo(key).hasMoved()) {
-        // removePathSummaryNode(Remove.NO);
-        // }
-        // }
-
         pathSummaryReader.moveTo(nodeKey);
       }
     }
