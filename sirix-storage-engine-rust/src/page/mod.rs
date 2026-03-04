@@ -3,6 +3,7 @@
 pub mod slotted_page;
 pub mod page_reference;
 pub mod indirect_page;
+pub mod page_tree;
 pub mod serialization;
 
 pub use slotted_page::SlottedPage;

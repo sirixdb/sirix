@@ -11,6 +11,7 @@ use std::time::UNIX_EPOCH;
 use crate::error::Result;
 use crate::error::StorageError;
 use crate::page::page_reference::PageReference;
+use crate::types::IndexType;
 use crate::types::SerializationType;
 
 /// Index offsets within the RevisionRootPage reference array.
@@ -192,6 +193,82 @@ impl RevisionRootPage {
     pub fn fixup_ids(&mut self, database_id: i64, resource_id: i64) {
         for r in &mut self.references {
             r.fixup_ids(database_id, resource_id);
+        }
+    }
+
+    // === Index-type-aware accessors ===
+
+    /// Map an IndexType to the corresponding reference offset in this page.
+    #[inline]
+    pub fn index_offset(index_type: IndexType) -> usize {
+        match index_type {
+            IndexType::Document => INDIRECT_DOCUMENT_INDEX_OFFSET,
+            IndexType::ChangedNodes => INDIRECT_CHANGED_NODES_INDEX_OFFSET,
+            IndexType::RecordToRevisions => INDIRECT_RECORD_TO_REVISIONS_INDEX_OFFSET,
+            IndexType::PathSummary => PATH_SUMMARY_OFFSET,
+            IndexType::Name => NAME_OFFSET,
+            IndexType::Cas => CAS_OFFSET,
+            IndexType::Path => PATH_OFFSET,
+            IndexType::DeweyId => DEWEY_ID_OFFSET,
+        }
+    }
+
+    /// Get the root reference for a given index type.
+    #[inline]
+    pub fn index_reference(&self, index_type: IndexType) -> &PageReference {
+        &self.references[Self::index_offset(index_type)]
+    }
+
+    /// Get mutable root reference for a given index type.
+    #[inline]
+    pub fn index_reference_mut(&mut self, index_type: IndexType) -> &mut PageReference {
+        let offset = Self::index_offset(index_type);
+        &mut self.references[offset]
+    }
+
+    /// Get the current max node key for a given index type.
+    /// Returns 0 for indices that don't track max node key (PathSummary, Name, Cas, Path, DeweyId).
+    #[inline]
+    pub fn max_node_key(&self, index_type: IndexType) -> i64 {
+        match index_type {
+            IndexType::Document => self.max_node_key_document,
+            IndexType::ChangedNodes => self.max_node_key_changed_nodes,
+            IndexType::RecordToRevisions => self.max_node_key_record_to_revisions,
+            _ => 0,
+        }
+    }
+
+    /// Set the max node key for a given index type.
+    #[inline]
+    pub fn set_max_node_key(&mut self, index_type: IndexType, key: i64) {
+        match index_type {
+            IndexType::Document => self.max_node_key_document = key,
+            IndexType::ChangedNodes => self.max_node_key_changed_nodes = key,
+            IndexType::RecordToRevisions => self.max_node_key_record_to_revisions = key,
+            _ => {}
+        }
+    }
+
+    /// Get the current max indirect page tree level for a given index type.
+    /// Returns 0 for indices that don't track tree level.
+    #[inline]
+    pub fn max_level(&self, index_type: IndexType) -> i32 {
+        match index_type {
+            IndexType::Document => self.max_level_document,
+            IndexType::ChangedNodes => self.max_level_changed_nodes,
+            IndexType::RecordToRevisions => self.max_level_record_to_revisions,
+            _ => 0,
+        }
+    }
+
+    /// Set the max indirect page tree level for a given index type.
+    #[inline]
+    pub fn set_max_level(&mut self, index_type: IndexType, level: i32) {
+        match index_type {
+            IndexType::Document => self.max_level_document = level,
+            IndexType::ChangedNodes => self.max_level_changed_nodes = level,
+            IndexType::RecordToRevisions => self.max_level_record_to_revisions = level,
+            _ => {}
         }
     }
 
