@@ -7,8 +7,9 @@
 //! 3-Layer lookup:
 //! - Layer 1: Current TIL (fast path for active transaction)
 //! - Layer 2: Frozen snapshot (for background flush reads)
-//! - Layer 3: Completed disk offsets (stale reference resolution)
+//! - Layer 3: Completed disk offsets (O(1) HashMap lookup)
 
+use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
@@ -25,12 +26,12 @@ pub struct PageContainer {
 }
 
 impl PageContainer {
-    /// Create a new container with both versions.
+    #[inline]
     pub fn new(complete: Option<PageData>, modified: Option<PageData>) -> Self {
         Self { complete, modified }
     }
 
-    /// Create an empty container.
+    #[inline]
     pub fn empty() -> Self {
         Self {
             complete: None,
@@ -64,6 +65,7 @@ pub struct TilPageRef {
 }
 
 impl TilPageRef {
+    #[inline]
     pub fn new() -> Self {
         Self {
             key: NULL_ID_LONG,
@@ -75,9 +77,8 @@ impl TilPageRef {
 }
 
 /// Completed disk offset entry for Layer 3 stale reference resolution.
+#[allow(dead_code)]
 struct CompletedEntry {
-    /// Packed key: (generation << 32) | (log_key & 0xFFFFFFFF).
-    packed_key: u64,
     /// Disk offset.
     disk_offset: i64,
     /// Page hash.
@@ -118,7 +119,8 @@ pub struct TransactionIntentLog {
     /// Frozen snapshot (None if no active snapshot).
     snapshot: Option<Snapshot>,
     /// Completed disk offsets for stale reference resolution (Layer 3).
-    completed: Vec<CompletedEntry>,
+    /// Uses HashMap with packed key for O(1) lookup (replaces O(n) Vec scan).
+    completed: HashMap<u64, CompletedEntry>,
     /// Counter: Layer 3 hits.
     layer3_hits: u64,
 }
@@ -140,7 +142,7 @@ impl TransactionIntentLog {
             size: 0,
             current_generation: 0,
             snapshot: None,
-            completed: Vec::new(),
+            completed: HashMap::new(),
             layer3_hits: 0,
         }
     }
@@ -150,6 +152,7 @@ impl TransactionIntentLog {
     /// Returns `None` if the page is not in any TIL layer.
     /// For Layer 3 hits, updates the ref's key/hash and returns `None`
     /// (caller should load from disk).
+    #[inline]
     pub fn get(&mut self, ref_generation: i32, log_key: i32) -> Option<&PageContainer> {
         if log_key < 0 {
             return None;
@@ -169,13 +172,11 @@ impl TransactionIntentLog {
             }
         }
 
-        // Layer 3: Completed disk offsets
+        // Layer 3: Completed disk offsets - O(1) HashMap lookup
         if !self.completed.is_empty() {
             let packed = ((ref_generation as u64) << 32) | (log_key as u64 & 0xFFFFFFFF);
-            if let Some(pos) = self.completed.iter().position(|e| e.packed_key == packed) {
-                let _entry = self.completed.remove(pos);
+            if self.completed.remove(&packed).is_some() {
                 self.layer3_hits += 1;
-                // Caller needs to resolve from disk
                 return None;
             }
         }
@@ -184,6 +185,7 @@ impl TransactionIntentLog {
     }
 
     /// Get a mutable reference to a page container.
+    #[inline]
     pub fn get_mut(&mut self, ref_generation: i32, log_key: i32) -> Option<&mut PageContainer> {
         if log_key < 0 {
             return None;
@@ -198,6 +200,7 @@ impl TransactionIntentLog {
     /// Add a page container to the TIL.
     ///
     /// Returns the log_key and generation for the caller to store in their ref.
+    #[inline]
     pub fn put(&mut self, container: PageContainer) -> (i32, i32) {
         self.ensure_capacity();
 
@@ -217,6 +220,7 @@ impl TransactionIntentLog {
     }
 
     /// Ensure capacity for one more entry.
+    #[inline]
     fn ensure_capacity(&mut self) {
         if self.size >= self.entries.len() {
             let new_cap = self.entries.len() * 2;
@@ -232,7 +236,6 @@ impl TransactionIntentLog {
     pub fn snapshot(&mut self) -> usize {
         let snap_size = self.size;
 
-        // Capture current state (swap with fresh arrays)
         let entries_cap = self.entries.len();
         let refs_cap = self.refs.len();
 
@@ -246,7 +249,6 @@ impl TransactionIntentLog {
 
         let snap_generation = self.current_generation;
 
-        // Initialize side-channel arrays
         let mut disk_offsets = Vec::with_capacity(snap_size);
         disk_offsets.resize(snap_size, NULL_ID_LONG);
         let mut hashes = Vec::with_capacity(snap_size);
@@ -262,7 +264,6 @@ impl TransactionIntentLog {
             commit_complete: AtomicBool::new(false),
         });
 
-        // Increment generation AFTER capturing snapshot
         self.current_generation += 1;
         self.size = 0;
 
@@ -270,6 +271,7 @@ impl TransactionIntentLog {
     }
 
     /// Check if a reference is in the frozen snapshot.
+    #[inline]
     pub fn is_frozen(&self, ref_generation: i32, log_key: i32) -> bool {
         if let Some(ref snap) = self.snapshot {
             ref_generation == snap.generation
@@ -281,6 +283,7 @@ impl TransactionIntentLog {
     }
 
     /// Store a disk offset from the background thread.
+    #[inline]
     pub fn set_snapshot_disk_offset(&mut self, index: usize, offset: i64) {
         if let Some(ref mut snap) = self.snapshot {
             if index < snap.disk_offsets.len() {
@@ -290,6 +293,7 @@ impl TransactionIntentLog {
     }
 
     /// Store a page hash from the background thread.
+    #[inline]
     pub fn set_snapshot_hash(&mut self, index: usize, hash: u64) {
         if let Some(ref mut snap) = self.snapshot {
             if index < snap.hashes.len() {
@@ -306,6 +310,7 @@ impl TransactionIntentLog {
     }
 
     /// Check if the snapshot commit has completed.
+    #[inline]
     pub fn is_snapshot_commit_complete(&self) -> bool {
         self.snapshot
             .as_ref()
@@ -314,11 +319,13 @@ impl TransactionIntentLog {
     }
 
     /// Get the snapshot size.
+    #[inline]
     pub fn snapshot_size(&self) -> usize {
         self.snapshot.as_ref().map(|s| s.size).unwrap_or(0)
     }
 
     /// Get snapshot entry at the given index.
+    #[inline]
     pub fn get_snapshot_entry(&self, index: usize) -> Option<&PageContainer> {
         self.snapshot
             .as_ref()
@@ -332,6 +339,7 @@ impl TransactionIntentLog {
     }
 
     /// Get snapshot ref at the given index.
+    #[inline]
     pub fn get_snapshot_ref(&self, index: usize) -> Option<&TilPageRef> {
         self.snapshot.as_ref().and_then(|s| {
             if index < s.size {
@@ -363,19 +371,15 @@ impl TransactionIntentLog {
                         .unwrap_or(false);
 
                     if is_kvl {
-                        // KVL: already written to disk by background thread
                         if disk_offset != NULL_ID_LONG {
                             let packed = ((snap.generation as u64) << 32)
                                 | (i as u64 & 0xFFFFFFFF);
-                            self.completed.push(CompletedEntry {
-                                packed_key: packed,
+                            self.completed.insert(packed, CompletedEntry {
                                 disk_offset,
                                 hash,
                             });
                         }
-                        // Container is dropped (pages released)
                     } else {
-                        // Structural page: promote to current TIL
                         promoted.push(container);
                     }
                 }
@@ -393,22 +397,21 @@ impl TransactionIntentLog {
         }
         self.size = 0;
 
-        // Clear snapshot
         self.snapshot = None;
         self.completed.clear();
     }
 
-    /// Number of entries in the current TIL.
+    #[inline]
     pub fn size(&self) -> usize {
         self.size
     }
 
-    /// Current generation.
+    #[inline]
     pub fn current_generation(&self) -> i32 {
         self.current_generation
     }
 
-    /// Snapshot generation.
+    #[inline]
     pub fn snapshot_generation(&self) -> i32 {
         self.snapshot
             .as_ref()
@@ -416,12 +419,12 @@ impl TransactionIntentLog {
             .unwrap_or(-1)
     }
 
-    /// Layer 3 hit count.
+    #[inline]
     pub fn layer3_hits(&self) -> u64 {
         self.layer3_hits
     }
 
-    /// Get a list view of current entries.
+    #[inline]
     pub fn entries(&self) -> &[Option<PageContainer>] {
         &self.entries[..self.size]
     }
@@ -486,7 +489,6 @@ mod tests {
     fn test_snapshot() {
         let mut til = TransactionIntentLog::new(16);
 
-        // Add entries to gen 0
         for i in 0..5 {
             let c = PageContainer::new(
                 Some(make_kvl_data(i)),
@@ -495,19 +497,16 @@ mod tests {
             til.put(c);
         }
 
-        // Snapshot
         let snap_size = til.snapshot();
         assert_eq!(snap_size, 5);
-        assert_eq!(til.size(), 0); // Fresh TIL
+        assert_eq!(til.size(), 0);
         assert_eq!(til.current_generation(), 1);
 
-        // Old entries accessible via Layer 2
         for i in 0..5 {
             let entry = til.get(0, i as i32);
             assert!(entry.is_some(), "snapshot entry {} should be accessible", i);
         }
 
-        // New entries go to gen 1
         let c = PageContainer::new(
             Some(make_kvl_data(100)),
             Some(make_kvl_data(100)),
@@ -526,17 +525,16 @@ mod tests {
         );
         let (log_key, generation) = til.put(c);
 
-        assert!(!til.is_frozen(generation, log_key)); // Not frozen yet
+        assert!(!til.is_frozen(generation, log_key));
 
         til.snapshot();
-        assert!(til.is_frozen(generation, log_key)); // Now frozen
+        assert!(til.is_frozen(generation, log_key));
     }
 
     #[test]
     fn test_cleanup_snapshot_kvl() {
         let mut til = TransactionIntentLog::new(16);
 
-        // Add KVL pages
         for i in 0..3 {
             let c = PageContainer::new(
                 Some(make_kvl_data(i)),
@@ -547,16 +545,13 @@ mod tests {
 
         til.snapshot();
 
-        // Simulate background thread writing disk offsets
         for i in 0..3 {
             til.set_snapshot_disk_offset(i, (i * 1000 + 4096) as i64);
             til.set_snapshot_hash(i, (i * 111) as u64);
         }
 
         let promoted = til.cleanup_snapshot();
-        assert!(promoted.is_empty()); // KVL pages are not promoted
-
-        // Completed map should have 3 entries
+        assert!(promoted.is_empty());
         assert_eq!(til.completed.len(), 3);
     }
 
@@ -564,7 +559,6 @@ mod tests {
     fn test_cleanup_snapshot_structural() {
         let mut til = TransactionIntentLog::new(16);
 
-        // Add structural (non-KVL) pages
         for i in 0..2 {
             let c = PageContainer::new(
                 Some(make_structural_data(i)),
@@ -576,7 +570,7 @@ mod tests {
         til.snapshot();
 
         let promoted = til.cleanup_snapshot();
-        assert_eq!(promoted.len(), 2); // Structural pages are promoted
+        assert_eq!(promoted.len(), 2);
     }
 
     #[test]
@@ -623,7 +617,267 @@ mod tests {
         );
         let (log_key, _gen) = til.put(c);
 
-        // Wrong generation
         assert!(til.get(999, log_key).is_none());
+    }
+
+    // --- Additional behavioral and coverage tests ---
+
+    #[test]
+    fn test_layer3_lookup_o1_hashmap() {
+        let mut til = TransactionIntentLog::new(16);
+
+        // Put entries, snapshot, set disk offsets, cleanup to populate Layer 3
+        for i in 0..5 {
+            let c = PageContainer::new(
+                Some(make_kvl_data(i)),
+                Some(make_kvl_data(i)),
+            );
+            til.put(c);
+        }
+        let gen0 = til.current_generation();
+        til.snapshot();
+
+        for i in 0..5 {
+            til.set_snapshot_disk_offset(i, (i * 1000 + 4096) as i64);
+            til.set_snapshot_hash(i, (i * 111) as u64);
+        }
+        til.cleanup_snapshot();
+
+        // Layer 3 lookups should work and remove entries
+        assert_eq!(til.layer3_hits(), 0);
+        til.get(gen0, 0);
+        assert_eq!(til.layer3_hits(), 1);
+        til.get(gen0, 2);
+        assert_eq!(til.layer3_hits(), 2);
+
+        // Re-lookup should not hit (entry was removed)
+        til.get(gen0, 0);
+        assert_eq!(til.layer3_hits(), 2);
+    }
+
+    #[test]
+    fn test_get_mut() {
+        let mut til = TransactionIntentLog::new(16);
+        let c = PageContainer::new(
+            Some(make_kvl_data(1)),
+            Some(make_kvl_data(1)),
+        );
+        let (log_key, generation) = til.put(c);
+
+        // Should be able to get mutable reference
+        let entry = til.get_mut(generation, log_key);
+        assert!(entry.is_some());
+
+        // Modify it
+        let entry = entry.unwrap();
+        entry.modified = Some(make_kvl_data(42));
+    }
+
+    #[test]
+    fn test_get_mut_wrong_generation() {
+        let mut til = TransactionIntentLog::new(16);
+        let c = PageContainer::new(
+            Some(make_kvl_data(1)),
+            Some(make_kvl_data(1)),
+        );
+        let (log_key, _gen) = til.put(c);
+        assert!(til.get_mut(999, log_key).is_none());
+    }
+
+    #[test]
+    fn test_get_mut_negative_log_key() {
+        let mut til = TransactionIntentLog::new(16);
+        assert!(til.get_mut(0, -1).is_none());
+    }
+
+    #[test]
+    fn test_snapshot_disk_offset_out_of_bounds() {
+        let mut til = TransactionIntentLog::new(16);
+        let c = PageContainer::new(
+            Some(make_kvl_data(1)),
+            Some(make_kvl_data(1)),
+        );
+        til.put(c);
+        til.snapshot();
+
+        // Setting out-of-bounds should be a no-op
+        til.set_snapshot_disk_offset(999, 12345);
+        til.set_snapshot_hash(999, 12345);
+    }
+
+    #[test]
+    fn test_snapshot_commit_lifecycle() {
+        let mut til = TransactionIntentLog::new(16);
+        let c = PageContainer::new(
+            Some(make_kvl_data(1)),
+            Some(make_kvl_data(1)),
+        );
+        til.put(c);
+        til.snapshot();
+
+        // Initially not complete
+        assert!(!til.is_snapshot_commit_complete());
+
+        // Mark complete
+        til.mark_snapshot_commit_complete();
+        assert!(til.is_snapshot_commit_complete());
+    }
+
+    #[test]
+    fn test_no_snapshot_commit_complete_returns_true() {
+        let til = TransactionIntentLog::new(16);
+        // No snapshot exists, should return true (nothing to wait for)
+        assert!(til.is_snapshot_commit_complete());
+    }
+
+    #[test]
+    fn test_snapshot_size_no_snapshot() {
+        let til = TransactionIntentLog::new(16);
+        assert_eq!(til.snapshot_size(), 0);
+    }
+
+    #[test]
+    fn test_snapshot_generation_no_snapshot() {
+        let til = TransactionIntentLog::new(16);
+        assert_eq!(til.snapshot_generation(), -1);
+    }
+
+    #[test]
+    fn test_get_snapshot_entry_and_ref() {
+        let mut til = TransactionIntentLog::new(16);
+        for i in 0..3 {
+            let c = PageContainer::new(
+                Some(make_kvl_data(i)),
+                Some(make_kvl_data(i)),
+            );
+            til.put(c);
+        }
+        til.snapshot();
+
+        assert!(til.get_snapshot_entry(0).is_some());
+        assert!(til.get_snapshot_entry(2).is_some());
+        assert!(til.get_snapshot_entry(3).is_none()); // out of bounds
+
+        let sref = til.get_snapshot_ref(0).unwrap();
+        assert_eq!(sref.log_key, 0);
+        assert!(til.get_snapshot_ref(3).is_none());
+    }
+
+    #[test]
+    fn test_entries_view() {
+        let mut til = TransactionIntentLog::new(16);
+        for i in 0..3 {
+            let c = PageContainer::new(
+                Some(make_kvl_data(i)),
+                Some(make_kvl_data(i)),
+            );
+            til.put(c);
+        }
+
+        let entries = til.entries();
+        assert_eq!(entries.len(), 3);
+        assert!(entries[0].is_some());
+        assert!(entries[2].is_some());
+    }
+
+    #[test]
+    fn test_empty_container() {
+        let c = PageContainer::empty();
+        assert!(c.complete.is_none());
+        assert!(c.modified.is_none());
+    }
+
+    #[test]
+    fn test_til_page_ref_defaults() {
+        let r = TilPageRef::new();
+        assert_eq!(r.key, NULL_ID_LONG);
+        assert_eq!(r.log_key, NULL_ID_INT);
+        assert_eq!(r.active_til_generation, -1);
+        assert_eq!(r.hash, 0);
+    }
+
+    #[test]
+    fn test_capacity_growth() {
+        let mut til = TransactionIntentLog::new(2); // small initial capacity (clamped to 64)
+        // Fill beyond initial capacity to trigger growth
+        for i in 0..200 {
+            let c = PageContainer::new(
+                Some(make_kvl_data(i)),
+                Some(make_kvl_data(i)),
+            );
+            til.put(c);
+        }
+        assert_eq!(til.size(), 200);
+        // All entries should be accessible
+        for i in 0..200 {
+            assert!(til.get(0, i as i32).is_some());
+        }
+    }
+
+    #[test]
+    fn test_multiple_snapshots_overwrites_previous() {
+        let mut til = TransactionIntentLog::new(16);
+
+        let c = PageContainer::new(Some(make_kvl_data(1)), Some(make_kvl_data(1)));
+        til.put(c);
+        til.snapshot(); // gen 0 frozen
+
+        let c = PageContainer::new(Some(make_kvl_data(2)), Some(make_kvl_data(2)));
+        til.put(c);
+        til.snapshot(); // gen 1 frozen, gen 0 snapshot is overwritten
+
+        // gen 0 entries are no longer accessible via Layer 2
+        assert!(til.get(0, 0).is_none());
+        // gen 1 entries are accessible
+        assert!(til.get(1, 0).is_some());
+    }
+
+    #[test]
+    fn test_clear_resets_everything() {
+        let mut til = TransactionIntentLog::new(16);
+
+        for i in 0..5 {
+            let c = PageContainer::new(Some(make_kvl_data(i)), Some(make_kvl_data(i)));
+            til.put(c);
+        }
+        til.snapshot();
+        for i in 0..3 {
+            til.set_snapshot_disk_offset(i, 4096);
+            til.set_snapshot_hash(i, 111);
+        }
+        til.cleanup_snapshot();
+
+        // Now clear
+        til.clear();
+        assert_eq!(til.size(), 0);
+        assert!(til.snapshot.is_none());
+        assert!(til.completed.is_empty());
+    }
+
+    #[test]
+    fn test_mixed_kvl_structural_cleanup() {
+        let mut til = TransactionIntentLog::new(16);
+
+        // Mix of KVL and structural pages
+        let c = PageContainer::new(Some(make_kvl_data(1)), Some(make_kvl_data(1)));
+        til.put(c);
+        let c = PageContainer::new(Some(make_structural_data(2)), Some(make_structural_data(2)));
+        til.put(c);
+        let c = PageContainer::new(Some(make_kvl_data(3)), Some(make_kvl_data(3)));
+        til.put(c);
+
+        til.snapshot();
+
+        til.set_snapshot_disk_offset(0, 4096);
+        til.set_snapshot_hash(0, 111);
+        til.set_snapshot_disk_offset(2, 8192);
+        til.set_snapshot_hash(2, 222);
+
+        let promoted = til.cleanup_snapshot();
+
+        // Only structural page (index 1) should be promoted
+        assert_eq!(promoted.len(), 1);
+        // KVL pages should be in completed map
+        assert_eq!(til.completed.len(), 2);
     }
 }

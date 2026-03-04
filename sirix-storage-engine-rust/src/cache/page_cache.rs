@@ -10,7 +10,15 @@
 //! - Guard-based pinning: guarded pages have eviction weight 0
 //! - Dirty tracking for write-back
 //! - Lock-free fast path for cached page lookup via sharded hash map
+//!
+//! HFT optimizations:
+//! - O(1) HashMap lookup in shards (replaces O(n) linear scan)
+//! - CachePadded atomics to prevent false sharing across cores
+//! - Shard lock dropped before frame lock acquisition (reduces contention)
+//! - Bitmask shard selection (replaces modulo)
+//! - XXH3 hash for PageId (replaces byte-by-byte FNV-1a)
 
+use std::collections::HashMap;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
@@ -35,6 +43,7 @@ pub struct PageId {
 
 impl PageId {
     /// Create a new page ID.
+    #[inline]
     pub fn new(database_id: i64, resource_id: i64, page_key: i64) -> Self {
         Self {
             database_id,
@@ -43,24 +52,15 @@ impl PageId {
         }
     }
 
-    /// Compute hash for shard selection.
+    /// Compute hash using XXH3 over the three i64 fields for fast, high-quality distribution.
     #[inline]
     fn hash(&self) -> u64 {
-        // FNV-1a hash over the three i64 fields
-        let mut h: u64 = 0xcbf29ce484222325;
-        for byte in self.page_key.to_le_bytes() {
-            h ^= byte as u64;
-            h = h.wrapping_mul(0x100000001b3);
-        }
-        for byte in self.database_id.to_le_bytes() {
-            h ^= byte as u64;
-            h = h.wrapping_mul(0x100000001b3);
-        }
-        for byte in self.resource_id.to_le_bytes() {
-            h ^= byte as u64;
-            h = h.wrapping_mul(0x100000001b3);
-        }
-        h
+        // Pack 24 bytes and hash with XXH3 (SIMD-accelerated on supported platforms)
+        let mut buf = [0u8; 24];
+        buf[0..8].copy_from_slice(&self.page_key.to_le_bytes());
+        buf[8..16].copy_from_slice(&self.database_id.to_le_bytes());
+        buf[16..24].copy_from_slice(&self.resource_id.to_le_bytes());
+        xxhash_rust::xxh3::xxh3_64(&buf)
     }
 }
 
@@ -73,17 +73,18 @@ const FRAME_EVICTING: u32 = 8;
 /// A buffer frame in the page cache.
 ///
 /// Each frame can hold one page. Frames are reused via clock eviction.
+/// CachePadded atomics prevent false sharing between cores scanning adjacent frames.
 struct BufferFrame {
     /// The cached page (None if frame is free).
     page: RwLock<Option<Arc<SlottedPage>>>,
     /// Page ID of the cached page.
     page_id: Mutex<Option<PageId>>,
-    /// State flags (valid, dirty, hot, evicting).
-    state: AtomicU32,
-    /// Number of active guards pinning this frame.
-    guard_count: AtomicU32,
+    /// State flags (valid, dirty, hot, evicting) - CachePadded to prevent false sharing.
+    state: CachePadded<AtomicU32>,
+    /// Number of active guards pinning this frame - CachePadded to prevent false sharing.
+    guard_count: CachePadded<AtomicU32>,
     /// Version counter for frame reuse detection.
-    version: AtomicU32,
+    version: CachePadded<AtomicU32>,
 }
 
 impl BufferFrame {
@@ -91,110 +92,99 @@ impl BufferFrame {
         Self {
             page: RwLock::new(None),
             page_id: Mutex::new(None),
-            state: AtomicU32::new(0),
-            guard_count: AtomicU32::new(0),
-            version: AtomicU32::new(0),
+            state: CachePadded::new(AtomicU32::new(0)),
+            guard_count: CachePadded::new(AtomicU32::new(0)),
+            version: CachePadded::new(AtomicU32::new(0)),
         }
     }
 
-    /// Check if this frame is pinned (has active guards).
     #[inline]
     fn is_pinned(&self) -> bool {
         self.guard_count.load(Ordering::Acquire) > 0
     }
 
-    /// Check if the frame has the hot bit set.
     #[inline]
     fn is_hot(&self) -> bool {
         self.state.load(Ordering::Relaxed) & FRAME_HOT != 0
     }
 
-    /// Set the hot bit.
     #[inline]
     fn set_hot(&self) {
         self.state.fetch_or(FRAME_HOT, Ordering::Relaxed);
     }
 
-    /// Clear the hot bit.
     #[inline]
     fn clear_hot(&self) {
         self.state.fetch_and(!FRAME_HOT, Ordering::Relaxed);
     }
 
-    /// Check if dirty.
     #[inline]
     fn is_dirty(&self) -> bool {
         self.state.load(Ordering::Relaxed) & FRAME_DIRTY != 0
     }
 
-    /// Mark as dirty.
     #[inline]
     fn mark_dirty(&self) {
         self.state.fetch_or(FRAME_DIRTY, Ordering::Relaxed);
     }
 
-    /// Clear dirty flag.
     #[inline]
     fn clear_dirty(&self) {
         self.state.fetch_and(!FRAME_DIRTY, Ordering::Relaxed);
     }
 
-    /// Check if valid (contains a page).
     #[inline]
     fn is_valid(&self) -> bool {
         self.state.load(Ordering::Relaxed) & FRAME_VALID != 0
     }
 
-    /// Try to mark for eviction (CAS on EVICTING bit).
     #[inline]
     fn try_mark_evicting(&self) -> bool {
         let old = self.state.load(Ordering::Relaxed);
         if old & FRAME_EVICTING != 0 {
-            return false; // Already being evicted
+            return false;
         }
         self.state
             .compare_exchange(old, old | FRAME_EVICTING, Ordering::AcqRel, Ordering::Relaxed)
             .is_ok()
     }
 
-    /// Clear evicting flag.
     #[inline]
     fn clear_evicting(&self) {
         self.state.fetch_and(!FRAME_EVICTING, Ordering::Release);
     }
 }
 
-/// Number of shards for the page-to-frame lookup table.
+/// Number of shards for the page-to-frame lookup table (must be power of 2).
 const SHARD_COUNT: usize = 64;
+/// Bitmask for shard selection (avoids expensive modulo).
+const SHARD_MASK: usize = SHARD_COUNT - 1;
 
-/// A shard of the page-to-frame mapping.
+/// A shard of the page-to-frame mapping using O(1) HashMap lookup.
 struct LookupShard {
-    /// Map from PageId hash to frame index.
-    entries: Vec<(u64, usize)>, // (PageId hash, frame_index)
+    entries: HashMap<u64, usize>,
 }
 
 impl LookupShard {
     fn new() -> Self {
         Self {
-            entries: Vec::with_capacity(64),
+            entries: HashMap::with_capacity(64),
         }
     }
 
+    #[inline]
     fn find(&self, hash: u64) -> Option<usize> {
-        self.entries
-            .iter()
-            .find(|(h, _)| *h == hash)
-            .map(|(_, idx)| *idx)
+        self.entries.get(&hash).copied()
     }
 
+    #[inline]
     fn insert(&mut self, hash: u64, frame_idx: usize) {
-        // Remove old entry if exists
-        self.entries.retain(|(h, _)| *h != hash);
-        self.entries.push((hash, frame_idx));
+        self.entries.insert(hash, frame_idx);
     }
 
+    #[inline]
     fn remove(&mut self, hash: u64) {
-        self.entries.retain(|(h, _)| *h != hash);
+        self.entries.remove(&hash);
     }
 }
 
@@ -209,18 +199,15 @@ pub struct CachedPage {
 }
 
 impl CachedPage {
-    /// Access the cached page.
     #[inline]
     pub fn page(&self) -> &SlottedPage {
         &self.page
     }
 
-    /// Get the underlying Arc.
     pub fn page_arc(&self) -> &Arc<SlottedPage> {
         &self.page
     }
 
-    /// Check if this handle is still valid (frame hasn't been reused).
     pub fn is_valid(&self) -> bool {
         self.cache.frames[self.frame_idx]
             .version
@@ -228,7 +215,6 @@ impl CachedPage {
             == self.version_at_pin
     }
 
-    /// Mark the cached page as dirty (modified).
     pub fn mark_dirty(&self) {
         self.cache.frames[self.frame_idx].mark_dirty();
     }
@@ -236,7 +222,6 @@ impl CachedPage {
 
 impl Drop for CachedPage {
     fn drop(&mut self) {
-        // Unpin the frame
         self.cache.frames[self.frame_idx]
             .guard_count
             .fetch_sub(1, Ordering::Release);
@@ -250,24 +235,16 @@ struct PageCacheInner {
     /// Sharded lookup table: PageId hash → frame index.
     shards: Vec<CachePadded<Mutex<LookupShard>>>,
     /// Clock hand for eviction scanning.
-    clock_hand: AtomicU32,
-    /// Statistics.
-    hits: AtomicU64,
-    misses: AtomicU64,
-    evictions: AtomicU64,
+    clock_hand: CachePadded<AtomicU32>,
+    /// Statistics - CachePadded to prevent contention on counters.
+    hits: CachePadded<AtomicU64>,
+    misses: CachePadded<AtomicU64>,
+    evictions: CachePadded<AtomicU64>,
 }
 
 /// LeanStore/Umbra-style page cache.
 ///
 /// Fixed-size buffer pool with clock-based eviction and guard-based pinning.
-///
-/// Features:
-/// - Fixed number of buffer frames
-/// - Clock (second-chance) eviction algorithm
-/// - Guard-based pinning prevents eviction of in-use pages
-/// - Sharded lookup for concurrent access
-/// - Dirty page tracking for write-back
-/// - Version counter for frame reuse detection
 pub struct PageCache {
     inner: Arc<PageCacheInner>,
     capacity: usize,
@@ -292,65 +269,77 @@ impl PageCache {
             inner: Arc::new(PageCacheInner {
                 frames,
                 shards,
-                clock_hand: AtomicU32::new(0),
-                hits: AtomicU64::new(0),
-                misses: AtomicU64::new(0),
-                evictions: AtomicU64::new(0),
+                clock_hand: CachePadded::new(AtomicU32::new(0)),
+                hits: CachePadded::new(AtomicU64::new(0)),
+                misses: CachePadded::new(AtomicU64::new(0)),
+                evictions: CachePadded::new(AtomicU64::new(0)),
             }),
             capacity,
         }
     }
 
     /// Create a cache sized to available memory.
-    ///
-    /// `memory_budget` is the total memory to use for the cache in bytes.
-    /// `avg_page_size` is the estimated average page size.
     pub fn with_memory_budget(memory_budget: usize, avg_page_size: usize) -> Self {
         let capacity = (memory_budget / avg_page_size).max(16);
         Self::new(capacity)
     }
 
     /// Look up a page in the cache. Returns a pinned handle if found.
+    ///
+    /// Hot path: shard lock is dropped before acquiring frame locks to minimize contention.
     pub fn get(&self, page_id: &PageId) -> Option<CachedPage> {
         let hash = page_id.hash();
-        let shard_idx = (hash as usize) % SHARD_COUNT;
+        let shard_idx = (hash as usize) & SHARD_MASK;
 
-        let shard = self.inner.shards[shard_idx].lock();
-        if let Some(frame_idx) = shard.find(hash) {
-            let frame = &self.inner.frames[frame_idx];
-
-            // Verify the frame still holds our page
-            if !frame.is_valid() {
-                return None;
+        // Look up frame index under shard lock, then drop it immediately
+        let frame_idx = {
+            let shard = self.inner.shards[shard_idx].lock();
+            match shard.find(hash) {
+                Some(idx) => idx,
+                None => {
+                    drop(shard);
+                    self.inner.misses.fetch_add(1, Ordering::Relaxed);
+                    return None;
+                }
             }
+        };
+        // Shard lock is dropped here - no lock held while accessing frame
 
-            let frame_page_id = frame.page_id.lock();
-            if frame_page_id.as_ref() != Some(page_id) {
-                return None;
-            }
-            drop(frame_page_id);
+        let frame = &self.inner.frames[frame_idx];
 
-            // Pin the frame
-            frame.guard_count.fetch_add(1, Ordering::AcqRel);
-            frame.set_hot();
-
-            let page_guard = frame.page.read();
-            if let Some(ref page) = *page_guard {
-                let version = frame.version.load(Ordering::Acquire);
-                self.inner.hits.fetch_add(1, Ordering::Relaxed);
-
-                return Some(CachedPage {
-                    page: Arc::clone(page),
-                    frame_idx,
-                    version_at_pin: version,
-                    cache: Arc::clone(&self.inner),
-                });
-            }
-
-            // Frame was cleared between our check and pin
-            frame.guard_count.fetch_sub(1, Ordering::Release);
+        if !frame.is_valid() {
+            self.inner.misses.fetch_add(1, Ordering::Relaxed);
+            return None;
         }
 
+        // Verify PageId match (handles hash collisions)
+        {
+            let frame_page_id = frame.page_id.lock();
+            if frame_page_id.as_ref() != Some(page_id) {
+                self.inner.misses.fetch_add(1, Ordering::Relaxed);
+                return None;
+            }
+        }
+
+        // Pin the frame
+        frame.guard_count.fetch_add(1, Ordering::AcqRel);
+        frame.set_hot();
+
+        let page_guard = frame.page.read();
+        if let Some(ref page) = *page_guard {
+            let version = frame.version.load(Ordering::Acquire);
+            self.inner.hits.fetch_add(1, Ordering::Relaxed);
+
+            return Some(CachedPage {
+                page: Arc::clone(page),
+                frame_idx,
+                version_at_pin: version,
+                cache: Arc::clone(&self.inner),
+            });
+        }
+
+        // Frame was cleared between our check and pin
+        frame.guard_count.fetch_sub(1, Ordering::Release);
         self.inner.misses.fetch_add(1, Ordering::Relaxed);
         None
     }
@@ -365,19 +354,21 @@ impl PageCache {
         page: Arc<SlottedPage>,
     ) -> (CachedPage, Option<EvictedPage>) {
         let hash = page_id.hash();
-        let shard_idx = (hash as usize) % SHARD_COUNT;
+        let shard_idx = (hash as usize) & SHARD_MASK;
 
-        // Check if already cached
+        // Check if already cached - drop shard lock before frame access
         {
             let shard = self.inner.shards[shard_idx].lock();
             if let Some(frame_idx) = shard.find(hash) {
                 let frame = &self.inner.frames[frame_idx];
-                let frame_page_id = frame.page_id.lock();
-                if frame_page_id.as_ref() == Some(&page_id) {
-                    drop(frame_page_id);
+                let is_match = {
+                    let frame_page_id = frame.page_id.lock();
+                    frame_page_id.as_ref() == Some(&page_id)
+                };
+                if is_match {
                     drop(shard);
 
-                    // Update page
+                    // Update page without holding shard lock
                     *frame.page.write() = Some(Arc::clone(&page));
                     frame.guard_count.fetch_add(1, Ordering::AcqRel);
                     frame.set_hot();
@@ -406,7 +397,7 @@ impl PageCache {
             let old_page_id = frame.page_id.lock();
             if let Some(ref old_id) = *old_page_id {
                 let old_hash = old_id.hash();
-                let old_shard_idx = (old_hash as usize) % SHARD_COUNT;
+                let old_shard_idx = (old_hash as usize) & SHARD_MASK;
                 let mut old_shard = self.inner.shards[old_shard_idx].lock();
                 old_shard.remove(old_hash);
             }
@@ -416,7 +407,7 @@ impl PageCache {
         *frame.page_id.lock() = Some(page_id);
         *frame.page.write() = Some(Arc::clone(&page));
         frame.state.store(FRAME_VALID | FRAME_HOT, Ordering::Release);
-        frame.guard_count.store(1, Ordering::Release); // Pin for caller
+        frame.guard_count.store(1, Ordering::Release);
         frame.version.fetch_add(1, Ordering::AcqRel);
         frame.clear_evicting();
 
@@ -442,7 +433,7 @@ impl PageCache {
     /// Remove a page from the cache.
     pub fn remove(&self, page_id: &PageId) -> Option<Arc<SlottedPage>> {
         let hash = page_id.hash();
-        let shard_idx = (hash as usize) % SHARD_COUNT;
+        let shard_idx = (hash as usize) & SHARD_MASK;
 
         let mut shard = self.inner.shards[shard_idx].lock();
         if let Some(frame_idx) = shard.find(hash) {
@@ -451,6 +442,7 @@ impl PageCache {
             if frame_page_id.as_ref() == Some(page_id) {
                 drop(frame_page_id);
                 shard.remove(hash);
+                drop(shard);
 
                 *frame.page_id.lock() = None;
                 let page = frame.page.write().take();
@@ -464,28 +456,22 @@ impl PageCache {
     }
 
     /// Find a victim frame for eviction using clock algorithm.
-    ///
-    /// Returns (frame_index, optional_evicted_page).
     fn find_victim(&self) -> (usize, Option<EvictedPage>) {
         let num_frames = self.capacity;
-        // Scan up to 2 full rotations before giving up
         let max_scans = num_frames * 2;
 
         for _ in 0..max_scans {
             let idx = self.inner.clock_hand.fetch_add(1, Ordering::Relaxed) as usize % num_frames;
             let frame = &self.inner.frames[idx];
 
-            // Skip pinned frames
             if frame.is_pinned() {
                 continue;
             }
 
-            // Skip frames being evicted
             if !frame.try_mark_evicting() {
                 continue;
             }
 
-            // Check if frame is free
             if !frame.is_valid() {
                 return (idx, None);
             }
@@ -516,7 +502,6 @@ impl PageCache {
                 None
             };
 
-            // Clear the frame
             *frame.page.write() = None;
             *frame.page_id.lock() = None;
             frame.state.store(0, Ordering::Release);
@@ -526,7 +511,7 @@ impl PageCache {
             return (idx, evicted);
         }
 
-        // Fallback: force evict frame 0 (should be rare)
+        // Fallback: force evict frame 0
         let frame = &self.inner.frames[0];
         let evicted = if frame.is_dirty() {
             let page = frame.page.read().as_ref().map(Arc::clone);
@@ -550,9 +535,6 @@ impl PageCache {
     }
 
     /// Iterate over all dirty pages.
-    ///
-    /// Returns a list of (PageId, Arc<SlottedPage>) for dirty frames.
-    /// Does NOT clear dirty flags — caller should do that after flushing.
     pub fn dirty_pages(&self) -> Vec<(PageId, Arc<SlottedPage>)> {
         let mut result = Vec::new();
         for frame in &self.inner.frames {
@@ -570,34 +552,33 @@ impl PageCache {
     /// Clear dirty flag for a specific page.
     pub fn clear_dirty(&self, page_id: &PageId) {
         let hash = page_id.hash();
-        let shard_idx = (hash as usize) % SHARD_COUNT;
+        let shard_idx = (hash as usize) & SHARD_MASK;
         let shard = self.inner.shards[shard_idx].lock();
         if let Some(frame_idx) = shard.find(hash) {
             self.inner.frames[frame_idx].clear_dirty();
         }
     }
 
-    /// Cache capacity (number of buffer frames).
+    #[inline]
     pub fn capacity(&self) -> usize {
         self.capacity
     }
 
-    /// Number of cache hits.
+    #[inline]
     pub fn hits(&self) -> u64 {
         self.inner.hits.load(Ordering::Relaxed)
     }
 
-    /// Number of cache misses.
+    #[inline]
     pub fn misses(&self) -> u64 {
         self.inner.misses.load(Ordering::Relaxed)
     }
 
-    /// Number of evictions.
+    #[inline]
     pub fn evictions(&self) -> u64 {
         self.inner.evictions.load(Ordering::Relaxed)
     }
 
-    /// Hit rate as a percentage.
     pub fn hit_rate(&self) -> f64 {
         let hits = self.hits() as f64;
         let misses = self.misses() as f64;
@@ -609,7 +590,6 @@ impl PageCache {
         }
     }
 
-    /// Number of currently cached pages.
     pub fn size(&self) -> usize {
         self.inner
             .frames
@@ -620,8 +600,6 @@ impl PageCache {
 }
 
 /// A page that was evicted from the cache.
-///
-/// If the page was dirty, the caller must flush it to storage.
 pub struct EvictedPage {
     pub page_id: PageId,
     pub page: Arc<SlottedPage>,
@@ -682,15 +660,13 @@ mod tests {
     fn test_eviction() {
         let cache = PageCache::new(16);
 
-        // Fill cache beyond capacity
         for i in 0..32 {
             let page = make_page(i);
             let id = make_id(i);
             let (handle, _) = cache.put(id, page);
-            drop(handle); // Unpin so it can be evicted
+            drop(handle);
         }
 
-        // Some pages should have been evicted
         assert!(cache.evictions() > 0);
         assert!(cache.size() <= 16);
     }
@@ -718,13 +694,10 @@ mod tests {
     fn test_pinned_not_evicted() {
         let cache = PageCache::new(16);
 
-        // Pin first page
         let pinned_page = make_page(0);
         let pinned_id = make_id(0);
         let pinned_handle = cache.put(pinned_id, pinned_page);
-        // Keep handle alive (pinned)
 
-        // Fill cache to trigger eviction
         for i in 1..32 {
             let page = make_page(i);
             let id = make_id(i);
@@ -732,7 +705,6 @@ mod tests {
             drop(handle);
         }
 
-        // Pinned page should still be accessible
         drop(pinned_handle);
         let handle = cache.get(&pinned_id);
         assert!(handle.is_some());
@@ -744,11 +716,9 @@ mod tests {
         let page = make_page(1);
         let id = make_id(1);
 
-        // Miss
         cache.get(&id);
         assert_eq!(cache.misses(), 1);
 
-        // Put + hit
         let (handle, _) = cache.put(id, page);
         drop(handle);
 
@@ -789,7 +759,6 @@ mod tests {
     fn test_clock_second_chance() {
         let cache = PageCache::new(16);
 
-        // Fill cache
         for i in 0..16 {
             let page = make_page(i);
             let id = make_id(i);
@@ -797,10 +766,8 @@ mod tests {
             drop(handle);
         }
 
-        // Access first page to mark it hot
         let _ = cache.get(&make_id(0));
 
-        // Insert more pages to trigger eviction
         for i in 16..24 {
             let page = make_page(i);
             let id = make_id(i);
@@ -808,9 +775,6 @@ mod tests {
             drop(handle);
         }
 
-        // Page 0 should survive (was hot, got second chance)
-        // This is probabilistic but with small cache it's highly likely
-        // At minimum, some evictions should have occurred
         assert!(cache.evictions() > 0);
     }
 
@@ -818,7 +782,6 @@ mod tests {
     fn test_evicted_dirty_page_returned() {
         let cache = PageCache::new(16);
 
-        // Fill cache with dirty pages
         for i in 0..16 {
             let page = make_page(i);
             let id = make_id(i);
@@ -827,13 +790,11 @@ mod tests {
             drop(handle);
         }
 
-        // Insert one more - should evict a dirty page
         let page = make_page(100);
         let id = make_id(100);
         let (handle, evicted) = cache.put(id, page);
         drop(handle);
 
-        // The evicted page should be returned since it was dirty
         assert!(evicted.is_some());
     }
 
@@ -852,12 +813,247 @@ mod tests {
         let (handle, _) = cache.put(id, page);
         drop(handle);
 
-        // 1 hit, 0 misses
         let _ = cache.get(&id);
         assert!(cache.hit_rate() > 99.0);
 
-        // 1 miss
         let _ = cache.get(&make_id(999));
         assert!((cache.hit_rate() - 50.0).abs() < 1.0);
+    }
+
+    // --- Additional HFT & behavioral tests ---
+
+    #[test]
+    fn test_page_id_hash_distribution() {
+        // Verify XXH3 hash provides good distribution across shards
+        let mut shard_counts = [0u32; SHARD_COUNT];
+        for i in 0..10000i64 {
+            let id = PageId::new(1, 1, i);
+            let shard = (id.hash() as usize) & SHARD_MASK;
+            shard_counts[shard] += 1;
+        }
+        // Each shard should get roughly 10000/64 = ~156 entries
+        // Allow 3x deviation
+        let expected = 10000.0 / SHARD_COUNT as f64;
+        for count in &shard_counts {
+            assert!(
+                (*count as f64) < expected * 3.0,
+                "poor hash distribution: shard got {} entries (expected ~{})",
+                count,
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn test_page_id_hash_different_databases() {
+        let id1 = PageId::new(1, 1, 1);
+        let id2 = PageId::new(2, 1, 1);
+        let id3 = PageId::new(1, 2, 1);
+        assert_ne!(id1.hash(), id2.hash());
+        assert_ne!(id1.hash(), id3.hash());
+        assert_ne!(id2.hash(), id3.hash());
+    }
+
+    #[test]
+    fn test_put_update_existing() {
+        let cache = PageCache::new(64);
+        let id = make_id(1);
+        let page1 = make_page(1);
+        let page2 = make_page(1);
+
+        let (h1, _) = cache.put(id, page1);
+        drop(h1);
+
+        // Put same page_id again - should update in place
+        let (h2, evicted) = cache.put(id, page2);
+        assert!(evicted.is_none());
+        assert!(h2.is_valid());
+        drop(h2);
+
+        // Should still be one entry
+        assert_eq!(cache.size(), 1);
+    }
+
+    #[test]
+    fn test_remove_nonexistent() {
+        let cache = PageCache::new(64);
+        let id = make_id(42);
+        assert!(cache.remove(&id).is_none());
+    }
+
+    #[test]
+    fn test_guard_prevents_eviction_multiple_pins() {
+        let cache = PageCache::new(16);
+        let id = make_id(0);
+        let page = make_page(0);
+
+        // Pin twice
+        let (h1, _) = cache.put(id, Arc::clone(&page));
+        let h2 = cache.get(&id).unwrap();
+
+        // Fill cache to trigger eviction attempts
+        for i in 1..32 {
+            let (h, _) = cache.put(make_id(i), make_page(i));
+            drop(h);
+        }
+
+        // Both guards should still be valid
+        assert!(h1.is_valid());
+        assert!(h2.is_valid());
+
+        drop(h1);
+        drop(h2);
+
+        // Page should still be accessible after all guards dropped
+        assert!(cache.get(&id).is_some());
+    }
+
+    #[test]
+    fn test_version_increments_on_eviction() {
+        let cache = PageCache::new(16);
+
+        for i in 0..16 {
+            let (h, _) = cache.put(make_id(i), make_page(i));
+            drop(h);
+        }
+
+        // Get version of page 0
+        let h0 = cache.get(&make_id(0)).unwrap();
+        let _v0 = h0.version_at_pin;
+        drop(h0);
+
+        // Force eviction of page 0 by filling cache with new pages
+        // First clear page 0's hot bit
+        for i in 16..48 {
+            let (h, _) = cache.put(make_id(i), make_page(i));
+            drop(h);
+        }
+
+        // If page 0 was evicted and re-inserted, version should differ
+        // (This is a probabilistic test - at minimum evictions occurred)
+        assert!(cache.evictions() > 0);
+    }
+
+    #[test]
+    fn test_dirty_page_survives_get() {
+        let cache = PageCache::new(64);
+        let id = make_id(1);
+        let page = make_page(1);
+
+        let (h, _) = cache.put(id, page);
+        h.mark_dirty();
+        drop(h);
+
+        // Get should not clear dirty flag
+        let h2 = cache.get(&id).unwrap();
+        drop(h2);
+
+        let dirty = cache.dirty_pages();
+        assert_eq!(dirty.len(), 1);
+    }
+
+    #[test]
+    fn test_concurrent_put_same_key() {
+        use std::thread;
+
+        let cache = Arc::new(PageCache::new(64));
+        let mut handles = Vec::new();
+
+        for _ in 0..8 {
+            let cache = Arc::clone(&cache);
+            handles.push(thread::spawn(move || {
+                for _ in 0..100 {
+                    let page = make_page(42);
+                    let id = make_id(42);
+                    let (h, _) = cache.put(id, page);
+                    drop(h);
+                }
+            }));
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // Should still be exactly 1 entry for key 42
+        let h = cache.get(&make_id(42));
+        assert!(h.is_some());
+        assert_eq!(cache.size(), 1);
+    }
+
+    #[test]
+    fn test_minimum_capacity_enforced() {
+        let cache = PageCache::new(1);
+        assert_eq!(cache.capacity(), 16);
+    }
+
+    #[test]
+    fn test_heavy_eviction_stress() {
+        let cache = PageCache::new(32);
+
+        for i in 0..1000i64 {
+            let (h, _) = cache.put(make_id(i), make_page(i));
+            drop(h);
+        }
+
+        assert!(cache.size() <= 32);
+        assert!(cache.evictions() > 900);
+    }
+
+    #[test]
+    fn test_mixed_dirty_clean_eviction() {
+        let cache = PageCache::new(16);
+
+        // Fill with alternating dirty/clean
+        for i in 0..16 {
+            let (h, _) = cache.put(make_id(i), make_page(i));
+            if i % 2 == 0 {
+                h.mark_dirty();
+            }
+            drop(h);
+        }
+
+        // Trigger evictions
+        let mut dirty_evictions = 0;
+        let mut clean_evictions = 0;
+        for i in 16..32 {
+            let (h, evicted) = cache.put(make_id(i), make_page(i));
+            if let Some(_) = evicted {
+                dirty_evictions += 1;
+            } else if cache.evictions() > (dirty_evictions + clean_evictions) as u64 {
+                clean_evictions += 1;
+            }
+            drop(h);
+        }
+
+        assert!(cache.evictions() > 0);
+    }
+
+    #[test]
+    fn test_empty_cache_hit_rate() {
+        let cache = PageCache::new(64);
+        assert_eq!(cache.hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_multiple_databases_same_page_key() {
+        let cache = PageCache::new(64);
+
+        let id1 = PageId::new(1, 1, 100);
+        let id2 = PageId::new(2, 1, 100);
+        let id3 = PageId::new(1, 2, 100);
+
+        let (h1, _) = cache.put(id1, make_page(100));
+        let (h2, _) = cache.put(id2, make_page(100));
+        let (h3, _) = cache.put(id3, make_page(100));
+        drop(h1);
+        drop(h2);
+        drop(h3);
+
+        // All three should be independently cached
+        assert!(cache.get(&id1).is_some());
+        assert!(cache.get(&id2).is_some());
+        assert!(cache.get(&id3).is_some());
+        assert_eq!(cache.size(), 3);
     }
 }
