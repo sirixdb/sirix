@@ -15,12 +15,11 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
-use std::path::PathBuf;
+
 use std::sync::Arc;
 
 use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
-use byteorder::WriteBytesExt;
 use parking_lot::Mutex;
 
 use crate::compression::ByteHandlerPipeline;
@@ -226,9 +225,6 @@ pub struct FileChannelWriter {
     shared: Arc<SharedStorage>,
     write_buf: Vec<u8>,
     write_position: u64,
-    is_first_uber_page: bool,
-    #[allow(dead_code)]
-    resource_path: PathBuf,
 }
 
 impl FileChannelWriter {
@@ -252,8 +248,6 @@ impl FileChannelWriter {
             shared: Arc::new(shared),
             write_buf: Vec::with_capacity(FLUSH_SIZE),
             write_position,
-            is_first_uber_page: false,
-            resource_path: resource_path.to_path_buf(),
         })
     }
 
@@ -273,26 +267,6 @@ impl FileChannelWriter {
         file.seek(SeekFrom::Start(self.write_position - buf_len))?;
         file.write_all(&self.write_buf)?;
         self.write_buf.clear();
-        Ok(())
-    }
-
-    /// Write revision tracking data for a committed revision.
-    #[allow(dead_code)]
-    fn write_revision_data(&self, revision: i32, offset: i64, timestamp: i64) -> Result<()> {
-        let mut file = self.shared.revisions_file.lock();
-        let file_offset = if revision == 0 {
-            let size = file.metadata()?.len();
-            size + FIRST_BEACON
-        } else {
-            file.metadata()?.len()
-        };
-
-        file.seek(SeekFrom::Start(file_offset))?;
-        file.write_i64::<LittleEndian>(offset)?;
-        file.write_i64::<LittleEndian>(timestamp)?;
-
-        let mut idx = self.shared.revision_index.lock();
-        idx.append(timestamp, offset)?;
         Ok(())
     }
 
@@ -428,22 +402,28 @@ impl StorageWriter for FileChannelWriter {
         let hash = xxhash_rust::xxh3::xxh3_64(&compressed);
         reference.set_hash_value(hash);
 
-        // Write uber page to revisions file header
-        self.is_first_uber_page = {
-            let file = self.shared.data_file.lock();
-            file.metadata()?.len() <= FIRST_BEACON + block.len() as u64
-        };
+        Ok(())
+    }
 
-        if self.is_first_uber_page {
-            let mut rev_file = self.shared.revisions_file.lock();
-            rev_file.seek(SeekFrom::Start(0))?;
-            let mut uber_buf = vec![0u8; UBER_PAGE_BYTE_ALIGN];
-            let copy_len = compressed.len().min(UBER_PAGE_BYTE_ALIGN);
-            uber_buf[..copy_len].copy_from_slice(&compressed[..copy_len]);
-            rev_file.write_all(&uber_buf)?;
-            rev_file.seek(SeekFrom::Start(UBER_PAGE_BYTE_ALIGN as u64))?;
-            rev_file.write_all(&uber_buf)?;
-        }
+    fn write_revision_data(
+        &mut self,
+        timestamp_nanos: i64,
+        data_file_offset: i64,
+    ) -> Result<()> {
+        // Append to in-memory index
+        let mut idx = self.shared.revision_index.lock();
+        idx.append(timestamp_nanos, data_file_offset)?;
+
+        // Serialize and write entire index to revisions file
+        let mut buf = Vec::with_capacity(4 + idx.len() * 16);
+        idx.serialize(&mut buf);
+        drop(idx);
+
+        let mut rev_file = self.shared.revisions_file.lock();
+        rev_file.seek(SeekFrom::Start(0))?;
+        rev_file.write_all(&buf)?;
+        rev_file.set_len(buf.len() as u64)?;
+        rev_file.sync_all()?;
 
         Ok(())
     }

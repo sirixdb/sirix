@@ -35,6 +35,17 @@ pub trait StorageWriter: StorageReader {
         uber_page: &UberPage,
     ) -> Result<()>;
 
+    /// Persist a revision entry (timestamp + data file offset) to the revisions file.
+    ///
+    /// Appends the entry to the in-memory RevisionIndex and serializes the
+    /// entire index to the revisions file. Called during commit after the
+    /// revision root page has been written to the data file.
+    fn write_revision_data(
+        &mut self,
+        timestamp_nanos: i64,
+        data_file_offset: i64,
+    ) -> Result<()>;
+
     /// Truncate the storage to the given revision.
     fn truncate_to(&mut self, revision: i32) -> Result<()>;
 

@@ -77,12 +77,20 @@ impl TilPageRef {
 }
 
 /// Completed disk offset entry for Layer 3 stale reference resolution.
-#[allow(dead_code)]
 struct CompletedEntry {
     /// Disk offset.
     disk_offset: i64,
     /// Page hash.
     hash: u64,
+}
+
+/// Result of a stale reference resolution from Layer 3.
+#[derive(Debug, Clone, Copy)]
+pub struct ResolvedStaleRef {
+    /// Disk offset where the page was written.
+    pub disk_offset: i64,
+    /// Hash of the compressed page data.
+    pub hash: u64,
 }
 
 /// Frozen snapshot state for background flush.
@@ -147,11 +155,11 @@ impl TransactionIntentLog {
         }
     }
 
-    /// Get a page container from the TIL using 3-layer lookup.
+    /// Get a page container from the TIL using layers 1 and 2.
     ///
-    /// Returns `None` if the page is not in any TIL layer.
-    /// For Layer 3 hits, updates the ref's key/hash and returns `None`
-    /// (caller should load from disk).
+    /// Returns `None` if the page is not in the current TIL or frozen snapshot.
+    /// Does NOT check Layer 3 (completed disk offsets) — use `resolve_stale_ref`
+    /// for that.
     #[inline]
     pub fn get(&mut self, ref_generation: i32, log_key: i32) -> Option<&PageContainer> {
         if log_key < 0 {
@@ -172,16 +180,30 @@ impl TransactionIntentLog {
             }
         }
 
-        // Layer 3: Completed disk offsets - O(1) HashMap lookup
-        if !self.completed.is_empty() {
-            let packed = ((ref_generation as u64) << 32) | (log_key as u64 & 0xFFFFFFFF);
-            if self.completed.remove(&packed).is_some() {
-                self.layer3_hits += 1;
-                return None;
-            }
+        None
+    }
+
+    /// Resolve a stale reference from Layer 3 (completed disk offsets).
+    ///
+    /// If the page was already flushed to disk by a background thread, returns
+    /// the disk offset and hash so the caller can load from disk directly.
+    /// The entry is consumed (removed from Layer 3) on successful resolution.
+    #[inline]
+    pub fn resolve_stale_ref(&mut self, ref_generation: i32, log_key: i32) -> Option<ResolvedStaleRef> {
+        if log_key < 0 || self.completed.is_empty() {
+            return None;
         }
 
-        None
+        let packed = ((ref_generation as u64) << 32) | (log_key as u64 & 0xFFFFFFFF);
+        if let Some(entry) = self.completed.remove(&packed) {
+            self.layer3_hits += 1;
+            Some(ResolvedStaleRef {
+                disk_offset: entry.disk_offset,
+                hash: entry.hash,
+            })
+        } else {
+            None
+        }
     }
 
     /// Get a mutable reference to a page container.
@@ -623,7 +645,7 @@ mod tests {
     // --- Additional behavioral and coverage tests ---
 
     #[test]
-    fn test_layer3_lookup_o1_hashmap() {
+    fn test_layer3_resolve_stale_ref() {
         let mut til = TransactionIntentLog::new(16);
 
         // Put entries, snapshot, set disk offsets, cleanup to populate Layer 3
@@ -643,16 +665,24 @@ mod tests {
         }
         til.cleanup_snapshot();
 
-        // Layer 3 lookups should work and remove entries
+        // Layer 3 resolve should return disk offset and hash
         assert_eq!(til.layer3_hits(), 0);
-        til.get(gen0, 0);
+        let resolved = til.resolve_stale_ref(gen0, 0).unwrap();
+        assert_eq!(resolved.disk_offset, 4096);
+        assert_eq!(resolved.hash, 0);
         assert_eq!(til.layer3_hits(), 1);
-        til.get(gen0, 2);
+
+        let resolved = til.resolve_stale_ref(gen0, 2).unwrap();
+        assert_eq!(resolved.disk_offset, 2 * 1000 + 4096);
+        assert_eq!(resolved.hash, 2 * 111);
         assert_eq!(til.layer3_hits(), 2);
 
-        // Re-lookup should not hit (entry was removed)
-        til.get(gen0, 0);
+        // Re-resolve should return None (entry was consumed)
+        assert!(til.resolve_stale_ref(gen0, 0).is_none());
         assert_eq!(til.layer3_hits(), 2);
+
+        // get() should not find Layer 3 entries (separate concern now)
+        assert!(til.get(gen0, 3).is_none());
     }
 
     #[test]

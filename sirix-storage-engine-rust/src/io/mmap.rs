@@ -15,7 +15,7 @@ use std::io::Seek;
 use std::io::SeekFrom;
 use std::io::Write;
 use std::path::Path;
-use std::path::PathBuf;
+
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -62,9 +62,6 @@ struct MmapShared {
     byte_handler: ByteHandlerPipeline,
     /// In-memory revision index.
     revision_index: Mutex<RevisionIndex>,
-    /// Resource directory path.
-    #[allow(dead_code)]
-    resource_path: PathBuf,
     /// Dirty flag: set when data file is modified, cleared after mmap refresh.
     /// Prevents redundant mmap remaps on read-only access.
     data_dirty: AtomicBool,
@@ -125,9 +122,9 @@ impl MmapShared {
         self.data_dirty.store(true, Ordering::Release);
     }
 
-    /// Mark revisions file as dirty.
+    /// Mark revisions file as dirty (used by revision write path).
     #[inline]
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), allow(dead_code))]
     fn mark_revisions_dirty(&self) {
         self.revisions_dirty.store(true, Ordering::Release);
     }
@@ -312,8 +309,6 @@ pub struct MMFileWriter {
     write_position: u64,
     /// Fallback write buffer for small writes.
     write_buf: Vec<u8>,
-    #[allow(dead_code)]
-    is_first_uber_page: bool,
 }
 
 impl MMFileWriter {
@@ -341,7 +336,6 @@ impl MMFileWriter {
             write_pos_in_region: 0,
             write_position,
             write_buf: Vec::with_capacity(FLUSH_SIZE),
-            is_first_uber_page: false,
         })
     }
 
@@ -480,7 +474,12 @@ impl StorageWriter for MMFileWriter {
             let rem = self.write_position & mask;
             if rem == 0 { 0 } else { PAGE_FRAGMENT_BYTE_ALIGN as u64 - rem }
         };
-        self.write_position += padding;
+        if padding > 0 {
+            // Zero-fill padding in write buffer so flush offset calculation is correct
+            static ZERO_PAD: [u8; 512] = [0u8; 512];
+            self.write_buf.extend_from_slice(&ZERO_PAD[..padding as usize]);
+            self.write_position += padding;
+        }
 
         let offset = self.write_position;
 
@@ -538,8 +537,41 @@ impl StorageWriter for MMFileWriter {
         let hash = xxhash_rust::xxh3::xxh3_64(&compressed);
         reference.set_hash_value(hash);
 
+        // Ensure write_position accounts for uber page block
+        let uber_end = FIRST_BEACON + block.len() as u64;
+        if uber_end > self.write_position {
+            self.write_position = uber_end;
+        }
+
         // Force refresh data mmap for reads
         self.shared.refresh_data_mmap()?;
+
+        Ok(())
+    }
+
+    fn write_revision_data(
+        &mut self,
+        timestamp_nanos: i64,
+        data_file_offset: i64,
+    ) -> Result<()> {
+        // Append to in-memory index
+        let mut idx = self.shared.revision_index.lock();
+        idx.append(timestamp_nanos, data_file_offset)?;
+
+        // Serialize and write entire index to revisions file
+        let mut buf = Vec::with_capacity(4 + idx.len() * 16);
+        idx.serialize(&mut buf);
+        drop(idx);
+
+        {
+            let mut rev_file = self.shared.revisions_file.lock();
+            rev_file.seek(SeekFrom::Start(0))?;
+            rev_file.write_all(&buf)?;
+            rev_file.set_len(buf.len() as u64)?;
+            rev_file.sync_all()?;
+        }
+
+        self.shared.mark_revisions_dirty();
 
         Ok(())
     }
@@ -596,8 +628,16 @@ impl StorageWriter for MMFileWriter {
             region.flush()?;
         }
 
+        // Drop the mutable mapping before truncating to avoid conflict
+        self.mapped_region = None;
+
         {
             let file = self.shared.data_file.lock();
+            // Trim file to actual write position (ensure_mapped may have extended it)
+            let file_len = file.metadata()?.len();
+            if file_len > self.write_position && self.write_position > 0 {
+                file.set_len(self.write_position)?;
+            }
             file.sync_all()?;
         }
         {
@@ -676,7 +716,6 @@ fn open_mmap_shared(
         revisions_file: Mutex::new(revisions_file),
         byte_handler,
         revision_index: Mutex::new(revision_index),
-        resource_path: resource_path.to_path_buf(),
         data_dirty: AtomicBool::new(false),
         revisions_dirty: AtomicBool::new(false),
     })
