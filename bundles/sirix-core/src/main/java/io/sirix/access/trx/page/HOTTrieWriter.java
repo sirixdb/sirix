@@ -54,7 +54,7 @@ import java.util.Objects;
  * HOT trie writer for HOT (Height Optimized Trie) navigation.
  * 
  * <p>
- * This class provides an alternative to the bit-decomposition approach of {@code TrieWriter} using
+ * This class provides an alternative to the bit-decomposition approach of {@code KeyedTrieWriter} using
  * semantic key-based navigation with HOT compound nodes.
  * </p>
  * 
@@ -123,7 +123,7 @@ public final class HOTTrieWriter {
 
   /**
    * Navigate keyed trie (HOT) to find or create leaf page for given key. Analogous to
-   * TrieWriter.prepareLeafOfTree() but uses semantic key navigation.
+   * KeyedTrieWriter.prepareLeafOfTree() but uses semantic key navigation.
    *
    * @param storageEngineReader storage engine writer
    * @param log transaction intent log
