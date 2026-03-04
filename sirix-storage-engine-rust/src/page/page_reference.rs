@@ -135,10 +135,16 @@ impl PageReference {
         self.hash.as_deref()
     }
 
-    /// Set the integrity hash.
+    /// Set the integrity hash from raw bytes.
     #[inline]
     pub fn set_hash(&mut self, hash: Vec<u8>) {
         self.hash = Some(hash);
+    }
+
+    /// Set the integrity hash from a u64 value (XXH3).
+    #[inline]
+    pub fn set_hash_value(&mut self, hash: u64) {
+        self.hash = Some(hash.to_le_bytes().to_vec());
     }
 
     /// Page fragment keys for versioned pages.

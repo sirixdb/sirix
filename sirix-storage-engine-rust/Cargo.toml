@@ -11,10 +11,12 @@ lz4_flex = "0.11"
 thiserror = "2"
 byteorder = "1.5"
 crossbeam-utils = "0.8"
+crossbeam-epoch = "0.9"
 parking_lot = "0.12"
 memmap2 = "0.9"
 crc32fast = "1.4"
 roaring = "0.10"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
 [dev-dependencies]
 tempfile = "3"

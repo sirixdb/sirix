@@ -10,6 +10,7 @@ use crate::error::StorageError;
 ///
 /// Optimized for binary search on timestamps. Updated atomically when
 /// new revisions are committed.
+#[derive(Clone)]
 pub struct RevisionIndex {
     /// Timestamps in nanoseconds since UNIX epoch, sorted ascending.
     timestamps: Vec<i64>,

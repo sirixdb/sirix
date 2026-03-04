@@ -46,4 +46,7 @@ pub trait StorageWriter: StorageReader {
 
     /// Flush the write buffer if it exceeds the threshold.
     fn flush_if_needed(&mut self) -> Result<()>;
+
+    /// Flush all buffered writes to storage (without fsync).
+    fn flush_buffered_writes(&mut self) -> Result<()>;
 }

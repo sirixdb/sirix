@@ -1,7 +1,7 @@
-//! FileChannel-based storage backend.
+//! FileChannel-based storage backend with separate Reader and Writer.
 //!
-//! Equivalent to Java's `FileChannelStorage` using standard `File` I/O
-//! with striped buffer pools for concurrent access.
+//! Equivalent to Java's `FileChannelReader` / `FileChannelWriter` using
+//! standard `File` I/O with striped buffer pools for concurrent access.
 
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -13,17 +13,24 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use byteorder::LittleEndian;
+use byteorder::ReadBytesExt;
+use byteorder::WriteBytesExt;
 use parking_lot::Mutex;
 
 use crate::compression::ByteHandlerPipeline;
 use crate::constants::DATA_FILENAME;
 use crate::constants::FIRST_BEACON;
 use crate::constants::REVISIONS_FILENAME;
+use crate::constants::STRIPE_BUFFER_SIZE;
 use crate::error::Result;
 use crate::error::StorageError;
+use crate::io::reader::RevisionFileData;
 use crate::io::reader::StorageReader;
-use crate::io::writer::StorageWriter;
 use crate::io::writer::FLUSH_SIZE;
+use crate::io::writer::PAGE_FRAGMENT_BYTE_ALIGN;
+use crate::io::writer::StorageWriter;
+use crate::io::writer::UBER_PAGE_BYTE_ALIGN;
 use crate::page::page_reference::PageReference;
 use crate::page::serialization::DeserializedPage;
 use crate::page::serialization::deserialize_page;
@@ -39,191 +46,83 @@ fn stripe_count() -> usize {
         .unwrap_or(8)
 }
 
+/// Get stripe index for current thread.
+#[inline]
+fn get_stripe_index(num_stripes: usize) -> usize {
+    let tid = std::thread::current().id();
+    let hash = {
+        use std::hash::Hash;
+        use std::hash::Hasher;
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        tid.hash(&mut hasher);
+        hasher.finish()
+    };
+    (hash as usize) % num_stripes
+}
+
 /// A stripe for concurrent I/O operations.
 struct Stripe {
-    /// Read buffer for this stripe.
     read_buf: Vec<u8>,
 }
 
-/// FileChannel-based storage implementation.
-///
-/// Uses standard file I/O with striped buffers for concurrent reads.
-/// The data file stores pages, and the revisions file stores the revision index.
-pub struct FileChannelStorage {
-    /// Path to the resource directory.
-    resource_path: PathBuf,
-
-    /// Main data file.
-    data_file: Arc<Mutex<File>>,
-
-    /// Revision index file.
-    revisions_file: Arc<Mutex<File>>,
-
-    /// Compression pipeline.
+/// Shared state between FileChannelReader and FileChannelWriter.
+struct SharedStorage {
+    data_file: Mutex<File>,
+    revisions_file: Mutex<File>,
     byte_handler: ByteHandlerPipeline,
-
-    /// Striped read buffers.
     stripes: Vec<Mutex<Stripe>>,
-
-    /// Write buffer for batching.
-    write_buf: Vec<u8>,
-
-    /// Current write position in the data file.
-    write_position: u64,
-
-    /// The revision index (cached in memory).
-    revision_index: RevisionIndex,
+    revision_index: Mutex<RevisionIndex>,
 }
 
-impl FileChannelStorage {
-    /// Open or create a FileChannel storage at the given path.
+// ---------------------------------------------------------------------------
+// FileChannelReader
+// ---------------------------------------------------------------------------
+
+/// File-based reader using striped buffer pools for concurrent reads.
+///
+/// Equivalent to Java's `FileChannelReader`. Uses striped buffers to avoid
+/// contention across threads (including virtual threads).
+pub struct FileChannelReader {
+    shared: Arc<SharedStorage>,
+}
+
+impl FileChannelReader {
+    /// Open a reader for the given resource path.
     pub fn open(resource_path: &Path, byte_handler: ByteHandlerPipeline) -> Result<Self> {
-        std::fs::create_dir_all(resource_path)?;
-
-        let data_path = resource_path.join(DATA_FILENAME);
-        let revisions_path = resource_path.join(REVISIONS_FILENAME);
-
-        let data_file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&data_path)?;
-
-        let revisions_file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(&revisions_path)?;
-
-        // Determine write position from data file size
-        let write_position = data_file.metadata()?.len();
-
-        // Initialize stripes
-        let sc = stripe_count();
-        let mut stripes = Vec::with_capacity(sc);
-        for _ in 0..sc {
-            stripes.push(Mutex::new(Stripe {
-                read_buf: vec![0u8; crate::constants::STRIPE_BUFFER_SIZE],
-            }));
-        }
-
-        // Load or create revision index
-        let revision_index = Self::load_revision_index(&revisions_file)?;
-
-        Ok(Self {
-            resource_path: resource_path.to_path_buf(),
-            data_file: Arc::new(Mutex::new(data_file)),
-            revisions_file: Arc::new(Mutex::new(revisions_file)),
-            byte_handler,
-            stripes,
-            write_buf: Vec::with_capacity(FLUSH_SIZE),
-            write_position: write_position.max(FIRST_BEACON + 512), // ensure past beacon
-            revision_index,
-        })
+        let shared = open_shared(resource_path, byte_handler)?;
+        Ok(Self { shared: Arc::new(shared) })
     }
 
-    /// Load the revision index from the revisions file.
-    fn load_revision_index(file: &File) -> Result<RevisionIndex> {
-        let len = file.metadata()?.len();
-        if len == 0 {
-            return Ok(RevisionIndex::new());
-        }
-
-        let mut data = vec![0u8; len as usize];
-        let mut f = file;
-        f.seek(SeekFrom::Start(0))?;
-        f.read_exact(&mut data)?;
-        RevisionIndex::deserialize(&data)
-    }
-
-    /// Save the revision index to the revisions file.
-    fn save_revision_index(&self) -> Result<()> {
-        let mut buf = Vec::new();
-        self.revision_index.serialize(&mut buf);
-
-        let mut file = self.revisions_file.lock();
-        file.seek(SeekFrom::Start(0))?;
-        file.write_all(&buf)?;
-        file.set_len(buf.len() as u64)?;
-        Ok(())
-    }
-
-    /// Get a stripe index for the current thread.
-    #[inline]
-    fn stripe_index(&self) -> usize {
-        // Use thread ID for stripe selection (matches Java's approach)
-        let tid = std::thread::current().id();
-        let hash = {
-            use std::hash::Hash;
-            use std::hash::Hasher;
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            tid.hash(&mut hasher);
-            hasher.finish()
-        };
-        (hash as usize) % self.stripes.len()
+    /// Create from existing shared state (used by writer).
+    fn from_shared(shared: Arc<SharedStorage>) -> Self {
+        Self { shared }
     }
 
     /// Read raw bytes from the data file at the given offset.
     fn read_raw(&self, offset: u64, size: usize) -> Result<Vec<u8>> {
-        let stripe_idx = self.stripe_index();
-        let stripe = &self.stripes[stripe_idx];
-        let mut stripe = stripe.lock();
+        let stripe_idx = get_stripe_index(self.shared.stripes.len());
+        let mut stripe = self.shared.stripes[stripe_idx].lock();
 
         if size > stripe.read_buf.len() {
             stripe.read_buf.resize(size, 0);
         }
 
-        let mut file = self.data_file.lock();
+        let mut file = self.shared.data_file.lock();
         file.seek(SeekFrom::Start(offset))?;
         file.read_exact(&mut stripe.read_buf[..size])?;
 
         Ok(stripe.read_buf[..size].to_vec())
     }
 
-    /// Write raw bytes to the data file at the current write position.
-    fn write_raw(&mut self, data: &[u8]) -> Result<u64> {
-        let offset = self.write_position;
-        self.write_buf.extend_from_slice(data);
-        self.write_position += data.len() as u64;
-
-        if self.write_buf.len() >= FLUSH_SIZE {
-            self.flush_write_buffer()?;
-        }
-
-        Ok(offset)
-    }
-
-    /// Flush the write buffer to disk.
-    fn flush_write_buffer(&mut self) -> Result<()> {
-        if self.write_buf.is_empty() {
-            return Ok(());
-        }
-
-        let mut file = self.data_file.lock();
-        file.seek(SeekFrom::Start(
-            self.write_position - self.write_buf.len() as u64,
-        ))?;
-        file.write_all(&self.write_buf)?;
-        self.write_buf.clear();
-        Ok(())
-    }
-
-    /// Resource path.
-    pub fn resource_path(&self) -> &Path {
-        &self.resource_path
-    }
-
-    /// Whether the storage exists on disk.
-    pub fn exists(&self) -> bool {
-        self.resource_path.join(DATA_FILENAME).exists()
+    /// Compute XXH3 hash of data.
+    #[allow(dead_code)]
+    pub fn compute_hash(data: &[u8]) -> u64 {
+        xxhash_rust::xxh3::xxh3_64(data)
     }
 }
 
-impl StorageReader for FileChannelStorage {
+impl StorageReader for FileChannelReader {
     fn read_uber_page_reference(&self) -> Result<PageReference> {
-        // UberPage is at FIRST_BEACON
         Ok(PageReference::with_key(FIRST_BEACON as i64))
     }
 
@@ -236,15 +135,19 @@ impl StorageReader for FileChannelStorage {
 
         let offset = reference.key() as u64;
 
-        // Read page size header (4 bytes)
+        // Read page size header (4 bytes LE)
         let size_bytes = self.read_raw(offset, 4)?;
         let page_size = u32::from_le_bytes(size_bytes[0..4].try_into().unwrap()) as usize;
+
+        if page_size == 0 {
+            return Err(StorageError::PageCorruption("zero-length page".into()));
+        }
 
         // Read compressed page data
         let compressed = self.read_raw(offset + 4, page_size)?;
 
         // Decompress
-        let decompressed = self.byte_handler.decompress(&compressed)?;
+        let decompressed = self.shared.byte_handler.decompress(&compressed)?;
 
         // Deserialize
         deserialize_page(&decompressed, SerializationType::Data)
@@ -252,23 +155,18 @@ impl StorageReader for FileChannelStorage {
 
     fn read_uber_page(&self) -> Result<UberPage> {
         let reference = self.read_uber_page_reference()?;
-
-        // Read from the beacon offset
         let offset = reference.key() as u64;
 
-        // Read size
         let size_bytes = self.read_raw(offset, 4)?;
         let size = u32::from_le_bytes(size_bytes[0..4].try_into().unwrap()) as usize;
 
         if size == 0 {
-            // Fresh database
             return Ok(UberPage::new_bootstrap());
         }
 
         let data = self.read_raw(offset + 4, size)?;
-        let decompressed = self.byte_handler.decompress(&data)?;
+        let decompressed = self.shared.byte_handler.decompress(&data)?;
 
-        // Skip PageKind + BinaryEncodingVersion bytes
         if decompressed.len() < 2 {
             return Ok(UberPage::new_bootstrap());
         }
@@ -276,32 +174,191 @@ impl StorageReader for FileChannelStorage {
     }
 
     fn read_revision_index(&self) -> Result<RevisionIndex> {
-        Self::load_revision_index(&self.revisions_file.lock())
+        let file = self.shared.revisions_file.lock();
+        load_revision_index(&file)
     }
 
     fn get_revision_offset(&self, revision: i32) -> Result<(i64, i64)> {
-        let offset = self.revision_index.get_offset(revision as usize)?;
-        let timestamp = self.revision_index.get_timestamp(revision as usize)?;
+        let idx = self.shared.revision_index.lock();
+        let offset = idx.get_offset(revision as usize)?;
+        let timestamp = idx.get_timestamp(revision as usize)?;
         Ok((offset, timestamp))
+    }
+
+    fn get_revision_file_data(&self, revision: i32) -> Result<RevisionFileData> {
+        // Read directly from revisions file: each revision has 16 bytes (offset + timestamp)
+        let file_offset = FIRST_BEACON + (revision as u64) * 16;
+        let mut file = self.shared.revisions_file.lock();
+        file.seek(SeekFrom::Start(file_offset))?;
+        let offset = file.read_i64::<LittleEndian>()?;
+        let timestamp = file.read_i64::<LittleEndian>()?;
+        Ok(RevisionFileData { offset, timestamp })
+    }
+
+    fn read_revision_root_page_commit_timestamp(&self, revision: i32) -> Result<i64> {
+        let data = self.get_revision_file_data(revision)?;
+        Ok(data.timestamp)
     }
 }
 
-impl StorageWriter for FileChannelStorage {
+// ---------------------------------------------------------------------------
+// FileChannelWriter
+// ---------------------------------------------------------------------------
+
+/// File-based writer with buffered writes and alignment support.
+///
+/// Equivalent to Java's `FileChannelWriter`. Delegates reads to a
+/// `FileChannelReader`. Handles page alignment and revision tracking.
+pub struct FileChannelWriter {
+    shared: Arc<SharedStorage>,
+    write_buf: Vec<u8>,
+    write_position: u64,
+    is_first_uber_page: bool,
+    resource_path: PathBuf,
+}
+
+impl FileChannelWriter {
+    /// Open a writer for the given resource path.
+    pub fn open(resource_path: &Path, byte_handler: ByteHandlerPipeline) -> Result<Self> {
+        let shared = open_shared(resource_path, byte_handler)?;
+        let write_position = {
+            let file = shared.data_file.lock();
+            let len = file.metadata()?.len();
+            if len == 0 {
+                let start = FIRST_BEACON;
+                start + (PAGE_FRAGMENT_BYTE_ALIGN as u64
+                    - (start & (PAGE_FRAGMENT_BYTE_ALIGN as u64 - 1)))
+            } else {
+                len
+            }
+        };
+
+        Ok(Self {
+            shared: Arc::new(shared),
+            write_buf: Vec::with_capacity(FLUSH_SIZE),
+            write_position,
+            is_first_uber_page: false,
+            resource_path: resource_path.to_path_buf(),
+        })
+    }
+
+    /// Get a reader backed by the same shared state.
+    pub fn reader(&self) -> FileChannelReader {
+        FileChannelReader::from_shared(Arc::clone(&self.shared))
+    }
+
+    /// Flush the write buffer to disk.
+    fn flush_write_buffer(&mut self) -> Result<()> {
+        if self.write_buf.is_empty() {
+            return Ok(());
+        }
+
+        let mut file = self.shared.data_file.lock();
+        let buf_len = self.write_buf.len() as u64;
+        file.seek(SeekFrom::Start(self.write_position - buf_len))?;
+        file.write_all(&self.write_buf)?;
+        self.write_buf.clear();
+        Ok(())
+    }
+
+    /// Write revision tracking data for a committed revision.
+    fn write_revision_data(&self, revision: i32, offset: i64, timestamp: i64) -> Result<()> {
+        let mut file = self.shared.revisions_file.lock();
+        let file_offset = if revision == 0 {
+            let size = file.metadata()?.len();
+            size + FIRST_BEACON
+        } else {
+            file.metadata()?.len()
+        };
+
+        file.seek(SeekFrom::Start(file_offset))?;
+        file.write_i64::<LittleEndian>(offset)?;
+        file.write_i64::<LittleEndian>(timestamp)?;
+
+        // Update in-memory revision index
+        let mut idx = self.shared.revision_index.lock();
+        idx.append(timestamp, offset)?;
+        Ok(())
+    }
+
+    /// Compute page alignment padding.
+    #[inline]
+    fn compute_alignment(offset: u64, align: usize) -> usize {
+        let rem = offset % align as u64;
+        if rem == 0 {
+            0
+        } else {
+            align - rem as usize
+        }
+    }
+}
+
+impl StorageReader for FileChannelWriter {
+    fn read_uber_page_reference(&self) -> Result<PageReference> {
+        self.reader().read_uber_page_reference()
+    }
+
+    fn read_page(&self, reference: &PageReference) -> Result<DeserializedPage> {
+        self.reader().read_page(reference)
+    }
+
+    fn read_uber_page(&self) -> Result<UberPage> {
+        self.reader().read_uber_page()
+    }
+
+    fn read_revision_index(&self) -> Result<RevisionIndex> {
+        self.reader().read_revision_index()
+    }
+
+    fn get_revision_offset(&self, revision: i32) -> Result<(i64, i64)> {
+        self.reader().get_revision_offset(revision)
+    }
+
+    fn get_revision_file_data(&self, revision: i32) -> Result<RevisionFileData> {
+        self.reader().get_revision_file_data(revision)
+    }
+
+    fn read_revision_root_page_commit_timestamp(&self, revision: i32) -> Result<i64> {
+        self.reader().read_revision_root_page_commit_timestamp(revision)
+    }
+}
+
+impl StorageWriter for FileChannelWriter {
     fn write_page(
         &mut self,
         reference: &mut PageReference,
         serialized_data: &[u8],
     ) -> Result<i64> {
         // Compress
-        let compressed = self.byte_handler.compress(serialized_data)?;
+        let compressed = self.shared.byte_handler.compress(serialized_data)?;
+
+        // Compute alignment
+        let padding = Self::compute_alignment(self.write_position, PAGE_FRAGMENT_BYTE_ALIGN);
+        if padding > 0 {
+            let pad = vec![0u8; padding];
+            self.write_buf.extend_from_slice(&pad);
+            self.write_position += padding as u64;
+        }
+
+        let offset = self.write_position;
 
         // Write size header + compressed data
         let size = compressed.len() as u32;
-        let offset = self.write_raw(&size.to_le_bytes())?;
-        self.write_raw(&compressed)?;
+        self.write_buf.extend_from_slice(&size.to_le_bytes());
+        self.write_buf.extend_from_slice(&compressed);
+        self.write_position += 4 + compressed.len() as u64;
 
-        // Update reference with the file offset
+        // Update reference
         reference.set_key(offset as i64);
+
+        // Compute hash on compressed bytes
+        let hash = xxhash_rust::xxh3::xxh3_64(&compressed);
+        reference.set_hash_value(hash);
+
+        // Flush if buffer is large
+        if self.write_buf.len() >= FLUSH_SIZE {
+            self.flush_write_buffer()?;
+        }
 
         Ok(offset as i64)
     }
@@ -311,21 +368,67 @@ impl StorageWriter for FileChannelStorage {
         reference: &mut PageReference,
         uber_page: &UberPage,
     ) -> Result<()> {
+        // Flush pending writes first
+        self.flush_write_buffer()?;
+
         // Serialize UberPage with page kind header
         let mut page_data = Vec::new();
         serialize_uber_page(uber_page, &mut page_data)?;
 
         // Compress
-        let compressed = self.byte_handler.compress(&page_data)?;
-
-        // Write at the fixed beacon offset
+        let compressed = self.shared.byte_handler.compress(&page_data)?;
         let size = compressed.len() as u32;
-        let mut file = self.data_file.lock();
-        file.seek(SeekFrom::Start(FIRST_BEACON))?;
-        file.write_all(&size.to_le_bytes())?;
-        file.write_all(&compressed)?;
+
+        // Calculate padding for alignment
+        let padding = UBER_PAGE_BYTE_ALIGN
+            - ((compressed.len() + 4) % UBER_PAGE_BYTE_ALIGN);
+
+        // Build the uber page block: [size:4][data:N][padding]
+        let mut block = Vec::with_capacity(4 + compressed.len() + padding);
+        block.extend_from_slice(&size.to_le_bytes());
+        block.extend_from_slice(&compressed);
+        if padding > 0 && padding < UBER_PAGE_BYTE_ALIGN {
+            block.resize(block.len() + padding, 0);
+        }
+
+        // Write at FIRST_BEACON (primary copy)
+        {
+            let mut file = self.shared.data_file.lock();
+            file.seek(SeekFrom::Start(FIRST_BEACON))?;
+            file.write_all(&block)?;
+        }
+
+        // Write mirrored copy at FIRST_BEACON / 2
+        {
+            let mut file = self.shared.data_file.lock();
+            file.seek(SeekFrom::Start(FIRST_BEACON / 2))?;
+            file.write_all(&block)?;
+        }
 
         reference.set_key(FIRST_BEACON as i64);
+
+        // Compute hash
+        let hash = xxhash_rust::xxh3::xxh3_64(&compressed);
+        reference.set_hash_value(hash);
+
+        // Write uber page to revisions file header
+        self.is_first_uber_page = {
+            let file = self.shared.data_file.lock();
+            file.metadata()?.len() <= FIRST_BEACON + block.len() as u64
+        };
+
+        if self.is_first_uber_page {
+            let mut rev_file = self.shared.revisions_file.lock();
+            // Write at offset 0
+            rev_file.seek(SeekFrom::Start(0))?;
+            let mut uber_buf = vec![0u8; UBER_PAGE_BYTE_ALIGN];
+            let copy_len = compressed.len().min(UBER_PAGE_BYTE_ALIGN);
+            uber_buf[..copy_len].copy_from_slice(&compressed[..copy_len]);
+            rev_file.write_all(&uber_buf)?;
+            // Write mirrored at UBER_PAGE_BYTE_ALIGN
+            rev_file.seek(SeekFrom::Start(UBER_PAGE_BYTE_ALIGN as u64))?;
+            rev_file.write_all(&uber_buf)?;
+        }
 
         Ok(())
     }
@@ -335,29 +438,35 @@ impl StorageWriter for FileChannelStorage {
             return self.truncate();
         }
 
-        let offset = self.revision_index.get_offset(revision as usize)?;
-        // Truncate data file to just after this revision's data
-        // (In practice, we'd need the end offset, but for Phase 1
-        // we just note this needs more sophisticated handling)
-        let file = self.data_file.lock();
+        let idx = self.shared.revision_index.lock();
+        let offset = idx.get_offset(revision as usize)?;
+        drop(idx);
+
+        let file = self.shared.data_file.lock();
         file.set_len(offset as u64)?;
+        drop(file);
+
         self.write_position = offset as u64;
+        self.write_buf.clear();
 
         Ok(())
     }
 
     fn truncate(&mut self) -> Result<()> {
-        let data_file = self.data_file.lock();
-        data_file.set_len(0)?;
-        drop(data_file);
+        {
+            let file = self.shared.data_file.lock();
+            file.set_len(0)?;
+        }
+        {
+            let file = self.shared.revisions_file.lock();
+            file.set_len(0)?;
+        }
 
-        let rev_file = self.revisions_file.lock();
-        rev_file.set_len(0)?;
-        drop(rev_file);
-
-        self.write_position = FIRST_BEACON + 512;
-        self.revision_index = RevisionIndex::new();
+        self.write_position = FIRST_BEACON
+            + (PAGE_FRAGMENT_BYTE_ALIGN as u64
+                - (FIRST_BEACON & (PAGE_FRAGMENT_BYTE_ALIGN as u64 - 1)));
         self.write_buf.clear();
+        *self.shared.revision_index.lock() = RevisionIndex::new();
 
         Ok(())
     }
@@ -365,13 +474,14 @@ impl StorageWriter for FileChannelStorage {
     fn force_all(&mut self) -> Result<()> {
         self.flush_write_buffer()?;
 
-        let file = self.data_file.lock();
-        file.sync_all()?;
-        drop(file);
-
-        self.save_revision_index()?;
-        let rev_file = self.revisions_file.lock();
-        rev_file.sync_all()?;
+        {
+            let file = self.shared.data_file.lock();
+            file.sync_all()?;
+        }
+        {
+            let file = self.shared.revisions_file.lock();
+            file.sync_all()?;
+        }
 
         Ok(())
     }
@@ -382,6 +492,68 @@ impl StorageWriter for FileChannelStorage {
         }
         Ok(())
     }
+
+    fn flush_buffered_writes(&mut self) -> Result<()> {
+        self.flush_write_buffer()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+/// Open shared storage state.
+fn open_shared(resource_path: &Path, byte_handler: ByteHandlerPipeline) -> Result<SharedStorage> {
+    std::fs::create_dir_all(resource_path)?;
+
+    let data_path = resource_path.join(DATA_FILENAME);
+    let revisions_path = resource_path.join(REVISIONS_FILENAME);
+
+    let data_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&data_path)?;
+
+    let revisions_file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&revisions_path)?;
+
+    let sc = stripe_count();
+    let mut stripes = Vec::with_capacity(sc);
+    for _ in 0..sc {
+        stripes.push(Mutex::new(Stripe {
+            read_buf: vec![0u8; STRIPE_BUFFER_SIZE],
+        }));
+    }
+
+    let revision_index = load_revision_index(&revisions_file)?;
+
+    Ok(SharedStorage {
+        data_file: Mutex::new(data_file),
+        revisions_file: Mutex::new(revisions_file),
+        byte_handler,
+        stripes,
+        revision_index: Mutex::new(revision_index),
+    })
+}
+
+/// Load the revision index from the revisions file.
+fn load_revision_index(file: &File) -> Result<RevisionIndex> {
+    let len = file.metadata()?.len();
+    if len == 0 {
+        return Ok(RevisionIndex::new());
+    }
+
+    let mut data = vec![0u8; len as usize];
+    let mut f = file;
+    f.seek(SeekFrom::Start(0))?;
+    f.read_exact(&mut data)?;
+    RevisionIndex::deserialize(&data)
 }
 
 #[cfg(test)]
@@ -389,74 +561,94 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_open_new_storage() {
+    fn test_reader_open() {
         let dir = tempfile::tempdir().unwrap();
-        let storage =
-            FileChannelStorage::open(dir.path(), ByteHandlerPipeline::new()).unwrap();
-        assert!(storage.exists());
+        let reader = FileChannelReader::open(dir.path(), ByteHandlerPipeline::new()).unwrap();
+        let uber_ref = reader.read_uber_page_reference().unwrap();
+        assert_eq!(uber_ref.key(), FIRST_BEACON as i64);
     }
 
     #[test]
-    fn test_write_and_read_page() {
+    fn test_writer_write_and_read() {
         let dir = tempfile::tempdir().unwrap();
-        let mut storage =
-            FileChannelStorage::open(dir.path(), ByteHandlerPipeline::new()).unwrap();
+        let mut writer = FileChannelWriter::open(dir.path(), ByteHandlerPipeline::new()).unwrap();
 
-        // Write a raw page
-        let page_data = b"test page data for storage engine";
+        let page_data = b"test page data for file channel";
         let mut reference = PageReference::new();
-        let offset = storage.write_page(&mut reference, page_data).unwrap();
+        let offset = writer.write_page(&mut reference, page_data).unwrap();
 
         assert!(offset > 0);
         assert!(reference.is_persisted());
-
-        // Flush to ensure data is on disk
-        storage.force_all().unwrap();
+        writer.force_all().unwrap();
     }
 
     #[test]
     fn test_uber_page_roundtrip() {
         let dir = tempfile::tempdir().unwrap();
-        let mut storage =
-            FileChannelStorage::open(dir.path(), ByteHandlerPipeline::new()).unwrap();
+        let mut writer = FileChannelWriter::open(dir.path(), ByteHandlerPipeline::new()).unwrap();
 
         let uber = UberPage::new(3, PageReference::with_key(4096));
         let mut ref_ = PageReference::new();
-        storage.write_uber_page_reference(&mut ref_, &uber).unwrap();
-        storage.force_all().unwrap();
+        writer.write_uber_page_reference(&mut ref_, &uber).unwrap();
+        writer.force_all().unwrap();
 
-        let restored = storage.read_uber_page().unwrap();
+        let restored = writer.read_uber_page().unwrap();
         assert_eq!(restored.revision_count(), 3);
     }
 
     #[test]
     fn test_truncate() {
         let dir = tempfile::tempdir().unwrap();
-        let mut storage =
-            FileChannelStorage::open(dir.path(), ByteHandlerPipeline::new()).unwrap();
+        let mut writer = FileChannelWriter::open(dir.path(), ByteHandlerPipeline::new()).unwrap();
 
         let mut ref_ = PageReference::new();
-        storage.write_page(&mut ref_, b"some data").unwrap();
-        storage.force_all().unwrap();
+        writer.write_page(&mut ref_, b"some data").unwrap();
+        writer.force_all().unwrap();
 
-        storage.truncate().unwrap();
-        // After truncation, the storage should be empty
-        let uber = storage.read_uber_page();
-        // Should get a bootstrap page or error since we truncated
+        writer.truncate().unwrap();
+        let uber = writer.read_uber_page();
         assert!(uber.is_ok() || uber.is_err());
     }
 
     #[test]
-    fn test_lz4_compression_storage() {
+    fn test_lz4_compression() {
         let dir = tempfile::tempdir().unwrap();
-        let mut storage =
-            FileChannelStorage::open(dir.path(), ByteHandlerPipeline::lz4()).unwrap();
+        let mut writer = FileChannelWriter::open(dir.path(), ByteHandlerPipeline::lz4()).unwrap();
 
         let page_data = b"compressible data compressible data compressible data";
         let mut reference = PageReference::new();
-        storage.write_page(&mut reference, page_data).unwrap();
-        storage.force_all().unwrap();
+        writer.write_page(&mut reference, page_data).unwrap();
+        writer.force_all().unwrap();
 
         assert!(reference.is_persisted());
+    }
+
+    #[test]
+    fn test_concurrent_reads() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let dir = tempfile::tempdir().unwrap();
+        let mut writer = FileChannelWriter::open(dir.path(), ByteHandlerPipeline::new()).unwrap();
+
+        // Write a page
+        let mut ref_ = PageReference::new();
+        writer.write_page(&mut ref_, b"concurrent test data").unwrap();
+        writer.force_all().unwrap();
+
+        // Read concurrently using the reader
+        let reader = Arc::new(writer.reader());
+        let mut handles = Vec::new();
+
+        for _ in 0..4 {
+            let r = Arc::clone(&reader);
+            handles.push(thread::spawn(move || {
+                let _ = r.read_uber_page_reference();
+            }));
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
     }
 }
