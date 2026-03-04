@@ -105,6 +105,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   private LongList attributeKeys;
   private LongList namespaceKeys;
   private QNm qNm;
+  private List<Long> unmodifiableAttributeKeys;
+  private List<Long> unmodifiableNamespaceKeys;
 
   // Lazy parsing state
   private Object lazySource;
@@ -1235,10 +1237,10 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   public void insertAttribute(@NonNegative long attrKey) {
     if (page != null) {
       ensurePayloadParsed();
-      // Payload changed: must unbind and re-serialize
       unbind();
     }
     attributeKeys.add(attrKey);
+    unmodifiableAttributeKeys = null;
   }
 
   public void removeAttribute(@NonNegative long attrNodeKey) {
@@ -1247,6 +1249,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
       unbind();
     }
     attributeKeys.removeIf(key -> key == attrNodeKey);
+    unmodifiableAttributeKeys = null;
   }
 
   public void clearAttributeKeys() {
@@ -1255,13 +1258,19 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
       unbind();
     }
     attributeKeys.clear();
+    unmodifiableAttributeKeys = null;
   }
 
   public List<Long> getAttributeKeys() {
     if (page != null) {
       ensurePayloadParsed();
     }
-    return Collections.unmodifiableList(attributeKeys);
+    List<Long> result = unmodifiableAttributeKeys;
+    if (result == null) {
+      result = Collections.unmodifiableList(attributeKeys);
+      unmodifiableAttributeKeys = result;
+    }
+    return result;
   }
 
   // === NAMESPACE METHODS (dual-mode) ===
@@ -1289,6 +1298,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
       unbind();
     }
     namespaceKeys.add(namespaceKey);
+    unmodifiableNamespaceKeys = null;
   }
 
   public void removeNamespace(long namespaceKey) {
@@ -1297,6 +1307,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
       unbind();
     }
     namespaceKeys.removeIf(key -> key == namespaceKey);
+    unmodifiableNamespaceKeys = null;
   }
 
   public void clearNamespaceKeys() {
@@ -1305,13 +1316,19 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
       unbind();
     }
     namespaceKeys.clear();
+    unmodifiableNamespaceKeys = null;
   }
 
   public List<Long> getNamespaceKeys() {
     if (page != null) {
       ensurePayloadParsed();
     }
-    return Collections.unmodifiableList(namespaceKeys);
+    List<Long> result = unmodifiableNamespaceKeys;
+    if (result == null) {
+      result = Collections.unmodifiableList(namespaceKeys);
+      unmodifiableNamespaceKeys = result;
+    }
+    return result;
   }
 
   // === HASH COMPUTATION ===

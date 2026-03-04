@@ -241,17 +241,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     pageContainerCache = new LinkedHashMap<>(100, 0.75f, true) {
       @Override
       protected boolean removeEldestEntry(Map.Entry<IndexLogKey, PageContainer> eldest) {
-        if (size() > 100) {
-          // When evicting PageContainer from local cache, ensure pages are properly tracked
-          // Pages should be in TIL (will be closed on commit/rollback) or in global cache
-          PageContainer container = eldest.getValue();
-          if (container != null) {
-            // Pages in local cache should already be in TIL (appended via appendLogRecord)
-            // No action needed - TIL will handle cleanup
-          }
-          return true;
-        }
-        return false;
+        // Pages in local cache are already in TIL (appended via appendLogRecord).
+        // TIL handles cleanup on commit/rollback.
+        return size() > 100;
       }
     };
   }

@@ -437,7 +437,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
         modificationCount = 0;
         nodeHashing.setAutoCommit(false);
       } else {
-        LOGGER.debug("AUTO-COMMIT triggered: modificationCount=" + modificationCount + ", maxNodeCount=" + maxNodeCount);
+        LOGGER.debug("AUTO-COMMIT triggered: modificationCount={}, maxNodeCount={}", modificationCount, maxNodeCount);
         commitInternal("autoCommit", null, true);
         LOGGER.debug("AUTO-COMMIT completed");
       }

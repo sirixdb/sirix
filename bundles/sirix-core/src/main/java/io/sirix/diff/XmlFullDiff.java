@@ -21,14 +21,14 @@
 
 package io.sirix.diff;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
-import io.sirix.node.NodeKind;
 import io.sirix.exception.SirixException;
+import io.sirix.node.NodeKind;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 /**
  * Full diff including attributes and namespaces. Note that this class is thread safe.
@@ -116,73 +116,82 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
       final DiffFactory.DiffType diff) {
     if (newRtx.isElement() || oldRtx.isElement()) {
       if (diff == DiffFactory.DiffType.UPDATED) {
-        // Emit diffing.
+        // Emit diffing using LongOpenHashSet for O(1) set operations instead of O(n*m) ArrayList.removeAll.
         final long newNodeKey = newRtx.getNodeKey();
         final long oldNodeKey = oldRtx.getNodeKey();
 
-        final List<Long> insertedNamespaces = new ArrayList<>(newRtx.getNamespaceKeys());
-        insertedNamespaces.removeAll(oldRtx.getNamespaceKeys());
+        final List<Long> newNsKeys = newRtx.getNamespaceKeys();
+        final List<Long> oldNsKeys = oldRtx.getNamespaceKeys();
+        final LongOpenHashSet oldNsSet = new LongOpenHashSet(oldNsKeys);
+        final LongOpenHashSet newNsSet = new LongOpenHashSet(newNsKeys);
 
-        for (final long nsp : insertedNamespaces) {
-          newRtx.moveTo(nsp);
-          fireDiff(DiffFactory.DiffType.INSERTED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+        // Inserted namespaces: in new but not in old
+        for (final long nsp : newNsKeys) {
+          if (!oldNsSet.contains(nsp)) {
+            newRtx.moveTo(nsp);
+            fireDiff(DiffFactory.DiffType.INSERTED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+          }
         }
         newRtx.moveTo(newNodeKey);
 
-        final List<Long> removedNamespaces = new ArrayList<>(oldRtx.getNamespaceKeys());
-        removedNamespaces.removeAll(newRtx.getNamespaceKeys());
-
-        for (final long nsp : removedNamespaces) {
-          oldRtx.moveTo(nsp);
-          fireDiff(DiffFactory.DiffType.DELETED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+        // Removed namespaces: in old but not in new
+        for (final long nsp : oldNsKeys) {
+          if (!newNsSet.contains(nsp)) {
+            oldRtx.moveTo(nsp);
+            fireDiff(DiffFactory.DiffType.DELETED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+          }
         }
         oldRtx.moveTo(oldNodeKey);
 
-        final List<Long> insertedAttributes = new ArrayList<>(newRtx.getAttributeKeys());
-        insertedAttributes.removeAll(oldRtx.getAttributeKeys());
+        final List<Long> newAttrKeys = newRtx.getAttributeKeys();
+        final List<Long> oldAttrKeys = oldRtx.getAttributeKeys();
+        final LongOpenHashSet oldAttrSet = new LongOpenHashSet(oldAttrKeys);
+        final LongOpenHashSet newAttrSet = new LongOpenHashSet(newAttrKeys);
 
-        for (final long attribute : insertedAttributes) {
-          newRtx.moveTo(attribute);
-          fireDiff(DiffFactory.DiffType.INSERTED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+        // Inserted attributes: in new but not in old
+        for (final long attribute : newAttrKeys) {
+          if (!oldAttrSet.contains(attribute)) {
+            newRtx.moveTo(attribute);
+            fireDiff(DiffFactory.DiffType.INSERTED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+          }
         }
         newRtx.moveTo(newNodeKey);
 
-        final List<Long> removedAttributes = new ArrayList<>(oldRtx.getAttributeKeys());
-        removedAttributes.removeAll(newRtx.getAttributeKeys());
-
-        for (final long attribute : removedAttributes) {
-          oldRtx.moveTo(attribute);
-          fireDiff(DiffFactory.DiffType.DELETED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+        // Removed attributes: in old but not in new
+        for (final long attribute : oldAttrKeys) {
+          if (!newAttrSet.contains(attribute)) {
+            oldRtx.moveTo(attribute);
+            fireDiff(DiffFactory.DiffType.DELETED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+          }
         }
         oldRtx.moveTo(oldNodeKey);
 
-        // Emit same.
-        final List<Long> sameNamespaces = new ArrayList<>(newRtx.getNamespaceKeys());
-        sameNamespaces.retainAll(oldRtx.getNamespaceKeys());
-
-        for (final long nsp : sameNamespaces) {
-          newRtx.moveTo(nsp);
-          oldRtx.moveTo(nsp);
-
-          if (newRtx.getName().equals(oldRtx.getName()))
-            fireDiff(DiffFactory.DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
-          else
-            fireDiff(DiffFactory.DiffType.UPDATED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+        // Emit same: namespaces in both old and new
+        for (final long nsp : newNsKeys) {
+          if (oldNsSet.contains(nsp)) {
+            newRtx.moveTo(nsp);
+            oldRtx.moveTo(nsp);
+            if (newRtx.getName().equals(oldRtx.getName())) {
+              fireDiff(DiffFactory.DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+            } else {
+              fireDiff(DiffFactory.DiffType.UPDATED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+            }
+          }
         }
         newRtx.moveTo(newNodeKey);
         oldRtx.moveTo(oldNodeKey);
 
-        final List<Long> sameAttributes = new ArrayList<>(newRtx.getAttributeKeys());
-        sameAttributes.retainAll(oldRtx.getAttributeKeys());
-
-        for (final long attr : sameAttributes) {
-          newRtx.moveTo(attr);
-          oldRtx.moveTo(attr);
-
-          if (checkNamesForEquality(newRtx, oldRtx) && Objects.equals(newRtx.getValue(), oldRtx.getValue()))
-            fireDiff(DiffFactory.DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
-          else
-            fireDiff(DiffFactory.DiffType.UPDATED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+        // Emit same: attributes in both old and new
+        for (final long attr : newAttrKeys) {
+          if (oldAttrSet.contains(attr)) {
+            newRtx.moveTo(attr);
+            oldRtx.moveTo(attr);
+            if (checkNamesForEquality(newRtx, oldRtx) && Objects.equals(newRtx.getValue(), oldRtx.getValue())) {
+              fireDiff(DiffFactory.DiffType.SAME, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+            } else {
+              fireDiff(DiffFactory.DiffType.UPDATED, newRtx.getNodeKey(), oldRtx.getNodeKey(), depth);
+            }
+          }
         }
 
         // Move back to original element nodes.
@@ -248,26 +257,14 @@ final class XmlFullDiff extends AbstractDiff<XmlNodeReadOnlyTrx, XmlNodeTrx> {
 
   @Override
   boolean checkNodeNamesOrValues(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx) {
-    boolean found = false;
-    if (newRtx.getKind() == oldRtx.getKind()) {
-      switch (newRtx.getKind()) {
-        case ELEMENT:
-        case PROCESSING_INSTRUCTION:
-          if (checkNamesForEquality(newRtx, oldRtx)) {
-            found = true;
-          }
-          break;
-        case TEXT:
-        case COMMENT:
-          if (newRtx.getValue().equals(oldRtx.getValue())) {
-            found = true;
-          }
-          break;
-        // $CASES-OMITTED$
-        default:
-      }
+    if (newRtx.getKind() != oldRtx.getKind()) {
+      return false;
     }
-    return found;
+    return switch (newRtx.getKind()) {
+      case ELEMENT, PROCESSING_INSTRUCTION -> checkNamesForEquality(newRtx, oldRtx);
+      case TEXT, COMMENT -> newRtx.getValue().equals(oldRtx.getValue());
+      default -> false;
+    };
   }
 
   private boolean checkNamesForEquality(final XmlNodeReadOnlyTrx newRtx, final XmlNodeReadOnlyTrx oldRtx) {

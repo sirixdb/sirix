@@ -35,7 +35,6 @@ import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
-import it.unimi.dsi.fastutil.longs.LongHash;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import org.checkerframework.checker.index.qual.NonNegative;
@@ -1117,16 +1116,4 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     pathCache.keySet().removeIf(path -> path.tail().equals(name));
   }
 
-  private static class DictionaryHashStrategy implements LongHash.Strategy {
-
-    @Override
-    public int hashCode(long l) {
-      return (int) (l ^ (l >>> 32));
-    }
-
-    @Override
-    public boolean equals(long l1, long l2) {
-      return l1 == l2;
-    }
-  }
 }

@@ -157,8 +157,9 @@ public final class LRUCache<K, V> implements Cache<K, V> {
   public ImmutableMap<K, V> getAll(final Iterable<? extends K> keys) {
     final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<>();
     for (final K key : keys) {
-      if (map.get(key) != null) {
-        builder.put(key, map.get(key));
+      final V value = map.get(key);
+      if (value != null) {
+        builder.put(key, value);
       }
     }
     return builder.build();

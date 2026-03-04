@@ -1046,7 +1046,7 @@ public enum PageKind {
     switch (delegate) {
       case ReferencesPage4 page -> type.serializeReferencesPage4(sink, page.getReferences(), page.getOffsets());
       case BitmapReferencesPage page ->
-          type.serializeBitmapReferencesPage(sink, page.getReferences(), page.getBitmap());
+          type.serializeBitmapReferencesPage(sink, page.getReferences(), page.getBitmapReadOnly());
       case FullReferencesPage ignored ->
           type.serializeFullReferencesPage(sink, ((FullReferencesPage) delegate).getReferencesArray());
       default -> throw new IllegalStateException("Unexpected value: " + delegate);

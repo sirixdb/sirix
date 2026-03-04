@@ -36,7 +36,7 @@ import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.interfaces.KeyValuePage;
-import io.sirix.settings.DiagnosticSettings;
+
 import io.sirix.utils.OS;
 import org.checkerframework.checker.index.qual.NonNegative;
 import org.checkerframework.checker.nullness.qual.NonNull;
@@ -149,8 +149,6 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   private final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<PageReference> pageReferences;
 
   // ===== Diagnostic tracking =====
-  @SuppressWarnings("unused")
-  private static final boolean DEBUG_MEMORY_LEAKS = DiagnosticSettings.MEMORY_LEAK_TRACKING;
 
   /**
    * Create a new HOTLeafPage with allocated off-heap memory.

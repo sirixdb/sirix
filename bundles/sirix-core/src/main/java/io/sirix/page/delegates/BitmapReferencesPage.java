@@ -140,7 +140,10 @@ public final class BitmapReferencesPage implements Page {
       pageReference.setActiveTilGeneration(pageReferenceToClone.getActiveTilGeneration());
       pageReference.setDatabaseId(pageReferenceToClone.getDatabaseId());
       pageReference.setResourceId(pageReferenceToClone.getResourceId());
-      pageReference.setPageFragments(new ArrayList<>(pageReferenceToClone.getPageFragments()));
+      final var fragments = pageReferenceToClone.getPageFragments();
+      if (!fragments.isEmpty()) {
+        pageReference.setPageFragments(new ArrayList<>(fragments));
+      }
       references.add(offset, pageReference);
     }
   }
@@ -152,6 +155,16 @@ public final class BitmapReferencesPage implements Page {
 
   public BitSet getBitmap() {
     return (BitSet) bitmap.clone();
+  }
+
+  /**
+   * Get a direct reference to the bitmap without cloning. Callers must NOT modify the returned
+   * BitSet. Use this for read-only access (e.g., serialization, size checks) to avoid allocation.
+   *
+   * @return uncloned bitmap reference (read-only contract)
+   */
+  public BitSet getBitmapReadOnly() {
+    return bitmap;
   }
 
   /**
