@@ -1,8 +1,6 @@
 dependencies {
     api implLibraries.jacksonCore
     api implLibraries.brackit
-    api implLibraries.jcommander
-    api implLibraries.aspectjrt
     api implLibraries.slf4jApi
     api implLibraries.perfidix
     api implLibraries.xmlunit
@@ -10,7 +8,6 @@ dependencies {
     api implLibraries.logbackCore
     api implLibraries.gson
     api implLibraries.guava
-    api implLibraries.guavaTestlib
     api implLibraries.checkerFramework
     api implLibraries.caffeine
     api implLibraries.tink
