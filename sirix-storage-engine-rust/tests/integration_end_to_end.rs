@@ -1105,11 +1105,9 @@ fn test_full_versioning_cow_write_cycle() {
 
     let (_complete, mut modified) = container.into_parts();
 
-    // Modify: add new slots (slot 20 and 30)
-    // Note: in-place overwrite of occupied slots doesn't survive serialization
-    // because the compact on-disk format rebuilds heap offsets sequentially.
+    // Modify: overwrite slot 0 and add slot 20
+    modified.insert_record(0, 1, b"updated-s0").unwrap();
     modified.insert_record(20, 4, b"new-s20").unwrap();
-    modified.insert_record(30, 5, b"new-s30").unwrap();
 
     // Write modified page as rev 2
     let mut ref2 = PageReference::new();
@@ -1120,12 +1118,11 @@ fn test_full_versioning_cow_write_cycle() {
     let read_rev2 = unwrap_kvl(writer.read_page(&ref2).unwrap());
     let combined = combine_record_pages(VersioningType::Full, &[read_rev2], 1).unwrap();
 
-    assert_eq!(combined.populated_count(), 5);
-    assert_eq!(combined.read_record(0).unwrap(), (1, &b"initial-s0"[..]));
+    assert_eq!(combined.populated_count(), 4);
+    assert_eq!(combined.read_record(0).unwrap(), (1, &b"updated-s0"[..]));
     assert_eq!(combined.read_record(5).unwrap(), (2, &b"initial-s5"[..]));
     assert_eq!(combined.read_record(10).unwrap(), (3, &b"initial-s10"[..]));
     assert_eq!(combined.read_record(20).unwrap(), (4, &b"new-s20"[..]));
-    assert_eq!(combined.read_record(30).unwrap(), (5, &b"new-s30"[..]));
 }
 
 // ============================================================================

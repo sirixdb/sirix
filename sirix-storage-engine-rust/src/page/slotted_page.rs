@@ -484,8 +484,13 @@ impl SlottedPage {
     /// On-disk format writes:
     /// 1. Header + bitmap (160 bytes, unchanged)
     /// 2. Compact directory entries: populated_count × 4 bytes each
-    /// 3. Heap size (4 bytes)
-    /// 4. Heap data (contiguous)
+    /// 3. Heap size (4 bytes) — total of LIVE record data only
+    /// 4. Heap data (compacted — only live records, dead space from overwrites removed)
+    ///
+    /// Matches Java's `PageKind.serializePage`: single-pass bitmap scan collects
+    /// each slot's `(heap_offset, data_length)` into a scratch array, then writes
+    /// only the live fragments. On deserialization, heap offsets are rebuilt via
+    /// prefix sums so the compacted heap is perfectly contiguous.
     pub fn serialize_to(&self, buf: &mut Vec<u8>) -> Result<()> {
         // Reserve approximate space
         let approx_size =
@@ -495,7 +500,11 @@ impl SlottedPage {
         // 1. Header + bitmap (on-disk portion only)
         buf.extend_from_slice(&self.data[..DISK_HEADER_BITMAP_SIZE]);
 
-        // 2. Compact directory: for each set bit, write (dataLength << 8 | nodeKindId) as u32
+        // 2. Single-pass bitmap scan: write compact dir entries, collect heap fragment info.
+        //    Scratch stores (heap_offset, data_length) pairs for step 4.
+        let mut scratch = Vec::with_capacity(self.populated_count as usize * 2);
+        let mut total_heap_size = 0u32;
+
         if self.populated_count > 0 {
             let upper = (self.last_slot_index + 1) as usize;
             let words_needed = (upper + 63) / 64;
@@ -515,24 +524,35 @@ impl SlottedPage {
                     let entry = self.get_slot_entry(slot);
                     let compact = (entry.data_length << 8) | (entry.node_kind_id as u32);
                     buf.extend_from_slice(&compact.to_le_bytes());
+                    scratch.push(entry.heap_offset);
+                    scratch.push(entry.data_length);
+                    total_heap_size += entry.data_length;
                     word &= word - 1;
                 }
             }
         }
 
-        // 3. Heap size
-        let heap_data_len = if self.heap_used == 0 {
-            1usize // minimum 1 byte (matches Java behavior)
+        // 3. Heap size (only live data, dead space from overwrites excluded)
+        let heap_data_len = if total_heap_size == 0 {
+            1u32 // minimum 1 byte (matches Java behavior)
         } else {
-            self.heap_end - HEAP_START
+            total_heap_size
         };
-        buf.extend_from_slice(&(heap_data_len as u32).to_le_bytes());
+        buf.extend_from_slice(&heap_data_len.to_le_bytes());
 
-        // 4. Heap data
-        if self.heap_used == 0 {
+        // 4. Heap data — write only live fragments from their actual heap offsets.
+        //    This compacts the heap: dead space from overwritten slots is excluded.
+        if total_heap_size == 0 {
             buf.push(0); // padding byte
         } else {
-            buf.extend_from_slice(&self.data[HEAP_START..HEAP_START + heap_data_len]);
+            let mut i = 0;
+            while i < scratch.len() {
+                let heap_offset = scratch[i] as usize;
+                let data_length = scratch[i + 1] as usize;
+                let start = HEAP_START + heap_offset;
+                buf.extend_from_slice(&self.data[start..start + data_length]);
+                i += 2;
+            }
         }
 
         Ok(())
@@ -1040,6 +1060,78 @@ mod tests {
         let (kind, data) = restored.read_record(100).unwrap();
         assert_eq!(kind, 5);
         assert_eq!(data, b"!!!!");
+    }
+
+    #[test]
+    fn test_overwrite_slot_survives_serialization_roundtrip() {
+        let mut page = SlottedPage::new(1, 0, IndexType::Document);
+        page.insert_record(0, 1, b"original-value").unwrap();
+        page.insert_record(5, 2, b"untouched").unwrap();
+
+        // Overwrite slot 0 with new data (old data becomes dead space in heap)
+        page.insert_record(0, 1, b"updated-value").unwrap();
+        assert_eq!(page.populated_count(), 2); // count unchanged
+
+        // Verify in-memory read returns the new value
+        let (kind, data) = page.read_record(0).unwrap();
+        assert_eq!(kind, 1);
+        assert_eq!(data, b"updated-value");
+
+        // Serialize → deserialize roundtrip must preserve the overwrite
+        let mut buf = Vec::new();
+        page.serialize_to(&mut buf).unwrap();
+
+        let restored = SlottedPage::deserialize_from(&buf).unwrap();
+        assert_eq!(restored.populated_count(), 2);
+
+        let (kind, data) = restored.read_record(0).unwrap();
+        assert_eq!(kind, 1);
+        assert_eq!(data, b"updated-value"); // must be the NEW value, not original
+
+        let (kind, data) = restored.read_record(5).unwrap();
+        assert_eq!(kind, 2);
+        assert_eq!(data, b"untouched");
+    }
+
+    #[test]
+    fn test_multiple_overwrites_serialization_compacts_heap() {
+        let mut page = SlottedPage::new(1, 0, IndexType::Document);
+        page.insert_record(0, 1, b"v1").unwrap();
+        page.insert_record(0, 1, b"v2").unwrap();
+        page.insert_record(0, 1, b"v3-final").unwrap();
+
+        // heap_used grew with each overwrite (dead space), but serialize compacts
+        let mut buf = Vec::new();
+        page.serialize_to(&mut buf).unwrap();
+
+        let restored = SlottedPage::deserialize_from(&buf).unwrap();
+        assert_eq!(restored.populated_count(), 1);
+        assert_eq!(restored.read_record(0).unwrap(), (1, &b"v3-final"[..]));
+
+        // Compacted heap should only contain the live data
+        assert_eq!(restored.heap_used(), b"v3-final".len());
+    }
+
+    #[test]
+    fn test_overwrite_with_different_size_and_kind() {
+        let mut page = SlottedPage::new(1, 0, IndexType::Document);
+        page.insert_record(0, 1, b"short").unwrap();
+        page.insert_record(1, 2, b"keep").unwrap();
+        page.insert_record(0, 99, b"much longer replacement data").unwrap();
+
+        let mut buf = Vec::new();
+        page.serialize_to(&mut buf).unwrap();
+
+        let restored = SlottedPage::deserialize_from(&buf).unwrap();
+        assert_eq!(restored.populated_count(), 2);
+
+        let (kind, data) = restored.read_record(0).unwrap();
+        assert_eq!(kind, 99); // node_kind_id also updated
+        assert_eq!(data, b"much longer replacement data");
+
+        let (kind, data) = restored.read_record(1).unwrap();
+        assert_eq!(kind, 2);
+        assert_eq!(data, b"keep");
     }
 
     #[test]
