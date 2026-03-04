@@ -1,0 +1,27 @@
+[package]
+name = "sirix-storage-engine"
+version = "0.1.0"
+edition = "2024"
+description = "High-performance temporal storage engine for SirixDB"
+license = "BSD-3-Clause"
+repository = "https://github.com/sirixdb/sirix"
+
+[dependencies]
+lz4_flex = "0.11"
+thiserror = "2"
+byteorder = "1.5"
+crossbeam-utils = "0.8"
+parking_lot = "0.12"
+memmap2 = "0.9"
+crc32fast = "1.4"
+roaring = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
+rand = "0.9"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
