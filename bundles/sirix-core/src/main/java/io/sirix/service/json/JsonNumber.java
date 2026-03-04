@@ -9,19 +9,20 @@ public final class JsonNumber {
 
   private static Number stringDecimal(String stringValue) {
     Number number;
-    Number n1 = Float.MAX_VALUE;
     try {
       if (stringValue.contains("E") || stringValue.contains("e")) {
-        number = Double.valueOf(stringValue);
+        final double parsed = Double.parseDouble(stringValue);
 
-        if (number.doubleValue() <= n1.doubleValue()) {
-          number = Float.valueOf(stringValue);
+        if (parsed <= Float.MAX_VALUE) {
+          number = Float.parseFloat(stringValue);
+        } else {
+          number = parsed;
         }
       } else {
         number = new BigDecimal(stringValue);
       }
-    } catch (final NumberFormatException eeeeee) {
-      throw new IllegalStateException(eeeeee);
+    } catch (final NumberFormatException e) {
+      throw new IllegalStateException(e);
     }
 
     return number;
@@ -34,10 +35,10 @@ public final class JsonNumber {
       number = stringDecimal(stringValue);
     } else {
       try {
-        number = Integer.valueOf(stringValue);
+        number = Integer.parseInt(stringValue);
       } catch (final NumberFormatException e) {
         try {
-          number = Long.valueOf(stringValue);
+          number = Long.parseLong(stringValue);
         } catch (final NumberFormatException ee) {
           try {
             number = new BigInteger(stringValue);

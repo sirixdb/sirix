@@ -63,7 +63,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.stream.Collectors;
+
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -1350,12 +1350,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   private List<KeyValuePage<DataRecord>> getPreviousPageFragments(final List<PageFragmentKey> pageFragments) {
-    final var pages = pageFragments.stream().map(this::readPage).collect(Collectors.toList());
-    return sequence(pages).join()
-                          .stream()
-                          .sorted(Comparator.<KeyValuePage<DataRecord>, Integer>comparing(KeyValuePage::getRevision)
-                                            .reversed())
-                          .collect(Collectors.toList());
+    final var pages = new ArrayList<CompletableFuture<KeyValuePage<DataRecord>>>(pageFragments.size());
+    for (final var fragment : pageFragments) {
+      pages.add(readPage(fragment));
+    }
+    final var result = sequence(pages).join();
+    result.sort(Comparator.<KeyValuePage<DataRecord>, Integer>comparing(KeyValuePage::getRevision).reversed());
+    return result;
   }
 
   @SuppressWarnings("unchecked")
@@ -1392,9 +1393,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   static <T> CompletableFuture<List<T>> sequence(List<CompletableFuture<T>> listOfCompletableFutures) {
     return CompletableFuture.allOf(listOfCompletableFutures.toArray(new CompletableFuture[0]))
-                            .thenApply(_ -> listOfCompletableFutures.stream()
-                                                                    .map(CompletableFuture::join)
-                                                                    .collect(Collectors.toList()));
+                            .thenApply(_ -> {
+                              final var result = new ArrayList<T>(listOfCompletableFutures.size());
+                              for (final var future : listOfCompletableFutures) {
+                                result.add(future.join());
+                              }
+                              return result;
+                            });
   }
 
   /**

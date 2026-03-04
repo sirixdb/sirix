@@ -69,7 +69,7 @@ public final class HashCountEntryNode implements DataRecord {
 
   @Override
   public int hashCode() {
-    return Integer.valueOf(value).hashCode();
+    return Integer.hashCode(value);
   }
 
   @Override

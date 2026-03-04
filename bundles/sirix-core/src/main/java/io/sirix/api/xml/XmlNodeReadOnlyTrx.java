@@ -287,18 +287,6 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    */
   int getLocalNameKey();
 
-
-
-  // /**
-  // * Clone an instance, that is just create a new instance and move the new
-  // * {@link XdmNodeReadTrx} to the current node.
-  // *
-  // * @return new instance
-  // * @throws SirixException
-  // * if Sirix fails
-  // */
-  // XdmNodeReadTrx cloneInstance() throws SirixException;
-
   /**
    * Get the number of nodes which reference to the name.
    *

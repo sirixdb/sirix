@@ -133,13 +133,13 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
 
   @SuppressWarnings("unchecked")
   @Override
-  public synchronized JsonIndexController getRtxIndexController(final int revision) {
+  public JsonIndexController getRtxIndexController(final int revision) {
     return rtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
   }
 
   @SuppressWarnings("unchecked")
   @Override
-  public synchronized JsonIndexController getWtxIndexController(final int revision) {
+  public JsonIndexController getWtxIndexController(final int revision) {
     return wtxIndexControllers.computeIfAbsent(revision, unused -> createIndexController(revision));
   }
 

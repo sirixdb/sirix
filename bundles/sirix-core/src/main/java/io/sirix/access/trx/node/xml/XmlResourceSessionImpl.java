@@ -127,13 +127,13 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
 
   @SuppressWarnings("unchecked")
   @Override
-  public synchronized XmlIndexController getRtxIndexController(final int revision) {
+  public XmlIndexController getRtxIndexController(final int revision) {
     return rtxIndexControllers.computeIfAbsent(revision, _ -> createIndexController(revision));
   }
 
   @SuppressWarnings("unchecked")
   @Override
-  public synchronized XmlIndexController getWtxIndexController(final int revision) {
+  public XmlIndexController getWtxIndexController(final int revision) {
     return wtxIndexControllers.computeIfAbsent(revision, _ -> createIndexController(revision));
   }
 
