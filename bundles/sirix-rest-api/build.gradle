@@ -34,7 +34,6 @@ dependencies {
     implementation implLibraries.vertxConfig
     implementation implLibraries.vertxLauncher
     implementation implLibraries.kotlinStdlibJdk8
-    implementation implLibraries.jsoup
     testImplementation testLibraries.kotlinTestJunit
     testImplementation testLibraries.junit
     testImplementation testLibraries.junitJupiterApi

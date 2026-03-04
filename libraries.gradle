@@ -7,8 +7,6 @@ ext {
 implLibraries = [
         jacksonCore                 : 'com.fasterxml.jackson.core:jackson-core:2.18.2',
         jline                       : 'org.jline:jline:3.24.1',
-        jcommander                  : 'com.beust:jcommander:1.69',
-        aspectjrt                   : 'org.aspectj:aspectjrt:1.8.10',
         slf4jApi                    : 'org.slf4j:slf4j-api:1.7.25',
         perfidix                    : 'org.perfidix:perfidix:3.6.9',
         xmlunit                     : 'xmlunit:xmlunit:1.6',
@@ -35,7 +33,6 @@ implLibraries = [
         vertxConfig                 : "io.vertx:vertx-config:$vertxVersion",
         vertxLauncher               : "io.vertx:vertx-launcher-application:$vertxVersion",
         kotlinStdlibJdk8            : 'org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.2.20',
-        jsoup                       : 'org.jsoup:jsoup:1.11.3',
         kotlinxCli                  : 'org.jetbrains.kotlinx:kotlinx-cli:0.2.1',
         integercompression          : 'me.lemire.integercompression:JavaFastPFOR:0.1.12',
         dagger                      : 'com.google.dagger:dagger:2.32',
