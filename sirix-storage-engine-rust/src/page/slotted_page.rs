@@ -761,6 +761,147 @@ impl SlottedPage {
     pub fn memory_size(&self) -> usize {
         self.data.len()
     }
+
+    // === Versioning Support ===
+
+    /// Returns an array of all occupied slot indices, using bitmap-driven O(k) iteration.
+    ///
+    /// This is the Rust equivalent of Java's `populatedSlots()`.
+    pub fn populated_slots(&self) -> Vec<usize> {
+        if self.populated_count == 0 {
+            return Vec::new();
+        }
+        let mut slots = Vec::with_capacity(self.populated_count as usize);
+        let upper = (self.last_slot_index + 1) as usize;
+        let words_needed = (upper + 63) / 64;
+        for word_idx in 0..words_needed {
+            let bitmap_offset = HEADER_SIZE + word_idx * 8;
+            let mut word = u64::from_le_bytes(
+                self.data[bitmap_offset..bitmap_offset + 8]
+                    .try_into()
+                    .unwrap(),
+            );
+            while word != 0 {
+                let bit = word.trailing_zeros() as usize;
+                let slot = word_idx * 64 + bit;
+                if slot >= upper {
+                    break;
+                }
+                slots.push(slot);
+                word &= word - 1;
+            }
+        }
+        slots
+    }
+
+    /// Returns a copy of the slot bitmap as raw u64 words.
+    ///
+    /// The bitmap has BITMAP_WORDS (16) entries, each covering 64 slots.
+    /// Bit `(words[slot >> 6] >> (slot & 63)) & 1` indicates slot occupancy.
+    #[inline]
+    pub fn slot_bitmap(&self) -> [u64; BITMAP_WORDS] {
+        let mut bmp = [0u64; BITMAP_WORDS];
+        for i in 0..BITMAP_WORDS {
+            let off = HEADER_SIZE + i * 8;
+            bmp[i] = u64::from_le_bytes(self.data[off..off + 8].try_into().unwrap());
+        }
+        bmp
+    }
+
+    /// Mark a slot for preservation (lazy copy from complete page at commit time).
+    ///
+    /// Sets the bit in the preservation bitmap without actually copying data.
+    /// At commit time, if the slot is still unoccupied, the record will be
+    /// copied from the complete page.
+    #[inline]
+    pub fn mark_slot_for_preservation(&mut self, slot: usize) {
+        if slot >= SLOT_COUNT {
+            return;
+        }
+        let word_idx = slot / 64;
+        let bit_idx = slot % 64;
+        let off = DISK_HEADER_BITMAP_SIZE + word_idx * 8;
+        let mut word = u64::from_le_bytes(self.data[off..off + 8].try_into().unwrap());
+        word |= 1u64 << bit_idx;
+        self.data[off..off + 8].copy_from_slice(&word.to_le_bytes());
+    }
+
+    /// Check if a slot is marked for preservation.
+    #[inline]
+    pub fn is_marked_for_preservation(&self, slot: usize) -> bool {
+        if slot >= SLOT_COUNT {
+            return false;
+        }
+        let word_idx = slot / 64;
+        let bit_idx = slot % 64;
+        let off = DISK_HEADER_BITMAP_SIZE + word_idx * 8;
+        let word = u64::from_le_bytes(self.data[off..off + 8].try_into().unwrap());
+        (word >> bit_idx) & 1 == 1
+    }
+
+    /// Copy a slot (directory entry + heap data) from another page into this page.
+    ///
+    /// This is the core primitive for versioning page combination. It copies
+    /// the record data from `src` slot into `self` at the same slot index.
+    pub fn copy_slot_from(&mut self, src: &SlottedPage, slot: usize) -> Result<()> {
+        if slot >= SLOT_COUNT {
+            return Err(StorageError::SlotOutOfRange { slot, max: SLOT_COUNT - 1 });
+        }
+        if !src.is_slot_occupied(slot) {
+            return Ok(()); // nothing to copy
+        }
+        let entry = src.get_slot_entry(slot);
+        let data_start = HEAP_START + entry.heap_offset as usize;
+        let data_end = data_start + entry.data_length as usize;
+        if data_end > src.data.len() {
+            return Err(StorageError::PageCorruption("source slot data out of bounds".into()));
+        }
+        let data = &src.data[data_start..data_end];
+        self.insert_record(slot, entry.node_kind_id, data)?;
+        Ok(())
+    }
+
+    /// Create a new empty page with the same key, revision, and index type.
+    #[inline]
+    pub fn new_instance(&self) -> Self {
+        Self::new(self.record_page_key, self.revision, self.index_type)
+    }
+
+    /// Create a new empty page with the same key and index type but a different revision.
+    #[inline]
+    pub fn new_instance_for_revision(&self, revision: i32) -> Self {
+        Self::new(self.record_page_key, revision, self.index_type)
+    }
+
+    /// Resolve preservation marks by copying records from the complete page.
+    ///
+    /// For each slot marked in the preservation bitmap that is not yet occupied
+    /// in `self`, copies the record from `complete`. Called at commit time
+    /// for non-Full versioning strategies.
+    pub fn resolve_preservation(&mut self, complete: &SlottedPage) -> Result<()> {
+        for word_idx in 0..BITMAP_WORDS {
+            let pres_off = DISK_HEADER_BITMAP_SIZE + word_idx * 8;
+            let pres_word = u64::from_le_bytes(
+                self.data[pres_off..pres_off + 8].try_into().unwrap(),
+            );
+            if pres_word == 0 {
+                continue;
+            }
+            let bitmap_off = HEADER_SIZE + word_idx * 8;
+            let occupied_word = u64::from_le_bytes(
+                self.data[bitmap_off..bitmap_off + 8].try_into().unwrap(),
+            );
+            // Slots marked for preservation but not yet occupied
+            let mut need_copy = pres_word & !occupied_word;
+            while need_copy != 0 {
+                let bit = need_copy.trailing_zeros() as usize;
+                let slot = word_idx * 64 + bit;
+                self.copy_slot_from(complete, slot)?;
+                need_copy &= need_copy - 1;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl Drop for SlottedPage {

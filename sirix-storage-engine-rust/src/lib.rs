@@ -15,6 +15,7 @@ pub mod io;
 pub mod cache;
 pub mod compression;
 pub mod revision;
+pub mod versioning;
 
 pub use error::StorageError;
 pub use error::Result;
