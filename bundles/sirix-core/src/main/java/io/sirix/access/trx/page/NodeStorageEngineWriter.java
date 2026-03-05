@@ -52,7 +52,6 @@ import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
-import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageLayout;
 import io.sirix.page.NamePage;
@@ -156,9 +155,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private final IndexController<?, ?> indexController;
 
   /**
-   * The indirect page trie writer - manages the trie structure of IndirectPages.
+   * The keyed trie writer - manages the trie structure of IndirectPages.
    */
-  private final TrieWriter trieWriter;
+  private final KeyedTrieWriter keyedTrieWriter;
 
   /**
    * The revision to represent.
@@ -226,7 +225,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   NodeStorageEngineWriter(final Writer writer, final TransactionIntentLog log, final RevisionRootPage revisionRootPage,
       final NodeStorageEngineReader storageEngineReader, final IndexController<?, ?> indexController, final int representRevision,
       final boolean isBoundToNodeTrx) {
-    this.trieWriter = new TrieWriter();
+    this.keyedTrieWriter = new KeyedTrieWriter();
     storagePageReaderWriter = requireNonNull(writer);
     this.log = requireNonNull(log);
     newRevisionRootPage = requireNonNull(revisionRootPage);
@@ -1179,7 +1178,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
           // Use writer's TIL-aware trie traversal instead of reader's disk-only traversal.
           // After async epoch rotation, IndirectPages may be in the TIL but not yet on disk;
           // the reader's getLeafPageReference would try to load them from disk with key=-1.
-          final PageReference reference = trieWriter.prepareLeafOfTree(this, log,
+          final PageReference reference = keyedTrieWriter.prepareLeafOfTree(this, log,
               getUberPage().getPageCountExp(indexType), pageReference, recordPageKey, indexNumber,
               indexType, newRevisionRootPage);
           return log.get(reference);
@@ -1249,7 +1248,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final PageReference pageReference = storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
 
       // Get the reference to the unordered key/value page storing the records.
-      final PageReference reference = trieWriter.prepareLeafOfTree(this, log, getUberPage().getPageCountExp(indexType),
+      final PageReference reference = keyedTrieWriter.prepareLeafOfTree(this, log, getUberPage().getPageCountExp(indexType),
           pageReference, recordPageKey, indexNumber, indexType, newRevisionRootPage);
 
       var pageContainer = log.get(reference);
@@ -1526,201 +1525,4 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return new PageGuard(currentPage);
   }
 
-  /**
-   * Package-private helper class for managing the trie structure of IndirectPages.
-   * 
-   * <p>
-   * Sirix uses a trie (not a B+tree) to organize IndirectPages. Page keys are decomposed bit-by-bit
-   * to determine the path through the trie levels. This enables efficient navigation and modification
-   * of the multi-level page structure.
-   * </p>
-   * 
-   * <p>
-   * For example, with pageKey=1024 and level exponents [10, 10, 10]:
-   * <ul>
-   * <li>Level 0: offset = 1024 >> 10 = 1</li>
-   * <li>Level 1: offset = (1024 - 1024) >> 0 = 0</li>
-   * </ul>
-   * </p>
-   * 
-   * <p>
-   * This class creates new IndirectPages as needed when navigating to leaves, and manages the
-   * transaction intent log for all modified pages.
-   * </p>
-   *
-   * <p>
-   * Note: Package-private access is needed for StorageEngineWriterFactory to call
-   * preparePreviousRevisionRootPage() before NodeStorageEngineWriter is constructed.
-   * </p>
-   *
-   * @author Johannes Lichtenberger
-   */
-  static final class TrieWriter {
-
-    /**
-     * Prepare the previous revision root page and retrieve the next {@link RevisionRootPage}.
-     *
-     * @param uberPage the uber page
-     * @param storageEngineReader the storage engine reader
-     * @param log the transaction intent log
-     * @param baseRevision base revision
-     * @param representRevision the revision to represent
-     * @return new {@link RevisionRootPage} instance
-     */
-    RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage, final NodeStorageEngineReader storageEngineReader,
-        final TransactionIntentLog log, final @NonNegative int baseRevision, final @NonNegative int representRevision) {
-      final RevisionRootPage revisionRootPage;
-
-      if (uberPage.isBootstrap()) {
-        revisionRootPage = storageEngineReader.loadRevRoot(baseRevision);
-      } else {
-        // Prepare revision root nodePageReference.
-        revisionRootPage = new RevisionRootPage(storageEngineReader.loadRevRoot(baseRevision), representRevision + 1);
-
-        // Link the prepared revision root nodePageReference with the prepared indirect tree.
-        final var revRootRef =
-            new PageReference().setDatabaseId(storageEngineReader.getDatabaseId()).setResourceId(storageEngineReader.getResourceId());
-        log.put(revRootRef, PageContainer.getInstance(revisionRootPage, revisionRootPage));
-      }
-
-      // Return prepared revision root nodePageReference.
-      return revisionRootPage;
-    }
-
-    /**
-     * Prepare the leaf of the trie, navigating through IndirectPages using bit-decomposition.
-     *
-     * @param storageEngineReader the storage engine reader
-     * @param log the transaction intent log
-     * @param inpLevelPageCountExp array which holds the maximum number of indirect page references per
-     *        trie level
-     * @param startReference the reference to start the trie traversal from
-     * @param pageKey page key to lookup (decomposed bit-by-bit)
-     * @param index the index number or {@code -1} if a regular record page should be prepared
-     * @param indexType the index type
-     * @param revisionRootPage the revision root page
-     * @return {@link PageReference} instance pointing to the leaf page
-     */
-    PageReference prepareLeafOfTree(final StorageEngineWriter storageEngineReader, final TransactionIntentLog log,
-        final int[] inpLevelPageCountExp, final PageReference startReference, @NonNegative final long pageKey,
-        final int index, final IndexType indexType, final RevisionRootPage revisionRootPage) {
-      // Initial state pointing to the indirect nodePageReference of level 0.
-      PageReference reference = startReference;
-
-      int offset;
-      long levelKey = pageKey;
-
-      int maxHeight = storageEngineReader.getCurrentMaxIndirectPageTreeLevel(indexType, index, revisionRootPage);
-
-      // Check if we need an additional level of indirect pages.
-      if (pageKey == (1L << inpLevelPageCountExp[inpLevelPageCountExp.length - maxHeight - 1])) {
-        maxHeight = incrementCurrentMaxIndirectPageTreeLevel(storageEngineReader, revisionRootPage, indexType, index);
-
-        // Add a new indirect page to the top of the trie and to the transaction-log.
-        final IndirectPage page = new IndirectPage();
-
-        // Get the first reference.
-        final PageReference newReference = page.getOrCreateReference(0);
-
-        newReference.setKey(reference.getKey());
-        newReference.setLogKey(reference.getLogKey());
-        newReference.setActiveTilGeneration(reference.getActiveTilGeneration());
-        newReference.setPage(reference.getPage());
-        newReference.setPageFragments(reference.getPageFragments());
-
-        // Create new page reference, add it to the transaction-log and reassign it in the root pages
-        // of the trie.
-        final PageReference newPageReference =
-            new PageReference().setDatabaseId(storageEngineReader.getDatabaseId()).setResourceId(storageEngineReader.getResourceId());
-        log.put(newPageReference, PageContainer.getInstance(page, page));
-        setNewIndirectPage(storageEngineReader, revisionRootPage, indexType, index, newPageReference);
-
-        reference = newPageReference;
-      }
-
-      // Iterate through all levels using bit-decomposition.
-      for (int level = inpLevelPageCountExp.length - maxHeight,
-          height = inpLevelPageCountExp.length; level < height; level++) {
-        offset = (int) (levelKey >> inpLevelPageCountExp[level]);
-        levelKey -= (long) offset << inpLevelPageCountExp[level];
-
-        final IndirectPage page = prepareIndirectPage(storageEngineReader, log, reference);
-        reference = page.getOrCreateReference(offset);
-      }
-
-      // Return reference to leaf of indirect trie.
-      return reference;
-    }
-
-    /**
-     * Prepare indirect page, that is getting the referenced indirect page or creating a new page and
-     * putting the whole path into the log.
-     *
-     * @param storageEngineReader the storage engine reader
-     * @param log the transaction intent log
-     * @param reference {@link PageReference} to get the indirect page from or to create a new one
-     * @return {@link IndirectPage} reference
-     */
-    IndirectPage prepareIndirectPage(final StorageEngineReader storageEngineReader, final TransactionIntentLog log,
-        final PageReference reference) {
-      final PageContainer cont = log.get(reference);
-      IndirectPage page = cont == null
-          ? null
-          : (IndirectPage) cont.getComplete();
-      if (page == null) {
-        if (reference.getKey() == Constants.NULL_ID_LONG) {
-          page = new IndirectPage();
-        } else {
-          final IndirectPage indirectPage = storageEngineReader.dereferenceIndirectPageReference(reference);
-          page = new IndirectPage(indirectPage);
-        }
-        log.put(reference, PageContainer.getInstance(page, page));
-      } else if (log.isFrozen(reference)) {
-        // CoW: frozen IndirectPage — copy to active TIL before modification.
-        // IndirectPage copy constructor deep-copies its references array.
-        page = new IndirectPage(page);
-        log.put(reference, PageContainer.getInstance(page, page));
-      }
-      return page;
-    }
-
-    /**
-     * Set a new indirect page in the appropriate index structure.
-     */
-    private void setNewIndirectPage(final StorageEngineReader storageEngineReader, final RevisionRootPage revisionRoot,
-        final IndexType indexType, final int index, final PageReference pageReference) {
-      // $CASES-OMITTED$
-      switch (indexType) {
-        case DOCUMENT -> revisionRoot.setOrCreateReference(0, pageReference);
-        case CHANGED_NODES -> revisionRoot.setOrCreateReference(1, pageReference);
-        case RECORD_TO_REVISIONS -> revisionRoot.setOrCreateReference(2, pageReference);
-        case CAS -> storageEngineReader.getCASPage(revisionRoot).setOrCreateReference(index, pageReference);
-        case PATH -> storageEngineReader.getPathPage(revisionRoot).setOrCreateReference(index, pageReference);
-        case NAME -> storageEngineReader.getNamePage(revisionRoot).setOrCreateReference(index, pageReference);
-        case PATH_SUMMARY -> storageEngineReader.getPathSummaryPage(revisionRoot).setOrCreateReference(index, pageReference);
-        default ->
-          throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
-      }
-    }
-
-    /**
-     * Increment the current maximum indirect page trie level for the given index type.
-     */
-    private int incrementCurrentMaxIndirectPageTreeLevel(final StorageEngineReader storageEngineReader,
-        final RevisionRootPage revisionRoot, final IndexType indexType, final int index) {
-      // $CASES-OMITTED$
-      return switch (indexType) {
-        case DOCUMENT -> revisionRoot.incrementAndGetCurrentMaxLevelOfDocumentIndexIndirectPages();
-        case CHANGED_NODES -> revisionRoot.incrementAndGetCurrentMaxLevelOfChangedNodesIndexIndirectPages();
-        case RECORD_TO_REVISIONS -> revisionRoot.incrementAndGetCurrentMaxLevelOfRecordToRevisionsIndexIndirectPages();
-        case CAS -> storageEngineReader.getCASPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-        case PATH -> storageEngineReader.getPathPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-        case NAME -> storageEngineReader.getNamePage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-        case PATH_SUMMARY ->
-          storageEngineReader.getPathSummaryPage(revisionRoot).incrementAndGetCurrentMaxLevelOfIndirectPages(index);
-        default ->
-          throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
-      };
-    }
-  }
 }

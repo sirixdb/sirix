@@ -193,6 +193,11 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private final IndexLogKey reusableIndexLogKey = new IndexLogKey(null, 0, 0, 0);
 
   /**
+   * The keyed trie reader for navigating the IndirectPage trie structure.
+   */
+  private final KeyedTrieReader keyedTrieReader = new KeyedTrieReader();
+
+  /**
    * Standard constructor.
    *
    * @param trxId                 the transaction-ID.
@@ -1453,35 +1458,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public PageReference getReferenceToLeafOfSubtree(final PageReference startReference, final @NonNegative long pageKey,
       final int indexNumber, final @NonNull IndexType indexType, final RevisionRootPage revisionRootPage) {
     assertNotClosed();
-
-    // Initial state pointing to the indirect page of level 0.
-    PageReference reference = requireNonNull(startReference);
-    int offset;
-    long levelKey = pageKey;
-    final int[] inpLevelPageCountExp = uberPage.getPageCountExp(indexType);
-    final int maxHeight = getCurrentMaxIndirectPageTreeLevel(indexType, indexNumber, revisionRootPage);
-
-    // Iterate through all levels.
-    for (int level = inpLevelPageCountExp.length - maxHeight, height = inpLevelPageCountExp.length;
-         level < height; level++) {
-      final Page derefPage = dereferenceIndirectPageReference(reference);
-      if (derefPage == null) {
-        reference = null;
-        break;
-      } else {
-        offset = (int) (levelKey >> inpLevelPageCountExp[level]);
-        levelKey -= (long) offset << inpLevelPageCountExp[level];
-
-        try {
-          reference = derefPage.getOrCreateReference(offset);
-        } catch (final IndexOutOfBoundsException e) {
-          throw new SirixIOException("Node key isn't supported, it's too big!");
-        }
-      }
-    }
-
-    // Return reference to leaf of indirect tree.
-    return reference;
+    return keyedTrieReader.getReferenceToLeafOfSubtree(this, uberPage, startReference, pageKey, indexNumber,
+        indexType, revisionRootPage);
   }
 
   @Override

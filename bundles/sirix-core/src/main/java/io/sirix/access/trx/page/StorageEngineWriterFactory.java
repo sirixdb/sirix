@@ -124,11 +124,10 @@ public final class StorageEngineWriterFactory {
 
     // Create new revision root page.
     final RevisionRootPage lastCommitedRoot = storageEngineReader.loadRevRoot(lastCommitedRevision);
-    // Use temporary IndirectPageTrieWriter to prepare revision root (moved into NodeStorageEngineWriter
-    // in Phase 1)
-    final var tempTrieWriter = new NodeStorageEngineWriter.TrieWriter();
+    // Use temporary KeyedTrieWriter to prepare revision root page.
+    final var tempKeyedTrieWriter = new KeyedTrieWriter();
     final RevisionRootPage newRevisionRootPage =
-        tempTrieWriter.preparePreviousRevisionRootPage(uberPage, storageEngineReader, log, representRevision, lastStoredRevision);
+        tempKeyedTrieWriter.preparePreviousRevisionRootPage(uberPage, storageEngineReader, log, representRevision, lastStoredRevision);
     newRevisionRootPage.setMaxNodeKeyInDocumentIndex(lastCommitedRoot.getMaxNodeKeyInDocumentIndex());
     newRevisionRootPage.setMaxNodeKeyInInChangedNodesIndex(lastCommitedRoot.getMaxNodeKeyInChangedNodesIndex());
     if (resourceConfig.storeNodeHistory()) {
