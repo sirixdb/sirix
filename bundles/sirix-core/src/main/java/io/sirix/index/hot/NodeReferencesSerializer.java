@@ -185,9 +185,13 @@ public final class NodeReferencesSerializer {
   /**
    * Merges two NodeReferences (OR operation on bitmaps).
    *
-   * @param a first references
-   * @param b second references
-   * @return merged references (a is modified and returned)
+   * <p><b>WARNING: This method mutates {@code a} in-place.</b> The bitmap of {@code a} is
+   * modified by OR-ing in the entries from {@code b}. If you need both originals unchanged,
+   * clone {@code a} before calling this method.</p>
+   *
+   * @param a the references to merge INTO (modified in-place)
+   * @param b the references to merge from (not modified)
+   * @return {@code a} after modification
    */
   public static NodeReferences merge(NodeReferences a, NodeReferences b) {
     a.getNodeKeys().or(b.getNodeKeys());

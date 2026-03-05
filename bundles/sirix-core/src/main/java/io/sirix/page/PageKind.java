@@ -355,11 +355,12 @@ public enum PageKind {
           Page delegate = PageUtils.createDelegate(source, type);
 
           final Int2LongMap maxNodeKeys = PageKind.deserializeMaxNodeKeys(source);
+          final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxNodeKeys(source);
           final int numberOfArrays = source.readInt();
           final Int2IntMap currentMaxLevelsOfIndirectPages =
               PageKind.deserializeCurrentMaxLevelsOfIndirectPages(source);
 
-          return new NamePage(delegate, maxNodeKeys, currentMaxLevelsOfIndirectPages, numberOfArrays);
+          return new NamePage(delegate, maxNodeKeys, maxHotPageKeys, currentMaxLevelsOfIndirectPages, numberOfArrays);
         }
         default -> throw new IllegalStateException();
       }
@@ -381,6 +382,12 @@ public enum PageKind {
       for (int i = 0; i < maxNodeKeySize; i++) {
         final long keys = namePage.getMaxNodeKey(i);
         sink.writeLong(keys);
+      }
+
+      final int maxHotPageKeysSize = namePage.getMaxHotPageKeySize();
+      sink.writeInt(maxHotPageKeysSize);
+      for (int i = 0; i < maxHotPageKeysSize; i++) {
+        sink.writeLong(namePage.getMaxHotPageKey(i));
       }
 
       sink.writeInt(namePage.getNumberOfArrays());
@@ -635,10 +642,11 @@ public enum PageKind {
           Page delegate = PageUtils.createDelegate(source, type);
 
           final Int2LongMap maxNodeKeys = PageKind.deserializeMaxNodeKeys(source);
+          final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxNodeKeys(source);
           final Int2IntMap currentMaxLevelsOfIndirectPages =
               PageKind.deserializeCurrentMaxLevelsOfIndirectPages(source);
 
-          return new CASPage(delegate, maxNodeKeys, currentMaxLevelsOfIndirectPages);
+          return new CASPage(delegate, maxNodeKeys, maxHotPageKeys, currentMaxLevelsOfIndirectPages);
         }
         default -> throw new IllegalStateException();
       }
@@ -659,6 +667,12 @@ public enum PageKind {
       sink.writeInt(maxNodeKeySize);
       for (int i = 0; i < maxNodeKeySize; i++) {
         sink.writeLong(casPage.getMaxNodeKey(i));
+      }
+
+      final int maxHotPageKeysSize = casPage.getMaxHotPageKeySize();
+      sink.writeInt(maxHotPageKeysSize);
+      for (int i = 0; i < maxHotPageKeysSize; i++) {
+        sink.writeLong(casPage.getMaxHotPageKey(i));
       }
 
       final int currentMaxLevelOfIndirectPagesSize = casPage.getCurrentMaxLevelOfIndirectPagesSize();
@@ -718,10 +732,11 @@ public enum PageKind {
           final Page delegate = PageUtils.createDelegate(source, type);
 
           final Int2LongMap maxNodeKeys = PageKind.deserializeMaxNodeKeys(source);
+          final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxNodeKeys(source);
           final Int2IntMap currentMaxLevelsOfIndirectPages =
               PageKind.deserializeCurrentMaxLevelsOfIndirectPages(source);
 
-          return new PathPage(delegate, maxNodeKeys, currentMaxLevelsOfIndirectPages);
+          return new PathPage(delegate, maxNodeKeys, maxHotPageKeys, currentMaxLevelsOfIndirectPages);
         }
         default -> throw new IllegalStateException();
       }
@@ -743,6 +758,13 @@ public enum PageKind {
       for (int i = 0; i < maxNodeKeysSize; i++) {
         sink.writeLong(pathPage.getMaxNodeKey(i));
       }
+
+      final int maxHotPageKeysSize = pathPage.getMaxHotPageKeySize();
+      sink.writeInt(maxHotPageKeysSize);
+      for (int i = 0; i < maxHotPageKeysSize; i++) {
+        sink.writeLong(pathPage.getMaxHotPageKey(i));
+      }
+
       final int currentMaxLevelOfIndirectPagesSize = pathPage.getCurrentMaxLevelOfIndirectPagesSize();
       sink.writeInt(currentMaxLevelOfIndirectPagesSize);
       for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {

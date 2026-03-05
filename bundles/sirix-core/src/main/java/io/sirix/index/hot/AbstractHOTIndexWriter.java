@@ -45,6 +45,7 @@ import io.sirix.settings.Constants;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import java.util.Arrays;
+import java.util.function.LongSupplier;
 
 import static java.util.Objects.requireNonNull;
 
@@ -121,7 +122,38 @@ public abstract class AbstractHOTIndexWriter<K> {
     this.storageEngineWriter = requireNonNull(storageEngineWriter);
     this.indexType = requireNonNull(indexType);
     this.indexNumber = indexNumber;
-    this.trieWriter = new HOTTrieWriter();
+    this.trieWriter = new HOTTrieWriter(createPageKeyAllocator(storageEngineWriter, indexType, indexNumber));
+  }
+
+  /**
+   * Create a persistent page key allocator backed by the index page's maxHotPageKey counter.
+   *
+   * <p>The returned {@link LongSupplier} allocates monotonically increasing page keys that are
+   * persisted across transactions via the index page (PathPage/CASPage/NamePage). This replaces
+   * the old hardcoded {@code nextPageKey = 1000000L} counter that restarted on every transaction.</p>
+   *
+   * @param writer the storage engine writer
+   * @param type the index type
+   * @param indexNo the index number
+   * @return a persistent page key allocator
+   */
+  private static LongSupplier createPageKeyAllocator(final StorageEngineWriter writer, final IndexType type,
+      final int indexNo) {
+    return switch (type) {
+      case PATH -> () -> {
+        final RevisionRootPage rrp = writer.getActualRevisionRootPage();
+        return writer.getPathPage(rrp).incrementAndGetMaxHotPageKey(indexNo);
+      };
+      case CAS -> () -> {
+        final RevisionRootPage rrp = writer.getActualRevisionRootPage();
+        return writer.getCASPage(rrp).incrementAndGetMaxHotPageKey(indexNo);
+      };
+      case NAME -> () -> {
+        final RevisionRootPage rrp = writer.getActualRevisionRootPage();
+        return writer.getNamePage(rrp).incrementAndGetMaxHotPageKey(indexNo);
+      };
+      default -> throw new IllegalArgumentException("Unsupported index type for HOT: " + type);
+    };
   }
 
   /**

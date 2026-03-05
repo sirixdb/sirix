@@ -259,9 +259,10 @@ public final class SiblingMerger {
       return MergeResult.failure();
     }
 
-    // Determine order (left/right) based on discriminative bit
-    // For simplicity, assume node is left if its first partial key is smaller
-    boolean nodeIsLeft = node.getPartialKey(0) < sibling.getPartialKey(0);
+    // Determine order (left/right) based on discriminative bit.
+    // CRITICAL: Must use unsigned comparison — Java bytes are signed, so values 0x80-0xFF
+    // appear negative and would sort before 0x00-0x7F with plain '<'.
+    boolean nodeIsLeft = Byte.toUnsignedInt(node.getPartialKey(0)) < Byte.toUnsignedInt(sibling.getPartialKey(0));
 
     if (nodeIsLeft) {
       return mergeSiblings(node, sibling, newPageKey, revision);

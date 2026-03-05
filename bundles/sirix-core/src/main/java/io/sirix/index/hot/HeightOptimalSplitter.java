@@ -136,9 +136,10 @@ public final class HeightOptimalSplitter {
 
     // Handle edge case: identical keys (discriminativeBit == -1)
     if (discriminativeBit < 0) {
-      // Keys are identical - use bit 0 as fallback
-      // This shouldn't happen with properly sorted unique keys
-      discriminativeBit = 0;
+      // Keys are identical — this indicates a bug in the split algorithm since properly
+      // sorted unique keys should never produce identical leftMax/rightMin after split.
+      throw new IllegalStateException("Cannot split: leftMax and rightMin are identical: "
+          + java.util.Arrays.toString(leftMax));
     }
 
     // 4. Determine which side new keys go based on discriminative bit value
