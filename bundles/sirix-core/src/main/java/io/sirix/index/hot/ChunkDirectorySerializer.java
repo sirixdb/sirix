@@ -196,6 +196,11 @@ public final class ChunkDirectorySerializer {
       long pageKey = buffer.getLong();
       int fragmentCount = buffer.getInt();
 
+      if (fragmentCount < 0 || fragmentCount > 10_000) {
+        throw new IllegalArgumentException(
+            "Invalid fragmentCount " + fragmentCount + " for chunk " + i + " (chunkIndex=" + chunkIndex + ")");
+      }
+
       chunkIndices[i] = chunkIndex;
 
       PageReference ref = new PageReference();

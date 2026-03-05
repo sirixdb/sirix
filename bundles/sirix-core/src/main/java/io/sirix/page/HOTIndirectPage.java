@@ -452,7 +452,11 @@ public final class HOTIndirectPage implements Page {
 
   /**
    * Extract up to 8 bytes from key starting at given position. Uses little-endian byte order for PEXT
-   * compatibility.
+   * compatibility — byte at {@code pos} maps to bits 0-7, byte at {@code pos+1} to bits 8-15, etc.
+   *
+   * <p><b>Note:</b> This is intentionally different from {@link DiscriminativeBitComputer}'s big-endian
+   * layout. The lookup path (this method + {@code bitMask}) uses LE consistently; the construction
+   * path ({@link io.sirix.index.hot.PartialKeyMapping}) uses BE. Do NOT unify them.</p>
    */
   private static long getKeyWordAt(byte[] key, int pos) {
     long result = 0;

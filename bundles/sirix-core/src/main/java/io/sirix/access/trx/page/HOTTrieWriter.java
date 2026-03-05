@@ -40,6 +40,7 @@ import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.HeightOptimalSplitter;
 import io.sirix.index.hot.NodeUpgradeManager;
 import java.util.Arrays;
+import java.util.function.LongSupplier;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
@@ -73,7 +74,7 @@ import java.util.Objects;
  * </p>
  * 
  * <pre>{@code
- * HOTTrieWriter writer = new HOTTrieWriter();
+ * HOTTrieWriter writer = new HOTTrieWriter(pageKeyAllocator);
  * PageContainer container =
  *     writer.prepareKeyedLeafForModification(storageEngineReader, log, startReference, key, indexType, indexNumber);
  * HOTLeafPage leaf = (HOTLeafPage) container.getModified();
@@ -93,8 +94,8 @@ public final class HOTTrieWriter {
   @SuppressWarnings("unused")
   private final MemorySegmentAllocator allocator;
 
-  /** Counter for generating page keys (temporary - will be replaced with proper key allocation). */
-  private long nextPageKey = 1000000L; // Start high to avoid conflicts
+  /** Persistent page key allocator — replaces the old hardcoded nextPageKey counter. */
+  private final LongSupplier pageKeyAllocator;
 
   // ===== Pre-allocated COW path - ZERO allocations on hot path! =====
   private final PageReference[] cowPathRefs = new PageReference[MAX_TREE_HEIGHT];
@@ -113,12 +114,33 @@ public final class HOTTrieWriter {
   private final PageReference[] splitLargerBuf = new PageReference[MAX_SPLIT_CHILDREN];
 
   /**
-   * Create a new HOTTrieWriter.
+   * Create a new HOTTrieWriter with persistent page key allocation.
+   *
+   * <p>The supplier is called each time a new page key is needed (during splits and
+   * new page creation). It must return a unique, monotonically increasing key that
+   * is persisted across transactions (typically backed by an index page counter).</p>
+   *
+   * @param pageKeyAllocator supplier of persistent page keys
    */
+  public HOTTrieWriter(final LongSupplier pageKeyAllocator) {
+    this.allocator = OS.isWindows()
+        ? WindowsMemorySegmentAllocator.getInstance()
+        : LinuxMemorySegmentAllocator.getInstance();
+    this.pageKeyAllocator = Objects.requireNonNull(pageKeyAllocator);
+  }
+
+  /**
+   * Create a new HOTTrieWriter with a temporary in-memory counter (for tests only).
+   *
+   * @deprecated Use {@link #HOTTrieWriter(LongSupplier)} with a persistent allocator.
+   */
+  @Deprecated
   public HOTTrieWriter() {
     this.allocator = OS.isWindows()
         ? WindowsMemorySegmentAllocator.getInstance()
         : LinuxMemorySegmentAllocator.getInstance();
+    final long[] counter = {1_000_000L};
+    this.pageKeyAllocator = () -> counter[0]++;
   }
 
   /**
@@ -349,8 +371,7 @@ public final class HOTTrieWriter {
       @NonNull PageReference startReference, byte[] key, @NonNull IndexType indexType, int indexNumber) {
 
     // Create new HOTLeafPage
-    // TODO: Replace with proper page key allocation from RevisionRootPage
-    long newPageKey = nextPageKey++;
+    long newPageKey = pageKeyAllocator.getAsLong();
     HOTLeafPage newLeaf = new HOTLeafPage(newPageKey, storageEngineReader.getRevisionNumber(), indexType);
 
     PageReference newRef = new PageReference();
@@ -467,8 +488,8 @@ public final class HOTTrieWriter {
     }
 
     // Allocate new page key for right sibling
-    long newPageKey = nextPageKey++;
-    long newRootPageKey = nextPageKey++;
+    long newPageKey = pageKeyAllocator.getAsLong();
+    long newRootPageKey = pageKeyAllocator.getAsLong();
 
     // Create new HOTLeafPage with off-heap segment
     HOTLeafPage rightPage = new HOTLeafPage(newPageKey, storageEngineReader.getRevisionNumber(), fullPage.getIndexType());
@@ -562,7 +583,7 @@ public final class HOTTrieWriter {
     // Reference line 502: if parent.height > splitEntries.height, create intermediate node
     if (parent.getHeight() > splitEntriesHeight) {
       // Create intermediate BiNode at current position and update parent's child
-      long newBiNodePageKey = nextPageKey++;
+      long newBiNodePageKey = pageKeyAllocator.getAsLong();
       HOTIndirectPage newBiNode = HOTIndirectPage.createBiNode(newBiNodePageKey, storageEngineReader.getRevisionNumber(),
           discriminativeBit, leftChild, rightChild, splitEntriesHeight);
 
@@ -665,6 +686,7 @@ public final class HOTTrieWriter {
 
   /**
    * Compute bit mask that covers all discriminative bits for the children.
+   * Uses big-endian layout: byte 0 of window → bits 56-63, matching getKeyWordAt().
    */
   private long computeBitMaskForChildren(PageReference[] children, byte initialBytePos) {
     long mask = 0;
@@ -678,7 +700,7 @@ public final class HOTTrieWriter {
       int byteOffset = bit / 8 - (initialBytePos & 0xFF);
       if (byteOffset >= 0 && byteOffset < 8) {
         int bitInByte = 7 - (bit % 8);
-        mask |= 1L << (byteOffset * 8 + bitInByte);
+        mask |= 1L << ((7 - byteOffset) * 8 + bitInByte);
       }
     }
     return mask != 0
@@ -770,7 +792,7 @@ public final class HOTTrieWriter {
     log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
 
     // Create right node (entries with MSB=1) - new page key
-    long rightPageKey = nextPageKey++;
+    long rightPageKey = pageKeyAllocator.getAsLong();
     HOTIndirectPage rightNode =
         createNodeFromChildren(rightChildren, rightPageKey, storageEngineReader.getRevisionNumber(), parent.getHeight());
     PageReference rightNodeRef = new PageReference();
@@ -790,7 +812,7 @@ public final class HOTTrieWriter {
           rootReference, pathNodes, pathRefs, pathChildIndices, grandparentIdx);
     } else {
       // At root - create new root BiNode
-      long newRootKey = nextPageKey++;
+      long newRootKey = pageKeyAllocator.getAsLong();
       HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(newRootKey, storageEngineReader.getRevisionNumber(), newRootDiscrimBit,
           leftNodeRef, rightNodeRef, parent.getHeight() + 1);
 
@@ -801,20 +823,19 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Find the most significant discriminative bit position for the parent node. Reference:
-   * getMaskForHighestBit() in DiscriminativeBitsRepresentation
+   * Find the most significant discriminative bit position for the parent node. With big-endian
+   * layout, the highest set bit in the mask directly maps: absolute_bit = initialBytePos * 8 + CLZ.
+   * This is because bit 63 = byte 0 MSB, bit 62 = byte 0 bit 1, etc.
    */
   private int findMostSignificantDiscriminativeBitPosition(HOTIndirectPage parent) {
-    // For BiNode, it's the single discriminative bit
-    // For SpanNode/MultiNode, find the MSB from the bitMask
     long bitMask = parent.getBitMask();
     if (bitMask == 0) {
       return 0;
     }
-    // Find the highest set bit (most significant)
-    int bytePos = parent.getInitialBytePos() & 0xFF;
-    int highestBit = 63 - Long.numberOfLeadingZeros(bitMask);
-    return bytePos * 8 + (7 - (highestBit % 8));
+    int bytePos = parent.getInitialBytePos();
+    // With BE: CLZ gives the offset from MSB of the 8-byte window, which IS the absolute
+    // bit offset within the window. Add bytePos * 8 for the absolute position.
+    return bytePos * 8 + Long.numberOfLeadingZeros(bitMask);
   }
 
   /**
@@ -876,7 +897,7 @@ public final class HOTTrieWriter {
     leftNodeRef.setPage(leftNode);
     log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
 
-    long rightPageKey = nextPageKey++;
+    long rightPageKey = pageKeyAllocator.getAsLong();
     HOTIndirectPage rightNode =
         createNodeFromChildren(rightChildren, rightPageKey, storageEngineReader.getRevisionNumber(), parent.getHeight());
     PageReference rightNodeRef = new PageReference();
@@ -894,7 +915,7 @@ public final class HOTTrieWriter {
       byte[] rMin = getFirstKeyFromChild(rightNodeRef);
       int rootDiscrimBit = DiscriminativeBitComputer.computeDifferingBit(lMax, rMin);
 
-      long newRootKey = nextPageKey++;
+      long newRootKey = pageKeyAllocator.getAsLong();
       HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(newRootKey, storageEngineReader.getRevisionNumber(), rootDiscrimBit,
           leftNodeRef, rightNodeRef, parent.getHeight() + 1);
 
@@ -934,16 +955,17 @@ public final class HOTTrieWriter {
 
   /**
    * Compute partial key by extracting discriminative bits from a key.
+   * Uses big-endian layout: byte 0 of window → bits 56-63, matching getKeyWordAt().
    */
   private byte computePartialKey(byte[] key, byte initialBytePos, long bitMask) {
     if (key == null || key.length == 0) {
       return 0;
     }
 
-    // Extract 8 bytes from key starting at initialBytePos
+    // Extract 8 bytes from key starting at initialBytePos (big-endian)
     long keyWord = 0;
     for (int i = 0; i < 8 && (initialBytePos + i) < key.length; i++) {
-      keyWord |= ((long) (key[initialBytePos + i] & 0xFF)) << (i * 8);
+      keyWord |= ((long) (key[initialBytePos + i] & 0xFF)) << ((7 - i) * 8);
     }
 
     // Apply PEXT-style extraction: compress bits selected by mask

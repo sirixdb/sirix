@@ -61,6 +61,12 @@ public final class CASPage extends AbstractForwardingPage {
   private final Int2LongMap maxNodeKeys;
 
   /**
+   * Maximum HOT page keys per index number. Used by HOTTrieWriter for persistent page key
+   * allocation across transactions.
+   */
+  private final Int2LongMap maxHotPageKeys;
+
+  /**
    * Current maximum levels of indirect pages in the tree.
    */
   private final Int2IntMap currentMaxLevelsOfIndirectPages;
@@ -71,6 +77,7 @@ public final class CASPage extends AbstractForwardingPage {
   public CASPage() {
     delegate = new ReferencesPage4();
     maxNodeKeys = new Int2LongOpenHashMap();
+    maxHotPageKeys = new Int2LongOpenHashMap();
     currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap();
   }
 
@@ -82,8 +89,17 @@ public final class CASPage extends AbstractForwardingPage {
    * @param currentMaxLevelsOfIndirectPages Hashmap deserialized
    */
   CASPage(final Page delegate, final Int2LongMap maxNodeKeys, final Int2IntMap currentMaxLevelsOfIndirectPages) {
+    this(delegate, maxNodeKeys, new Int2LongOpenHashMap(), currentMaxLevelsOfIndirectPages);
+  }
+
+  /**
+   * Constructor to set deserialized values for CASpage (with HOT page keys).
+   */
+  CASPage(final Page delegate, final Int2LongMap maxNodeKeys, final Int2LongMap maxHotPageKeys,
+      final Int2IntMap currentMaxLevelsOfIndirectPages) {
     this.delegate = delegate;
     this.maxNodeKeys = maxNodeKeys;
+    this.maxHotPageKeys = maxHotPageKeys;
     this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
   }
 
@@ -210,5 +226,36 @@ public final class CASPage extends AbstractForwardingPage {
     final long newMaxNodeKey = maxNodeKeys.get(indexNo) + 1;
     maxNodeKeys.put(indexNo, newMaxNodeKey);
     return newMaxNodeKey;
+  }
+
+  /**
+   * Get the maximum HOT page key of the specified index by its index number.
+   *
+   * @param indexNo the index number
+   * @return the maximum HOT page key stored
+   */
+  public long getMaxHotPageKey(final int indexNo) {
+    return maxHotPageKeys.get(indexNo);
+  }
+
+  /**
+   * Get the size of maxHotPageKeys for serialization.
+   *
+   * @return number of entries
+   */
+  public int getMaxHotPageKeySize() {
+    return maxHotPageKeys.size();
+  }
+
+  /**
+   * Increment and get the maximum HOT page key for the given index.
+   *
+   * @param indexNo the index number
+   * @return the new maximum HOT page key
+   */
+  public long incrementAndGetMaxHotPageKey(final int indexNo) {
+    final long newKey = maxHotPageKeys.get(indexNo) + 1;
+    maxHotPageKeys.put(indexNo, newKey);
+    return newKey;
   }
 }
