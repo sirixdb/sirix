@@ -171,12 +171,12 @@ public final class HOTIndirectPage implements Page {
     page.layoutType = LayoutType.SINGLE_MASK;
     page.initialBytePos = (byte) (discriminativeBitPos / 8);
 
-    // Compute bit mask for PEXT extraction using big-endian layout:
-    // byte 0 of window → bits 56-63, byte 1 → bits 48-55, etc.
-    // Within each byte, bit 0 (MSB) is at the high position, bit 7 (LSB) at low position.
+    // Compute bit mask for PEXT extraction
+    // getKeyWordAt uses little-endian: byte 0 goes to bits 0-7, byte 1 to bits 8-15, etc.
+    // Within each byte, bit 0 (MSB) is at position 7, bit 7 (LSB) is at position 0
     int byteWithinWindow = (discriminativeBitPos / 8) - page.initialBytePos;
     int bitWithinByte = discriminativeBitPos % 8; // 0=MSB, 7=LSB
-    int bitInWord = (7 - byteWithinWindow) * 8 + (7 - bitWithinByte);
+    int bitInWord = byteWithinWindow * 8 + (7 - bitWithinByte);
     page.bitMask = 1L << bitInWord;
 
     page.partialKeys = new byte[] {0, 1};
@@ -202,10 +202,9 @@ public final class HOTIndirectPage implements Page {
     page.layoutType = LayoutType.SINGLE_MASK;
     page.initialBytePos = (byte) (discriminativeBitPos / 8);
 
-    // Big-endian mask: byte 0 of window → bits 56-63
     int byteWithinWindow = (discriminativeBitPos / 8) - page.initialBytePos;
     int bitWithinByte = discriminativeBitPos % 8;
-    int bitInWord = (7 - byteWithinWindow) * 8 + (7 - bitWithinByte);
+    int bitInWord = byteWithinWindow * 8 + (7 - bitWithinByte);
     page.bitMask = 1L << bitInWord;
 
     page.partialKeys = new byte[] {0, 1};
@@ -452,15 +451,18 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
-   * Extract up to 8 bytes from key starting at given position. Uses big-endian byte order —
-   * byte at {@code pos} maps to bits 56-63, matching {@link DiscriminativeBitComputer},
-   * {@link io.sirix.index.hot.PartialKeyMapping}, and the C++ reference implementation.
+   * Extract up to 8 bytes from key starting at given position. Uses little-endian byte order for PEXT
+   * compatibility — byte at {@code pos} maps to bits 0-7, byte at {@code pos+1} to bits 8-15, etc.
+   *
+   * <p><b>Note:</b> This is intentionally different from {@link DiscriminativeBitComputer}'s big-endian
+   * layout. The lookup path (this method + {@code bitMask}) uses LE consistently; the construction
+   * path ({@link io.sirix.index.hot.PartialKeyMapping}) uses BE. Do NOT unify them.</p>
    */
   private static long getKeyWordAt(byte[] key, int pos) {
     long result = 0;
     int end = Math.min(pos + 8, key.length);
     for (int i = pos; i < end; i++) {
-      result |= ((long) (key[i] & 0xFF)) << ((7 - (i - pos)) * 8);
+      result |= ((long) (key[i] & 0xFF)) << ((i - pos) * 8);
     }
     return result;
   }
