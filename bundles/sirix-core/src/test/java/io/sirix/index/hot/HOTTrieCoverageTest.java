@@ -244,8 +244,8 @@ class HOTTrieCoverageTest {
     void testEmptyPageKeys() {
       HOTLeafPage page = createLeafPage();
 
-      assertNull(page.getFirstKey(), "Empty page should have null first key");
-      assertNull(page.getLastKey(), "Empty page should have null last key");
+      assertEquals(0, page.getFirstKey().length, "Empty page should have empty first key");
+      assertEquals(0, page.getLastKey().length, "Empty page should have empty last key");
       assertEquals(0, page.getEntryCount());
     }
 

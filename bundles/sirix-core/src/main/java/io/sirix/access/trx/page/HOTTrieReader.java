@@ -77,7 +77,14 @@ import java.util.Objects;
  */
 public final class HOTTrieReader implements AutoCloseable {
 
-  /** Maximum tree height - increased to handle unbalanced trees during inserts. */
+  /**
+   * Maximum tree height for pre-allocated path traversal arrays.
+   *
+   * <p>With minimum fanout of 2 (BiNode): max height = log2(2^63) ~ 63.
+   * With typical fanout of 16+ (SpanNode/MultiNode): height ~ 13.
+   * We use 64 as a generous safety margin. Exceeding this limit indicates
+   * a bug in split/merge logic or index corruption.</p>
+   */
   private static final int MAX_TREE_HEIGHT = 64;
 
   /** The storage engine reader. */
@@ -125,13 +132,19 @@ public final class HOTTrieReader implements AutoCloseable {
     leaf.acquireGuard();
     guardedLeaf = leaf;
 
-    // Find entry in leaf
-    int index = leaf.findEntry(key);
-    if (index < 0) {
-      return null; // Not found
-    }
+    try {
+      // Find entry in leaf
+      int index = leaf.findEntry(key);
+      if (index < 0) {
+        return null; // Not found (guard intentionally held for next call)
+      }
 
-    return leaf.getValueSlice(index);
+      return leaf.getValueSlice(index);
+    } catch (Exception e) {
+      // On exception, release the guard to avoid leaking it
+      releaseGuardedLeaf();
+      throw e;
+    }
   }
 
   /**

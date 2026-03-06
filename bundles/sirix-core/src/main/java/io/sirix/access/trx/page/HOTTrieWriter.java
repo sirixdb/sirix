@@ -87,7 +87,14 @@ import java.util.Objects;
  */
 public final class HOTTrieWriter {
 
-  /** Maximum tree height - increased to handle unbalanced trees during inserts. */
+  /**
+   * Maximum tree height for pre-allocated path traversal arrays.
+   *
+   * <p>With minimum fanout of 2 (BiNode): max height = log2(2^63) ~ 63.
+   * With typical fanout of 16+ (SpanNode/MultiNode): height ~ 13.
+   * We use 64 as a generous safety margin. Exceeding this limit indicates
+   * a bug in split/merge logic or index corruption.</p>
+   */
   private static final int MAX_TREE_HEIGHT = 64;
 
   /** Memory segment allocator. */
@@ -287,13 +294,8 @@ public final class HOTTrieWriter {
       return null;
     }
 
-    // Create COW copy for modification
-    // For HOTLeafPage, we need to create a new instance with same data
-    HOTLeafPage modifiedLeaf =
-        new HOTLeafPage(hotLeaf.getPageKey(), storageEngineReader.getRevisionNumber(), hotLeaf.getIndexType());
-
-    // Copy existing entries (this is the unavoidable COW cost)
-    // TODO: Implement proper entry copying when HOTLeafPage has more methods
+    // Create COW copy for modification using deep copy (copies off-heap data + slot offsets)
+    HOTLeafPage modifiedLeaf = hotLeaf.copy();
 
     PageContainer leafContainer = PageContainer.getInstance(hotLeaf, modifiedLeaf);
     log.put(leafRef, leafContainer);
@@ -493,62 +495,74 @@ public final class HOTTrieWriter {
 
     // Create new HOTLeafPage with off-heap segment
     HOTLeafPage rightPage = new HOTLeafPage(newPageKey, storageEngineReader.getRevisionNumber(), fullPage.getIndexType());
+    boolean rightPageOwnershipTransferred = false;
 
-    // Use HeightOptimalSplitter for proper height-optimal splitting
-    HeightOptimalSplitter.SplitResult splitResult =
-        HeightOptimalSplitter.splitLeafPage(fullPage, rightPage, newRootPageKey, storageEngineReader.getRevisionNumber());
+    try {
+      // Use HeightOptimalSplitter for proper height-optimal splitting
+      HeightOptimalSplitter.SplitResult splitResult =
+          HeightOptimalSplitter.splitLeafPage(fullPage, rightPage, newRootPageKey, storageEngineReader.getRevisionNumber());
 
-    // Handle case where split failed (e.g., single large entry)
-    if (splitResult == null) {
-      // Close the unused right page to release memory
-      rightPage.close();
-      // Compact the original page and let caller retry
-      fullPage.compact();
-      log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
-      return null;
-    }
-
-    // Get the split key from boundary (first key in right page after split)
-    byte[] splitKey = rightPage.getFirstKey();
-
-    // Create reference for the new right page
-    PageReference rightRef = splitResult.rightChild();
-    rightRef.setKey(newPageKey);
-    log.put(rightRef, PageContainer.getInstance(rightPage, rightPage));
-
-    // Update the original leaf page reference in the log
-    log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
-
-    // Now we need to update the parent structure
-    if (pathDepth > 0) {
-      // Has a parent - update the parent to include the new child
-      int parentIdx = pathDepth - 1;
-      updateParentForSplitWithPath(storageEngineReader, log, pathRefs[parentIdx], pathNodes[parentIdx], pathChildIndices[parentIdx],
-          leafRef, rightRef, splitKey, rootReference, pathNodes, pathRefs, pathChildIndices, parentIdx);
-    } else {
-      // Root split - create new BiNode as root
-      // CRITICAL: When pathDepth=0, leafRef may be the same object as rootReference.
-      // We need a SEPARATE reference for the left child, and it MUST be in the log
-      // so that HOTIndirectPage.commit() can find and write it to disk.
-      PageReference leftChildRef;
-      if (leafRef == rootReference) {
-        // Put the left child in the log so commit can find it by identity
-        leftChildRef = new PageReference();
-        log.put(leftChildRef, PageContainer.getInstance(fullPage, fullPage));
-      } else {
-        leftChildRef = leafRef;
+      // Handle case where split failed (e.g., single large entry)
+      if (splitResult == null) {
+        // Compact the original page and let caller retry
+        fullPage.compact();
+        log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
+        return null;
       }
 
-      HOTIndirectPage newRoot = splitResult.newRoot();
-      newRoot.setChildReference(0, leftChildRef);
-      newRoot.setChildReference(1, rightRef);
+      // Get the split key from boundary (first key in right page after split)
+      byte[] splitKey = rightPage.getFirstKey();
+      if (splitKey.length == 0) {
+        // Right page is empty after split — should not happen but handle gracefully
+        fullPage.compact();
+        log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
+        return null;
+      }
 
-      rootReference.setKey(newRootPageKey);
-      rootReference.setPage(newRoot);
-      log.put(rootReference, PageContainer.getInstance(newRoot, newRoot));
+      // Create reference for the new right page
+      PageReference rightRef = splitResult.rightChild();
+      rightRef.setKey(newPageKey);
+      log.put(rightRef, PageContainer.getInstance(rightPage, rightPage));
+      rightPageOwnershipTransferred = true;
+
+      // Update the original leaf page reference in the log
+      log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
+
+      // Now we need to update the parent structure
+      if (pathDepth > 0) {
+        // Has a parent - update the parent to include the new child
+        int parentIdx = pathDepth - 1;
+        updateParentForSplitWithPath(storageEngineReader, log, pathRefs[parentIdx], pathNodes[parentIdx], pathChildIndices[parentIdx],
+            leafRef, rightRef, splitKey, rootReference, pathNodes, pathRefs, pathChildIndices, parentIdx);
+      } else {
+        // Root split - create new BiNode as root
+        // CRITICAL: When pathDepth=0, leafRef may be the same object as rootReference.
+        // We need a SEPARATE reference for the left child, and it MUST be in the log
+        // so that HOTIndirectPage.commit() can find and write it to disk.
+        PageReference leftChildRef;
+        if (leafRef == rootReference) {
+          // Put the left child in the log so commit can find it by identity
+          leftChildRef = new PageReference();
+          log.put(leftChildRef, PageContainer.getInstance(fullPage, fullPage));
+        } else {
+          leftChildRef = leafRef;
+        }
+
+        HOTIndirectPage newRoot = splitResult.newRoot();
+        newRoot.setChildReference(0, leftChildRef);
+        newRoot.setChildReference(1, rightRef);
+
+        rootReference.setKey(newRootPageKey);
+        rootReference.setPage(newRoot);
+        log.put(rootReference, PageContainer.getInstance(newRoot, newRoot));
+      }
+
+      return splitKey;
+    } finally {
+      if (!rightPageOwnershipTransferred) {
+        rightPage.close();
+      }
     }
-
-    return splitKey;
   }
 
   /**
@@ -573,6 +587,11 @@ public final class HOTTrieWriter {
     // Compute discriminative bit between the two split children
     byte[] leftMax = getLastKeyFromChild(leftChild);
     byte[] rightMin = getFirstKeyFromChild(rightChild);
+    if (leftMax.length == 0 || rightMin.length == 0) {
+      throw new IllegalStateException(
+          "Cannot compute discriminative bit with empty keys: leftMax.length="
+              + leftMax.length + ", rightMin.length=" + rightMin.length);
+    }
     int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
 
     // Compute the height of the split entries (BiNode containing the split children)
@@ -913,6 +932,11 @@ public final class HOTTrieWriter {
     } else {
       byte[] lMax = getLastKeyFromChild(leftNodeRef);
       byte[] rMin = getFirstKeyFromChild(rightNodeRef);
+      if (lMax.length == 0 || rMin.length == 0) {
+        throw new IllegalStateException(
+            "Cannot compute root discriminative bit with empty keys: lMax.length="
+                + lMax.length + ", rMin.length=" + rMin.length);
+      }
       int rootDiscrimBit = DiscriminativeBitComputer.computeDifferingBit(lMax, rMin);
 
       long newRootKey = pageKeyAllocator.getAsLong();
@@ -929,11 +953,20 @@ public final class HOTTrieWriter {
    * Create appropriate node type for given children array.
    */
   private HOTIndirectPage createNodeFromChildren(PageReference[] children, long pageKey, int revision, int height) {
+    if (children == null || children.length == 0) {
+      throw new IllegalArgumentException("Children array must not be null or empty");
+    }
     if (children.length <= 2) {
       byte[] leftMax = getLastKeyFromChild(children[0]);
       byte[] rightMin = children.length > 1
           ? getFirstKeyFromChild(children[1])
           : leftMax;
+      if (leftMax.length == 0 || rightMin.length == 0) {
+        throw new IllegalStateException(
+            "Cannot create node with empty keys: leftMax.length=" + leftMax.length
+                + ", rightMin.length=" + rightMin.length
+                + ". Empty leaf pages must not be used as children.");
+      }
       int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
       return HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit, children[0], children.length > 1
           ? children[1]

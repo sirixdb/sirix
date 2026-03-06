@@ -52,6 +52,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -138,7 +139,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   private final AtomicInteger guardCount = new AtomicInteger(0);
   @SuppressWarnings("unused")
   private long p8, p9, p10, p11, p12, p13, p14; // Cache line padding (56 bytes after)
-  private volatile boolean closed = false;
+  private final AtomicBoolean closed = new AtomicBoolean(false);
   private volatile boolean isOrphaned = false;
 
   // ===== Version for detecting page reuse =====
@@ -358,19 +359,32 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Maximum length for keys and values — must fit in an unsigned short (2 bytes).
+   */
+  private static final int MAX_KEY_VALUE_LENGTH = 0xFFFF;
+
+  /**
    * Insert entry at specified position.
    *
    * @param pos insertion position
    * @param key the key
    * @param value the value
    * @return true if successful
+   * @throws IllegalArgumentException if key or value length exceeds 65535 bytes
    */
   private boolean insertAt(int pos, byte[] key, byte[] value) {
+    if (key.length > MAX_KEY_VALUE_LENGTH) {
+      throw new IllegalArgumentException("Key length " + key.length + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
+    }
+    if (value.length > MAX_KEY_VALUE_LENGTH) {
+      throw new IllegalArgumentException("Value length " + value.length + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
+    }
     if (entryCount >= MAX_ENTRIES) {
       return false; // Page full, needs split
     }
 
     // Calculate entry size: [u16 keyLen][key][u16 valueLen][value]
+    // Safe: max = 4 + 65535 + 65535 = 131074 < Integer.MAX_VALUE
     int entrySize = 2 + key.length + 2 + value.length;
 
     if (usedSlotMemorySize + entrySize > slotMemory.byteSize()) {
@@ -517,6 +531,54 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    */
   public int getEntryCount() {
     return entryCount;
+  }
+
+  // ===== Delete operations =====
+
+  /**
+   * Delete an entry by key.
+   *
+   * @param key the key to delete
+   * @return true if entry was found and deleted, false if not found
+   */
+  public boolean delete(byte[] key) {
+    Objects.requireNonNull(key);
+    final int index = findEntry(key);
+    if (index < 0) {
+      return false;
+    }
+    return deleteAt(index);
+  }
+
+  /**
+   * Delete entry at the given index.
+   *
+   * <p>Removes the entry from the slot offsets array and decrements entryCount.
+   * The raw bytes in slotMemory are left as dead space (reclaimed by {@link #compact()}).
+   * This avoids expensive memmove of off-heap data on every delete.</p>
+   *
+   * @param index the entry index to delete
+   * @return true if deletion was successful
+   */
+  public boolean deleteAt(int index) {
+    if (index < 0 || index >= entryCount) {
+      return false;
+    }
+
+    // Shift slot offsets down to fill the gap
+    final int remaining = entryCount - index - 1;
+    if (remaining > 0) {
+      System.arraycopy(slotOffsets, index + 1, slotOffsets, index, remaining);
+    }
+
+    // Clear the last slot offset
+    slotOffsets[entryCount - 1] = 0;
+    entryCount--;
+
+    // Note: slotMemory is NOT compacted here — dead space is reclaimed lazily
+    // by compact(). This keeps delete O(n) in slot shifts only, not O(n) in
+    // off-heap memory copies.
+    return true;
   }
 
   // ===== Merge, Update, and Copy operations for HOT index =====
@@ -764,11 +826,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Get the first (minimum) key in this page.
    *
-   * @return the first key, or null if page is empty
+   * @return the first key, or empty array if page is empty (never null)
    */
-  public @Nullable byte[] getFirstKey() {
+  public byte[] getFirstKey() {
     if (entryCount == 0) {
-      return null;
+      return new byte[0];
     }
     return getKey(0);
   }
@@ -776,11 +838,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Get the last (maximum) key in this page.
    *
-   * @return the last key, or null if page is empty
+   * @return the last key, or empty array if page is empty (never null)
    */
-  public @Nullable byte[] getLastKey() {
+  public byte[] getLastKey() {
     if (entryCount == 0) {
-      return null;
+      return new byte[0];
     }
     return getKey(entryCount - 1);
   }
@@ -839,15 +901,17 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
   /**
    * Release a guard (decrement reference count). If orphaned and guard count reaches zero, close the
-   * page.
+   * page. Uses atomic close-once to prevent TOCTOU race between releaseGuard and markOrphaned.
    */
   public void releaseGuard() {
-    int remaining = guardCount.decrementAndGet();
+    final int remaining = guardCount.decrementAndGet();
     if (remaining < 0) {
       throw new IllegalStateException("Guard count underflow for page " + recordPageKey);
     }
     if (remaining == 0 && isOrphaned) {
-      close();
+      if (closed.compareAndSet(false, true)) {
+        releaseMemory();
+      }
     }
   }
 
@@ -862,11 +926,14 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
   /**
    * Mark page as orphaned (removed from cache but still guarded).
+   * Uses atomic close-once to prevent TOCTOU race between releaseGuard and markOrphaned.
    */
   public void markOrphaned() {
     isOrphaned = true;
     if (guardCount.get() == 0) {
-      close();
+      if (closed.compareAndSet(false, true)) {
+        releaseMemory();
+      }
     }
   }
 
@@ -880,14 +947,20 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Close the page and release off-heap memory.
+   * Close the page and release off-heap memory. Thread-safe; only the first call
+   * actually releases the memory segment.
    */
   public void close() {
-    if (closed) {
-      return;
+    if (closed.compareAndSet(false, true)) {
+      releaseMemory();
     }
-    closed = true;
+  }
 
+  /**
+   * Release off-heap memory. Must only be called once — callers must ensure
+   * single-call semantics via the {@link #closed} atomic flag.
+   */
+  private void releaseMemory() {
     if (releaser != null) {
       releaser.run();
     }
@@ -917,7 +990,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public boolean isClosed() {
-    return closed;
+    return closed.get();
   }
 
   @Override
@@ -1105,7 +1178,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public String toString() {
     return "HOTLeafPage{" + "pageKey=" + recordPageKey + ", revision=" + revision + ", indexType=" + indexType
         + ", entryCount=" + entryCount + ", usedSlotMemorySize=" + usedSlotMemorySize + ", guardCount="
-        + guardCount.get() + ", closed=" + closed + '}';
+        + guardCount.get() + ", closed=" + closed.get() + '}';
   }
 }
 

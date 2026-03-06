@@ -75,6 +75,10 @@ public final class NodeReferencesSerializer {
 
   /**
    * Threshold for switching from packed to Roaring format.
+   *
+   * <p>Packed format stores each node key as 8 raw bytes: total = 2 + count*8.
+   * At 64 entries, packed = 514 bytes while Roaring typically compresses to 200-400 bytes.
+   * Below this threshold packed is more compact; above it Roaring wins.</p>
    */
   private static final int PACKED_THRESHOLD = 64;
 
@@ -152,6 +156,16 @@ public final class NodeReferencesSerializer {
    * @return the deserialized NodeReferences
    */
   public static NodeReferences deserialize(byte[] bytes, int offset, int length) {
+    requireNonNull(bytes, "bytes cannot be null");
+    if (offset < 0 || length < 0) {
+      throw new IllegalArgumentException(
+          "offset and length must be non-negative: offset=" + offset + ", length=" + length);
+    }
+    if (offset + length > bytes.length) {
+      throw new IllegalArgumentException(
+          "offset + length (" + (offset + length) + ") exceeds array length (" + bytes.length + ")");
+    }
+
     if (length == 0) {
       return new NodeReferences();
     }
@@ -230,24 +244,24 @@ public final class NodeReferencesSerializer {
   }
 
   private static byte[] serializeRoaring(Roaring64Bitmap bitmap) {
-    int size = (int) bitmap.serializedSizeInBytes();
-    byte[] buf = new byte[1 + size];
+    final int size = (int) bitmap.serializedSizeInBytes();
+    final byte[] buf = new byte[1 + size];
     buf[0] = ROARING_FORMAT;
     try {
       bitmap.serialize(ByteBuffer.wrap(buf, 1, size));
     } catch (java.io.IOException e) {
-      throw new RuntimeException("Failed to serialize Roaring64Bitmap", e);
+      throw new IllegalStateException("Unexpected I/O error during in-memory Roaring64Bitmap serialization", e);
     }
     return buf;
   }
 
   private static int serializeRoaring(Roaring64Bitmap bitmap, byte[] dest, int offset) {
     dest[offset] = ROARING_FORMAT;
-    int size = (int) bitmap.serializedSizeInBytes();
+    final int size = (int) bitmap.serializedSizeInBytes();
     try {
       bitmap.serialize(ByteBuffer.wrap(dest, offset + 1, size));
     } catch (java.io.IOException e) {
-      throw new RuntimeException("Failed to serialize Roaring64Bitmap", e);
+      throw new IllegalStateException("Unexpected I/O error during in-memory Roaring64Bitmap serialization", e);
     }
     return 1 + size;
   }
@@ -257,12 +271,21 @@ public final class NodeReferencesSerializer {
       return new NodeReferences();
     }
 
-    int count = bytes[offset] & 0xFF;
-    Roaring64Bitmap bitmap = new Roaring64Bitmap();
+    final int count = bytes[offset] & 0xFF;
+
+    // Validate that count entries fit within the available bytes
+    final int requiredBytes = 1 + count * 8;
+    if (requiredBytes > length) {
+      throw new IllegalArgumentException(
+          "Packed count " + count + " requires " + requiredBytes
+              + " bytes but only " + length + " available");
+    }
+
+    final Roaring64Bitmap bitmap = new Roaring64Bitmap();
 
     int pos = offset + 1;
     for (int i = 0; i < count; i++) {
-      long key = ((long) (bytes[pos] & 0xFF) << 56) | ((long) (bytes[pos + 1] & 0xFF) << 48)
+      final long key = ((long) (bytes[pos] & 0xFF) << 56) | ((long) (bytes[pos + 1] & 0xFF) << 48)
           | ((long) (bytes[pos + 2] & 0xFF) << 40) | ((long) (bytes[pos + 3] & 0xFF) << 32)
           | ((long) (bytes[pos + 4] & 0xFF) << 24) | ((long) (bytes[pos + 5] & 0xFF) << 16)
           | ((long) (bytes[pos + 6] & 0xFF) << 8) | ((long) (bytes[pos + 7] & 0xFF));
@@ -274,11 +297,11 @@ public final class NodeReferencesSerializer {
   }
 
   private static NodeReferences deserializeRoaring(byte[] bytes, int offset, int length) {
-    Roaring64Bitmap bitmap = new Roaring64Bitmap();
+    final Roaring64Bitmap bitmap = new Roaring64Bitmap();
     try {
       bitmap.deserialize(ByteBuffer.wrap(bytes, offset, length));
     } catch (java.io.IOException e) {
-      throw new RuntimeException("Failed to deserialize Roaring64Bitmap", e);
+      throw new IllegalStateException("Unexpected I/O error during in-memory Roaring64Bitmap deserialization", e);
     }
     return new NodeReferences(bitmap);
   }
