@@ -34,6 +34,8 @@ dependencies {
     implementation implLibraries.vertxConfig
     implementation implLibraries.vertxLauncher
     implementation implLibraries.kotlinStdlibJdk8
+    implementation implLibraries.micrometerCore
+    implementation implLibraries.micrometerRegistryPrometheus
     testImplementation testLibraries.kotlinTestJunit
     testImplementation testLibraries.junit
     testImplementation testLibraries.junitJupiterApi
