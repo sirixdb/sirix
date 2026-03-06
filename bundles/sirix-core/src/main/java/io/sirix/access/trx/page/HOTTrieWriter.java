@@ -87,26 +87,12 @@ import java.util.Objects;
  */
 public final class HOTTrieWriter {
 
-  /**
-   * Maximum tree height for pre-allocated path traversal arrays.
-   *
-   * <p>With minimum fanout of 2 (BiNode): max height = log2(2^63) ~ 63.
-   * With typical fanout of 16+ (SpanNode/MultiNode): height ~ 13.
-   * We use 64 as a generous safety margin. Exceeding this limit indicates
-   * a bug in split/merge logic or index corruption.</p>
-   */
+  /** Maximum tree height - increased to handle unbalanced trees during inserts. */
   private static final int MAX_TREE_HEIGHT = 64;
 
   /** Memory segment allocator. */
   @SuppressWarnings("unused")
   private final MemorySegmentAllocator allocator;
-
-  /**
-   * Transaction intent log for the current split operation. Set at entry points
-   * ({@link #handleLeafSplitWithPath}) and used by helper methods to resolve pages
-   * that are in the TIL but not swizzled onto their PageReference.
-   */
-  private TransactionIntentLog currentLog;
 
   /** Persistent page key allocator — replaces the old hardcoded nextPageKey counter. */
   private final LongSupplier pageKeyAllocator;
@@ -481,9 +467,6 @@ public final class HOTTrieWriter {
     Objects.requireNonNull(leafRef);
     Objects.requireNonNull(rootReference);
 
-    // Store log for helper methods that need to resolve pages from TIL
-    this.currentLog = log;
-
     // Check if page can be split
     if (!fullPage.canSplit()) {
       // Try compacting the page first to free fragmented space
@@ -505,10 +488,11 @@ public final class HOTTrieWriter {
 
     // Create new HOTLeafPage with off-heap segment
     HOTLeafPage rightPage = new HOTLeafPage(newPageKey, storageEngineReader.getRevisionNumber(), fullPage.getIndexType());
+
+    // Use HeightOptimalSplitter for proper height-optimal splitting
     boolean rightPageOwnershipTransferred = false;
 
     try {
-      // Use HeightOptimalSplitter for proper height-optimal splitting
       HeightOptimalSplitter.SplitResult splitResult =
           HeightOptimalSplitter.splitLeafPage(fullPage, rightPage, newRootPageKey, storageEngineReader.getRevisionNumber());
 
@@ -535,7 +519,12 @@ public final class HOTTrieWriter {
       log.put(rightRef, PageContainer.getInstance(rightPage, rightPage));
       rightPageOwnershipTransferred = true;
 
-      // Update the original leaf page reference in the log
+      // Swizzle the post-split left-half page onto leafRef so that
+      // getLastKeyFromChild(leafRef) in updateParentForSplitWithPath sees the
+      // correct boundary key. Without this, leafRef.getPage() returns the
+      // pre-COW original (with ALL entries, including those now in rightPage),
+      // producing wrong discriminative bits and a corrupt tree.
+      leafRef.setPage(fullPage);
       log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
 
       // Now we need to update the parent structure
@@ -597,11 +586,6 @@ public final class HOTTrieWriter {
     // Compute discriminative bit between the two split children
     byte[] leftMax = getLastKeyFromChild(leftChild);
     byte[] rightMin = getFirstKeyFromChild(rightChild);
-    if (leftMax.length == 0 || rightMin.length == 0) {
-      throw new IllegalStateException(
-          "Cannot compute discriminative bit with empty keys: leftMax.length="
-              + leftMax.length + ", rightMin.length=" + rightMin.length);
-    }
     int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
 
     // Compute the height of the split entries (BiNode containing the split children)
@@ -647,10 +631,10 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Get height from a child reference. Checks swizzled page and TIL.
+   * Get height from a child reference.
    */
   private int getHeightFromChild(PageReference childRef) {
-    final Page page = resolvePageFromRef(childRef);
+    final Page page = childRef.getPage();
     if (page instanceof HOTLeafPage) {
       return 0;
     } else if (page instanceof HOTIndirectPage indirect) {
@@ -942,11 +926,6 @@ public final class HOTTrieWriter {
     } else {
       byte[] lMax = getLastKeyFromChild(leftNodeRef);
       byte[] rMin = getFirstKeyFromChild(rightNodeRef);
-      if (lMax.length == 0 || rMin.length == 0) {
-        throw new IllegalStateException(
-            "Cannot compute root discriminative bit with empty keys: lMax.length="
-                + lMax.length + ", rMin.length=" + rMin.length);
-      }
       int rootDiscrimBit = DiscriminativeBitComputer.computeDifferingBit(lMax, rMin);
 
       long newRootKey = pageKeyAllocator.getAsLong();
@@ -963,20 +942,11 @@ public final class HOTTrieWriter {
    * Create appropriate node type for given children array.
    */
   private HOTIndirectPage createNodeFromChildren(PageReference[] children, long pageKey, int revision, int height) {
-    if (children == null || children.length == 0) {
-      throw new IllegalArgumentException("Children array must not be null or empty");
-    }
     if (children.length <= 2) {
       byte[] leftMax = getLastKeyFromChild(children[0]);
       byte[] rightMin = children.length > 1
           ? getFirstKeyFromChild(children[1])
           : leftMax;
-      if (leftMax.length == 0 || rightMin.length == 0) {
-        throw new IllegalStateException(
-            "Cannot create node with empty keys: leftMax.length=" + leftMax.length
-                + ", rightMin.length=" + rightMin.length
-                + ". Empty leaf pages must not be used as children.");
-      }
       int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
       return HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit, children[0], children.length > 1
           ? children[1]
@@ -1016,29 +986,10 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Resolve a page from a reference, checking swizzled page first, then the TIL.
-   */
-  private @Nullable Page resolvePageFromRef(PageReference ref) {
-    final Page swizzled = ref.getPage();
-    if (swizzled != null) {
-      return swizzled;
-    }
-    if (currentLog != null) {
-      final PageContainer container = currentLog.get(ref);
-      if (container != null) {
-        final Page modified = container.getModified();
-        return modified != null ? modified : container.getComplete();
-      }
-    }
-    return null;
-  }
-
-  /**
    * Get the last key from a child reference (leaf or indirect page).
-   * Checks both swizzled page and TIL for page resolution.
    */
   private byte[] getLastKeyFromChild(PageReference childRef) {
-    final Page page = resolvePageFromRef(childRef);
+    final Page page = childRef.getPage();
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getLastKey();
     } else if (page instanceof HOTIndirectPage indirect) {
@@ -1056,7 +1007,7 @@ public final class HOTTrieWriter {
       return new byte[0];
     }
     final PageReference lastChild = indirect.getChildReference(numChildren - 1);
-    final Page page = resolvePageFromRef(lastChild);
+    final Page page = lastChild.getPage();
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getLastKey();
     } else if (page instanceof HOTIndirectPage child) {
@@ -1067,10 +1018,9 @@ public final class HOTTrieWriter {
 
   /**
    * Get the first key from a child reference (leaf or indirect page).
-   * Checks both swizzled page and TIL for page resolution.
    */
   private byte[] getFirstKeyFromChild(PageReference childRef) {
-    final Page page = resolvePageFromRef(childRef);
+    final Page page = childRef.getPage();
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getFirstKey();
     } else if (page instanceof HOTIndirectPage indirect) {
@@ -1088,7 +1038,7 @@ public final class HOTTrieWriter {
       return new byte[0];
     }
     final PageReference firstChild = indirect.getChildReference(0);
-    final Page page = resolvePageFromRef(firstChild);
+    final Page page = firstChild.getPage();
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getFirstKey();
     } else if (page instanceof HOTIndirectPage child) {
