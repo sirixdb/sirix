@@ -4,13 +4,15 @@ import io.vertx.core.Context
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
+import io.vertx.ext.auth.authorization.RoleBasedAuthorization
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
 import io.sirix.access.Databases
 import io.sirix.api.Database
-import io.sirix.api.json.JsonResourceSession
+import io.sirix.rest.Auth
+import io.sirix.rest.AuthRole
 import io.sirix.rest.crud.json.JsonGet
 import io.sirix.rest.crud.xml.XmlGet
 import io.sirix.service.json.serialize.StringValue
@@ -120,11 +122,11 @@ class GetHandler(
             }
         } else if (databaseName != null && resourceName == null) {
             val databasePath = location.resolve(databaseName)
-            // Check if database exists first
             if (!Databases.existsDatabase(databasePath)) {
                 ctx.response().setStatusCode(404).end()
                 return ctx.currentRoute()
             }
+            Auth.checkIfAuthorized(ctx.get<User>("user"), databaseName, AuthRole.VIEW, authz)
             val buffer = StringBuilder()
             buffer.append("{")
             val databaseType = Databases.getDatabaseType(databasePath.toAbsolutePath()).stringType
@@ -156,6 +158,9 @@ class GetHandler(
     }
 
     private suspend fun listDatabases(ctx: RoutingContext, context: Context) {
+        val user = ctx.get<User>("user")
+        val hasGlobalView = RoleBasedAuthorization.create(AuthRole.VIEW.keycloakRole()).match(user)
+
         context.executeBlocking {
             val databases = Files.list(location)
 
@@ -168,7 +173,14 @@ class GetHandler(
                 val databaseDirectories =
                     databasesList.filter { database -> Files.isDirectory(database) }.toList()
 
-                for ((index, database) in databaseDirectories.withIndex()) {
+                // Filter databases by user's per-database or global permissions
+                val accessibleDatabases = databaseDirectories.filter { database ->
+                    hasGlobalView || RoleBasedAuthorization.create(
+                        AuthRole.VIEW.databaseRole(database.fileName.toString())
+                    ).match(user)
+                }
+
+                for ((index, database) in accessibleDatabases.withIndex()) {
                     val databaseName = database.fileName
                     val databaseType = Databases.getDatabaseType(database.toAbsolutePath()).stringType
                     buffer.append(
@@ -186,7 +198,7 @@ class GetHandler(
                     }
                     buffer.append("}")
 
-                    if (index != databaseDirectories.size - 1)
+                    if (index != accessibleDatabases.size - 1)
                         buffer.append(",")
                 }
             }

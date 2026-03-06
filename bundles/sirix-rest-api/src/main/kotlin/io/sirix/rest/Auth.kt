@@ -5,31 +5,28 @@ import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authentication.TokenCredentials
 import io.vertx.ext.auth.authorization.AuthorizationProvider
-import io.vertx.ext.auth.authorization.PermissionBasedAuthorization
 import io.vertx.ext.auth.authorization.RoleBasedAuthorization
 import io.vertx.ext.auth.oauth2.OAuth2Auth
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
+import io.vertx.ext.web.handler.HttpException
 import io.vertx.kotlin.coroutines.coAwait
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.DelicateCoroutinesApi
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
 
 /**
- * Authentication.
+ * Authentication and authorization handler.
  */
-class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider, private val role: io.sirix.rest.AuthRole) {
+class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationProvider, private val role: AuthRole) {
+
     suspend fun handle(ctx: RoutingContext): Route {
         ctx.request().pause()
         val token = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString())
 
-        if (token == null) {
+        if (token == null || !token.regionMatches(0, BEARER_PREFIX, 0, BEARER_PREFIX.length, ignoreCase = true)) {
             ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
             return ctx.currentRoute()
         }
 
-        val credentials = TokenCredentials(token.substring(7))
+        val credentials = TokenCredentials(token.substring(BEARER_PREFIX.length))
         val user = keycloak.authenticate(credentials).coAwait()
         val database = ctx.pathParam("database")
 
@@ -43,7 +40,7 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
             }
 
         if (!isAuthorized && !RoleBasedAuthorization.create(role.keycloakRole()).match(user)) {
-            ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
+            ctx.fail(HttpResponseStatus.FORBIDDEN.code())
             return ctx.currentRoute()
         }
 
@@ -54,15 +51,18 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
     }
 
     companion object {
-        @OptIn(DelicateCoroutinesApi::class)
-        fun checkIfAuthorized(user: User, dispatcher: CoroutineDispatcher, name: String, role: io.sirix.rest.AuthRole, authz: AuthorizationProvider) {
-            GlobalScope.launch(dispatcher) {
-                authz.getAuthorizations(user).coAwait()
-                val isAuthorized = PermissionBasedAuthorization.create(role.databaseRole(name)).match(user)
+        private const val BEARER_PREFIX = "Bearer "
 
-                require(isAuthorized || RoleBasedAuthorization.create(role.keycloakRole()).match(user)) {
-                    "${HttpResponseStatus.UNAUTHORIZED.code()}: User is not allowed to $role the database $name"
-                }
+        /**
+         * Checks if the user is authorized for the given role on the named database.
+         * This is a synchronous, blocking check — must be called from a blocking context.
+         * Throws [HttpException] with 403 if not authorized.
+         */
+        fun checkIfAuthorized(user: User, name: String, role: AuthRole, authz: AuthorizationProvider) {
+            val isAuthorized = RoleBasedAuthorization.create(role.databaseRole(name)).match(user)
+
+            if (!isAuthorized && !RoleBasedAuthorization.create(role.keycloakRole()).match(user)) {
+                throw HttpException(HttpResponseStatus.FORBIDDEN.code(), "Not authorized")
             }
         }
     }
