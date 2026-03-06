@@ -1713,47 +1713,49 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // Load from storage with proper versioning fragment combining
     if (rootRef.getKey() >= 0) {
       try {
-        return loadHOTLeafPageWithVersioning(rootRef);
+        final Page loadedPage = pageReader.read(rootRef, resourceConfig);
+        if (loadedPage instanceof HOTLeafPage hotLeaf) {
+          return loadHOTLeafPageWithVersioning(rootRef, hotLeaf);
+        }
+        return null;
       } catch (SirixIOException e) {
         // Page doesn't exist or couldn't be loaded
         return null;
       }
     }
-    
+
     return null;
   }
   
   /**
    * Load a HOTLeafPage from storage with proper versioning fragment combining.
-   * 
-   * <p>For FULL versioning, loads a single complete page.
-   * For INCREMENTAL/DIFFERENTIAL/SLIDING_SNAPSHOT, loads all fragments and combines them.</p>
+   *
+   * <p>For FULL versioning, the already-loaded page is complete — no additional I/O needed.
+   * For INCREMENTAL/DIFFERENTIAL/SLIDING_SNAPSHOT, loads additional fragments and combines.</p>
    *
    * @param pageRef the page reference
+   * @param firstPage the already-loaded first page (avoids redundant SSD read)
    * @return the combined HOTLeafPage, or null if not found
    */
-  private @Nullable HOTLeafPage loadHOTLeafPageWithVersioning(PageReference pageRef) {
+  private @Nullable HOTLeafPage loadHOTLeafPageWithVersioning(PageReference pageRef, HOTLeafPage firstPage) {
     final VersioningType versioningType = resourceConfig.versioningType;
     final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
-    
-    // FULL versioning fast path: Page on disk IS complete - load directly
+
+    // FULL versioning fast path: the already-loaded page IS complete — zero additional I/O
     if (versioningType == VersioningType.FULL) {
-      Page loadedPage = pageReader.read(pageRef, resourceConfig);
-        if (loadedPage instanceof HOTLeafPage hotLeaf) {
-        pageRef.setPage(hotLeaf);
-          return hotLeaf;
-      }
-      return null;
+      pageRef.setPage(firstPage);
+      return firstPage;
     }
-    
-    // Other versioning types: load fragments and combine
-    List<HOTLeafPage> fragments = loadHOTPageFragments(pageRef);
+
+    // Other versioning types: load additional fragments and combine.
+    // Start with the already-loaded first page to avoid re-reading it from SSD.
+    final List<HOTLeafPage> fragments = loadHOTPageFragments(pageRef, firstPage);
     if (fragments.isEmpty()) {
       return null;
     }
-    
+
     // Combine fragments using VersioningType
-    HOTLeafPage combinedPage = versioningType.combineHOTLeafPages(fragments, revsToRestore, this);
+    final HOTLeafPage combinedPage = versioningType.combineHOTLeafPages(fragments, revsToRestore, this);
     pageRef.setPage(combinedPage);
     return combinedPage;
   }
@@ -1761,40 +1763,38 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   /**
    * Load all HOTLeafPage fragments for versioning reconstruction.
    *
+   * <p>Accepts the already-loaded first page to eliminate a redundant SSD read.
+   * Additional fragments are loaded sequentially from the versioning chain.</p>
+   *
    * @param pageRef the page reference to the most recent fragment
+   * @param firstPage the already-loaded most recent fragment
    * @return list of HOTLeafPage fragments (newest first)
    */
-  private List<HOTLeafPage> loadHOTPageFragments(PageReference pageRef) {
+  private List<HOTLeafPage> loadHOTPageFragments(PageReference pageRef, HOTLeafPage firstPage) {
     final List<HOTLeafPage> fragments = new ArrayList<>();
-    
-    // Load the first (most recent) fragment
-    Page firstPage = pageReader.read(pageRef, resourceConfig);
-    if (!(firstPage instanceof HOTLeafPage hotLeaf)) {
-      return fragments;
-    }
-    fragments.add(hotLeaf);
-    
-    // Check if this is already a complete page (for FULL versioning) or no fragments
-    List<PageFragmentKey> pageFragments = pageRef.getPageFragments();
+    fragments.add(firstPage);
+
+    // Check if there are additional fragments to load
+    final List<PageFragmentKey> pageFragments = pageRef.getPageFragments();
     if (pageFragments.isEmpty()) {
       return fragments;
     }
-    
+
     // Load additional fragments from the versioning chain
     // Note: Fragment keys don't include hashes - only the first fragment can be verified
     // Future improvement: Store fragment hashes in PageFragmentKey for complete verification
     for (PageFragmentKey fragmentKey : pageFragments) {
-      PageReference fragmentRef = new PageReference()
+      final PageReference fragmentRef = new PageReference()
           .setKey(fragmentKey.key())
           .setDatabaseId(databaseId)
           .setResourceId(resourceId);
-      
-      Page fragmentPage = pageReader.read(fragmentRef, resourceConfig);
+
+      final Page fragmentPage = pageReader.read(fragmentRef, resourceConfig);
       if (fragmentPage instanceof HOTLeafPage hotFragment) {
         fragments.add(hotFragment);
       }
     }
-    
+
     return fragments;
   }
   
@@ -1843,17 +1843,19 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (reference.getKey() >= 0) {
       try {
         // First load the page to determine its type
-        Page loadedPage = pageReader.read(reference, resourceConfig);
+        final Page loadedPage = pageReader.read(reference, resourceConfig);
 
         if (loadedPage instanceof HOTIndirectPage) {
-          // HOTIndirectPage doesn't need versioning combining - it's stored complete
+          // HOTIndirectPage doesn't need versioning combining - it's stored complete.
+          // Swizzle onto reference so future traversals skip I/O.
           reference.setPage(loadedPage);
           return loadedPage;
         }
-        
-        if (loadedPage instanceof HOTLeafPage) {
-          // HOTLeafPage needs proper versioning fragment combining
-          HOTLeafPage combinedPage = loadHOTLeafPageWithVersioning(reference);
+
+        if (loadedPage instanceof HOTLeafPage hotLeaf) {
+          // HOTLeafPage may need versioning fragment combining.
+          // Pass the already-loaded first page to avoid a redundant SSD read.
+          final HOTLeafPage combinedPage = loadHOTLeafPageWithVersioning(reference, hotLeaf);
           return combinedPage;
         }
       } catch (SirixIOException e) {
@@ -1861,7 +1863,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         return null;
       }
     }
-    
+
     return null;
   }
 }
