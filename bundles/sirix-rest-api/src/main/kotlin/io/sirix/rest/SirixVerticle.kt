@@ -31,7 +31,12 @@ import kotlin.coroutines.cancellation.CancellationException
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2OptionsOf
 import kotlinx.coroutines.launch
 import org.apache.http.HttpStatus
-import io.sirix.rest.crud.*
+import io.sirix.rest.crud.CreateMultipleResources
+import io.sirix.rest.crud.DeleteHandler
+import io.sirix.rest.crud.DiffHandler
+import io.sirix.rest.crud.GetHandler
+import io.sirix.rest.crud.HistoryHandler
+import io.sirix.rest.crud.PathSummaryHandler
 import io.sirix.rest.crud.json.JsonCreate
 import org.slf4j.LoggerFactory
 import io.sirix.rest.crud.json.JsonHead
@@ -39,9 +44,6 @@ import io.sirix.rest.crud.json.JsonUpdate
 import io.sirix.rest.crud.xml.XmlCreate
 import io.sirix.rest.crud.xml.XmlHead
 import io.sirix.rest.crud.xml.XmlUpdate
-import java.io.ByteArrayOutputStream
-import java.io.PrintWriter
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
@@ -156,6 +158,26 @@ class SirixVerticle : CoroutineVerticle() {
                     config.getBoolean("cors.allowCredentials", false)
                 )
         )
+
+        // Security headers
+        this.route().handler { ctx ->
+            ctx.response()
+                .putHeader("X-Content-Type-Options", "nosniff")
+                .putHeader("X-Frame-Options", "DENY")
+                .putHeader("X-XSS-Protection", "0")
+                .putHeader("Cache-Control", "no-store")
+                .putHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+                .putHeader("Referrer-Policy", "strict-origin-when-cross-origin")
+                .putHeader("Permissions-Policy", "geolocation=(), camera=(), microphone=()")
+            ctx.next()
+        }
+
+        // Health check endpoint (unauthenticated, for orchestration probes)
+        get("/health").handler { ctx ->
+            ctx.response()
+                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                .end("""{"status":"UP"}""")
+        }
 
         get("/user/authorize").coroutineHandler { rc ->
             if (oAuth2FlowType != OAuth2FlowType.AUTH_CODE) {
@@ -383,7 +405,7 @@ class SirixVerticle : CoroutineVerticle() {
             val failure = failureRoutingContext.failure()
             val request = failureRoutingContext.request()
 
-            // Log the exception - use DEBUG for cancellation (expected during shutdown)
+            // Log full details server-side (stack traces never sent to client)
             if (failure != null) {
                 if (failure is CancellationException) {
                     logger.debug(
@@ -410,30 +432,24 @@ class SirixVerticle : CoroutineVerticle() {
                 )
             }
 
-            val out = ByteArrayOutputStream()
-            val printWriter = PrintWriter(out)
-
-            printWriter.use {
-                failure?.printStackTrace(printWriter)
-                printWriter.flush()
-
-                if (statusCode == -1) {
-                    if (failure is HttpException) {
-                        response(
-                            failureRoutingContext.response(),
-                            failure.statusCode,
-                            out.toString(StandardCharsets.UTF_8)
-                        )
-                    } else {
-                        response(
-                            failureRoutingContext.response(), HttpResponseStatus.INTERNAL_SERVER_ERROR.code(),
-                            out.toString(StandardCharsets.UTF_8)
-                        )
-                    }
-                } else {
-                    response(failureRoutingContext.response(), statusCode, out.toString(StandardCharsets.UTF_8))
-                }
+            val resolvedStatus = when {
+                statusCode > 0 -> statusCode
+                failure is HttpException -> failure.statusCode
+                else -> HttpResponseStatus.INTERNAL_SERVER_ERROR.code()
             }
+
+            // Return a safe error message without internal details
+            val safeMessage = when {
+                failure is HttpException && failure.payload != null -> failure.payload
+                failure is IllegalArgumentException -> failure.message ?: "Bad request"
+                resolvedStatus == 404 -> "Not found"
+                resolvedStatus == 401 -> "Unauthorized"
+                resolvedStatus == 403 -> "Forbidden"
+                resolvedStatus in 400..499 -> failure?.message ?: "Bad request"
+                else -> "Internal server error"
+            }
+
+            response(failureRoutingContext.response(), resolvedStatus, safeMessage)
         }
     }
 
@@ -484,16 +500,15 @@ class SirixVerticle : CoroutineVerticle() {
         }
     }
 
-    private fun response(response: HttpServerResponse, statusCode: Int, failureMessage: String?) {
+    private fun response(response: HttpServerResponse, statusCode: Int, message: String?) {
         if (response.ended() || response.headWritten()) {
-            // Response has already been sent, cannot modify headers/status code
             return
         }
         response.setStatusCode(statusCode)
-        if (failureMessage.isNullOrEmpty())
-            response.end("Exception occured (statusCode: $statusCode)")
-        else
-            response.end("Exception occured (statusCode: $statusCode) -- $failureMessage")
+            .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+        val safeMessage = message ?: "An error occurred"
+        val escapedMessage = safeMessage.replace("\\", "\\\\").replace("\"", "\\\"")
+        response.end("""{"statusCode":$statusCode,"message":"$escapedMessage"}""")
     }
 
     /**
