@@ -3,16 +3,22 @@ package io.sirix.rest.crud
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import io.vertx.core.http.HttpHeaders
+import io.vertx.ext.auth.User
+import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
 import io.sirix.access.DatabaseType
-import io.sirix.access.Databases.*
+import io.sirix.access.Databases.getDatabaseType
+import io.sirix.access.Databases.openJsonDatabase
+import io.sirix.access.Databases.openXmlDatabase
 import io.sirix.access.DatabasesInternals
 import io.sirix.access.ResourceConfiguration
 import io.sirix.api.Database
 import io.sirix.api.json.JsonNodeReadOnlyTrx
 import io.sirix.api.json.JsonResourceSession
+import io.sirix.rest.Auth
+import io.sirix.rest.AuthRole
 import io.sirix.service.json.BasicJsonDiff
 import io.sirix.utils.LogWrapper
 import org.slf4j.LoggerFactory
@@ -26,7 +32,7 @@ import java.nio.file.Path
 private val logger =
     LogWrapper(LoggerFactory.getLogger(DiffHandler::class.java))
 
-class DiffHandler(private val location: Path) {
+class DiffHandler(private val location: Path, private val authz: AuthorizationProvider) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
         val databaseName = ctx.pathParam("database")
@@ -36,8 +42,11 @@ class DiffHandler(private val location: Path) {
             throw IllegalArgumentException("Database name and resource name must be in the URL path.")
         }
 
+        val user = ctx.get<User>("user")
+        Auth.checkIfAuthorized(user, databaseName, AuthRole.VIEW, authz)
+
         logger.debug("Open databases before: ${DatabasesInternals.getOpenDatabases()}")
-        
+
         val database = openDatabase(databaseName)
 
         val diff = context.executeBlocking {

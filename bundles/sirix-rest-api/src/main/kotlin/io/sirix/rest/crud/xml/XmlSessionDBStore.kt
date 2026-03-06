@@ -6,7 +6,6 @@ import io.sirix.rest.AuthRole
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.RoutingContext
-import io.vertx.kotlin.coroutines.dispatcher
 import io.brackit.query.jdm.Stream
 import io.brackit.query.node.parser.NodeSubtreeParser
 import java.time.Instant
@@ -18,19 +17,19 @@ class XmlSessionDBStore(
     private val authz: AuthorizationProvider
 ) : XmlDBStore by dbStore {
     override fun lookup(name: String): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), name, AuthRole.VIEW, authz)
+        io.sirix.rest.Auth.checkIfAuthorized(user, name, AuthRole.VIEW, authz)
 
         return dbStore.lookup(name)
     }
 
     override fun create(name: String): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), name, AuthRole.CREATE, authz)
+        io.sirix.rest.Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
         return dbStore.create(name)
     }
 
     override fun create(name: String, parser: NodeSubtreeParser): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), name, AuthRole.CREATE, authz)
+        io.sirix.rest.Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
         return dbStore.create(name, parser)
     }
@@ -41,19 +40,19 @@ class XmlSessionDBStore(
         commitMessage: String?,
         commitTimestamp: Instant?
     ): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), name, AuthRole.CREATE, authz)
+        io.sirix.rest.Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
         return dbStore.create(name, parser, commitMessage, commitTimestamp)
     }
 
     override fun create(name: String, parsers: Stream<NodeSubtreeParser>): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), name, AuthRole.CREATE, authz)
+        io.sirix.rest.Auth.checkIfAuthorized(user, name, AuthRole.CREATE, authz)
 
         return dbStore.create(name, parsers)
     }
 
     override fun create(dbName: String, resourceName: String, parsers: NodeSubtreeParser): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), dbName, AuthRole.CREATE, authz)
+        io.sirix.rest.Auth.checkIfAuthorized(user, dbName, AuthRole.CREATE, authz)
 
         return dbStore.create(dbName, resourceName, parsers)
     }
@@ -62,13 +61,13 @@ class XmlSessionDBStore(
         dbName: String, resourceName: String, parser: NodeSubtreeParser, commitMessage: String?,
         commitTimestamp: Instant?
     ): XmlDBCollection {
-        io.sirix.rest.Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), dbName, AuthRole.CREATE, authz)
+        io.sirix.rest.Auth.checkIfAuthorized(user, dbName, AuthRole.CREATE, authz)
 
         return dbStore.create(dbName, resourceName, parser, commitMessage, commitTimestamp)
     }
 
     override fun drop(name: String) {
-        io.sirix.rest.Auth.checkIfAuthorized(user, ctx.vertx().dispatcher(), name, AuthRole.DELETE, authz)
+        io.sirix.rest.Auth.checkIfAuthorized(user, name, AuthRole.DELETE, authz)
 
         return dbStore.drop(name)
     }

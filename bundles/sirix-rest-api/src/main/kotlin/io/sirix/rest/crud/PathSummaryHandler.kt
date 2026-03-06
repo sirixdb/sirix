@@ -1,21 +1,30 @@
 package io.sirix.rest.crud
 
 import io.vertx.core.http.HttpHeaders
+import io.vertx.ext.auth.User
+import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.web.Route
 import io.vertx.ext.web.RoutingContext
 import io.vertx.kotlin.coroutines.coAwait
 import io.sirix.access.DatabaseType
-import io.sirix.access.Databases.*
+import io.sirix.access.Databases.getDatabaseType
+import io.sirix.access.Databases.openJsonDatabase
+import io.sirix.access.Databases.openXmlDatabase
 import io.sirix.api.Database
 import io.sirix.axis.DescendantAxis
+import io.sirix.rest.Auth
+import io.sirix.rest.AuthRole
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
 
-class PathSummaryHandler(private val location: Path) {
+class PathSummaryHandler(private val location: Path, private val authz: AuthorizationProvider) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
         val databaseName = ctx.pathParam("database")
         val resourceName = ctx.pathParam("resource")
+
+        val user = ctx.get<User>("user")
+        Auth.checkIfAuthorized(user, databaseName, AuthRole.VIEW, authz)
 
         @Suppress("WHEN_ENUM_CAN_BE_NULL_IN_JAVA") val database: Database<*> =
             when (getDatabaseType(location.resolve(databaseName).toAbsolutePath())) {
