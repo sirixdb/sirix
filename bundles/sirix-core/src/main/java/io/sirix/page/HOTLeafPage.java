@@ -534,10 +534,27 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   // ===== Delete operations =====
 
   /**
-   * Delete an entry by key.
+   * Tombstone value: single byte 0xFE indicating a logically deleted entry.
+   *
+   * <p>Tombstones are required for correctness with INCREMENTAL and DIFFERENTIAL
+   * versioning: if an entry were physically removed, older fragments would still
+   * contain the key and {@code combineHOTLeafPages} would resurrect it. By keeping
+   * the key with a tombstone value, the newer fragment "shadows" the older entry
+   * and versioning reconstruction correctly skips it.</p>
+   */
+  private static final byte[] TOMBSTONE_VALUE = {(byte) 0xFE};
+
+  /**
+   * Delete an entry by key (tombstone-based).
+   *
+   * <p>Replaces the value with a tombstone marker ({@code 0xFE}) rather than
+   * physically removing the entry. This is essential for versioning correctness:
+   * INCREMENTAL and DIFFERENTIAL modes reconstruct pages by merging fragments
+   * from newest to oldest. If an entry were physically removed, the older
+   * fragment's copy would be resurrected during reconstruction.</p>
    *
    * @param key the key to delete
-   * @return true if entry was found and deleted, false if not found
+   * @return true if entry was found and tombstoned, false if not found or already tombstoned
    */
   public boolean delete(byte[] key) {
     Objects.requireNonNull(key);
@@ -549,34 +566,29 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Delete entry at the given index.
+   * Delete entry at the given index (tombstone-based).
    *
-   * <p>Removes the entry from the slot offsets array and decrements entryCount.
-   * The raw bytes in slotMemory are left as dead space (reclaimed by {@link #compact()}).
-   * This avoids expensive memmove of off-heap data on every delete.</p>
+   * <p>Replaces the value with a tombstone marker rather than physically removing
+   * the entry. See {@link #delete(byte[])} for the rationale.</p>
    *
    * @param index the entry index to delete
-   * @return true if deletion was successful
+   * @return true if the entry was tombstoned, false if index is invalid or already a tombstone
    */
   public boolean deleteAt(int index) {
     if (index < 0 || index >= entryCount) {
       return false;
     }
 
-    // Shift slot offsets down to fill the gap
-    final int remaining = entryCount - index - 1;
-    if (remaining > 0) {
-      System.arraycopy(slotOffsets, index + 1, slotOffsets, index, remaining);
+    // Check if already tombstoned
+    final byte[] currentValue = getValue(index);
+    if (NodeReferencesSerializer.isTombstone(currentValue, 0, currentValue.length)) {
+      return false;
     }
 
-    // Clear the last slot offset
-    slotOffsets[entryCount - 1] = 0;
-    entryCount--;
-
-    // Note: slotMemory is NOT compacted here — dead space is reclaimed lazily
-    // by compact(). This keeps delete O(n) in slot shifts only, not O(n) in
-    // off-heap memory copies.
-    return true;
+    // Write tombstone value instead of physically removing the entry.
+    // The key remains in the page so versioning reconstruction sees it and
+    // does not resurrect the entry from older fragments.
+    return updateValue(index, TOMBSTONE_VALUE);
   }
 
   // ===== Merge, Update, and Copy operations for HOT index =====

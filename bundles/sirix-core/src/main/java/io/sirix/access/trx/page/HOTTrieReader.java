@@ -237,10 +237,8 @@ public final class HOTTrieReader implements AutoCloseable {
         return null;
       }
 
-      // SSD prefetch: eagerly trigger load of the next sibling's page.
-      // During range scans, we'll advance to this sibling after finishing the current subtree.
-      // By warming it into the buffer cache / swizzle now, we overlap SSD latency (~100us)
-      // with the CPU work of searching the current subtree.
+      // Async SSD prefetch: fire-and-forget load of the next sibling's page on a virtual thread.
+      // Overlaps SSD I/O with the CPU work of descending into the current subtree.
       final int nextSibling = childIndex + 1;
       if (nextSibling < hotNode.getNumChildren()) {
         final PageReference siblingRef = hotNode.getChildReference(nextSibling);
@@ -287,8 +285,7 @@ public final class HOTTrieReader implements AutoCloseable {
         return null;
       }
 
-      // SSD prefetch: warm the second child (next sibling) into cache.
-      // Range scans starting at the leftmost leaf will advance to this sibling next.
+      // Async SSD prefetch: fire-and-forget load of second child on a virtual thread.
       if (hotNode.getNumChildren() > 1) {
         final PageReference siblingRef = hotNode.getChildReference(1);
         if (siblingRef != null && siblingRef.getPage() == null && siblingRef.getKey() >= 0) {
@@ -323,8 +320,7 @@ public final class HOTTrieReader implements AutoCloseable {
 
         final PageReference nextChildRef = parent.getChildReference(nextChildIdx);
         if (nextChildRef != null) {
-          // SSD prefetch: warm the sibling after the next one into cache.
-          // This overlaps SSD I/O with the descent into nextChildRef's subtree.
+          // Async SSD prefetch: fire-and-forget load of next-next sibling on a virtual thread.
           final int prefetchIdx = nextChildIdx + 1;
           if (prefetchIdx < numChildren) {
             final PageReference prefetchRef = parent.getChildReference(prefetchIdx);
@@ -376,7 +372,7 @@ public final class HOTTrieReader implements AutoCloseable {
         return null;
       }
 
-      // SSD prefetch: warm next sibling during descent for sequential scan readahead
+      // Async SSD prefetch: fire-and-forget load of next sibling on a virtual thread
       if (hotNode.getNumChildren() > 1) {
         final PageReference siblingRef = hotNode.getChildReference(1);
         if (siblingRef != null && siblingRef.getPage() == null && siblingRef.getKey() >= 0) {
@@ -460,24 +456,26 @@ public final class HOTTrieReader implements AutoCloseable {
   }
 
   /**
-   * Prefetch a page into swizzled state without blocking the current traversal.
+   * Asynchronously prefetch a page into swizzled state.
    *
-   * <p><b>SSD optimization:</b> This overlaps SSD I/O latency (~100μs for random 4KB read on
-   * NVMe, ~1ms on SATA SSD) with the CPU work of processing the current node. The loaded page
-   * is swizzled onto the reference so subsequent access is a simple pointer dereference.</p>
+   * <p><b>SSD optimization:</b> Fires the I/O on a virtual thread so the calling traversal
+   * can continue descending without blocking on sibling I/O. When the virtual thread
+   * completes, the result is swizzled onto the PageReference (volatile field). If the
+   * traversal later reaches this reference, {@link #loadPage} finds it already swizzled
+   * and avoids a redundant read.</p>
    *
-   * <p>This is a synchronous prefetch (not async) because:</p>
-   * <ul>
-   * <li>HOT tree height is typically 3-5 levels — very few prefetch opportunities</li>
-   * <li>The OS page cache and mmap already provide async readahead for sequential patterns</li>
-   * <li>Avoiding thread pool overhead for such short-lived I/O is net-positive</li>
-   * </ul>
+   * <p>Race safety: if {@code loadPage} is called before the async task finishes,
+   * it will not find a swizzled page and will load synchronously. The duplicate load
+   * is benign — both paths produce the same immutable page and {@code setPage} on
+   * the volatile field is idempotent.</p>
    */
   private void prefetchPage(@NonNull PageReference ref) {
-    final Page loaded = storageEngineReader.loadHOTPage(ref);
-    if (loaded != null) {
-      ref.setPage(loaded);
-    }
+    Thread.startVirtualThread(() -> {
+      final Page loaded = storageEngineReader.loadHOTPage(ref);
+      if (loaded != null) {
+        ref.setPage(loaded);
+      }
+    });
   }
 
   /**
