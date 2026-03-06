@@ -101,6 +101,13 @@ public final class HOTTrieWriter {
   @SuppressWarnings("unused")
   private final MemorySegmentAllocator allocator;
 
+  /**
+   * Transaction intent log for the current split operation. Set at entry points
+   * ({@link #handleLeafSplitWithPath}) and used by helper methods to resolve pages
+   * that are in the TIL but not swizzled onto their PageReference.
+   */
+  private TransactionIntentLog currentLog;
+
   /** Persistent page key allocator — replaces the old hardcoded nextPageKey counter. */
   private final LongSupplier pageKeyAllocator;
 
@@ -474,6 +481,9 @@ public final class HOTTrieWriter {
     Objects.requireNonNull(leafRef);
     Objects.requireNonNull(rootReference);
 
+    // Store log for helper methods that need to resolve pages from TIL
+    this.currentLog = log;
+
     // Check if page can be split
     if (!fullPage.canSplit()) {
       // Try compacting the page first to free fragmented space
@@ -637,10 +647,10 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Get height from a child reference.
+   * Get height from a child reference. Checks swizzled page and TIL.
    */
   private int getHeightFromChild(PageReference childRef) {
-    Page page = childRef.getPage();
+    final Page page = resolvePageFromRef(childRef);
     if (page instanceof HOTLeafPage) {
       return 0;
     } else if (page instanceof HOTIndirectPage indirect) {
@@ -1006,14 +1016,32 @@ public final class HOTTrieWriter {
   }
 
   /**
+   * Resolve a page from a reference, checking swizzled page first, then the TIL.
+   */
+  private @Nullable Page resolvePageFromRef(PageReference ref) {
+    final Page swizzled = ref.getPage();
+    if (swizzled != null) {
+      return swizzled;
+    }
+    if (currentLog != null) {
+      final PageContainer container = currentLog.get(ref);
+      if (container != null) {
+        final Page modified = container.getModified();
+        return modified != null ? modified : container.getComplete();
+      }
+    }
+    return null;
+  }
+
+  /**
    * Get the last key from a child reference (leaf or indirect page).
+   * Checks both swizzled page and TIL for page resolution.
    */
   private byte[] getLastKeyFromChild(PageReference childRef) {
-    Page page = childRef.getPage();
+    final Page page = resolvePageFromRef(childRef);
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getLastKey();
     } else if (page instanceof HOTIndirectPage indirect) {
-      // Descend to rightmost leaf
       return getLastKeyFromIndirectPage(indirect);
     }
     return new byte[0];
@@ -1023,12 +1051,12 @@ public final class HOTTrieWriter {
    * Descend through indirect pages to find the last key.
    */
   private byte[] getLastKeyFromIndirectPage(HOTIndirectPage indirect) {
-    int numChildren = indirect.getNumChildren();
+    final int numChildren = indirect.getNumChildren();
     if (numChildren == 0) {
       return new byte[0];
     }
-    PageReference lastChild = indirect.getChildReference(numChildren - 1);
-    Page page = lastChild.getPage();
+    final PageReference lastChild = indirect.getChildReference(numChildren - 1);
+    final Page page = resolvePageFromRef(lastChild);
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getLastKey();
     } else if (page instanceof HOTIndirectPage child) {
@@ -1039,13 +1067,13 @@ public final class HOTTrieWriter {
 
   /**
    * Get the first key from a child reference (leaf or indirect page).
+   * Checks both swizzled page and TIL for page resolution.
    */
   private byte[] getFirstKeyFromChild(PageReference childRef) {
-    Page page = childRef.getPage();
+    final Page page = resolvePageFromRef(childRef);
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getFirstKey();
     } else if (page instanceof HOTIndirectPage indirect) {
-      // Descend to leftmost leaf
       return getFirstKeyFromIndirectPage(indirect);
     }
     return new byte[0];
@@ -1055,12 +1083,12 @@ public final class HOTTrieWriter {
    * Descend through indirect pages to find the first key.
    */
   private byte[] getFirstKeyFromIndirectPage(HOTIndirectPage indirect) {
-    int numChildren = indirect.getNumChildren();
+    final int numChildren = indirect.getNumChildren();
     if (numChildren == 0) {
       return new byte[0];
     }
-    PageReference firstChild = indirect.getChildReference(0);
-    Page page = firstChild.getPage();
+    final PageReference firstChild = indirect.getChildReference(0);
+    final Page page = resolvePageFromRef(firstChild);
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getFirstKey();
     } else if (page instanceof HOTIndirectPage child) {
