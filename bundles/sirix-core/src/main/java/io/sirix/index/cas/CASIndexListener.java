@@ -17,6 +17,8 @@ import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.sirix.index.path.summary.PathSummaryReader;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
 import java.util.Set;
@@ -29,6 +31,8 @@ import java.util.Set;
  * </p>
  */
 public final class CASIndexListener {
+
+  private static final Logger logger = LoggerFactory.getLogger(CASIndexListener.class);
 
   private final @Nullable RBTreeWriter<CASValue, NodeReferences> rbTreeWriter;
   private final @Nullable HOTIndexWriter<CASValue> hotWriter;
@@ -100,7 +104,9 @@ public final class CASIndexListener {
     try {
       AtomicUtil.toType(value, type);
       isOfType = true;
-    } catch (final SirixRuntimeException ignored) {
+    } catch (final SirixRuntimeException e) {
+      logger.debug("Value '{}' is not of type {}, skipping CAS index insert for node {}",
+          value, type, nodeKey, e);
     }
 
     if (isOfType) {

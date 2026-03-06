@@ -52,11 +52,17 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.jline.reader.LineReader;
 import org.jline.reader.LineReaderBuilder;
 import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * @author Sebastian Baechle
@@ -64,6 +70,7 @@ import org.jline.terminal.TerminalBuilder;
  */
 
 public final class Main {
+  private static final Logger logger = LoggerFactory.getLogger(Main.class);
   private static final String USER_HOME = System.getProperty("user.home");
   private static final Path LOCATION = Paths.get(USER_HOME, "sirix-data");
 
@@ -214,7 +221,7 @@ public final class Main {
   private static void handleQueryException(Config config, QueryException e) {
     System.err.println("Error: " + e.getMessage());
     if (config.isSet("-d")) {
-      e.printStackTrace();
+      logger.error("Query execution failed", e);
     }
   }
 
