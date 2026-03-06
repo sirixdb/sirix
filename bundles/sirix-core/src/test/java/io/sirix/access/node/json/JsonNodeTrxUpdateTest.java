@@ -33,7 +33,7 @@ public class JsonNodeTrxUpdateTest {
 
   @After
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test

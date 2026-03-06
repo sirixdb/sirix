@@ -60,7 +60,7 @@ public final class NodeStorageEngineWriterTruncateToRevisionIntegrationTest {
 
   @AfterEach
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test

@@ -35,7 +35,7 @@ public final class ParallelQueryExecutionTest {
 
   @AfterEach
   void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test

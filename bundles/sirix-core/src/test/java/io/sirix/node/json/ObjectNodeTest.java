@@ -61,7 +61,7 @@ public class ObjectNodeTest {
 
   @After
   public void tearDown() throws SirixException {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test

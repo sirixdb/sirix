@@ -37,7 +37,7 @@ public final class BatchedHashTest {
 
   @AfterEach
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   /**

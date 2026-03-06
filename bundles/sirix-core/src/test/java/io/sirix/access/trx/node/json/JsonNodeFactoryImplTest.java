@@ -124,7 +124,7 @@ public class JsonNodeFactoryImplTest {
     if (resourceSession != null) {
       resourceSession.close();
     }
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   // ============================================================================

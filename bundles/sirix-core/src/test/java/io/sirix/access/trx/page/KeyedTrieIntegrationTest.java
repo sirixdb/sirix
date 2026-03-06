@@ -54,7 +54,7 @@ final class KeyedTrieIntegrationTest {
     if (resourceSession != null && !resourceSession.isClosed()) {
       resourceSession.close();
     }
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Nested

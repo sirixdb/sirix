@@ -24,7 +24,7 @@ public final class LevelOrderSettingInMemoryInstancesAxisTest {
 
   @AfterEach
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test

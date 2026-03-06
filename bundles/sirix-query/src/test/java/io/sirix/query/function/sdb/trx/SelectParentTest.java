@@ -24,7 +24,7 @@ public class SelectParentTest {
 
   @AfterEach
   protected void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test

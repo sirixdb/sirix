@@ -37,7 +37,7 @@ public class NumberNodeTest {
 
   @After
   public void tearDown() throws SirixException {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test

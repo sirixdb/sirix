@@ -80,7 +80,7 @@ public final class JacksonJsonShredderTest {
 
   @AfterEach
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   // ==================== Basic Tests ====================

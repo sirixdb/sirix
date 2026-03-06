@@ -180,8 +180,8 @@ subprojects {
                             system = "GitHub Issues"
                         }
                         ciManagement {
-                            system = "Travis CI"
-                            url = "http://travis-ci.org/#!/sirixdb/sirix"
+                            system = "GitHub Actions"
+                            url = "https://github.com/sirixdb/sirix/actions"
                         }
                         developers {
                             developer {
