@@ -125,8 +125,8 @@ public final class HeightOptimalSplitter {
     byte[] leftMax = fullPage.getLastKey();
     byte[] rightMin = rightPage.getFirstKey();
 
-    // Handle edge case: identical or empty keys after split
-    if (leftMax == null || rightMin == null) {
+    // Handle edge case: empty keys after split (empty page)
+    if (leftMax.length == 0 || rightMin.length == 0) {
       // This shouldn't happen after a successful split, but handle gracefully
       return null;
     }

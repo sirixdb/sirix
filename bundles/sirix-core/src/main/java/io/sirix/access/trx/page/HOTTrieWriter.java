@@ -287,13 +287,8 @@ public final class HOTTrieWriter {
       return null;
     }
 
-    // Create COW copy for modification
-    // For HOTLeafPage, we need to create a new instance with same data
-    HOTLeafPage modifiedLeaf =
-        new HOTLeafPage(hotLeaf.getPageKey(), storageEngineReader.getRevisionNumber(), hotLeaf.getIndexType());
-
-    // Copy existing entries (this is the unavoidable COW cost)
-    // TODO: Implement proper entry copying when HOTLeafPage has more methods
+    // Create COW copy for modification using deep copy (copies off-heap data + slot offsets)
+    HOTLeafPage modifiedLeaf = hotLeaf.copy();
 
     PageContainer leafContainer = PageContainer.getInstance(hotLeaf, modifiedLeaf);
     log.put(leafRef, leafContainer);
@@ -495,60 +490,78 @@ public final class HOTTrieWriter {
     HOTLeafPage rightPage = new HOTLeafPage(newPageKey, storageEngineReader.getRevisionNumber(), fullPage.getIndexType());
 
     // Use HeightOptimalSplitter for proper height-optimal splitting
-    HeightOptimalSplitter.SplitResult splitResult =
-        HeightOptimalSplitter.splitLeafPage(fullPage, rightPage, newRootPageKey, storageEngineReader.getRevisionNumber());
+    boolean rightPageOwnershipTransferred = false;
 
-    // Handle case where split failed (e.g., single large entry)
-    if (splitResult == null) {
-      // Close the unused right page to release memory
-      rightPage.close();
-      // Compact the original page and let caller retry
-      fullPage.compact();
-      log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
-      return null;
-    }
+    try {
+      HeightOptimalSplitter.SplitResult splitResult =
+          HeightOptimalSplitter.splitLeafPage(fullPage, rightPage, newRootPageKey, storageEngineReader.getRevisionNumber());
 
-    // Get the split key from boundary (first key in right page after split)
-    byte[] splitKey = rightPage.getFirstKey();
-
-    // Create reference for the new right page
-    PageReference rightRef = splitResult.rightChild();
-    rightRef.setKey(newPageKey);
-    log.put(rightRef, PageContainer.getInstance(rightPage, rightPage));
-
-    // Update the original leaf page reference in the log
-    log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
-
-    // Now we need to update the parent structure
-    if (pathDepth > 0) {
-      // Has a parent - update the parent to include the new child
-      int parentIdx = pathDepth - 1;
-      updateParentForSplitWithPath(storageEngineReader, log, pathRefs[parentIdx], pathNodes[parentIdx], pathChildIndices[parentIdx],
-          leafRef, rightRef, splitKey, rootReference, pathNodes, pathRefs, pathChildIndices, parentIdx);
-    } else {
-      // Root split - create new BiNode as root
-      // CRITICAL: When pathDepth=0, leafRef may be the same object as rootReference.
-      // We need a SEPARATE reference for the left child, and it MUST be in the log
-      // so that HOTIndirectPage.commit() can find and write it to disk.
-      PageReference leftChildRef;
-      if (leafRef == rootReference) {
-        // Put the left child in the log so commit can find it by identity
-        leftChildRef = new PageReference();
-        log.put(leftChildRef, PageContainer.getInstance(fullPage, fullPage));
-      } else {
-        leftChildRef = leafRef;
+      // Handle case where split failed (e.g., single large entry)
+      if (splitResult == null) {
+        // Compact the original page and let caller retry
+        fullPage.compact();
+        log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
+        return null;
       }
 
-      HOTIndirectPage newRoot = splitResult.newRoot();
-      newRoot.setChildReference(0, leftChildRef);
-      newRoot.setChildReference(1, rightRef);
+      // Get the split key from boundary (first key in right page after split)
+      byte[] splitKey = rightPage.getFirstKey();
+      if (splitKey.length == 0) {
+        // Right page is empty after split — should not happen but handle gracefully
+        fullPage.compact();
+        log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
+        return null;
+      }
 
-      rootReference.setKey(newRootPageKey);
-      rootReference.setPage(newRoot);
-      log.put(rootReference, PageContainer.getInstance(newRoot, newRoot));
+      // Create reference for the new right page
+      PageReference rightRef = splitResult.rightChild();
+      rightRef.setKey(newPageKey);
+      log.put(rightRef, PageContainer.getInstance(rightPage, rightPage));
+      rightPageOwnershipTransferred = true;
+
+      // Swizzle the post-split left-half page onto leafRef so that
+      // getLastKeyFromChild(leafRef) in updateParentForSplitWithPath sees the
+      // correct boundary key. Without this, leafRef.getPage() returns the
+      // pre-COW original (with ALL entries, including those now in rightPage),
+      // producing wrong discriminative bits and a corrupt tree.
+      leafRef.setPage(fullPage);
+      log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
+
+      // Now we need to update the parent structure
+      if (pathDepth > 0) {
+        // Has a parent - update the parent to include the new child
+        int parentIdx = pathDepth - 1;
+        updateParentForSplitWithPath(storageEngineReader, log, pathRefs[parentIdx], pathNodes[parentIdx], pathChildIndices[parentIdx],
+            leafRef, rightRef, splitKey, rootReference, pathNodes, pathRefs, pathChildIndices, parentIdx);
+      } else {
+        // Root split - create new BiNode as root
+        // CRITICAL: When pathDepth=0, leafRef may be the same object as rootReference.
+        // We need a SEPARATE reference for the left child, and it MUST be in the log
+        // so that HOTIndirectPage.commit() can find and write it to disk.
+        PageReference leftChildRef;
+        if (leafRef == rootReference) {
+          // Put the left child in the log so commit can find it by identity
+          leftChildRef = new PageReference();
+          log.put(leftChildRef, PageContainer.getInstance(fullPage, fullPage));
+        } else {
+          leftChildRef = leafRef;
+        }
+
+        HOTIndirectPage newRoot = splitResult.newRoot();
+        newRoot.setChildReference(0, leftChildRef);
+        newRoot.setChildReference(1, rightRef);
+
+        rootReference.setKey(newRootPageKey);
+        rootReference.setPage(newRoot);
+        log.put(rootReference, PageContainer.getInstance(newRoot, newRoot));
+      }
+
+      return splitKey;
+    } finally {
+      if (!rightPageOwnershipTransferred) {
+        rightPage.close();
+      }
     }
-
-    return splitKey;
   }
 
   /**
@@ -621,7 +634,7 @@ public final class HOTTrieWriter {
    * Get height from a child reference.
    */
   private int getHeightFromChild(PageReference childRef) {
-    Page page = childRef.getPage();
+    final Page page = childRef.getPage();
     if (page instanceof HOTLeafPage) {
       return 0;
     } else if (page instanceof HOTIndirectPage indirect) {
@@ -976,11 +989,10 @@ public final class HOTTrieWriter {
    * Get the last key from a child reference (leaf or indirect page).
    */
   private byte[] getLastKeyFromChild(PageReference childRef) {
-    Page page = childRef.getPage();
+    final Page page = childRef.getPage();
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getLastKey();
     } else if (page instanceof HOTIndirectPage indirect) {
-      // Descend to rightmost leaf
       return getLastKeyFromIndirectPage(indirect);
     }
     return new byte[0];
@@ -990,12 +1002,12 @@ public final class HOTTrieWriter {
    * Descend through indirect pages to find the last key.
    */
   private byte[] getLastKeyFromIndirectPage(HOTIndirectPage indirect) {
-    int numChildren = indirect.getNumChildren();
+    final int numChildren = indirect.getNumChildren();
     if (numChildren == 0) {
       return new byte[0];
     }
-    PageReference lastChild = indirect.getChildReference(numChildren - 1);
-    Page page = lastChild.getPage();
+    final PageReference lastChild = indirect.getChildReference(numChildren - 1);
+    final Page page = lastChild.getPage();
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getLastKey();
     } else if (page instanceof HOTIndirectPage child) {
@@ -1008,11 +1020,10 @@ public final class HOTTrieWriter {
    * Get the first key from a child reference (leaf or indirect page).
    */
   private byte[] getFirstKeyFromChild(PageReference childRef) {
-    Page page = childRef.getPage();
+    final Page page = childRef.getPage();
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getFirstKey();
     } else if (page instanceof HOTIndirectPage indirect) {
-      // Descend to leftmost leaf
       return getFirstKeyFromIndirectPage(indirect);
     }
     return new byte[0];
@@ -1022,12 +1033,12 @@ public final class HOTTrieWriter {
    * Descend through indirect pages to find the first key.
    */
   private byte[] getFirstKeyFromIndirectPage(HOTIndirectPage indirect) {
-    int numChildren = indirect.getNumChildren();
+    final int numChildren = indirect.getNumChildren();
     if (numChildren == 0) {
       return new byte[0];
     }
-    PageReference firstChild = indirect.getChildReference(0);
-    Page page = firstChild.getPage();
+    final PageReference firstChild = indirect.getChildReference(0);
+    final Page page = firstChild.getPage();
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getFirstKey();
     } else if (page instanceof HOTIndirectPage child) {

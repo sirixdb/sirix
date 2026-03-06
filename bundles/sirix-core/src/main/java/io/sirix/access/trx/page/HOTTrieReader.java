@@ -77,7 +77,14 @@ import java.util.Objects;
  */
 public final class HOTTrieReader implements AutoCloseable {
 
-  /** Maximum tree height - increased to handle unbalanced trees during inserts. */
+  /**
+   * Maximum tree height for pre-allocated path traversal arrays.
+   *
+   * <p>With minimum fanout of 2 (BiNode): max height = log2(2^63) ~ 63.
+   * With typical fanout of 16+ (SpanNode/MultiNode): height ~ 13.
+   * We use 64 as a generous safety margin. Exceeding this limit indicates
+   * a bug in split/merge logic or index corruption.</p>
+   */
   private static final int MAX_TREE_HEIGHT = 64;
 
   /** The storage engine reader. */
@@ -125,13 +132,19 @@ public final class HOTTrieReader implements AutoCloseable {
     leaf.acquireGuard();
     guardedLeaf = leaf;
 
-    // Find entry in leaf
-    int index = leaf.findEntry(key);
-    if (index < 0) {
-      return null; // Not found
-    }
+    try {
+      // Find entry in leaf
+      int index = leaf.findEntry(key);
+      if (index < 0) {
+        return null; // Not found (guard intentionally held for next call)
+      }
 
-    return leaf.getValueSlice(index);
+      return leaf.getValueSlice(index);
+    } catch (Exception e) {
+      // On exception, release the guard to avoid leaking it
+      releaseGuardedLeaf();
+      throw e;
+    }
   }
 
   /**
@@ -214,19 +227,25 @@ public final class HOTTrieReader implements AutoCloseable {
       }
 
       // Find child reference using HOT node type-specific logic (uses PEXT/Long.compress)
-      int childIndex = hotNode.findChildIndex(key);
+      final int childIndex = hotNode.findChildIndex(key);
       if (childIndex < 0) {
         return null; // Key not found
       }
 
-      PageReference childRef = hotNode.getChildReference(childIndex);
+      final PageReference childRef = hotNode.getChildReference(childIndex);
       if (childRef == null) {
         return null;
       }
 
-      // Software prefetching hint: Accessing sibling refs may trigger CPU prefetch.
-      // For off-heap pages, explicit prefetch can be added via MemorySegment API.
-      // HOT's reduced tree height (compound nodes) minimizes prefetch overhead.
+      // Async SSD prefetch: fire-and-forget load of the next sibling's page on a virtual thread.
+      // Overlaps SSD I/O with the CPU work of descending into the current subtree.
+      final int nextSibling = childIndex + 1;
+      if (nextSibling < hotNode.getNumChildren()) {
+        final PageReference siblingRef = hotNode.getChildReference(nextSibling);
+        if (siblingRef != null && siblingRef.getPage() == null && siblingRef.getKey() >= 0) {
+          prefetchPage(siblingRef);
+        }
+      }
 
       // Record path for parent-based range traversal
       pushPath(currentRef, hotNode, childIndex);
@@ -260,10 +279,18 @@ public final class HOTTrieReader implements AutoCloseable {
       }
 
       // Take the first (leftmost) child
-      int childIndex = 0;
-      PageReference childRef = hotNode.getChildReference(childIndex);
+      final int childIndex = 0;
+      final PageReference childRef = hotNode.getChildReference(childIndex);
       if (childRef == null) {
         return null;
+      }
+
+      // Async SSD prefetch: fire-and-forget load of second child on a virtual thread.
+      if (hotNode.getNumChildren() > 1) {
+        final PageReference siblingRef = hotNode.getChildReference(1);
+        if (siblingRef != null && siblingRef.getPage() == null && siblingRef.getKey() >= 0) {
+          prefetchPage(siblingRef);
+        }
       }
 
       pushPath(currentRef, hotNode, childIndex);
@@ -288,12 +315,21 @@ public final class HOTTrieReader implements AutoCloseable {
       // Check if there's a next sibling
       if (currentChildIdx + 1 < numChildren) {
         // Found next sibling - descend to its leftmost leaf
-        int nextChildIdx = currentChildIdx + 1;
+        final int nextChildIdx = currentChildIdx + 1;
         pathChildIndices[parentIdx] = nextChildIdx;
 
-        PageReference nextChildRef = parent.getChildReference(nextChildIdx);
+        final PageReference nextChildRef = parent.getChildReference(nextChildIdx);
         if (nextChildRef != null) {
-          HOTLeafPage result = descendToLeftmostLeaf(nextChildRef);
+          // Async SSD prefetch: fire-and-forget load of next-next sibling on a virtual thread.
+          final int prefetchIdx = nextChildIdx + 1;
+          if (prefetchIdx < numChildren) {
+            final PageReference prefetchRef = parent.getChildReference(prefetchIdx);
+            if (prefetchRef != null && prefetchRef.getPage() == null && prefetchRef.getKey() >= 0) {
+              prefetchPage(prefetchRef);
+            }
+          }
+
+          final HOTLeafPage result = descendToLeftmostLeaf(nextChildRef);
           if (result != null) {
             return result;
           }
@@ -310,13 +346,14 @@ public final class HOTTrieReader implements AutoCloseable {
   }
 
   /**
-   * Descend to the leftmost leaf from a given reference.
+   * Descend to the leftmost leaf from a given reference. Prefetches the next sibling
+   * at each level for range scan readahead.
    */
   private @Nullable HOTLeafPage descendToLeftmostLeaf(@NonNull PageReference ref) {
     PageReference currentRef = ref;
 
     while (true) {
-      Page page = loadPage(currentRef);
+      final Page page = loadPage(currentRef);
       if (page == null) {
         return null;
       }
@@ -329,10 +366,18 @@ public final class HOTTrieReader implements AutoCloseable {
         return null;
       }
 
-      int childIndex = 0;
-      PageReference childRef = hotNode.getChildReference(childIndex);
+      final int childIndex = 0;
+      final PageReference childRef = hotNode.getChildReference(childIndex);
       if (childRef == null) {
         return null;
+      }
+
+      // Async SSD prefetch: fire-and-forget load of next sibling on a virtual thread
+      if (hotNode.getNumChildren() > 1) {
+        final PageReference siblingRef = hotNode.getChildReference(1);
+        if (siblingRef != null && siblingRef.getPage() == null && siblingRef.getKey() >= 0) {
+          prefetchPage(siblingRef);
+        }
       }
 
       pushPath(currentRef, hotNode, childIndex);
@@ -372,12 +417,18 @@ public final class HOTTrieReader implements AutoCloseable {
   }
 
   /**
-   * Load a page from storage. Checks the page reference's in-memory page first, then falls back to
-   * storage.
+   * Load a page from storage. Checks the page reference's in-memory page first (swizzle check),
+   * then falls back to storage. After loading from storage, the page is swizzled onto the
+   * reference so subsequent accesses avoid SSD I/O entirely.
+   *
+   * <p><b>SSD optimization:</b> Swizzling loaded pages onto their PageReference eliminates
+   * redundant I/O for repeated traversals through the same internal nodes. Since HOT trees
+   * have low height (typically 3-5 levels with compound nodes), keeping all internal nodes
+   * swizzled is memory-efficient and avoids the dominant cost of random SSD reads.</p>
    */
   private @Nullable Page loadPage(@NonNull PageReference ref) {
-    // First check if page is already in memory (from transaction log or cache)
-    Page inMemory = ref.getPage();
+    // First check if page is already swizzled (in-memory from transaction log or prior load)
+    final Page inMemory = ref.getPage();
     if (inMemory != null) {
       return inMemory;
     }
@@ -392,7 +443,39 @@ public final class HOTTrieReader implements AutoCloseable {
 
     // Load from storage via the storage engine reader
     // The storage engine will handle versioning/fragment combining AND transaction log lookup
-    return storageEngineReader.loadHOTPage(ref);
+    final Page loaded = storageEngineReader.loadHOTPage(ref);
+
+    // Swizzle: pin the loaded page on the reference so future accesses skip I/O.
+    // This is safe because PageReference.setPage is idempotent and HOT pages are
+    // immutable once loaded (COW creates new pages for modifications).
+    if (loaded != null) {
+      ref.setPage(loaded);
+    }
+
+    return loaded;
+  }
+
+  /**
+   * Asynchronously prefetch a page into swizzled state.
+   *
+   * <p><b>SSD optimization:</b> Fires the I/O on a virtual thread so the calling traversal
+   * can continue descending without blocking on sibling I/O. When the virtual thread
+   * completes, the result is swizzled onto the PageReference (volatile field). If the
+   * traversal later reaches this reference, {@link #loadPage} finds it already swizzled
+   * and avoids a redundant read.</p>
+   *
+   * <p>Race safety: if {@code loadPage} is called before the async task finishes,
+   * it will not find a swizzled page and will load synchronously. The duplicate load
+   * is benign — both paths produce the same immutable page and {@code setPage} on
+   * the volatile field is idempotent.</p>
+   */
+  private void prefetchPage(@NonNull PageReference ref) {
+    Thread.startVirtualThread(() -> {
+      final Page loaded = storageEngineReader.loadHOTPage(ref);
+      if (loaded != null) {
+        ref.setPage(loaded);
+      }
+    });
   }
 
   /**
