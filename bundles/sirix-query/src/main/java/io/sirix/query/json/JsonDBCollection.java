@@ -143,35 +143,44 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
 
   private JsonDBItem getDocumentInternal(final String resName, final Instant pointInTime) {
     final JsonResourceSession resource = database.beginResourceSession(resName);
+    try {
+      JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
 
-    JsonNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
+      if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
+        final int revision = trx.getRevisionNumber();
 
-    if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
-      final int revision = trx.getRevisionNumber();
+        if (revision > 1) {
+          trx.close();
 
-      if (revision > 1) {
-        trx.close();
+          trx = resource.beginNodeReadOnlyTrx(revision - 1);
+        } else if (revision == 0) {
+          trx.close();
 
-        trx = resource.beginNodeReadOnlyTrx(revision - 1);
-      } else if (revision == 0) {
-        trx.close();
-
-        trx = resource.beginNodeReadOnlyTrx(1);
+          trx = resource.beginNodeReadOnlyTrx(1);
+        }
       }
-    }
 
-    return getItem(trx);
+      return getItem(trx);
+    } catch (final Exception e) {
+      resource.close();
+      throw e;
+    }
   }
 
   private JsonDBItem getDocumentInternal(final String resName, final int revision) {
     final JsonResourceSession resource = database.beginResourceSession(resName);
-    final int version = revision == -1
-        ? resource.getMostRecentRevisionNumber()
-        : revision;
+    try {
+      final int version = revision == -1
+          ? resource.getMostRecentRevisionNumber()
+          : revision;
 
-    final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx(version);
+      final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx(version);
 
-    return getItem(rtx);
+      return getItem(rtx);
+    } catch (final Exception e) {
+      resource.close();
+      throw e;
+    }
   }
 
   @Override
@@ -202,8 +211,8 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
     if (resources.size() > 1) {
       throw new DocumentException("More than one document stored in database/collection!");
     }
+    final JsonResourceSession manager = database.beginResourceSession(resources.get(0).getFileName().toString());
     try {
-      final JsonResourceSession manager = database.beginResourceSession(resources.get(0).getFileName().toString());
       final int version = revision == -1
           ? manager.getMostRecentRevisionNumber()
           : revision;
@@ -211,7 +220,11 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
 
       return getItem(rtx);
     } catch (final SirixException e) {
+      manager.close();
       throw new DocumentException(e.getCause());
+    } catch (final Exception e) {
+      manager.close();
+      throw e;
     }
   }
 
@@ -253,10 +266,18 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
+      } catch (final Exception e) {
+        manager.close();
+        throw e;
       }
-      final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
-      rtx.moveToDocumentRoot();
-      return getItem(rtx);
+      try {
+        final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
+        rtx.moveToDocumentRoot();
+        return getItem(rtx);
+      } catch (final Exception e) {
+        manager.close();
+        throw e;
+      }
     } catch (final SirixException e) {
       LOG_WRAPPER.error(e.getMessage(), e);
       return null;
@@ -299,9 +320,9 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
     final List<JsonDBItem> documents = new ArrayList<>(resources.size());
 
     resources.forEach(resourcePath -> {
+      final String resourceName = resourcePath.getFileName().toString();
+      final JsonResourceSession resource = database.beginResourceSession(resourceName);
       try {
-        final String resourceName = resourcePath.getFileName().toString();
-        final JsonResourceSession resource = database.beginResourceSession(resourceName);
         final JsonNodeReadOnlyTrx rtx = resource.beginNodeReadOnlyTrx();
         final JsonNodeReadOnlyTrx proxy = new ThreadSafeJsonReadOnlyTrx(rtx);
 
@@ -312,7 +333,11 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
             documents.add(new JsonDBArray(proxy, this));
         }
       } catch (final SirixException e) {
+        resource.close();
         throw new DocumentException(e.getCause());
+      } catch (final Exception e) {
+        resource.close();
+        throw e;
       }
     });
 
@@ -345,10 +370,18 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
       try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
+      } catch (final Exception e) {
+        manager.close();
+        throw e;
       }
 
-      final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
-      return getItem(rtx);
+      try {
+        final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
+        return getItem(rtx);
+      } catch (final Exception e) {
+        manager.close();
+        throw e;
+      }
     } catch (final SirixException e) {
       LOG_WRAPPER.error(e.getMessage(), e);
       return null;

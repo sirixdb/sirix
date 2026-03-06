@@ -26,7 +26,11 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static java.util.Objects.requireNonNull;
@@ -140,24 +144,28 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   private XmlDBNode getDocumentInternal(final String resName, final Instant pointInTime) {
     return instantDocumentDataToXmlDBNodes.computeIfAbsent(new InstantDocumentData(resName, pointInTime), (unused) -> {
       final XmlResourceSession resource = database.beginResourceSession(resName);
+      try {
+        XmlNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
 
-      XmlNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx(pointInTime);
+        if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
+          final int revision = trx.getRevisionNumber();
 
-      if (trx.getRevisionTimestamp().isAfter(pointInTime)) {
-        final int revision = trx.getRevisionNumber();
+          if (revision > 1) {
+            trx.close();
 
-        if (revision > 1) {
-          trx.close();
+            trx = resource.beginNodeReadOnlyTrx(revision - 1);
+          } else if (revision == 0) {
+            trx.close();
 
-          trx = resource.beginNodeReadOnlyTrx(revision - 1);
-        } else if (revision == 0) {
-          trx.close();
-
-          trx = resource.beginNodeReadOnlyTrx(1);
+            trx = resource.beginNodeReadOnlyTrx(1);
+          }
         }
-      }
 
-      return new XmlDBNode(new ThreadSafeXmlReadOnlyTrx(trx), this);
+        return new XmlDBNode(new ThreadSafeXmlReadOnlyTrx(trx), this);
+      } catch (final Exception e) {
+        resource.close();
+        throw e;
+      }
     });
   }
 
@@ -223,11 +231,16 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
 
   private XmlDBNode createXmlDBNode(int revision, @NonNull String resourceName) {
     final XmlResourceSession manager = database.beginResourceSession(resourceName);
-    final int version = revision == -1
-        ? manager.getMostRecentRevisionNumber()
-        : revision;
-    final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
-    return new XmlDBNode(new ThreadSafeXmlReadOnlyTrx(rtx), this);
+    try {
+      final int version = revision == -1
+          ? manager.getMostRecentRevisionNumber()
+          : revision;
+      final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
+      return new XmlDBNode(new ThreadSafeXmlReadOnlyTrx(rtx), this);
+    } catch (final Exception e) {
+      manager.close();
+      throw e;
+    }
   }
 
   public XmlDBNode add(final String resourceName, NodeSubtreeParser parser) {
@@ -270,24 +283,36 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
                                                  .hashKind(HashType.ROLLING)
                                                  .build());
     final XmlResourceSession resource = database.beginResourceSession(resourceName);
-    final XmlNodeTrx wtx = resource.beginNodeTrx();
-
-    final NodeSubtreeHandler handler =
-        new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
-
-    // Make sure the CollectionParser is used.
-    if (!(parser instanceof CollectionParser)) {
-      parser = new CollectionParser(parser);
+    final XmlNodeTrx wtx;
+    try {
+      wtx = resource.beginNodeTrx();
+    } catch (final Exception e) {
+      resource.close();
+      throw e;
     }
 
-    parser.parse(handler);
+    try {
+      final NodeSubtreeHandler handler =
+          new SubtreeBuilder(this, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList());
 
-    wtx.commit(commitMessage, commitTimestamp);
+      // Make sure the CollectionParser is used.
+      if (!(parser instanceof CollectionParser)) {
+        parser = new CollectionParser(parser);
+      }
 
-    final var xmlDBNode = new XmlDBNode(wtx, this);
-    documentDataToXmlDBNodes.put(new DocumentData(resourceName, 1), xmlDBNode);
-    instantDocumentDataToXmlDBNodes.put(new InstantDocumentData(resourceName, wtx.getRevisionTimestamp()), xmlDBNode);
-    return xmlDBNode;
+      parser.parse(handler);
+
+      wtx.commit(commitMessage, commitTimestamp);
+
+      final var xmlDBNode = new XmlDBNode(wtx, this);
+      documentDataToXmlDBNodes.put(new DocumentData(resourceName, 1), xmlDBNode);
+      instantDocumentDataToXmlDBNodes.put(new InstantDocumentData(resourceName, wtx.getRevisionTimestamp()), xmlDBNode);
+      return xmlDBNode;
+    } catch (final Exception e) {
+      wtx.close();
+      resource.close();
+      throw e;
+    }
   }
 
   @Override
@@ -321,13 +346,17 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     final List<XmlDBNode> documents = new ArrayList<>(resources.size());
 
     resources.forEach(resourcePath -> {
+      final String resourceName = resourcePath.getFileName().toString();
+      final XmlResourceSession resource = database.beginResourceSession(resourceName);
       try {
-        final String resourceName = resourcePath.getFileName().toString();
-        final XmlResourceSession resource = database.beginResourceSession(resourceName);
         final XmlNodeReadOnlyTrx trx = resource.beginNodeReadOnlyTrx();
         documents.add(new XmlDBNode(trx, this));
       } catch (final SirixException e) {
+        resource.close();
         throw new DocumentException(e.getCause());
+      } catch (final Exception e) {
+        resource.close();
+        throw e;
       }
     });
 
