@@ -21,6 +21,9 @@ abstract class AbstractUpdateHandler(protected val location: Path) {
             throw IllegalArgumentException("Database name and resource name not given.")
         }
 
+        PathValidation.validatePathParam(databaseName, "database")
+        PathValidation.validatePathParam(resource, "resource")
+
         val body = ctx.body().asString()
 
         update(databaseName, resource, nodeId?.toLongOrNull(), insertionMode, body, ctx)

@@ -31,6 +31,14 @@ class GetHandler(
         val context = ctx.vertx().orCreateContext
         val databaseName: String? = ctx.pathParam("database")
         val resourceName: String? = ctx.pathParam("resource")
+
+        if (databaseName != null) {
+            PathValidation.validatePathParam(databaseName, "database")
+        }
+        if (resourceName != null) {
+            PathValidation.validatePathParam(resourceName, "resource")
+        }
+
         val jsonBody = ctx.body().asJsonObject()
         val query: String? = ctx.queryParam("query").getOrElse(0) {
             jsonBody?.getString("query")

@@ -31,6 +31,13 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         val databaseName = ctx.pathParam("database")
         val resource = ctx.pathParam("resource")
 
+        if (databaseName != null) {
+            PathValidation.validatePathParam(databaseName, "database")
+        }
+        if (resource != null) {
+            PathValidation.validatePathParam(resource, "resource")
+        }
+
         if (resource == null) {
             val dbFile = location.resolve(databaseName)
             val vertxContext = ctx.vertx().orCreateContext

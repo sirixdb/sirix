@@ -30,6 +30,10 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         val context = ctx.vertx().orCreateContext
         val databaseName: String = ctx.pathParam("database")
         val resource: String = ctx.pathParam("resource")
+
+        PathValidation.validatePathParam(databaseName, "database")
+        PathValidation.validatePathParam(resource, "resource")
+
         val jsonBody = ctx.body().asJsonObject()
         val query: String? = ctx.queryParam("query").getOrElse(0) {
             jsonBody?.getString("query")
