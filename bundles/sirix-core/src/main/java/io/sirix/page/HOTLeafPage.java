@@ -100,6 +100,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   /** Maximum entries per page before split. */
   public static final int MAX_ENTRIES = 512;
 
+  /** Maximum length for keys and values — must fit in an unsigned short (2 bytes). */
+  private static final int MAX_KEY_VALUE_LENGTH = 0xFFFF;
+
   /**
    * Unaligned short layout for zero-copy deserialization. When slotMemory is a slice, it may not be
    * 2-byte aligned.
@@ -359,11 +362,6 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Maximum length for keys and values — must fit in an unsigned short (2 bytes).
-   */
-  private static final int MAX_KEY_VALUE_LENGTH = 0xFFFF;
-
-  /**
    * Insert entry at specified position.
    *
    * @param pos insertion position
@@ -597,6 +595,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public boolean updateValue(int index, byte[] newValue) {
     Objects.checkIndex(index, entryCount);
     Objects.requireNonNull(newValue);
+    if (newValue.length > MAX_KEY_VALUE_LENGTH) {
+      throw new IllegalArgumentException("Value length " + newValue.length + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
+    }
 
     // Get old entry info
     int offset = slotOffsets[index];
