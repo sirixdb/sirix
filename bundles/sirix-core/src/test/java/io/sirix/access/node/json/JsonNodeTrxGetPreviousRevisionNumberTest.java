@@ -20,7 +20,7 @@ public final class JsonNodeTrxGetPreviousRevisionNumberTest {
 
   @AfterEach
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @DisplayName("Get previous revision number of changed nodes")

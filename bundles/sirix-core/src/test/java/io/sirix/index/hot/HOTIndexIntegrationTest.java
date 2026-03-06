@@ -174,7 +174,7 @@ class HOTIndexIntegrationTest {
 
     @AfterEach
     void tearDown() {
-      JsonTestHelper.closeEverything();
+      JsonTestHelper.deleteEverything();
       // Re-enable HOT for subsequent tests
       System.setProperty("sirix.index.useHOT", "true");
       JsonTestHelper.deleteEverything();
@@ -261,7 +261,7 @@ class HOTIndexIntegrationTest {
 
     @AfterEach
     void tearDown() {
-      JsonTestHelper.closeEverything();
+      JsonTestHelper.deleteEverything();
       JsonTestHelper.deleteEverything();
     }
 
@@ -1568,7 +1568,7 @@ class HOTIndexIntegrationTest {
 
     @AfterEach
     void tearDown() {
-      JsonTestHelper.closeEverything();
+      JsonTestHelper.deleteEverything();
       JsonTestHelper.deleteEverything();
     }
 
@@ -2211,7 +2211,7 @@ class HOTIndexIntegrationTest {
 
     @AfterEach
     void tearDown() {
-      JsonTestHelper.closeEverything();
+      JsonTestHelper.deleteEverything();
       JsonTestHelper.deleteEverything();
     }
 
@@ -2585,7 +2585,7 @@ class HOTIndexIntegrationTest {
 
     @AfterEach
     void tearDown() {
-      JsonTestHelper.closeEverything();
+      JsonTestHelper.deleteEverything();
       JsonTestHelper.deleteEverything();
     }
 

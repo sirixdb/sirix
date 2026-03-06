@@ -27,7 +27,7 @@ public final class BasicJsonDiffTest {
 
   @After
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test

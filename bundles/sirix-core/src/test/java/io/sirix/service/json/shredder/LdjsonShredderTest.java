@@ -50,7 +50,7 @@ public final class LdjsonShredderTest {
 
   @AfterEach
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   // ==================== Empty Input ====================

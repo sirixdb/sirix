@@ -34,7 +34,7 @@ public final class JsonSerializerChicagoTest {
 
   @After
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   /**

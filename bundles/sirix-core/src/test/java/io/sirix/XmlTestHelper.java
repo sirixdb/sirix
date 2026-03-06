@@ -64,9 +64,15 @@ import io.sirix.access.User;
 public final class XmlTestHelper {
 
   /**
-   * Temporary directory path.
+   * Temporary directory path, unique per JVM process to enable parallel test execution.
    */
   private static final String TMPDIR = System.getProperty("java.io.tmpdir");
+
+  /**
+   * Per-JVM unique base directory. Using the PID ensures that parallel Gradle forks
+   * or concurrent test tasks don't share the same database files.
+   */
+  private static final String SIRIX_BASE = "sirix-" + ProcessHandle.current().pid();
 
   /**
    * Common resource name.
@@ -78,13 +84,13 @@ public final class XmlTestHelper {
    */
   public enum PATHS {
     // PATH1 (Sirix)
-    PATH1(Paths.get(TMPDIR, "sirix", "path1")),
+    PATH1(Paths.get(TMPDIR, SIRIX_BASE, "path1")),
 
     // PATH2 (Sirix)
-    PATH2(Paths.get(TMPDIR, "sirix", "path2")),
+    PATH2(Paths.get(TMPDIR, SIRIX_BASE, "path2")),
 
     // PATH3 (XML)
-    PATH3(Paths.get(TMPDIR, "xml", "test.xml"));
+    PATH3(Paths.get(TMPDIR, SIRIX_BASE, "test.xml"));
 
     final Path file;
 

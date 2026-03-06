@@ -36,7 +36,7 @@ public class PinCountDiagnosticsTest {
     if (database != null) {
       database.close();
     }
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   /**

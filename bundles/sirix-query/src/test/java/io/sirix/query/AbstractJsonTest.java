@@ -20,7 +20,7 @@ public abstract class AbstractJsonTest {
 
   @AfterEach
   protected void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   public void test(String storeQuery, String query, String assertion) throws IOException {

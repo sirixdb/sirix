@@ -43,7 +43,7 @@ public final class JsonFMSEPathSummaryTest {
 
   @After
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   // ==================== MOVE: OBJECT_KEY between different parent OBJECTs ====================

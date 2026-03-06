@@ -42,7 +42,7 @@ class HOTSplitIntegrationTest {
 
   @AfterEach
   void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
     System.clearProperty("sirix.index.useHOT");
   }
 

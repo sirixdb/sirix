@@ -37,7 +37,7 @@ public class FragmentCacheVerificationTest {
     if (database != null) {
       database.close();
     }
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   /**

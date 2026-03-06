@@ -31,7 +31,7 @@ public final class ResourceSessionTest {
 
   @AfterEach
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @DisplayName("throw exception when multiple read-write transactions are started")

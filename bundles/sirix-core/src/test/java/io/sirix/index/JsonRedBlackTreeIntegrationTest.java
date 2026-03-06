@@ -36,7 +36,7 @@ public final class JsonRedBlackTreeIntegrationTest {
 
   @After
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Test

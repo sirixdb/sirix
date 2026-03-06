@@ -32,7 +32,7 @@ public final class JsonNodeTrxInsertTest {
 
   @AfterEach
   public void tearDown() {
-    JsonTestHelper.closeEverything();
+    JsonTestHelper.deleteEverything();
   }
 
   @Disabled
