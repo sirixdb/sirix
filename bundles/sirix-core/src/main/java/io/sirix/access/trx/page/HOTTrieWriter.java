@@ -97,6 +97,13 @@ public final class HOTTrieWriter {
   /** Persistent page key allocator — replaces the old hardcoded nextPageKey counter. */
   private final LongSupplier pageKeyAllocator;
 
+  /**
+   * Active storage engine reader for the current split operation.
+   * Set at the start of handleLeafSplitWithPath and cleared after.
+   * Used by key extraction helpers to load unswizzled child pages.
+   */
+  private @Nullable StorageEngineReader activeReader;
+
   // ===== Pre-allocated COW path - ZERO allocations on hot path! =====
   private final PageReference[] cowPathRefs = new PageReference[MAX_TREE_HEIGHT];
   private final HOTIndirectPage[] cowPathNodes = new HOTIndirectPage[MAX_TREE_HEIGHT];
@@ -466,6 +473,21 @@ public final class HOTTrieWriter {
     Objects.requireNonNull(fullPage);
     Objects.requireNonNull(leafRef);
     Objects.requireNonNull(rootReference);
+
+    // Store reader for key extraction helpers that need to load unswizzled pages
+    this.activeReader = storageEngineReader;
+    try {
+      return handleLeafSplitInternal(storageEngineReader, log, fullPage, leafRef, rootReference,
+          pathNodes, pathRefs, pathChildIndices, pathDepth);
+    } finally {
+      this.activeReader = null;
+    }
+  }
+
+  private @Nullable byte[] handleLeafSplitInternal(@NonNull StorageEngineWriter storageEngineReader,
+      @NonNull TransactionIntentLog log, @NonNull HOTLeafPage fullPage, @NonNull PageReference leafRef,
+      @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+      int[] pathChildIndices, int pathDepth) {
 
     // Check if page can be split
     if (!fullPage.canSplit()) {
@@ -986,65 +1008,78 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Get the last key from a child reference (leaf or indirect page).
+   * Resolve a page from a child reference, loading it from storage if not swizzled.
    */
-  private byte[] getLastKeyFromChild(PageReference childRef) {
-    final Page page = childRef.getPage();
-    if (page instanceof HOTLeafPage leaf) {
-      return leaf.getLastKey();
-    } else if (page instanceof HOTIndirectPage indirect) {
-      return getLastKeyFromIndirectPage(indirect);
+  private @Nullable Page resolveChildPage(PageReference childRef) {
+    Page page = childRef.getPage();
+    if (page != null) {
+      return page;
     }
-    return new byte[0];
+    if (activeReader != null) {
+      page = activeReader.loadHOTPage(childRef);
+      if (page != null) {
+        childRef.setPage(page); // Swizzle for future accesses
+      }
+      return page;
+    }
+    return null;
   }
 
   /**
-   * Descend through indirect pages to find the last key.
+   * Get the last key from a child reference (leaf or indirect page).
+   * Loads unswizzled pages via activeReader if necessary.
    */
-  private byte[] getLastKeyFromIndirectPage(HOTIndirectPage indirect) {
-    final int numChildren = indirect.getNumChildren();
-    if (numChildren == 0) {
-      return new byte[0];
-    }
-    final PageReference lastChild = indirect.getChildReference(numChildren - 1);
-    final Page page = lastChild.getPage();
+  private byte[] getLastKeyFromChild(PageReference childRef) {
+    final Page page = resolveChildPage(childRef);
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getLastKey();
-    } else if (page instanceof HOTIndirectPage child) {
-      return getLastKeyFromIndirectPage(child);
+    } else if (page instanceof HOTIndirectPage indirect) {
+      return getEdgeKeyIterative(indirect, false);
     }
     return new byte[0];
   }
 
   /**
    * Get the first key from a child reference (leaf or indirect page).
+   * Loads unswizzled pages via activeReader if necessary.
    */
   private byte[] getFirstKeyFromChild(PageReference childRef) {
-    final Page page = childRef.getPage();
+    final Page page = resolveChildPage(childRef);
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getFirstKey();
     } else if (page instanceof HOTIndirectPage indirect) {
-      return getFirstKeyFromIndirectPage(indirect);
+      return getEdgeKeyIterative(indirect, true);
     }
     return new byte[0];
   }
 
   /**
-   * Descend through indirect pages to find the first key.
+   * Iteratively descend through indirect pages to find the first or last key.
+   * Bounded by MAX_TREE_HEIGHT to prevent infinite loops on corrupt data.
+   *
+   * @param indirect the starting indirect page
+   * @param first true for first (leftmost) key, false for last (rightmost) key
+   * @return the edge key, or empty array if not found
    */
-  private byte[] getFirstKeyFromIndirectPage(HOTIndirectPage indirect) {
-    final int numChildren = indirect.getNumChildren();
-    if (numChildren == 0) {
-      return new byte[0];
+  private byte[] getEdgeKeyIterative(HOTIndirectPage indirect, boolean first) {
+    HOTIndirectPage current = indirect;
+    for (int depth = 0; depth < MAX_TREE_HEIGHT; depth++) {
+      final int numChildren = current.getNumChildren();
+      if (numChildren == 0) {
+        return new byte[0];
+      }
+      final int childIdx = first ? 0 : numChildren - 1;
+      final PageReference childRef = current.getChildReference(childIdx);
+      final Page page = resolveChildPage(childRef);
+      if (page instanceof HOTLeafPage leaf) {
+        return first ? leaf.getFirstKey() : leaf.getLastKey();
+      } else if (page instanceof HOTIndirectPage nextIndirect) {
+        current = nextIndirect;
+      } else {
+        return new byte[0];
+      }
     }
-    final PageReference firstChild = indirect.getChildReference(0);
-    final Page page = firstChild.getPage();
-    if (page instanceof HOTLeafPage leaf) {
-      return leaf.getFirstKey();
-    } else if (page instanceof HOTIndirectPage child) {
-      return getFirstKeyFromIndirectPage(child);
-    }
-    return new byte[0];
+    throw new IllegalStateException("HOT tree depth exceeds maximum (" + MAX_TREE_HEIGHT + ") — possible cycle in page references");
   }
 }
 
