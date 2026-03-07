@@ -26,6 +26,13 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
         val resource: String? = ctx.pathParam("resource")
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
 
+        if (databaseName != null) {
+            PathValidation.validatePathParam(databaseName, "database")
+        }
+        if (resource != null) {
+            PathValidation.validatePathParam(resource, "resource")
+        }
+
         if (databaseName == null) {
             dropDatabasesOfType(ctx, getDatabaseType())
         } else {

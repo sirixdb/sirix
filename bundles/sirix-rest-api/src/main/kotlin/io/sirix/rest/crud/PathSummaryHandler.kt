@@ -23,6 +23,9 @@ class PathSummaryHandler(private val location: Path, private val authz: Authoriz
         val databaseName = ctx.pathParam("database")
         val resourceName = ctx.pathParam("resource")
 
+        PathValidation.validatePathParam(databaseName, "database")
+        PathValidation.validatePathParam(resourceName, "resource")
+
         val user = ctx.get<User>("user")
         Auth.checkIfAuthorized(user, databaseName, AuthRole.VIEW, authz)
 

@@ -42,6 +42,9 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
             throw IllegalArgumentException("Database name and resource name must be in the URL path.")
         }
 
+        PathValidation.validatePathParam(databaseName, "database")
+        PathValidation.validatePathParam(resourceName, "resource")
+
         val user = ctx.get<User>("user")
         Auth.checkIfAuthorized(user, databaseName, AuthRole.VIEW, authz)
 

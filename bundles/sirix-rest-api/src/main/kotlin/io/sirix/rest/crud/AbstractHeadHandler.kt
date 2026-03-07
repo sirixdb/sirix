@@ -25,6 +25,9 @@ abstract class AbstractHeadHandler< T : ResourceSession<*, *>> (
             throw IllegalStateException("Database name and resource name must be given.")
         }
 
+        PathValidation.validatePathParam(databaseName, "database")
+        PathValidation.validatePathParam(resource, "resource")
+
         ctx.vertx().executeBlocking<Unit> {
             head(databaseName, ctx, resource)
         }.coAwait()

@@ -40,14 +40,16 @@ class DeleteHandler(private val location: Path, private val authz: Authorization
 
             if (databaseName == null) {
                 throw IllegalStateException("No database name given.")
-            } else {
-                val databasePath = location.resolve(databaseName)
-                if (!Databases.existsDatabase(databasePath)) {
-                    ctx.response().setStatusCode(404).end()
-                    return ctx.currentRoute()
-                }
-                removeDatabase(databaseName, ctx)
             }
+
+            PathValidation.validatePathParam(databaseName, "database")
+
+            val databasePath = location.resolve(databaseName)
+            if (!Databases.existsDatabase(databasePath)) {
+                ctx.response().setStatusCode(404).end()
+                return ctx.currentRoute()
+            }
+            removeDatabase(databaseName, ctx)
         }
 
         ctx.response().setStatusCode(204).end()
