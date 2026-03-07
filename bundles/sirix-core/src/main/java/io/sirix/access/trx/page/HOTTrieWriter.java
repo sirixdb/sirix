@@ -37,7 +37,6 @@ import io.sirix.cache.TransactionIntentLog;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.DiscriminativeBitComputer;
-import io.sirix.index.hot.HeightOptimalSplitter;
 import io.sirix.index.hot.NodeUpgradeManager;
 import java.util.Arrays;
 import java.util.function.LongSupplier;
@@ -102,11 +101,6 @@ public final class HOTTrieWriter {
   private final HOTIndirectPage[] cowPathNodes = new HOTIndirectPage[MAX_TREE_HEIGHT];
   private final int[] cowPathChildIndices = new int[MAX_TREE_HEIGHT];
   private int cowPathDepth = 0;
-
-  // ===== Pre-allocated arrays for handleLeafSplit - avoids 3 new[] per call =====
-  private final HOTIndirectPage[] splitPathNodes = new HOTIndirectPage[MAX_TREE_HEIGHT];
-  private final PageReference[] splitPathRefs = new PageReference[MAX_TREE_HEIGHT];
-  private final int[] splitPathChildIndices = new int[MAX_TREE_HEIGHT];
 
   // ===== Pre-allocated buffers for splitParentAndRecurse - avoids ArrayList =====
   private static final int MAX_SPLIT_CHILDREN = NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN + 2;
@@ -412,51 +406,6 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Handle leaf split - creates new HOTLeafPage and updates parent. Uses pre-allocated cowPath arrays
-   * - no Deque allocation!
-   *
-   * @param storageEngineReader the storage engine writer
-   * @param log the transaction intent log
-   * @param fullPage the full page that needs splitting
-   * @param pageRef the reference to the full page
-   * @param rootReference the root reference for the index (to update if root splits)
-   * @return the split key that separates the two pages
-   */
-  public byte[] handleLeafSplit(@NonNull StorageEngineWriter storageEngineReader, @NonNull TransactionIntentLog log,
-      @NonNull HOTLeafPage fullPage, @NonNull PageReference pageRef, @NonNull PageReference rootReference) {
-    // Delegate to the path-aware version using pre-allocated arrays (no new[] allocation)
-    return handleLeafSplitWithPath(storageEngineReader, log, fullPage, pageRef, rootReference,
-        splitPathNodes, splitPathRefs, splitPathChildIndices, 0);
-  }
-
-  /**
-   * Handle leaf page split with explicit path information.
-   *
-   * <p>
-   * This method properly handles splits at any level of the tree by accepting the navigation path
-   * from root to the splitting leaf.
-   * </p>
-   *
-   * <p>
-   * <b>Edge Case:</b> When the page has only 1 entry (common with many identical keys that get
-   * merged), splitting won't help. In this case, the method attempts to compact the page to free
-   * fragmented space. If that still doesn't help, the method returns {@code null} to signal that the
-   * caller needs to handle this differently (e.g., using overflow pages for large values).
-   * </p>
-   *
-   * @param storageEngineReader the storage engine writer
-   * @param log the transaction intent log
-   * @param fullPage the full page that needs splitting
-   * @param leafRef the reference to the leaf being split
-   * @param rootReference the root reference for the index
-   * @param pathNodes the indirect page nodes on the path from root to leaf
-   * @param pathRefs the page references on the path from root to leaf
-   * @param pathChildIndices the child indices taken at each level
-   * @param pathDepth the depth of the path (0 means leaf is at root)
-   * @return the split key that separates the two pages, or {@code null} if the page cannot be split
-   *         (e.g., only 1 entry with large merged value)
-   */
-  /**
    * Handle leaf page split AND insert atomically using MSDB-aware splitting.
    *
    * <p>
@@ -509,9 +458,8 @@ public final class HOTTrieWriter {
       return false;
     }
 
-    // Allocate page keys
+    // Allocate page key for right half
     final long newPageKey = pageKeyAllocator.getAsLong();
-    final long newRootPageKey = pageKeyAllocator.getAsLong();
     final int revision = storageEngineReader.getRevisionNumber();
 
     // Create target page for right half
@@ -553,11 +501,7 @@ public final class HOTTrieWriter {
       leafRef.setPage(fullPage);
       log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
 
-      // Create BiNode — matches C++ createTwoEntriesNode + integrateBiNodeIntoTree
-      final HOTIndirectPage biNode = HOTIndirectPage.createBiNode(
-          newRootPageKey, revision, discriminativeBit, leafRef, rightRef);
-
-      // Integrate BiNode into tree (walk up path with COW)
+      // Integrate split into tree (walk up path with COW)
       // Matches C++ integrateBiNodeIntoTree() — walk up the insert stack,
       // creating COW copies at each level instead of in-place pointer mutation.
       if (pathDepth > 0) {
@@ -566,7 +510,11 @@ public final class HOTTrieWriter {
             pathNodes[parentIdx], pathChildIndices[parentIdx], leafRef, rightRef,
             rightMin, rootReference, pathNodes, pathRefs, pathChildIndices, parentIdx);
       } else {
-        // Root split — create new BiNode as root
+        // Root split — create BiNode as new root (only allocate here, not above)
+        final long newRootPageKey = pageKeyAllocator.getAsLong();
+        final HOTIndirectPage biNode = HOTIndirectPage.createBiNode(
+            newRootPageKey, revision, discriminativeBit, leafRef, rightRef);
+
         PageReference leftChildRef;
         if (leafRef == rootReference) {
           leftChildRef = new PageReference();
@@ -583,119 +531,6 @@ public final class HOTTrieWriter {
       }
 
       return true;
-    } finally {
-      if (!rightPageOwnershipTransferred) {
-        rightPage.close();
-      }
-    }
-  }
-
-  public @Nullable byte[] handleLeafSplitWithPath(@NonNull StorageEngineWriter storageEngineReader,
-      @NonNull TransactionIntentLog log, @NonNull HOTLeafPage fullPage, @NonNull PageReference leafRef,
-      @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
-      int[] pathChildIndices, int pathDepth) {
-
-    Objects.requireNonNull(storageEngineReader);
-    Objects.requireNonNull(log);
-    Objects.requireNonNull(fullPage);
-    Objects.requireNonNull(leafRef);
-    Objects.requireNonNull(rootReference);
-
-    // Check if page can be split
-    if (!fullPage.canSplit()) {
-      // Try compacting the page first to free fragmented space
-      int reclaimedSpace = fullPage.compact();
-      if (reclaimedSpace > 0) {
-        // Update the page in the log after compaction
-        log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
-        // Caller should retry the insert after compaction
-        return null;
-      }
-      // Page has only 1 entry with a very large merged value
-      // Splitting won't help - caller needs to use overflow pages
-      return null;
-    }
-
-    // Allocate new page key for right sibling
-    long newPageKey = pageKeyAllocator.getAsLong();
-    long newRootPageKey = pageKeyAllocator.getAsLong();
-
-    // Create new HOTLeafPage with off-heap segment
-    HOTLeafPage rightPage = new HOTLeafPage(newPageKey, storageEngineReader.getRevisionNumber(), fullPage.getIndexType());
-
-    // Use HeightOptimalSplitter for proper height-optimal splitting
-    boolean rightPageOwnershipTransferred = false;
-
-    try {
-      HeightOptimalSplitter.SplitResult splitResult =
-          HeightOptimalSplitter.splitLeafPage(fullPage, rightPage, newRootPageKey, storageEngineReader.getRevisionNumber());
-
-      // Handle case where split failed (e.g., single large entry)
-      if (splitResult == null) {
-        // Compact the original page and let caller retry
-        fullPage.compact();
-        log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
-        return null;
-      }
-
-      // Get the split key from boundary (first key in right page after split)
-      byte[] splitKey = rightPage.getFirstKey();
-      if (splitKey.length == 0) {
-        // Right page is empty after split — should not happen but handle gracefully
-        fullPage.compact();
-        log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
-        return null;
-      }
-
-      // NOTE: This legacy method does NOT insert the new key during the split.
-      // The caller must re-navigate after this method returns.
-      // Prefer handleLeafSplitAndInsert() which uses MSDB-aware split+insert
-      // and eliminates re-navigation entirely.
-
-      // Create reference for the new right page
-      PageReference rightRef = splitResult.rightChild();
-      rightRef.setKey(newPageKey);
-      log.put(rightRef, PageContainer.getInstance(rightPage, rightPage));
-      rightPageOwnershipTransferred = true;
-
-      // Swizzle the post-split left-half page onto leafRef so that
-      // getLastKeyFromChild(leafRef) in updateParentForSplitWithPath sees the
-      // correct boundary key. Without this, leafRef.getPage() returns the
-      // pre-COW original (with ALL entries, including those now in rightPage),
-      // producing wrong discriminative bits and a corrupt tree.
-      leafRef.setPage(fullPage);
-      log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
-
-      // Now we need to update the parent structure
-      if (pathDepth > 0) {
-        // Has a parent - update the parent to include the new child
-        int parentIdx = pathDepth - 1;
-        updateParentForSplitWithPath(storageEngineReader, log, pathRefs[parentIdx], pathNodes[parentIdx], pathChildIndices[parentIdx],
-            leafRef, rightRef, splitKey, rootReference, pathNodes, pathRefs, pathChildIndices, parentIdx);
-      } else {
-        // Root split - create new BiNode as root
-        // CRITICAL: When pathDepth=0, leafRef may be the same object as rootReference.
-        // We need a SEPARATE reference for the left child, and it MUST be in the log
-        // so that HOTIndirectPage.commit() can find and write it to disk.
-        PageReference leftChildRef;
-        if (leafRef == rootReference) {
-          // Put the left child in the log so commit can find it by identity
-          leftChildRef = new PageReference();
-          log.put(leftChildRef, PageContainer.getInstance(fullPage, fullPage));
-        } else {
-          leftChildRef = leafRef;
-        }
-
-        HOTIndirectPage newRoot = splitResult.newRoot();
-        newRoot.setChildReference(0, leftChildRef);
-        newRoot.setChildReference(1, rightRef);
-
-        rootReference.setKey(newRootPageKey);
-        rootReference.setPage(newRoot);
-        log.put(rootReference, PageContainer.getInstance(newRoot, newRoot));
-      }
-
-      return splitKey;
     } finally {
       if (!rightPageOwnershipTransferred) {
         rightPage.close();

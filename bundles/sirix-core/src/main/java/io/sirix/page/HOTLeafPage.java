@@ -858,7 +858,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     // Find split point: first existing key with bit msdb = 1
     int splitPoint = count;
     for (int i = 0; i < count; i++) {
-      if (DiscriminativeBitComputer.isBitSet(getKey(i), msdb)) {
+      if (DiscriminativeBitComputer.isBitSet(getKeySlice(i), msdb)) {
         splitPoint = i;
         break;
       }
@@ -900,7 +900,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     int bestBit = Integer.MAX_VALUE;
     for (int i = 0; i < entryCount - 1; i++) {
-      final int bit = DiscriminativeBitComputer.computeDifferingBit(getKey(i), getKey(i + 1));
+      final int bit = DiscriminativeBitComputer.computeDifferingBit(getKeySlice(i), getKeySlice(i + 1));
       if (bit >= 0 && bit < bestBit) {
         bestBit = bit;
       }
@@ -931,23 +931,23 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       if (insertPos > 0 && insertPos < count && i == insertPos - 1) {
         continue; // This pair is replaced by K's two new pairs
       }
-      final int bit = DiscriminativeBitComputer.computeDifferingBit(getKey(i), getKey(i + 1));
+      final int bit = DiscriminativeBitComputer.computeDifferingBit(getKeySlice(i), getKeySlice(i + 1));
       if (bit >= 0 && bit < bestBit) {
         bestBit = bit;
       }
     }
 
-    // Check new key's predecessor pair
+    // Check new key's predecessor pair (mixed: MemorySegment vs byte[])
     if (insertPos > 0) {
-      final int bit = DiscriminativeBitComputer.computeDifferingBit(getKey(insertPos - 1), newKey);
+      final int bit = DiscriminativeBitComputer.computeDifferingBit(getKeySlice(insertPos - 1), newKey);
       if (bit >= 0 && bit < bestBit) {
         bestBit = bit;
       }
     }
 
-    // Check new key's successor pair
+    // Check new key's successor pair (mixed: byte[] vs MemorySegment)
     if (insertPos < count) {
-      final int bit = DiscriminativeBitComputer.computeDifferingBit(newKey, getKey(insertPos));
+      final int bit = DiscriminativeBitComputer.computeDifferingBit(getKeySlice(insertPos), newKey);
       if (bit >= 0 && bit < bestBit) {
         bestBit = bit;
       }

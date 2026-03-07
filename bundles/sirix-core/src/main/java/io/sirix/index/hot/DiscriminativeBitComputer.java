@@ -28,6 +28,9 @@
 
 package io.sirix.index.hot;
 
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
+
 import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
@@ -124,13 +127,126 @@ public final class DiscriminativeBitComputer {
   }
 
   /**
+   * Compute the first differing bit position between two keys stored as MemorySegment slices.
+   *
+   * <p>Zero-allocation variant — operates directly on off-heap slices without copying to byte[].</p>
+   *
+   * @param key1 first key segment
+   * @param key2 second key segment
+   * @return bit position (0-indexed from MSB), or -1 if keys are identical
+   */
+  public static int computeDifferingBit(@NonNull MemorySegment key1, @NonNull MemorySegment key2) {
+    final long len1 = key1.byteSize();
+    final long len2 = key2.byteSize();
+
+    if (len1 == 0 && len2 == 0) {
+      return -1;
+    }
+    if (len1 == 0 || len2 == 0) {
+      return 0;
+    }
+
+    final long minLen = Math.min(len1, len2);
+
+    // Process 8 bytes at a time
+    long i = 0;
+    for (; i + 8 <= minLen; i += 8) {
+      final long left = key1.get(ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.BIG_ENDIAN), i);
+      final long right = key2.get(ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.BIG_ENDIAN), i);
+      if (left != right) {
+        return (int) (i * 8) + Long.numberOfLeadingZeros(left ^ right);
+      }
+    }
+
+    // Remaining bytes
+    for (; i < minLen; i++) {
+      final int diff = (key1.get(ValueLayout.JAVA_BYTE, i) ^ key2.get(ValueLayout.JAVA_BYTE, i)) & 0xFF;
+      if (diff != 0) {
+        return (int) (i * 8) + (Integer.numberOfLeadingZeros(diff) - 24);
+      }
+    }
+
+    if (len1 != len2) {
+      return (int) (minLen * 8);
+    }
+
+    return -1;
+  }
+
+  /**
+   * Compute the first differing bit between a MemorySegment key and a byte[] key.
+   *
+   * <p>Zero-allocation variant for mixed comparisons (one key on-heap, one off-heap).</p>
+   *
+   * @param seg the off-heap key segment
+   * @param key the on-heap key array
+   * @return bit position (0-indexed from MSB), or -1 if keys are identical
+   */
+  public static int computeDifferingBit(@NonNull MemorySegment seg, @NonNull byte[] key) {
+    final long segLen = seg.byteSize();
+    final int keyLen = key.length;
+
+    if (segLen == 0 && keyLen == 0) {
+      return -1;
+    }
+    if (segLen == 0 || keyLen == 0) {
+      return 0;
+    }
+
+    final long minLen = Math.min(segLen, keyLen);
+
+    long i = 0;
+    for (; i + 8 <= minLen; i += 8) {
+      final long left = seg.get(ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.BIG_ENDIAN), i);
+      final long right = getLongBE(key, (int) i);
+      if (left != right) {
+        return (int) (i * 8) + Long.numberOfLeadingZeros(left ^ right);
+      }
+    }
+
+    for (; i < minLen; i++) {
+      final int diff = (seg.get(ValueLayout.JAVA_BYTE, i) ^ key[(int) i]) & 0xFF;
+      if (diff != 0) {
+        return (int) (i * 8) + (Integer.numberOfLeadingZeros(diff) - 24);
+      }
+    }
+
+    if (segLen != keyLen) {
+      return (int) (minLen * 8);
+    }
+
+    return -1;
+  }
+
+  /**
+   * Check if a specific bit is set in a MemorySegment key.
+   *
+   * <p>Zero-allocation variant — reads directly from off-heap memory.</p>
+   *
+   * @param key the key segment
+   * @param absoluteBitIndex the absolute bit index (0 = MSB of first byte)
+   * @return true if the bit is set (1), false otherwise (0)
+   */
+  public static boolean isBitSet(@NonNull MemorySegment key, int absoluteBitIndex) {
+    if (absoluteBitIndex < 0) {
+      return false;
+    }
+    final int byteIndex = absoluteBitIndex / 8;
+    if (byteIndex >= key.byteSize()) {
+      return false;
+    }
+    final int bitInByte = absoluteBitIndex % 8;
+    return (key.get(ValueLayout.JAVA_BYTE, byteIndex) & (0x80 >> bitInByte)) != 0;
+  }
+
+  /**
    * Check if a specific bit is set in a key.
-   * 
+   *
    * <p>
    * <b>Reference:</b> Algorithms.hpp line 87-89:
    * {@code (existingRawKey[getByteIndex(mAbsoluteBitIndex)] & (0b10000000 >> bitPositionInByte(mAbsoluteBitIndex))) > 0}
    * </p>
-   * 
+   *
    * @param key the key to check
    * @param absoluteBitIndex the absolute bit index (0 = MSB of first byte)
    * @return true if the bit is set (1), false otherwise (0)

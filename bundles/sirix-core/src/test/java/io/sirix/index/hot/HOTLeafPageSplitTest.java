@@ -7,7 +7,6 @@ package io.sirix.index.hot;
 
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
-import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.access.trx.page.HOTTrieWriter;
@@ -121,12 +120,12 @@ class HOTLeafPageSplitTest {
   }
 
   @Nested
-  @DisplayName("HOTTrieWriter.handleLeafSplit()")
-  class HandleLeafSplit {
+  @DisplayName("HOTTrieWriter.handleLeafSplitAndInsert()")
+  class HandleLeafSplitAndInsert {
 
     @Test
-    @DisplayName("handleLeafSplit creates HOTIndirectPage as new root")
-    void testHandleLeafSplitCreatesIndirectPage() {
+    @DisplayName("handleLeafSplitAndInsert splits full page and inserts new key atomically")
+    void testHandleLeafSplitAndInsertCreatesIndirectPage() {
       // Create a full page
       HOTLeafPage fullPage = new HOTLeafPage(1L, 1, IndexType.PATH);
       for (int i = 0; i < HOTLeafPage.MAX_ENTRIES; i++) {
@@ -150,13 +149,22 @@ class HOTLeafPageSplitTest {
       PageReference rootRef = new PageReference();
       rootRef.setKey(1L);
 
-      // Handle split
+      // Atomic split+insert: use a key that sorts BETWEEN existing keys
+      // so the MSDB produces a non-degenerate split (entries on both sides)
+      byte[] newKey = "key0256x".getBytes();
+      byte[] newValue = "new_value".getBytes();
+      final int originalCount = fullPage.getEntryCount();
       HOTTrieWriter trieWriter = new HOTTrieWriter();
-      byte[] splitKey = trieWriter.handleLeafSplit(storageEngineWriter, log, fullPage, pageRef, rootRef);
+      boolean inserted = trieWriter.handleLeafSplitAndInsert(storageEngineWriter, log, fullPage, pageRef, rootRef,
+          new HOTIndirectPage[0], new PageReference[0], new int[0], 0,
+          newKey, newKey.length, newValue, newValue.length);
 
-      // Verify
-      assertNotNull(splitKey, "Split key should be returned");
-      assertFalse(fullPage.needsSplit(), "Original page should no longer need split");
+      // Verify: split+insert succeeded and the root reference was updated to a BiNode
+      assertTrue(inserted, "Split+insert should succeed");
+      assertTrue(rootRef.getPage() instanceof HOTIndirectPage,
+          "Root should now be an HOTIndirectPage (BiNode) after split");
+      assertTrue(fullPage.getEntryCount() < originalCount,
+          "Original page should have fewer entries after split");
     }
   }
 
@@ -255,6 +263,96 @@ class HOTLeafPageSplitTest {
         assertTrue(rightPage.mergeWithNodeRefs(newKey2, newKey2.length, new byte[10], 10),
             "Right page should accept new entry");
       }
+    }
+  }
+
+  @Nested
+  @DisplayName("MSDB-aware splitToWithInsert edge cases")
+  class SplitToWithInsertEdgeCases {
+
+    // Use put() for population — splitToWithInsert's final insert via mergeWithNodeRefs
+    // only deserializes when updating an EXISTING key, which doesn't happen for new inserts.
+
+    @Test
+    @DisplayName("New key more significant than all existing pairs (degenerate left)")
+    void testNewKeyIntroducesMoreSignificantBit() {
+      // All existing keys share prefix "aaa", new key "zzz" differs at byte 0.
+      // MSDB comes from (existing_last, new_key) → all existing stay left, new key alone right.
+      HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.PATH);
+      page.put("aaa1".getBytes(), "v1".getBytes());
+      page.put("aaa2".getBytes(), "v2".getBytes());
+      page.put("aaa3".getBytes(), "v3".getBytes());
+
+      HOTLeafPage right = new HOTLeafPage(2L, 1, IndexType.PATH);
+      byte[] newKey = "zzz9".getBytes();
+      byte[] newVal = "vn".getBytes();
+
+      boolean ok = page.splitToWithInsert(right, newKey, newKey.length, newVal, newVal.length);
+
+      assertTrue(ok, "Split+insert should succeed");
+      assertEquals(3, page.getEntryCount(), "All existing keys stay left");
+      assertEquals(1, right.getEntryCount(), "New key alone on right");
+      assertEquals("zzz9", new String(right.getFirstKey()));
+    }
+
+    @Test
+    @DisplayName("New key less significant than existing — degenerate right")
+    void testNewKeyAllRight() {
+      // Existing: "b1","b2","b3". New: "a0" — all existing go right, new key alone left.
+      HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.PATH);
+      page.put("b1".getBytes(), "v1".getBytes());
+      page.put("b2".getBytes(), "v2".getBytes());
+      page.put("b3".getBytes(), "v3".getBytes());
+
+      HOTLeafPage right = new HOTLeafPage(2L, 1, IndexType.PATH);
+      byte[] newKey = "a0".getBytes();
+      byte[] newVal = "vn".getBytes();
+
+      boolean ok = page.splitToWithInsert(right, newKey, newKey.length, newVal, newVal.length);
+
+      assertTrue(ok, "Split+insert should succeed");
+      assertEquals(1, page.getEntryCount(), "New key alone on left");
+      assertEquals("a0", new String(page.getFirstKey()));
+      assertEquals(3, right.getEntryCount(), "All existing keys on right");
+    }
+
+    @Test
+    @DisplayName("Balanced split — new key in the middle")
+    void testBalancedSplit() {
+      // Keys: "aa","ab","ba","bb". New: "am". MSDB at 'a' vs 'b' (byte 0 bit 6).
+      // Left (bit=0): "aa","ab","am". Right (bit=1): "ba","bb".
+      HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.PATH);
+      page.put("aa".getBytes(), "v1".getBytes());
+      page.put("ab".getBytes(), "v2".getBytes());
+      page.put("ba".getBytes(), "v3".getBytes());
+      page.put("bb".getBytes(), "v4".getBytes());
+
+      HOTLeafPage right = new HOTLeafPage(2L, 1, IndexType.PATH);
+      byte[] newKey = "am".getBytes();
+      byte[] newVal = "vn".getBytes();
+
+      boolean ok = page.splitToWithInsert(right, newKey, newKey.length, newVal, newVal.length);
+
+      assertTrue(ok, "Split+insert should succeed");
+      assertEquals(3, page.getEntryCount(), "Left should have aa, ab, am");
+      assertEquals(2, right.getEntryCount(), "Right should have ba, bb");
+    }
+
+    @Test
+    @DisplayName("Single entry + new key produces valid split")
+    void testSingleEntryPlusNewKey() {
+      HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.PATH);
+      page.put("only".getBytes(), "v1".getBytes());
+
+      HOTLeafPage right = new HOTLeafPage(2L, 1, IndexType.PATH);
+      byte[] newKey = "new".getBytes();
+      byte[] newVal = "vn".getBytes();
+
+      boolean ok = page.splitToWithInsert(right, newKey, newKey.length, newVal, newVal.length);
+
+      assertTrue(ok, "Single entry + new key should produce valid MSDB and split");
+      int total = page.getEntryCount() + right.getEntryCount();
+      assertEquals(2, total, "Both entries should be present");
     }
   }
 }

@@ -373,6 +373,17 @@ public abstract class AbstractHOTIndexWriter<K> {
     HOTLeafPage leaf = navResult.leaf();
 
     for (int attempt = 0; attempt < MAX_INSERT_RETRIES; attempt++) {
+      // Try compacting first — O(N) memcpy with no allocation, may free
+      // enough fragmented space to avoid the more expensive split entirely.
+      final int reclaimedSpace = leaf.compact();
+      if (reclaimedSpace > 0) {
+        storageEngineWriter.getLog().put(navResult.leafRef(), PageContainer.getInstance(leaf, leaf));
+
+        if (leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
+          return true;
+        }
+      }
+
       // MSDB-aware split+insert: split the leaf by the most significant
       // discriminative bit (including the new key's disc bits with its neighbors),
       // then insert the new key into the correct half atomically.
@@ -395,19 +406,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         }
       }
 
-      // Try compacting the page to reclaim fragmented space
-      final int reclaimedSpace = leaf.compact();
-      if (reclaimedSpace > 0) {
-        // Update the page in the log after compaction
-        storageEngineWriter.getLog().put(navResult.leafRef(), PageContainer.getInstance(leaf, leaf));
-
-        // Try inserting again after compaction
-        if (leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
-          return true;
-        }
-      }
-
-      // If neither split nor compact helped, re-navigate for fresh state
+      // If neither compact nor split helped, re-navigate for fresh state
       if (attempt < MAX_INSERT_RETRIES - 1) {
         navResult = getLeafWithPath(rootRef, keyBuf, keyLen);
         leaf = navResult.leaf();
