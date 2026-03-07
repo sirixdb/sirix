@@ -34,7 +34,7 @@ import java.util.concurrent.TimeUnit
  * - Requests without tokens are rejected with 401
  * - Requests with invalid tokens are rejected with 401
  * - Requests with malformed auth headers are rejected with 401
- * - Requests with insufficient permissions are rejected with 401
+ * - Requests with insufficient permissions are rejected with 403
  */
 @ExtendWith(VertxExtension::class)
 @DisplayName("Auth negative tests")
@@ -420,10 +420,10 @@ class AuthNegativeTest {
     }
 
     // ──────────────────────────────────────────────────────────────────────
-    // 401 Tests: Insufficient permissions (viewer-only user)
+    // 403 Tests: Insufficient permissions (viewer-only user)
     //
-    // The Auth class returns 401 (not 403) for insufficient role checks,
-    // matching the existing behavior in Auth.kt line 46.
+    // The Auth class returns 403 (Forbidden) for authenticated users
+    // with insufficient roles.
     // ──────────────────────────────────────────────────────────────────────
 
     @Nested
@@ -466,7 +466,7 @@ class AuthNegativeTest {
 
         @Test
         @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
-        @DisplayName("Viewer user cannot PUT (create) a database — returns 401")
+        @DisplayName("Viewer user cannot PUT (create) a database — returns 403")
         fun testViewerCannotCreate(vertx: Vertx, testContext: VertxTestContext) {
             GlobalScope.launch(vertx.dispatcher()) {
                 testContext.verifyCoroutine {
@@ -478,7 +478,7 @@ class AuthNegativeTest {
                         .sendBuffer(Buffer.buffer("{}")).coAwait()
 
                     testContext.verify {
-                        assertEquals(401, httpResponse.statusCode())
+                        assertEquals(403, httpResponse.statusCode())
                         testContext.completeNow()
                     }
                 }
@@ -487,7 +487,7 @@ class AuthNegativeTest {
 
         @Test
         @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
-        @DisplayName("Viewer user cannot DELETE a database — returns 401")
+        @DisplayName("Viewer user cannot DELETE a database — returns 403")
         fun testViewerCannotDelete(vertx: Vertx, testContext: VertxTestContext) {
             GlobalScope.launch(vertx.dispatcher()) {
                 testContext.verifyCoroutine {
@@ -511,7 +511,7 @@ class AuthNegativeTest {
                         .send().coAwait()
 
                     testContext.verify {
-                        assertEquals(401, deleteResponse.statusCode())
+                        assertEquals(403, deleteResponse.statusCode())
                         testContext.completeNow()
                     }
                 }
@@ -520,7 +520,7 @@ class AuthNegativeTest {
 
         @Test
         @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
-        @DisplayName("Viewer user cannot POST (modify) a resource — returns 401")
+        @DisplayName("Viewer user cannot POST (modify) a resource — returns 403")
         fun testViewerCannotModify(vertx: Vertx, testContext: VertxTestContext) {
             GlobalScope.launch(vertx.dispatcher()) {
                 testContext.verifyCoroutine {
@@ -546,7 +546,7 @@ class AuthNegativeTest {
                         .sendBuffer(Buffer.buffer("{\"new\":\"data\"}")).coAwait()
 
                     testContext.verify {
-                        assertEquals(401, postResponse.statusCode())
+                        assertEquals(403, postResponse.statusCode())
                         testContext.completeNow()
                     }
                 }
@@ -555,7 +555,7 @@ class AuthNegativeTest {
 
         @Test
         @Timeout(value = 30, timeUnit = TimeUnit.SECONDS)
-        @DisplayName("Viewer user cannot DELETE a specific resource — returns 401")
+        @DisplayName("Viewer user cannot DELETE a specific resource — returns 403")
         fun testViewerCannotDeleteResource(vertx: Vertx, testContext: VertxTestContext) {
             GlobalScope.launch(vertx.dispatcher()) {
                 testContext.verifyCoroutine {
@@ -579,7 +579,7 @@ class AuthNegativeTest {
                         .send().coAwait()
 
                     testContext.verify {
-                        assertEquals(401, deleteResponse.statusCode())
+                        assertEquals(403, deleteResponse.statusCode())
                         testContext.completeNow()
                     }
                 }

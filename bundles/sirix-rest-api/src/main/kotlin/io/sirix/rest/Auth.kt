@@ -27,7 +27,12 @@ class Auth(private val keycloak: OAuth2Auth, private val authz: AuthorizationPro
         }
 
         val credentials = TokenCredentials(token.substring(BEARER_PREFIX.length))
-        val user = keycloak.authenticate(credentials).coAwait()
+        val user = try {
+            keycloak.authenticate(credentials).coAwait()
+        } catch (e: Exception) {
+            ctx.fail(HttpResponseStatus.UNAUTHORIZED.code())
+            return ctx.currentRoute()
+        }
         val database = ctx.pathParam("database")
 
         authz.getAuthorizations(user).coAwait()
