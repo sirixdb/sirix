@@ -32,7 +32,7 @@ public final class ItemHistoryTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").build());
 
-      try (final var manager = database.beginResourceSession("mydoc.jn"); final var wtx = manager.beginNodeTrx()) {
+      try (final var resourceSession = database.beginResourceSession("mydoc.jn"); final var wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"));
         wtx.moveTo(2);
         wtx.setStringValue("blabla").commit();
@@ -64,7 +64,7 @@ public final class ItemHistoryTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc2.jn").build());
 
-      try (final var manager = database.beginResourceSession("mydoc2.jn"); final var wtx = manager.beginNodeTrx()) {
+      try (final var resourceSession = database.beginResourceSession("mydoc2.jn"); final var wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[]"));
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
             "{\"generic\": 1, \"location\": {\"state\": \"NY\", \"city\": \"New York\"}}"));

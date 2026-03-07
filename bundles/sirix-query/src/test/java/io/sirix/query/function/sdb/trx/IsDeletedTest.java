@@ -31,7 +31,7 @@ public final class IsDeletedTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").storeNodeHistory(true).build());
 
-      try (final var manager = database.beginResourceSession("mydoc.jn"); final var wtx = manager.beginNodeTrx()) {
+      try (final var resourceSession = database.beginResourceSession("mydoc.jn"); final var wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"));
         wtx.moveTo(2);
         wtx.remove();
@@ -58,7 +58,7 @@ public final class IsDeletedTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").storeNodeHistory(true).build());
 
-      try (final var manager = database.beginResourceSession("mydoc.jn"); final var wtx = manager.beginNodeTrx()) {
+      try (final var resourceSession = database.beginResourceSession("mydoc.jn"); final var wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"), JsonNodeTrx.Commit.NO);
         wtx.moveTo(2);
         wtx.commit();

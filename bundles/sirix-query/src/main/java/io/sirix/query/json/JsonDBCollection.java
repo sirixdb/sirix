@@ -211,19 +211,19 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
     if (resources.size() > 1) {
       throw new DocumentException("More than one document stored in database/collection!");
     }
-    final JsonResourceSession manager = database.beginResourceSession(resources.get(0).getFileName().toString());
+    final JsonResourceSession resourceSession = database.beginResourceSession(resources.get(0).getFileName().toString());
     try {
       final int version = revision == -1
-          ? manager.getMostRecentRevisionNumber()
+          ? resourceSession.getMostRecentRevisionNumber()
           : revision;
-      final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
+      final JsonNodeReadOnlyTrx rtx = resourceSession.beginNodeReadOnlyTrx(version);
 
       return getItem(rtx);
     } catch (final SirixException e) {
-      manager.close();
+      resourceSession.close();
       throw new DocumentException(e.getCause());
     } catch (final Exception e) {
-      manager.close();
+      resourceSession.close();
       throw e;
     }
   }
@@ -262,20 +262,20 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
                                                    .buildPathSummary(resourceOptions.buildPathSummary())
                                                    .hashKind(resourceOptions.hashType())
                                                    .build());
-      final JsonResourceSession manager = database.beginResourceSession(resName);
-      try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+      final JsonResourceSession resourceSession = database.beginResourceSession(resName);
+      try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       } catch (final Exception e) {
-        manager.close();
+        resourceSession.close();
         throw e;
       }
       try {
-        final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
+        final JsonNodeReadOnlyTrx rtx = resourceSession.beginNodeReadOnlyTrx();
         rtx.moveToDocumentRoot();
         return getItem(rtx);
       } catch (final Exception e) {
-        manager.close();
+        resourceSession.close();
         throw e;
       }
     } catch (final SirixException e) {
@@ -366,20 +366,20 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
                                                    .buildPathSummary(resourceOptions.buildPathSummary())
                                                    .hashKind(resourceOptions.hashType())
                                                    .build());
-      final JsonResourceSession manager = database.beginResourceSession(resourceName);
-      try (final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+      final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
+      try (final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       } catch (final Exception e) {
-        manager.close();
+        resourceSession.close();
         throw e;
       }
 
       try {
-        final JsonNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx();
+        final JsonNodeReadOnlyTrx rtx = resourceSession.beginNodeReadOnlyTrx();
         return getItem(rtx);
       } catch (final Exception e) {
-        manager.close();
+        resourceSession.close();
         throw e;
       }
     } catch (final SirixException e) {

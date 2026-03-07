@@ -429,8 +429,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
         return collection;
       }
 
-      try (final JsonResourceSession manager = database.beginResourceSession(resourceName);
-          final JsonNodeTrx wtx = manager.beginNodeTrx()) {
+      try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
+          final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       }
@@ -537,8 +537,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private void createResource(String collName, final Database<JsonResourceSession> database, final JsonReader reader,
       final String resourceName, final Object options) {
     createResource(options, database, resourceName);
-    try (final JsonResourceSession manager = database.beginResourceSession(resourceName);
-        final JsonNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
+    try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
+        final JsonNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
       final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
       collections.put(database, collection);
       wtx.insertSubtreeAsFirstChild(reader);
@@ -574,8 +574,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                          .hashKind(hashType)
                                                          .versioningApproach(versioningType)
                                                          .build());
-            try (final JsonResourceSession manager = database.beginResourceSession(resourceName);
-                final JsonNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
+            try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
+                final JsonNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
               final JsonDBCollection collection = new JsonDBCollection(collName, database, this);
               collections.put(database, collection);
               wtx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(currentPath));

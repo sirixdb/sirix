@@ -34,7 +34,7 @@ public final class RollbackTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").build());
 
-      try (final var manager = database.beginResourceSession("mydoc.jn"); final var wtx = manager.beginNodeTrx()) {
+      try (final var resourceSession = database.beginResourceSession("mydoc.jn"); final var wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"original\"]"));
         wtx.commit();
         // Modify but then rollback
@@ -67,7 +67,7 @@ public final class RollbackTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").build());
 
-      try (final var manager = database.beginResourceSession("mydoc.jn"); final var wtx = manager.beginNodeTrx()) {
+      try (final var resourceSession = database.beginResourceSession("mydoc.jn"); final var wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"original\"]"));
         wtx.commit();
         // Modify but don't commit — will be rolled back

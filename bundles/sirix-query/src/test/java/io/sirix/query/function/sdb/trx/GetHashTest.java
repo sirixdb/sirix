@@ -34,7 +34,7 @@ public final class GetHashTest {
     try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").hashKind(HashType.ROLLING).build());
 
-      try (final var manager = database.beginResourceSession("mydoc.jn"); final var wtx = manager.beginNodeTrx()) {
+      try (final var resourceSession = database.beginResourceSession("mydoc.jn"); final var wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"));
         wtx.commit();
       }
@@ -63,7 +63,7 @@ public final class GetHashTest {
     try (final var database = JsonTestHelper.getDatabaseWithHashesEnabled(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").hashKind(HashType.ROLLING).build());
 
-      try (final var manager = database.beginResourceSession("mydoc.jn"); final var wtx = manager.beginNodeTrx()) {
+      try (final var resourceSession = database.beginResourceSession("mydoc.jn"); final var wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"));
         wtx.commit();
       }

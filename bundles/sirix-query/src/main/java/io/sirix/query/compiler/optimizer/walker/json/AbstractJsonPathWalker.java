@@ -65,13 +65,13 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     final RevisionData revisionData = getRevisionData(node);
 
     try (final var jsonCollection = jsonDBStore.lookup(revisionData.databaseName());
-        final var resMgr = jsonCollection.getDatabase().beginResourceSession(revisionData.resourceName());
+        final var resourceSession = jsonCollection.getDatabase().beginResourceSession(revisionData.resourceName());
         final var rtx = revisionData.revision() == -1
-            ? resMgr.beginNodeReadOnlyTrx()
-            : resMgr.beginNodeReadOnlyTrx(revisionData.revision());
+            ? resourceSession.beginNodeReadOnlyTrx()
+            : resourceSession.beginNodeReadOnlyTrx(revisionData.revision());
         final var pathSummary = revisionData.revision() == -1
-            ? resMgr.openPathSummary()
-            : resMgr.openPathSummary(revisionData.revision())) {
+            ? resourceSession.openPathSummary()
+            : resourceSession.openPathSummary(revisionData.revision())) {
       if (rtx.getDescendantCount() < MIN_NODE_NUMBER) {
         return astNode;
       }
@@ -106,7 +106,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       removeFirstPredicateSegmentNameIfPredicateLeafNodeIsContextItemAndParentOfCtxItemIsAnArrayAccessExpr(
           predicateLeafNode, predicateSegmentNames);
 
-      boolean notFound = findIndexDefsForPathNodeKeys(predicateNode, type, predicateSegmentNames, revisionData, resMgr,
+      boolean notFound = findIndexDefsForPathNodeKeys(predicateNode, type, predicateSegmentNames, revisionData, resourceSession,
           pathSummary, pathNodeKeys, foundIndexDefsToPaths, foundIndexDefsToPredicateLevels);
 
       if (!notFound) {
@@ -216,7 +216,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
   }
 
   private boolean findIndexDefsForPathNodeKeys(AST predicateNode, Type type, Deque<String> predicateSegmentNames,
-      RevisionData revisionData, JsonResourceSession resMgr, PathSummaryReader pathSummary, List<Integer> pathNodeKeys,
+      RevisionData revisionData, JsonResourceSession resourceSession, PathSummaryReader pathSummary, List<Integer> pathNodeKeys,
       Map<IndexDef, List<Path<QNm>>> foundIndexDefsToPaths, Map<IndexDef, Integer> foundIndexDefsToPredicateLevels) {
     boolean notFound = false;
 
@@ -227,8 +227,8 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
       final var pathToFoundNode = pathSummary.getPath();
 
       final var indexController = revisionData.revision() == -1
-          ? resMgr.getRtxIndexController(resMgr.getMostRecentRevisionNumber())
-          : resMgr.getRtxIndexController(revisionData.revision());
+          ? resourceSession.getRtxIndexController(resourceSession.getMostRecentRevisionNumber())
+          : resourceSession.getRtxIndexController(revisionData.revision());
 
       final var indexDef = findIndex(pathToFoundNode, indexController, type);
 

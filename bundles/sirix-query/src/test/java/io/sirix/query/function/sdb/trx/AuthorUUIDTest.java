@@ -35,7 +35,7 @@ public class AuthorUUIDTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile())) {
       database.createResource(ResourceConfiguration.newBuilder("mydoc.jn").build());
 
-      try (final var manager = database.beginResourceSession("mydoc.jn"); final var wtx = manager.beginNodeTrx()) {
+      try (final var resourceSession = database.beginResourceSession("mydoc.jn"); final var wtx = resourceSession.beginNodeTrx()) {
         wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("[\"bla\", \"blubb\"]"));
       }
     }
@@ -45,8 +45,8 @@ public class AuthorUUIDTest {
     try (
         final var database =
             Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile(), new User("johannes", johannesUUID));
-        final var manager = database.beginResourceSession("mydoc.jn");
-        final var wtx = manager.beginNodeTrx()) {
+        final var resourceSession = database.beginResourceSession("mydoc.jn");
+        final var wtx = resourceSession.beginNodeTrx()) {
       wtx.moveTo(2);
       wtx.setStringValue("blabla").commit();
     }
@@ -56,8 +56,8 @@ public class AuthorUUIDTest {
     try (
         final var database =
             Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile(), new User("moshe", mosheUUID));
-        final var manager = database.beginResourceSession("mydoc.jn");
-        final var wtx = manager.beginNodeTrx()) {
+        final var resourceSession = database.beginResourceSession("mydoc.jn");
+        final var wtx = resourceSession.beginNodeTrx()) {
       wtx.moveTo(2);
       wtx.setStringValue("blablabla").commit();
     }
@@ -67,8 +67,8 @@ public class AuthorUUIDTest {
     try (
         final var database =
             Databases.openJsonDatabase(JsonTestHelper.PATHS.PATH1.getFile(), new User("carolin", carolinUUID));
-        final var manager = database.beginResourceSession("mydoc.jn");
-        final var wtx = manager.beginNodeTrx()) {
+        final var resourceSession = database.beginResourceSession("mydoc.jn");
+        final var wtx = resourceSession.beginNodeTrx()) {
       wtx.moveTo(2);
       wtx.remove().commit();
     }
