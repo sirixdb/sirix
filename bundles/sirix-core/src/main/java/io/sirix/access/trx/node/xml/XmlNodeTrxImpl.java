@@ -1500,7 +1500,7 @@ final class XmlNodeTrxImpl extends
           final int oldPrefixKey = node.getPrefixKey();
           final int oldLocalNameKey = node.getLocalNameKey();
           final int oldUriKey = node.getURIKey();
-          final NamePage page = ((NamePage) storageEngineWriter.getActualRevisionRootPage().getNamePageReference().getPage());
+          final NamePage page = storageEngineWriter.getNamePage(storageEngineWriter.getActualRevisionRootPage());
           page.removeName(oldPrefixKey, nodeKind, storageEngineWriter);
           page.removeName(oldLocalNameKey, nodeKind, storageEngineWriter);
           page.removeName(oldUriKey, NodeKind.NAMESPACE, storageEngineWriter);
