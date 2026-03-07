@@ -392,7 +392,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       // insertNewValue + integrateBiNodeIntoTree), adapted for COW semantics
       // and multi-entry leaf pages. No re-navigation needed — the MSDB
       // guarantees disc-bit routing correctness for all keys.
-      if (leaf.canSplit() || leaf.getEntryCount() >= 1) {
+      if (leaf.canSplit()) {
         final boolean inserted = trieWriter.handleLeafSplitAndInsert(
             storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
             rootRef, navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
@@ -692,12 +692,12 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   protected void serializeValueInto(NodeReferences value) {
     byte[] valueBuf = VALUE_BUFFER.get();
-    int valueLen = NodeReferencesSerializer.serialize(value, valueBuf, 0);
-    if (valueLen > valueBuf.length) {
-      valueBuf = new byte[valueLen];
+    final int requiredSize = NodeReferencesSerializer.computeSerializedSize(value);
+    if (requiredSize > valueBuf.length) {
+      valueBuf = new byte[requiredSize];
       VALUE_BUFFER.set(valueBuf);
-      valueLen = NodeReferencesSerializer.serialize(value, valueBuf, 0);
     }
+    final int valueLen = NodeReferencesSerializer.serialize(value, valueBuf, 0);
     lastSerializedValueBuf = valueBuf;
     lastSerializedValueLen = valueLen;
   }

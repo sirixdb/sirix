@@ -1022,11 +1022,11 @@ public enum PageKind {
       final long pageKey = Utils.getVarLong(source);
       
       try {
-        // Create a DataInputStream wrapper for BitmapChunkPage.deserialize
-        byte[] remaining = source.toByteArray();
-        java.io.DataInputStream dis = new java.io.DataInputStream(
-            new java.io.ByteArrayInputStream(remaining, (int) source.position(), 
-                remaining.length - (int) source.position()));
+        // Create a DataInputStream wrapper for BitmapChunkPage.deserialize.
+        // toByteArray() returns bytes from current position to end, so offset within the result is 0.
+        final byte[] remaining = source.toByteArray();
+        final java.io.DataInputStream dis = new java.io.DataInputStream(
+            new java.io.ByteArrayInputStream(remaining, 0, remaining.length));
         return BitmapChunkPage.deserialize(dis, pageKey);
       } catch (java.io.IOException e) {
         throw new UncheckedIOException("Failed to deserialize BitmapChunkPage", e);
