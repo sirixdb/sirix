@@ -581,10 +581,11 @@ public final class HOTTrieWriter {
       @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
       int[] pathChildIndices, int currentPathIdx) {
 
-    // Compute discriminative bit between the two split children
+    // Compute discriminative bit between the two split children.
+    // Guard against -1 (identical keys, e.g., when pages can't be loaded and both return EMPTY_KEY).
     byte[] leftMax = getLastKeyFromChild(leftChild);
     byte[] rightMin = getFirstKeyFromChild(rightChild);
-    int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
+    int discriminativeBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin));
 
     // Compute the height of the split entries (BiNode containing the split children)
     int leftHeight = getHeightFromChild(leftChild, activeReader);
@@ -682,7 +683,12 @@ public final class HOTTrieWriter {
 
     // Create appropriate node type based on child count
     if (newNumChildren <= 2) {
-      return HOTIndirectPage.createBiNode(parent.getPageKey(), revision, discriminativeBit, newChildren[0],
+      // Recompute disc bit from sorted children (the passed-in discriminativeBit may
+      // refer to the pre-sort position or be -1 for identical boundary keys)
+      final byte[] lMax = getLastKeyFromChild(newChildren[0]);
+      final byte[] rMin = getFirstKeyFromChild(newChildren[1]);
+      final int recomputedDiscBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(lMax, rMin));
+      return HOTIndirectPage.createBiNode(parent.getPageKey(), revision, recomputedDiscBit, newChildren[0],
           newChildren[1], parent.getHeight());
     } else if (newNumChildren <= 16) {
       return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision, initialBytePos, bitMask, partialKeys,
@@ -705,9 +711,11 @@ public final class HOTTrieWriter {
       final byte[] last = getLastKeyFromChild(children[i]);
       final byte[] first = getFirstKeyFromChild(children[i + 1]);
       final int bit = DiscriminativeBitComputer.computeDifferingBit(last, first);
-      minBytePos = Math.min(minBytePos, bit / 8);
+      if (bit >= 0) {
+        minBytePos = Math.min(minBytePos, bit / 8);
+      }
     }
-    return minBytePos;
+    return minBytePos == Integer.MAX_VALUE ? 0 : minBytePos;
   }
 
   /**
@@ -725,6 +733,7 @@ public final class HOTTrieWriter {
         continue;
 
       final int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
+      if (bit < 0) continue; // identical keys — no discriminative bit
       final int byteOffset = bit / 8 - initialBytePos;
       if (byteOffset >= 0 && byteOffset < 8) {
         final int bitInByte = 7 - (bit % 8);
@@ -959,7 +968,7 @@ public final class HOTTrieWriter {
     } else {
       byte[] lMax = getLastKeyFromChild(leftNodeRef);
       byte[] rMin = getFirstKeyFromChild(rightNodeRef);
-      int rootDiscrimBit = DiscriminativeBitComputer.computeDifferingBit(lMax, rMin);
+      int rootDiscrimBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(lMax, rMin));
 
       long newRootKey = pageKeyAllocator.getAsLong();
       HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(newRootKey, storageEngineReader.getRevisionNumber(), rootDiscrimBit,
@@ -995,7 +1004,7 @@ public final class HOTTrieWriter {
     } else if (children.length == 2) {
       final byte[] leftMax = getLastKeyFromChild(children[0]);
       final byte[] rightMin = getFirstKeyFromChild(children[1]);
-      final int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
+      final int discriminativeBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin));
       return HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit, children[0], children[1], height);
     } else {
       final int initialBytePos = computeInitialBytePos(children);
