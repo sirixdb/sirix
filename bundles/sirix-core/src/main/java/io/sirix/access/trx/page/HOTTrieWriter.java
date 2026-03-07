@@ -654,9 +654,10 @@ public final class HOTTrieWriter {
 
   /**
    * Get height from a child reference.
+   * Loads unswizzled pages via activeReader if necessary.
    */
   private int getHeightFromChild(PageReference childRef) {
-    final Page page = childRef.getPage();
+    final Page page = resolveChildPage(childRef);
     if (page instanceof HOTLeafPage) {
       return 0;
     } else if (page instanceof HOTIndirectPage indirect) {
