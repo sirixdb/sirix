@@ -1006,6 +1006,17 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     return closed.get();
   }
 
+  /**
+   * Get the slot offset for the given entry index.
+   *
+   * @param index the entry index
+   * @return the byte offset into slotMemory where the entry starts
+   */
+  public int getSlotOffset(int index) {
+    Objects.checkIndex(index, entryCount);
+    return slotOffsets[index];
+  }
+
   @Override
   public MemorySegment slots() {
     return slotMemory;

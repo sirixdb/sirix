@@ -823,8 +823,16 @@ public enum PageKind {
       final int revision = source.readInt();
       final IndexType indexType = IndexType.getType(source.readByte());
       final int entryCount = source.readInt();
+      if (entryCount < 0 || entryCount > HOTLeafPage.MAX_ENTRIES) {
+        throw new IllegalStateException(
+            "Corrupt HOT leaf page: entryCount=" + entryCount + " (max " + HOTLeafPage.MAX_ENTRIES + ")");
+      }
       final int usedSlotMemorySize = source.readInt();
-      
+      if (usedSlotMemorySize < 0) {
+        throw new IllegalStateException(
+            "Corrupt HOT leaf page: negative usedSlotMemorySize=" + usedSlotMemorySize);
+      }
+
       // Read slot offsets (allocate MAX_ENTRIES to allow insertions after deserialization)
       final int[] slotOffsets = new int[HOTLeafPage.MAX_ENTRIES];
       for (int i = 0; i < entryCount; i++) {
@@ -843,22 +851,22 @@ public enum PageKind {
       // to allow insertions after deserialization.
       final boolean canZeroCopy = decompressionResult != null && source instanceof MemorySegmentBytesIn;
       if (canZeroCopy) {
-        // Zero-copy mode: use slice of source memory (read-only after this)
-        final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
-        slotMemory = sourceSegment.asSlice(source.position(), usedSlotMemorySize);
-        source.skip(usedSlotMemorySize);
-        releaser = decompressionResult.transferOwnership();
+        // Zero-copy mode: try to transfer ownership of the decompression buffer
+        final Runnable ownership = decompressionResult.transferOwnership();
+        if (ownership != null) {
+          final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
+          slotMemory = sourceSegment.asSlice(source.position(), usedSlotMemorySize);
+          source.skip(usedSlotMemorySize);
+          releaser = ownership;
+        } else {
+          // Ownership already transferred — fall back to regular allocation
+          slotMemory = allocateAndCopySlotMemory(allocator, source, usedSlotMemorySize);
+          final MemorySegment segmentToRelease = slotMemory;
+          releaser = () -> allocator.release(segmentToRelease);
+        }
       } else {
         // Regular allocation: use DEFAULT_SIZE to allow insertions
-        slotMemory = allocator.allocate(HOTLeafPage.DEFAULT_SIZE);
-        if (source instanceof MemorySegmentBytesIn msSource) {
-          MemorySegment.copy(msSource.getSource(), source.position(), slotMemory, 0, usedSlotMemorySize);
-          source.skip(usedSlotMemorySize);
-        } else {
-          byte[] slotData = new byte[usedSlotMemorySize];
-          source.read(slotData);
-          MemorySegment.copy(slotData, 0, slotMemory, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, usedSlotMemorySize);
-        }
+        slotMemory = allocateAndCopySlotMemory(allocator, source, usedSlotMemorySize);
         final MemorySegment segmentToRelease = slotMemory;
         releaser = () -> allocator.release(segmentToRelease);
       }
@@ -881,16 +889,10 @@ public enum PageKind {
       sink.writeInt(hotLeaf.getEntryCount());
       sink.writeInt(hotLeaf.getUsedSlotsSize());
       
-      // Write slot offsets
+      // Write slot offsets directly from the canonical offset array
       int entryCount = hotLeaf.getEntryCount();
       for (int i = 0; i < entryCount; i++) {
-        MemorySegment slot = hotLeaf.getSlot(i);
-        if (slot != null) {
-          // Calculate offset from slot position
-          sink.writeInt((int) (slot.address() - hotLeaf.slots().address()));
-        } else {
-          sink.writeInt(0);
-        }
+        sink.writeInt(hotLeaf.getSlotOffset(i));
       }
       
       // Write slot memory (bulk copy)
@@ -1073,6 +1075,23 @@ public enum PageKind {
           type.serializeFullReferencesPage(sink, ((FullReferencesPage) delegate).getReferencesArray());
       default -> throw new IllegalStateException("Unexpected value: " + delegate);
     }
+  }
+
+  /**
+   * Allocate a DEFAULT_SIZE off-heap segment and copy slot data from the source.
+   */
+  private static MemorySegment allocateAndCopySlotMemory(MemorySegmentAllocator allocator,
+      BytesIn<?> source, int usedSlotMemorySize) {
+    final MemorySegment mem = allocator.allocate(HOTLeafPage.DEFAULT_SIZE);
+    if (source instanceof MemorySegmentBytesIn msSource) {
+      MemorySegment.copy(msSource.getSource(), source.position(), mem, 0, usedSlotMemorySize);
+      source.skip(usedSlotMemorySize);
+    } else {
+      final byte[] slotData = new byte[usedSlotMemorySize];
+      source.read(slotData);
+      MemorySegment.copy(slotData, 0, mem, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, usedSlotMemorySize);
+    }
+    return mem;
   }
 
   private static Int2LongMap deserializeMaxNodeKeys(final BytesIn<?> source) {
