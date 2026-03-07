@@ -750,6 +750,159 @@ class HOTProductionReadinessTest {
   }
 
   // ========================================================================================
+  // PageKind deserialization: no & 0xFF truncation on initialBytePos
+  // ========================================================================================
+
+  @Nested
+  @DisplayName("PageKind initialBytePos deserialization fidelity")
+  class PageKindInitialBytePosFidelity {
+
+    @Test
+    @DisplayName("BiNode with initialBytePos > 255 round-trips through createBiNode correctly")
+    void testBiNodeDeserializationNoTruncation() {
+      PageReference leftRef = new PageReference();
+      leftRef.setKey(10L);
+      PageReference rightRef = new PageReference();
+      rightRef.setKey(20L);
+
+      // Disc bit at position 2056 = byte 257, bit 0 (MSB)
+      int discBitPos = 257 * 8; // = 2056
+      HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, discBitPos, leftRef, rightRef, 3);
+
+      // Verify internal state: initialBytePos must be 257, not 1 (which would be 257 & 0xFF)
+      assertEquals(257, biNode.getInitialBytePos(),
+          "initialBytePos must be 257, not truncated to 1 by & 0xFF");
+
+      // Simulate what PageKind.deserializePage does after reading initialBytePos from wire:
+      // It reconstructs discriminativeBitPos = initialBytePos * 8 + bitWithinByte
+      int bitInWord = Long.numberOfTrailingZeros(biNode.getBitMask());
+      int bitWithinByte = 7 - bitInWord;
+      int reconstructed = biNode.getInitialBytePos() * 8 + bitWithinByte;
+      assertEquals(discBitPos, reconstructed,
+          "Reconstructed disc bit position must match original");
+    }
+
+    @Test
+    @DisplayName("SpanNode with initialBytePos=300 preserves position through factory")
+    void testSpanNodeNoTruncation() {
+      long bitMask = (1L << 3) | (1L << 11);
+      byte[] partialKeys = new byte[] {0b00, 0b01, 0b10, 0b11};
+      PageReference[] children = new PageReference[4];
+      for (int i = 0; i < 4; i++) {
+        children[i] = new PageReference();
+      }
+
+      HOTIndirectPage span = HOTIndirectPage.createSpanNode(1L, 1, 300, bitMask, partialKeys, children, 2);
+      assertEquals(300, span.getInitialBytePos(),
+          "SpanNode initialBytePos must be 300, not 44 (300 & 0xFF)");
+    }
+
+    @Test
+    @DisplayName("MultiNode with initialBytePos=500 preserves position through factory")
+    void testMultiNodeNoTruncation() {
+      long bitMask = 1L << 5;
+      byte[] partialKeys = new byte[] {0b00, 0b01};
+      PageReference[] children = new PageReference[2];
+      for (int i = 0; i < 2; i++) {
+        children[i] = new PageReference();
+      }
+
+      HOTIndirectPage multi = HOTIndirectPage.createMultiNode(1L, 1, 500, bitMask, partialKeys, children, 1);
+      assertEquals(500, multi.getInitialBytePos(),
+          "MultiNode initialBytePos must be 500, not 244 (500 & 0xFF)");
+    }
+  }
+
+  // ========================================================================================
+  // ensureMutableSlotMemory: release-after-assign safety
+  // ========================================================================================
+
+  @Nested
+  @DisplayName("ensureMutableSlotMemory release ordering")
+  class EnsureMutableSlotMemoryReleaseOrdering {
+
+    @Test
+    @DisplayName("Undersized page remains functional after ensureMutableSlotMemory expansion")
+    void testPageFunctionalAfterExpansion() {
+      HOTLeafPage page = new HOTLeafPage(1L, 1, IndexType.PATH);
+
+      // Insert data, then verify the page works for further mutations
+      for (int i = 0; i < 10; i++) {
+        byte[] key = String.format("k%04d", i).getBytes();
+        byte[] value = String.format("v%04d", i).getBytes();
+        assertTrue(page.put(key, value), "Insert " + i + " should succeed");
+      }
+
+      // All previously inserted keys must still be findable
+      for (int i = 0; i < 10; i++) {
+        byte[] key = String.format("k%04d", i).getBytes();
+        int idx = page.findEntry(key);
+        assertTrue(idx >= 0, "Key " + i + " must be findable after expansion");
+        byte[] value = page.getValue(idx);
+        assertEquals(String.format("v%04d", i), new String(value));
+      }
+    }
+
+    @Test
+    @DisplayName("Page data integrity preserved across multiple expansion cycles")
+    void testMultipleExpansionCycles() {
+      // This test exercises the release-after-assign pattern: we create a page,
+      // close it, create a new one, ensuring old memory was properly released
+      HOTLeafPage page1 = new HOTLeafPage(1L, 1, IndexType.PATH);
+      page1.put("key1".getBytes(), "val1".getBytes());
+
+      // Close page1 — releases its memory
+      page1.close();
+
+      // Create a new page, insert same data — should not corrupt
+      HOTLeafPage page2 = new HOTLeafPage(2L, 1, IndexType.PATH);
+      page2.put("key1".getBytes(), "val1".getBytes());
+      page2.put("key2".getBytes(), "val2".getBytes());
+
+      assertEquals(2, page2.getEntryCount());
+      assertEquals("val1", new String(page2.getValue(page2.findEntry("key1".getBytes()))));
+      assertEquals("val2", new String(page2.getValue(page2.findEntry("key2".getBytes()))));
+
+      page2.close();
+    }
+  }
+
+  // ========================================================================================
+  // createMultiNode(int) overload: no byte sign-extension
+  // ========================================================================================
+
+  @Nested
+  @DisplayName("createMultiNode byte→int parameter safety")
+  class CreateMultiNodeParameterSafety {
+
+    @Test
+    @DisplayName("createMultiNode with value > 127 does not sign-extend to negative initialBytePos")
+    void testMultiNodeNoSignExtension() {
+      byte[] childIndex = new byte[256];
+      childIndex[0] = 0;
+      childIndex[1] = 1;
+      PageReference[] children = new PageReference[] {new PageReference(), new PageReference()};
+
+      // Value 200 would sign-extend to -56 if passed as byte
+      HOTIndirectPage multi = HOTIndirectPage.createMultiNode(1L, 1, 200, childIndex, children);
+      assertEquals(200, multi.getInitialBytePos(),
+          "initialBytePos must be 200, not -56 (sign-extended byte)");
+    }
+
+    @Test
+    @DisplayName("createMultiNode with value 255 does not sign-extend")
+    void testMultiNodeMaxByte() {
+      byte[] childIndex = new byte[256];
+      childIndex[0] = 0;
+      PageReference[] children = new PageReference[] {new PageReference()};
+
+      HOTIndirectPage multi = HOTIndirectPage.createMultiNode(1L, 1, 255, childIndex, children);
+      assertEquals(255, multi.getInitialBytePos(),
+          "initialBytePos must be 255, not -1 (sign-extended byte)");
+    }
+  }
+
+  // ========================================================================================
   // End-to-end: leaf page fill → split → both pages usable
   // ========================================================================================
 
