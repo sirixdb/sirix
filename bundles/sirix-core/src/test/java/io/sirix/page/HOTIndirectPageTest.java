@@ -89,7 +89,7 @@ class HOTIndirectPageTest {
       }
 
       // Partial keys: 0b00, 0b01, 0b10, 0b11 (using 2 bits)
-      byte[] partialKeys = {0b00, 0b01, 0b10, 0b11};
+      int[] partialKeys = {0b00, 0b01, 0b10, 0b11};
 
       // Bit mask extracting bits 6 and 7 of byte 0
       long bitMask = 0b11L; // Bits 0-1 in little-endian representation
@@ -129,7 +129,7 @@ class HOTIndirectPageTest {
         children[i].setKey(100 + i);
       }
 
-      byte[] partialKeys = {0b00, 0b01, 0b10};
+      int[] partialKeys = {0b00, 0b01, 0b10};
       long bitMask = 0b11L;
 
       HOTIndirectPage original = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, bitMask, partialKeys, children);
@@ -147,11 +147,11 @@ class HOTIndirectPageTest {
     @DisplayName("SpanNode with 16 children uses SIMD")
     void testSpanNodeMax16Children() {
       PageReference[] children = new PageReference[16];
-      byte[] partialKeys = new byte[16];
+      int[] partialKeys = new int[16];
       for (int i = 0; i < 16; i++) {
         children[i] = new PageReference();
         children[i].setKey(100 + i);
-        partialKeys[i] = (byte) i; // Distinct partial keys
+        partialKeys[i] = i; // Distinct partial keys
       }
 
       // 4 bits needed to distinguish 16 entries
@@ -277,7 +277,7 @@ class HOTIndirectPageTest {
       final HOTIndirectPage original = HOTIndirectPage.createBiNode(99L, 7, 5, leftRef, rightRef, 13);
       final HOTIndirectPage deserialized = serializeAndDeserialize(original, resourceConfig);
 
-      assertEquals(HOTIndirectPage.NodeType.BI_NODE, deserialized.getNodeType());
+      assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, deserialized.getNodeType());
       assertEquals(13, deserialized.getHeight(), "BiNode height must survive PageKind round-trip");
       assertEquals(2, deserialized.getNumChildren());
 
@@ -297,7 +297,7 @@ class HOTIndirectPageTest {
       }
 
       // Avoid sparse key 0 so lookup does not always match index 0.
-      final byte[] partialKeys = {0b001, 0b010, 0b100};
+      final int[] partialKeys = {0b001, 0b010, 0b100};
       final long bitMask = 0b111L;
       final HOTIndirectPage original = HOTIndirectPage.createMultiNode(123L, 5, 0, bitMask, partialKeys, children, 9);
 

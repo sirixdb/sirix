@@ -39,6 +39,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.NodeUpgradeManager;
 import java.util.Arrays;
+import java.util.TreeMap;
 import java.util.function.LongSupplier;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -115,6 +116,47 @@ public final class HOTTrieWriter {
    * Set at the entry points of public methods, cleared on exit.
    */
   private @Nullable StorageEngineReader activeReader;
+
+  /**
+   * Holds either SingleMask or MultiMask discriminative bit information.
+   * SingleMask: all disc bits fit within 8 contiguous key bytes (one 64-bit PEXT mask).
+   * MultiMask: disc bits span >8 bytes; uses per-byte extraction positions and masks.
+   */
+  private record DiscBitsInfo(
+      HOTIndirectPage.LayoutType layoutType,
+      int initialBytePos,            // SingleMask only
+      long bitMask,                  // SingleMask only
+      byte[] extractionPositions,    // MultiMask only: key byte positions to gather
+      long[] extractionMasks,        // MultiMask only: PEXT masks per 8-byte chunk
+      int numExtractionBytes,        // MultiMask only: number of extraction bytes
+      short mostSignificantBitIndex  // Minimum absolute disc bit position
+  ) {
+    boolean isSingleMask() {
+      return layoutType == HOTIndirectPage.LayoutType.SINGLE_MASK;
+    }
+
+    int totalDiscBits() {
+      if (isSingleMask()) {
+        return Long.bitCount(bitMask);
+      }
+      int total = 0;
+      for (final long m : extractionMasks) {
+        total += Long.bitCount(m);
+      }
+      return total;
+    }
+
+    static DiscBitsInfo singleMask(int initialBytePos, long bitMask) {
+      return new DiscBitsInfo(HOTIndirectPage.LayoutType.SINGLE_MASK, initialBytePos, bitMask,
+          null, null, 0, HOTIndirectPage.computeMostSignificantBitIndex(initialBytePos, bitMask));
+    }
+
+    static DiscBitsInfo multiMask(byte[] extractionPositions, long[] extractionMasks,
+        int numExtractionBytes, short mostSignificantBitIndex) {
+      return new DiscBitsInfo(HOTIndirectPage.LayoutType.MULTI_MASK, 0, 0,
+          extractionPositions, extractionMasks, numExtractionBytes, mostSignificantBitIndex);
+    }
+  }
 
   /**
    * Create a new HOTTrieWriter with persistent page key allocation.
@@ -546,9 +588,10 @@ public final class HOTTrieWriter {
           leftChildRef = leafRef;
         }
 
-        // Create BiNode with the fresh left child ref (not rootReference)
+        // Create BiNode with the fresh left child ref (not rootReference).
+        // Height=1: one level above leaf pages.
         final HOTIndirectPage biNode = HOTIndirectPage.createBiNode(
-            newRootPageKey, revision, discriminativeBit, leftChildRef, rightRef);
+            newRootPageKey, revision, discriminativeBit, leftChildRef, rightRef, 1);
         rootReference.setKey(newRootPageKey);
         rootReference.setPage(biNode);
         log.put(rootReference, PageContainer.getInstance(biNode, biNode));
@@ -678,8 +721,8 @@ public final class HOTTrieWriter {
 
     // Compute discriminative bits and partial keys for navigation
     final int initialBytePos = computeInitialBytePos(newChildren);
-    long bitMask = computeBitMaskForChildren(newChildren, initialBytePos);
-    byte[] partialKeys = computePartialKeysForChildren(newChildren, initialBytePos, bitMask);
+    final DiscBitsInfo discBits = computeDiscBits(newChildren, initialBytePos);
+    final int[] partialKeys = computePartialKeysForChildren(newChildren, discBits);
 
     // Create appropriate node type based on child count
     if (newNumChildren <= 2) {
@@ -690,12 +733,38 @@ public final class HOTTrieWriter {
       final int recomputedDiscBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(lMax, rMin));
       return HOTIndirectPage.createBiNode(parent.getPageKey(), revision, recomputedDiscBit, newChildren[0],
           newChildren[1], parent.getHeight());
-    } else if (newNumChildren <= 16) {
-      return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision, initialBytePos, bitMask, partialKeys,
-          newChildren, parent.getHeight());
     } else {
-      return HOTIndirectPage.createMultiNode(parent.getPageKey(), revision, initialBytePos, bitMask, partialKeys,
-          newChildren, parent.getHeight());
+      return createNodeWithDiscBits(parent.getPageKey(), revision, parent.getHeight(),
+          discBits, partialKeys, newChildren);
+    }
+  }
+
+  /**
+   * Create a HOTIndirectPage (SpanNode or MultiNode) using the given disc bits info.
+   * Dispatches to SingleMask or MultiMask factory methods based on layout type.
+   */
+  private static HOTIndirectPage createNodeWithDiscBits(long pageKey, int revision, int height,
+      DiscBitsInfo discBits, int[] partialKeys, PageReference[] children) {
+    if (discBits.isSingleMask()) {
+      if (children.length <= 16) {
+        return HOTIndirectPage.createSpanNode(pageKey, revision, discBits.initialBytePos(),
+            discBits.bitMask(), partialKeys, children, height);
+      } else {
+        return HOTIndirectPage.createMultiNode(pageKey, revision, discBits.initialBytePos(),
+            discBits.bitMask(), partialKeys, children, height);
+      }
+    } else {
+      if (children.length <= 16) {
+        return HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision,
+            discBits.extractionPositions(), discBits.extractionMasks(),
+            discBits.numExtractionBytes(), partialKeys, children, height,
+            discBits.mostSignificantBitIndex());
+      } else {
+        return HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision,
+            discBits.extractionPositions(), discBits.extractionMasks(),
+            discBits.numExtractionBytes(), partialKeys, children, height,
+            discBits.mostSignificantBitIndex());
+      }
     }
   }
 
@@ -724,37 +793,139 @@ public final class HOTTrieWriter {
    * byte 0 of window → bits 0-7, byte 1 → bits 8-15, etc.
    * Within each byte, MSB (bit 0) maps to position 7, LSB (bit 7) maps to position 0.
    */
-  private long computeBitMaskForChildren(PageReference[] children, int initialBytePos) {
-    long mask = 0;
+  /**
+   * Compute discriminative bit information for a set of sorted children.
+   * Returns either SingleMask (bits fit in 8 contiguous bytes) or MultiMask
+   * (bits span >8 bytes, requiring byte gathering + per-chunk PEXT).
+   *
+   * <p>Matches C++ reference: SingleMaskPartialKeyMapping vs MultiMaskPartialKeyMapping.</p>
+   */
+  private DiscBitsInfo computeDiscBits(PageReference[] children, int initialBytePos) {
+    // Collect all disc bit positions
+    int minBytePos = Integer.MAX_VALUE;
+    int maxBytePos = 0;
+    // Use TreeMap to group disc bits by key byte position (sorted ascending)
+    final TreeMap<Integer, Integer> maskByBytePos = new TreeMap<>();
+
     for (int i = 0; i < children.length - 1; i++) {
       final byte[] key1 = getLastKeyFromChild(children[i]);
       final byte[] key2 = getFirstKeyFromChild(children[i + 1]);
-      if (key1.length == 0 || key2.length == 0)
+      if (key1.length == 0 || key2.length == 0) {
         continue;
-
-      final int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
-      if (bit < 0) continue; // identical keys — no discriminative bit
-      final int byteOffset = bit / 8 - initialBytePos;
-      if (byteOffset >= 0 && byteOffset < 8) {
-        final int bitInByte = 7 - (bit % 8);
-        mask |= 1L << (byteOffset * 8 + bitInByte);
       }
+      final int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
+      if (bit < 0) {
+        continue;
+      }
+      final int bytePos = bit / 8;
+      final int bitInByte = bit % 8;
+      // Extraction mask convention: bit B (MSB-first, 0=MSB) → mask bit (7-B) in the byte
+      final int maskBit = 1 << (7 - bitInByte);
+      maskByBytePos.merge(bytePos, maskBit, (a, b) -> a | b);
+      minBytePos = Math.min(minBytePos, bytePos);
+      maxBytePos = Math.max(maxBytePos, bytePos);
     }
-    return mask != 0
-        ? mask
-        : 1L;
+
+    if (maskByBytePos.isEmpty()) {
+      // No disc bits found — use a dummy single-bit mask
+      return DiscBitsInfo.singleMask(initialBytePos, 1L);
+    }
+
+    // Check if all disc bits fit within 8 contiguous bytes (SingleMask)
+    if (maxBytePos - initialBytePos < 8) {
+      // Build SingleMask — same LE layout as before
+      long mask = 0;
+      for (final var entry : maskByBytePos.entrySet()) {
+        final int byteOffset = entry.getKey() - initialBytePos;
+        final int maskByte = entry.getValue();
+        mask |= ((long) maskByte) << (byteOffset * 8);
+      }
+      return DiscBitsInfo.singleMask(initialBytePos, mask);
+    }
+
+    // MultiMask: disc bits span >8 bytes — build extraction arrays
+    return buildMultiMask(maskByBytePos, minBytePos);
   }
 
   /**
-   * Compute partial keys for all children based on the bit mask.
+   * Build MultiMask discriminative bit info from grouped disc bits.
+   *
+   * <p>Creates extraction positions (which key bytes to gather) and extraction masks
+   * (which bits within those bytes are discriminative), packed into long[] for PEXT.</p>
    */
-  private byte[] computePartialKeysForChildren(PageReference[] children, int initialBytePos, long bitMask) {
-    byte[] partialKeys = new byte[children.length];
+  private DiscBitsInfo buildMultiMask(TreeMap<Integer, Integer> maskByBytePos, int minBytePos) {
+    final int numBytes = maskByBytePos.size();
+    final byte[] extractionPositions = new byte[numBytes];
+    final int numChunks = (numBytes + 7) / 8;
+    final long[] extractionMasks = new long[numChunks];
+
+    int i = 0;
+    short msbIndex = Short.MAX_VALUE;
+    for (final var entry : maskByBytePos.entrySet()) {
+      final int keyBytePos = entry.getKey();
+      final int maskByte = entry.getValue();
+      extractionPositions[i] = (byte) keyBytePos;
+      // Pack mask byte into the appropriate long chunk (LE byte order)
+      final int chunkIdx = i / 8;
+      final int byteOffset = i % 8;
+      extractionMasks[chunkIdx] |= ((long) (maskByte & 0xFF)) << (byteOffset * 8);
+
+      // Compute MSB index: the smallest absolute bit position
+      final int highBit = 31 - Integer.numberOfLeadingZeros(maskByte & 0xFF);
+      final int absBitPos = keyBytePos * 8 + (7 - highBit);
+      msbIndex = (short) Math.min(msbIndex, absBitPos);
+      i++;
+    }
+
+    return DiscBitsInfo.multiMask(extractionPositions, extractionMasks, numBytes, msbIndex);
+  }
+
+  /**
+   * Compute partial keys for all children based on discriminative bit info.
+   */
+  private int[] computePartialKeysForChildren(PageReference[] children, DiscBitsInfo discBits) {
+    final int[] partialKeys = new int[children.length];
     for (int i = 0; i < children.length; i++) {
-      byte[] key = getFirstKeyFromChild(children[i]);
-      partialKeys[i] = computePartialKey(key, initialBytePos, bitMask);
+      final byte[] key = getFirstKeyFromChild(children[i]);
+      partialKeys[i] = computePartialKey(key, discBits);
     }
     return partialKeys;
+  }
+
+  /**
+   * Compute partial key for a single key, dispatching to SingleMask or MultiMask.
+   */
+  private int computePartialKey(byte[] key, DiscBitsInfo discBits) {
+    if (discBits.isSingleMask()) {
+      return computePartialKeySingleMask(key, discBits.initialBytePos(), discBits.bitMask());
+    } else {
+      return computePartialKeyMultiMask(key, discBits.extractionPositions(),
+          discBits.extractionMasks(), discBits.numExtractionBytes());
+    }
+  }
+
+  /**
+   * Compute partial key using MultiMask extraction (byte gathering + per-chunk PEXT).
+   */
+  private static int computePartialKeyMultiMask(byte[] key, byte[] extractionPositions,
+      long[] extractionMasks, int numExtractionBytes) {
+    final int numChunks = extractionMasks.length;
+    final long[] gathered = new long[numChunks];
+    for (int i = 0; i < numExtractionBytes; i++) {
+      final int keyBytePos = extractionPositions[i] & 0xFF;
+      final int keyByte = keyBytePos < key.length ? (key[keyBytePos] & 0xFF) : 0;
+      final int chunkIdx = i / 8;
+      final int byteOffset = i % 8;
+      gathered[chunkIdx] |= ((long) keyByte) << (byteOffset * 8);
+    }
+    int result = 0;
+    int shift = 0;
+    for (int w = 0; w < numChunks; w++) {
+      final int extracted = (int) Long.compress(gathered[w], extractionMasks[w]);
+      result |= extracted << shift;
+      shift += Long.bitCount(extractionMasks[w]);
+    }
+    return result;
   }
 
   /**
@@ -775,9 +946,9 @@ public final class HOTTrieWriter {
     final int numChildren = parent.getNumChildren();
 
     // Reference: getMaskForLargerEntries() finds entries with MSB set
-    // The MSB (most significant bit) determines the split boundary
-    // Find the split point based on the most significant discriminative bit
-    final int msbPosition = findMostSignificantDiscriminativeBitPosition(parent);
+    // The MSB (most significant bit) determines the split boundary.
+    // Uses the stored field (matching C++ reference's mMostSignificantDiscriminativeBitIndex).
+    final int msbPosition = parent.getMostSignificantBitIndex();
 
     // Partition children into "smaller" (MSB=0) and "larger" (MSB=1) using pre-allocated buffers
     int smallerCount = 0;
@@ -860,41 +1031,7 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Find the most significant discriminative bit position for the parent node.
-   *
-   * <p>In the LE word layout used by PEXT: byte[pos+0] → bits 0-7, byte[pos+1] → bits 8-15, etc.
-   * Within each byte, bit 7 in the word = MSB of the key byte, bit 0 = LSB.
-   * The "most significant" key bit is the one at the lowest byte offset and highest
-   * bit within that byte. We find the lowest byte group with a set bit, then pick
-   * the highest bit in that group.</p>
-   *
-   * @return the absolute bit position (MSB-first convention, compatible with
-   *         {@link #hasBitSet(byte[], int)} and {@link DiscriminativeBitComputer})
-   */
-  private int findMostSignificantDiscriminativeBitPosition(HOTIndirectPage parent) {
-    long bitMask = parent.getBitMask();
-    if (bitMask == 0) {
-      return 0;
-    }
-    final int bytePos = parent.getInitialBytePos();
-
-    // Find the lowest byte group (closest to key start) containing a set bit
-    final int lowestSetBit = Long.numberOfTrailingZeros(bitMask);
-    final int byteGroup = lowestSetBit / 8;
-
-    // Extract the bits in that byte group and find the highest set bit (MSB)
-    final long byteBits = (bitMask >>> (byteGroup * 8)) & 0xFFL;
-    final int highestBitInGroup = 63 - Long.numberOfLeadingZeros(byteBits); // 0-7
-
-    // Convert LE word position back to absolute bit position (MSB-first convention):
-    // bitInWord = byteGroup * 8 + highestBitInGroup
-    // bitWithinByte = 7 - highestBitInGroup
-    // absoluteBitPos = (initialBytePos + byteGroup) * 8 + bitWithinByte
-    return (bytePos + byteGroup) * 8 + (7 - highestBitInGroup);
-  }
-
-  /**
-   * Check if a key has a specific bit set.
+   * Check if a key has a specific bit set (MSB-first convention).
    */
   private boolean hasBitSet(byte[] key, int bitPosition) {
     int byteIndex = bitPosition / 8;
@@ -1008,25 +1145,18 @@ public final class HOTTrieWriter {
       return HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit, children[0], children[1], height);
     } else {
       final int initialBytePos = computeInitialBytePos(children);
-      long bitMask = computeBitMaskForChildren(children, initialBytePos);
-      byte[] partialKeys = computePartialKeysForChildren(children, initialBytePos, bitMask);
-
-      if (children.length <= 16) {
-        return HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos, bitMask, partialKeys, children,
-            height);
-      } else {
-        return HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos, bitMask, partialKeys, children,
-            height);
-      }
+      final DiscBitsInfo discBits = computeDiscBits(children, initialBytePos);
+      final int[] partialKeys = computePartialKeysForChildren(children, discBits);
+      return createNodeWithDiscBits(pageKey, revision, height, discBits, partialKeys, children);
     }
   }
 
   /**
-   * Compute partial key by extracting discriminative bits from a key.
+   * Compute partial key (SingleMask) by extracting discriminative bits from a key.
    * Uses little-endian layout matching {@link HOTIndirectPage#getKeyWordAt}:
    * byte 0 of window → bits 0-7, byte 1 → bits 8-15, etc.
    */
-  private byte computePartialKey(byte[] key, int initialBytePos, long bitMask) {
+  private int computePartialKeySingleMask(byte[] key, int initialBytePos, long bitMask) {
     if (key == null || key.length == 0) {
       return 0;
     }
@@ -1038,7 +1168,7 @@ public final class HOTTrieWriter {
     }
 
     // Apply PEXT-style extraction: compress bits selected by mask
-    return (byte) Long.compress(keyWord, bitMask);
+    return (int) Long.compress(keyWord, bitMask);
   }
 
   /**

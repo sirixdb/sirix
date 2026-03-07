@@ -218,7 +218,7 @@ public final class HeightOptimalSplitter {
     NodeType nodeType = NodeUpgradeManager.determineNodeTypeByBits(numDiscriminativeBits);
 
     // BiNode case: simple 2-way split
-    if (nodeType == NodeType.BI_NODE || numDiscriminativeBits <= 1) {
+    if (numDiscriminativeBits <= 1) {
       return splitLeafPage(fullPage, rightPage, newRootPageKey, revision);
     }
 

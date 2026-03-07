@@ -185,7 +185,7 @@ class HOTLeafPageSplitTest {
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef); // bit 0 = MSB of byte 0
 
       assertEquals(2, biNode.getNumChildren());
-      assertEquals(HOTIndirectPage.NodeType.BI_NODE, biNode.getNodeType());
+      assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, biNode.getNodeType());
 
       // Keys with MSB = 0 should go left, MSB = 1 should go right
       byte[] leftKey = new byte[] {0x00, 0x01, 0x02}; // MSB = 0
@@ -207,7 +207,7 @@ class HOTLeafPageSplitTest {
         children[i].setKey(100L + i);
       }
 
-      byte[] partialKeys = new byte[] {0, 1, 2, 3};
+      int[] partialKeys = new int[] {0, 1, 2, 3};
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0x03L, partialKeys, children);
 

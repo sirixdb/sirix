@@ -122,11 +122,14 @@ class HOTInternalMethodsTest {
       PageReference rr = new PageReference();
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, lr, rr);
 
-      // BiNode with 2 children, adding more should trigger upgrade
+      // 2-child SpanNode (created via createBiNode). SpanNode supports up to 16 children,
+      // so needsUpgrade is false for counts 2-16, and true for 17+.
       for (int newCount = 2; newCount <= 20; newCount++) {
         boolean needs = NodeUpgradeManager.needsUpgrade(biNode, newCount);
-        if (newCount > 2) {
-          assertTrue(needs, "BiNode should need upgrade when adding child " + newCount);
+        if (newCount > 16) {
+          assertTrue(needs, "SpanNode should need upgrade when adding child " + newCount);
+        } else {
+          assertFalse(needs, "SpanNode should NOT need upgrade for " + newCount + " children");
         }
       }
     }
@@ -135,10 +138,10 @@ class HOTInternalMethodsTest {
     @DisplayName("shouldDowngrade for various child counts")
     void testShouldDowngrade() {
       PageReference[] children = new PageReference[8];
-      byte[] partialKeys = new byte[8];
+      int[] partialKeys = new int[8];
       for (int i = 0; i < 8; i++) {
         children[i] = new PageReference();
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0xFFL, partialKeys, children);
 
@@ -153,11 +156,11 @@ class HOTInternalMethodsTest {
     @DisplayName("upgradeToMultiNode with additional child")
     void testUpgradeToMultiNode() {
       PageReference[] children = new PageReference[16];
-      byte[] partialKeys = new byte[16];
+      int[] partialKeys = new int[16];
       for (int i = 0; i < 16; i++) {
         children[i] = new PageReference();
         children[i].setKey(i);
-        partialKeys[i] = (byte) (i * 2);
+        partialKeys[i] = i * 2;
       }
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0xFFFFL, partialKeys, children);
 
@@ -173,10 +176,10 @@ class HOTInternalMethodsTest {
     @DisplayName("downgradeToNode from SpanNode")
     void testDowngradeToNode() {
       PageReference[] children = new PageReference[4];
-      byte[] partialKeys = new byte[4];
+      int[] partialKeys = new int[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0xFL, partialKeys, children);
 
@@ -206,7 +209,7 @@ class HOTInternalMethodsTest {
     @Test
     @DisplayName("isFull for all node types")
     void testIsFull() {
-      // BiNode
+      // 2-child SpanNode (via createBiNode)
       PageReference lr = new PageReference();
       PageReference rr = new PageReference();
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, lr, rr);
@@ -215,10 +218,10 @@ class HOTInternalMethodsTest {
 
       // SpanNode with 16 children
       PageReference[] children16 = new PageReference[16];
-      byte[] keys16 = new byte[16];
+      int[] keys16 = new int[16];
       for (int i = 0; i < 16; i++) {
         children16[i] = new PageReference();
-        keys16[i] = (byte) i;
+        keys16[i] = i;
       }
       HOTIndirectPage spanFull = HOTIndirectPage.createSpanNode(2L, 1, (byte) 0, 0xFFFFL, keys16, children16);
       boolean spanFullResult = NodeUpgradeManager.isFull(spanFull);
@@ -226,10 +229,10 @@ class HOTInternalMethodsTest {
 
       // SpanNode with 8 children
       PageReference[] children8 = new PageReference[8];
-      byte[] keys8 = new byte[8];
+      int[] keys8 = new int[8];
       for (int i = 0; i < 8; i++) {
         children8[i] = new PageReference();
-        keys8[i] = (byte) i;
+        keys8[i] = i;
       }
       HOTIndirectPage spanHalf = HOTIndirectPage.createSpanNode(3L, 1, (byte) 0, 0xFFL, keys8, children8);
       boolean spanHalfResult = NodeUpgradeManager.isFull(spanHalf);
@@ -241,10 +244,10 @@ class HOTInternalMethodsTest {
     void testIsUnderfilled() {
       // SpanNode with 3 children (3/16 = 18.75%)
       PageReference[] children3 = new PageReference[3];
-      byte[] keys3 = new byte[3];
+      int[] keys3 = new int[3];
       for (int i = 0; i < 3; i++) {
         children3[i] = new PageReference();
-        keys3[i] = (byte) i;
+        keys3[i] = i;
       }
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b111L, keys3, children3);
 
@@ -255,7 +258,6 @@ class HOTInternalMethodsTest {
     @Test
     @DisplayName("getMaxChildrenForType")
     void testGetMaxChildrenForType() {
-      assertEquals(2, NodeUpgradeManager.getMaxChildrenForType(HOTIndirectPage.NodeType.BI_NODE));
       assertEquals(16, NodeUpgradeManager.getMaxChildrenForType(HOTIndirectPage.NodeType.SPAN_NODE));
       assertEquals(32, NodeUpgradeManager.getMaxChildrenForType(HOTIndirectPage.NodeType.MULTI_NODE));
     }
@@ -317,7 +319,7 @@ class HOTInternalMethodsTest {
 
         HOTIndirectPage biNode = HeightOptimalSplitter.createBiNode(1L, 1, bit, leftRef, rightRef);
         assertNotNull(biNode);
-        assertEquals(HOTIndirectPage.NodeType.BI_NODE, biNode.getNodeType());
+        assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, biNode.getNodeType());
       }
     }
 
@@ -414,20 +416,20 @@ class HOTInternalMethodsTest {
     @Test
     @DisplayName("getFillFactor for all node types")
     void testGetFillFactor() {
-      // BiNode: 2/2 = 100%
+      // 2-child SpanNode (via createBiNode): 2/16 = 12.5%
       PageReference lr = new PageReference();
       PageReference rr = new PageReference();
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, lr, rr);
-      assertEquals(1.0, SiblingMerger.getFillFactor(biNode), 0.01);
+      assertEquals(0.125, SiblingMerger.getFillFactor(biNode), 0.01);
 
       // SpanNode with varying fill
       for (int numChildren = 2; numChildren <= 16; numChildren++) {
         PageReference[] children = new PageReference[numChildren];
-        byte[] partialKeys = new byte[numChildren];
+        int[] partialKeys = new int[numChildren];
         long mask = 0;
         for (int i = 0; i < numChildren; i++) {
           children[i] = new PageReference();
-          partialKeys[i] = (byte) i;
+          partialKeys[i] = i;
           mask |= (1L << i);
         }
 
@@ -442,10 +444,10 @@ class HOTInternalMethodsTest {
     void testShouldMerge() {
       // 3/16 fill = 18.75%
       PageReference[] children = new PageReference[3];
-      byte[] keys = new byte[3];
+      int[] keys = new int[3];
       for (int i = 0; i < 3; i++) {
         children[i] = new PageReference();
-        keys[i] = (byte) i;
+        keys[i] = i;
       }
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b111L, keys, children);
       assertTrue(SiblingMerger.shouldMerge(spanNode));

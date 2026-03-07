@@ -523,7 +523,7 @@ class HOTCornerCasesTest {
     @Test
     @DisplayName("Determine correct node type after merge")
     void testNodeTypeAfterMerge() {
-      assertEquals(NodeType.BI_NODE, NodeUpgradeManager.determineNodeType(2));
+      assertEquals(NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(2));
       assertEquals(NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(3));
       assertEquals(NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(4));
     }
@@ -900,11 +900,11 @@ class HOTCornerCasesTest {
     @DisplayName("SpanNode creation preserves child references")
     void testSpanNodePreservesRefs() {
       PageReference[] refs = new PageReference[4];
-      byte[] partialKeys = new byte[4];
+      int[] partialKeys = new int[4];
       for (int i = 0; i < 4; i++) {
         refs[i] = new PageReference();
         refs[i].setKey(100 + i);
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1, 1, (byte) 0, 0x0FL, partialKeys, refs);
