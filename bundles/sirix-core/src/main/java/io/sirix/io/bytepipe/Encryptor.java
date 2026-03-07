@@ -9,12 +9,11 @@ import java.security.GeneralSecurityException;
 import java.util.Objects;
 
 import io.sirix.access.ResourceConfiguration;
-import com.google.crypto.tink.CleartextKeysetHandle;
-import com.google.crypto.tink.JsonKeysetReader;
+import com.google.crypto.tink.InsecureSecretKeyAccess;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.StreamingAead;
-import com.google.crypto.tink.config.TinkConfig;
-import com.google.crypto.tink.streamingaead.StreamingAeadFactory;
+import com.google.crypto.tink.TinkJsonProtoKeysetFormat;
+import com.google.crypto.tink.streamingaead.StreamingAeadConfig;
 
 /**
  * Decorator for encrypting any content.
@@ -26,7 +25,7 @@ public final class Encryptor implements ByteHandler {
 
   static {
     try {
-      TinkConfig.register();
+      StreamingAeadConfig.register();
     } catch (GeneralSecurityException e) {
       throw new IllegalStateException(e);
     }
@@ -63,16 +62,18 @@ public final class Encryptor implements ByteHandler {
   }
 
   private StreamingAead getStreamingAead() throws GeneralSecurityException {
-    if (mStreamingAead == null)
-      mStreamingAead = StreamingAeadFactory.getPrimitive(getKeysetHandle());
+    if (mStreamingAead == null) {
+      mStreamingAead = getKeysetHandle().getPrimitive(StreamingAead.class);
+    }
     return mStreamingAead;
   }
 
   private KeysetHandle getKeysetHandle() {
-    if (mKeySetHandle == null)
+    if (mKeySetHandle == null) {
       mKeySetHandle =
           getKeysetHandle(mResourcePath.resolve(ResourceConfiguration.ResourcePaths.ENCRYPTION_KEY.getPath())
                                        .resolve("encryptionKey.json"));
+    }
     return mKeySetHandle;
   }
 
@@ -122,7 +123,8 @@ public final class Encryptor implements ByteHandler {
         // WARNING: reading cleartext keysets is a bad practice. Tink supports reading/writing
         // encrypted keysets, see
         // https://github.com/google/tink/blob/master/docs/JAVA-HOWTO.md#loading-existing-keysets.
-        return CleartextKeysetHandle.read(JsonKeysetReader.withPath(keyPath));
+        final String keysetJson = Files.readString(keyPath);
+        return TinkJsonProtoKeysetFormat.parseKeyset(keysetJson, InsecureSecretKeyAccess.get());
       }
 
       throw new AssertionError("No file for encryption key found.");

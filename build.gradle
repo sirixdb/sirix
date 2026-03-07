@@ -65,7 +65,6 @@ afterReleaseBuild.dependsOn(uploadPublications)
 allprojects {
     group = 'io.sirix'
 
-//    apply plugin: 'jacoco'
     apply plugin: 'com.github.kt3k.coveralls'
     apply plugin: 'idea'
 
@@ -75,9 +74,8 @@ allprojects {
         maven {
             url = "https://central.sonatype.com/repository/maven-snapshots/"
         }
-        maven {
-            url "https://kotlin.bintray.com/kotlinx"
-        }
+        // kotlinx artifacts are published to Maven Central since 2021;
+        // the old Bintray repository (kotlin.bintray.com) was shut down.
     }
 }
 
@@ -143,17 +141,6 @@ subprojects {
             eclipse().configFile("${rootDir}/eclipse/sirix-formatter.xml")
         }
     }
-
-//    jacoco {
-//        toolVersion = "0.8.14"
-//    }
-//
-//    jacocoTestReport {
-//        reports {
-//            xml.required = true
-//            html.required = true
-//        }
-//    }
 
     publishing {
         publications {
@@ -300,22 +287,3 @@ subprojects {
         maxHeapSize = '12g'
     }
 }
-
-//task jacocoRootReport(type: JacocoReport) {
-//    description = 'Generates an aggregate report from all subprojects'
-//    dependsOn = subprojects.test
-//    sourceDirectories.setFrom files(subprojects.sourceSets.main.allSource.srcDirs)
-//    classDirectories.setFrom files(subprojects.sourceSets.main.output)
-//    executionData.setFrom files(subprojects.jacocoTestReport.executionData).filter {
-//        file -> file.exists()
-//    }.asList()
-//    reports {
-//        html.enabled = true
-//        xml.enabled = true
-//    }
-//}
-//
-//coveralls {
-//    sourceDirs = subprojects.sourceSets.main.allSource.srcDirs.flatten()
-//    jacocoReportPath = "${buildDir}/reports/jacoco/jacocoRootReport/jacocoRootReport.xml"
-//}

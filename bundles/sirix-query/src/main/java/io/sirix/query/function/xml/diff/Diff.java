@@ -27,7 +27,7 @@
  */
 package io.sirix.query.function.xml.diff;
 
-import com.google.api.client.util.Objects;
+import java.util.Objects;
 import com.google.common.collect.ImmutableSet;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
@@ -267,7 +267,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
                 if (!isNameEqual) {
                   renameNode(newRtx, diffTuple);
                 }
-                if (!Objects.equal(oldRtx.getValue(), newRtx.getValue())) {
+                if (!Objects.equals(oldRtx.getValue(), newRtx.getValue())) {
                   if (!isNameEqual) {
                     buffer.append(",");
                     buffer.append(System.getProperty("line.separator"));
