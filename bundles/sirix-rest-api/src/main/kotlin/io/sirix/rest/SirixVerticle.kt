@@ -219,6 +219,9 @@ class SirixVerticle : CoroutineVerticle() {
             ctx.next()
         }
 
+        // Metrics collection and /metrics endpoint (unauthenticated, like /health)
+        MetricsHandler.install(this)
+
         // Health check endpoint (unauthenticated, for orchestration probes)
         get("/health").handler { ctx ->
             ctx.response()
