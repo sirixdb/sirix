@@ -2,7 +2,7 @@
   "port": 9443,
   "keycloak.url": "http://keycloak:8080/realms/sirixdb",
   "client.id": "sirix",
-  "client.secret": "change-me",
+  "client.secret": "78a294c4-0492-4e44-a35f-7eb9cab0d831",
   "use.http": true,
   "_comment": "Override secrets via env vars: SIRIX_KEYCLOAK_CLIENT_SECRET, SIRIX_KEYCLOAK_CLIENT_ID, SIRIX_KEYCLOAK_URL"
 }
