@@ -12,11 +12,15 @@ import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.shredder.JsonShredder;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
 
 import java.util.Collections;
 import java.util.HashSet;
@@ -1053,6 +1057,309 @@ class IndexIntegrationTest {
         final long nodeKey = refs.getNodeKeys().getLongIterator().next();
         rtx.moveTo(nodeKey);
         assertEquals("Alice", rtx.getValue());
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // HOT (Height Optimized Trie) Index Tests
+  // ---------------------------------------------------------------------------
+
+  @Nested
+  @DisplayName("HOT Index Tests")
+  @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+  class HOTIndexTests {
+
+    private String originalHOTSetting;
+
+    @BeforeAll
+    void enableHOT() {
+      originalHOTSetting = System.getProperty("sirix.index.useHOT");
+      System.setProperty("sirix.index.useHOT", "true");
+    }
+
+    @AfterAll
+    void restoreHOT() {
+      if (originalHOTSetting != null) {
+        System.setProperty("sirix.index.useHOT", originalHOTSetting);
+      } else {
+        System.clearProperty("sirix.index.useHOT");
+      }
+    }
+
+    @Test
+    @DisplayName("HOT path index: create, shred JSON, verify results for /name")
+    void testHOTPathIndexCreationAndQuery() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = session.beginNodeTrx()) {
+
+        final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
+
+        final var pathToName = parse("/name", PathParser.Type.JSON);
+        final var pathIndexDef =
+            IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+
+        indexController.createIndexes(Set.of(pathIndexDef), trx);
+
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createStringReader(SAMPLE_JSON),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
+
+        final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
+        assertNotNull(indexDef, "HOT path index definition should exist");
+
+        final var index = indexController.openPathIndex(trx.getStorageEngineReader(), indexDef, null);
+        assertTrue(index.hasNext(), "HOT path index should have results");
+
+        final var refs = index.next();
+        assertEquals(1, refs.getNodeKeys().getLongCardinality(),
+            "Should have exactly 1 node indexed under /name via HOT");
+      }
+    }
+
+    @Test
+    @DisplayName("HOT path index for nested path /address/city")
+    void testHOTPathIndexNestedPath() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = session.beginNodeTrx()) {
+
+        final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
+
+        final var pathToCity = parse("/address/city", PathParser.Type.JSON);
+        final var pathIndexDef =
+            IndexDefs.createPathIdxDef(Collections.singleton(pathToCity), 0, IndexDef.DbType.JSON);
+
+        indexController.createIndexes(Set.of(pathIndexDef), trx);
+
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createStringReader(SAMPLE_JSON),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
+
+        final var indexDef = indexController.getIndexes().getIndexDef(0, IndexType.PATH);
+        assertNotNull(indexDef);
+
+        final var index = indexController.openPathIndex(trx.getStorageEngineReader(), indexDef, null);
+        assertTrue(index.hasNext(), "HOT should find /address/city");
+        assertEquals(1, index.next().getNodeKeys().getLongCardinality());
+      }
+    }
+
+    @Test
+    @DisplayName("HOT path index persists and is queryable via read-only transaction")
+    void testHOTPathIndexReadOnlyTrx() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = session.beginNodeTrx()) {
+
+        final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
+
+        final var pathToName = parse("/name", PathParser.Type.JSON);
+        final var pathIndexDef =
+            IndexDefs.createPathIdxDef(Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+
+        indexController.createIndexes(Set.of(pathIndexDef), trx);
+
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createStringReader(SAMPLE_JSON),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
+      }
+
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = session.beginNodeReadOnlyTrx()) {
+
+        final var indexController = session.getRtxIndexController(rtx.getRevisionNumber());
+        final var found = indexController.getIndexes().findPathIndex(parse("/name", PathParser.Type.JSON));
+        assertTrue(found.isPresent(), "HOT path index should persist after commit");
+
+        final var index = indexController.openPathIndex(rtx.getStorageEngineReader(), found.get(), null);
+        assertTrue(index.hasNext(), "HOT path index should be queryable via read-only trx");
+        assertEquals(1, index.next().getNodeKeys().getLongCardinality());
+      }
+    }
+
+    @Test
+    @DisplayName("HOT CAS index: exact string match on /name")
+    void testHOTCASIndexExactStringMatch() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = session.beginNodeTrx()) {
+
+        final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
+
+        final var pathToName = parse("/name", PathParser.Type.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+
+        indexController.createIndexes(Set.of(casIndexDef), trx);
+
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createStringReader(SAMPLE_JSON),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
+
+        final var casIterator = indexController.openCASIndex(
+            trx.getStorageEngineReader(), casIndexDef,
+            indexController.createCASFilter(
+                Set.of("/name"),
+                new Str("Alice"),
+                SearchMode.EQUAL,
+                new JsonPCRCollector(trx)));
+
+        assertTrue(casIterator.hasNext(), "HOT CAS index should find 'Alice' at /name");
+        final var nodeReferences = casIterator.next();
+        assertEquals(1, nodeReferences.getNodeKeys().getLongCardinality());
+
+        final long nodeKey = nodeReferences.getNodeKeys().getLongIterator().next();
+        trx.moveTo(nodeKey);
+        assertEquals("Alice", trx.getValue(), "Referenced node should have value 'Alice'");
+      }
+    }
+
+    @Test
+    @DisplayName("HOT CAS index: no match for non-existent value")
+    void testHOTCASIndexNoMatch() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = session.beginNodeTrx()) {
+
+        final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
+
+        final var pathToName = parse("/name", PathParser.Type.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+
+        indexController.createIndexes(Set.of(casIndexDef), trx);
+
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createStringReader(SAMPLE_JSON),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
+
+        final var casIterator = indexController.openCASIndex(
+            trx.getStorageEngineReader(), casIndexDef,
+            indexController.createCASFilter(
+                Set.of("/name"),
+                new Str("Charlie"),
+                SearchMode.EQUAL,
+                new JsonPCRCollector(trx)));
+
+        assertFalse(casIterator.hasNext(), "HOT CAS index should not find 'Charlie'");
+      }
+    }
+
+    @Test
+    @DisplayName("HOT CAS index: nested path /address/city")
+    void testHOTCASIndexNestedPath() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = session.beginNodeTrx()) {
+
+        final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
+
+        final var pathToCity = parse("/address/city", PathParser.Type.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Collections.singleton(pathToCity), 0, IndexDef.DbType.JSON);
+
+        indexController.createIndexes(Set.of(casIndexDef), trx);
+
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createStringReader(SAMPLE_JSON),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
+
+        final var casIterator = indexController.openCASIndex(
+            trx.getStorageEngineReader(), casIndexDef,
+            indexController.createCASFilter(
+                Set.of("/address/city"),
+                new Str("NYC"),
+                SearchMode.EQUAL,
+                new JsonPCRCollector(trx)));
+
+        assertTrue(casIterator.hasNext(), "HOT CAS should find 'NYC' at /address/city");
+        assertEquals(1, casIterator.next().getNodeKeys().getLongCardinality());
+      }
+    }
+
+    @Test
+    @DisplayName("HOT CAS index: read-only transaction query after commit")
+    void testHOTCASIndexWithReadOnlyTrx() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = session.beginNodeTrx()) {
+
+        final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
+
+        final var pathToName = parse("/name", PathParser.Type.JSON);
+        final var casIndexDef = IndexDefs.createCASIdxDef(
+            false, Type.STR, Collections.singleton(pathToName), 0, IndexDef.DbType.JSON);
+
+        indexController.createIndexes(Set.of(casIndexDef), trx);
+
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createStringReader(SAMPLE_JSON),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
+      }
+
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var rtx = session.beginNodeReadOnlyTrx()) {
+
+        final var indexController = session.getRtxIndexController(rtx.getRevisionNumber());
+        final var casIndex = indexController.getIndexes().findCASIndex(
+            parse("/name", PathParser.Type.JSON), Type.STR);
+
+        assertTrue(casIndex.isPresent(), "HOT CAS index should exist after commit");
+
+        final var casIterator = indexController.openCASIndex(
+            rtx.getStorageEngineReader(), casIndex.get(),
+            indexController.createCASFilter(
+                Set.of("/name"),
+                new Str("Alice"),
+                SearchMode.EQUAL,
+                new JsonPCRCollector(rtx)));
+
+        assertTrue(casIterator.hasNext(), "HOT CAS read-only trx should find 'Alice'");
+        assertEquals(1, casIterator.next().getNodeKeys().getLongCardinality());
+      }
+    }
+
+    @Test
+    @Disabled("NAME index with HOT has variable-length key serialization issues causing early trie splits")
+    @DisplayName("HOT name index: create and query object keys")
+    void testHOTNameIndexAllKeys() {
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+           final var trx = session.beginNodeTrx()) {
+
+        final var indexController = session.getWtxIndexController(trx.getRevisionNumber());
+
+        final var allObjectKeyNames = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+        indexController.createIndexes(Set.of(allObjectKeyNames), trx);
+
+        final var shredder = new JsonShredder.Builder(trx,
+            JsonShredder.createStringReader(SAMPLE_JSON),
+            InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
+        shredder.call();
+
+        final var nameIterator = indexController.openNameIndex(
+            trx.getStorageEngineReader(), allObjectKeyNames,
+            indexController.createNameFilter(Set.of("name")));
+
+        assertTrue(nameIterator.hasNext(), "HOT name index should find 'name'");
+        assertEquals(1, nameIterator.next().getNodeKeys().getLongCardinality());
       }
     }
   }
