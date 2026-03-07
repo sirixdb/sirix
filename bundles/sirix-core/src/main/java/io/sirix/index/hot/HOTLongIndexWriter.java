@@ -196,8 +196,14 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
     boolean removed = refs.removeNodeKey(nodeKey);
 
     if (removed) {
+      // Pre-check size to avoid buffer overflow
       byte[] valueBuf = VALUE_BUFFER.get();
-      int valueLen = NodeReferencesSerializer.serialize(refs, valueBuf, 0);
+      final int requiredSize = NodeReferencesSerializer.computeSerializedSize(refs);
+      if (requiredSize > valueBuf.length) {
+        valueBuf = new byte[requiredSize];
+        VALUE_BUFFER.set(valueBuf);
+      }
+      final int valueLen = NodeReferencesSerializer.serialize(refs, valueBuf, 0);
       leaf.updateValue(index, Arrays.copyOf(valueBuf, valueLen));
     }
 

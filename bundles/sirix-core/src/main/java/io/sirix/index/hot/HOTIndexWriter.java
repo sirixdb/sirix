@@ -226,9 +226,14 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     boolean removed = refs.removeNodeKey(nodeKey);
 
     if (removed) {
-      // Update entry
+      // Update entry — pre-check size to avoid buffer overflow
       byte[] valueBuf = VALUE_BUFFER.get();
-      int valueLen = NodeReferencesSerializer.serialize(refs, valueBuf, 0);
+      final int requiredSize = NodeReferencesSerializer.computeSerializedSize(refs);
+      if (requiredSize > valueBuf.length) {
+        valueBuf = new byte[requiredSize];
+        VALUE_BUFFER.set(valueBuf);
+      }
+      final int valueLen = NodeReferencesSerializer.serialize(refs, valueBuf, 0);
       leaf.updateValue(index, Arrays.copyOf(valueBuf, valueLen));
     }
 

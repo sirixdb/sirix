@@ -232,7 +232,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         final NamePage namePage = storageEngineWriter.getNamePage(revisionRootPage);
         yield namePage.getOrCreateReference(indexNumber);
       }
-      default -> null;
+      default -> throw new IllegalStateException("Unsupported index type for HOT: " + indexType);
     };
   }
 

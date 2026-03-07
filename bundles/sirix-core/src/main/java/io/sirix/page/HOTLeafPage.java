@@ -923,6 +923,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       return false;
     }
 
+    // Save source state before truncation so we can restore on failure
+    final int savedEntryCount = entryCount;
+    final int savedUsedMemory = usedSlotMemorySize;
+
     // Truncate self to left half
     entryCount = splitPoint;
     recalculateUsedMemory();
@@ -939,6 +943,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     // A degenerate split (all entries on one side) is valid as long as the new key
     // ended up on the other side, giving both pages at least one entry.
     if (!insertOk || entryCount == 0 || target.entryCount == 0) {
+      // Restore source page to pre-split state — entries are still in slotMemory
+      entryCount = savedEntryCount;
+      usedSlotMemorySize = savedUsedMemory;
+      // Clear target
+      target.entryCount = 0;
+      target.usedSlotMemorySize = 0;
       return false;
     }
     return true;

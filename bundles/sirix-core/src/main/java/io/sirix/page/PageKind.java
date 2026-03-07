@@ -921,8 +921,8 @@ public enum PageKind {
       
       final HOTIndirectPage.NodeType nodeType = HOTIndirectPage.NodeType.values()[nodeTypeId];
       
-      // Read discriminative bits based on layout type
-      final byte initialBytePos = source.readByte();
+      // Read discriminative bits — unsigned short to support keys > 255 bytes
+      final int initialBytePos = Short.toUnsignedInt(source.readShort());
       final long bitMask = source.readLong();
       
       // Read partial keys
@@ -980,8 +980,8 @@ public enum PageKind {
       sink.writeByte((byte) hotIndirect.getLayoutType().ordinal());
       sink.writeInt(hotIndirect.getNumChildren());
       
-      // Write discriminative bits properly based on layout type
-      sink.writeByte((byte) hotIndirect.getInitialBytePos());
+      // Write discriminative bits — use writeShort to support keys > 255 bytes
+      sink.writeShort((short) hotIndirect.getInitialBytePos());
       sink.writeLong(hotIndirect.getBitMask());
       
       // Write partial keys

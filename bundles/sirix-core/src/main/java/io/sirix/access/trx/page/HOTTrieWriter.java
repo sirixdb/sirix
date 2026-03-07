@@ -679,7 +679,7 @@ public final class HOTTrieWriter {
     sortChildrenByFirstKey(newChildren);
 
     // Compute discriminative bits and partial keys for navigation
-    byte initialBytePos = computeInitialBytePos(newChildren);
+    final int initialBytePos = computeInitialBytePos(newChildren);
     long bitMask = computeBitMaskForChildren(newChildren, initialBytePos);
     byte[] partialKeys = computePartialKeysForChildren(newChildren, initialBytePos, bitMask);
 
@@ -699,18 +699,18 @@ public final class HOTTrieWriter {
   /**
    * Compute initial byte position from children keys.
    */
-  private byte computeInitialBytePos(PageReference[] children) {
+  private int computeInitialBytePos(PageReference[] children) {
     if (children.length < 2)
       return 0;
 
     int minBytePos = Integer.MAX_VALUE;
     for (int i = 0; i < children.length - 1; i++) {
-      byte[] last = getLastKeyFromChild(children[i]);
-      byte[] first = getFirstKeyFromChild(children[i + 1]);
-      int bit = DiscriminativeBitComputer.computeDifferingBit(last, first);
+      final byte[] last = getLastKeyFromChild(children[i]);
+      final byte[] first = getFirstKeyFromChild(children[i + 1]);
+      final int bit = DiscriminativeBitComputer.computeDifferingBit(last, first);
       minBytePos = Math.min(minBytePos, bit / 8);
     }
-    return (byte) minBytePos;
+    return minBytePos;
   }
 
   /**
@@ -719,7 +719,7 @@ public final class HOTTrieWriter {
    * byte 0 of window → bits 0-7, byte 1 → bits 8-15, etc.
    * Within each byte, MSB (bit 0) maps to position 7, LSB (bit 7) maps to position 0.
    */
-  private long computeBitMaskForChildren(PageReference[] children, byte initialBytePos) {
+  private long computeBitMaskForChildren(PageReference[] children, int initialBytePos) {
     long mask = 0;
     for (int i = 0; i < children.length - 1; i++) {
       final byte[] key1 = getLastKeyFromChild(children[i]);
@@ -728,7 +728,7 @@ public final class HOTTrieWriter {
         continue;
 
       final int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
-      final int byteOffset = bit / 8 - (initialBytePos & 0xFF);
+      final int byteOffset = bit / 8 - initialBytePos;
       if (byteOffset >= 0 && byteOffset < 8) {
         final int bitInByte = 7 - (bit % 8);
         mask |= 1L << (byteOffset * 8 + bitInByte);
@@ -742,7 +742,7 @@ public final class HOTTrieWriter {
   /**
    * Compute partial keys for all children based on the bit mask.
    */
-  private byte[] computePartialKeysForChildren(PageReference[] children, byte initialBytePos, long bitMask) {
+  private byte[] computePartialKeysForChildren(PageReference[] children, int initialBytePos, long bitMask) {
     byte[] partialKeys = new byte[children.length];
     for (int i = 0; i < children.length; i++) {
       byte[] key = getFirstKeyFromChild(children[i]);
@@ -980,7 +980,7 @@ public final class HOTTrieWriter {
       final int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
       return HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit, children[0], children[1], height);
     } else {
-      byte initialBytePos = computeInitialBytePos(children);
+      final int initialBytePos = computeInitialBytePos(children);
       long bitMask = computeBitMaskForChildren(children, initialBytePos);
       byte[] partialKeys = computePartialKeysForChildren(children, initialBytePos, bitMask);
 
@@ -999,16 +999,15 @@ public final class HOTTrieWriter {
    * Uses little-endian layout matching {@link HOTIndirectPage#getKeyWordAt}:
    * byte 0 of window → bits 0-7, byte 1 → bits 8-15, etc.
    */
-  private byte computePartialKey(byte[] key, byte initialBytePos, long bitMask) {
+  private byte computePartialKey(byte[] key, int initialBytePos, long bitMask) {
     if (key == null || key.length == 0) {
       return 0;
     }
 
     // Extract 8 bytes from key starting at initialBytePos (little-endian, matching getKeyWordAt)
-    final int ibp = initialBytePos & 0xFF;
     long keyWord = 0;
-    for (int i = 0; i < 8 && (ibp + i) < key.length; i++) {
-      keyWord |= ((long) (key[ibp + i] & 0xFF)) << (i * 8);
+    for (int i = 0; i < 8 && (initialBytePos + i) < key.length; i++) {
+      keyWord |= ((long) (key[initialBytePos + i] & 0xFF)) << (i * 8);
     }
 
     // Apply PEXT-style extraction: compress bits selected by mask
