@@ -11,6 +11,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -117,6 +119,43 @@ class NameKeySerializerTest {
   }
 
   @Nested
+  @DisplayName("HOT Discriminative Bit Properties")
+  class HOTProperties {
+
+    @Test
+    @DisplayName("JSON keys serialize to raw local name bytes with no overhead byte")
+    void testJsonKeysHaveNoOverheadByte() {
+      QNm key = new QNm("type");
+      byte[] buffer = new byte[256];
+
+      int length = serializer.serialize(key, buffer, 0);
+
+      // First byte should be 't' (0x74), not 0x00 separator
+      assertEquals('t', buffer[0], "First byte should be the start of local name, not a separator");
+      assertEquals(4, length, "Length should match 'type' UTF-8 length");
+    }
+
+    @Test
+    @DisplayName("Different JSON keys differ at byte 0 for discriminative bit computer")
+    void testJsonKeysDifferAtByte0() {
+      QNm keyA = new QNm("alpha");
+      QNm keyB = new QNm("beta");
+
+      byte[] bufA = new byte[256];
+      byte[] bufB = new byte[256];
+
+      serializer.serialize(keyA, bufA, 0);
+      serializer.serialize(keyB, bufB, 0);
+
+      // First bytes should differ: 'a' (0x61) vs 'b' (0x62)
+      assertTrue(bufA[0] != bufB[0], "JSON keys should differ at byte 0 (not have a shared 0x00 prefix)");
+      int discBit = DiscriminativeBitComputer.computeDifferingBit(
+          Arrays.copyOf(bufA, 5), Arrays.copyOf(bufB, 4));
+      assertTrue(discBit < 8, "Discriminative bit should be in byte 0, not pushed past a separator byte");
+    }
+  }
+
+  @Nested
   @DisplayName("Edge Cases")
   class EdgeCaseTests {
 
@@ -153,10 +192,26 @@ class NameKeySerializerTest {
     }
 
     @Test
-    @DisplayName("Invalid serialization without separator throws")
-    void testInvalidDeserialization() {
-      byte[] buffer = new byte[] {'a', 'b', 'c'}; // No separator
-      assertThrows(IllegalArgumentException.class, () -> serializer.deserialize(buffer, 0, buffer.length));
+    @DisplayName("Zero-length deserialization throws")
+    void testZeroLengthDeserialization() {
+      byte[] buffer = new byte[] {'a', 'b', 'c'};
+      assertThrows(IllegalArgumentException.class, () -> serializer.deserialize(buffer, 0, 0));
+    }
+
+    @Test
+    @DisplayName("Raw bytes without sentinel deserialize as local name only")
+    void testRawBytesDeserializeAsLocalNameOnly() {
+      byte[] buffer = new byte[] {'a', 'b', 'c'};
+      QNm result = serializer.deserialize(buffer, 0, buffer.length);
+      assertEquals("abc", result.getLocalName());
+      assertEquals("", result.getPrefix());
+    }
+
+    @Test
+    @DisplayName("Truncated prefixed format throws")
+    void testTruncatedPrefixedFormat() {
+      byte[] buffer = new byte[] {(byte) 0xFF, 0x05}; // Sentinel + prefixLen=5 but no data
+      assertThrows(Exception.class, () -> serializer.deserialize(buffer, 0, buffer.length));
     }
 
     @Test
