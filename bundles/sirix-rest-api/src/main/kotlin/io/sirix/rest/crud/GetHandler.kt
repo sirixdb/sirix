@@ -2,6 +2,7 @@ package io.sirix.rest.crud
 
 import io.vertx.core.Context
 import io.vertx.core.http.HttpHeaders
+import io.vertx.core.json.JsonObject
 import io.vertx.ext.auth.User
 import io.vertx.ext.auth.authorization.AuthorizationProvider
 import io.vertx.ext.auth.authorization.RoleBasedAuthorization
@@ -50,119 +51,76 @@ class GetHandler(
             if (query.isNullOrEmpty()) {
                 listDatabases(ctx, context)
             } else {
-                val startResultSeqIndexAsString =
-                    ctx.queryParam("startResultSeqIndex").getOrNull(0)
-
-                var startResultSeqIndex = startResultSeqIndexAsString?.toLong()
-
-                if (startResultSeqIndex == null) {
-                    startResultSeqIndex = jsonBody?.getLong("startResultSeqIndex")
-                }
-
-                val endResultSeqIndexAsSring =
-                    ctx.queryParam("endResultSeqIndex").getOrNull(0)
-
-                var endResultSeqIndex = endResultSeqIndexAsSring?.toLong()
-
-                if (endResultSeqIndex == null) {
-                    endResultSeqIndex = jsonBody?.getLong("endResultSeqIndex")
-                }
-
-                val body: String?
-
-                with(acceptHeader) {
-                    when {
-                        contains("application/json") -> {
-                            body = JsonGet(location, keycloak, authz).xquery(
-                                null,
-                                null,
-                                null,
-                                null,
-                                query,
-                                ctx,
-                                context,
-                                ctx.get("user") as User,
-                                startResultSeqIndex,
-                                endResultSeqIndex,
-                                jsonBody
-                            )
-                        }
-
-                        contains("application/xml") -> {
-                            body = XmlGet(location, keycloak, authz).xquery(
-                                null,
-                                null,
-                                null,
-                                null,
-                                query,
-                                ctx,
-                                context,
-                                ctx.get("user") as User,
-                                startResultSeqIndex,
-                                endResultSeqIndex,
-                                jsonBody
-                            )
-                        }
-
-                        else -> {
-                            body = JsonGet(location, keycloak, authz).xquery(
-                                null,
-                                null,
-                                null,
-                                null,
-                                query,
-                                ctx,
-                                context,
-                                ctx.get("user") as User,
-                                startResultSeqIndex,
-                                endResultSeqIndex,
-                                jsonBody
-                            )
-                        }
-                    }
-                }
-
-                if (body != null) {
-                    ctx.response().end(body)
-                } else {
-                    ctx.response().end()
-                }
+                executeGlobalQuery(ctx, context, acceptHeader, query, jsonBody)
             }
         } else if (databaseName != null && resourceName == null) {
-            val databasePath = location.resolve(databaseName)
-            if (!Databases.existsDatabase(databasePath)) {
-                ctx.response().setStatusCode(404).end()
-                return ctx.currentRoute()
-            }
-            Auth.checkIfAuthorized(ctx.get<User>("user"), databaseName, AuthRole.VIEW, authz)
-            val buffer = StringBuilder()
-            buffer.append("{")
-            val databaseType = Databases.getDatabaseType(databasePath.toAbsolutePath()).stringType
-            emitResourcesOfDatabase(buffer, databasePath, databaseType)
-
-            if (!ctx.failed()) {
-                buffer.append("}")
-
-                val content = buffer.toString()
-
-                val res = ctx.response().setStatusCode(200)
-                    .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-                    .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
-                res.write(content)
-                res.end()
-            }
+            listResourcesOfDatabase(ctx, databaseName)
         } else {
-            with(acceptHeader) {
-                @Suppress("IMPLICIT_CAST_TO_ANY")
-                when {
-                    contains("application/json") -> JsonGet(location, keycloak, authz).handle(ctx)
-                    contains("application/xml") -> XmlGet(location, keycloak, authz).handle(ctx)
-                    else -> JsonGet(location, keycloak, authz).handle(ctx)
-                }
-            }
+            dispatchByAcceptHeader(acceptHeader, ctx)
         }
 
         return ctx.currentRoute()
+    }
+
+    private suspend fun executeGlobalQuery(
+        ctx: RoutingContext,
+        context: Context,
+        acceptHeader: String,
+        query: String,
+        jsonBody: JsonObject?
+    ) {
+        val startResultSeqIndex = ctx.queryParam("startResultSeqIndex").getOrNull(0)?.toLong()
+            ?: jsonBody?.getLong("startResultSeqIndex")
+        val endResultSeqIndex = ctx.queryParam("endResultSeqIndex").getOrNull(0)?.toLong()
+            ?: jsonBody?.getLong("endResultSeqIndex")
+
+        val get = if (acceptHeader.contains("application/xml")) {
+            XmlGet(location, keycloak, authz)
+        } else {
+            JsonGet(location, keycloak, authz)
+        }
+
+        val body = get.xquery(
+            null, null, null, null, query, ctx, context,
+            ctx.get("user") as User, startResultSeqIndex, endResultSeqIndex, jsonBody
+        )
+
+        if (body != null) {
+            ctx.response().end(body)
+        } else {
+            ctx.response().end()
+        }
+    }
+
+    private suspend fun listResourcesOfDatabase(ctx: RoutingContext, databaseName: String) {
+        val databasePath = location.resolve(databaseName)
+        if (!Databases.existsDatabase(databasePath)) {
+            ctx.response().setStatusCode(404).end()
+            return
+        }
+        Auth.checkIfAuthorized(ctx.get<User>("user"), databaseName, AuthRole.VIEW, authz)
+        val buffer = StringBuilder()
+        buffer.append("{")
+        val databaseType = Databases.getDatabaseType(databasePath.toAbsolutePath()).stringType
+        emitResourcesOfDatabase(buffer, databasePath, databaseType)
+
+        if (!ctx.failed()) {
+            buffer.append("}")
+            val content = buffer.toString()
+            val res = ctx.response().setStatusCode(200)
+                .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
+                .putHeader(HttpHeaders.CONTENT_LENGTH, content.toByteArray(StandardCharsets.UTF_8).size.toString())
+            res.write(content)
+            res.end()
+        }
+    }
+
+    private suspend fun dispatchByAcceptHeader(acceptHeader: String, ctx: RoutingContext) {
+        if (acceptHeader.contains("application/xml")) {
+            XmlGet(location, keycloak, authz).handle(ctx)
+        } else {
+            JsonGet(location, keycloak, authz).handle(ctx)
+        }
     }
 
     private suspend fun listDatabases(ctx: RoutingContext, context: Context) {
