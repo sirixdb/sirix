@@ -45,8 +45,8 @@ public final class DiffTest {
 
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     assert database != null;
-    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+    try (final var resourceSession = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = resourceSession.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
@@ -127,8 +127,8 @@ public final class DiffTest {
 
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
     assert database != null;
-    try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
-        final var wtx = manager.beginNodeTrx()) {
+    try (final var resourceSession = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var wtx = resourceSession.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild();
       wtx.insertObjectRecordAsFirstChild("newKey", new StringValue("newValue"));

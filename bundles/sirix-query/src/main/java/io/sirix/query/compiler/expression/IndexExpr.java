@@ -73,20 +73,20 @@ public final class IndexExpr implements Expr {
     final JsonDBCollection jsonCollection = jsonItemStore.lookup(databaseName);
     final var database = jsonCollection.getDatabase();
 
-    final var manager = database.beginResourceSession(resourceName);
+    final var resourceSession = database.beginResourceSession(resourceName);
     final JsonNodeReadOnlyTrx rtx;
     try {
       rtx = revision == -1
-          ? manager.beginNodeReadOnlyTrx()
-          : manager.beginNodeReadOnlyTrx(revision);
+          ? resourceSession.beginNodeReadOnlyTrx()
+          : resourceSession.beginNodeReadOnlyTrx(revision);
     } catch (final Exception e) {
-      manager.close();
+      resourceSession.close();
       throw e;
     }
     try {
       final var indexController = revision == -1
-          ? manager.getRtxIndexController(manager.getMostRecentRevisionNumber())
-          : manager.getRtxIndexController(revision);
+          ? resourceSession.getRtxIndexController(resourceSession.getMostRecentRevisionNumber())
+          : resourceSession.getRtxIndexController(revision);
       var nodeKeys = new ArrayList<Long>();
 
       final var indexType = (IndexType) properties.get("indexType");
@@ -103,7 +103,7 @@ public final class IndexExpr implements Expr {
             final Iterator<NodeReferences> nodeReferencesIterator = indexController.openPathIndex(rtx.getStorageEngineReader(),
                 entrySet.getKey(), indexController.createPathFilter(pathStrings, rtx));
 
-            checkIfIndexNodeIsApplicable(manager, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
+            checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
                 false);
           }
           case CAS -> {
@@ -128,7 +128,7 @@ public final class IndexExpr implements Expr {
               final Iterator<NodeReferences> nodeReferencesIterator =
                   indexController.openCASIndex(rtx.getStorageEngineReader(), entrySet.getKey(), casFilter);
 
-              checkIfIndexNodeIsApplicable(manager, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
+              checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
                   false);
 
             } else {
@@ -139,7 +139,7 @@ public final class IndexExpr implements Expr {
               final Iterator<NodeReferences> nodeReferencesIterator =
                   indexController.openCASIndex(rtx.getStorageEngineReader(), entrySet.getKey(), casFilter);
 
-              checkIfIndexNodeIsApplicable(manager, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
+              checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
                   false);
 
             }
@@ -151,7 +151,7 @@ public final class IndexExpr implements Expr {
                 indexController.openNameIndex(rtx.getStorageEngineReader(), entrySet.getKey(),
                     new NameFilter(Set.of(entrySet.getValue().get(entrySet.getValue().size() - 1).tail()), Set.of()));
 
-            checkIfIndexNodeIsApplicable(manager, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
+            checkIfIndexNodeIsApplicable(resourceSession, rtx, pathSegmentNamesToArrayIndexes, nodeReferencesIterator, nodeKeys,
                 true);
 
           }
@@ -224,7 +224,7 @@ public final class IndexExpr implements Expr {
       return new ItemSequence(sequence.toArray(new Item[0]));
     } catch (final Exception e) {
       rtx.close();
-      manager.close();
+      resourceSession.close();
       throw e;
     }
   }
@@ -240,13 +240,13 @@ public final class IndexExpr implements Expr {
     };
   }
 
-  private void checkIfIndexNodeIsApplicable(JsonResourceSession manager, JsonNodeReadOnlyTrx rtx,
+  private void checkIfIndexNodeIsApplicable(JsonResourceSession resourceSession, JsonNodeReadOnlyTrx rtx,
       Deque<QueryPathSegment> pathSegmentNamesToArrayIndexes, Iterator<NodeReferences> nodeReferencesIterator,
       List<Long> nodeKeys, boolean checkPathBecauseOfFieldNameChecks) {
     final long numberOfArrayIndexes = getNumberOfArrayIndexes(pathSegmentNamesToArrayIndexes);
     try (final var pathSummary = revision == -1
-        ? manager.openPathSummary()
-        : manager.openPathSummary(revision)) {
+        ? resourceSession.openPathSummary()
+        : resourceSession.openPathSummary(revision)) {
       nodeReferencesIterator.forEachRemaining(currentNodeReferences -> {
         final var currNodeKeys = new LongLinkedOpenHashSet(currentNodeReferences.getNodeKeys().toArray());
         // if array numberOfArrayIndexes are given (only some might be specified we have to drop false

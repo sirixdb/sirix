@@ -230,15 +230,15 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
   }
 
   private XmlDBNode createXmlDBNode(int revision, @NonNull String resourceName) {
-    final XmlResourceSession manager = database.beginResourceSession(resourceName);
+    final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
     try {
       final int version = revision == -1
-          ? manager.getMostRecentRevisionNumber()
+          ? resourceSession.getMostRecentRevisionNumber()
           : revision;
-      final XmlNodeReadOnlyTrx rtx = manager.beginNodeReadOnlyTrx(version);
+      final XmlNodeReadOnlyTrx rtx = resourceSession.beginNodeReadOnlyTrx(version);
       return new XmlDBNode(new ThreadSafeXmlReadOnlyTrx(rtx), this);
     } catch (final Exception e) {
-      manager.close();
+      resourceSession.close();
       throw e;
     }
   }

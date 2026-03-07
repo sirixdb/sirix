@@ -368,8 +368,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
       final XmlDBCollection collection = new XmlDBCollection(collName, database);
       collections.put(database, collection);
 
-      try (final XmlResourceSession manager = database.beginResourceSession(resName);
-          final XmlNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
+      try (final XmlResourceSession resourceSession = database.beginResourceSession(resName);
+          final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
         parser.parse(new SubtreeBuilder(collection, wtx, InsertPosition.AS_FIRST_CHILD, Collections.emptyList()));
         wtx.commit(commitMessage, commitTimestamp);
       }
@@ -404,8 +404,8 @@ public final class BasicXmlDBStore implements XmlDBStore {
                                                            .hashKind(hashType)
                                                            .versioningApproach(versioningType)
                                                            .build());
-              try (final XmlResourceSession manager = database.beginResourceSession(resourceName);
-                  final XmlNodeTrx wtx = manager.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
+              try (final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
+                  final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
                 final XmlDBCollection collection = new XmlDBCollection(collName, database);
                 collections.put(database, collection);
                 nextParser.parse(

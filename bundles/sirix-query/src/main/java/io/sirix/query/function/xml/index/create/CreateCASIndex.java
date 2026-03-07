@@ -63,12 +63,12 @@ public final class CreateCASIndex extends AbstractFunction {
 
     final XmlDBNode doc = ((XmlDBNode) args[0]);
     final XmlNodeReadOnlyTrx rtx = doc.getTrx();
-    final XmlResourceSession manager = rtx.getResourceSession();
+    final XmlResourceSession resourceSession = rtx.getResourceSession();
 
-    final Optional<XmlNodeTrx> optionalWriteTrx = manager.getNodeTrx();
-    final XmlNodeTrx wtx = optionalWriteTrx.orElseGet(() -> manager.beginNodeTrx());
+    final Optional<XmlNodeTrx> optionalWriteTrx = resourceSession.getNodeTrx();
+    final XmlNodeTrx wtx = optionalWriteTrx.orElseGet(() -> resourceSession.beginNodeTrx());
 
-    if (rtx.getRevisionNumber() < manager.getMostRecentRevisionNumber()) {
+    if (rtx.getRevisionNumber() < resourceSession.getMostRecentRevisionNumber()) {
       wtx.revertTo(rtx.getRevisionNumber());
     }
 
