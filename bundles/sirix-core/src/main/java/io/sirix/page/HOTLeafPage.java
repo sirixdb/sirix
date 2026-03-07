@@ -497,13 +497,16 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
         : LinuxMemorySegmentAllocator.getInstance();
     final MemorySegment newMemory = allocator.allocate(DEFAULT_SIZE);
     MemorySegment.copy(slotMemory, 0, newMemory, 0, usedSlotMemorySize);
-    // Release old memory if we own it (releaser != null means we allocated it)
-    if (releaser != null) {
-      releaser.run();
-    }
+    // Capture old releaser BEFORE reassigning — release old memory AFTER assigning new
+    // to prevent use-after-free if allocator.allocate() succeeds but subsequent ops fail
+    final Runnable oldReleaser = releaser;
     slotMemory = newMemory;
     final MemorySegment segmentToRelease = newMemory;
     releaser = () -> allocator.release(segmentToRelease);
+    // Now safe to release old memory — slotMemory already points to new allocation
+    if (oldReleaser != null) {
+      oldReleaser.run();
+    }
   }
 
   /**

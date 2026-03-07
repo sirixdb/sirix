@@ -260,7 +260,7 @@ public final class HOTIndirectPage implements Page {
    * @param children array of child references
    * @return new MultiNode
    */
-  public static HOTIndirectPage createMultiNode(long pageKey, int revision, byte discriminativeByte, byte[] childIndex,
+  public static HOTIndirectPage createMultiNode(long pageKey, int revision, int discriminativeByte, byte[] childIndex,
       PageReference[] children) {
     if (children.length < 1 || children.length > MAX_NODE_ENTRIES) {
       throw new IllegalArgumentException("MultiNode must have 1-" + MAX_NODE_ENTRIES + " children, got: "

@@ -948,10 +948,10 @@ public enum PageKind {
           // and discriminativeBitPos = initialBytePos * 8 + bitWithinByte
           int bitInWord = Long.numberOfTrailingZeros(bitMask);
           int bitWithinByte = 7 - bitInWord;
-          int discriminativeBitPos = (initialBytePos & 0xFF) * 8 + bitWithinByte;
+          int discriminativeBitPos = initialBytePos * 8 + bitWithinByte;
           yield HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBitPos, children[0], children[1], height);
         }
-        case SPAN_NODE -> HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos & 0xFF, bitMask,
+        case SPAN_NODE -> HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos, bitMask,
             partialKeys, children, height);
         case MULTI_NODE -> {
           // Read and discard legacy childIndex payload to keep binary compatibility.
@@ -959,7 +959,7 @@ public enum PageKind {
           // which is robust even when childIndex was serialized as zero-filled fallback.
           byte[] childIndexArray = new byte[256];
           source.read(childIndexArray);
-          yield HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos & 0xFF, bitMask, partialKeys,
+          yield HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos, bitMask, partialKeys,
               children, height);
         }
       };

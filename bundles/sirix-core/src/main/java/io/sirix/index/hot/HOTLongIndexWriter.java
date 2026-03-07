@@ -171,10 +171,10 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
   public boolean remove(long key, long nodeKey) {
     // Serialize key (no boxing!)
     byte[] keyBuf = KEY_BUFFER.get();
-    keySerializer.serialize(key, keyBuf, 0);
+    int keyLen = keySerializer.serialize(key, keyBuf, 0);
 
     // Navigate to leaf with path tracking
-    LeafNavigationResult navResult = getLeafWithPath(rootReference, keyBuf, 8);
+    LeafNavigationResult navResult = getLeafWithPath(rootReference, keyBuf, keyLen);
     HOTLeafPage leaf = navResult.leaf();
     if (leaf == null) {
       return false;
