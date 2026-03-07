@@ -42,7 +42,7 @@ public final class LogWrapper {
    * @param logger logger
    */
   public LogWrapper(final Logger logger) {
-    this.logger = requireNonNull(logger);
+    this.logger = requireNonNull(logger, "Logger must not be null");
   }
 
   /**
@@ -101,6 +101,17 @@ public final class LogWrapper {
   public void warn(final String message, final Object... objects) {
     if (logger.isWarnEnabled()) {
       logger.warn(message, objects);
+    }
+  }
+  /**
+   * Log trace information.
+   *
+   * @param message Message to log.
+   * @param objects objects for data
+   */
+  public void trace(final String message, final Object... objects) {
+    if (logger.isTraceEnabled()) {
+      logger.trace(message, objects);
     }
   }
 
