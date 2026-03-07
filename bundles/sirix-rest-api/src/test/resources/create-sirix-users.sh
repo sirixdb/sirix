@@ -2,27 +2,35 @@
 
 KEYCLOAK_HOME="/opt/keycloak"
 REALM="sirixdb"
-USERNAME="admin"
-PASSWORD="admin"
-ROLES="create,modify,delete,view"
+KCADM="$KEYCLOAK_HOME/bin/kcadm.sh"
 
-user_exists() {
-  $KEYCLOAK_HOME/bin/kcadm.sh get users -r "$REALM" -q "username=$USERNAME" --fields username | grep -q "\"username\" : \"$USERNAME\""
-}
+$KCADM config credentials --server http://keycloak:8080 --realm master --user admin --password admin
 
-$KEYCLOAK_HOME/bin/kcadm.sh config credentials --server http://keycloak:8080 --realm master --user "$USERNAME" --password "$PASSWORD"
+# Create a user with the given username, password, and comma-separated roles.
+create_user() {
+  local username="$1"
+  local password="$2"
+  local roles="$3"
 
-if user_exists; then
-  echo "User '$USERNAME' already exists in realm '$REALM'."
-else
-  if $KEYCLOAK_HOME/bin/kcadm.sh create users -r "$REALM" -s username="$USERNAME" -s enabled=true && \
-     $KEYCLOAK_HOME/bin/kcadm.sh set-password -r "$REALM" --username "$USERNAME" --new-password "$PASSWORD" && \
-     for role in $(echo $ROLES | tr "," "\n"); do
-       $KEYCLOAK_HOME/bin/kcadm.sh add-roles -r "$REALM" --uusername "$USERNAME" --rolename "$role"
+  if $KCADM get users -r "$REALM" -q "username=$username" --fields username | grep -q "\"username\" : \"$username\""; then
+    echo "User '$username' already exists in realm '$REALM'."
+    return 0
+  fi
+
+  if $KCADM create users -r "$REALM" -s username="$username" -s enabled=true && \
+     $KCADM set-password -r "$REALM" --username "$username" --new-password "$password" && \
+     for role in $(echo "$roles" | tr "," "\n"); do
+       $KCADM add-roles -r "$REALM" --uusername "$username" --rolename "$role"
      done; then
-    echo "User '$USERNAME' added to realm '$REALM'."
+    echo "User '$username' added to realm '$REALM'."
   else
-    echo "Failed to add user '$USERNAME' to realm '$REALM'."
+    echo "Failed to add user '$username' to realm '$REALM'."
     exit 1
   fi
-fi
+}
+
+# Admin user: all roles
+create_user "admin" "admin" "create,modify,delete,view"
+
+# Viewer user: view-only (for authorization negative tests)
+create_user "viewer" "viewer" "view"
