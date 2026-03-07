@@ -31,7 +31,7 @@ import kotlin.coroutines.cancellation.CancellationException
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2OptionsOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import org.apache.http.HttpStatus
+import java.net.HttpURLConnection
 import io.sirix.access.DatabasesInternals
 import io.sirix.rest.crud.CreateMultipleResources
 import io.sirix.rest.crud.DeleteHandler
@@ -231,7 +231,7 @@ class SirixVerticle : CoroutineVerticle() {
 
         get("/user/authorize").coroutineHandler { rc ->
             if (oAuth2FlowType != OAuth2FlowType.AUTH_CODE) {
-                rc.response().statusCode = HttpStatus.SC_BAD_REQUEST
+                rc.response().statusCode = HttpURLConnection.HTTP_BAD_REQUEST
             } else {
                 val redirectUri =
                     rc.queryParam("redirect_uri").getOrElse(0) { config.getString("redirect.uri") }
@@ -244,7 +244,7 @@ class SirixVerticle : CoroutineVerticle() {
                 )
 
                 rc.response().putHeader("Location", authorizationUri)
-                    .setStatusCode(HttpStatus.SC_MOVED_TEMPORARILY)
+                    .setStatusCode(HttpURLConnection.HTTP_MOVED_TEMP)
                     .end()
             }
         }

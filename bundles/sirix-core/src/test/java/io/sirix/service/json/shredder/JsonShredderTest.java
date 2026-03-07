@@ -302,52 +302,52 @@ public final class JsonShredderTest {
   }
 
   @Test
-  public void testLarge() throws IOException {
+  public void testLarge() throws Exception {
     test("large-file.json");
   }
 
   @Test
-  public void testCvx() throws IOException {
+  public void testCvx() throws Exception {
     test("CVX.json");
   }
 
   @Test
-  public void testMovies() throws IOException {
+  public void testMovies() throws Exception {
     test("movies.json");
   }
 
   @Test
-  public void testBlockchainLatestBlock() throws IOException {
+  public void testBlockchainLatestBlock() throws Exception {
     test("blockchain-latestblock.json");
   }
 
   @Test
-  public void testLinux() throws IOException {
+  public void testLinux() throws Exception {
     test("linux.json");
   }
 
   @Test
-  public void testCopperFieldBook() throws IOException {
+  public void testCopperFieldBook() throws Exception {
     test("copperfield-book.json");
   }
 
   @Test
-  public void testLaureate() throws IOException {
+  public void testLaureate() throws Exception {
     test("laureate.json");
   }
 
   @Test
-  public void testRedditAll() throws IOException {
+  public void testRedditAll() throws Exception {
     test("reddit-all.json");
   }
 
   @Test
-  public void testArray() throws IOException {
+  public void testArray() throws Exception {
     test("array.json");
   }
 
   @Test
-  public void testArrayAsLastChild() throws IOException {
+  public void testArrayAsLastChild() throws Exception {
     final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -378,7 +378,7 @@ public final class JsonShredderTest {
   }
 
   @Test
-  public void testArrayAsLeftSibling() throws IOException {
+  public void testArrayAsLeftSibling() throws Exception {
     final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -409,7 +409,7 @@ public final class JsonShredderTest {
   }
 
   @Test
-  public void testArrayAsRightSibling() throws IOException {
+  public void testArrayAsRightSibling() throws Exception {
     final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -440,7 +440,7 @@ public final class JsonShredderTest {
   }
 
   @Test
-  public void testObjectAsLastChild() throws IOException {
+  public void testObjectAsLastChild() throws Exception {
     final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -471,7 +471,7 @@ public final class JsonShredderTest {
   }
 
   @Test
-  public void testObjectAsLeftSibling() throws IOException {
+  public void testObjectAsLeftSibling() throws Exception {
     final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -502,7 +502,7 @@ public final class JsonShredderTest {
   }
 
   @Test
-  public void testObjectAsRightSibling() throws IOException {
+  public void testObjectAsRightSibling() throws Exception {
     final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -553,43 +553,43 @@ public final class JsonShredderTest {
   }
 
   @Test
-  public void testComplex1() throws IOException {
+  public void testComplex1() throws Exception {
     test("complex1.json");
   }
 
   @Test
-  public void testComplex2() throws IOException {
+  public void testComplex2() throws Exception {
     test("complex2.json");
   }
 
   @Test
-  public void testBlockChain() throws IOException {
+  public void testBlockChain() throws Exception {
     test("blockchain.json");
   }
 
   @Test
-  public void testBusinessServiceProviders() throws IOException {
+  public void testBusinessServiceProviders() throws Exception {
     test("business-service-providers.json");
   }
 
   @Test
-  public void testABCLocationStations() throws IOException {
+  public void testABCLocationStations() throws Exception {
     test("abc-location-stations.json");
   }
 
   @Disabled("Duplicate keys")
   @Test
-  public void testHistoricalEventsEnglish() throws IOException {
+  public void testHistoricalEventsEnglish() throws Exception {
     test("historical-events-english.json");
   }
 
   @Test
-  public void testTradeAPIs() throws IOException {
+  public void testTradeAPIs() throws Exception {
     test("trade-apis.json");
   }
 
   @Test
-  public void testTestDocument() throws IOException {
+  public void testTestDocument() throws Exception {
     test("test.json");
   }
 
@@ -610,7 +610,7 @@ public final class JsonShredderTest {
     }
   }
 
-  private void test(String jsonFile) throws IOException {
+  private void test(String jsonFile) throws Exception {
     final var jsonPath = JSON.resolve(jsonFile);
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);

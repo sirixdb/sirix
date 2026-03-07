@@ -56,7 +56,7 @@ public final class LdjsonShredderTest {
   // ==================== Empty Input ====================
 
   @Test
-  public void testEmptyInput() throws IOException {
+  public void testEmptyInput() throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
@@ -81,7 +81,7 @@ public final class LdjsonShredderTest {
   // ==================== Single Document ====================
 
   @Test
-  public void testSingleObject() throws IOException {
+  public void testSingleObject() throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
@@ -98,7 +98,7 @@ public final class LdjsonShredderTest {
   }
 
   @Test
-  public void testSingleArray() throws IOException {
+  public void testSingleArray() throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
@@ -117,7 +117,7 @@ public final class LdjsonShredderTest {
   // ==================== Multiple Documents ====================
 
   @Test
-  public void testTwoObjects() throws IOException {
+  public void testTwoObjects() throws Exception {
     final var ldjson = "{\"a\":1}\n{\"b\":2}";
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -135,7 +135,7 @@ public final class LdjsonShredderTest {
   }
 
   @Test
-  public void testThreeObjects() throws IOException {
+  public void testThreeObjects() throws Exception {
     final var ldjson = "{\"x\":1}\n{\"y\":2}\n{\"z\":3}";
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -153,7 +153,7 @@ public final class LdjsonShredderTest {
   }
 
   @Test
-  public void testManyDocuments() throws IOException {
+  public void testManyDocuments() throws Exception {
     final var sb = new StringBuilder();
     for (int i = 0; i < 1000; i++) {
       if (i > 0) {
@@ -178,7 +178,7 @@ public final class LdjsonShredderTest {
   // ==================== Nested Structures ====================
 
   @Test
-  public void testNestedObjects() throws IOException {
+  public void testNestedObjects() throws Exception {
     final var ldjson = "{\"a\":{\"b\":{\"c\":1}}}\n{\"d\":[1,[2,3]]}";
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -198,7 +198,7 @@ public final class LdjsonShredderTest {
   // ==================== Mixed Container Types ====================
 
   @Test
-  public void testMixedObjectsAndArrays() throws IOException {
+  public void testMixedObjectsAndArrays() throws Exception {
     final var ldjson = "{\"a\":1}\n[1,2]\n{\"b\":2}\n[3,4]";
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -218,7 +218,7 @@ public final class LdjsonShredderTest {
   // ==================== Trailing Newlines ====================
 
   @Test
-  public void testTrailingNewlines() throws IOException {
+  public void testTrailingNewlines() throws Exception {
     final var ldjson = "{\"a\":1}\n{\"b\":2}\n\n\n";
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -238,7 +238,7 @@ public final class LdjsonShredderTest {
   // ==================== Tree Structure Verification ====================
 
   @Test
-  public void testTreeStructure() throws IOException {
+  public void testTreeStructure() throws Exception {
     final var ldjson = "{\"k\":\"v\"}\n{\"k2\":\"v2\"}";
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -278,7 +278,7 @@ public final class LdjsonShredderTest {
   // ==================== insertLdjsonAsLastChild ====================
 
   @Test
-  public void testInsertAsLastChild() throws IOException {
+  public void testInsertAsLastChild() throws Exception {
     final var ldjson = "{\"a\":1}\n{\"b\":2}";
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -298,7 +298,7 @@ public final class LdjsonShredderTest {
   // ==================== Auto-Commit Integration ====================
 
   @Test
-  public void testAutoCommit() throws IOException {
+  public void testAutoCommit() throws Exception {
     final var ldjson = buildLdjson(500);
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -317,7 +317,7 @@ public final class LdjsonShredderTest {
   // ==================== Scalar Rejection ====================
 
   @Test
-  public void testScalarStringRejected() throws IOException {
+  public void testScalarStringRejected() throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
@@ -328,7 +328,7 @@ public final class LdjsonShredderTest {
   }
 
   @Test
-  public void testScalarNumberRejected() throws IOException {
+  public void testScalarNumberRejected() throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
@@ -339,7 +339,7 @@ public final class LdjsonShredderTest {
   }
 
   @Test
-  public void testScalarBooleanRejected() throws IOException {
+  public void testScalarBooleanRejected() throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
@@ -350,7 +350,7 @@ public final class LdjsonShredderTest {
   }
 
   @Test
-  public void testScalarNullRejected() throws IOException {
+  public void testScalarNullRejected() throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
@@ -361,7 +361,7 @@ public final class LdjsonShredderTest {
   }
 
   @Test
-  public void testScalarAfterObjectRejected() throws IOException {
+  public void testScalarAfterObjectRejected() throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
@@ -374,7 +374,7 @@ public final class LdjsonShredderTest {
   // ==================== Parent Node Validation ====================
 
   @Test
-  public void testInsertUnderArrayParent() throws IOException {
+  public void testInsertUnderArrayParent() throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx()) {
@@ -403,7 +403,7 @@ public final class LdjsonShredderTest {
   // ==================== Round-Trip Test ====================
 
   @Test
-  public void testRoundTripComplexDocuments() throws IOException {
+  public void testRoundTripComplexDocuments() throws Exception {
     final var ldjson = "{\"users\":[{\"name\":\"Alice\",\"tags\":[\"admin\",\"user\"]}]}\n"
         + "{\"users\":[{\"name\":\"Bob\",\"tags\":[\"user\"]}]}\n"
         + "{\"meta\":{\"count\":2,\"active\":true}}";
@@ -429,7 +429,7 @@ public final class LdjsonShredderTest {
   // ==================== Builder Validation ====================
 
   @Test
-  public void testLdjsonModeIncompatibleWithSkipRootToken() throws IOException {
+  public void testLdjsonModeIncompatibleWithSkipRootToken() throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
@@ -446,7 +446,7 @@ public final class LdjsonShredderTest {
   // ==================== Empty Objects/Arrays ====================
 
   @Test
-  public void testEmptyObjects() throws IOException {
+  public void testEmptyObjects() throws Exception {
     final var ldjson = "{}\n{}\n{}";
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -464,7 +464,7 @@ public final class LdjsonShredderTest {
   }
 
   @Test
-  public void testEmptyArrayDocuments() throws IOException {
+  public void testEmptyArrayDocuments() throws Exception {
     final var ldjson = "[]\n[]\n[]";
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -484,7 +484,7 @@ public final class LdjsonShredderTest {
   // ==================== Commit.NO Semantics ====================
 
   @Test
-  public void testCommitNo() throws IOException {
+  public void testCommitNo() throws Exception {
     final var ldjson = "{\"a\":1}\n{\"b\":2}";
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);

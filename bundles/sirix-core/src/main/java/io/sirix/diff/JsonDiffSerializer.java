@@ -1,6 +1,7 @@
 package io.sirix.diff;
 
-import com.google.api.client.util.Objects;
+import java.util.Objects;
+
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import io.brackit.query.atomic.QNm;
@@ -154,9 +155,9 @@ public final class JsonDiffSerializer {
               jsonUpdateDiff.addProperty("depth", deweyId.getLevel());
             }
 
-            if (!Objects.equal(oldRtx.getName(), newRtx.getName())) {
+            if (!Objects.equals(oldRtx.getName(), newRtx.getName())) {
               jsonUpdateDiff.addProperty("name", newRtx.getName().toString());
-            } else if (!Objects.equal(oldRtx.getValue(), newRtx.getValue())) {
+            } else if (!Objects.equals(oldRtx.getValue(), newRtx.getValue())) {
               if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE) {
                 jsonUpdateDiff.addProperty("type", "boolean");
                 jsonUpdateDiff.addProperty("value", newRtx.getBooleanValue());

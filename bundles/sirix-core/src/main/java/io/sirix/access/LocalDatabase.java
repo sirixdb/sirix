@@ -4,10 +4,10 @@ import com.google.common.base.MoreObjects;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Maps;
-import com.google.crypto.tink.CleartextKeysetHandle;
-import com.google.crypto.tink.JsonKeysetWriter;
+import com.google.crypto.tink.InsecureSecretKeyAccess;
 import com.google.crypto.tink.KeysetHandle;
-import com.google.crypto.tink.streamingaead.StreamingAeadKeyTemplates;
+import com.google.crypto.tink.TinkJsonProtoKeysetFormat;
+import com.google.crypto.tink.streamingaead.PredefinedStreamingAeadParameters;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.api.Database;
 import io.sirix.api.NodeCursor;
@@ -236,8 +236,11 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     if (resConfig.byteHandlePipeline.getComponents().contains(new Encryptor(createdPath.getParent()))) {
       try {
         Files.createFile(encryptionKeyPath);
-        final KeysetHandle handle = KeysetHandle.generateNew(StreamingAeadKeyTemplates.AES256_CTR_HMAC_SHA256_4KB);
-        CleartextKeysetHandle.write(handle, JsonKeysetWriter.withPath(encryptionKeyPath));
+        final KeysetHandle handle =
+            KeysetHandle.generateNew(PredefinedStreamingAeadParameters.AES256_CTR_HMAC_SHA256_4KB);
+        final String keysetJson =
+            TinkJsonProtoKeysetFormat.serializeKeyset(handle, InsecureSecretKeyAccess.get());
+        Files.writeString(encryptionKeyPath, keysetJson);
       } catch (final GeneralSecurityException | IOException e) {
         throw new IllegalStateException(e);
       }

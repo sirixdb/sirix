@@ -86,7 +86,7 @@ public final class JacksonJsonShredderTest {
   // ==================== Basic Tests ====================
 
   @Test
-  public void testParserCreation() throws IOException {
+  public void testParserCreation() throws Exception {
     try (final var parser = JacksonJsonShredder.createStringParser("\"test\"")) {
       parser.nextToken();
       assertEquals("test", parser.getText());
@@ -94,44 +94,44 @@ public final class JacksonJsonShredderTest {
   }
 
   @Test
-  public void testEmptyObject() throws IOException {
+  public void testEmptyObject() throws Exception {
     testRoundTrip("{}");
   }
 
   @Test
-  public void testEmptyArray() throws IOException {
+  public void testEmptyArray() throws Exception {
     testRoundTrip("[]");
   }
 
   @Test
-  public void testSimpleString() throws IOException {
+  public void testSimpleString() throws Exception {
     testStringComparison("string.json");
   }
 
   @Test
-  public void testSimpleBoolean() throws IOException {
+  public void testSimpleBoolean() throws Exception {
     testStringComparison("boolean.json");
   }
 
   @Test
-  public void testSimpleNumber() throws IOException {
+  public void testSimpleNumber() throws Exception {
     testStringComparison("number.json");
   }
 
   @Test
-  public void testSimpleNull() throws IOException {
+  public void testSimpleNull() throws Exception {
     testStringComparison("null.json");
   }
 
   // ==================== Array Tests ====================
 
   @Test
-  public void testArray() throws IOException {
+  public void testArray() throws Exception {
     test("array.json");
   }
 
   @Test
-  public void testArrayAsLastChild() throws IOException {
+  public void testArrayAsLastChild() throws Exception {
     final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -166,7 +166,7 @@ public final class JacksonJsonShredderTest {
   }
 
   @Test
-  public void testArrayAsLeftSibling() throws IOException {
+  public void testArrayAsLeftSibling() throws Exception {
     final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -200,7 +200,7 @@ public final class JacksonJsonShredderTest {
   }
 
   @Test
-  public void testArrayAsRightSibling() throws IOException {
+  public void testArrayAsRightSibling() throws Exception {
     final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -236,7 +236,7 @@ public final class JacksonJsonShredderTest {
   // ==================== Object Tests ====================
 
   @Test
-  public void testObjectAsLastChild() throws IOException {
+  public void testObjectAsLastChild() throws Exception {
     final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -270,7 +270,7 @@ public final class JacksonJsonShredderTest {
   }
 
   @Test
-  public void testObjectAsLeftSibling() throws IOException {
+  public void testObjectAsLeftSibling() throws Exception {
     final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -305,7 +305,7 @@ public final class JacksonJsonShredderTest {
   }
 
   @Test
-  public void testObjectAsRightSibling() throws IOException {
+  public void testObjectAsRightSibling() throws Exception {
     final var jsonPath = JSON.resolve("array.json");
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -342,132 +342,132 @@ public final class JacksonJsonShredderTest {
   // ==================== Complex Structure Tests ====================
 
   @Test
-  public void testComplex1() throws IOException {
+  public void testComplex1() throws Exception {
     test("complex1.json");
   }
 
   @Test
-  public void testComplex2() throws IOException {
+  public void testComplex2() throws Exception {
     test("complex2.json");
   }
 
   @Test
-  public void testBlockChain() throws IOException {
+  public void testBlockChain() throws Exception {
     test("blockchain.json");
   }
 
   @Test
-  public void testBlockchainLatestBlock() throws IOException {
+  public void testBlockchainLatestBlock() throws Exception {
     test("blockchain-latestblock.json");
   }
 
   @Test
-  public void testBusinessServiceProviders() throws IOException {
+  public void testBusinessServiceProviders() throws Exception {
     test("business-service-providers.json");
   }
 
   @Test
-  public void testABCLocationStations() throws IOException {
+  public void testABCLocationStations() throws Exception {
     test("abc-location-stations.json");
   }
 
   @Test
-  public void testTradeAPIs() throws IOException {
+  public void testTradeAPIs() throws Exception {
     test("trade-apis.json");
   }
 
   @Test
-  public void testTestDocument() throws IOException {
+  public void testTestDocument() throws Exception {
     test("test.json");
   }
 
   @Test
-  public void testLarge() throws IOException {
+  public void testLarge() throws Exception {
     test("large-file.json");
   }
 
   @Test
-  public void testCvx() throws IOException {
+  public void testCvx() throws Exception {
     test("CVX.json");
   }
 
   @Test
-  public void testMovies() throws IOException {
+  public void testMovies() throws Exception {
     test("movies.json");
   }
 
   @Test
-  public void testLinux() throws IOException {
+  public void testLinux() throws Exception {
     test("linux.json");
   }
 
   @Test
-  public void testCopperFieldBook() throws IOException {
+  public void testCopperFieldBook() throws Exception {
     test("copperfield-book.json");
   }
 
   @Test
-  public void testLaureate() throws IOException {
+  public void testLaureate() throws Exception {
     test("laureate.json");
   }
 
   @Test
-  public void testRedditAll() throws IOException {
+  public void testRedditAll() throws Exception {
     test("reddit-all.json");
   }
 
   @Disabled("Duplicate keys")
   @Test
-  public void testHistoricalEventsEnglish() throws IOException {
+  public void testHistoricalEventsEnglish() throws Exception {
     test("historical-events-english.json");
   }
 
   // ==================== Edge Case Tests ====================
 
   @Test
-  public void testNestedEmptyStructures() throws IOException {
+  public void testNestedEmptyStructures() throws Exception {
     testRoundTrip("{\"a\":{},\"b\":[],\"c\":{\"d\":[]}}");
   }
 
   @Test
-  public void testDeeplyNested() throws IOException {
+  public void testDeeplyNested() throws Exception {
     testRoundTrip("{\"a\":{\"b\":{\"c\":{\"d\":{\"e\":{\"f\":\"deep\"}}}}}}");
   }
 
   @Test
-  public void testMixedArray() throws IOException {
+  public void testMixedArray() throws Exception {
     testRoundTrip("[1,\"two\",true,null,{\"key\":\"value\"},[1,2,3]]");
   }
 
   @Test
-  public void testSpecialCharacters() throws IOException {
+  public void testSpecialCharacters() throws Exception {
     testRoundTrip("{\"special\":\"line1\\nline2\\ttab\\\"quote\\\\\"}");
   }
 
   @Test
-  public void testUnicode() throws IOException {
+  public void testUnicode() throws Exception {
     testRoundTrip("{\"unicode\":\"Hello, 世界! 🌍\"}");
   }
 
   @Test
-  public void testLargeNumber() throws IOException {
+  public void testLargeNumber() throws Exception {
     testRoundTrip("{\"bigInt\":9999999999999999999,\"bigDec\":123.456789012345678901234567890}");
   }
 
   @Test
-  public void testNegativeNumbers() throws IOException {
+  public void testNegativeNumbers() throws Exception {
     testRoundTrip("{\"negative\":-42,\"negFloat\":-3.14}");
   }
 
   @Test
-  public void testScientificNotation() throws IOException {
+  public void testScientificNotation() throws Exception {
     testRoundTrip("{\"sci1\":1.23e10,\"sci2\":1.23E-10}");
   }
 
   // ==================== Skip-Root Edge Case Tests ====================
 
   @Test
-  public void testSkipRootEmptyObject() throws IOException {
+  public void testSkipRootEmptyObject() throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx()) {
@@ -492,7 +492,7 @@ public final class JacksonJsonShredderTest {
   }
 
   @Test
-  public void testSkipRootEmptyArray() throws IOException {
+  public void testSkipRootEmptyArray() throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx()) {
@@ -519,43 +519,43 @@ public final class JacksonJsonShredderTest {
   // ==================== UTF-8 Encoding Correctness Tests ====================
 
   @Test
-  public void testAsciiOnlyStrings() throws IOException {
+  public void testAsciiOnlyStrings() throws Exception {
     testRoundTrip("{\"greeting\":\"Hello, World!\",\"path\":\"/usr/bin/env\"}");
   }
 
   @Test
-  public void testMultibyteBmpCharacters() throws IOException {
+  public void testMultibyteBmpCharacters() throws Exception {
     testRoundTrip("{\"french\":\"café\",\"japanese\":\"日本語\",\"german\":\"Ä Ö Ü ß\"}");
   }
 
   @Test
-  public void testEmojiSurrogatePairs() throws IOException {
+  public void testEmojiSurrogatePairs() throws Exception {
     testRoundTrip("{\"emoji\":\"Hello 😀🎉\",\"flags\":\"🇺🇸🇩🇪\"}");
   }
 
   @Test
-  public void testEscapedUnicodeSequences() throws IOException {
+  public void testEscapedUnicodeSequences() throws Exception {
     // Jackson decodes unicode escapes to char[] before we see them
     testRoundTrip("{\"accent\":\"caf\\u00e9\",\"smiley\":\"\\uD83D\\uDE00\"}");
   }
 
   @Test
-  public void testMixedAsciiAndNonAscii() throws IOException {
+  public void testMixedAsciiAndNonAscii() throws Exception {
     testRoundTrip("{\"mixed\":\"abc 日本 xyz 🎉 end\"}");
   }
 
   @Test
-  public void testStringArrayValues() throws IOException {
+  public void testStringArrayValues() throws Exception {
     testRoundTrip("[\"ascii\",\"café\",\"日本語\",\"😀🎉\",\"mixed abc 日本 🌍\"]");
   }
 
   @Test
-  public void testObjectRecordStringValues() throws IOException {
+  public void testObjectRecordStringValues() throws Exception {
     testRoundTrip("{\"a\":{\"v\":\"café\"},\"b\":{\"v\":\"日本語\"},\"c\":{\"v\":\"😀\"}}");
   }
 
   @Test
-  public void testEmptyString() throws IOException {
+  public void testEmptyString() throws Exception {
     testRoundTrip("{\"empty\":\"\"}");
   }
 
@@ -563,7 +563,7 @@ public final class JacksonJsonShredderTest {
 
   @Disabled("Manual performance test")
   @Test
-  public void testPerformanceComparison() throws IOException {
+  public void testPerformanceComparison() throws Exception {
     final var jsonPath = JSON.resolve("large-file.json");
 
     // Warm up
@@ -684,7 +684,7 @@ public final class JacksonJsonShredderTest {
     }
   }
 
-  private void runJacksonShredder(Path jsonPath) throws IOException {
+  private void runJacksonShredder(Path jsonPath) throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
@@ -695,7 +695,7 @@ public final class JacksonJsonShredderTest {
     }
   }
 
-  private void testRoundTrip(String json) throws IOException {
+  private void testRoundTrip(String json) throws Exception {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = manager.beginNodeTrx();
@@ -712,7 +712,7 @@ public final class JacksonJsonShredderTest {
     }
   }
 
-  private void testStringComparison(String jsonFile) throws IOException {
+  private void testStringComparison(String jsonFile) throws Exception {
     final var jsonPath = JSON.resolve(jsonFile);
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
@@ -730,7 +730,7 @@ public final class JacksonJsonShredderTest {
     }
   }
 
-  private void test(String jsonFile) throws IOException {
+  private void test(String jsonFile) throws Exception {
     final var jsonPath = JSON.resolve(jsonFile);
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);

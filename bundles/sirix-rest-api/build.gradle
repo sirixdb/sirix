@@ -14,7 +14,6 @@ test {
 
 apply plugin: 'kotlin'
 apply plugin: 'com.gradleup.shadow'
-//apply plugin: 'org.jetbrains.dokka'
 apply plugin: 'docker-compose'
 apply plugin: 'org.graalvm.buildtools.native'
 
@@ -86,18 +85,6 @@ task copyCertificates(type: Copy) {
     into file("$buildDir/sirix-data")
 }
 copyCertificates.dependsOn(processResources)
-
-/*
-task dokkaJavadoc(type: org.jetbrains.dokka.gradle.DokkaTask) {
-    outputFormat = 'javadoc'
-    outputDirectory = "$buildDir/javadoc"
-    configuration {
-        platform = "JVM"
-        jdkVersion = 8
-    }
-}
-
-javadocJar.dependsOn dokkaJavadoc*/
 
 dockerCompose.isRequiredBy(test)
 
