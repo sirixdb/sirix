@@ -5,6 +5,7 @@
  */
 package io.sirix.index.hot;
 
+import io.sirix.access.trx.page.HOTTrieWriter;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
@@ -18,6 +19,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+
+import java.lang.reflect.Method;
 import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -146,6 +149,54 @@ class HOTProductionReadinessTest {
       byte[] rightKey = new byte[12];
       rightKey[10] = (byte) 0x80;
       assertEquals(1, biNode.findChildIndex(rightKey));
+    }
+
+    @Test
+    @DisplayName("findMostSignificantDiscriminativeBitPosition returns correct absolute bit position in LE layout")
+    void testFindMSDBPositionLEConsistency() throws Exception {
+      HOTTrieWriter writer = new HOTTrieWriter();
+      Method msbMethod = HOTTrieWriter.class.getDeclaredMethod(
+          "findMostSignificantDiscriminativeBitPosition", HOTIndirectPage.class);
+      msbMethod.setAccessible(true);
+
+      PageReference leftRef = new PageReference();
+      PageReference rightRef = new PageReference();
+
+      // Case 1: disc bit at absolute position 1 (byte 0, bit 1 within byte)
+      // Construction: bitInWord = 0*8 + (7-1) = 6 → mask = 1L << 6 = 0x40
+      HOTIndirectPage bi1 = HOTIndirectPage.createBiNode(1L, 1, 1, leftRef, rightRef);
+      assertEquals(0x40L, bi1.getBitMask());
+      int msb1 = (int) msbMethod.invoke(writer, bi1);
+      assertEquals(1, msb1, "MSB for disc bit at absolute position 1");
+
+      // Case 2: disc bit at absolute position 8 (byte 1, bit 0 = MSB of byte 1)
+      // initialBytePos = 1, byteWithinWindow = 0, bitInWord = 0*8 + (7-0) = 7 → mask = 0x80
+      HOTIndirectPage bi2 = HOTIndirectPage.createBiNode(1L, 1, 8, leftRef, rightRef);
+      assertEquals(0x80L, bi2.getBitMask());
+      int msb2 = (int) msbMethod.invoke(writer, bi2);
+      assertEquals(8, msb2, "MSB for disc bit at absolute position 8");
+
+      // Case 3: SpanNode with two disc bits at positions 1 and 9 (both in window starting at byte 0)
+      // Position 1: byte 0, bit 1 → bitInWord = 0*8 + (7-1) = 6
+      // Position 9: byte 1, bit 1 → bitInWord = 1*8 + (7-1) = 14
+      // mask = (1L << 6) | (1L << 14) = 0x4040
+      // MSB should be the MORE significant one = position 1 (byte 0)
+      byte[] partialKeys = new byte[] {0b00, 0b01, 0b10, 0b11};
+      PageReference[] children = new PageReference[4];
+      for (int i = 0; i < 4; i++) {
+        children[i] = new PageReference();
+      }
+      HOTIndirectPage span = HOTIndirectPage.createSpanNode(1L, 1, 0, 0x4040L, partialKeys, children);
+      int msb3 = (int) msbMethod.invoke(writer, span);
+      assertEquals(1, msb3, "MSB should be position 1 (most significant), not position 9");
+
+      // Case 4: disc bit at high byte position (initialBytePos=10, disc bit at byte 10, bit 3)
+      // absolute = 10*8 + 3 = 83
+      // bitInWord = 0*8 + (7-3) = 4 → mask = 1L << 4 = 0x10
+      HOTIndirectPage bi4 = HOTIndirectPage.createBiNode(1L, 1, 83, leftRef, rightRef);
+      assertEquals(10, bi4.getInitialBytePos());
+      int msb4 = (int) msbMethod.invoke(writer, bi4);
+      assertEquals(83, msb4, "MSB for disc bit at absolute position 83 (byte 10, bit 3)");
     }
   }
 

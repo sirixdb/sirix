@@ -495,8 +495,7 @@ public final class HOTTrieWriter {
       // bit (including the new key), then inserts the new key into the correct half.
       // This matches the C++ split(insertInformation, valueToInsert) approach.
       if (!fullPage.splitToWithInsert(rightPage, keyBuf, keyLen, valueBuf, valueLen)) {
-        rightPage.close();
-        return false;
+        return false; // finally block closes rightPage
       }
 
       // Boundary keys now include the new key — BiNode disc bit is correct
@@ -504,14 +503,12 @@ public final class HOTTrieWriter {
       final byte[] rightMin = rightPage.getFirstKey();
 
       if (leftMax.length == 0 || rightMin.length == 0) {
-        rightPage.close();
-        return false;
+        return false; // finally block closes rightPage
       }
 
       final int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
       if (discriminativeBit < 0) {
-        rightPage.close();
-        return false;
+        return false; // finally block closes rightPage
       }
 
       // Store right page in TIL
@@ -854,19 +851,37 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Find the most significant discriminative bit position for the parent node. With big-endian
-   * layout, the highest set bit in the mask directly maps: absolute_bit = initialBytePos * 8 + CLZ.
-   * This is because bit 63 = byte 0 MSB, bit 62 = byte 0 bit 1, etc.
+   * Find the most significant discriminative bit position for the parent node.
+   *
+   * <p>In the LE word layout used by PEXT: byte[pos+0] → bits 0-7, byte[pos+1] → bits 8-15, etc.
+   * Within each byte, bit 7 in the word = MSB of the key byte, bit 0 = LSB.
+   * The "most significant" key bit is the one at the lowest byte offset and highest
+   * bit within that byte. We find the lowest byte group with a set bit, then pick
+   * the highest bit in that group.</p>
+   *
+   * @return the absolute bit position (MSB-first convention, compatible with
+   *         {@link #hasBitSet(byte[], int)} and {@link DiscriminativeBitComputer})
    */
   private int findMostSignificantDiscriminativeBitPosition(HOTIndirectPage parent) {
     long bitMask = parent.getBitMask();
     if (bitMask == 0) {
       return 0;
     }
-    int bytePos = parent.getInitialBytePos();
-    // With BE: CLZ gives the offset from MSB of the 8-byte window, which IS the absolute
-    // bit offset within the window. Add bytePos * 8 for the absolute position.
-    return bytePos * 8 + Long.numberOfLeadingZeros(bitMask);
+    final int bytePos = parent.getInitialBytePos();
+
+    // Find the lowest byte group (closest to key start) containing a set bit
+    final int lowestSetBit = Long.numberOfTrailingZeros(bitMask);
+    final int byteGroup = lowestSetBit / 8;
+
+    // Extract the bits in that byte group and find the highest set bit (MSB)
+    final long byteBits = (bitMask >>> (byteGroup * 8)) & 0xFFL;
+    final int highestBitInGroup = 63 - Long.numberOfLeadingZeros(byteBits); // 0-7
+
+    // Convert LE word position back to absolute bit position (MSB-first convention):
+    // bitInWord = byteGroup * 8 + highestBitInGroup
+    // bitWithinByte = 7 - highestBitInGroup
+    // absoluteBitPos = (initialBytePos + byteGroup) * 8 + bitWithinByte
+    return (bytePos + byteGroup) * 8 + (7 - highestBitInGroup);
   }
 
   /**
@@ -968,12 +983,15 @@ public final class HOTTrieWriter {
     sortChildrenByFirstKey(children);
 
     if (children.length == 1) {
-      // Single child: wrap in a BiNode pointing to the same child on both sides.
-      // This is a degenerate but structurally valid node — the next insert will
-      // expand it into a proper BiNode with 2 distinct children.
-      final byte[] key = getFirstKeyFromChild(children[0]);
-      // Use bit 0 as a dummy discriminative bit (both children are identical)
-      return HOTIndirectPage.createBiNode(pageKey, revision, 0, children[0], children[0], height);
+      // Single child: wrap in a BiNode with a distinct copy of the PageReference
+      // to avoid aliasing — both slots must be separate objects so that a future
+      // expandParentNode replacing one slot doesn't corrupt the other.
+      final PageReference copy = new PageReference();
+      copy.setKey(children[0].getKey());
+      copy.setPage(children[0].getPage());
+      copy.setLogKey(children[0].getLogKey());
+      copy.setActiveTilGeneration(children[0].getActiveTilGeneration());
+      return HOTIndirectPage.createBiNode(pageKey, revision, 0, children[0], copy, height);
     } else if (children.length == 2) {
       final byte[] leftMax = getLastKeyFromChild(children[0]);
       final byte[] rightMin = getFirstKeyFromChild(children[1]);
