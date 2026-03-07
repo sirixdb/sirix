@@ -92,7 +92,9 @@ public final class CASIndexBuilder {
           if (type != Type.STR)
             AtomicUtil.toType(strValue, type);
           isOfType = true;
-        } catch (final SirixRuntimeException ignored) {
+        } catch (final SirixRuntimeException e) {
+          LOGGER.debug("Value '{}' is not of type {}, skipping CAS index entry for node {}",
+              strValue, type, node.getNodeKey(), e);
         }
 
         if (isOfType) {

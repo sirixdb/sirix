@@ -77,7 +77,7 @@ public final class JsonSerializerProperties {
         mProps.put(arr[0].toString(), arr[1]);
       }
     } catch (final IllegalArgumentException | IllegalAccessException e) {
-      e.printStackTrace();
+      LOGGER.error("Failed to initialize serializer properties from fields", e);
     }
   }
 

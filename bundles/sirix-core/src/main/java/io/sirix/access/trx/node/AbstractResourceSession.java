@@ -785,7 +785,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         try {
           poolable = pool.borrowObject(false);
           invalidObject = false;
-        } catch (PoolInvalidObjectException ignored) {
+        } catch (PoolInvalidObjectException e) {
+          LOGGER.trace("Pool returned invalid object, retrying", e);
         } catch (PoolExhaustedException exception) {
           invalidObject = false;
         }

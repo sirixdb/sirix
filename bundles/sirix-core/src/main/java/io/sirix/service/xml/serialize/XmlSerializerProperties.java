@@ -24,6 +24,8 @@ package io.sirix.service.xml.serialize;
 import java.lang.reflect.Field;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  *
@@ -35,6 +37,8 @@ import java.util.concurrent.ConcurrentMap;
  *
  */
 public final class XmlSerializerProperties {
+
+  private static final Logger logger = LoggerFactory.getLogger(XmlSerializerProperties.class);
 
   // ============== Class constants. =================
 
@@ -74,7 +78,7 @@ public final class XmlSerializerProperties {
         mProps.put(arr[0].toString(), arr[1]);
       }
     } catch (final IllegalArgumentException | IllegalAccessException e) {
-      e.printStackTrace();
+      logger.error("Failed to initialize serializer properties from fields", e);
     }
   }
 
