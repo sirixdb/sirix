@@ -921,8 +921,8 @@ public enum PageKind {
       
       final HOTIndirectPage.NodeType nodeType = HOTIndirectPage.NodeType.values()[nodeTypeId];
       
-      // Read discriminative bits based on layout type
-      final byte initialBytePos = source.readByte();
+      // Read discriminative bits — unsigned short to support keys > 255 bytes
+      final int initialBytePos = Short.toUnsignedInt(source.readShort());
       final long bitMask = source.readLong();
       
       // Read partial keys
@@ -948,10 +948,10 @@ public enum PageKind {
           // and discriminativeBitPos = initialBytePos * 8 + bitWithinByte
           int bitInWord = Long.numberOfTrailingZeros(bitMask);
           int bitWithinByte = 7 - bitInWord;
-          int discriminativeBitPos = (initialBytePos & 0xFF) * 8 + bitWithinByte;
+          int discriminativeBitPos = initialBytePos * 8 + bitWithinByte;
           yield HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBitPos, children[0], children[1], height);
         }
-        case SPAN_NODE -> HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos & 0xFF, bitMask,
+        case SPAN_NODE -> HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos, bitMask,
             partialKeys, children, height);
         case MULTI_NODE -> {
           // Read and discard legacy childIndex payload to keep binary compatibility.
@@ -959,7 +959,7 @@ public enum PageKind {
           // which is robust even when childIndex was serialized as zero-filled fallback.
           byte[] childIndexArray = new byte[256];
           source.read(childIndexArray);
-          yield HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos & 0xFF, bitMask, partialKeys,
+          yield HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos, bitMask, partialKeys,
               children, height);
         }
       };
@@ -980,8 +980,8 @@ public enum PageKind {
       sink.writeByte((byte) hotIndirect.getLayoutType().ordinal());
       sink.writeInt(hotIndirect.getNumChildren());
       
-      // Write discriminative bits properly based on layout type
-      sink.writeByte((byte) hotIndirect.getInitialBytePos());
+      // Write discriminative bits — use writeShort to support keys > 255 bytes
+      sink.writeShort((short) hotIndirect.getInitialBytePos());
       sink.writeLong(hotIndirect.getBitMask());
       
       // Write partial keys
@@ -1022,11 +1022,11 @@ public enum PageKind {
       final long pageKey = Utils.getVarLong(source);
       
       try {
-        // Create a DataInputStream wrapper for BitmapChunkPage.deserialize
-        byte[] remaining = source.toByteArray();
-        java.io.DataInputStream dis = new java.io.DataInputStream(
-            new java.io.ByteArrayInputStream(remaining, (int) source.position(), 
-                remaining.length - (int) source.position()));
+        // Create a DataInputStream wrapper for BitmapChunkPage.deserialize.
+        // toByteArray() returns bytes from current position to end, so offset within the result is 0.
+        final byte[] remaining = source.toByteArray();
+        final java.io.DataInputStream dis = new java.io.DataInputStream(
+            new java.io.ByteArrayInputStream(remaining, 0, remaining.length));
         return BitmapChunkPage.deserialize(dis, pageKey);
       } catch (java.io.IOException e) {
         throw new UncheckedIOException("Failed to deserialize BitmapChunkPage", e);

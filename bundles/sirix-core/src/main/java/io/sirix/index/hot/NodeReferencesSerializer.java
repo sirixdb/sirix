@@ -185,6 +185,26 @@ public final class NodeReferencesSerializer {
   }
 
   /**
+   * Computes the exact number of bytes needed to serialize the given NodeReferences,
+   * without actually writing any data.
+   *
+   * @param refs the node references
+   * @return number of bytes needed
+   */
+  public static int computeSerializedSize(NodeReferences refs) {
+    requireNonNull(refs, "refs cannot be null");
+    final Roaring64Bitmap bitmap = refs.getNodeKeys();
+    if (bitmap.isEmpty()) {
+      return 1; // tombstone
+    }
+    final long cardinality = bitmap.getLongCardinality();
+    if (cardinality <= PACKED_THRESHOLD) {
+      return 2 + (int) cardinality * 8; // format + count + keys
+    }
+    return 1 + (int) bitmap.serializedSizeInBytes(); // format + roaring bytes
+  }
+
+  /**
    * Checks if the serialized data represents a tombstone (deletion).
    *
    * @param bytes the serialized bytes

@@ -136,8 +136,8 @@ public final class HOTIndirectPage implements Page {
   private int numChildren;
 
   // ===== Discriminative bits (layout-dependent) =====
-  // SINGLE_MASK layout
-  private byte initialBytePos;
+  // SINGLE_MASK layout — widened to int to support keys longer than 255 bytes
+  private int initialBytePos;
   private long bitMask;
 
   // MULTI_MASK layout
@@ -169,7 +169,7 @@ public final class HOTIndirectPage implements Page {
       @NonNull PageReference leftChild, @NonNull PageReference rightChild) {
     HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, 0, NodeType.BI_NODE, 2);
     page.layoutType = LayoutType.SINGLE_MASK;
-    page.initialBytePos = (byte) (discriminativeBitPos / 8);
+    page.initialBytePos = discriminativeBitPos / 8;
 
     // Compute bit mask for PEXT extraction
     // getKeyWordAt uses little-endian: byte 0 goes to bits 0-7, byte 1 to bits 8-15, etc.
@@ -200,7 +200,7 @@ public final class HOTIndirectPage implements Page {
       @NonNull PageReference leftChild, @NonNull PageReference rightChild, int height) {
     HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.BI_NODE, 2);
     page.layoutType = LayoutType.SINGLE_MASK;
-    page.initialBytePos = (byte) (discriminativeBitPos / 8);
+    page.initialBytePos = discriminativeBitPos / 8;
 
     int byteWithinWindow = (discriminativeBitPos / 8) - page.initialBytePos;
     int bitWithinByte = discriminativeBitPos % 8;
@@ -229,7 +229,7 @@ public final class HOTIndirectPage implements Page {
    * @param children array of child references
    * @return new SpanNode
    */
-  public static HOTIndirectPage createSpanNode(long pageKey, int revision, byte initialBytePos, long bitMask,
+  public static HOTIndirectPage createSpanNode(long pageKey, int revision, int initialBytePos, long bitMask,
       byte[] partialKeys, PageReference[] children) {
     if (children.length < 2 || children.length > 16) {
       throw new IllegalArgumentException("SpanNode must have 2-16 children");
@@ -260,7 +260,7 @@ public final class HOTIndirectPage implements Page {
    * @param children array of child references
    * @return new MultiNode
    */
-  public static HOTIndirectPage createMultiNode(long pageKey, int revision, byte discriminativeByte, byte[] childIndex,
+  public static HOTIndirectPage createMultiNode(long pageKey, int revision, int discriminativeByte, byte[] childIndex,
       PageReference[] children) {
     if (children.length < 1 || children.length > MAX_NODE_ENTRIES) {
       throw new IllegalArgumentException("MultiNode must have 1-" + MAX_NODE_ENTRIES + " children, got: "
@@ -366,15 +366,10 @@ public final class HOTIndirectPage implements Page {
    * BiNode lookup: Extract single bit and return 0 or 1.
    */
   private int findChildBiNode(byte[] key) {
-    if (key.length <= initialBytePos) {
+    if (initialBytePos >= key.length) {
       return 0; // Key too short, go left
     }
-    // Extract the discriminative bit
-    int bytePos = initialBytePos & 0xFF;
-    if (bytePos >= key.length) {
-      return 0;
-    }
-    long keyWord = getKeyWordAt(key, bytePos);
+    long keyWord = getKeyWordAt(key, initialBytePos);
     long extracted = Long.compress(keyWord, bitMask); // PEXT intrinsic
     return (int) (extracted & 1);
   }
@@ -398,11 +393,10 @@ public final class HOTIndirectPage implements Page {
    * </p>
    */
   private int findChildSpanNode(byte[] key) {
-    int bytePos = initialBytePos & 0xFF;
-    if (bytePos >= key.length) {
+    if (initialBytePos >= key.length) {
       return 0;
     }
-    long keyWord = getKeyWordAt(key, bytePos);
+    long keyWord = getKeyWordAt(key, initialBytePos);
     int densePartialKey = (int) Long.compress(keyWord, bitMask); // PEXT intrinsic
 
     // Use SIMD-accelerated search if available
@@ -441,11 +435,10 @@ public final class HOTIndirectPage implements Page {
     if (childIndex == null) {
       return 0; // Fallback
     }
-    int bytePos = initialBytePos & 0xFF;
-    if (bytePos >= key.length) {
+    if (initialBytePos >= key.length) {
       return childIndex[0] & 0xFF; // Default to first entry
     }
-    int keyByte = key[bytePos] & 0xFF;
+    int keyByte = key[initialBytePos] & 0xFF;
     int index = childIndex[keyByte] & 0xFF;
     return index < numChildren
         ? index
@@ -456,9 +449,10 @@ public final class HOTIndirectPage implements Page {
    * Extract up to 8 bytes from key starting at given position. Uses little-endian byte order for PEXT
    * compatibility — byte at {@code pos} maps to bits 0-7, byte at {@code pos+1} to bits 8-15, etc.
    *
-   * <p><b>Note:</b> This is intentionally different from {@link DiscriminativeBitComputer}'s big-endian
-   * layout. The lookup path (this method + {@code bitMask}) uses LE consistently; the construction
-   * path ({@link io.sirix.index.hot.PartialKeyMapping}) uses BE. Do NOT unify them.</p>
+   * <p><b>Important:</b> Both the construction path ({@code HOTTrieWriter.computeBitMaskForChildren},
+   * {@code computePartialKey}) and this lookup path use the same LE byte layout. Within each byte,
+   * MSB (bit 0) maps to position 7, LSB (bit 7) maps to position 0. {@link DiscriminativeBitComputer}
+   * uses a separate BE convention for its own purposes — it is not involved in the PEXT lookup chain.</p>
    */
   private static long getKeyWordAt(byte[] key, int pos) {
     long result = 0;
@@ -551,7 +545,7 @@ public final class HOTIndirectPage implements Page {
    * @return the initial byte position
    */
   public int getInitialBytePos() {
-    return initialBytePos & 0xFF;
+    return initialBytePos;
   }
 
   /**
@@ -691,7 +685,7 @@ public final class HOTIndirectPage implements Page {
     }
     HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.SPAN_NODE, children.length);
     page.layoutType = LayoutType.SINGLE_MASK;
-    page.initialBytePos = (byte) initialBytePos;
+    page.initialBytePos = initialBytePos;
     page.bitMask = bitMask;
     page.partialKeys = partialKeys.clone();
 
@@ -724,7 +718,7 @@ public final class HOTIndirectPage implements Page {
     }
     HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.MULTI_NODE, children.length);
     page.layoutType = LayoutType.SINGLE_MASK;
-    page.initialBytePos = (byte) initialBytePos;
+    page.initialBytePos = initialBytePos;
     page.bitMask = bitMask;
     page.partialKeys = partialKeys.clone();
 

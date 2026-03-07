@@ -129,8 +129,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   private final IndexType indexType;
 
   // ===== Off-heap storage =====
-  private final MemorySegment slotMemory;
-  private final Runnable releaser;
+  private MemorySegment slotMemory;
+  private Runnable releaser;
   private final int[] slotOffsets;
   private int entryCount;
   private int usedSlotMemorySize;
@@ -382,12 +382,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       return false; // Page full, needs split
     }
 
+    // Ensure we have a full-size buffer (zero-copy deserialized pages are undersized)
+    ensureMutableSlotMemory();
+
     // Calculate entry size: [u16 keyLen][key][u16 valueLen][value]
     // Safe: max = 4 + 65535 + 65535 = 131074 < Integer.MAX_VALUE
-    int entrySize = 2 + key.length + 2 + value.length;
+    final int entrySize = 2 + key.length + 2 + value.length;
 
     if (usedSlotMemorySize + entrySize > slotMemory.byteSize()) {
-      return false; // No space left
+      // Try compacting dead space from value-growth appends before giving up
+      compact();
+      if (usedSlotMemorySize + entrySize > slotMemory.byteSize()) {
+        return false; // Truly no space left
+      }
     }
 
     // Shift offsets to make room
@@ -460,8 +467,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // Calculate entry size: [u16 keyLen][key][u16 valueLen][value]
-    int entrySize = 2 + key.length + 2 + value.length;
-    return usedSlotMemorySize + entrySize <= slotMemory.byteSize();
+    final int entrySize = 2 + key.length + 2 + value.length;
+    // Check against physical capacity — insertAt will auto-compact if needed,
+    // so use DEFAULT_SIZE as the upper bound rather than current usedSlotMemorySize
+    return entrySize <= slotMemory.byteSize();
   }
 
   /**
@@ -471,6 +480,33 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    */
   public long getRemainingSpace() {
     return slotMemory.byteSize() - usedSlotMemorySize;
+  }
+
+  /**
+   * Ensure the slot memory is full-size ({@link #DEFAULT_SIZE}) for mutation.
+   * Zero-copy deserialized pages have a slotMemory sized to exactly {@code usedSlotMemorySize},
+   * which prevents any new inserts. This method lazily re-allocates to DEFAULT_SIZE,
+   * copying existing data, so the page becomes mutable.
+   */
+  private void ensureMutableSlotMemory() {
+    if (slotMemory.byteSize() >= DEFAULT_SIZE) {
+      return;
+    }
+    final MemorySegmentAllocator allocator = OS.isWindows()
+        ? WindowsMemorySegmentAllocator.getInstance()
+        : LinuxMemorySegmentAllocator.getInstance();
+    final MemorySegment newMemory = allocator.allocate(DEFAULT_SIZE);
+    MemorySegment.copy(slotMemory, 0, newMemory, 0, usedSlotMemorySize);
+    // Capture old releaser BEFORE reassigning — release old memory AFTER assigning new
+    // to prevent use-after-free if allocator.allocate() succeeds but subsequent ops fail
+    final Runnable oldReleaser = releaser;
+    slotMemory = newMemory;
+    final MemorySegment segmentToRelease = newMemory;
+    releaser = () -> allocator.release(segmentToRelease);
+    // Now safe to release old memory — slotMemory already points to new allocation
+    if (oldReleaser != null) {
+      oldReleaser.run();
+    }
   }
 
   /**
@@ -626,9 +662,14 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // New value is larger - need to append and update offset
-    int newEntrySize = 2 + keyLen + 2 + newValue.length;
+    ensureMutableSlotMemory();
+    final int newEntrySize = 2 + keyLen + 2 + newValue.length;
     if (usedSlotMemorySize + newEntrySize > slotMemory.byteSize()) {
-      return false; // No space for larger value
+      // Try compacting dead space before giving up
+      compact();
+      if (usedSlotMemorySize + newEntrySize > slotMemory.byteSize()) {
+        return false; // Truly no space for larger value
+      }
     }
 
     // Copy key and new value to end of used space
@@ -865,27 +906,55 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // Copy right-half entries to target
+    int transferred = 0;
     for (int i = splitPoint; i < count; i++) {
       final byte[] k = getKey(i);
       final byte[] v = getValue(i);
       if (!target.insertAt(target.entryCount, k, v)) {
-        if (target.entryCount == 0) {
-          return false;
-        }
         break;
       }
+      transferred++;
     }
+
+    // Only truncate if ALL right-half entries were transferred.
+    // Partial transfer would lose entries.
+    final int expectedTransfers = count - splitPoint;
+    if (transferred < expectedTransfers) {
+      // Undo: clear target and return failure, preserving source page intact
+      target.entryCount = 0;
+      target.usedSlotMemorySize = 0;
+      return false;
+    }
+
+    // Save source state before truncation so we can restore on failure
+    final int savedEntryCount = entryCount;
+    final int savedUsedMemory = usedSlotMemorySize;
 
     // Truncate self to left half
     entryCount = splitPoint;
     recalculateUsedMemory();
 
     // Insert/update the key in the correct half based on disc bit
+    final boolean insertOk;
     if (DiscriminativeBitComputer.isBitSet(keySlice, msdb)) {
-      return target.mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
+      insertOk = target.mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
     } else {
-      return mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
+      insertOk = mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
     }
+
+    // Validate both pages are non-empty after split+insert.
+    // A degenerate split (all entries on one side) is valid as long as the new key
+    // ended up on the other side, giving both pages at least one entry.
+    if (!insertOk || entryCount == 0 || target.entryCount == 0) {
+      // Restore source page to pre-split state — entries are still in slotMemory
+      entryCount = savedEntryCount;
+      usedSlotMemorySize = savedUsedMemory;
+      // Clear target
+      target.entryCount = 0;
+      target.usedSlotMemorySize = 0;
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -1055,10 +1124,21 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
   /**
    * Acquire a guard (increment reference count). Pages with guards cannot be evicted.
+   *
+   * @return true if the guard was acquired, false if the page is already closed or orphaned
    */
-  public void acquireGuard() {
+  public boolean acquireGuard() {
+    if (closed.get() || isOrphaned) {
+      return false;
+    }
     guardCount.incrementAndGet();
+    // Double-check after increment to prevent acquire-after-close race
+    if (closed.get()) {
+      guardCount.decrementAndGet();
+      return false;
+    }
     hot = true;
+    return true;
   }
 
   /**
