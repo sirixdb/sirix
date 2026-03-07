@@ -104,18 +104,20 @@ class HOTIndirectPageTest {
       // For entry 1 (sparse=0b01), denseKey must have bit 0 set
       // For entry 2 (sparse=0b10), denseKey must have bit 1 set
       // For entry 3 (sparse=0b11), denseKey must have both bits set
+      // HOT uses the HIGHEST (most-specific) match — the entry with the most
+      // bits set in its sparse key is the best match for the lookup key.
 
-      // Search with dense key 0b00 - should match entry 0
+      // Search with dense key 0b00 - should match only entry 0
       int found = spanNode.findChildIndex(new byte[] {0b00, 0, 0, 0, 0, 0, 0, 0});
-      assertEquals(0, found, "Dense key 0b00 should match entry 0 (sparse 0b00)");
+      assertEquals(0, found, "Dense key 0b00 should match entry 0 (only match)");
 
-      // Search with dense key 0b01 - should match entries 0 and 1, return lowest (0)
+      // Search with dense key 0b01 - matches entries 0 and 1, return highest (1)
       found = spanNode.findChildIndex(new byte[] {0b01, 0, 0, 0, 0, 0, 0, 0});
-      assertEquals(0, found, "Dense key 0b01 should match entry 0 first");
+      assertEquals(1, found, "Dense key 0b01 should match entry 1 (most specific)");
 
-      // Search with dense key 0b11 - should match all entries, return lowest (0)
+      // Search with dense key 0b11 - matches all entries, return highest (3)
       found = spanNode.findChildIndex(new byte[] {0b11, 0, 0, 0, 0, 0, 0, 0});
-      assertEquals(0, found, "Dense key 0b11 should match entry 0 first");
+      assertEquals(3, found, "Dense key 0b11 should match entry 3 (most specific)");
     }
 
     @Test
@@ -159,9 +161,9 @@ class HOTIndirectPageTest {
 
       assertEquals(16, spanNode.getNumChildren());
 
-      // Entry 0 (sparse=0) always matches first
+      // Entry 15 (sparse=0b1111) is the most specific match for dense key 0b1111
       int found = spanNode.findChildIndex(new byte[] {0b1111, 0, 0, 0, 0, 0, 0, 0});
-      assertEquals(0, found, "Should match entry 0 first (subset of all)");
+      assertEquals(15, found, "Should match entry 15 (most specific, all bits set)");
     }
   }
 

@@ -665,6 +665,12 @@ public final class HOTTrieWriter {
       }
     }
 
+    // Sort children by first key to ensure correct boundary computation.
+    // HOT trie routing by disc bits can place keys out of key-order (e.g., key 1024
+    // routes to child[0..511] because its disc bit matches). Without sorting,
+    // boundary computation misses discriminative bits between non-adjacent children.
+    sortChildrenByFirstKey(newChildren);
+
     // Compute discriminative bits and partial keys for navigation
     byte initialBytePos = computeInitialBytePos(newChildren);
     long bitMask = computeBitMaskForChildren(newChildren, initialBytePos);
@@ -690,11 +696,14 @@ public final class HOTTrieWriter {
     if (children.length < 2)
       return 0;
 
-    // Find the first discriminative byte position
-    byte[] first = getFirstKeyFromChild(children[0]);
-    byte[] second = getFirstKeyFromChild(children[1]);
-    int bit = DiscriminativeBitComputer.computeDifferingBit(first, second);
-    return (byte) (bit / 8);
+    int minBytePos = Integer.MAX_VALUE;
+    for (int i = 0; i < children.length - 1; i++) {
+      byte[] last = getLastKeyFromChild(children[i]);
+      byte[] first = getFirstKeyFromChild(children[i + 1]);
+      int bit = DiscriminativeBitComputer.computeDifferingBit(last, first);
+      minBytePos = Math.min(minBytePos, bit / 8);
+    }
+    return (byte) minBytePos;
   }
 
   /**
@@ -942,6 +951,9 @@ public final class HOTTrieWriter {
    * Create appropriate node type for given children array.
    */
   private HOTIndirectPage createNodeFromChildren(PageReference[] children, long pageKey, int revision, int height) {
+    // Sort children by first key for correct boundary computation
+    sortChildrenByFirstKey(children);
+
     if (children.length <= 2) {
       byte[] leftMax = getLastKeyFromChild(children[0]);
       byte[] rightMin = children.length > 1
@@ -1014,6 +1026,20 @@ public final class HOTTrieWriter {
       return getLastKeyFromIndirectPage(child);
     }
     return new byte[0];
+  }
+
+  /**
+   * Sort children by their first key to ensure correct boundary computation.
+   * HOT trie routing can place keys out of key-order (a key may route to a child
+   * covering a different key range based on disc bit values). Without sorting,
+   * the boundary computation between adjacent children may miss discriminative
+   * bits, leading to duplicate partial keys and unreachable children.
+   */
+  private void sortChildrenByFirstKey(PageReference[] children) {
+    if (children.length <= 1) {
+      return;
+    }
+    Arrays.sort(children, (a, b) -> Arrays.compareUnsigned(getFirstKeyFromChild(a), getFirstKeyFromChild(b)));
   }
 
   /**

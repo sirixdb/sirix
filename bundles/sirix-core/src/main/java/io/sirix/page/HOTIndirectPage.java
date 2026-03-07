@@ -392,8 +392,9 @@ public final class HOTIndirectPage implements Page {
    * </p>
    * 
    * <p>
-   * This finds ALL entries that could match the search key based on the discriminative bits. For an
-   * exact match, we take the first (lowest index) match.
+   * This finds ALL entries that could match the search key based on the discriminative bits.
+   * The HIGHEST (most-specific) match is selected — the entry with the most bits set in its
+   * sparse partial key is the most specific match for this key's bit pattern.
    * </p>
    */
   private int findChildSpanNode(byte[] key) {
@@ -411,19 +412,20 @@ public final class HOTIndirectPage implements Page {
       if (matchMask == 0) {
         return NOT_FOUND;
       }
-      // Return lowest matching index (trailing zeros count)
-      return Integer.numberOfTrailingZeros(matchMask);
+      // Return highest matching index (most-specific match per HOT paper)
+      return 31 - Integer.numberOfLeadingZeros(matchMask);
     }
 
-    // Fallback: Linear search (for deserialized pages without SparsePartialKeys)
+    // Fallback: Linear search — find the last (highest-index) matching entry
+    int best = NOT_FOUND;
     for (int i = 0; i < numChildren; i++) {
       // Check: (denseKey & sparseKey[i]) == sparseKey[i]
       int sparseKey = partialKeys[i] & 0xFF;
       if ((densePartialKey & sparseKey) == sparseKey) {
-        return i;
+        best = i;
       }
     }
-    return NOT_FOUND;
+    return best;
   }
 
   /**
