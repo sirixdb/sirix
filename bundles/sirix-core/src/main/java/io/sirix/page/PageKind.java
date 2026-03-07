@@ -817,39 +817,46 @@ public enum PageKind {
     public Page deserializePage(@NonNull ResourceConfiguration resourceConfiguration, BytesIn<?> source,
         @NonNull SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
-      
+
       // Read header
       final long recordPageKey = Utils.getVarLong(source);
       final int revision = source.readInt();
       final IndexType indexType = IndexType.getType(source.readByte());
+
+      // Read common prefix (V2 format with prefix compression)
+      final int commonPrefixLen = Short.toUnsignedInt(source.readShort());
+      final byte[] commonPrefix;
+      if (commonPrefixLen > 0) {
+        commonPrefix = new byte[commonPrefixLen];
+        source.read(commonPrefix);
+      } else {
+        commonPrefix = new byte[0];
+      }
+
       final int entryCount = source.readInt();
       final int usedSlotMemorySize = source.readInt();
-      
+
       // Read slot offsets (allocate MAX_ENTRIES to allow insertions after deserialization)
       final int[] slotOffsets = new int[HOTLeafPage.MAX_ENTRIES];
       for (int i = 0; i < entryCount; i++) {
         slotOffsets[i] = source.readInt();
       }
-      
+
       // Read slot memory (zero-copy when possible)
-      MemorySegmentAllocator allocator = OS.isWindows() 
-          ? WindowsMemorySegmentAllocator.getInstance() 
+      MemorySegmentAllocator allocator = OS.isWindows()
+          ? WindowsMemorySegmentAllocator.getInstance()
           : LinuxMemorySegmentAllocator.getInstance();
-      
+
       final MemorySegment slotMemory;
       final Runnable releaser;
-      
-      // Note: For zero-copy we use just the needed size, but for regular allocation we use DEFAULT_SIZE
-      // to allow insertions after deserialization.
+
       final boolean canZeroCopy = decompressionResult != null && source instanceof MemorySegmentBytesIn;
       if (canZeroCopy) {
-        // Zero-copy mode: use slice of source memory (read-only after this)
         final MemorySegment sourceSegment = ((MemorySegmentBytesIn) source).getSource();
         slotMemory = sourceSegment.asSlice(source.position(), usedSlotMemorySize);
         source.skip(usedSlotMemorySize);
         releaser = decompressionResult.transferOwnership();
       } else {
-        // Regular allocation: use DEFAULT_SIZE to allow insertions
         slotMemory = allocator.allocate(HOTLeafPage.DEFAULT_SIZE);
         if (source instanceof MemorySegmentBytesIn msSource) {
           MemorySegment.copy(msSource.getSource(), source.position(), slotMemory, 0, usedSlotMemorySize);
@@ -862,9 +869,9 @@ public enum PageKind {
         final MemorySegment segmentToRelease = slotMemory;
         releaser = () -> allocator.release(segmentToRelease);
       }
-      
-      return new HOTLeafPage(recordPageKey, revision, indexType, slotMemory, releaser, 
-                             slotOffsets, entryCount, usedSlotMemorySize);
+
+      return new HOTLeafPage(recordPageKey, revision, indexType, slotMemory, releaser,
+                             slotOffsets, entryCount, usedSlotMemorySize, commonPrefix, commonPrefixLen);
     }
 
     @Override
@@ -873,26 +880,29 @@ public enum PageKind {
       HOTLeafPage hotLeaf = (HOTLeafPage) page;
       sink.writeByte(HOT_LEAF_PAGE.id);
       sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
-      
+
       // Write header
       Utils.putVarLong(sink, hotLeaf.getPageKey());
       sink.writeInt(hotLeaf.getRevision());
       sink.writeByte(hotLeaf.getIndexType().getID());
+
+      // Write common prefix
+      final byte[] prefix = hotLeaf.getCommonPrefix();
+      final int prefixLen = hotLeaf.getCommonPrefixLen();
+      sink.writeShort((short) prefixLen);
+      if (prefixLen > 0) {
+        sink.write(prefix, 0, prefixLen);
+      }
+
       sink.writeInt(hotLeaf.getEntryCount());
       sink.writeInt(hotLeaf.getUsedSlotsSize());
-      
+
       // Write slot offsets
       int entryCount = hotLeaf.getEntryCount();
       for (int i = 0; i < entryCount; i++) {
-        MemorySegment slot = hotLeaf.getSlot(i);
-        if (slot != null) {
-          // Calculate offset from slot position
-          sink.writeInt((int) (slot.address() - hotLeaf.slots().address()));
-        } else {
-          sink.writeInt(0);
-        }
+        sink.writeInt(hotLeaf.getSlotOffset(i));
       }
-      
+
       // Write slot memory (bulk copy)
       MemorySegment slots = hotLeaf.slots();
       int usedSize = hotLeaf.getUsedSlotsSize();
@@ -920,15 +930,62 @@ public enum PageKind {
       final int numChildren = source.readInt();
       
       final HOTIndirectPage.NodeType nodeType = HOTIndirectPage.NodeType.values()[nodeTypeId];
-      
-      // Read discriminative bits — unsigned short to support keys > 255 bytes
-      final int initialBytePos = Short.toUnsignedInt(source.readShort());
-      final long bitMask = source.readLong();
-      
-      // Read partial keys
-      final byte[] partialKeys = new byte[numChildren];
-      source.read(partialKeys);
-      
+      final HOTIndirectPage.LayoutType layoutType = HOTIndirectPage.LayoutType.values()[layoutTypeId];
+
+      // Read layout-specific discriminative bit data
+      final int initialBytePos;
+      final long bitMask;
+      final short mostSignificantBitIndex;
+      final byte[] extractionPositions;
+      final long[] extractionMasks;
+      final int numExtractionBytes;
+      int totalDiscBits;
+
+      if (layoutType == HOTIndirectPage.LayoutType.MULTI_MASK) {
+        // MultiMask: read extraction positions and masks
+        initialBytePos = 0;
+        bitMask = 0;
+        mostSignificantBitIndex = source.readShort();
+        numExtractionBytes = source.readShort() & 0xFFFF;
+        extractionPositions = new byte[numExtractionBytes];
+        source.read(extractionPositions);
+        final int numChunks = (numExtractionBytes + 7) / 8;
+        extractionMasks = new long[numChunks];
+        for (int i = 0; i < numChunks; i++) {
+          extractionMasks[i] = source.readLong();
+        }
+        totalDiscBits = 0;
+        for (final long mask : extractionMasks) {
+          totalDiscBits += Long.bitCount(mask);
+        }
+      } else {
+        // SingleMask: read initialBytePos + bitMask
+        initialBytePos = Short.toUnsignedInt(source.readShort());
+        bitMask = source.readLong();
+        mostSignificantBitIndex = source.readShort();
+        extractionPositions = null;
+        extractionMasks = null;
+        numExtractionBytes = 0;
+        totalDiscBits = Long.bitCount(bitMask);
+      }
+
+      // Read partial keys (width determined by total number of discriminative bits)
+      final int partialKeyWidth = HOTIndirectPage.determinePartialKeyWidthFromBitCount(totalDiscBits);
+      final int[] partialKeys = new int[numChildren];
+      if (partialKeyWidth <= 1) {
+        for (int i = 0; i < numChildren; i++) {
+          partialKeys[i] = source.readByte() & 0xFF;
+        }
+      } else if (partialKeyWidth <= 2) {
+        for (int i = 0; i < numChildren; i++) {
+          partialKeys[i] = source.readShort() & 0xFFFF;
+        }
+      } else {
+        for (int i = 0; i < numChildren; i++) {
+          partialKeys[i] = source.readInt();
+        }
+      }
+
       // Read child references (simple key-only format)
       final PageReference[] children = new PageReference[numChildren];
       for (int i = 0; i < numChildren; i++) {
@@ -937,32 +994,30 @@ public enum PageKind {
         ref.setKey(childKey);
         children[i] = ref;
       }
-      
-      // Create appropriate node type
-      return switch (nodeType) {
-        case BI_NODE -> {
-          // Reconstruct discriminativeBitPos from serialized form
-          // The mapping during creation was: bitInWord = 7 - (discriminativeBitPos % 8)
-          // and bitMask = 1L << bitInWord, with byteWithinWindow = 0
-          // So to reverse: bitWithinByte = 7 - Long.numberOfTrailingZeros(bitMask)
-          // and discriminativeBitPos = initialBytePos * 8 + bitWithinByte
-          int bitInWord = Long.numberOfTrailingZeros(bitMask);
-          int bitWithinByte = 7 - bitInWord;
-          int discriminativeBitPos = initialBytePos * 8 + bitWithinByte;
-          yield HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBitPos, children[0], children[1], height);
-        }
-        case SPAN_NODE -> HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos, bitMask,
-            partialKeys, children, height);
-        case MULTI_NODE -> {
-          // Read and discard legacy childIndex payload to keep binary compatibility.
-          // MultiNode navigation now reconstructs from partial keys + bitMask,
-          // which is robust even when childIndex was serialized as zero-filled fallback.
-          byte[] childIndexArray = new byte[256];
-          source.read(childIndexArray);
-          yield HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos, bitMask, partialKeys,
-              children, height);
-        }
-      };
+
+      // Create appropriate node type and layout
+      if (layoutType == HOTIndirectPage.LayoutType.MULTI_MASK) {
+        return switch (nodeType) {
+          case SPAN_NODE -> HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision,
+              extractionPositions, extractionMasks, numExtractionBytes,
+              partialKeys, children, height, mostSignificantBitIndex);
+          case MULTI_NODE -> HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision,
+              extractionPositions, extractionMasks, numExtractionBytes,
+              partialKeys, children, height, mostSignificantBitIndex);
+        };
+      } else {
+        return switch (nodeType) {
+          case SPAN_NODE -> HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos, bitMask,
+              partialKeys, children, height);
+          case MULTI_NODE -> {
+            // Read and discard legacy childIndex payload to keep binary compatibility.
+            byte[] childIndexArray = new byte[256];
+            source.read(childIndexArray);
+            yield HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos, bitMask, partialKeys,
+                children, height);
+          }
+        };
+      }
     }
 
     @Override
@@ -980,24 +1035,57 @@ public enum PageKind {
       sink.writeByte((byte) hotIndirect.getLayoutType().ordinal());
       sink.writeInt(hotIndirect.getNumChildren());
       
-      // Write discriminative bits — use writeShort to support keys > 255 bytes
-      sink.writeShort((short) hotIndirect.getInitialBytePos());
-      sink.writeLong(hotIndirect.getBitMask());
-      
-      // Write partial keys
-      byte[] partialKeysData = hotIndirect.getPartialKeys();
-      sink.write(partialKeysData);
-      
+      // Write layout-specific discriminative bit data
+      if (hotIndirect.getLayoutType() == HOTIndirectPage.LayoutType.MULTI_MASK) {
+        // MultiMask: write extraction positions and masks
+        sink.writeShort(hotIndirect.getMostSignificantBitIndex());
+        final int numExtractionBytes = hotIndirect.getNumExtractionBytes();
+        sink.writeShort((short) numExtractionBytes);
+        final byte[] extractionPositions = hotIndirect.getExtractionPositions();
+        if (extractionPositions != null) {
+          sink.write(extractionPositions);
+        }
+        final long[] extractionMasks = hotIndirect.getExtractionMasks();
+        if (extractionMasks != null) {
+          for (final long mask : extractionMasks) {
+            sink.writeLong(mask);
+          }
+        }
+      } else {
+        // SingleMask: write initialBytePos + bitMask
+        sink.writeShort((short) hotIndirect.getInitialBytePos());
+        sink.writeLong(hotIndirect.getBitMask());
+        sink.writeShort(hotIndirect.getMostSignificantBitIndex());
+      }
+
+      // Write partial keys (width determined by total number of discriminative bits)
+      final int[] partialKeysData = hotIndirect.getPartialKeys();
+      final int pkWidth = HOTIndirectPage.determinePartialKeyWidthFromBitCount(hotIndirect.getTotalDiscBits());
+      if (pkWidth <= 1) {
+        for (final int pk : partialKeysData) {
+          sink.writeByte((byte) pk);
+        }
+      } else if (pkWidth <= 2) {
+        for (final int pk : partialKeysData) {
+          sink.writeShort((short) pk);
+        }
+      } else {
+        for (final int pk : partialKeysData) {
+          sink.writeInt(pk);
+        }
+      }
+
       // Write child references
       for (int i = 0; i < hotIndirect.getNumChildren(); i++) {
-        PageReference ref = hotIndirect.getChildReference(i);
-        long key = ref != null ? ref.getKey() : Constants.NULL_ID_LONG;
+        final PageReference ref = hotIndirect.getChildReference(i);
+        final long key = ref != null ? ref.getKey() : Constants.NULL_ID_LONG;
         sink.writeLong(key);
       }
-      
-      // For MultiNode, write the 256-byte child index array
-      if (hotIndirect.getNodeType() == HOTIndirectPage.NodeType.MULTI_NODE) {
-        byte[] childIdx = hotIndirect.getChildIndex();
+
+      // For SingleMask MultiNode, write the 256-byte child index array
+      if (hotIndirect.getLayoutType() != HOTIndirectPage.LayoutType.MULTI_MASK
+          && hotIndirect.getNodeType() == HOTIndirectPage.NodeType.MULTI_NODE) {
+        final byte[] childIdx = hotIndirect.getChildIndex();
         if (childIdx != null) {
           sink.write(childIdx);
         } else {
