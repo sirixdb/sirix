@@ -373,29 +373,30 @@ public abstract class AbstractHOTIndexWriter<K> {
     HOTLeafPage leaf = navResult.leaf();
 
     for (int attempt = 0; attempt < MAX_INSERT_RETRIES; attempt++) {
-      // Check if the page can be split
-      if (leaf.canSplit()) {
-        // Handle split using HOTTrieWriter with proper path information
-        byte[] splitKey = trieWriter.handleLeafSplitWithPath(storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
-            rootRef, navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(), navResult.pathDepth());
+      // MSDB-aware split+insert: split the leaf by the most significant
+      // discriminative bit (including the new key's disc bits with its neighbors),
+      // then insert the new key into the correct half atomically.
+      //
+      // This matches the C++ reference implementation (Binna Listing 3.1,
+      // insertNewValue + integrateBiNodeIntoTree), adapted for COW semantics
+      // and multi-entry leaf pages. No re-navigation needed — the MSDB
+      // guarantees disc-bit routing correctness for all keys.
+      if (leaf.canSplit() || leaf.getEntryCount() >= 1) {
+        final boolean inserted = trieWriter.handleLeafSplitAndInsert(
+            storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
+            rootRef, navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
+            navResult.pathDepth(), keyBuf, keyLen, valueBuf, valueLen);
 
         // CRITICAL: Mark index page dirty so updated root reference gets persisted
         markIndexPageDirty();
 
-        if (splitKey != null) {
-          // Split succeeded - re-navigate and retry insert
-          navResult = getLeafWithPath(rootRef, keyBuf, keyLen);
-          leaf = navResult.leaf();
-
-          if (leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
-            return true;
-          }
+        if (inserted) {
+          return true;
         }
-        // Split returned null (couldn't split) - fall through to compact
       }
 
       // Try compacting the page to reclaim fragmented space
-      int reclaimedSpace = leaf.compact();
+      final int reclaimedSpace = leaf.compact();
       if (reclaimedSpace > 0) {
         // Update the page in the log after compaction
         storageEngineWriter.getLog().put(navResult.leafRef(), PageContainer.getInstance(leaf, leaf));
@@ -406,8 +407,7 @@ public abstract class AbstractHOTIndexWriter<K> {
         }
       }
 
-      // If neither split nor compact helped on this attempt,
-      // re-navigate to get fresh state for next attempt
+      // If neither split nor compact helped, re-navigate for fresh state
       if (attempt < MAX_INSERT_RETRIES - 1) {
         navResult = getLeafWithPath(rootRef, keyBuf, keyLen);
         leaf = navResult.leaf();

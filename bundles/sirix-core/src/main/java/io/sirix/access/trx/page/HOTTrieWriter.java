@@ -456,6 +456,140 @@ public final class HOTTrieWriter {
    * @return the split key that separates the two pages, or {@code null} if the page cannot be split
    *         (e.g., only 1 entry with large merged value)
    */
+  /**
+   * Handle leaf page split AND insert atomically using MSDB-aware splitting.
+   *
+   * <p>
+   * Matches the C++ reference implementation's approach (Binna's thesis Listing 3.1,
+   * {@code insertNewValue()} + {@code integrateBiNodeIntoTree()}), adapted for COW
+   * semantics and multi-entry leaf pages:
+   * </p>
+   * <ol>
+   * <li>Split the full leaf by MSDB that includes the new key's disc bits</li>
+   * <li>Insert the new key into the correct half (based on disc bit, not key order)</li>
+   * <li>Compute BiNode disc bit from boundary keys (equals MSDB by proof)</li>
+   * <li>Walk up the path with COW to integrate the BiNode</li>
+   * </ol>
+   *
+   * <p>
+   * No re-navigation needed: the MSDB guarantees all left keys have bit=0 and all right
+   * keys have bit=1, so the BiNode's disc-bit routing is correct for all keys including
+   * the newly inserted one. The previous "split → re-navigate → insert" approach was needed
+   * because the split didn't include the new key in the MSDB computation.
+   * </p>
+   *
+   * @param storageEngineReader the storage engine writer
+   * @param log the transaction intent log
+   * @param fullPage the full leaf page
+   * @param leafRef the reference to the leaf
+   * @param rootReference the root reference for the index
+   * @param pathNodes indirect page nodes on the path from root to leaf
+   * @param pathRefs page references on the path
+   * @param pathChildIndices child indices taken at each level
+   * @param pathDepth the depth of the path
+   * @param keyBuf the key to insert
+   * @param keyLen the key length
+   * @param valueBuf the value to insert
+   * @param valueLen the value length
+   * @return {@code true} if the split+insert succeeded, {@code false} if it failed
+   */
+  public boolean handleLeafSplitAndInsert(@NonNull StorageEngineWriter storageEngineReader,
+      @NonNull TransactionIntentLog log, @NonNull HOTLeafPage fullPage, @NonNull PageReference leafRef,
+      @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+      int[] pathChildIndices, int pathDepth, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen) {
+
+    Objects.requireNonNull(storageEngineReader);
+    Objects.requireNonNull(log);
+    Objects.requireNonNull(fullPage);
+    Objects.requireNonNull(leafRef);
+    Objects.requireNonNull(rootReference);
+
+    // If page has < 1 entry, can't split
+    if (fullPage.getEntryCount() < 1) {
+      return false;
+    }
+
+    // Allocate page keys
+    final long newPageKey = pageKeyAllocator.getAsLong();
+    final long newRootPageKey = pageKeyAllocator.getAsLong();
+    final int revision = storageEngineReader.getRevisionNumber();
+
+    // Create target page for right half
+    final HOTLeafPage rightPage = new HOTLeafPage(newPageKey, revision, fullPage.getIndexType());
+    boolean rightPageOwnershipTransferred = false;
+
+    try {
+      // MSDB-aware split+insert: splits entries by the most significant discriminative
+      // bit (including the new key), then inserts the new key into the correct half.
+      // This matches the C++ split(insertInformation, valueToInsert) approach.
+      if (!fullPage.splitToWithInsert(rightPage, keyBuf, keyLen, valueBuf, valueLen)) {
+        rightPage.close();
+        return false;
+      }
+
+      // Boundary keys now include the new key — BiNode disc bit is correct
+      final byte[] leftMax = fullPage.getLastKey();
+      final byte[] rightMin = rightPage.getFirstKey();
+
+      if (leftMax.length == 0 || rightMin.length == 0) {
+        rightPage.close();
+        return false;
+      }
+
+      final int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
+      if (discriminativeBit < 0) {
+        rightPage.close();
+        return false;
+      }
+
+      // Store right page in TIL
+      final PageReference rightRef = new PageReference();
+      rightRef.setKey(newPageKey);
+      rightRef.setPage(rightPage);
+      log.put(rightRef, PageContainer.getInstance(rightPage, rightPage));
+      rightPageOwnershipTransferred = true;
+
+      // Swizzle post-split left page onto leafRef
+      leafRef.setPage(fullPage);
+      log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
+
+      // Create BiNode — matches C++ createTwoEntriesNode + integrateBiNodeIntoTree
+      final HOTIndirectPage biNode = HOTIndirectPage.createBiNode(
+          newRootPageKey, revision, discriminativeBit, leafRef, rightRef);
+
+      // Integrate BiNode into tree (walk up path with COW)
+      // Matches C++ integrateBiNodeIntoTree() — walk up the insert stack,
+      // creating COW copies at each level instead of in-place pointer mutation.
+      if (pathDepth > 0) {
+        final int parentIdx = pathDepth - 1;
+        updateParentForSplitWithPath(storageEngineReader, log, pathRefs[parentIdx],
+            pathNodes[parentIdx], pathChildIndices[parentIdx], leafRef, rightRef,
+            rightMin, rootReference, pathNodes, pathRefs, pathChildIndices, parentIdx);
+      } else {
+        // Root split — create new BiNode as root
+        PageReference leftChildRef;
+        if (leafRef == rootReference) {
+          leftChildRef = new PageReference();
+          log.put(leftChildRef, PageContainer.getInstance(fullPage, fullPage));
+        } else {
+          leftChildRef = leafRef;
+        }
+
+        biNode.setChildReference(0, leftChildRef);
+        biNode.setChildReference(1, rightRef);
+        rootReference.setKey(newRootPageKey);
+        rootReference.setPage(biNode);
+        log.put(rootReference, PageContainer.getInstance(biNode, biNode));
+      }
+
+      return true;
+    } finally {
+      if (!rightPageOwnershipTransferred) {
+        rightPage.close();
+      }
+    }
+  }
+
   public @Nullable byte[] handleLeafSplitWithPath(@NonNull StorageEngineWriter storageEngineReader,
       @NonNull TransactionIntentLog log, @NonNull HOTLeafPage fullPage, @NonNull PageReference leafRef,
       @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
@@ -512,6 +646,11 @@ public final class HOTTrieWriter {
         log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
         return null;
       }
+
+      // NOTE: This legacy method does NOT insert the new key during the split.
+      // The caller must re-navigate after this method returns.
+      // Prefer handleLeafSplitAndInsert() which uses MSDB-aware split+insert
+      // and eliminates re-navigation entirely.
 
       // Create reference for the new right page
       PageReference rightRef = splitResult.rightChild();

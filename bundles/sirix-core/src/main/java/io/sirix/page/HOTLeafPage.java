@@ -30,6 +30,7 @@ package io.sirix.page;
 
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
@@ -805,6 +806,154 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     recalculateUsedMemory();
 
     return splitKey;
+  }
+
+  /**
+   * Split this page AND insert the new key+value atomically using MSDB-aware splitting.
+   *
+   * <p>
+   * Computes the most significant discriminative bit (MSDB) including the new key's disc bits
+   * with its neighbors, splits all entries by that disc bit, and inserts the new key into the
+   * correct half. This eliminates re-navigation after a split because the BiNode's disc bit
+   * (computed from boundary keys after this method) is guaranteed to correctly route all keys.
+   * </p>
+   *
+   * <p>
+   * Matches the C++ reference implementation's atomic split+insert approach (Binna's thesis),
+   * adapted for multi-entry leaf pages.
+   * </p>
+   *
+   * @param target the empty target page to receive the right half
+   * @param key the new key to insert
+   * @param keyLen the key length
+   * @param value the new value to insert
+   * @param valueLen the value length
+   * @return {@code true} if the split+insert succeeded, {@code false} if it failed
+   */
+  public boolean splitToWithInsert(@NonNull HOTLeafPage target, byte[] key, int keyLen,
+      byte[] value, int valueLen) {
+    Objects.requireNonNull(target);
+
+    final int count = entryCount;
+    if (count < 1) {
+      return false;
+    }
+
+    // Slice key/value to actual length
+    final byte[] keySlice = keyLen == key.length ? key : java.util.Arrays.copyOf(key, keyLen);
+    final byte[] valueSlice = valueLen == value.length ? value : java.util.Arrays.copyOf(value, valueLen);
+
+    // Find where the key would go (>= 0 = existing, < 0 = insert position)
+    final int searchResult = findEntry(keySlice);
+    final boolean isNew = searchResult < 0;
+    final int insertPos = isNew ? -(searchResult + 1) : searchResult;
+
+    // Compute MSDB including the new key's disc bits with its neighbors
+    final int msdb = isNew ? findMsdbWithNewKey(keySlice, insertPos) : findMsdbBit();
+
+    if (msdb < 0) {
+      return false; // All keys identical — can't split
+    }
+
+    // Find split point: first existing key with bit msdb = 1
+    int splitPoint = count;
+    for (int i = 0; i < count; i++) {
+      if (DiscriminativeBitComputer.isBitSet(getKey(i), msdb)) {
+        splitPoint = i;
+        break;
+      }
+    }
+
+    // Copy right-half entries to target
+    for (int i = splitPoint; i < count; i++) {
+      final byte[] k = getKey(i);
+      final byte[] v = getValue(i);
+      if (!target.insertAt(target.entryCount, k, v)) {
+        if (target.entryCount == 0) {
+          return false;
+        }
+        break;
+      }
+    }
+
+    // Truncate self to left half
+    entryCount = splitPoint;
+    recalculateUsedMemory();
+
+    // Insert/update the key in the correct half based on disc bit
+    if (DiscriminativeBitComputer.isBitSet(keySlice, msdb)) {
+      return target.mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
+    } else {
+      return mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
+    }
+  }
+
+  /**
+   * Compute the MSDB bit position across all existing adjacent key pairs.
+   *
+   * @return the most significant disc bit, or -1 if no discriminative bit exists
+   */
+  private int findMsdbBit() {
+    if (entryCount < 2) {
+      return -1;
+    }
+
+    int bestBit = Integer.MAX_VALUE;
+    for (int i = 0; i < entryCount - 1; i++) {
+      final int bit = DiscriminativeBitComputer.computeDifferingBit(getKey(i), getKey(i + 1));
+      if (bit >= 0 && bit < bestBit) {
+        bestBit = bit;
+      }
+    }
+    return bestBit == Integer.MAX_VALUE ? -1 : bestBit;
+  }
+
+  /**
+   * Compute the MSDB including a new key that would be inserted at {@code insertPos}.
+   *
+   * <p>
+   * Scans all adjacent pairs in the virtual sorted array (existing keys with the new key
+   * inserted), returning the most significant disc bit. The original pair
+   * {@code (keys[insertPos-1], keys[insertPos])} is replaced by
+   * {@code (keys[insertPos-1], newKey)} and {@code (newKey, keys[insertPos])}.
+   * </p>
+   *
+   * @param newKey the new key being inserted
+   * @param insertPos the position where the new key would be inserted
+   * @return the most significant disc bit, or -1 if none found
+   */
+  private int findMsdbWithNewKey(byte[] newKey, int insertPos) {
+    final int count = entryCount;
+    int bestBit = Integer.MAX_VALUE;
+
+    // Check all original adjacent pairs, skipping the one broken by insertion
+    for (int i = 0; i < count - 1; i++) {
+      if (insertPos > 0 && insertPos < count && i == insertPos - 1) {
+        continue; // This pair is replaced by K's two new pairs
+      }
+      final int bit = DiscriminativeBitComputer.computeDifferingBit(getKey(i), getKey(i + 1));
+      if (bit >= 0 && bit < bestBit) {
+        bestBit = bit;
+      }
+    }
+
+    // Check new key's predecessor pair
+    if (insertPos > 0) {
+      final int bit = DiscriminativeBitComputer.computeDifferingBit(getKey(insertPos - 1), newKey);
+      if (bit >= 0 && bit < bestBit) {
+        bestBit = bit;
+      }
+    }
+
+    // Check new key's successor pair
+    if (insertPos < count) {
+      final int bit = DiscriminativeBitComputer.computeDifferingBit(newKey, getKey(insertPos));
+      if (bit >= 0 && bit < bestBit) {
+        bestBit = bit;
+      }
+    }
+
+    return bestBit == Integer.MAX_VALUE ? -1 : bestBit;
   }
 
   /**
