@@ -30,7 +30,9 @@ import io.vertx.kotlin.coroutines.dispatcher
 import kotlin.coroutines.cancellation.CancellationException
 import io.vertx.kotlin.ext.auth.oauth2.oAuth2OptionsOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.apache.http.HttpStatus
+import io.sirix.access.DatabasesInternals
 import io.sirix.rest.crud.CreateMultipleResources
 import io.sirix.rest.crud.DeleteHandler
 import io.sirix.rest.crud.DiffHandler
@@ -52,6 +54,9 @@ import java.util.UUID
 class SirixVerticle : CoroutineVerticle() {
     companion object {
         private val logger = LoggerFactory.getLogger(SirixVerticle::class.java)
+
+        /** Maximum time in milliseconds to wait for the HTTP server to close during shutdown. */
+        private const val SHUTDOWN_TIMEOUT_MS = 30_000L
     }
 
     /** User home directory. */
@@ -59,6 +64,9 @@ class SirixVerticle : CoroutineVerticle() {
 
     /** Storage for databases: Sirix data in home directory. */
     private val location = Paths.get(userHome, "sirix-data")
+
+    /** Reference to the HTTP server for graceful shutdown. */
+    private var httpServer: HttpServer? = null
 
     override suspend fun start() {
         // Auto-load config from sirix-docker-conf.json when no config is passed
@@ -94,7 +102,46 @@ class SirixVerticle : CoroutineVerticle() {
             )
         }
 
+        httpServer = server
         listen(server, router)
+    }
+
+    override suspend fun stop() {
+        logger.info("Graceful shutdown starting")
+
+        // Close HTTP server: stops accepting new connections and waits for in-flight requests
+        val serverClosed = httpServer?.let { server ->
+            withTimeoutOrNull(SHUTDOWN_TIMEOUT_MS) {
+                try {
+                    server.close().coAwait()
+                    logger.info("HTTP server closed successfully")
+                    true
+                } catch (e: Exception) {
+                    logger.warn("Error closing HTTP server", e)
+                    false
+                }
+            }
+        }
+        if (serverClosed == null && httpServer != null) {
+            logger.warn("HTTP server close timed out after {} ms", SHUTDOWN_TIMEOUT_MS)
+        }
+
+        // Close all open Sirix databases to flush pending writes
+        val openDatabases = DatabasesInternals.getOpenDatabases()
+        if (openDatabases.isNotEmpty()) {
+            logger.info("Closing {} open database path(s)", openDatabases.size)
+            for ((path, databases) in openDatabases) {
+                for (database in databases) {
+                    try {
+                        database.close()
+                    } catch (e: Exception) {
+                        logger.warn("Error closing database at {}", path, e)
+                    }
+                }
+            }
+        }
+
+        logger.info("Graceful shutdown complete")
     }
 
     private suspend fun listen(server: HttpServer, router: Router) {
