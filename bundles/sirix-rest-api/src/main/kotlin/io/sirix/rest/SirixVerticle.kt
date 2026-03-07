@@ -149,13 +149,31 @@ class SirixVerticle : CoroutineVerticle() {
             .listen(config.getInteger("port", 9443)).coAwait()
     }
 
+    /**
+     * Resolves a configuration value with the following precedence:
+     * 1. Environment variable (if set and non-blank)
+     * 2. Vert.x config (from JSON config file or deployment options)
+     * 3. Provided default value
+     */
+    private fun resolveConfig(envVar: String, configKey: String, default: String? = null): String? {
+        val envValue = System.getenv(envVar)
+        if (!envValue.isNullOrBlank()) {
+            return envValue
+        }
+        return config.getString(configKey, default)
+    }
+
     private suspend fun createRouter() = Router.router(vertx).apply {
         val oAuth2FlowType = OAuth2FlowType.valueOf(config.getString("oAuthFlowType", "PASSWORD"))
 
+        val clientSecret = resolveConfig("SIRIX_KEYCLOAK_CLIENT_SECRET", "client.secret")
+        val clientId = resolveConfig("SIRIX_KEYCLOAK_CLIENT_ID", "client.id", "sirix")
+        val keycloakUrl = resolveConfig("SIRIX_KEYCLOAK_URL", "keycloak.url")
+
         val oauth2Config = oAuth2OptionsOf()
-            .setSite(config.getString("keycloak.url"))
-            .setClientId("sirix")
-            .setClientSecret(config.getString("client.secret"))
+            .setSite(keycloakUrl)
+            .setClientId(clientId)
+            .setClientSecret(clientSecret)
             .setTokenPath(config.getString("token.path"))
             .setAuthorizationPath(config.getString("auth.path"))
             .setJWTOptions(
