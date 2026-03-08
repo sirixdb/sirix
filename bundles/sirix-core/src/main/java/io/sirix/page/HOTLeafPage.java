@@ -253,6 +253,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     this.commonPrefix = commonPrefix != null ? commonPrefix : EMPTY_PREFIX;
     this.commonPrefixLen = commonPrefixLen;
     this.pageReferences = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>();
+    // Eagerly build PEXT index so read-only lookups after deserialization
+    // use PEXT-accelerated search immediately (no first-search latency spike).
+    buildPextIndex();
   }
 
   /**
