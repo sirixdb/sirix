@@ -32,7 +32,7 @@ class NodeUpgradeManagerTest {
   class NodeTypeDeterminationTests {
 
     @ParameterizedTest(name = "{0} children → {1}")
-    @CsvSource({"1, BI_NODE", "2, BI_NODE", "3, SPAN_NODE", "16, SPAN_NODE", "17, MULTI_NODE", "32, MULTI_NODE"})
+    @CsvSource({"1, SPAN_NODE", "2, SPAN_NODE", "3, SPAN_NODE", "16, SPAN_NODE", "17, MULTI_NODE", "32, MULTI_NODE"})
     void testDetermineNodeType(int numChildren, NodeType expectedType) {
       assertEquals(expectedType, NodeUpgradeManager.determineNodeType(numChildren));
     }
@@ -50,7 +50,7 @@ class NodeUpgradeManagerTest {
   class NodeTypeByBitsTests {
 
     @ParameterizedTest(name = "{0} bits → {1}")
-    @CsvSource({"0, BI_NODE", "1, BI_NODE", "2, SPAN_NODE", "3, SPAN_NODE", "4, SPAN_NODE", "5, MULTI_NODE",
+    @CsvSource({"0, SPAN_NODE", "1, SPAN_NODE", "2, SPAN_NODE", "3, SPAN_NODE", "4, SPAN_NODE", "5, MULTI_NODE",
         "8, MULTI_NODE"})
     void testDetermineNodeTypeByBits(int numBits, NodeType expectedType) {
       assertEquals(expectedType, NodeUpgradeManager.determineNodeTypeByBits(numBits));
@@ -62,8 +62,8 @@ class NodeUpgradeManagerTest {
   class UpgradeDetectionTests {
 
     @Test
-    @DisplayName("BiNode needs upgrade when children exceed 2")
-    void testBiNodeNeedsUpgrade() {
+    @DisplayName("SpanNode with 2 children does not need upgrade until exceeding 16")
+    void testSpanNodeWith2ChildrenNeedsUpgrade() {
       PageReference leftRef = new PageReference();
       leftRef.setKey(100);
       PageReference rightRef = new PageReference();
@@ -72,18 +72,20 @@ class NodeUpgradeManagerTest {
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
 
       assertFalse(NodeUpgradeManager.needsUpgrade(biNode, 2));
-      assertTrue(NodeUpgradeManager.needsUpgrade(biNode, 3));
+      assertFalse(NodeUpgradeManager.needsUpgrade(biNode, 3));
+      assertFalse(NodeUpgradeManager.needsUpgrade(biNode, 16));
+      assertTrue(NodeUpgradeManager.needsUpgrade(biNode, 17));
     }
 
     @Test
     @DisplayName("SpanNode needs upgrade when children exceed 16")
     void testSpanNodeNeedsUpgrade() {
       PageReference[] children = new PageReference[4];
-      byte[] partialKeys = new byte[4];
+      int[] partialKeys = new int[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
         children[i].setKey(100 + i);
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b1111L, partialKeys, children);
@@ -98,21 +100,40 @@ class NodeUpgradeManagerTest {
   class DowngradeDetectionTests {
 
     @Test
-    @DisplayName("SpanNode should downgrade when children drop to 2")
-    void testSpanNodeShouldDowngrade() {
+    @DisplayName("SpanNode does not downgrade when children drop to 2 (still SPAN_NODE)")
+    void testSpanNodeShouldNotDowngradeToTwo() {
       PageReference[] children = new PageReference[4];
-      byte[] partialKeys = new byte[4];
+      int[] partialKeys = new int[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
         children[i].setKey(100 + i);
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b1111L, partialKeys, children);
 
       assertFalse(NodeUpgradeManager.shouldDowngrade(spanNode, 4));
       assertFalse(NodeUpgradeManager.shouldDowngrade(spanNode, 3));
-      assertTrue(NodeUpgradeManager.shouldDowngrade(spanNode, 2));
+      assertFalse(NodeUpgradeManager.shouldDowngrade(spanNode, 2));
+    }
+
+    @Test
+    @DisplayName("MultiNode should downgrade when children drop to 16 or fewer")
+    void testMultiNodeShouldDowngrade() {
+      PageReference[] children = new PageReference[20];
+      byte[] childIndex = new byte[256];
+      for (int i = 0; i < 20; i++) {
+        children[i] = new PageReference();
+        children[i].setKey(100 + i);
+      }
+      for (int i = 0; i < 256; i++) {
+        childIndex[i] = (byte) (i % 20);
+      }
+
+      HOTIndirectPage multiNode = HOTIndirectPage.createMultiNode(1L, 1, (byte) 0, childIndex, children);
+
+      assertFalse(NodeUpgradeManager.shouldDowngrade(multiNode, 17));
+      assertTrue(NodeUpgradeManager.shouldDowngrade(multiNode, 16));
     }
 
     @Test
@@ -169,9 +190,9 @@ class NodeUpgradeManagerTest {
   @DisplayName("Underfilled Detection")
   class UnderfilledTests {
 
-    @ParameterizedTest(name = "BiNode with fill factor {0}")
+    @ParameterizedTest(name = "SpanNode with 2 children, fill factor threshold {0}")
     @ValueSource(doubles = {0.3, 0.5, 0.7})
-    void testBiNodeUnderfilledWithFactor(double fillFactor) {
+    void testSpanNodeWith2ChildrenUnderfilledWithFactor(double fillFactor) {
       PageReference leftRef = new PageReference();
       leftRef.setKey(100);
       PageReference rightRef = new PageReference();
@@ -179,8 +200,9 @@ class NodeUpgradeManagerTest {
 
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
 
-      // BiNode has 2 children, max is 2, so it's always 100% full
-      assertFalse(NodeUpgradeManager.isUnderfilled(biNode, fillFactor));
+      // SpanNode with 2 children, max is 16, fill is 2/16 = 0.125
+      // 0.125 < any threshold >= 0.13, so always underfilled
+      assertTrue(NodeUpgradeManager.isUnderfilled(biNode, fillFactor));
     }
   }
 
@@ -189,7 +211,7 @@ class NodeUpgradeManagerTest {
   class MaxChildrenTests {
 
     @ParameterizedTest(name = "{0} → max {1}")
-    @CsvSource({"BI_NODE, 2", "SPAN_NODE, 16", "MULTI_NODE, 32"})
+    @CsvSource({"SPAN_NODE, 16", "MULTI_NODE, 32"})
     void testGetMaxChildrenForType(NodeType nodeType, int expectedMax) {
       assertEquals(expectedMax, NodeUpgradeManager.getMaxChildrenForType(nodeType));
     }

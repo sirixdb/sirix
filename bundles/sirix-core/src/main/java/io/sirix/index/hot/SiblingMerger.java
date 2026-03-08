@@ -154,11 +154,18 @@ public final class SiblingMerger {
       return MergeResult.failure();
     }
 
+    // MultiMask merge not yet supported — disc bits from different extraction layouts
+    // cannot be simply OR'd. Conservative fallback: don't merge.
+    if (left.getLayoutType() == HOTIndirectPage.LayoutType.MULTI_MASK
+        || right.getLayoutType() == HOTIndirectPage.LayoutType.MULTI_MASK) {
+      return MergeResult.failure();
+    }
+
     int totalChildren = left.getNumChildren() + right.getNumChildren();
 
     // Collect all children from both nodes
     PageReference[] childRefs = new PageReference[totalChildren];
-    byte[] partialKeys = new byte[totalChildren];
+    int[] partialKeys = new int[totalChildren];
 
     int idx = 0;
     for (int i = 0; i < left.getNumChildren(); i++) {
@@ -172,7 +179,7 @@ public final class SiblingMerger {
       idx++;
     }
 
-    // Combine discriminative bit masks
+    // Combine discriminative bit masks (SingleMask only)
     long combinedMask = left.getBitMask() | right.getBitMask();
     int initialBytePos = Math.min(left.getInitialBytePos(), right.getInitialBytePos());
 
@@ -262,7 +269,7 @@ public final class SiblingMerger {
     // Determine order (left/right) based on discriminative bit.
     // CRITICAL: Must use unsigned comparison — Java bytes are signed, so values 0x80-0xFF
     // appear negative and would sort before 0x00-0x7F with plain '<'.
-    boolean nodeIsLeft = Byte.toUnsignedInt(node.getPartialKey(0)) < Byte.toUnsignedInt(sibling.getPartialKey(0));
+    boolean nodeIsLeft = Integer.compareUnsigned(node.getPartialKey(0), sibling.getPartialKey(0)) < 0;
 
     if (nodeIsLeft) {
       return mergeSiblings(node, sibling, newPageKey, revision);
@@ -285,7 +292,7 @@ public final class SiblingMerger {
    * @return true if the BiNode can be collapsed
    */
   public static boolean canCollapseBiNode(@NonNull HOTIndirectPage biNode) {
-    return biNode.getNodeType() == HOTIndirectPage.NodeType.BI_NODE && biNode.getNumChildren() == 1;
+    return biNode.getNumChildren() == 1;
   }
 
   /**

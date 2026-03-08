@@ -71,14 +71,12 @@ class HOTDirectApiTest {
     @Test
     @DisplayName("Exercise all node type transitions")
     void testAllNodeTypeTransitions() {
-      // Test BiNode -> SpanNode transition logic
+      // Test SpanNode -> MultiNode transition logic (BI_NODE removed)
       for (int children = 2; children <= 32; children++) {
         var type = NodeUpgradeManager.determineNodeType(children);
         assertNotNull(type);
 
-        if (children <= 2) {
-          assertEquals(HOTIndirectPage.NodeType.BI_NODE, type);
-        } else if (children <= 16) {
+        if (children <= 16) {
           assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, type);
         } else {
           assertEquals(HOTIndirectPage.NodeType.MULTI_NODE, type);
@@ -105,7 +103,7 @@ class HOTDirectApiTest {
     @Test
     @DisplayName("Test isFull and isUnderfilled for all node types")
     void testFillStatusAllTypes() {
-      // BiNode
+      // 2-child SpanNode (created via createBiNode)
       PageReference lr = new PageReference();
       PageReference rr = new PageReference();
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, lr, rr);
@@ -113,16 +111,16 @@ class HOTDirectApiTest {
       boolean isFull = NodeUpgradeManager.isFull(biNode);
       boolean isUnder = NodeUpgradeManager.isUnderfilled(biNode, 0.5);
 
-      // BiNode with 2 children has 100% fill
+      // 2-child SpanNode has fill factor 2/16 = 0.125
       assertNotNull(Boolean.valueOf(isFull));
       assertNotNull(Boolean.valueOf(isUnder));
 
       // SpanNode with 4 children
       PageReference[] children = new PageReference[4];
-      byte[] partialKeys = new byte[4];
+      int[] partialKeys = new int[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(2L, 1, (byte) 0, 0b1111L, partialKeys, children);
 
@@ -136,7 +134,6 @@ class HOTDirectApiTest {
     @Test
     @DisplayName("Test getMaxChildrenForType")
     void testMaxChildrenForTypes() {
-      assertEquals(2, NodeUpgradeManager.getMaxChildrenForType(HOTIndirectPage.NodeType.BI_NODE));
       assertEquals(16, NodeUpgradeManager.getMaxChildrenForType(HOTIndirectPage.NodeType.SPAN_NODE));
       assertEquals(32, NodeUpgradeManager.getMaxChildrenForType(HOTIndirectPage.NodeType.MULTI_NODE));
     }
@@ -186,7 +183,7 @@ class HOTDirectApiTest {
 
         HOTIndirectPage biNode = HeightOptimalSplitter.createBiNode(1L, 1, bit, leftRef, rightRef);
         assertNotNull(biNode);
-        assertEquals(HOTIndirectPage.NodeType.BI_NODE, biNode.getNodeType());
+        assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, biNode.getNodeType());
       }
     }
 
@@ -250,26 +247,26 @@ class HOTDirectApiTest {
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, lr, rr);
 
       boolean shouldMerge = SiblingMerger.shouldMerge(biNode);
-      // BiNode at 100% fill shouldn't need merge
-      assertFalse(shouldMerge);
+      // 2-child SpanNode has fill factor 2/16 = 0.125 < MIN_FILL_FACTOR 0.25, so shouldMerge is true
+      assertTrue(shouldMerge);
     }
 
     @Test
     @DisplayName("Test getFillFactor accuracy")
     void testGetFillFactor() {
-      // BiNode: 2/2 = 100%
+      // 2-child SpanNode: 2/16 = 0.125
       PageReference lr = new PageReference();
       PageReference rr = new PageReference();
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, lr, rr);
       double biFill = SiblingMerger.getFillFactor(biNode);
-      assertEquals(1.0, biFill, 0.01);
+      assertEquals(0.125, biFill, 0.01);
 
       // SpanNode: 4/16 = 25%
       PageReference[] children = new PageReference[4];
-      byte[] partialKeys = new byte[4];
+      int[] partialKeys = new int[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(2L, 1, (byte) 0, 0b1111L, partialKeys, children);
       double spanFill = SiblingMerger.getFillFactor(spanNode);

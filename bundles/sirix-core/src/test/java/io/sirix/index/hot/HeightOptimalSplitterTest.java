@@ -111,7 +111,7 @@ class HeightOptimalSplitterTest {
       HOTIndirectPage biNode = HeightOptimalSplitter.createBiNode(1L, 1, 0, leftRef, rightRef);
 
       assertNotNull(biNode);
-      assertEquals(NodeType.BI_NODE, biNode.getNodeType());
+      assertEquals(NodeType.SPAN_NODE, biNode.getNodeType());
       assertEquals(2, biNode.getNumChildren());
       assertEquals(100, biNode.getChildReference(0).getKey());
       assertEquals(200, biNode.getChildReference(1).getKey());

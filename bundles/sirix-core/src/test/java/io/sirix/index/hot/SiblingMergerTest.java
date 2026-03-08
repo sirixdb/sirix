@@ -34,11 +34,11 @@ class SiblingMergerTest {
     void testShouldMerge() {
       // Create a SpanNode with only 2 children (below 25% of 16)
       PageReference[] children = new PageReference[2];
-      byte[] partialKeys = new byte[2];
+      int[] partialKeys = new int[2];
       for (int i = 0; i < 2; i++) {
         children[i] = new PageReference();
         children[i].setKey(100 + i);
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b11L, partialKeys, children);
@@ -52,11 +52,11 @@ class SiblingMergerTest {
     void testShouldNotMerge() {
       // Create a SpanNode with 8 children (50% of 16)
       PageReference[] children = new PageReference[8];
-      byte[] partialKeys = new byte[8];
+      int[] partialKeys = new int[8];
       for (int i = 0; i < 8; i++) {
         children[i] = new PageReference();
         children[i].setKey(100 + i);
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b11111111L, partialKeys, children);
@@ -95,17 +95,17 @@ class SiblingMergerTest {
       // Create two SpanNodes with 20 children each
       PageReference[] children1 = new PageReference[16];
       PageReference[] children2 = new PageReference[16];
-      byte[] partialKeys1 = new byte[16];
-      byte[] partialKeys2 = new byte[16];
+      int[] partialKeys1 = new int[16];
+      int[] partialKeys2 = new int[16];
 
       for (int i = 0; i < 16; i++) {
         children1[i] = new PageReference();
         children1[i].setKey(100 + i);
-        partialKeys1[i] = (byte) i;
+        partialKeys1[i] = i;
 
         children2[i] = new PageReference();
         children2[i].setKey(200 + i);
-        partialKeys2[i] = (byte) (i + 16);
+        partialKeys2[i] = i + 16;
       }
 
       HOTIndirectPage left = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0xFFFFL, partialKeys1, children1);
@@ -155,11 +155,11 @@ class SiblingMergerTest {
 
       // Create nodes at different heights (simulate by using different max children)
       PageReference[] children = new PageReference[16];
-      byte[] partialKeys = new byte[16];
+      int[] partialKeys = new int[16];
       for (int i = 0; i < 16; i++) {
         children[i] = new PageReference();
         children[i].setKey(200 + i);
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
 
       HOTIndirectPage left = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
@@ -194,11 +194,11 @@ class SiblingMergerTest {
     @DisplayName("Cannot collapse SpanNode")
     void testCannotCollapseSpanNode() {
       PageReference[] children = new PageReference[4];
-      byte[] partialKeys = new byte[4];
+      int[] partialKeys = new int[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
         children[i].setKey(100 + i);
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b1111L, partialKeys, children);
@@ -225,7 +225,7 @@ class SiblingMergerTest {
   class FillFactorTests {
 
     @Test
-    @DisplayName("Calculate BiNode fill factor")
+    @DisplayName("Calculate fill factor for 2-child SpanNode (created via createBiNode)")
     void testBiNodeFillFactor() {
       PageReference leftRef = new PageReference();
       PageReference rightRef = new PageReference();
@@ -234,18 +234,19 @@ class SiblingMergerTest {
 
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
 
-      assertEquals(1.0, SiblingMerger.getFillFactor(biNode), 0.001, "BiNode with 2/2 children should be 100% full");
+      assertEquals(0.125, SiblingMerger.getFillFactor(biNode), 0.001,
+          "SpanNode with 2/16 children should be 12.5% full");
     }
 
     @Test
     @DisplayName("Calculate SpanNode fill factor")
     void testSpanNodeFillFactor() {
       PageReference[] children = new PageReference[8];
-      byte[] partialKeys = new byte[8];
+      int[] partialKeys = new int[8];
       for (int i = 0; i < 8; i++) {
         children[i] = new PageReference();
         children[i].setKey(100 + i);
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b11111111L, partialKeys, children);

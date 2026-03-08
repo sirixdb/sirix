@@ -39,9 +39,7 @@ class HOTUnitCoverageTest {
         HOTIndirectPage.NodeType type = NodeUpgradeManager.determineNodeTypeByBits(bits);
         assertNotNull(type, "Should return a node type for " + bits + " bits");
 
-        if (bits == 1) {
-          assertEquals(HOTIndirectPage.NodeType.BI_NODE, type);
-        } else if (bits <= 4) {
+        if (bits <= 4) {
           assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, type);
         } else {
           assertEquals(HOTIndirectPage.NodeType.MULTI_NODE, type);
@@ -56,11 +54,11 @@ class HOTUnitCoverageTest {
     void testUpgradeBiNodeToSpan() {
       // Create SpanNode directly
       PageReference[] children = new PageReference[4];
-      byte[] partialKeys = new byte[4];
+      int[] partialKeys = new int[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
         children[i].setKey(i);
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0b1111L, partialKeys, children);
 
@@ -133,7 +131,7 @@ class HOTUnitCoverageTest {
       HOTIndirectPage node2 = HOTIndirectPage.createBiNode(2L, 1, 0, lr2, rr2);
 
       boolean canMerge = SiblingMerger.canMerge(node1, node2);
-      assertTrue(canMerge, "Two BiNodes at same height should merge");
+      assertTrue(canMerge, "Two SpanNodes at same height should merge");
     }
 
     @Test
@@ -157,21 +155,21 @@ class HOTUnitCoverageTest {
       PageReference rightRef = new PageReference();
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
 
-      // BiNode has 100% fill, shouldn't need merge
+      // 2-child SpanNode has 2/16 = 12.5% fill, below MIN_FILL_FACTOR (25%), so needs merge
       boolean shouldMerge = SiblingMerger.shouldMerge(biNode);
-      assertFalse(shouldMerge, "Full BiNode doesn't need merge");
+      assertTrue(shouldMerge, "2-child SpanNode needs merge (fill 12.5% < 25%)");
     }
 
     @Test
     @DisplayName("Get fill factor for various node types")
     void testGetFillFactor() {
-      // BiNode
+      // 2-child SpanNode (created via createBiNode)
       PageReference lr = new PageReference();
       PageReference rr = new PageReference();
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, lr, rr);
 
       double fillFactor = SiblingMerger.getFillFactor(biNode);
-      assertEquals(1.0, fillFactor, 0.01, "BiNode with 2/2 children has 100% fill");
+      assertEquals(0.125, fillFactor, 0.01, "2-child SpanNode has 2/16 = 12.5% fill");
     }
   }
 
@@ -472,7 +470,7 @@ class HOTUnitCoverageTest {
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 7, leftRef, rightRef);
 
       assertNotNull(biNode);
-      assertEquals(HOTIndirectPage.NodeType.BI_NODE, biNode.getNodeType());
+      assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, biNode.getNodeType());
       assertEquals(2, biNode.getNumChildren());
     }
 
@@ -480,11 +478,11 @@ class HOTUnitCoverageTest {
     @DisplayName("Create SpanNode")
     void testCreateSpanNode() {
       PageReference[] children = new PageReference[4];
-      byte[] partialKeys = new byte[4];
+      int[] partialKeys = new int[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
         children[i].setKey(i);
-        partialKeys[i] = (byte) (i * 16);
+        partialKeys[i] = i * 16;
       }
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(2L, 1, (byte) 0, 0b1111L, partialKeys, children);

@@ -39,6 +39,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.NodeUpgradeManager;
 import java.util.Arrays;
+import java.util.TreeMap;
 import java.util.function.LongSupplier;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -89,6 +90,9 @@ public final class HOTTrieWriter {
   /** Maximum tree height - increased to handle unbalanced trees during inserts. */
   private static final int MAX_TREE_HEIGHT = 64;
 
+  /** Shared empty key constant to avoid allocations. */
+  private static final byte[] EMPTY_KEY = new byte[0];
+
   /** Memory segment allocator. */
   @SuppressWarnings("unused")
   private final MemorySegmentAllocator allocator;
@@ -106,6 +110,53 @@ public final class HOTTrieWriter {
   private static final int MAX_SPLIT_CHILDREN = NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN + 2;
   private final PageReference[] splitSmallerBuf = new PageReference[MAX_SPLIT_CHILDREN];
   private final PageReference[] splitLargerBuf = new PageReference[MAX_SPLIT_CHILDREN];
+
+  /**
+   * Active reader for resolving non-swizzled child pages during split operations.
+   * Set at the entry points of public methods, cleared on exit.
+   */
+  private @Nullable StorageEngineReader activeReader;
+
+  /**
+   * Holds either SingleMask or MultiMask discriminative bit information.
+   * SingleMask: all disc bits fit within 8 contiguous key bytes (one 64-bit PEXT mask).
+   * MultiMask: disc bits span >8 bytes; uses per-byte extraction positions and masks.
+   */
+  private record DiscBitsInfo(
+      HOTIndirectPage.LayoutType layoutType,
+      int initialBytePos,            // SingleMask only
+      long bitMask,                  // SingleMask only
+      byte[] extractionPositions,    // MultiMask only: key byte positions to gather
+      long[] extractionMasks,        // MultiMask only: PEXT masks per 8-byte chunk
+      int numExtractionBytes,        // MultiMask only: number of extraction bytes
+      short mostSignificantBitIndex  // Minimum absolute disc bit position
+  ) {
+    boolean isSingleMask() {
+      return layoutType == HOTIndirectPage.LayoutType.SINGLE_MASK;
+    }
+
+    int totalDiscBits() {
+      if (isSingleMask()) {
+        return Long.bitCount(bitMask);
+      }
+      int total = 0;
+      for (final long m : extractionMasks) {
+        total += Long.bitCount(m);
+      }
+      return total;
+    }
+
+    static DiscBitsInfo singleMask(int initialBytePos, long bitMask) {
+      return new DiscBitsInfo(HOTIndirectPage.LayoutType.SINGLE_MASK, initialBytePos, bitMask,
+          null, null, 0, HOTIndirectPage.computeMostSignificantBitIndex(initialBytePos, bitMask));
+    }
+
+    static DiscBitsInfo multiMask(byte[] extractionPositions, long[] extractionMasks,
+        int numExtractionBytes, short mostSignificantBitIndex) {
+      return new DiscBitsInfo(HOTIndirectPage.LayoutType.MULTI_MASK, 0, 0,
+          extractionPositions, extractionMasks, numExtractionBytes, mostSignificantBitIndex);
+    }
+  }
 
   /**
    * Create a new HOTTrieWriter with persistent page key allocation.
@@ -453,6 +504,21 @@ public final class HOTTrieWriter {
     Objects.requireNonNull(leafRef);
     Objects.requireNonNull(rootReference);
 
+    // Set active reader for child page resolution during split operations
+    this.activeReader = storageEngineReader;
+    try {
+      return handleLeafSplitAndInsertInternal(storageEngineReader, log, fullPage, leafRef,
+          rootReference, pathNodes, pathRefs, pathChildIndices, pathDepth, keyBuf, keyLen, valueBuf, valueLen);
+    } finally {
+      this.activeReader = null;
+    }
+  }
+
+  private boolean handleLeafSplitAndInsertInternal(@NonNull StorageEngineWriter storageEngineReader,
+      @NonNull TransactionIntentLog log, @NonNull HOTLeafPage fullPage, @NonNull PageReference leafRef,
+      @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+      int[] pathChildIndices, int pathDepth, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen) {
+
     // If page has < 1 entry, can't split
     if (fullPage.getEntryCount() < 1) {
       return false;
@@ -471,8 +537,7 @@ public final class HOTTrieWriter {
       // bit (including the new key), then inserts the new key into the correct half.
       // This matches the C++ split(insertInformation, valueToInsert) approach.
       if (!fullPage.splitToWithInsert(rightPage, keyBuf, keyLen, valueBuf, valueLen)) {
-        rightPage.close();
-        return false;
+        return false; // finally block closes rightPage
       }
 
       // Boundary keys now include the new key — BiNode disc bit is correct
@@ -480,14 +545,12 @@ public final class HOTTrieWriter {
       final byte[] rightMin = rightPage.getFirstKey();
 
       if (leftMax.length == 0 || rightMin.length == 0) {
-        rightPage.close();
-        return false;
+        return false; // finally block closes rightPage
       }
 
       final int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
       if (discriminativeBit < 0) {
-        rightPage.close();
-        return false;
+        return false; // finally block closes rightPage
       }
 
       // Store right page in TIL
@@ -512,19 +575,23 @@ public final class HOTTrieWriter {
       } else {
         // Root split — create BiNode as new root (only allocate here, not above)
         final long newRootPageKey = pageKeyAllocator.getAsLong();
-        final HOTIndirectPage biNode = HOTIndirectPage.createBiNode(
-            newRootPageKey, revision, discriminativeBit, leafRef, rightRef);
 
-        PageReference leftChildRef;
+        // Always create a fresh left child reference to avoid circular reference
+        // when leafRef == rootReference (rootReference will be reused for the BiNode).
+        final PageReference leftChildRef;
         if (leafRef == rootReference) {
           leftChildRef = new PageReference();
+          leftChildRef.setKey(leafRef.getKey());
+          leftChildRef.setPage(fullPage);
           log.put(leftChildRef, PageContainer.getInstance(fullPage, fullPage));
         } else {
           leftChildRef = leafRef;
         }
 
-        biNode.setChildReference(0, leftChildRef);
-        biNode.setChildReference(1, rightRef);
+        // Create BiNode with the fresh left child ref (not rootReference).
+        // Height=1: one level above leaf pages.
+        final HOTIndirectPage biNode = HOTIndirectPage.createBiNode(
+            newRootPageKey, revision, discriminativeBit, leftChildRef, rightRef, 1);
         rootReference.setKey(newRootPageKey);
         rootReference.setPage(biNode);
         log.put(rootReference, PageContainer.getInstance(biNode, biNode));
@@ -557,14 +624,15 @@ public final class HOTTrieWriter {
       @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
       int[] pathChildIndices, int currentPathIdx) {
 
-    // Compute discriminative bit between the two split children
+    // Compute discriminative bit between the two split children.
+    // Guard against -1 (identical keys, e.g., when pages can't be loaded and both return EMPTY_KEY).
     byte[] leftMax = getLastKeyFromChild(leftChild);
     byte[] rightMin = getFirstKeyFromChild(rightChild);
-    int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
+    int discriminativeBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin));
 
     // Compute the height of the split entries (BiNode containing the split children)
-    int leftHeight = getHeightFromChild(leftChild);
-    int rightHeight = getHeightFromChild(rightChild);
+    int leftHeight = getHeightFromChild(leftChild, activeReader);
+    int rightHeight = getHeightFromChild(rightChild, activeReader);
     int splitEntriesHeight = Math.max(leftHeight, rightHeight) + 1;
 
     // Reference line 502: if parent.height > splitEntries.height, create intermediate node
@@ -591,8 +659,6 @@ public final class HOTTrieWriter {
       // Reference line 516: if parent NOT full, add entry
       // Maximum is 32 entries per node (reference: MAXIMUM_NUMBER_NODE_ENTRIES = 32)
       if (currentNumChildren < NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
-        // Parent has space - expand by adding the new entry
-        // This replaces one child with two children
         HOTIndirectPage expandedParent = expandParentNode(parent, originalChildIndex, leftChild, rightChild,
             discriminativeBit, storageEngineReader.getRevisionNumber());
         log.put(parentRef, PageContainer.getInstance(expandedParent, expandedParent));
@@ -605,10 +671,16 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Get height from a child reference.
+   * Get height from a child reference. Falls back to loading from storage if not swizzled.
    */
-  private int getHeightFromChild(PageReference childRef) {
-    final Page page = childRef.getPage();
+  private int getHeightFromChild(PageReference childRef, @Nullable StorageEngineReader reader) {
+    Page page = childRef.getPage();
+    if (page == null && reader != null) {
+      page = loadPage(reader, childRef);
+      if (page != null) {
+        childRef.setPage(page); // swizzle for future access
+      }
+    }
     if (page instanceof HOTLeafPage) {
       return 0;
     } else if (page instanceof HOTIndirectPage indirect) {
@@ -628,15 +700,32 @@ public final class HOTTrieWriter {
     int newNumChildren = numChildren + 1;
     PageReference[] newChildren = new PageReference[newNumChildren];
 
-    // Copy children, replacing split child with left+right
+    // Copy children, replacing split child with left+right.
+    // COW-created copies of PageReferences inherit logKeys from originals.
+    // If a copy shares a logKey with leftChild or rightChild, both resolve
+    // to the same TIL entry (same leaf page) — skip the stale copy.
     int j = 0;
+    final int leftLogKey = leftChild.getLogKey();
+    final int rightLogKey = rightChild.getLogKey();
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) {
         newChildren[j++] = leftChild;
         newChildren[j++] = rightChild;
       } else {
-        newChildren[j++] = parent.getChildReference(i);
+        final PageReference child = parent.getChildReference(i);
+        final int childLogKey = child.getLogKey();
+        if (childLogKey >= 0 && (childLogKey == leftLogKey || childLogKey == rightLogKey)) {
+          // Stale copy — aliases the same leaf page as a split result. Skip it.
+          newNumChildren--;
+          continue;
+        }
+        newChildren[j++] = child;
       }
+    }
+
+    // Trim array if stale copies were removed
+    if (j < newChildren.length) {
+      newChildren = Arrays.copyOf(newChildren, j);
     }
 
     // Sort children by first key to ensure correct boundary computation.
@@ -646,74 +735,212 @@ public final class HOTTrieWriter {
     sortChildrenByFirstKey(newChildren);
 
     // Compute discriminative bits and partial keys for navigation
-    byte initialBytePos = computeInitialBytePos(newChildren);
-    long bitMask = computeBitMaskForChildren(newChildren, initialBytePos);
-    byte[] partialKeys = computePartialKeysForChildren(newChildren, initialBytePos, bitMask);
+    final int initialBytePos = computeInitialBytePos(newChildren);
+    final DiscBitsInfo discBits = computeDiscBits(newChildren, initialBytePos);
+    final int[] partialKeys = computePartialKeysForChildren(newChildren, discBits);
 
     // Create appropriate node type based on child count
     if (newNumChildren <= 2) {
-      return HOTIndirectPage.createBiNode(parent.getPageKey(), revision, discriminativeBit, newChildren[0],
+      // Recompute disc bit from sorted children (the passed-in discriminativeBit may
+      // refer to the pre-sort position or be -1 for identical boundary keys)
+      final byte[] lMax = getLastKeyFromChild(newChildren[0]);
+      final byte[] rMin = getFirstKeyFromChild(newChildren[1]);
+      final int recomputedDiscBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(lMax, rMin));
+      return HOTIndirectPage.createBiNode(parent.getPageKey(), revision, recomputedDiscBit, newChildren[0],
           newChildren[1], parent.getHeight());
-    } else if (newNumChildren <= 16) {
-      return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision, initialBytePos, bitMask, partialKeys,
-          newChildren, parent.getHeight());
     } else {
-      return HOTIndirectPage.createMultiNode(parent.getPageKey(), revision, initialBytePos, bitMask, partialKeys,
-          newChildren, parent.getHeight());
+      return createNodeWithDiscBits(parent.getPageKey(), revision, parent.getHeight(),
+          discBits, partialKeys, newChildren);
+    }
+  }
+
+  /**
+   * Create a HOTIndirectPage (SpanNode or MultiNode) using the given disc bits info.
+   * Dispatches to SingleMask or MultiMask factory methods based on layout type.
+   */
+  private static HOTIndirectPage createNodeWithDiscBits(long pageKey, int revision, int height,
+      DiscBitsInfo discBits, int[] partialKeys, PageReference[] children) {
+    if (discBits.isSingleMask()) {
+      if (children.length <= 16) {
+        return HOTIndirectPage.createSpanNode(pageKey, revision, discBits.initialBytePos(),
+            discBits.bitMask(), partialKeys, children, height);
+      } else {
+        return HOTIndirectPage.createMultiNode(pageKey, revision, discBits.initialBytePos(),
+            discBits.bitMask(), partialKeys, children, height);
+      }
+    } else {
+      if (children.length <= 16) {
+        return HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision,
+            discBits.extractionPositions(), discBits.extractionMasks(),
+            discBits.numExtractionBytes(), partialKeys, children, height,
+            discBits.mostSignificantBitIndex());
+      } else {
+        return HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision,
+            discBits.extractionPositions(), discBits.extractionMasks(),
+            discBits.numExtractionBytes(), partialKeys, children, height,
+            discBits.mostSignificantBitIndex());
+      }
     }
   }
 
   /**
    * Compute initial byte position from children keys.
    */
-  private byte computeInitialBytePos(PageReference[] children) {
+  private int computeInitialBytePos(PageReference[] children) {
     if (children.length < 2)
       return 0;
 
     int minBytePos = Integer.MAX_VALUE;
     for (int i = 0; i < children.length - 1; i++) {
-      byte[] last = getLastKeyFromChild(children[i]);
-      byte[] first = getFirstKeyFromChild(children[i + 1]);
-      int bit = DiscriminativeBitComputer.computeDifferingBit(last, first);
-      minBytePos = Math.min(minBytePos, bit / 8);
+      final byte[] last = getLastKeyFromChild(children[i]);
+      final byte[] first = getFirstKeyFromChild(children[i + 1]);
+      final int bit = DiscriminativeBitComputer.computeDifferingBit(last, first);
+      if (bit >= 0) {
+        minBytePos = Math.min(minBytePos, bit / 8);
+      }
     }
-    return (byte) minBytePos;
+    return minBytePos == Integer.MAX_VALUE ? 0 : minBytePos;
   }
 
   /**
    * Compute bit mask that covers all discriminative bits for the children.
-   * Uses big-endian layout: byte 0 of window → bits 56-63, matching getKeyWordAt().
+   * Uses little-endian layout matching {@link HOTIndirectPage#getKeyWordAt}:
+   * byte 0 of window → bits 0-7, byte 1 → bits 8-15, etc.
+   * Within each byte, MSB (bit 0) maps to position 7, LSB (bit 7) maps to position 0.
    */
-  private long computeBitMaskForChildren(PageReference[] children, byte initialBytePos) {
-    long mask = 0;
-    for (int i = 0; i < children.length - 1; i++) {
-      byte[] key1 = getLastKeyFromChild(children[i]);
-      byte[] key2 = getFirstKeyFromChild(children[i + 1]);
-      if (key1.length == 0 || key2.length == 0)
-        continue;
+  /**
+   * Compute discriminative bit information for a set of sorted children.
+   * Returns either SingleMask (bits fit in 8 contiguous bytes) or MultiMask
+   * (bits span >8 bytes, requiring byte gathering + per-chunk PEXT).
+   *
+   * <p>Matches C++ reference: SingleMaskPartialKeyMapping vs MultiMaskPartialKeyMapping.</p>
+   */
+  private DiscBitsInfo computeDiscBits(PageReference[] children, int initialBytePos) {
+    // Collect all disc bit positions
+    int minBytePos = Integer.MAX_VALUE;
+    int maxBytePos = 0;
+    // Use TreeMap to group disc bits by key byte position (sorted ascending)
+    final TreeMap<Integer, Integer> maskByBytePos = new TreeMap<>();
 
-      int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
-      int byteOffset = bit / 8 - (initialBytePos & 0xFF);
-      if (byteOffset >= 0 && byteOffset < 8) {
-        int bitInByte = 7 - (bit % 8);
-        mask |= 1L << ((7 - byteOffset) * 8 + bitInByte);
+    for (int i = 0; i < children.length - 1; i++) {
+      final byte[] key1 = getLastKeyFromChild(children[i]);
+      final byte[] key2 = getFirstKeyFromChild(children[i + 1]);
+      if (key1.length == 0 || key2.length == 0) {
+        continue;
       }
+      final int bit = DiscriminativeBitComputer.computeDifferingBit(key1, key2);
+      if (bit < 0) {
+        continue;
+      }
+      final int bytePos = bit / 8;
+      final int bitInByte = bit % 8;
+      // Extraction mask convention: bit B (MSB-first, 0=MSB) → mask bit (7-B) in the byte
+      final int maskBit = 1 << (7 - bitInByte);
+      maskByBytePos.merge(bytePos, maskBit, (a, b) -> a | b);
+      minBytePos = Math.min(minBytePos, bytePos);
+      maxBytePos = Math.max(maxBytePos, bytePos);
     }
-    return mask != 0
-        ? mask
-        : 1L;
+
+    if (maskByBytePos.isEmpty()) {
+      // No disc bits found — use a dummy single-bit mask
+      return DiscBitsInfo.singleMask(initialBytePos, 1L);
+    }
+
+    // Check if all disc bits fit within 8 contiguous bytes (SingleMask)
+    if (maxBytePos - initialBytePos < 8) {
+      // Build SingleMask — same LE layout as before
+      long mask = 0;
+      for (final var entry : maskByBytePos.entrySet()) {
+        final int byteOffset = entry.getKey() - initialBytePos;
+        final int maskByte = entry.getValue();
+        mask |= ((long) maskByte) << (byteOffset * 8);
+      }
+      return DiscBitsInfo.singleMask(initialBytePos, mask);
+    }
+
+    // MultiMask: disc bits span >8 bytes — build extraction arrays
+    return buildMultiMask(maskByBytePos, minBytePos);
   }
 
   /**
-   * Compute partial keys for all children based on the bit mask.
+   * Build MultiMask discriminative bit info from grouped disc bits.
+   *
+   * <p>Creates extraction positions (which key bytes to gather) and extraction masks
+   * (which bits within those bytes are discriminative), packed into long[] for PEXT.</p>
    */
-  private byte[] computePartialKeysForChildren(PageReference[] children, byte initialBytePos, long bitMask) {
-    byte[] partialKeys = new byte[children.length];
+  private DiscBitsInfo buildMultiMask(TreeMap<Integer, Integer> maskByBytePos, int minBytePos) {
+    final int numBytes = maskByBytePos.size();
+    final byte[] extractionPositions = new byte[numBytes];
+    final int numChunks = (numBytes + 7) / 8;
+    final long[] extractionMasks = new long[numChunks];
+
+    int i = 0;
+    short msbIndex = Short.MAX_VALUE;
+    for (final var entry : maskByBytePos.entrySet()) {
+      final int keyBytePos = entry.getKey();
+      final int maskByte = entry.getValue();
+      extractionPositions[i] = (byte) keyBytePos;
+      // Pack mask byte into the appropriate long chunk (LE byte order)
+      final int chunkIdx = i / 8;
+      final int byteOffset = i % 8;
+      extractionMasks[chunkIdx] |= ((long) (maskByte & 0xFF)) << (byteOffset * 8);
+
+      // Compute MSB index: the smallest absolute bit position
+      final int highBit = 31 - Integer.numberOfLeadingZeros(maskByte & 0xFF);
+      final int absBitPos = keyBytePos * 8 + (7 - highBit);
+      msbIndex = (short) Math.min(msbIndex, absBitPos);
+      i++;
+    }
+
+    return DiscBitsInfo.multiMask(extractionPositions, extractionMasks, numBytes, msbIndex);
+  }
+
+  /**
+   * Compute partial keys for all children based on discriminative bit info.
+   */
+  private int[] computePartialKeysForChildren(PageReference[] children, DiscBitsInfo discBits) {
+    final int[] partialKeys = new int[children.length];
     for (int i = 0; i < children.length; i++) {
-      byte[] key = getFirstKeyFromChild(children[i]);
-      partialKeys[i] = computePartialKey(key, initialBytePos, bitMask);
+      final byte[] key = getFirstKeyFromChild(children[i]);
+      partialKeys[i] = computePartialKey(key, discBits);
     }
     return partialKeys;
+  }
+
+  /**
+   * Compute partial key for a single key, dispatching to SingleMask or MultiMask.
+   */
+  private int computePartialKey(byte[] key, DiscBitsInfo discBits) {
+    if (discBits.isSingleMask()) {
+      return computePartialKeySingleMask(key, discBits.initialBytePos(), discBits.bitMask());
+    } else {
+      return computePartialKeyMultiMask(key, discBits.extractionPositions(),
+          discBits.extractionMasks(), discBits.numExtractionBytes());
+    }
+  }
+
+  /**
+   * Compute partial key using MultiMask extraction (byte gathering + per-chunk PEXT).
+   */
+  private static int computePartialKeyMultiMask(byte[] key, byte[] extractionPositions,
+      long[] extractionMasks, int numExtractionBytes) {
+    final int numChunks = extractionMasks.length;
+    final long[] gathered = new long[numChunks];
+    for (int i = 0; i < numExtractionBytes; i++) {
+      final int keyBytePos = extractionPositions[i] & 0xFF;
+      final int keyByte = keyBytePos < key.length ? (key[keyBytePos] & 0xFF) : 0;
+      final int chunkIdx = i / 8;
+      final int byteOffset = i % 8;
+      gathered[chunkIdx] |= ((long) keyByte) << (byteOffset * 8);
+    }
+    int result = 0;
+    int shift = 0;
+    for (int w = 0; w < numChunks; w++) {
+      final int extracted = (int) Long.compress(gathered[w], extractionMasks[w]);
+      result |= extracted << shift;
+      shift += Long.bitCount(extractionMasks[w]);
+    }
+    return result;
   }
 
   /**
@@ -734,9 +961,9 @@ public final class HOTTrieWriter {
     final int numChildren = parent.getNumChildren();
 
     // Reference: getMaskForLargerEntries() finds entries with MSB set
-    // The MSB (most significant bit) determines the split boundary
-    // Find the split point based on the most significant discriminative bit
-    final int msbPosition = findMostSignificantDiscriminativeBitPosition(parent);
+    // The MSB (most significant bit) determines the split boundary.
+    // Uses the stored field (matching C++ reference's mMostSignificantDiscriminativeBitIndex).
+    final int msbPosition = parent.getMostSignificantBitIndex();
 
     // Partition children into "smaller" (MSB=0) and "larger" (MSB=1) using pre-allocated buffers
     int smallerCount = 0;
@@ -759,6 +986,11 @@ public final class HOTTrieWriter {
         }
       } else {
         final PageReference child = parent.getChildReference(i);
+        // Skip stale COW copies that alias the same TIL entry as a split result
+        final int childLogKey = child.getLogKey();
+        if (childLogKey >= 0 && (childLogKey == leftChild.getLogKey() || childLogKey == rightChild.getLogKey())) {
+          continue;
+        }
         final byte[] childKey = getFirstKeyFromChild(child);
         if (!hasBitSet(childKey, msbPosition)) {
           splitSmallerBuf[smallerCount++] = child;
@@ -779,22 +1011,34 @@ public final class HOTTrieWriter {
     final PageReference[] leftChildren = Arrays.copyOf(splitSmallerBuf, smallerCount);
     final PageReference[] rightChildren = Arrays.copyOf(splitLargerBuf, largerCount);
 
-    // Create left node (entries with MSB=0)
-    HOTIndirectPage leftNode =
-        createNodeFromChildren(leftChildren, parent.getPageKey(), storageEngineReader.getRevisionNumber(), parent.getHeight());
-    PageReference leftNodeRef = new PageReference();
-    leftNodeRef.setKey(parent.getPageKey());
-    leftNodeRef.setPage(leftNode);
-    log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
+    // Create left node (entries with MSB=0). If only 1 child after stale-copy dedup,
+    // pass the reference through directly — wrapping in a BiNode would point both
+    // children to the same page, causing duplicate iteration.
+    final PageReference leftNodeRef;
+    if (leftChildren.length == 1) {
+      leftNodeRef = leftChildren[0];
+    } else {
+      HOTIndirectPage leftNode =
+          createNodeFromChildren(leftChildren, parent.getPageKey(), storageEngineReader.getRevisionNumber(), parent.getHeight());
+      leftNodeRef = new PageReference();
+      leftNodeRef.setKey(parent.getPageKey());
+      leftNodeRef.setPage(leftNode);
+      log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
+    }
 
     // Create right node (entries with MSB=1) - new page key
-    long rightPageKey = pageKeyAllocator.getAsLong();
-    HOTIndirectPage rightNode =
-        createNodeFromChildren(rightChildren, rightPageKey, storageEngineReader.getRevisionNumber(), parent.getHeight());
-    PageReference rightNodeRef = new PageReference();
-    rightNodeRef.setKey(rightPageKey);
-    rightNodeRef.setPage(rightNode);
-    log.put(rightNodeRef, PageContainer.getInstance(rightNode, rightNode));
+    final PageReference rightNodeRef;
+    if (rightChildren.length == 1) {
+      rightNodeRef = rightChildren[0];
+    } else {
+      long rightPageKey = pageKeyAllocator.getAsLong();
+      HOTIndirectPage rightNode =
+          createNodeFromChildren(rightChildren, rightPageKey, storageEngineReader.getRevisionNumber(), parent.getHeight());
+      rightNodeRef = new PageReference();
+      rightNodeRef.setKey(rightPageKey);
+      rightNodeRef.setPage(rightNode);
+      log.put(rightNodeRef, PageContainer.getInstance(rightNode, rightNode));
+    }
 
     // The split bit becomes the new root's discriminative bit
     // Reference: uses mMostSignificantDiscriminativeBitIndex for new BiNode
@@ -819,23 +1063,7 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Find the most significant discriminative bit position for the parent node. With big-endian
-   * layout, the highest set bit in the mask directly maps: absolute_bit = initialBytePos * 8 + CLZ.
-   * This is because bit 63 = byte 0 MSB, bit 62 = byte 0 bit 1, etc.
-   */
-  private int findMostSignificantDiscriminativeBitPosition(HOTIndirectPage parent) {
-    long bitMask = parent.getBitMask();
-    if (bitMask == 0) {
-      return 0;
-    }
-    int bytePos = parent.getInitialBytePos();
-    // With BE: CLZ gives the offset from MSB of the 8-byte window, which IS the absolute
-    // bit offset within the window. Add bytePos * 8 for the absolute position.
-    return bytePos * 8 + Long.numberOfLeadingZeros(bitMask);
-  }
-
-  /**
-   * Check if a key has a specific bit set.
+   * Check if a key has a specific bit set (MSB-first convention).
    */
   private boolean hasBitSet(byte[] key, int bitPosition) {
     int byteIndex = bitPosition / 8;
@@ -858,9 +1086,10 @@ public final class HOTTrieWriter {
     int splitPoint = numChildren / 2;
     boolean splitInLeftHalf = originalChildIndex < splitPoint;
 
-    int leftCount = splitPoint + (splitInLeftHalf
-        ? 1
-        : 0);
+    final int leftLogKey = leftChild.getLogKey();
+    final int rightLogKey = rightChild.getLogKey();
+
+    int leftCount = splitPoint + (splitInLeftHalf ? 1 : 0);
     PageReference[] leftChildren = new PageReference[leftCount];
     int li = 0;
     for (int i = 0; i < splitPoint; i++) {
@@ -868,13 +1097,19 @@ public final class HOTTrieWriter {
         leftChildren[li++] = leftChild;
         leftChildren[li++] = rightChild;
       } else {
-        leftChildren[li++] = parent.getChildReference(i);
+        final PageReference child = parent.getChildReference(i);
+        final int childLogKey = child.getLogKey();
+        if (childLogKey >= 0 && (childLogKey == leftLogKey || childLogKey == rightLogKey)) {
+          continue; // stale COW copy
+        }
+        leftChildren[li++] = child;
       }
     }
+    if (li < leftChildren.length) {
+      leftChildren = Arrays.copyOf(leftChildren, li);
+    }
 
-    int rightCount = numChildren - splitPoint + (splitInLeftHalf
-        ? 0
-        : 1);
+    int rightCount = numChildren - splitPoint + (splitInLeftHalf ? 0 : 1);
     PageReference[] rightChildren = new PageReference[rightCount];
     int ri = 0;
     for (int i = splitPoint; i < numChildren; i++) {
@@ -882,24 +1117,44 @@ public final class HOTTrieWriter {
         rightChildren[ri++] = leftChild;
         rightChildren[ri++] = rightChild;
       } else {
-        rightChildren[ri++] = parent.getChildReference(i);
+        final PageReference child = parent.getChildReference(i);
+        final int childLogKey = child.getLogKey();
+        if (childLogKey >= 0 && (childLogKey == leftLogKey || childLogKey == rightLogKey)) {
+          continue; // stale COW copy
+        }
+        rightChildren[ri++] = child;
       }
     }
+    if (ri < rightChildren.length) {
+      rightChildren = Arrays.copyOf(rightChildren, ri);
+    }
 
-    HOTIndirectPage leftNode =
-        createNodeFromChildren(leftChildren, parent.getPageKey(), storageEngineReader.getRevisionNumber(), parent.getHeight());
-    PageReference leftNodeRef = new PageReference();
-    leftNodeRef.setKey(parent.getPageKey());
-    leftNodeRef.setPage(leftNode);
-    log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
+    // If only 1 child after stale-copy dedup, pass the reference through directly —
+    // wrapping in a BiNode would point both children to the same page.
+    final PageReference leftNodeRef;
+    if (leftChildren.length == 1) {
+      leftNodeRef = leftChildren[0];
+    } else {
+      HOTIndirectPage leftNode =
+          createNodeFromChildren(leftChildren, parent.getPageKey(), storageEngineReader.getRevisionNumber(), parent.getHeight());
+      leftNodeRef = new PageReference();
+      leftNodeRef.setKey(parent.getPageKey());
+      leftNodeRef.setPage(leftNode);
+      log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
+    }
 
-    long rightPageKey = pageKeyAllocator.getAsLong();
-    HOTIndirectPage rightNode =
-        createNodeFromChildren(rightChildren, rightPageKey, storageEngineReader.getRevisionNumber(), parent.getHeight());
-    PageReference rightNodeRef = new PageReference();
-    rightNodeRef.setKey(rightPageKey);
-    rightNodeRef.setPage(rightNode);
-    log.put(rightNodeRef, PageContainer.getInstance(rightNode, rightNode));
+    final PageReference rightNodeRef;
+    if (rightChildren.length == 1) {
+      rightNodeRef = rightChildren[0];
+    } else {
+      long rightPageKey = pageKeyAllocator.getAsLong();
+      HOTIndirectPage rightNode =
+          createNodeFromChildren(rightChildren, rightPageKey, storageEngineReader.getRevisionNumber(), parent.getHeight());
+      rightNodeRef = new PageReference();
+      rightNodeRef.setKey(rightPageKey);
+      rightNodeRef.setPage(rightNode);
+      log.put(rightNodeRef, PageContainer.getInstance(rightNode, rightNode));
+    }
 
     if (currentPathIdx > 0) {
       int grandparentIdx = currentPathIdx - 1;
@@ -909,7 +1164,7 @@ public final class HOTTrieWriter {
     } else {
       byte[] lMax = getLastKeyFromChild(leftNodeRef);
       byte[] rMin = getFirstKeyFromChild(rightNodeRef);
-      int rootDiscrimBit = DiscriminativeBitComputer.computeDifferingBit(lMax, rMin);
+      int rootDiscrimBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(lMax, rMin));
 
       long newRootKey = pageKeyAllocator.getAsLong();
       HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(newRootKey, storageEngineReader.getRevisionNumber(), rootDiscrimBit,
@@ -925,81 +1180,90 @@ public final class HOTTrieWriter {
    * Create appropriate node type for given children array.
    */
   private HOTIndirectPage createNodeFromChildren(PageReference[] children, long pageKey, int revision, int height) {
+    if (children.length < 2) {
+      throw new IllegalStateException("Cannot create HOTIndirectPage with " + children.length
+          + " children — callers must handle the single-child case by passing the reference through directly");
+    }
+
     // Sort children by first key for correct boundary computation
     sortChildrenByFirstKey(children);
 
-    if (children.length <= 2) {
-      byte[] leftMax = getLastKeyFromChild(children[0]);
-      byte[] rightMin = children.length > 1
-          ? getFirstKeyFromChild(children[1])
-          : leftMax;
-      int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
-      return HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit, children[0], children.length > 1
-          ? children[1]
-          : children[0], height);
+    if (children.length == 2) {
+      final byte[] leftMax = getLastKeyFromChild(children[0]);
+      final byte[] rightMin = getFirstKeyFromChild(children[1]);
+      final int discriminativeBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin));
+      return HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit, children[0], children[1], height);
     } else {
-      byte initialBytePos = computeInitialBytePos(children);
-      long bitMask = computeBitMaskForChildren(children, initialBytePos);
-      byte[] partialKeys = computePartialKeysForChildren(children, initialBytePos, bitMask);
-
-      if (children.length <= 16) {
-        return HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos, bitMask, partialKeys, children,
-            height);
-      } else {
-        return HOTIndirectPage.createMultiNode(pageKey, revision, initialBytePos, bitMask, partialKeys, children,
-            height);
-      }
+      final int initialBytePos = computeInitialBytePos(children);
+      final DiscBitsInfo discBits = computeDiscBits(children, initialBytePos);
+      final int[] partialKeys = computePartialKeysForChildren(children, discBits);
+      return createNodeWithDiscBits(pageKey, revision, height, discBits, partialKeys, children);
     }
   }
 
   /**
-   * Compute partial key by extracting discriminative bits from a key.
-   * Uses big-endian layout: byte 0 of window → bits 56-63, matching getKeyWordAt().
+   * Compute partial key (SingleMask) by extracting discriminative bits from a key.
+   * Uses little-endian layout matching {@link HOTIndirectPage#getKeyWordAt}:
+   * byte 0 of window → bits 0-7, byte 1 → bits 8-15, etc.
    */
-  private byte computePartialKey(byte[] key, byte initialBytePos, long bitMask) {
+  private int computePartialKeySingleMask(byte[] key, int initialBytePos, long bitMask) {
     if (key == null || key.length == 0) {
       return 0;
     }
 
-    // Extract 8 bytes from key starting at initialBytePos (big-endian)
+    // Extract 8 bytes from key starting at initialBytePos (little-endian, matching getKeyWordAt)
     long keyWord = 0;
     for (int i = 0; i < 8 && (initialBytePos + i) < key.length; i++) {
-      keyWord |= ((long) (key[initialBytePos + i] & 0xFF)) << ((7 - i) * 8);
+      keyWord |= ((long) (key[initialBytePos + i] & 0xFF)) << (i * 8);
     }
 
     // Apply PEXT-style extraction: compress bits selected by mask
-    return (byte) Long.compress(keyWord, bitMask);
+    return (int) Long.compress(keyWord, bitMask);
   }
 
   /**
    * Get the last key from a child reference (leaf or indirect page).
+   * Falls back to loading from storage if not swizzled.
    */
   private byte[] getLastKeyFromChild(PageReference childRef) {
-    final Page page = childRef.getPage();
+    Page page = childRef.getPage();
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, childRef);
+      if (page != null) {
+        childRef.setPage(page); // swizzle for future access
+      }
+    }
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getLastKey();
     } else if (page instanceof HOTIndirectPage indirect) {
       return getLastKeyFromIndirectPage(indirect);
     }
-    return new byte[0];
+    return EMPTY_KEY;
   }
 
   /**
    * Descend through indirect pages to find the last key.
+   * Falls back to loading from storage if child is not swizzled.
    */
   private byte[] getLastKeyFromIndirectPage(HOTIndirectPage indirect) {
     final int numChildren = indirect.getNumChildren();
     if (numChildren == 0) {
-      return new byte[0];
+      return EMPTY_KEY;
     }
     final PageReference lastChild = indirect.getChildReference(numChildren - 1);
-    final Page page = lastChild.getPage();
+    Page page = lastChild.getPage();
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, lastChild);
+      if (page != null) {
+        lastChild.setPage(page);
+      }
+    }
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getLastKey();
     } else if (page instanceof HOTIndirectPage child) {
       return getLastKeyFromIndirectPage(child);
     }
-    return new byte[0];
+    return EMPTY_KEY;
   }
 
   /**
@@ -1018,33 +1282,47 @@ public final class HOTTrieWriter {
 
   /**
    * Get the first key from a child reference (leaf or indirect page).
+   * Falls back to loading from storage if not swizzled.
    */
   private byte[] getFirstKeyFromChild(PageReference childRef) {
-    final Page page = childRef.getPage();
+    Page page = childRef.getPage();
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, childRef);
+      if (page != null) {
+        childRef.setPage(page); // swizzle for future access
+      }
+    }
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getFirstKey();
     } else if (page instanceof HOTIndirectPage indirect) {
       return getFirstKeyFromIndirectPage(indirect);
     }
-    return new byte[0];
+    return EMPTY_KEY;
   }
 
   /**
    * Descend through indirect pages to find the first key.
+   * Falls back to loading from storage if child is not swizzled.
    */
   private byte[] getFirstKeyFromIndirectPage(HOTIndirectPage indirect) {
     final int numChildren = indirect.getNumChildren();
     if (numChildren == 0) {
-      return new byte[0];
+      return EMPTY_KEY;
     }
     final PageReference firstChild = indirect.getChildReference(0);
-    final Page page = firstChild.getPage();
+    Page page = firstChild.getPage();
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, firstChild);
+      if (page != null) {
+        firstChild.setPage(page);
+      }
+    }
     if (page instanceof HOTLeafPage leaf) {
       return leaf.getFirstKey();
     } else if (page instanceof HOTIndirectPage child) {
       return getFirstKeyFromIndirectPage(child);
     }
-    return new byte[0];
+    return EMPTY_KEY;
   }
 }
 

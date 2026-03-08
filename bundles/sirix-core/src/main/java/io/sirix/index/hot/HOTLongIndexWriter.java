@@ -171,10 +171,10 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
   public boolean remove(long key, long nodeKey) {
     // Serialize key (no boxing!)
     byte[] keyBuf = KEY_BUFFER.get();
-    keySerializer.serialize(key, keyBuf, 0);
+    int keyLen = keySerializer.serialize(key, keyBuf, 0);
 
     // Navigate to leaf with path tracking
-    LeafNavigationResult navResult = getLeafWithPath(rootReference, keyBuf, 8);
+    LeafNavigationResult navResult = getLeafWithPath(rootReference, keyBuf, keyLen);
     HOTLeafPage leaf = navResult.leaf();
     if (leaf == null) {
       return false;
@@ -196,8 +196,14 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
     boolean removed = refs.removeNodeKey(nodeKey);
 
     if (removed) {
+      // Pre-check size to avoid buffer overflow
       byte[] valueBuf = VALUE_BUFFER.get();
-      int valueLen = NodeReferencesSerializer.serialize(refs, valueBuf, 0);
+      final int requiredSize = NodeReferencesSerializer.computeSerializedSize(refs);
+      if (requiredSize > valueBuf.length) {
+        valueBuf = new byte[requiredSize];
+        VALUE_BUFFER.set(valueBuf);
+      }
+      final int valueLen = NodeReferencesSerializer.serialize(refs, valueBuf, 0);
       leaf.updateValue(index, Arrays.copyOf(valueBuf, valueLen));
     }
 

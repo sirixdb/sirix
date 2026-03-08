@@ -287,9 +287,7 @@ class HOTComprehensiveCoverageTest {
       for (int i = 1; i <= 32; i++) {
         HOTIndirectPage.NodeType type = NodeUpgradeManager.determineNodeType(i);
         assertNotNull(type);
-        if (i <= 2) {
-          assertEquals(HOTIndirectPage.NodeType.BI_NODE, type);
-        } else if (i <= 16) {
+        if (i <= 16) {
           assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, type);
         } else {
           assertEquals(HOTIndirectPage.NodeType.MULTI_NODE, type);
@@ -349,7 +347,7 @@ class HOTComprehensiveCoverageTest {
 
         HOTIndirectPage biNode = HeightOptimalSplitter.createBiNode(1L, 1, bit, leftRef, rightRef);
         assertNotNull(biNode);
-        assertEquals(HOTIndirectPage.NodeType.BI_NODE, biNode.getNodeType());
+        assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, biNode.getNodeType());
       }
     }
 
@@ -415,11 +413,11 @@ class HOTComprehensiveCoverageTest {
 
       // SpanNode
       PageReference[] children = new PageReference[4];
-      byte[] partialKeys = new byte[4];
+      int[] partialKeys = new int[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
         children[i].setKey(i);
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(2L, 1, (byte) 0, 0b1111L, partialKeys, children);
       double spanFill = SiblingMerger.getFillFactor(spanNode);

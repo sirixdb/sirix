@@ -306,11 +306,11 @@ class HOTBugFindingTest {
     void testSpanNodeNavigationConsistency() {
       // Create SpanNode with 8 children
       PageReference[] children = new PageReference[8];
-      byte[] partialKeys = new byte[8];
+      int[] partialKeys = new int[8];
       for (int i = 0; i < 8; i++) {
         children[i] = new PageReference();
         children[i].setKey((long) i);
-        partialKeys[i] = (byte) (i * 32); // 0, 32, 64, 96, 128, 160, 192, 224
+        partialKeys[i] = i * 32; // 0, 32, 64, 96, 128, 160, 192, 224
       }
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0xFFL, partialKeys, children, 2);
@@ -363,17 +363,15 @@ class HOTBugFindingTest {
   class NodeTypeTransitionEdgeCases {
 
     @Test
-    @DisplayName("BUG: BiNode to SpanNode transition at boundary")
-    void testBiNodeToSpanNodeTransition() {
-      // BiNode has max 2 children
-      // When adding 3rd child, should upgrade to SpanNode
-
+    @DisplayName("SpanNode with 2 children does not need upgrade at 3")
+    void testSpanNodeWith2ChildrenNoUpgrade() {
+      // createBiNode returns SPAN_NODE — adding a 3rd child stays within SPAN_NODE capacity (max 16)
       PageReference left = new PageReference();
       PageReference right = new PageReference();
-      HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, left, right);
+      HOTIndirectPage node = HOTIndirectPage.createBiNode(1L, 1, 0, left, right);
 
-      assertTrue(NodeUpgradeManager.needsUpgrade(biNode, 3), "BiNode needs upgrade when adding 3rd child");
-      assertFalse(NodeUpgradeManager.needsUpgrade(biNode, 2), "BiNode does not need upgrade at 2 children");
+      assertFalse(NodeUpgradeManager.needsUpgrade(node, 3), "SpanNode does not need upgrade at 3 children");
+      assertFalse(NodeUpgradeManager.needsUpgrade(node, 2), "SpanNode does not need upgrade at 2 children");
     }
 
     @Test
@@ -381,10 +379,10 @@ class HOTBugFindingTest {
     void testSpanNodeToMultiNodeTransition() {
       // SpanNode has max 16 children
       PageReference[] children = new PageReference[16];
-      byte[] partialKeys = new byte[16];
+      int[] partialKeys = new int[16];
       for (int i = 0; i < 16; i++) {
         children[i] = new PageReference();
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0xFFFFL, partialKeys, children, 2);
@@ -397,17 +395,17 @@ class HOTBugFindingTest {
     @DisplayName("BUG: Downgrade boundary conditions")
     void testDowngradeBoundaryConditions() {
       PageReference[] children = new PageReference[4];
-      byte[] partialKeys = new byte[4];
+      int[] partialKeys = new int[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, 0xFL, partialKeys, children, 2);
 
-      // SpanNode with 2 children should downgrade to BiNode
-      assertTrue(NodeUpgradeManager.shouldDowngrade(spanNode, 2),
-          "SpanNode should downgrade when reduced to 2 children");
+      // SpanNode with 2 children stays SpanNode — no downgrade since BI_NODE was removed
+      assertFalse(NodeUpgradeManager.shouldDowngrade(spanNode, 2),
+          "SpanNode should not downgrade at 2 children");
       assertFalse(NodeUpgradeManager.shouldDowngrade(spanNode, 3), "SpanNode should not downgrade at 3 children");
     }
   }
@@ -531,11 +529,11 @@ class HOTBugFindingTest {
     @DisplayName("BUG: Update child in SpanNode middle")
     void testUpdateMiddleChildSpanNode() {
       PageReference[] children = new PageReference[5];
-      byte[] partialKeys = new byte[5];
+      int[] partialKeys = new int[5];
       for (int i = 0; i < 5; i++) {
         children[i] = new PageReference();
         children[i].setKey((long) i);
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(100L, 1, (byte) 0, 0xFFL, partialKeys, children, 2);
@@ -578,10 +576,10 @@ class HOTBugFindingTest {
     @DisplayName("BUG: SpanNode height should be preserved")
     void testSpanNodeHeightPreserved() {
       PageReference[] children = new PageReference[4];
-      byte[] partialKeys = new byte[4];
+      int[] partialKeys = new int[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
-        partialKeys[i] = (byte) i;
+        partialKeys[i] = i;
       }
 
       int expectedHeight = 5;

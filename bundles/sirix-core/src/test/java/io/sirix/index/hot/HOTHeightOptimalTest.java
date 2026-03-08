@@ -130,9 +130,9 @@ class HOTHeightOptimalTest {
   class NodeTypeTransitionTests {
 
     @Test
-    @DisplayName("BiNode capacity: 2 children")
-    void testBiNodeCapacity() {
-      assertEquals(2, NodeUpgradeManager.BI_NODE_MAX_CHILDREN);
+    @DisplayName("SpanNode minimum children: 2")
+    void testSpanNodeMinChildren() {
+      assertEquals(2, NodeUpgradeManager.SPAN_NODE_MIN_CHILDREN);
     }
 
     @Test
@@ -150,8 +150,8 @@ class HOTHeightOptimalTest {
     @Test
     @DisplayName("Correct node type selection by child count")
     void testNodeTypeSelection() {
-      assertEquals(io.sirix.page.HOTIndirectPage.NodeType.BI_NODE, NodeUpgradeManager.determineNodeType(1));
-      assertEquals(io.sirix.page.HOTIndirectPage.NodeType.BI_NODE, NodeUpgradeManager.determineNodeType(2));
+      assertEquals(io.sirix.page.HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(1));
+      assertEquals(io.sirix.page.HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(2));
       assertEquals(io.sirix.page.HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(3));
       assertEquals(io.sirix.page.HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(16));
       assertEquals(io.sirix.page.HOTIndirectPage.NodeType.MULTI_NODE, NodeUpgradeManager.determineNodeType(17));
@@ -161,8 +161,8 @@ class HOTHeightOptimalTest {
     @Test
     @DisplayName("Correct node type selection by discriminative bit count")
     void testNodeTypeByBits() {
-      // 1 bit → BiNode (2^1 = 2 children)
-      assertEquals(io.sirix.page.HOTIndirectPage.NodeType.BI_NODE, NodeUpgradeManager.determineNodeTypeByBits(1));
+      // 1-4 bits → SpanNode (2^1 to 2^4 = 2-16 children)
+      assertEquals(io.sirix.page.HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeTypeByBits(1));
 
       // 2-4 bits → SpanNode (2^2 to 2^4 = 4-16 children)
       assertEquals(io.sirix.page.HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeTypeByBits(2));

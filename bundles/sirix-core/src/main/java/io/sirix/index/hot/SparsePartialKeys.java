@@ -238,7 +238,8 @@ public final class SparsePartialKeys<T extends Number> {
       VectorMask<Short> matches2 = searchReg.and(haystack2).compare(jdk.incubator.vector.VectorOperators.EQ, haystack2);
 
       int result = (int) matches1.toLong() | ((int) matches2.toLong() << 16);
-      return result & ((1 << numEntries) - 1);
+      long mask = numEntries == 32 ? 0xFFFFFFFFL : ((1L << numEntries) - 1);
+      return (int) (result & mask);
     } else {
       return searchShortsScalar(densePartialKey);
     }
@@ -270,7 +271,8 @@ public final class SparsePartialKeys<T extends Number> {
         result |= ((int) matches.toLong() << (i * 8));
       }
 
-      return result & ((1 << numEntries) - 1);
+      long mask = numEntries == 32 ? 0xFFFFFFFFL : ((1L << numEntries) - 1);
+      return (int) (result & mask);
     } else {
       return searchIntsScalar(densePartialKey);
     }

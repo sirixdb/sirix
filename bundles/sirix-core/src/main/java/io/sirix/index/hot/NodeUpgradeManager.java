@@ -42,9 +42,8 @@ import java.util.List;
  * Handles upgrades and downgrades between node types:
  * </p>
  * <ul>
- * <li>BiNode (2 children, 1 discriminative bit)</li>
- * <li>SpanNode (2-16 children, 2-4 discriminative bits)</li>
- * <li>MultiNode (17-256 children, 5-8 discriminative bits)</li>
+ * <li>SpanNode (2-16 children, 1-4 discriminative bits)</li>
+ * <li>MultiNode (17-32 children, 5-8 discriminative bits)</li>
  * </ul>
  * 
  * <p>
@@ -55,7 +54,6 @@ import java.util.List;
  * <b>Upgrade Triggers:</b>
  * </p>
  * <ul>
- * <li>BiNode → SpanNode: When sibling BiNodes share discriminative bits in same byte</li>
  * <li>SpanNode → MultiNode: When children exceed 16</li>
  * </ul>
  * 
@@ -63,7 +61,6 @@ import java.util.List;
  * <b>Downgrade Triggers:</b>
  * </p>
  * <ul>
- * <li>SpanNode → BiNode: After merge, only 2 children remain</li>
  * <li>MultiNode → SpanNode: After delete, children drop to ≤16</li>
  * </ul>
  * 
@@ -72,8 +69,8 @@ import java.util.List;
  */
 public final class NodeUpgradeManager {
 
-  /** Maximum children for BiNode. */
-  public static final int BI_NODE_MAX_CHILDREN = 2;
+  /** Minimum children for SpanNode (formerly BiNode threshold). */
+  public static final int SPAN_NODE_MIN_CHILDREN = 2;
 
   /** Maximum children for SpanNode. */
   public static final int SPAN_NODE_MAX_CHILDREN = 16;
@@ -100,9 +97,6 @@ public final class NodeUpgradeManager {
     if (numChildren < 1) {
       throw new IllegalArgumentException("Node must have at least 1 child: " + numChildren);
     }
-    if (numChildren <= BI_NODE_MAX_CHILDREN) {
-      return NodeType.BI_NODE;
-    }
     if (numChildren <= SPAN_NODE_MAX_CHILDREN) {
       return NodeType.SPAN_NODE;
     }
@@ -119,9 +113,6 @@ public final class NodeUpgradeManager {
    * @return the appropriate node type
    */
   public static NodeType determineNodeTypeByBits(int numDiscriminativeBits) {
-    if (numDiscriminativeBits <= 1) {
-      return NodeType.BI_NODE;
-    }
     if (numDiscriminativeBits <= SPAN_NODE_MAX_BITS) {
       return NodeType.SPAN_NODE;
     }
@@ -140,12 +131,12 @@ public final class NodeUpgradeManager {
    * @param biNode2 second BiNode
    * @return true if nodes should be merged into a SpanNode
    */
-  public static boolean shouldMergeToSpanNode(@NonNull HOTIndirectPage biNode1, @NonNull HOTIndirectPage biNode2) {
-    if (biNode1.getNodeType() != NodeType.BI_NODE || biNode2.getNodeType() != NodeType.BI_NODE) {
+  public static boolean shouldMergeToSpanNode(@NonNull HOTIndirectPage node1, @NonNull HOTIndirectPage node2) {
+    if (node1.getNodeType() != NodeType.SPAN_NODE || node2.getNodeType() != NodeType.SPAN_NODE) {
       return false;
     }
     // Same initial byte position means discriminative bits are in same region
-    return biNode1.getInitialBytePos() == biNode2.getInitialBytePos();
+    return node1.getInitialBytePos() == node2.getInitialBytePos();
   }
 
   /**
@@ -223,7 +214,7 @@ public final class NodeUpgradeManager {
 
     // Create new SpanNode with combined mask and all children
     PageReference[] childRefs = new PageReference[totalChildren];
-    byte[] partialKeys = new byte[totalChildren];
+    int[] partialKeys = new int[totalChildren];
     int childIdx = 0;
 
     for (HOTIndirectPage biNode : biNodes) {
@@ -255,7 +246,7 @@ public final class NodeUpgradeManager {
    * @return the new MultiNode
    */
   public static HOTIndirectPage upgradeToMultiNode(@NonNull HOTIndirectPage spanNode, long newPageKey, int revision,
-      PageReference additionalChild, byte additionalPartialKey) {
+      PageReference additionalChild, int additionalPartialKey) {
     if (spanNode.getNodeType() != NodeType.SPAN_NODE) {
       throw new IllegalArgumentException("Can only upgrade SpanNode to MultiNode");
     }
@@ -264,7 +255,7 @@ public final class NodeUpgradeManager {
         ? 1
         : 0);
     PageReference[] childRefs = new PageReference[newChildCount];
-    byte[] partialKeys = new byte[newChildCount];
+    int[] partialKeys = new int[newChildCount];
 
     // Copy existing children
     for (int i = 0; i < spanNode.getNumChildren(); i++) {
@@ -293,7 +284,7 @@ public final class NodeUpgradeManager {
   public static HOTIndirectPage downgradeToNode(@NonNull HOTIndirectPage spanNode, long newPageKey, int revision) {
     int numChildren = spanNode.getNumChildren();
 
-    if (numChildren > BI_NODE_MAX_CHILDREN) {
+    if (numChildren > SPAN_NODE_MIN_CHILDREN) {
       // Still too many children for BiNode, keep as SpanNode but with new key
       return spanNode.copyWithNewPageKey(newPageKey, revision);
     }
@@ -354,7 +345,6 @@ public final class NodeUpgradeManager {
    */
   public static int getMaxChildrenForType(NodeType nodeType) {
     return switch (nodeType) {
-      case BI_NODE -> BI_NODE_MAX_CHILDREN;
       case SPAN_NODE -> SPAN_NODE_MAX_CHILDREN;
       case MULTI_NODE -> MULTI_NODE_MAX_CHILDREN;
     };

@@ -119,8 +119,8 @@ class HOTAdditionalCoverageTest {
     @Test
     @DisplayName("Node type for all boundary values")
     void testNodeTypeBoundaries() {
-      assertEquals(HOTIndirectPage.NodeType.BI_NODE, NodeUpgradeManager.determineNodeType(1));
-      assertEquals(HOTIndirectPage.NodeType.BI_NODE, NodeUpgradeManager.determineNodeType(2));
+      assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(1));
+      assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(2));
       assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(3));
       assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeType(16));
       assertEquals(HOTIndirectPage.NodeType.MULTI_NODE, NodeUpgradeManager.determineNodeType(17));
@@ -130,8 +130,8 @@ class HOTAdditionalCoverageTest {
     @Test
     @DisplayName("Node type by discriminative bits")
     void testNodeTypeByBits() {
-      assertEquals(HOTIndirectPage.NodeType.BI_NODE, NodeUpgradeManager.determineNodeTypeByBits(0));
-      assertEquals(HOTIndirectPage.NodeType.BI_NODE, NodeUpgradeManager.determineNodeTypeByBits(1));
+      assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeTypeByBits(0));
+      assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeTypeByBits(1));
       assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeTypeByBits(2));
       assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, NodeUpgradeManager.determineNodeTypeByBits(4));
       assertEquals(HOTIndirectPage.NodeType.MULTI_NODE, NodeUpgradeManager.determineNodeTypeByBits(5));
@@ -405,7 +405,7 @@ class HOTAdditionalCoverageTest {
       HOTIndirectPage biNode = HeightOptimalSplitter.createBiNode(1L, 1, 7, leftRef, rightRef);
 
       assertNotNull(biNode);
-      assertEquals(HOTIndirectPage.NodeType.BI_NODE, biNode.getNodeType());
+      assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, biNode.getNodeType());
     }
   }
 
@@ -435,13 +435,12 @@ class HOTAdditionalCoverageTest {
       HOTIndirectPage biNode = HOTIndirectPage.createBiNode(1L, 1, 0, leftRef, rightRef);
 
       boolean isUnderfilled = NodeUpgradeManager.isUnderfilled(biNode, 0.5);
-      assertFalse(isUnderfilled, "BiNode with 2 children is not underfilled");
+      assertTrue(isUnderfilled, "2-child SpanNode is underfilled (2 < 16 * 0.5 = 8)");
     }
 
     @Test
     @DisplayName("Get max children for each node type")
     void testGetMaxChildrenForType() {
-      assertEquals(2, NodeUpgradeManager.getMaxChildrenForType(HOTIndirectPage.NodeType.BI_NODE));
       assertEquals(16, NodeUpgradeManager.getMaxChildrenForType(HOTIndirectPage.NodeType.SPAN_NODE));
       assertEquals(32, NodeUpgradeManager.getMaxChildrenForType(HOTIndirectPage.NodeType.MULTI_NODE));
     }
@@ -458,7 +457,7 @@ class HOTAdditionalCoverageTest {
       HOTIndirectPage node2 = HOTIndirectPage.createBiNode(2L, 1, 0, leftRef2, rightRef2);
 
       boolean shouldMerge = NodeUpgradeManager.shouldMergeToSpanNode(node1, node2);
-      assertTrue(shouldMerge, "Two BiNodes should merge to SpanNode");
+      assertTrue(shouldMerge, "Two 2-child SpanNodes should merge to SpanNode");
     }
   }
 

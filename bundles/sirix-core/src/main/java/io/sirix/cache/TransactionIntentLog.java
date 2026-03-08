@@ -1,6 +1,7 @@
 package io.sirix.cache;
 
 import io.sirix.exception.SirixIOException;
+import org.checkerframework.checker.nullness.qual.Nullable;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.PageReference;
@@ -197,16 +198,26 @@ public final class TransactionIntentLog implements AutoCloseable {
       }
     }
 
-    ensureCapacity();
-
     ref.setKey(Constants.NULL_ID_LONG);
     ref.setPage(null);
-    ref.setLogKey(size);
-    ref.setActiveTilGeneration(currentGeneration);
 
-    entries[size] = value;
-    entryRefs[size] = ref;
-    size++;
+    final int existingKey = ref.getLogKey();
+    if (existingKey != Constants.NULL_ID_INT && existingKey >= 0 && existingKey < size) {
+      // Reuse existing logKey — update container in-place.
+      // This ensures that PageReference copies (from COW operations) that share
+      // the same logKey will resolve to the latest container.
+      entries[existingKey] = value;
+      entryRefs[existingKey] = ref;
+      ref.setActiveTilGeneration(currentGeneration);
+    } else {
+      // New entry
+      ensureCapacity();
+      ref.setLogKey(size);
+      ref.setActiveTilGeneration(currentGeneration);
+      entries[size] = value;
+      entryRefs[size] = ref;
+      size++;
+    }
 
     // Release guards - TIL pages are transaction-private
     if (value.getComplete() instanceof KeyValueLeafPage completePage && completePage.getGuardCount() > 0) {
@@ -228,6 +239,20 @@ public final class TransactionIntentLog implements AutoCloseable {
       entries = Arrays.copyOf(entries, newCap);
       entryRefs = Arrays.copyOf(entryRefs, newCap);
     }
+  }
+
+  /**
+   * Get the original PageReference stored at a given logKey. Used to copy disk offsets
+   * when a duplicate reference (from HOTIndirectPage COW) resolves to the same TIL entry.
+   *
+   * @param logKey the log key
+   * @return the original PageReference, or null if not found
+   */
+  public @Nullable PageReference getOriginalRef(final int logKey) {
+    if (logKey >= 0 && logKey < size) {
+      return entryRefs[logKey];
+    }
+    return null;
   }
 
   // ==================== SNAPSHOT (O(1) array swap) ====================
