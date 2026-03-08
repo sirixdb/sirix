@@ -798,6 +798,23 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
     final var page = container.getModified();
 
+    // Guard against double-commit: when a HOTIndirectPage is COW'd, its child
+    // references are copied via new PageReference(original). The copy shares the
+    // same logKey, so log.get() returns the same container. If the page was already
+    // committed (and its off-heap memory freed) through the original reference,
+    // skip re-serialization and copy the disk key from the original reference.
+    if (page.isClosed()) {
+      final int logKey = reference.getLogKey();
+      if (logKey >= 0) {
+        final PageReference originalRef = log.getOriginalRef(logKey);
+        if (originalRef != null && originalRef != reference) {
+          reference.setKey(originalRef.getKey());
+          reference.setHash(originalRef.getHash());
+        }
+      }
+      return;
+    }
+
     // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);

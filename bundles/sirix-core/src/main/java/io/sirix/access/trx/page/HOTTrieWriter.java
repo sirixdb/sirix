@@ -659,8 +659,6 @@ public final class HOTTrieWriter {
       // Reference line 516: if parent NOT full, add entry
       // Maximum is 32 entries per node (reference: MAXIMUM_NUMBER_NODE_ENTRIES = 32)
       if (currentNumChildren < NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
-        // Parent has space - expand by adding the new entry
-        // This replaces one child with two children
         HOTIndirectPage expandedParent = expandParentNode(parent, originalChildIndex, leftChild, rightChild,
             discriminativeBit, storageEngineReader.getRevisionNumber());
         log.put(parentRef, PageContainer.getInstance(expandedParent, expandedParent));
@@ -702,15 +700,32 @@ public final class HOTTrieWriter {
     int newNumChildren = numChildren + 1;
     PageReference[] newChildren = new PageReference[newNumChildren];
 
-    // Copy children, replacing split child with left+right
+    // Copy children, replacing split child with left+right.
+    // COW-created copies of PageReferences inherit logKeys from originals.
+    // If a copy shares a logKey with leftChild or rightChild, both resolve
+    // to the same TIL entry (same leaf page) — skip the stale copy.
     int j = 0;
+    final int leftLogKey = leftChild.getLogKey();
+    final int rightLogKey = rightChild.getLogKey();
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) {
         newChildren[j++] = leftChild;
         newChildren[j++] = rightChild;
       } else {
-        newChildren[j++] = parent.getChildReference(i);
+        final PageReference child = parent.getChildReference(i);
+        final int childLogKey = child.getLogKey();
+        if (childLogKey >= 0 && (childLogKey == leftLogKey || childLogKey == rightLogKey)) {
+          // Stale copy — aliases the same leaf page as a split result. Skip it.
+          newNumChildren--;
+          continue;
+        }
+        newChildren[j++] = child;
       }
+    }
+
+    // Trim array if stale copies were removed
+    if (j < newChildren.length) {
+      newChildren = Arrays.copyOf(newChildren, j);
     }
 
     // Sort children by first key to ensure correct boundary computation.
@@ -971,6 +986,11 @@ public final class HOTTrieWriter {
         }
       } else {
         final PageReference child = parent.getChildReference(i);
+        // Skip stale COW copies that alias the same TIL entry as a split result
+        final int childLogKey = child.getLogKey();
+        if (childLogKey >= 0 && (childLogKey == leftChild.getLogKey() || childLogKey == rightChild.getLogKey())) {
+          continue;
+        }
         final byte[] childKey = getFirstKeyFromChild(child);
         if (!hasBitSet(childKey, msbPosition)) {
           splitSmallerBuf[smallerCount++] = child;
@@ -1054,9 +1074,10 @@ public final class HOTTrieWriter {
     int splitPoint = numChildren / 2;
     boolean splitInLeftHalf = originalChildIndex < splitPoint;
 
-    int leftCount = splitPoint + (splitInLeftHalf
-        ? 1
-        : 0);
+    final int leftLogKey = leftChild.getLogKey();
+    final int rightLogKey = rightChild.getLogKey();
+
+    int leftCount = splitPoint + (splitInLeftHalf ? 1 : 0);
     PageReference[] leftChildren = new PageReference[leftCount];
     int li = 0;
     for (int i = 0; i < splitPoint; i++) {
@@ -1064,13 +1085,19 @@ public final class HOTTrieWriter {
         leftChildren[li++] = leftChild;
         leftChildren[li++] = rightChild;
       } else {
-        leftChildren[li++] = parent.getChildReference(i);
+        final PageReference child = parent.getChildReference(i);
+        final int childLogKey = child.getLogKey();
+        if (childLogKey >= 0 && (childLogKey == leftLogKey || childLogKey == rightLogKey)) {
+          continue; // stale COW copy
+        }
+        leftChildren[li++] = child;
       }
     }
+    if (li < leftChildren.length) {
+      leftChildren = Arrays.copyOf(leftChildren, li);
+    }
 
-    int rightCount = numChildren - splitPoint + (splitInLeftHalf
-        ? 0
-        : 1);
+    int rightCount = numChildren - splitPoint + (splitInLeftHalf ? 0 : 1);
     PageReference[] rightChildren = new PageReference[rightCount];
     int ri = 0;
     for (int i = splitPoint; i < numChildren; i++) {
@@ -1078,8 +1105,16 @@ public final class HOTTrieWriter {
         rightChildren[ri++] = leftChild;
         rightChildren[ri++] = rightChild;
       } else {
-        rightChildren[ri++] = parent.getChildReference(i);
+        final PageReference child = parent.getChildReference(i);
+        final int childLogKey = child.getLogKey();
+        if (childLogKey >= 0 && (childLogKey == leftLogKey || childLogKey == rightLogKey)) {
+          continue; // stale COW copy
+        }
+        rightChildren[ri++] = child;
       }
+    }
+    if (ri < rightChildren.length) {
+      rightChildren = Arrays.copyOf(rightChildren, ri);
     }
 
     HOTIndirectPage leftNode =

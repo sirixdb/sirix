@@ -319,7 +319,6 @@ public class HOTIndexStressTest {
         IndexDef indexDef = nameIndexOpt.get();
 
         // Full iteration (empty filter = get all)
-        long startTime2 = System.nanoTime();
         Iterator<NodeReferences> iter =
             indexController.openNameIndex(rtx.getStorageEngineReader(), indexDef, indexController.createNameFilter(Set.of()));
 
@@ -330,10 +329,6 @@ public class HOTIndexStressTest {
           allNodeKeys.or(refs.getNodeKeys());
           iterCount++;
         }
-
-        long iterTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime2);
-        System.out.printf("Full iteration: %d entries, %d node keys in %d ms%n", iterCount,
-            allNodeKeys.getLongCardinality(), iterTime);
 
         assertEquals(count, iterCount, "Iterator should return all " + count + " names");
         assertEquals(count, allNodeKeys.getLongCardinality(), "Should have " + count + " unique node keys");

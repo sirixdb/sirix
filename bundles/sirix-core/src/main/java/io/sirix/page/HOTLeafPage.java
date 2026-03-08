@@ -213,7 +213,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
         ? WindowsMemorySegmentAllocator.getInstance()
         : LinuxMemorySegmentAllocator.getInstance();
     this.slotMemory = allocator.allocate(DEFAULT_SIZE);
-    this.releaser = () -> allocator.release(slotMemory);
+    // Capture by local variable to avoid releasing wrong memory if slotMemory field is later changed
+    final MemorySegment segmentToRelease = this.slotMemory;
+    this.releaser = () -> allocator.release(segmentToRelease);
 
     this.slotOffsets = new int[MAX_ENTRIES];
     this.entryCount = 0;
@@ -895,6 +897,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     // Invalidate PEXT index (disc bits over suffixes changed)
     pextValid = false;
+
+
   }
 
   /**
@@ -1114,6 +1118,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     MemorySegment.copy(scratch, 0, slotMemory, ValueLayout.JAVA_BYTE, 0, newOffset);
     usedSlotMemorySize = newOffset;
 
+
     return oldUsed - usedSlotMemorySize;
   }
 
@@ -1301,6 +1306,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
           ? value
           : Arrays.copyOf(value, valueLen);
       final int insertPos = -(index + 1);
+
       return insertAtWithKey(insertPos, keySlice, valueSlice);
     }
   }
@@ -1639,8 +1645,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       if (commonPrefixLen != oldPrefixLen) {
         // Rewrite the single entry with empty suffix
         ensureMutableSlotMemory();
-        slotOffsets[0] = 0;
+        // Read value BEFORE changing slotOffsets — getValue uses slotOffsets[0] to locate the entry
         final byte[] value = getValue(0);
+        slotOffsets[0] = 0;
         slotMemory.set(JAVA_SHORT_UNALIGNED, 0, (short) 0); // suffixLen = 0
         slotMemory.set(JAVA_SHORT_UNALIGNED, 2, (short) value.length);
         if (value.length > 0) {
@@ -1698,6 +1705,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     }
 
     pextValid = false;
+
   }
 
   /**
