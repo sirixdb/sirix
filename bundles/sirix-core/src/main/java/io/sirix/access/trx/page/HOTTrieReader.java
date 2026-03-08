@@ -128,8 +128,12 @@ public final class HOTTrieReader implements AutoCloseable {
       return null;
     }
 
-    // Acquire guard to prevent eviction
-    leaf.acquireGuard();
+    // Acquire guard to prevent eviction. If the page was already closed/orphaned
+    // between navigateToLeaf returning and this point, acquireGuard returns false
+    // and we must not access the page (use-after-free on released MemorySegment).
+    if (!leaf.acquireGuard()) {
+      return null;
+    }
     guardedLeaf = leaf;
 
     try {
@@ -166,8 +170,11 @@ public final class HOTTrieReader implements AutoCloseable {
       return false;
     }
 
-    // Acquire guard temporarily
-    leaf.acquireGuard();
+    // Acquire guard temporarily. If the page was evicted between navigation
+    // and here, acquireGuard returns false — treat as not found.
+    if (!leaf.acquireGuard()) {
+      return false;
+    }
     try {
       int index = leaf.findEntry(key);
       return index >= 0;

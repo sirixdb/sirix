@@ -1494,10 +1494,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     final byte[] savedPrefix = commonPrefix;
     final int savedPrefixLen = commonPrefixLen;
 
-    // Truncate self to left half
+    // Truncate self to left half. Do NOT call recomputePrefix() yet — it may rewrite
+    // slotMemory/slotOffsets if the prefix grows, which makes rollback impossible.
+    // The old (shorter) prefix is still a valid prefix of all remaining keys, so
+    // mergeWithNodeRefs will produce correct but slightly longer suffixes.
     entryCount = splitPoint;
     recalculateUsedMemory();
-    recomputePrefix();
 
     // Insert/update the key in the correct half based on disc bit
     final boolean insertOk;
@@ -1508,7 +1510,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     }
 
     if (!insertOk || entryCount == 0 || target.entryCount == 0) {
-      // Restore source page
+      // Restore source page — safe because slotMemory/slotOffsets were not modified
       entryCount = savedEntryCount;
       usedSlotMemorySize = savedUsedMemory;
       commonPrefix = savedPrefix;
@@ -1522,6 +1524,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       return false;
     }
 
+    // Success — now safe to recompute prefix with all entries (including the inserted key)
+    recomputePrefix();
     pextValid = false;
     return true;
   }

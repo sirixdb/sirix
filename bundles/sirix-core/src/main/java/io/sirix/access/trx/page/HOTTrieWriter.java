@@ -1011,22 +1011,34 @@ public final class HOTTrieWriter {
     final PageReference[] leftChildren = Arrays.copyOf(splitSmallerBuf, smallerCount);
     final PageReference[] rightChildren = Arrays.copyOf(splitLargerBuf, largerCount);
 
-    // Create left node (entries with MSB=0)
-    HOTIndirectPage leftNode =
-        createNodeFromChildren(leftChildren, parent.getPageKey(), storageEngineReader.getRevisionNumber(), parent.getHeight());
-    PageReference leftNodeRef = new PageReference();
-    leftNodeRef.setKey(parent.getPageKey());
-    leftNodeRef.setPage(leftNode);
-    log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
+    // Create left node (entries with MSB=0). If only 1 child after stale-copy dedup,
+    // pass the reference through directly — wrapping in a BiNode would point both
+    // children to the same page, causing duplicate iteration.
+    final PageReference leftNodeRef;
+    if (leftChildren.length == 1) {
+      leftNodeRef = leftChildren[0];
+    } else {
+      HOTIndirectPage leftNode =
+          createNodeFromChildren(leftChildren, parent.getPageKey(), storageEngineReader.getRevisionNumber(), parent.getHeight());
+      leftNodeRef = new PageReference();
+      leftNodeRef.setKey(parent.getPageKey());
+      leftNodeRef.setPage(leftNode);
+      log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
+    }
 
     // Create right node (entries with MSB=1) - new page key
-    long rightPageKey = pageKeyAllocator.getAsLong();
-    HOTIndirectPage rightNode =
-        createNodeFromChildren(rightChildren, rightPageKey, storageEngineReader.getRevisionNumber(), parent.getHeight());
-    PageReference rightNodeRef = new PageReference();
-    rightNodeRef.setKey(rightPageKey);
-    rightNodeRef.setPage(rightNode);
-    log.put(rightNodeRef, PageContainer.getInstance(rightNode, rightNode));
+    final PageReference rightNodeRef;
+    if (rightChildren.length == 1) {
+      rightNodeRef = rightChildren[0];
+    } else {
+      long rightPageKey = pageKeyAllocator.getAsLong();
+      HOTIndirectPage rightNode =
+          createNodeFromChildren(rightChildren, rightPageKey, storageEngineReader.getRevisionNumber(), parent.getHeight());
+      rightNodeRef = new PageReference();
+      rightNodeRef.setKey(rightPageKey);
+      rightNodeRef.setPage(rightNode);
+      log.put(rightNodeRef, PageContainer.getInstance(rightNode, rightNode));
+    }
 
     // The split bit becomes the new root's discriminative bit
     // Reference: uses mMostSignificantDiscriminativeBitIndex for new BiNode
@@ -1117,20 +1129,32 @@ public final class HOTTrieWriter {
       rightChildren = Arrays.copyOf(rightChildren, ri);
     }
 
-    HOTIndirectPage leftNode =
-        createNodeFromChildren(leftChildren, parent.getPageKey(), storageEngineReader.getRevisionNumber(), parent.getHeight());
-    PageReference leftNodeRef = new PageReference();
-    leftNodeRef.setKey(parent.getPageKey());
-    leftNodeRef.setPage(leftNode);
-    log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
+    // If only 1 child after stale-copy dedup, pass the reference through directly —
+    // wrapping in a BiNode would point both children to the same page.
+    final PageReference leftNodeRef;
+    if (leftChildren.length == 1) {
+      leftNodeRef = leftChildren[0];
+    } else {
+      HOTIndirectPage leftNode =
+          createNodeFromChildren(leftChildren, parent.getPageKey(), storageEngineReader.getRevisionNumber(), parent.getHeight());
+      leftNodeRef = new PageReference();
+      leftNodeRef.setKey(parent.getPageKey());
+      leftNodeRef.setPage(leftNode);
+      log.put(leftNodeRef, PageContainer.getInstance(leftNode, leftNode));
+    }
 
-    long rightPageKey = pageKeyAllocator.getAsLong();
-    HOTIndirectPage rightNode =
-        createNodeFromChildren(rightChildren, rightPageKey, storageEngineReader.getRevisionNumber(), parent.getHeight());
-    PageReference rightNodeRef = new PageReference();
-    rightNodeRef.setKey(rightPageKey);
-    rightNodeRef.setPage(rightNode);
-    log.put(rightNodeRef, PageContainer.getInstance(rightNode, rightNode));
+    final PageReference rightNodeRef;
+    if (rightChildren.length == 1) {
+      rightNodeRef = rightChildren[0];
+    } else {
+      long rightPageKey = pageKeyAllocator.getAsLong();
+      HOTIndirectPage rightNode =
+          createNodeFromChildren(rightChildren, rightPageKey, storageEngineReader.getRevisionNumber(), parent.getHeight());
+      rightNodeRef = new PageReference();
+      rightNodeRef.setKey(rightPageKey);
+      rightNodeRef.setPage(rightNode);
+      log.put(rightNodeRef, PageContainer.getInstance(rightNode, rightNode));
+    }
 
     if (currentPathIdx > 0) {
       int grandparentIdx = currentPathIdx - 1;
@@ -1156,24 +1180,15 @@ public final class HOTTrieWriter {
    * Create appropriate node type for given children array.
    */
   private HOTIndirectPage createNodeFromChildren(PageReference[] children, long pageKey, int revision, int height) {
-    if (children.length < 1) {
-      throw new IllegalStateException("Cannot create HOTIndirectPage with 0 children");
+    if (children.length < 2) {
+      throw new IllegalStateException("Cannot create HOTIndirectPage with " + children.length
+          + " children — callers must handle the single-child case by passing the reference through directly");
     }
 
     // Sort children by first key for correct boundary computation
     sortChildrenByFirstKey(children);
 
-    if (children.length == 1) {
-      // Single child: wrap in a BiNode with a distinct copy of the PageReference
-      // to avoid aliasing — both slots must be separate objects so that a future
-      // expandParentNode replacing one slot doesn't corrupt the other.
-      final PageReference copy = new PageReference();
-      copy.setKey(children[0].getKey());
-      copy.setPage(children[0].getPage());
-      copy.setLogKey(children[0].getLogKey());
-      copy.setActiveTilGeneration(children[0].getActiveTilGeneration());
-      return HOTIndirectPage.createBiNode(pageKey, revision, 0, children[0], copy, height);
-    } else if (children.length == 2) {
+    if (children.length == 2) {
       final byte[] leftMax = getLastKeyFromChild(children[0]);
       final byte[] rightMin = getFirstKeyFromChild(children[1]);
       final int discriminativeBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin));
