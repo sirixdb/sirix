@@ -31,9 +31,7 @@ import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.magicwerk.brownies.collections.GapList;
+import io.sirix.utils.GapList;
 import io.sirix.exception.SirixIOException;
 import io.sirix.page.interfaces.PageFragmentKey;
 import io.sirix.settings.Constants;
@@ -88,7 +86,7 @@ public enum SerializationType {
     }
 
     @Override
-    public DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@NonNegative int referenceCount,
+    public DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(int referenceCount,
         BytesIn<?> in) {
       assert in != null;
 
@@ -220,7 +218,7 @@ public enum SerializationType {
     out.writeLong(pageReference.getKey());
   }
 
-  public static void serializeBitSet(BytesOut<?> out, @NonNull final BitSet bitmap) {
+  public static void serializeBitSet(BytesOut<?> out, final BitSet bitmap) {
     final var bytes = bitmap.toByteArray();
     final int len = bytes.length;
     out.writeShort((short) len);
@@ -263,7 +261,7 @@ public enum SerializationType {
    * @param in the input
    * @return the in-memory instances
    */
-  public abstract DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(@NonNegative int referenceCount,
+  public abstract DeserializedBitmapReferencesPageTuple deserializeBitmapReferencesPage(int referenceCount,
       BytesIn<?> in);
 
   /**

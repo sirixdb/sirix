@@ -1,6 +1,6 @@
 package io.sirix.query.function.jn.index.create;
 
-import com.google.common.collect.ImmutableSet;
+import java.util.Set;
 import io.sirix.query.json.JsonDBItem;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
@@ -89,7 +89,7 @@ public final class CreateNameIndex extends AbstractFunction {
     final IndexDef selectiveNameIdxDef = IndexDefs.createSelectiveNameIdxDef(include,
         controller.getIndexes().getNrOfIndexDefsWithType(IndexType.NAME), IndexDef.DbType.JSON);
     try {
-      controller.createIndexes(ImmutableSet.of(selectiveNameIdxDef), wtx);
+      controller.createIndexes(Set.of(selectiveNameIdxDef), wtx);
     } catch (final SirixIOException e) {
       throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
     }

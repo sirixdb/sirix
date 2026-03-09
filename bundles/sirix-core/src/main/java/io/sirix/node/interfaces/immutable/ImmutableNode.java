@@ -4,7 +4,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.BytesOut;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 
 /**

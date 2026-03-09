@@ -28,7 +28,7 @@
 
 package io.sirix.access;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import io.sirix.BinaryEncodingVersion;
@@ -46,7 +46,6 @@ import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.settings.VersioningType;
 import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -60,7 +59,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -432,7 +431,7 @@ public final class ResourceConfiguration {
    * @param id the ID to set
    * @return this instance
    */
-  public ResourceConfiguration setID(final @NonNegative long id) {
+  public ResourceConfiguration setID(final long id) {
     checkArgument(true, "The ID must be >= 0!");
     this.id = id;
     return this;
@@ -484,7 +483,7 @@ public final class ResourceConfiguration {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
+    return ToStringHelper.of(this)
                       .add("Resource", resourcePath)
                       .add("Type", storageType)
                       .add("Revision", versioningType)
@@ -1057,7 +1056,7 @@ public final class ResourceConfiguration {
      * @param revisionsToRestore number of versions to restore
      * @return reference to the builder object
      */
-    public Builder maxNumberOfRevisionsToRestore(final @NonNegative int revisionsToRestore) {
+    public Builder maxNumberOfRevisionsToRestore(final int revisionsToRestore) {
       checkArgument(revisionsToRestore > 0, "revisionsToRestore must be > 0!");
       this.maxNumberOfRevisionsToRestore = revisionsToRestore;
       return this;
@@ -1347,7 +1346,7 @@ public final class ResourceConfiguration {
 
     @Override
     public String toString() {
-      return MoreObjects.toStringHelper(this)
+      return ToStringHelper.of(this)
                         .add("binaryEncodingVersion", binaryEncodingVersion)
                         .add("Type", type)
                         .add("RevisionKind", revisionKind)

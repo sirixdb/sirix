@@ -9,10 +9,9 @@ dependencies {
     api implLibraries.gson
     api implLibraries.guava
     api implLibraries.guavaTestlib
-    api implLibraries.checkerFramework
+    api implLibraries.jspecify
     api implLibraries.caffeine
     api implLibraries.tink
-    api implLibraries.dagger
     api implLibraries.fastUtil
     api implLibraries.iouring
     api implLibraries.lz4
@@ -21,10 +20,7 @@ dependencies {
     implementation implLibraries.snappyJava
     implementation implLibraries.browniesCollections
     implementation implLibraries.integercompression
-    implementation implLibraries.fastObjectPool
     implementation implLibraries.zeroAllocationHashing
-
-    annotationProcessor implLibraries.daggerCompiler
 
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine

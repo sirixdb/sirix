@@ -44,7 +44,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.settings.CharsForSerializing;
 import io.sirix.utils.XmlDocumentCreator;
-import org.checkerframework.checker.nullness.qual.NonNull;
+
 import org.junit.Ignore;
 import org.junit.Test;
 import io.sirix.access.DatabaseConfiguration;
@@ -333,7 +333,7 @@ public final class XmlTestHelper {
    *
    * @return the random bytes
    */
-  public static @NonNull byte[] generateRandomBytes(final int size) {
+  public static byte[] generateRandomBytes(final int size) {
     final byte[] returnVal = new byte[size];
     random.nextBytes(returnVal);
     return returnVal;

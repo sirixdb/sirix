@@ -33,7 +33,7 @@ import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
 

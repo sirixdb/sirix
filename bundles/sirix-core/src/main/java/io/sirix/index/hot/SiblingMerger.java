@@ -31,8 +31,7 @@ package io.sirix.index.hot;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Handles merging of sibling nodes in HOT (Height Optimized Trie) after deletions.
@@ -111,7 +110,7 @@ public final class SiblingMerger {
    * @param node the node to check
    * @return true if the node is a candidate for merging
    */
-  public static boolean shouldMerge(@NonNull HOTIndirectPage node) {
+  public static boolean shouldMerge(HOTIndirectPage node) {
     int maxChildren = NodeUpgradeManager.getMaxChildrenForType(node.getNodeType());
     return node.getNumChildren() < maxChildren * MIN_FILL_FACTOR;
   }
@@ -123,7 +122,7 @@ public final class SiblingMerger {
    * @param right the right sibling
    * @return true if the nodes can be merged
    */
-  public static boolean canMerge(@NonNull HOTIndirectPage left, @NonNull HOTIndirectPage right) {
+  public static boolean canMerge(HOTIndirectPage left, HOTIndirectPage right) {
     // Must be at the same height
     if (left.getHeight() != right.getHeight()) {
       return false;
@@ -147,7 +146,7 @@ public final class SiblingMerger {
    * @param revision current revision
    * @return the merge result
    */
-  public static MergeResult mergeSiblings(@NonNull HOTIndirectPage left, @NonNull HOTIndirectPage right,
+  public static MergeResult mergeSiblings(HOTIndirectPage left, HOTIndirectPage right,
       long newPageKey, int revision) {
 
     if (!canMerge(left, right)) {
@@ -210,8 +209,8 @@ public final class SiblingMerger {
    * @param targetPage the page to receive merged entries
    * @return true if merge was successful
    */
-  public static boolean mergeLeafPages(@NonNull HOTLeafPage left, @NonNull HOTLeafPage right,
-      @NonNull HOTLeafPage targetPage) {
+  public static boolean mergeLeafPages(HOTLeafPage left, HOTLeafPage right,
+      HOTLeafPage targetPage) {
 
     // Check if combined entries fit
     int totalEntries = left.getEntryCount() + right.getEntryCount();
@@ -253,7 +252,7 @@ public final class SiblingMerger {
    * @param revision current revision
    * @return the merge result, or failure if no merge occurred
    */
-  public static MergeResult handleDeletionWithMerge(@NonNull HOTIndirectPage node, @Nullable HOTIndirectPage sibling,
+  public static MergeResult handleDeletionWithMerge(HOTIndirectPage node, @Nullable HOTIndirectPage sibling,
       long newPageKey, int revision) {
 
     // Check if merge is warranted
@@ -291,7 +290,7 @@ public final class SiblingMerger {
    * @param biNode the BiNode to check
    * @return true if the BiNode can be collapsed
    */
-  public static boolean canCollapseBiNode(@NonNull HOTIndirectPage biNode) {
+  public static boolean canCollapseBiNode(HOTIndirectPage biNode) {
     return biNode.getNumChildren() == 1;
   }
 
@@ -302,7 +301,7 @@ public final class SiblingMerger {
    * @return reference to the remaining child
    * @throws IllegalStateException if the BiNode cannot be collapsed
    */
-  public static PageReference getCollapsedChild(@NonNull HOTIndirectPage biNode) {
+  public static PageReference getCollapsedChild(HOTIndirectPage biNode) {
     if (!canCollapseBiNode(biNode)) {
       throw new IllegalStateException("BiNode cannot be collapsed: has " + biNode.getNumChildren() + " children");
     }
@@ -315,7 +314,7 @@ public final class SiblingMerger {
    * @param node the node to check
    * @return fill factor (0.0 - 1.0)
    */
-  public static double getFillFactor(@NonNull HOTIndirectPage node) {
+  public static double getFillFactor(HOTIndirectPage node) {
     int maxChildren = NodeUpgradeManager.getMaxChildrenForType(node.getNodeType());
     return (double) node.getNumChildren() / maxChildren;
   }

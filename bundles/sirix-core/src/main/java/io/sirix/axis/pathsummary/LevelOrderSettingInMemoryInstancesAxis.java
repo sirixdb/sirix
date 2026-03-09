@@ -29,7 +29,6 @@
 package io.sirix.axis.pathsummary;
 
 import io.sirix.axis.IncludeSelf;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.settings.Fixed;
@@ -37,7 +36,7 @@ import io.sirix.settings.Fixed;
 import java.util.ArrayDeque;
 import java.util.Deque;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -126,7 +125,7 @@ public final class LevelOrderSettingInMemoryInstancesAxis extends AbstractAxis {
      * @param filterLevel maximum level to filter nodes
      * @return this builder instance
      */
-    public Builder filterLevel(final @NonNegative int filterLevel) {
+    public Builder filterLevel(final int filterLevel) {
       checkArgument(filterLevel >= 0, "filterLevel must be >= 0!");
       this.filterLevel = filterLevel;
       return this;

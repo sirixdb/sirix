@@ -21,9 +21,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.Constants;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.io.Reader;
 
 import java.util.Optional;
@@ -106,7 +104,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return an {@link Optional} reference usually containing the node reference
    * @throws SirixIOException if an I/O error occurred
    */
-  <V extends DataRecord> V getRecord(@NonNull long key, @NonNull IndexType indexType, int index);
+  <V extends DataRecord> V getRecord(long key, IndexType indexType, int index);
 
   /**
    * Current reference to actual revision-root page.
@@ -123,7 +121,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return the name
    * @throws NullPointerException if {@code kind} is {@code null}
    */
-  String getName(int nameKey, @NonNull NodeKind recordKind);
+  String getName(int nameKey, NodeKind recordKind);
 
   /**
    * Get the number of references for a name.
@@ -132,7 +130,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @param recordKind kind of record
    * @return the number of references for a given keyy.
    */
-  int getNameCount(int nameKey, @NonNull NodeKind recordKind);
+  int getNameCount(int nameKey, NodeKind recordKind);
 
   /**
    * Getting the raw name related to the name key and the record kind.
@@ -142,7 +140,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return a byte array containing the raw name
    * @throws NullPointerException if {@code kind} is {@code null}
    */
-  byte[] getRawName(int nameKey, @NonNull NodeKind recordKind);
+  byte[] getRawName(int nameKey, NodeKind recordKind);
 
   /**
    * Close transaction.
@@ -165,7 +163,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @throws NullPointerException if {@code pageKind} is {@code null}
    * @throws IllegalArgumentException if {@code key} is negative
    */
-  NodeStorageEngineReader.PageReferenceToPage getRecordPage(@NonNull IndexLogKey indexLogKey);
+  NodeStorageEngineReader.PageReferenceToPage getRecordPage(IndexLogKey indexLogKey);
 
   /**
    * Determines if transaction is closed or not.
@@ -199,7 +197,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return record page key
    * @throws IllegalArgumentException if {code recordKey} &lt; 0
    */
-  long pageKey(@NonNegative long recordKey, @NonNull IndexType indexType);
+  long pageKey(long recordKey, IndexType indexType);
 
   /**
    * Get the {@link NamePage} associated with the current revision root.
@@ -208,16 +206,16 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return NamePage The associated NamePage
    * @throws SirixIOException if an I/O error occurs
    */
-  NamePage getNamePage(@NonNull RevisionRootPage revisionRoot);
+  NamePage getNamePage(RevisionRootPage revisionRoot);
 
   /**
    * Get the {@link PathPage} associated with the current revision root.
    *
    * @param revisionRoot {@link RevisionRootPage} for which to get the {@link PathPage}
    * @return PathPage The associated PathPage
-   * @throws SirixIOException if an I/O error occur@NonNull RevisionRootPage revisionRoots
+   * @throws SirixIOException if an I/O error occurRevisionRootPage revisionRoots
    */
-  PathPage getPathPage(@NonNull RevisionRootPage revisionRoot);
+  PathPage getPathPage(RevisionRootPage revisionRoot);
 
   /**
    * Get the {@link CASPage} associated with the current revision root.
@@ -226,7 +224,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return CASPage the associated CASPAGE
    * @throws SirixIOException if an I/O error occurs
    */
-  CASPage getCASPage(@NonNull RevisionRootPage revisionRoot);
+  CASPage getCASPage(RevisionRootPage revisionRoot);
 
   /**
    * Get the {@link PathSummaryPage} associated with the current revision root.
@@ -235,7 +233,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return PathSummaryPage The associated PathSummaryPage
    * @throws SirixIOException if an I/O error occurs
    */
-  PathSummaryPage getPathSummaryPage(@NonNull RevisionRootPage revisionRoot);
+  PathSummaryPage getPathSummaryPage(RevisionRootPage revisionRoot);
 
   /**
    * Get the {@link DeweyIDPage} associated with the current revision root.
@@ -244,7 +242,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @return DeweyIDPage The associated DeweyIDPage
    * @throws SirixIOException if an I/O error occurs
    */
-  DeweyIDPage getDeweyIDPage(@NonNull RevisionRootPage revisionRoot);
+  DeweyIDPage getDeweyIDPage(RevisionRootPage revisionRoot);
 
   /**
    * Get the page reference pointing to the page denoted by {@code pageKey}.
@@ -259,8 +257,8 @@ public interface StorageEngineReader extends AutoCloseable {
    * @throws SirixIOException if an I/O error occurs
    * @throws IllegalArgumentException if {code pageKey} &lt; 0
    */
-  PageReference getReferenceToLeafOfSubtree(PageReference startReference, @NonNegative long pageKey, int indexNumber,
-      @NonNull IndexType indexType, RevisionRootPage revisionRootPage);
+  PageReference getReferenceToLeafOfSubtree(PageReference startReference, long pageKey, int indexNumber,
+      IndexType indexType, RevisionRootPage revisionRootPage);
 
   /**
    * Get the {@link Reader} to read a page from persistent storage if needed.
@@ -317,7 +315,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @param indexNumber the index number
    * @return the HOT leaf page, or null if not found
    */
-  HOTLeafPage getHOTLeafPage(@NonNull IndexType indexType, int indexNumber);
+  HOTLeafPage getHOTLeafPage(IndexType indexType, int indexNumber);
 
   /**
    * Load a HOT page (HOTLeafPage or HOTIndirectPage) from storage.
@@ -330,7 +328,7 @@ public interface StorageEngineReader extends AutoCloseable {
    * @param reference the page reference
    * @return the page (HOTLeafPage or HOTIndirectPage), or null if not found
    */
-  io.sirix.page.interfaces.@Nullable Page loadHOTPage(@NonNull PageReference reference);
+  io.sirix.page.interfaces.@Nullable Page loadHOTPage(PageReference reference);
 
   /**
    * Get the page reference pointing to a leaf page in the indirect page tree.
@@ -348,5 +346,5 @@ public interface StorageEngineReader extends AutoCloseable {
    * @throws SirixIOException if an I/O error occurs
    */
   @Nullable
-  PageReference getLeafPageReference(@NonNegative long recordPageKey, int indexNumber, @NonNull IndexType indexType);
+  PageReference getLeafPageReference(long recordPageKey, int indexNumber, IndexType indexType);
 }

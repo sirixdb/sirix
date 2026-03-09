@@ -37,7 +37,7 @@ import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
 import io.sirix.page.RevisionRootPage;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Iterator;
 import java.util.Map;

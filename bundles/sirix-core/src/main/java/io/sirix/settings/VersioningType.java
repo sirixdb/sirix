@@ -34,7 +34,6 @@ import io.sirix.page.PageFragmentKeyImpl;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.PageFragmentKey;
-import org.checkerframework.checker.index.qual.NonNegative;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -58,7 +57,7 @@ public enum VersioningType {
   FULL {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-        final @NonNegative int revToRestore, final StorageEngineReader storageEngineReader) {
+        final int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() == 1 : "Only one version of the page!";
       var firstPage = pages.getFirst();
       T completePage =  firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), storageEngineReader);
@@ -88,7 +87,7 @@ public enum VersioningType {
 
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final @NonNegative int revToRestore, final StorageEngineReader storageEngineReader,
+        final List<T> pages, final int revToRestore, final StorageEngineReader storageEngineReader,
         final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() == 1;
       final T firstPage = pages.getFirst();
@@ -125,7 +124,7 @@ public enum VersioningType {
     }
 
     @Override
-    public int[] getRevisionRoots(@NonNegative int previousRevision, @NonNegative int revsToRestore) {
+    public int[] getRevisionRoots(int previousRevision, int revsToRestore) {
       return new int[] { previousRevision };
     }
   },
@@ -137,7 +136,7 @@ public enum VersioningType {
   DIFFERENTIAL {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-        final @NonNegative int revToRestore, final StorageEngineReader storageEngineReader) {
+        final int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() <= 2;
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
@@ -212,7 +211,7 @@ public enum VersioningType {
 
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-        final List<T> pages, final @NonNegative int revToRestore, final StorageEngineReader storageEngineReader,
+        final List<T> pages, final int revToRestore, final StorageEngineReader storageEngineReader,
         final PageReference reference, final TransactionIntentLog log) {
       assert pages.size() <= 2;
       final T firstPage = pages.getFirst();
@@ -318,7 +317,7 @@ public enum VersioningType {
     }
 
     @Override
-    public int[] getRevisionRoots(@NonNegative int previousRevision, @NonNegative int revsToRestore) {
+    public int[] getRevisionRoots(int previousRevision, int revsToRestore) {
       final int revisionsToRestore = previousRevision % revsToRestore;
       final int lastFullDump = previousRevision - revisionsToRestore;
       if (lastFullDump == previousRevision) {
@@ -336,7 +335,7 @@ public enum VersioningType {
   INCREMENTAL {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-        final @NonNegative int revToRestore, final StorageEngineReader storageEngineReader) {
+        final int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
@@ -504,7 +503,7 @@ public enum VersioningType {
     }
 
     @Override
-    public int[] getRevisionRoots(final @NonNegative int previousRevision, final @NonNegative int revsToRestore) {
+    public int[] getRevisionRoots(final int previousRevision, final int revsToRestore) {
       final List<Integer> retVal = new ArrayList<>(revsToRestore);
       for (int i = previousRevision, until = previousRevision - revsToRestore; i > until && i >= 0; i--) {
         retVal.add(i);
@@ -530,7 +529,7 @@ public enum VersioningType {
   SLIDING_SNAPSHOT {
     @Override
     public <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-        final @NonNegative int revToRestore, final StorageEngineReader storageEngineReader) {
+        final int revToRestore, final StorageEngineReader storageEngineReader) {
       assert pages.size() <= revToRestore;
       final T firstPage = pages.getFirst();
       final long recordPageKey = firstPage.getPageKey();
@@ -742,7 +741,7 @@ public enum VersioningType {
     }
 
     @Override
-    public int[] getRevisionRoots(final @NonNegative int previousRevision, final @NonNegative int revsToRestore) {
+    public int[] getRevisionRoots(final int previousRevision, final int revsToRestore) {
       final List<Integer> retVal = new ArrayList<>(revsToRestore);
       for (int i = previousRevision, until = previousRevision - revsToRestore; i > until && i >= 0; i--) {
         retVal.add(i);
@@ -782,7 +781,7 @@ public enum VersioningType {
    * @return the complete {@link KeyValuePage}
    */
   public abstract <V extends DataRecord, T extends KeyValuePage<V>> T combineRecordPages(final List<T> pages,
-      final @NonNegative int revsToRestore, final StorageEngineReader storageEngineReader);
+      final int revsToRestore, final StorageEngineReader storageEngineReader);
 
   /**
    * Method to reconstruct a complete {@link KeyValuePage} for reading as well as a
@@ -794,7 +793,7 @@ public enum VersioningType {
    * writing
    */
   public abstract <V extends DataRecord, T extends KeyValuePage<V>> PageContainer combineRecordPagesForModification(
-      final List<T> pages, final @NonNegative int revsToRestore, final StorageEngineReader storageEngineReader,
+      final List<T> pages, final int revsToRestore, final StorageEngineReader storageEngineReader,
       final PageReference reference, final TransactionIntentLog log);
 
   /**
@@ -804,7 +803,7 @@ public enum VersioningType {
    * @param revsToRestore    number of revisions to restore
    * @return revision root page numbers needed to restore a {@link KeyValuePage}
    */
-  public abstract int[] getRevisionRoots(final @NonNegative int previousRevision, final @NonNegative int revsToRestore);
+  public abstract int[] getRevisionRoots(final int previousRevision, final int revsToRestore);
 
   /**
    * Propagate FSST symbol table from source page to target page.
@@ -843,7 +842,7 @@ public enum VersioningType {
    */
   public HOTLeafPage combineHOTLeafPages(
       final List<HOTLeafPage> pages,
-      final @NonNegative int revToRestore,
+      final int revToRestore,
       final StorageEngineReader storageEngineReader) {
     
     if (pages.isEmpty()) {
@@ -898,7 +897,7 @@ public enum VersioningType {
    */
   public PageContainer combineHOTLeafPagesForModification(
       final List<HOTLeafPage> pages,
-      final @NonNegative int revToRestore,
+      final int revToRestore,
       final StorageEngineReader storageEngineReader,
       final PageReference reference,
       final TransactionIntentLog log) {
@@ -931,7 +930,7 @@ public enum VersioningType {
    */
   public BitmapChunkPage combineBitmapChunks(
       final List<BitmapChunkPage> fragments,
-      final @NonNegative int revToRestore,
+      final int revToRestore,
       final StorageEngineReader storageEngineReader) {
     
     if (fragments.isEmpty()) {
@@ -1024,7 +1023,7 @@ public enum VersioningType {
   public PageContainer prepareBitmapChunkForModification(
       final List<BitmapChunkPage> fragments,
       final int currentRevision,
-      final @NonNegative int revsToRestore,
+      final int revsToRestore,
       final long rangeStart,
       final long rangeEnd,
       final io.sirix.index.IndexType indexType,
@@ -1084,7 +1083,7 @@ public enum VersioningType {
   public boolean shouldStoreBitmapFullSnapshot(
       final List<BitmapChunkPage> fragments,
       final int currentRevision,
-      final @NonNegative int revsToRestore) {
+      final int revsToRestore) {
     
     // First revision is always full
     if (currentRevision == 1 || fragments.isEmpty()) {

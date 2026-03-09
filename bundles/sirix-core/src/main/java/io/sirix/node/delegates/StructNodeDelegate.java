@@ -28,17 +28,15 @@
 
 package io.sirix.node.delegates;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.settings.Fixed;
 import io.sirix.node.BytesOut;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Delegate method for all nodes building up the structure. That means that all nodes representing
@@ -97,7 +95,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
    * @param descendantCount number of descendants of the node
    */
   public StructNodeDelegate(final NodeDelegate nodeDelegate, final long firstChild, final long rightSibling,
-      final long leftSibling, final @NonNegative long childCount, final @NonNegative long descendantCount) {
+      final long leftSibling, final long childCount, final long descendantCount) {
     assert nodeDelegate != null : "del must not be null!";
     this.nodeDelegate = nodeDelegate;
     this.firstChild = firstChild;
@@ -120,8 +118,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
    * @param descendantCount number of descendants of the node
    */
   public StructNodeDelegate(final NodeDelegate nodeDelegate, final long firstChild, final long lastChild,
-      final long rightSibling, final long leftSibling, final @NonNegative long childCount,
-      final @NonNegative long descendantCount) {
+      final long rightSibling, final long leftSibling, final long childCount,
+      final long descendantCount) {
     assert nodeDelegate != null : "del must not be null!";
     this.nodeDelegate = nodeDelegate;
     this.firstChild = firstChild;
@@ -218,8 +216,8 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   @Override
   public int hashCode() {
     return lastChild == Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty()
-        ? Objects.hashCode(childCount, nodeDelegate, firstChild, leftSibling, rightSibling, descendantCount)
-        : Objects.hashCode(childCount, nodeDelegate, firstChild, lastChild, leftSibling, rightSibling, descendantCount);
+        ? Objects.hash(childCount, nodeDelegate, firstChild, leftSibling, rightSibling, descendantCount)
+        : Objects.hash(childCount, nodeDelegate, firstChild, lastChild, leftSibling, rightSibling, descendantCount);
   }
 
   @Override
@@ -242,15 +240,15 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
     if (!(obj instanceof final StructNodeDelegate other))
       return false;
 
-    return Objects.equal(childCount, other.childCount) && Objects.equal(nodeDelegate, other.nodeDelegate)
-        && Objects.equal(firstChild, other.firstChild) && Objects.equal(lastChild, other.lastChild)
-        && Objects.equal(leftSibling, other.leftSibling) && Objects.equal(rightSibling, other.rightSibling)
-        && Objects.equal(descendantCount, other.descendantCount);
+    return Objects.equals(childCount, other.childCount) && Objects.equals(nodeDelegate, other.nodeDelegate)
+        && Objects.equals(firstChild, other.firstChild) && Objects.equals(lastChild, other.lastChild)
+        && Objects.equals(leftSibling, other.leftSibling) && Objects.equals(rightSibling, other.rightSibling)
+        && Objects.equals(descendantCount, other.descendantCount);
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("first child", getFirstChildKey())
                       .add("last child", getLastChildKey())
                       .add("left sib", getLeftSiblingKey())
@@ -277,7 +275,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   }
 
   @Override
-  public void setDescendantCount(final @NonNegative long descendantCount) {
+  public void setDescendantCount(final long descendantCount) {
     this.descendantCount = descendantCount;
   }
 
@@ -287,7 +285,7 @@ public class StructNodeDelegate extends AbstractForwardingNode implements Struct
   }
 
   @Override
-  protected @NonNull NodeDelegate delegate() {
+  protected NodeDelegate delegate() {
     return nodeDelegate;
   }
 

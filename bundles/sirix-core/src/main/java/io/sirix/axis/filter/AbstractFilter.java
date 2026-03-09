@@ -24,8 +24,8 @@ package io.sirix.axis.filter;
 import io.sirix.api.Filter;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
-import org.checkerframework.checker.nullness.qual.Nullable;
-import com.google.common.base.Predicate;
+import org.jspecify.annotations.Nullable;
+import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
 
@@ -62,7 +62,7 @@ public abstract class AbstractFilter<R extends NodeReadOnlyTrx & NodeCursor> imp
   public abstract boolean filter();
 
   @Override
-  public boolean apply(final @Nullable Long nodeKey) {
+  public boolean test(final @Nullable Long nodeKey) {
     rtx.moveTo(requireNonNull(nodeKey));
     return filter();
   }

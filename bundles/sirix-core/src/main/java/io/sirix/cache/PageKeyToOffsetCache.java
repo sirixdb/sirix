@@ -1,7 +1,6 @@
 package io.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Map;
 import java.util.function.BiFunction;
@@ -30,7 +29,7 @@ public final class PageKeyToOffsetCache implements Cache<Long, Long> {
   }
 
   @Override
-  public void put(Long key, @NonNull Long value) {
+  public void put(Long key, Long value) {
     cache.put(key, value);
   }
 

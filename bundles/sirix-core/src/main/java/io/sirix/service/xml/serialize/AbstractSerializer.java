@@ -30,7 +30,6 @@ import io.sirix.axis.IncludeSelf;
 import io.sirix.exception.SirixException;
 import io.sirix.node.NodeKind;
 import io.sirix.settings.Constants;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
@@ -65,7 +64,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final XmlResourceSession resMgr, final @NonNegative int revision, final int... revisions) {
+  public AbstractSerializer(final XmlResourceSession resMgr, final int revision, final int... revisions) {
     mStack = new ArrayDeque<>();
     this.revisions = revisions == null
         ? new int[1]
@@ -83,8 +82,8 @@ public abstract class AbstractSerializer implements Callable<Void> {
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final XmlResourceSession resMgr, final @NonNegative long key,
-      final @NonNegative int revision, final int... revisions) {
+  public AbstractSerializer(final XmlResourceSession resMgr, final long key,
+      final int revision, final int... revisions) {
     mStack = new ArrayDeque<>();
     this.revisions = revisions == null
         ? new int[1]
@@ -100,7 +99,7 @@ public abstract class AbstractSerializer implements Callable<Void> {
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  private void initialize(final @NonNegative int revision, final int... revisions) {
+  private void initialize(final int revision, final int... revisions) {
     this.revisions[0] = revision;
     if (revisions != null) {
       System.arraycopy(revisions, 0, this.revisions, 1, revisions.length);

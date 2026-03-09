@@ -7,7 +7,7 @@ import io.brackit.query.atomic.Str;
 import io.sirix.index.path.PathIndexListener;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 final class JsonPathIndexListener implements PathNodeKeyChangeListener {
 

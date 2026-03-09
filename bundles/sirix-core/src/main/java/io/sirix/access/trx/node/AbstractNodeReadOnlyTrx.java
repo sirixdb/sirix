@@ -48,9 +48,7 @@ import io.sirix.service.xml.xpath.AtomicValue;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
@@ -162,8 +160,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    * @param resourceSession     The resource manager for the current transaction
    * @param itemList            Read-transaction-exclusive item list.
    */
-  protected AbstractNodeReadOnlyTrx(final @NonNegative int trxId, final @NonNull StorageEngineReader pageReadTransaction,
-      final @NonNull N documentNode, final InternalResourceSession<T, W> resourceSession,
+  protected AbstractNodeReadOnlyTrx(final int trxId, final StorageEngineReader pageReadTransaction,
+      final N documentNode, final InternalResourceSession<T, W> resourceSession,
       final ItemList<AtomicValue> itemList) {
     this.itemList = itemList;
     this.resourceSession = requireNonNull(resourceSession);
@@ -1120,7 +1118,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   }
 
   @Override
-  public boolean hasNode(final @NonNegative long key) {
+  public boolean hasNode(final long key) {
     assertNotClosed();
     // Save current position using flyweight-compatible getters
     final long savedNodeKey = getNodeKey();

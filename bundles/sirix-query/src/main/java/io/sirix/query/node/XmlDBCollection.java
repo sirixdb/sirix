@@ -9,8 +9,7 @@ import io.brackit.query.node.parser.CollectionParser;
 import io.brackit.query.node.parser.NodeSubtreeHandler;
 import io.brackit.query.node.parser.NodeSubtreeParser;
 import io.brackit.query.node.stream.ArrayStream;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
@@ -229,7 +228,7 @@ public final class XmlDBCollection extends AbstractNodeCollection<AbstractTempor
     }
   }
 
-  private XmlDBNode createXmlDBNode(int revision, @NonNull String resourceName) {
+  private XmlDBNode createXmlDBNode(int revision, String resourceName) {
     final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
     try {
       final int version = revision == -1

@@ -1,6 +1,6 @@
 package io.sirix.index.redblacktree;
 
-import com.google.common.collect.AbstractIterator;
+import io.sirix.utils.AbstractComputingIterator;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
@@ -16,8 +16,6 @@ import io.sirix.node.NullNode;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.settings.Fixed;
 
 import java.io.PrintStream;
@@ -26,7 +24,7 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.Optional;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -113,7 +111,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    */
   public static <K extends Comparable<? super K>, V extends References> RBTreeReader<K, V> getInstance(
       final Cache<RBIndexKey, Node> cache, final StorageEngineReader storageEngineReader, final IndexType type,
-      @NonNegative final int index) {
+      final int index) {
     return new RBTreeReader<>(cache, storageEngineReader, type, index);
   }
 
@@ -247,7 +245,6 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     return getNode(key, mode, node);
   }
 
-  @NonNull
   private Optional<V> getNode(K key, SearchMode mode, RBNodeKey<K> node) {
     // Get reusable lookup key for zero-allocation cache lookups
     final RBIndexKeyLookup lookupKey = LOOKUP_KEY.get();
@@ -362,7 +359,6 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
     return getTheSearchedNode(key, mode, node);
   }
 
-  @NonNull
   private Optional<RBNodeKey<K>> getTheSearchedNode(K key, SearchMode mode, RBNodeKey<K> node) {
     while (true) {
       final int c = key.compareTo(node.getKey());
@@ -745,7 +741,7 @@ public final class RBTreeReader<K extends Comparable<? super K>, V extends Refer
    *
    * @author Johannes Lichtenberger
    */
-  public final class RBNodeIterator extends AbstractIterator<RBNodeKey<K>> {
+  public final class RBNodeIterator extends AbstractComputingIterator<RBNodeKey<K>> {
 
     /**
      * Determines if it's the first call.

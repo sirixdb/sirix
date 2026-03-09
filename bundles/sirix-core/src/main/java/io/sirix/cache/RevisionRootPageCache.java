@@ -34,7 +34,6 @@ import io.sirix.page.PathPage;
 import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
@@ -78,7 +77,7 @@ public final class RevisionRootPageCache implements Cache<RevisionRootPageCacheK
   }
 
   @Override
-  public void put(RevisionRootPageCacheKey key, @NonNull RevisionRootPage value) {
+  public void put(RevisionRootPageCacheKey key, RevisionRootPage value) {
     // CRITICAL FIX: Unswizzle all PageReferences before caching
     // RevisionRootPage contains PageReferences that might have swizzled KeyValueLeafPage instances
     // These swizzled pages prevent proper cleanup and cause memory leaks

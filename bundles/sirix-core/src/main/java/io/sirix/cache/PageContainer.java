@@ -21,13 +21,13 @@
 
 package io.sirix.cache;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  *
@@ -161,11 +161,11 @@ public final class PageContainer {
     if (!(obj instanceof PageContainer other))
       return false;
 
-    return Objects.equal(complete, other.complete) && Objects.equal(modified, other.modified);
+    return Objects.equals(complete, other.complete) && Objects.equals(modified, other.modified);
   }
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("complete page", complete).add("modified page", modified).toString();
+    return ToStringHelper.of(this).add("complete page", complete).add("modified page", modified).toString();
   }
 }

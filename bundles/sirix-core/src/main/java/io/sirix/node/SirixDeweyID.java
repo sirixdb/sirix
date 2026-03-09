@@ -21,7 +21,7 @@
  */
 package io.sirix.node;
 
-import com.google.common.base.Splitter;
+import java.util.List;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import io.sirix.exception.SirixException;
 import io.sirix.node.interfaces.SimpleDeweyID;
@@ -243,7 +243,7 @@ public final class SirixDeweyID implements Comparable<SirixDeweyID>, SimpleDewey
    * @return divisionValues The values of a deweyID as an array of integers
    */
   private int[] parseDivisionValues(String divisionPart) {
-    final Iterable<String> divisions = Splitter.on('.').split(divisionPart);
+    final String[] divisions = divisionPart.split("\\.");
     final IntArrayList divisionValues = new IntArrayList(16);
     int i = 0;
 

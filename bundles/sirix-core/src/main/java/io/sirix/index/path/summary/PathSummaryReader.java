@@ -1,6 +1,6 @@
 package io.sirix.index.path.summary;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
@@ -38,7 +38,6 @@ import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongHash;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
-import org.checkerframework.checker.index.qual.NonNegative;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -266,7 +265,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
-  void putMapping(final @NonNegative long pathNodeKey, final StructNode node) {
+  void putMapping(final long pathNodeKey, final StructNode node) {
     if (DEBUG_PATH_SUMMARY) {
       if (node instanceof PathNode pn) {
         LOGGER.debug("[PATH_SUMMARY-PUT-MAPPING] Updating cache: nodeKey={}, refCount={}, level={}", pathNodeKey,
@@ -286,7 +285,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
-  StructNode removeMapping(final @NonNegative long pathNodeKey) {
+  StructNode removeMapping(final long pathNodeKey) {
     return pathNodeMapping[(int) pathNodeKey] = null;
   }
 
@@ -298,7 +297,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
-  void removeQNameMapping(final @NonNegative PathNode node, final QNm name) {
+  void removeQNameMapping(final PathNode node, final QNm name) {
     final Set<PathNode> pathNodes = qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>());
     if (pathNodes.size() == 1) {
       qnmMapping.remove(name);
@@ -315,7 +314,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param includeSelf if current node should be included or not
    * @return a set with bits set for each matching path node (its {@code pathNodeKey})
    */
-  public BitSet matchDescendants(final QNm name, final @NonNegative long pathNodeKey, final IncludeSelf includeSelf) {
+  public BitSet matchDescendants(final QNm name, final long pathNodeKey, final IncludeSelf includeSelf) {
     assertNotClosed();
     final Set<PathNode> set = qnmMapping.get(name);
     if (set == null) {
@@ -337,7 +336,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param minLevel minimum level
    * @return a set with bits set for each matching path node
    */
-  public BitSet match(final QNm name, final @NonNegative int minLevel) {
+  public BitSet match(final QNm name, final int minLevel) {
     assertNotClosed();
     final Set<PathNode> set = qnmMapping.get(name);
     if (set == null) {
@@ -359,7 +358,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param minLevel minimum level
    * @return a set with bits set for each matching path node
    */
-  public BitSet match(final QNm name, final @NonNegative int minLevel, NodeKind nodeKind) {
+  public BitSet match(final QNm name, final int minLevel, NodeKind nodeKind) {
     assertNotClosed();
     final Set<PathNode> set = qnmMapping.get(name);
     if (set == null) {
@@ -382,7 +381,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param nodeKind the node type
    * @return a set with bits set for each matching path node
    */
-  public Optional<PathNode> matchLevel(final QNm name, final @NonNegative int level, NodeKind nodeKind) {
+  public Optional<PathNode> matchLevel(final QNm name, final int level, NodeKind nodeKind) {
     assertNotClosed();
     final Set<PathNode> set = qnmMapping.get(name);
     if (set == null) {
@@ -419,7 +418,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
    * @param pathNodeKey path node key
    * @return path node corresponding to the provided key, or null if not found or deleted
    */
-  public PathNode getPathNodeForPathNodeKey(final @NonNegative long pathNodeKey) {
+  public PathNode getPathNodeForPathNodeKey(final long pathNodeKey) {
     assertNotClosed();
 
     // Safe bounds check
@@ -829,7 +828,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
 
   @Override
   public String toString() {
-    final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
+    final ToStringHelper helper = ToStringHelper.of(this);
 
     if (currentNode instanceof PathNode node) {
       helper.add("uri", storageEngineReader.getName(node.getURIKey(), node.getPathKind()));
@@ -856,7 +855,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   }
 
   @Override
-  public boolean hasNode(final @NonNegative long key) {
+  public boolean hasNode(final long key) {
     assertNotClosed();
     final long currNodeKey = currentNode.getNodeKey();
     final boolean retVal = moveTo(key);

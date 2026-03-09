@@ -23,7 +23,6 @@ package io.sirix.service.xml.xpath.expr;
 
 import io.sirix.api.Axis;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.service.xml.xpath.AbstractAxis;
 
 import java.util.ArrayList;
@@ -51,7 +50,7 @@ public class VariableAxis extends AbstractAxis {
    * @param pRtx exclusive (immutable) trx to iterate with
    * @param pInSeq sequence, the variable is bound to
    */
-  public VariableAxis(final XmlNodeReadOnlyTrx pRtx, @NonNull final Axis pInSeq) {
+  public VariableAxis(final XmlNodeReadOnlyTrx pRtx, final Axis pInSeq) {
     super(pRtx);
     mBindingSeq = requireNonNull(pInSeq);
     mVarRefs = new ArrayList<>();

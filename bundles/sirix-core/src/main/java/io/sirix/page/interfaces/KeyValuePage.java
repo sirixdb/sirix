@@ -4,8 +4,6 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.PageReference;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Map.Entry;
@@ -65,7 +63,7 @@ public interface KeyValuePage<V extends DataRecord> extends Page {
    *
    * @param record record to store
    */
-  void setRecord(@NonNull V record);
+  void setRecord(V record);
 
   V[] records();
 
@@ -83,7 +81,7 @@ public interface KeyValuePage<V extends DataRecord> extends Page {
    * @param key key to store
    * @param reference reference to store
    */
-  void setPageReference(long key, @NonNull PageReference reference);
+  void setPageReference(long key, PageReference reference);
 
   PageReference getPageReference(long key);
 
@@ -103,8 +101,8 @@ public interface KeyValuePage<V extends DataRecord> extends Page {
    * @param storageEngineReader transaction to read pages
    * @return a new {@link KeyValuePage} instance
    */
-  <C extends KeyValuePage<V>> C newInstance(@NonNegative long recordPageKey, @NonNull IndexType indexType,
-      @NonNull StorageEngineReader storageEngineReader);
+  <C extends KeyValuePage<V>> C newInstance(long recordPageKey, IndexType indexType,
+      StorageEngineReader storageEngineReader);
 
   /**
    * Get the index type.

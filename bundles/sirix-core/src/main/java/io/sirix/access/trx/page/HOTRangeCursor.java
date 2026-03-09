@@ -30,8 +30,7 @@ package io.sirix.access.trx.page;
 
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -123,7 +122,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    * @param fromKey the start key (inclusive)
    * @param toKey the end key (inclusive)
    */
-  HOTRangeCursor(@NonNull HOTTrieReader reader, @NonNull PageReference rootRef, byte[] fromKey, byte[] toKey) {
+  HOTRangeCursor(HOTTrieReader reader, PageReference rootRef, byte[] fromKey, byte[] toKey) {
     this.reader = Objects.requireNonNull(reader);
     this.rootRef = Objects.requireNonNull(rootRef);
     this.fromKey = fromKey;

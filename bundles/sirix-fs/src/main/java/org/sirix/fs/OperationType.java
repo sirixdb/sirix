@@ -10,7 +10,7 @@ import io.brackit.query.atomic.QNm;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.node.Kind;
-import com.google.common.base.Optional;
+import java.util.Optional;
 
 /**
  * Determines the operation to perform on sirix.
@@ -90,9 +90,9 @@ enum OperationType implements Operation<XmlNodeTrx> {
     assert path != null;
     if (visitor != null) {
       if (Files.isDirectory(path)) {
-        visitor.processDirectory(wtx, path, Optional.<BasicFileAttributes>absent());
+        visitor.processDirectory(wtx, path, Optional.<BasicFileAttributes>empty());
       } else if (Files.isRegularFile(path) | Files.isSymbolicLink(path)) {
-        visitor.processFile(wtx, path, Optional.<BasicFileAttributes>absent());
+        visitor.processFile(wtx, path, Optional.<BasicFileAttributes>empty());
       }
     }
   }

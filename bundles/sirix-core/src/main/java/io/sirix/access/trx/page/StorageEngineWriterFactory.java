@@ -40,7 +40,6 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.cache.BufferManager;
 import io.brackit.query.jdm.DocumentException;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.access.trx.node.xml.XmlResourceSessionImpl;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
@@ -53,7 +52,6 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.io.Writer;
 import io.sirix.page.interfaces.Page;
 
-import javax.inject.Inject;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -69,7 +67,6 @@ public final class StorageEngineWriterFactory {
 
   private final DatabaseType databaseType;
 
-  @Inject
   public StorageEngineWriterFactory(final DatabaseType databaseType) {
     this.databaseType = databaseType;
   }
@@ -88,9 +85,9 @@ public final class StorageEngineWriterFactory {
    */
   public StorageEngineWriter createStorageEngineWriter(
       final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession,
-      final UberPage uberPage, final Writer writer, final @NonNegative int trxId,
-      final @NonNegative int representRevision, final @NonNegative int lastStoredRevision,
-      final @NonNegative int lastCommitedRevision, final boolean isBoundToNodeTrx, final BufferManager bufferManager) {
+      final UberPage uberPage, final Writer writer, final int trxId,
+      final int representRevision, final int lastStoredRevision,
+      final int lastCommitedRevision, final boolean isBoundToNodeTrx, final BufferManager bufferManager) {
     final ResourceConfiguration resourceConfig = resourceSession.getResourceConfig();
     final boolean usePathSummary = resourceConfig.withPathSummary;
     // Use representRevision + 1 because that's the NEW revision being created.

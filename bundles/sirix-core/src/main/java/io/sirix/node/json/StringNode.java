@@ -28,8 +28,8 @@
 
 package io.sirix.node.json;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
@@ -55,8 +55,7 @@ import io.sirix.settings.Fixed;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
 import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -1052,8 +1051,8 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("nodeKey", nodeKey)
                       .add("value", getValue())
                       .add("parentKey", parentKey)
@@ -1066,7 +1065,7 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey, parentKey, getValue());
+    return Objects.hash(nodeKey, parentKey, getValue());
   }
 
   @Override
@@ -1076,6 +1075,6 @@ public final class StringNode implements StructNode, ValueNode, ImmutableJsonNod
 
     return nodeKey == other.nodeKey
         && parentKey == other.parentKey
-        && Objects.equal(getValue(), other.getValue());
+        && Objects.equals(getValue(), other.getValue());
   }
 }

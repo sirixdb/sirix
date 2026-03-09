@@ -12,7 +12,7 @@ import io.sirix.index.redblacktree.RBTreeReader.MoveCursor;
 import io.sirix.index.redblacktree.RBTreeWriter;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Optional;
 import java.util.Set;

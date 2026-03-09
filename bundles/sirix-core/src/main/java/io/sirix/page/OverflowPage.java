@@ -3,7 +3,6 @@ package io.sirix.page;
 
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.interfaces.Page;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.lang.foreign.MemorySegment;
 import java.util.List;
@@ -37,7 +36,7 @@ public final class OverflowPage implements Page {
   }
 
   @Override
-  public void commit(@NonNull StorageEngineWriter storageEngineWriter) {
+  public void commit(StorageEngineWriter storageEngineWriter) {
     throw new UnsupportedOperationException();
   }
 

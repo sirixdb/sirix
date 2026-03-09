@@ -28,8 +28,6 @@
 
 package io.sirix.io;
 
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
@@ -37,7 +35,6 @@ import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.page.interfaces.Page;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
@@ -51,11 +48,6 @@ import java.util.concurrent.Executors;
  * @author Johannes Lichtenberger
  */
 public interface Reader extends AutoCloseable {
-
-  /**
-   * Hash function to use for hashing pages.
-   */
-  HashFunction hashFunction = Hashing.sha256();
 
   /**
    * Executor Service used for the async read.
@@ -79,7 +71,7 @@ public interface Reader extends AutoCloseable {
    * @throws SirixIOException if something bad happens during read
    */
   default CompletableFuture<? extends Page> readAsync(PageReference key,
-      @NonNull ResourceConfiguration resourceConfiguration) {
+      ResourceConfiguration resourceConfiguration) {
     return CompletableFuture.supplyAsync(() -> read(key, resourceConfiguration), POOL);
   }
 
@@ -91,7 +83,7 @@ public interface Reader extends AutoCloseable {
    * @return a {@link BitmapReferencesPage} as the base for a page
    * @throws SirixIOException if something bad happens during read
    */
-  Page read(PageReference key, @NonNull ResourceConfiguration resourceConfiguration);
+  Page read(PageReference key, ResourceConfiguration resourceConfiguration);
 
   /**
    * Closing the storage.

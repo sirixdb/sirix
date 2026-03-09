@@ -14,7 +14,7 @@ import io.sirix.index.redblacktree.RBTreeWriter;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.utils.LogWrapper;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
 import java.util.Optional;

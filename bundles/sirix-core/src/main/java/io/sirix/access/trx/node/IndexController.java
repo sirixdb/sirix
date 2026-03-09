@@ -27,7 +27,7 @@ import io.sirix.index.path.PathFilter;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.io.FileInputStream;
 import java.io.IOException;

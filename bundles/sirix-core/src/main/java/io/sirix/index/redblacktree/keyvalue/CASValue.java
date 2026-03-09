@@ -1,15 +1,14 @@
 package io.sirix.index.redblacktree.keyvalue;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import com.google.common.collect.ComparisonChain;
+import io.sirix.utils.ToStringHelper;
+import io.sirix.utils.ComparisonChain;
+import java.util.Objects;
 import io.sirix.index.AtomicUtil;
 import io.sirix.utils.LogWrapper;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.jdm.Type;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.exception.SirixException;
 import org.slf4j.LoggerFactory;
 
@@ -42,7 +41,7 @@ public final class CASValue implements Comparable<CASValue> {
    * @param type the type of the value
    * @param pathNodeKey the path node-key
    */
-  public CASValue(final Atomic value, final Type type, final @NonNegative long pathNodeKey) {
+  public CASValue(final Atomic value, final Type type, final long pathNodeKey) {
     this.value = requireNonNull(value);
     this.type = requireNonNull(type);
     this.pathNodeKey = pathNodeKey;
@@ -92,13 +91,13 @@ public final class CASValue implements Comparable<CASValue> {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(value, type, pathNodeKey);
+    return Objects.hash(value, type, pathNodeKey);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof final CASValue otherValue) {
-      return Objects.equal(otherValue.value, value) && Objects.equal(otherValue.type, type)
+      return Objects.equals(otherValue.value, value) && Objects.equals(otherValue.type, type)
           && otherValue.pathNodeKey == pathNodeKey;
     }
     return false;
@@ -115,7 +114,7 @@ public final class CASValue implements Comparable<CASValue> {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("value", value).add("pathNodeKey", pathNodeKey).toString();
+    return ToStringHelper.of(this).add("value", value).add("pathNodeKey", pathNodeKey).toString();
   }
 
   public Type getType() {

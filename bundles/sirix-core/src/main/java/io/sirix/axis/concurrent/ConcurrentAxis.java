@@ -26,7 +26,6 @@ import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.axis.AbstractAxis;
 import io.sirix.utils.LogWrapper;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.settings.Fixed;
 import org.slf4j.LoggerFactory;
 
@@ -100,7 +99,7 @@ public final class ConcurrentAxis<R extends NodeCursor & NodeReadOnlyTrx> extend
   }
 
   @Override
-  public synchronized void reset(final @NonNegative long nodeKey) {
+  public synchronized void reset(final long nodeKey) {
     super.reset(nodeKey);
     first = true;
     finished = false;

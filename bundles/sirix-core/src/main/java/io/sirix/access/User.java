@@ -5,7 +5,7 @@ import static java.util.Objects.requireNonNull;
 
 import java.util.Objects;
 import java.util.UUID;
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 
 public final class User {
   private final String userName;
@@ -41,6 +41,6 @@ public final class User {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("userId", userId).add("userName", userName).toString();
+    return ToStringHelper.of(this).add("userId", userId).add("userName", userName).toString();
   }
 }

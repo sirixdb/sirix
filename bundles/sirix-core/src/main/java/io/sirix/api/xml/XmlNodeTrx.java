@@ -31,9 +31,7 @@ import io.sirix.api.PreCommitHook;
 import io.sirix.node.xml.TextNode;
 import io.sirix.service.xml.shredder.XmlShredder;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import javax.xml.stream.XMLEventReader;
 import java.time.Instant;
 
@@ -185,7 +183,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @throws NullPointerException if {@code nodeToMove} does not exist, that is the node which is
    *         denoted by it's node key {@code fromKey}
    */
-  XmlNodeTrx moveSubtreeToFirstChild(@NonNegative long fromKey);
+  XmlNodeTrx moveSubtreeToFirstChild(long fromKey);
 
   /**
    * Move a subtree rooted at {@code fromKey} to the right sibling of the current node. In case of the
@@ -215,7 +213,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @throws NullPointerException if {@code nodeToMove} does not exist, that is the node which is
    *         denoted by it's node key {@code fromKey}
    */
-  XmlNodeTrx moveSubtreeToLeftSibling(@NonNegative long fromKey);
+  XmlNodeTrx moveSubtreeToLeftSibling(long fromKey);
 
   /**
    * Insert new comment node as left sibling of currently selected node. The cursor is moved to the
@@ -260,7 +258,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @throws NullPointerException if {@code content} or {@code target} is {@code null}
    * @return the transaction instance
    */
-  XmlNodeTrx insertPIAsLeftSibling(String content, @NonNull String target);
+  XmlNodeTrx insertPIAsLeftSibling(String content, String target);
 
   /**
    * Insert new Processing Instruction node as right sibling of currently selected node. The cursor is
@@ -272,7 +270,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @throws NullPointerException if {@code content} or {@code target} is {@code null}
    * @return the transaction instance
    */
-  XmlNodeTrx insertPIAsRightSibling(String content, @NonNull String target);
+  XmlNodeTrx insertPIAsRightSibling(String content, String target);
 
   /**
    * Insert new Processing Instruction node as first child of currently selected node. The cursor is
@@ -284,7 +282,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @throws NullPointerException if {@code content} or {@code target} is {@code null}
    * @return the transaction instance
    */
-  XmlNodeTrx insertPIAsFirstChild(String content, @NonNull String target);
+  XmlNodeTrx insertPIAsFirstChild(String content, String target);
 
   /**
    * Insert new element node as first child of currently selected node. The cursor is moved to the
@@ -362,7 +360,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @throws NullPointerException if {@code name} or {@code value} is null
    * @return the transaction instance
    */
-  XmlNodeTrx insertAttribute(QNm name, @NonNull String value);
+  XmlNodeTrx insertAttribute(QNm name, String value);
 
   /**
    * Insert attribute in currently selected node. The cursor is moved depending on the value of
@@ -374,7 +372,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @throws NullPointerException if {@code name} or {@code value} is null
    * @return the transaction instance
    */
-  XmlNodeTrx insertAttribute(QNm name, @NonNull String value, @NonNull Movement move);
+  XmlNodeTrx insertAttribute(QNm name, String value, Movement move);
 
   /**
    * Insert namespace declaration in currently selected node. The cursor is moved to the inserted
@@ -396,7 +394,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @throws SirixException if attribute couldn't be inserted
    * @throws NullPointerException if {@code name} or {@code move} is null
    */
-  XmlNodeTrx insertNamespace(QNm name, @NonNull Movement move);
+  XmlNodeTrx insertNamespace(QNm name, Movement move);
 
   /**
    * Insert a subtree as a first child.
@@ -577,7 +575,7 @@ public interface XmlNodeTrx extends XmlNodeReadOnlyTrx, NodeTrx {
    * @param revision revert to the revision
    */
   @Override
-  XmlNodeTrx revertTo(@NonNegative int revision);
+  XmlNodeTrx revertTo(int revision);
 
   /**
    * Closing current WriteTransaction.

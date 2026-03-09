@@ -25,7 +25,6 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.page.interfaces.Page;
 
 import java.io.IOException;
@@ -46,7 +45,7 @@ public final class PagePersister {
    * @return {@link Page} instance
    * @throws IOException if an exception during deserialization of a page occurs
    */
-  public @NonNull Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
+  public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
       final SerializationType type) throws IOException {
     return deserializePage(resourceConfiguration, source, type, null);
   }
@@ -65,7 +64,7 @@ public final class PagePersister {
    * @return {@link Page} instance
    * @throws IOException if an exception during deserialization of a page occurs
    */
-  public @NonNull Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
+  public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
       final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) throws IOException {
     return PageKind.getKind(source.readByte())
                    .deserializePage(resourceConfiguration, source, type, decompressionResult);

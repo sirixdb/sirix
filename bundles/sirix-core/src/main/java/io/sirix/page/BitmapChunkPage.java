@@ -30,8 +30,7 @@ package io.sirix.page;
 
 import io.sirix.index.IndexType;
 import io.sirix.page.interfaces.Page;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import java.io.DataInput;
@@ -115,7 +114,7 @@ public final class BitmapChunkPage implements Page {
    * @return new full BitmapChunkPage
    */
   public static BitmapChunkPage createFull(long pageKey, int revision, IndexType indexType, long rangeStart,
-      long rangeEnd, @NonNull Roaring64Bitmap bitmap) {
+      long rangeEnd, Roaring64Bitmap bitmap) {
     Objects.requireNonNull(bitmap, "bitmap must not be null for full mode");
     return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd, bitmap, null, null, false, false);
   }
@@ -133,7 +132,7 @@ public final class BitmapChunkPage implements Page {
    * @return new delta BitmapChunkPage
    */
   public static BitmapChunkPage createDelta(long pageKey, int revision, IndexType indexType, long rangeStart,
-      long rangeEnd, @NonNull Roaring64Bitmap additions, @NonNull Roaring64Bitmap removals) {
+      long rangeEnd, Roaring64Bitmap additions, Roaring64Bitmap removals) {
     Objects.requireNonNull(additions, "additions must not be null for delta mode");
     Objects.requireNonNull(removals, "removals must not be null for delta mode");
     return new BitmapChunkPage(pageKey, revision, indexType, rangeStart, rangeEnd, null, additions, removals, true,

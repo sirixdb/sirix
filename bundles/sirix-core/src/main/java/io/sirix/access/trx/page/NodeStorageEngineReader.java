@@ -21,7 +21,7 @@
 
 package io.sirix.access.trx.page;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.RevisionEpochTracker;
 import io.sirix.access.trx.node.CommitCredentials;
@@ -52,9 +52,7 @@ import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.Fixed;
 import io.sirix.settings.VersioningType;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,7 +63,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -211,8 +209,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   public NodeStorageEngineReader(final int trxId,
       final InternalResourceSession<? extends NodeReadOnlyTrx, ? extends NodeTrx> resourceSession,
-      final UberPage uberPage, final @NonNegative int revision, final Reader reader,
-      final BufferManager resourceBufferManager, final @NonNull RevisionRootPageReader revisionRootPageReader,
+      final UberPage uberPage, final int revision, final Reader reader,
+      final BufferManager resourceBufferManager, final RevisionRootPageReader revisionRootPageReader,
       final @Nullable TransactionIntentLog trxIntentLog) {
     checkArgument(trxId > 0, "Transaction-ID must be >= 0.");
     this.trxId = trxId;
@@ -326,8 +324,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   @Override
   @SuppressWarnings("unchecked")
-  public <V extends DataRecord> V getRecord(final long recordKey, @NonNull final IndexType indexType,
-      @NonNegative final int index) {
+  public <V extends DataRecord> V getRecord(final long recordKey, final IndexType indexType,
+      final int index) {
     requireNonNull(indexType);
     assertNotClosed();
 
@@ -509,8 +507,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * @param index     the index number
    * @return SlotOrCachedResult with either cachedRecord or slotLocation, or both null if not found
    */
-  public SlotOrCachedResult lookupSlotOrCached(final long recordKey, @NonNull final IndexType indexType,
-      @NonNegative final int index) {
+  public SlotOrCachedResult lookupSlotOrCached(final long recordKey, final IndexType indexType,
+      final int index) {
     requireNonNull(indexType);
     assertNotClosed();
 
@@ -685,13 +683,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
-  public String getName(final int nameKey, @NonNull final NodeKind nodeKind) {
+  public String getName(final int nameKey, final NodeKind nodeKind) {
     assertNotClosed();
     return namePage.getName(nameKey, nodeKind, this);
   }
 
   @Override
-  public byte[] getRawName(final int nameKey, @NonNull final NodeKind nodeKind) {
+  public byte[] getRawName(final int nameKey, final NodeKind nodeKind) {
     assertNotClosed();
     return namePage.getRawName(nameKey, nodeKind, this);
   }
@@ -704,7 +702,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * @throws SirixIOException if something odd happens within the creation process
    */
   @Override
-  public RevisionRootPage loadRevRoot(@NonNegative final int revisionKey) {
+  public RevisionRootPage loadRevRoot(final int revisionKey) {
     assert revisionKey <= resourceSession.getMostRecentRevisionNumber();
     if (trxIntentLog == null) {
       final Cache<RevisionRootPageCacheKey, RevisionRootPage> cache = resourceBufferManager.getRevisionRootPageCache();
@@ -722,31 +720,31 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
-  public NamePage getNamePage(@NonNull final RevisionRootPage revisionRoot) {
+  public NamePage getNamePage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (NamePage) getPage(revisionRoot.getNamePageReference());
   }
 
   @Override
-  public PathSummaryPage getPathSummaryPage(@NonNull final RevisionRootPage revisionRoot) {
+  public PathSummaryPage getPathSummaryPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (PathSummaryPage) getPage(revisionRoot.getPathSummaryPageReference());
   }
 
   @Override
-  public PathPage getPathPage(@NonNull final RevisionRootPage revisionRoot) {
+  public PathPage getPathPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (PathPage) getPage(revisionRoot.getPathPageReference());
   }
 
   @Override
-  public CASPage getCASPage(@NonNull final RevisionRootPage revisionRoot) {
+  public CASPage getCASPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (CASPage) getPage(revisionRoot.getCASPageReference());
   }
 
   @Override
-  public DeweyIDPage getDeweyIDPage(@NonNull final RevisionRootPage revisionRoot) {
+  public DeweyIDPage getDeweyIDPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (DeweyIDPage) getPage(revisionRoot.getDeweyIdPageReference());
   }
@@ -790,7 +788,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * @param indexType the index type (typically DOCUMENT)
    */
   @Override
-  public PageReferenceToPage getRecordPage(@NonNull IndexLogKey indexLogKey) {
+  public PageReferenceToPage getRecordPage(IndexLogKey indexLogKey) {
     assertNotClosed();
     checkArgument(indexLogKey.getRecordPageKey() >= 0, "recordPageKey must not be negative!");
 
@@ -1072,7 +1070,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * @return the loaded page, or null if not found
    */
   @Nullable
-  private Page getFromBufferManager(@NonNull IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
+  private Page getFromBufferManager(IndexLogKey indexLogKey, PageReference pageReferenceToRecordPage) {
     if (DEBUG_PATH_SUMMARY && indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && LOGGER.isDebugEnabled()) {
       LOGGER.debug("Path summary cache lookup: key={}, revision={}",
                    pageReferenceToRecordPage.getKey(), indexLogKey.getRevisionNumber());
@@ -1110,7 +1108,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return null;
   }
 
-  private void setMostRecentlyReadRecordPage(@NonNull IndexLogKey indexLogKey, @NonNull PageReference pageReference,
+  private void setMostRecentlyReadRecordPage(IndexLogKey indexLogKey, PageReference pageReference,
       KeyValueLeafPage recordPage) {
     // Single-guard: Guard is already managed by caller (getFromBufferManager/getInMemoryPageInstance)
     // No additional guard management needed here
@@ -1218,8 +1216,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Nullable
-  private Page getInMemoryPageInstance(@NonNull IndexLogKey indexLogKey,
-      @NonNull PageReference pageReferenceToRecordPage) {
+  private Page getInMemoryPageInstance(IndexLogKey indexLogKey,
+      PageReference pageReferenceToRecordPage) {
     Page page = pageReferenceToRecordPage.getPage();
 
     if (page != null) {
@@ -1256,13 +1254,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
-  public PageReference getLeafPageReference(final @NonNegative long recordPageKey, final int indexNumber,
+  public PageReference getLeafPageReference(final long recordPageKey, final int indexNumber,
       final IndexType indexType) {
     final PageReference pageReferenceToSubtree = getPageReference(rootPage, indexType, indexNumber);
     return getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, indexType, rootPage);
   }
 
-  PageReference getLeafPageReference(final PageReference pageReferenceToSubtree, final @NonNegative long recordPageKey,
+  PageReference getLeafPageReference(final PageReference pageReferenceToSubtree, final long recordPageKey,
       final int indexNumber, final IndexType indexType, final RevisionRootPage revisionRootPage) {
     return getReferenceToLeafOfSubtree(pageReferenceToSubtree, recordPageKey, indexNumber, indexType, revisionRootPage);
   }
@@ -1455,15 +1453,15 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    */
   @Nullable
   @Override
-  public PageReference getReferenceToLeafOfSubtree(final PageReference startReference, final @NonNegative long pageKey,
-      final int indexNumber, final @NonNull IndexType indexType, final RevisionRootPage revisionRootPage) {
+  public PageReference getReferenceToLeafOfSubtree(final PageReference startReference, final long pageKey,
+      final int indexNumber, final IndexType indexType, final RevisionRootPage revisionRootPage) {
     assertNotClosed();
     return keyedTrieReader.getReferenceToLeafOfSubtree(this, uberPage, startReference, pageKey, indexNumber,
         indexType, revisionRootPage);
   }
 
   @Override
-  public long pageKey(@NonNegative final long recordKey, @NonNull final IndexType indexType) {
+  public long pageKey(final long recordKey, final IndexType indexType) {
     assertNotClosed();
 
     return switch (indexType) {
@@ -1515,7 +1513,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
+    return ToStringHelper.of(this)
                       .add("Session", resourceSession)
                       .add("PageReader", pageReader)
                       .add("UberPage", uberPage)
@@ -1608,7 +1606,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
-  public int getNameCount(final int key, @NonNull final NodeKind kind) {
+  public int getNameCount(final int key, final NodeKind kind) {
     assertNotClosed();
     return namePage.getCount(key, kind, this);
   }
@@ -1637,7 +1635,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
-  public @Nullable HOTLeafPage getHOTLeafPage(@NonNull IndexType indexType, int indexNumber) {
+  public @Nullable HOTLeafPage getHOTLeafPage(IndexType indexType, int indexNumber) {
     assertNotClosed();
     
     // CRITICAL: Use getActualRevisionRootPage() to get the current revision root,
@@ -1799,7 +1797,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
   
   @Override
-  public @Nullable Page loadHOTPage(@NonNull PageReference reference) {
+  public @Nullable Page loadHOTPage(PageReference reference) {
     assertNotClosed();
     
     if (reference == null) {

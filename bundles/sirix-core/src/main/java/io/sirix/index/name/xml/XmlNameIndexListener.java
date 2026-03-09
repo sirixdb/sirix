@@ -5,8 +5,7 @@ import io.sirix.index.PathNodeKeyChangeListener;
 import io.sirix.node.interfaces.NameNode;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.index.name.NameIndexListener;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
@@ -20,7 +19,7 @@ final class XmlNameIndexListener implements PathNodeKeyChangeListener {
   }
 
   @Override
-  public void listen(IndexController.ChangeType type, @NonNull ImmutableNode node, long pathNodeKey) {
+  public void listen(IndexController.ChangeType type, ImmutableNode node, long pathNodeKey) {
     if (node instanceof final NameNode nameNode) {
       listen(type, nameNode.getNodeKey(), nameNode.getKind(), pathNodeKey, nameNode.getName(), null);
     }

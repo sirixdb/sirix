@@ -23,7 +23,6 @@ package io.sirix.page.interfaces;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.PageReference;
 import io.sirix.settings.Constants;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.io.Closeable;
 import java.util.List;
@@ -86,7 +85,7 @@ public interface Page extends AutoCloseable {
    * @param offset the offset
    * @return the {@link PageReference} at the specified offset
    */
-  PageReference getOrCreateReference(@NonNegative int offset);
+  PageReference getOrCreateReference(int offset);
 
   /**
    * Set the reference at the specified offset

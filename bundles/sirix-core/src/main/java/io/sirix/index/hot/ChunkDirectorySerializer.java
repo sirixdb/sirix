@@ -29,7 +29,6 @@
 package io.sirix.index.hot;
 
 import io.sirix.page.PageReference;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -76,7 +75,7 @@ public final class ChunkDirectorySerializer {
    * @param dir the directory
    * @return the serialized size in bytes
    */
-  public static int serializedSize(@NonNull ChunkDirectory dir) {
+  public static int serializedSize(ChunkDirectory dir) {
     Objects.requireNonNull(dir, "dir must not be null");
 
     int size = HEADER_SIZE;
@@ -98,7 +97,7 @@ public final class ChunkDirectorySerializer {
    * @param offset the offset to write at
    * @return the number of bytes written
    */
-  public static int serialize(@NonNull ChunkDirectory dir, byte[] dest, int offset) {
+  public static int serialize(ChunkDirectory dir, byte[] dest, int offset) {
     Objects.requireNonNull(dir, "dir must not be null");
     Objects.requireNonNull(dest, "dest must not be null");
 
@@ -115,7 +114,7 @@ public final class ChunkDirectorySerializer {
    * @param buffer the buffer
    * @return the number of bytes written
    */
-  public static int serializeToBuffer(@NonNull ChunkDirectory dir, @NonNull ByteBuffer buffer) {
+  public static int serializeToBuffer(ChunkDirectory dir, ByteBuffer buffer) {
     Objects.requireNonNull(dir, "dir must not be null");
     Objects.requireNonNull(buffer, "buffer must not be null");
 
@@ -176,7 +175,7 @@ public final class ChunkDirectorySerializer {
    * @param buffer the buffer
    * @return the deserialized ChunkDirectory
    */
-  public static ChunkDirectory deserializeFromBuffer(@NonNull ByteBuffer buffer) {
+  public static ChunkDirectory deserializeFromBuffer(ByteBuffer buffer) {
     Objects.requireNonNull(buffer, "buffer must not be null");
 
     int chunkCount = buffer.getInt();

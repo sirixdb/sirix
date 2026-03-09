@@ -21,7 +21,7 @@
 
 package io.sirix.diff;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 
 /**
  * Container for transaction cursor depths in both the old and new revision.
@@ -87,6 +87,6 @@ final class DepthCounter {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("newDepth: ", mNewDepth).add("oldDepth: ", mOldDepth).toString();
+    return ToStringHelper.of(this).add("newDepth: ", mNewDepth).add("oldDepth: ", mOldDepth).toString();
   }
 }

@@ -11,7 +11,7 @@ import io.brackit.query.node.parser.FragmentHelper;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathParser;
 import io.brackit.query.util.serialize.SubtreePrinter;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;

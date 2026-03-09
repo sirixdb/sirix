@@ -21,7 +21,7 @@
 
 package io.sirix.page.delegates;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.page.DeserializedReferencesPage4Tuple;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
@@ -29,7 +29,6 @@ import io.sirix.page.interfaces.Page;
 import it.unimi.dsi.fastutil.shorts.ShortArrayList;
 import it.unimi.dsi.fastutil.shorts.ShortList;
 import io.sirix.node.BytesIn;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -111,7 +110,7 @@ public final class ReferencesPage4 implements Page {
    * @return {@link PageReference} at given offset
    */
   @Override
-  public PageReference getOrCreateReference(final @NonNegative int offset) {
+  public PageReference getOrCreateReference(final int offset) {
     // Search for existing offset and return corresponding reference
     for (int i = 0, count = offsets.size(); i < count; i++) {
       if (offsets.getShort(i) == offset) {
@@ -150,7 +149,7 @@ public final class ReferencesPage4 implements Page {
 
   @Override
   public String toString() {
-    final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
+    final ToStringHelper helper = ToStringHelper.of(this);
     for (final int offset : offsets) {
       helper.add("offset", offset);
     }

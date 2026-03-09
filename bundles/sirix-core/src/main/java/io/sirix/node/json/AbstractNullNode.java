@@ -34,7 +34,6 @@ import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.xml.AbstractStructForwardingNode;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 
 public abstract class AbstractNullNode extends AbstractStructForwardingNode implements ImmutableJsonNode {
@@ -73,7 +72,7 @@ public abstract class AbstractNullNode extends AbstractStructForwardingNode impl
   }
 
   @Override
-  protected @NonNull NodeDelegate delegate() {
+  protected NodeDelegate delegate() {
     return structNodeDelegate.getNodeDelegate();
   }
 

@@ -1,13 +1,13 @@
 package io.sirix.axis.pathsummary;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.index.path.summary.PathNode;
 
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
-import static com.google.common.base.Preconditions.checkState;
+import static io.sirix.utils.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -237,6 +237,6 @@ public abstract class AbstractAxis implements Iterator<PathNode>, Iterable<PathN
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("pathNode", nextNode).toString();
+    return ToStringHelper.of(this).add("pathNode", nextNode).toString();
   }
 }

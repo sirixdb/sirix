@@ -24,7 +24,6 @@ package io.sirix.service.xml.xpath.expr;
 import io.sirix.api.Axis;
 import io.sirix.api.NodeCursor;
 import io.sirix.service.xml.xpath.AbstractAxis;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import static java.util.Objects.requireNonNull;
 
@@ -51,7 +50,7 @@ public class UnionAxis extends AbstractAxis {
    * @param operand1 first operand
    * @param operand2 second operand
    */
-  public UnionAxis(final NodeCursor cursor, @NonNull final Axis operand1, @NonNull final Axis operand2) {
+  public UnionAxis(final NodeCursor cursor, final Axis operand1, final Axis operand2) {
     super(cursor);
     op1 = requireNonNull(operand1);
     op2 = requireNonNull(operand2);

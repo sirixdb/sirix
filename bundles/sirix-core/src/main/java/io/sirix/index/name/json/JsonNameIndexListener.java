@@ -4,8 +4,7 @@ import io.sirix.access.trx.node.IndexController;
 import io.sirix.index.PathNodeKeyChangeListener;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.index.name.NameIndexListener;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
@@ -20,7 +19,7 @@ final class JsonNameIndexListener implements PathNodeKeyChangeListener {
   }
 
   @Override
-  public void listen(IndexController.ChangeType type, @NonNull ImmutableNode node, long pathNodeKey) {
+  public void listen(IndexController.ChangeType type, ImmutableNode node, long pathNodeKey) {
     if (node instanceof final ObjectKeyNode objectKeyNode) {
       listen(type, objectKeyNode.getNodeKey(), objectKeyNode.getKind(), pathNodeKey, objectKeyNode.getName(), null);
     }

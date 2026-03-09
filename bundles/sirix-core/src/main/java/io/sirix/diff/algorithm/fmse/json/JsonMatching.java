@@ -7,7 +7,6 @@ import io.sirix.axis.IncludeSelf;
 import io.sirix.diff.algorithm.fmse.ConnectionMap;
 import io.sirix.node.NodeKind;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 /**
  * HFT-grade matching data structure for JSON FMSE. Uses fastutil's {@link Long2LongOpenHashMap}
@@ -74,7 +73,7 @@ public final class JsonMatching {
    * @param nodeX source node key (in old revision)
    * @param nodeY partner node key (in new revision)
    */
-  public void add(final @NonNegative long nodeX, final @NonNegative long nodeY) {
+  public void add(final long nodeX, final long nodeY) {
     final long savedOld = rtxOld.getNodeKey();
     final long savedNew = rtxNew.getNodeKey();
     try {
@@ -100,7 +99,7 @@ public final class JsonMatching {
    * @param nodeX source node key
    * @return true if the matching was removed
    */
-  public boolean remove(final @NonNegative long nodeX) {
+  public boolean remove(final long nodeX) {
     final long partner = mapping.remove(nodeX);
     if (partner != NO_PARTNER) {
       reverseMapping.remove(partner);
@@ -113,7 +112,7 @@ public final class JsonMatching {
    * Updates the subtree map: for each ancestor of {@code key}, records that {@code key} is in its
    * subtree.
    */
-  private void updateSubtreeMap(final @NonNegative long key, final JsonNodeReadOnlyTrx rtx) {
+  private void updateSubtreeMap(final long key, final JsonNodeReadOnlyTrx rtx) {
     isInSubtree.set(key, key, true);
     rtx.moveTo(key);
     while (rtx.hasParent()) {
@@ -130,7 +129,7 @@ public final class JsonMatching {
    * @param nodeY expected partner node key
    * @return true iff {@code add(nodeX, nodeY)} was called before
    */
-  public boolean contains(final @NonNegative long nodeX, final @NonNegative long nodeY) {
+  public boolean contains(final long nodeX, final long nodeY) {
     return mapping.get(nodeX) == nodeY;
   }
 
@@ -142,7 +141,7 @@ public final class JsonMatching {
    * @param nodeY second subtree root node (new revision)
    * @return number of matched descendants
    */
-  public long containedDescendants(final @NonNegative long nodeX, final @NonNegative long nodeY) {
+  public long containedDescendants(final long nodeX, final long nodeY) {
     final long savedOld = rtxOld.getNodeKey();
     try {
       long retVal = 0;
@@ -166,7 +165,7 @@ public final class JsonMatching {
    * @param node old-revision node key
    * @return partner node key, or {@link #NO_PARTNER} (-1L) if no partner exists
    */
-  public long partner(final @NonNegative long node) {
+  public long partner(final long node) {
     return mapping.get(node);
   }
 
@@ -176,7 +175,7 @@ public final class JsonMatching {
    * @param node new-revision node key
    * @return old-revision node key, or {@link #NO_PARTNER} (-1L) if no partner exists
    */
-  public long reversePartner(final @NonNegative long node) {
+  public long reversePartner(final long node) {
     return reverseMapping.get(node);
   }
 

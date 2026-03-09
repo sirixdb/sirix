@@ -33,7 +33,6 @@ import jdk.incubator.vector.ShortVector;
 import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorSpecies;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Sparse Partial Keys for HOT (Height Optimized Trie) nodes.
@@ -417,7 +416,7 @@ public final class SparsePartialKeys<T extends Number> {
    * @param index the entry index
    * @param value the partial key value
    */
-  public void setEntry(int index, @NonNull T value) {
+  public void setEntry(int index, T value) {
     if (partialKeyType == Byte.class) {
       byteEntries[index] = value.byteValue();
     } else if (partialKeyType == Short.class) {

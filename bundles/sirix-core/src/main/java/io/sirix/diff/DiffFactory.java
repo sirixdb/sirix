@@ -21,7 +21,7 @@
 
 package io.sirix.diff;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 import java.util.Set;
@@ -37,7 +37,6 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.exception.SirixException;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 /**
  * Factory method for public access.
@@ -158,7 +157,7 @@ public final class DiffFactory {
    * @return new {@link Builder} instance
    */
   public static Builder<XmlNodeReadOnlyTrx, XmlNodeTrx> builder(final XmlResourceSession resourceSession,
-      final @NonNegative int newRev, final @NonNegative int oldRev, final DiffOptimized diffKind,
+      final int newRev, final int oldRev, final DiffOptimized diffKind,
       final Set<DiffObserver> observers) {
     return new Builder<>(resourceSession, newRev, oldRev, diffKind, observers);
   }
@@ -217,7 +216,7 @@ public final class DiffFactory {
      * @param diffKind kind of diff (optimized or not)
      * @param observers {@link Set} of observers
      */
-    public Builder(final ResourceSession<R, W> resMgr, final @NonNegative int newRev, final @NonNegative int oldRev,
+    public Builder(final ResourceSession<R, W> resMgr, final int newRev, final int oldRev,
         final DiffOptimized diffKind, final Set<DiffObserver> observers) {
       this.session = requireNonNull(resMgr);
       checkArgument(newRev >= 0, "paramNewRev must be >= 0!");
@@ -245,7 +244,7 @@ public final class DiffFactory {
      * @param oldKey start node key in old revision
      * @return this builder
      */
-    public Builder<R, W> oldStartKey(final @NonNegative long oldKey) {
+    public Builder<R, W> oldStartKey(final long oldKey) {
       checkArgument(oldKey >= 0, "oldKey must be >= 0!");
       oldStartKey = oldKey;
       return this;
@@ -257,7 +256,7 @@ public final class DiffFactory {
      * @param oldMaxDepth maximum depth of traversal
      * @return this builder
      */
-    public Builder<R, W> oldMaxDepth(final @NonNegative long oldMaxDepth) {
+    public Builder<R, W> oldMaxDepth(final long oldMaxDepth) {
       checkArgument(oldMaxDepth >= 0, "oldMaxDepth must be >= 0!");
       this.oldMaxDepth = oldMaxDepth;
       return this;
@@ -269,7 +268,7 @@ public final class DiffFactory {
      * @param newKey start node key in new revision
      * @return this builder
      */
-    public Builder<R, W> newStartKey(final @NonNegative long newKey) {
+    public Builder<R, W> newStartKey(final long newKey) {
       checkArgument(newKey >= 0, "newKey must be >= 0!");
       newStartKey = newKey;
       return this;
@@ -281,7 +280,7 @@ public final class DiffFactory {
      * @param newDepth depth of "root" node in new revision
      * @return this builder
      */
-    public Builder<R, W> newDepth(final @NonNegative int newDepth) {
+    public Builder<R, W> newDepth(final int newDepth) {
       checkArgument(newDepth >= 0, "newDepth must be >= 0!");
       this.newDepth = newDepth;
       return this;

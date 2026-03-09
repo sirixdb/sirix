@@ -21,7 +21,6 @@
 
 package io.sirix.axis;
 
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.api.NodeCursor;
 import io.sirix.node.NodeKind;
 import io.sirix.settings.Fixed;
@@ -59,7 +58,7 @@ public final class AncestorAxis extends AbstractAxis {
   }
 
   @Override
-  public void reset(final @NonNegative long nodeKey) {
+  public void reset(final long nodeKey) {
     super.reset(nodeKey);
     mFirst = true;
   }

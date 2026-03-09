@@ -21,9 +21,9 @@
 
 package io.sirix.node;
 
-import com.google.common.base.Objects;
+import java.util.Objects;
 import io.sirix.node.BytesOut;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
@@ -212,7 +212,7 @@ public final class NullNode implements StructNode {
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof final NullNode other) {
-      return Objects.equal(node, other.node);
+      return Objects.equals(node, other.node);
     }
     return false;
   }

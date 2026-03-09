@@ -25,7 +25,6 @@ import io.sirix.api.Axis;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.service.xml.xpath.AtomicValue;
 import io.sirix.utils.TypedValue;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.List;
 
@@ -56,7 +55,7 @@ public class SomeExpr extends AbstractExpression {
    * @param pSatisfy condition that must be satisfied by at least one item of the variable results in
    *        order to evaluate expression to true
    */
-  public SomeExpr(final XmlNodeReadOnlyTrx pRtx, @NonNull final List<Axis> pVars, @NonNull final Axis pSatisfy) {
+  public SomeExpr(final XmlNodeReadOnlyTrx pRtx, final List<Axis> pVars, final Axis pSatisfy) {
     super(pRtx);
     mVars = requireNonNull(pVars);
     mSatisfy = requireNonNull(pSatisfy);

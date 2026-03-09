@@ -23,7 +23,6 @@ package io.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Scheduler;
 import io.sirix.page.KeyValueLeafPage;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
@@ -97,7 +96,7 @@ public interface Cache<K, V> {
    * @param key for putting the page in the cache
    * @param value should be putted in the cache as well
    */
-  void put(K key, @NonNull V value);
+  void put(K key, V value);
 
   /**
    * Put all entries from a map into the cache.

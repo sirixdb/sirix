@@ -36,7 +36,6 @@ import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.node.xml.AbstractStructForwardingNode;
 import io.sirix.settings.Fixed;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.lang.foreign.MemorySegment;
 
@@ -117,7 +116,7 @@ public abstract class AbstractBooleanNode extends AbstractStructForwardingNode i
   }
 
   @Override
-  protected @NonNull NodeDelegate delegate() {
+  protected NodeDelegate delegate() {
     return structNodeDelegate.getNodeDelegate();
   }
 }

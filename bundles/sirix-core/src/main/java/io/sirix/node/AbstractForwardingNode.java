@@ -1,9 +1,8 @@
 package io.sirix.node;
 
-import com.google.common.collect.ForwardingObject;
+import io.sirix.utils.ForwardingObject;
 import io.sirix.node.BytesOut;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.Node;
 
@@ -20,7 +19,7 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
   protected AbstractForwardingNode() {}
 
   @Override
-  protected abstract @NonNull NodeDelegate delegate();
+  protected abstract NodeDelegate delegate();
 
   @Override
   public SirixDeweyID getDeweyID() {
@@ -32,7 +31,6 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
    *
    * @return new {@link NodeDelegate} instance (snapshot of the current one)
    */
-  @NonNull
   public NodeDelegate getNodeDelegate() {
     return delegate();
   }
@@ -93,7 +91,7 @@ public abstract class AbstractForwardingNode extends ForwardingObject implements
   }
 
   @Override
-  public @NonNull String toString() {
+  public String toString() {
     return delegate().toString();
   }
 

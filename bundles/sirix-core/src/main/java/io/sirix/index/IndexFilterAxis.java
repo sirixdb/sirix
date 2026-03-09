@@ -6,11 +6,11 @@ import java.util.Set;
 import io.sirix.index.redblacktree.RBNodeKey;
 import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
-import com.google.common.collect.AbstractIterator;
+import io.sirix.utils.AbstractComputingIterator;
 
 import static java.util.Objects.requireNonNull;
 
-public final class IndexFilterAxis<K extends Comparable<? super K>> extends AbstractIterator<NodeReferences> {
+public final class IndexFilterAxis<K extends Comparable<? super K>> extends AbstractComputingIterator<NodeReferences> {
 
   private final RBTreeReader<K, NodeReferences> treeReader;
 

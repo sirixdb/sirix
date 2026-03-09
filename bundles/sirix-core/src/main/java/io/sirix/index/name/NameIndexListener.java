@@ -7,8 +7,7 @@ import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.RBTreeWriter;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 
 import java.util.Optional;
@@ -52,7 +51,7 @@ public final class NameIndexListener {
     this.useHOT = true;
   }
 
-  public void listen(IndexController.ChangeType type, @NonNull ImmutableNode node, QNm name) {
+  public void listen(IndexController.ChangeType type, ImmutableNode node, QNm name) {
     listen(type, node.getNodeKey(), name);
   }
 

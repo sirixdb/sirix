@@ -1,7 +1,7 @@
 package io.sirix.query.compiler.translator;
 
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSet.Builder;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.axis.*;
@@ -35,9 +35,12 @@ import io.brackit.query.jdm.node.Node;
 import io.brackit.query.jdm.type.NodeType;
 import io.brackit.query.node.stream.EmptyStream;
 import io.brackit.query.util.Cfg;
-import org.checkerframework.checker.index.qual.NonNegative;
-
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.BitSet;
+import java.util.Deque;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * Translates queries (optimizes currently path-expressions if {@code OPTIMIZE} is set to true).
@@ -756,16 +759,16 @@ public class SirixTranslator extends TopDownTranslator {
           final Deque<io.sirix.api.Axis> axisQueue = new ArrayDeque<>(matches.cardinality());
           if (onSameLevel) {
             for (int j = level, nodeLevel = getLevel(dbNode); j > nodeLevel; j--) {
-              // Build an immutable set and turn it into a list for sorting.
-              final Builder<QNm> pathNodeQNmBuilder = ImmutableSet.builder();
+              // Build a set and turn it into a list for sorting.
+              final Set<QNm> pathNodeQNmSet = new LinkedHashSet<>();
               for (i = matches.nextSetBit(0); i >= 0; i = matches.nextSetBit(i + 1)) {
                 reader.moveTo(i);
                 for (int k = level; k > j; k--) {
                   reader.moveToParent();
                 }
-                pathNodeQNmBuilder.add(Objects.requireNonNull(reader.getName()));
+                pathNodeQNmSet.add(Objects.requireNonNull(reader.getName()));
               }
-              final List<QNm> pathNodeQNmsList = pathNodeQNmBuilder.build().asList();
+              final List<QNm> pathNodeQNmsList = List.copyOf(pathNodeQNmSet);
               final QNm name = pathNodeQNmsList.get(0);
               boolean sameName = true;
               for (int k = 1; k < pathNodeQNmsList.size(); k++) {
@@ -826,7 +829,7 @@ public class SirixTranslator extends TopDownTranslator {
     }
 
     // Get all names on the path up to level.
-    private static Deque<QNm> getNames(final @NonNegative int matchLevel, final @NonNegative int level,
+    private static Deque<QNm> getNames(final int matchLevel, final int level,
         final PathSummaryReader reader) {
       // Match at a level below this level which is not a direct child.
       final Deque<QNm> names = new ArrayDeque<>(matchLevel - level);

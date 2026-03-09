@@ -2,7 +2,6 @@ package io.sirix.cache;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.index.name.Names;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
@@ -33,7 +32,7 @@ public final class NamesCache implements Cache<NamesCacheKey, Names> {
   }
 
   @Override
-  public void put(NamesCacheKey key, @NonNull Names value) {
+  public void put(NamesCacheKey key, Names value) {
     cache.put(key, value);
   }
 

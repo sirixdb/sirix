@@ -34,8 +34,6 @@ import io.sirix.service.AbstractSerializer;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.XMLToken;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import org.slf4j.LoggerFactory;
 import org.xml.sax.*;
 import org.xml.sax.helpers.AttributesImpl;
@@ -72,7 +70,7 @@ public final class SAXSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
    * @param revision revision to serialize
    * @param revisions further revisions to serialize
    */
-  public SAXSerializer(final XmlResourceSession resMgr, final ContentHandler handler, final @NonNegative int revision,
+  public SAXSerializer(final XmlResourceSession resMgr, final ContentHandler handler, final int revision,
       final int... revisions) {
     super(resMgr, null, revision, revisions);
     contentHandler = handler;
@@ -114,7 +112,7 @@ public final class SAXSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
   }
 
   @Override
-  protected void emitRevisionStartNode(final @NonNull XmlNodeReadOnlyTrx rtx) {
+  protected void emitRevisionStartNode(final XmlNodeReadOnlyTrx rtx) {
     final int length = (revisions.length == 1 && revisions[0] < 0)
         ? session.getMostRecentRevisionNumber()
         : revisions.length;
@@ -131,7 +129,7 @@ public final class SAXSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
   }
 
   @Override
-  protected void emitRevisionEndNode(final @NonNull XmlNodeReadOnlyTrx rtx) {
+  protected void emitRevisionEndNode(final XmlNodeReadOnlyTrx rtx) {
     final int length = (revisions.length == 1 && revisions[0] < 0)
         ? (int) session.getMostRecentRevisionNumber()
         : revisions.length;

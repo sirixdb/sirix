@@ -1,6 +1,6 @@
 package io.sirix.page;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
@@ -25,9 +25,7 @@ import io.sirix.utils.ArrayIterator;
 import io.sirix.utils.OS;
 import io.sirix.node.BytesOut;
 import io.sirix.node.MemorySegmentBytesOut;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -328,7 +326,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @param indexType      the index type
    * @param resourceConfig the resource configuration
    */
-  public KeyValueLeafPage(final @NonNegative long recordPageKey, final IndexType indexType,
+  public KeyValueLeafPage(final long recordPageKey, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
       final MemorySegment deweyIdMemory) {
     this(recordPageKey, indexType, resourceConfig, revisionNumber, slotMemory, deweyIdMemory, true);
@@ -342,7 +340,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @param resourceConfig             the resource configuration
    * @param externallyAllocatedMemory  if true, memory was allocated externally and won't be released by close()
    */
-  public KeyValueLeafPage(final @NonNegative long recordPageKey, final IndexType indexType,
+  public KeyValueLeafPage(final long recordPageKey, final IndexType indexType,
       final ResourceConfiguration resourceConfig, final int revisionNumber, final MemorySegment slotMemory,
       final MemorySegment deweyIdMemory, final boolean externallyAllocatedMemory) {
     // Assertions instead of requireNonNull(...) checks as it's part of the
@@ -517,7 +515,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public void setRecord(@NonNull final DataRecord record) {
+  public void setRecord(final DataRecord record) {
     addedReferences = false;
     // Invalidate stale compressed cache — record mutation means cached bytes are outdated
     compressedSegment = null;
@@ -562,7 +560,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    *
    * @param record the newly created record
    */
-  public void setNewRecord(@NonNull final DataRecord record) {
+  public void setNewRecord(final DataRecord record) {
     assert !(record instanceof FlyweightNode)
         : "FlyweightNode must not go through setNewRecord — use serializeNewRecord";
     addedReferences = false;
@@ -1696,8 +1694,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
 
   @Override
-  public <C extends KeyValuePage<DataRecord>> C newInstance(@NonNegative long recordPageKey,
-      @NonNull IndexType indexType, @NonNull StorageEngineReader storageEngineReader) {
+  public <C extends KeyValuePage<DataRecord>> C newInstance(long recordPageKey,
+      IndexType indexType, StorageEngineReader storageEngineReader) {
     final ResourceConfiguration config = storageEngineReader.getResourceSession().getResourceConfig();
     return (C) new KeyValueLeafPage(
         recordPageKey,
@@ -1712,7 +1710,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public String toString() {
-    final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this).add("pagekey", recordPageKey);
+    final ToStringHelper helper = ToStringHelper.of(this).add("pagekey", recordPageKey);
     if (records != null) {
       for (final DataRecord record : records) {
         if (record != null) {
@@ -1915,7 +1913,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public void commit(final @NonNull StorageEngineWriter pageWriteTrx) {
+  public void commit(final StorageEngineWriter pageWriteTrx) {
     addReferences(pageWriteTrx.getResourceSession().getResourceConfig());
     for (final PageReference reference : references.values()) {
       if (!(reference.getPage() == null && reference.getKey() == Constants.NULL_ID_LONG
@@ -1926,7 +1924,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public PageReference getOrCreateReference(@NonNegative int offset) {
+  public PageReference getOrCreateReference(int offset) {
     throw new UnsupportedOperationException();
   }
 
@@ -1936,7 +1934,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public void setPageReference(final long key, @NonNull final PageReference reference) {
+  public void setPageReference(final long key, final PageReference reference) {
     references.put(key, reference);
   }
 

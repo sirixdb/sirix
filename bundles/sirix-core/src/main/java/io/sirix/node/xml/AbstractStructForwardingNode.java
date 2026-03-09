@@ -28,12 +28,10 @@
 
 package io.sirix.node.xml;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.StructNode;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Skeletal implementation of {@link StructNode} interface.
@@ -158,7 +156,7 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
   }
 
   @Override
-  public void setDescendantCount(final @NonNegative long descendantCount) {
+  public void setDescendantCount(final long descendantCount) {
     structDelegate().setDescendantCount(descendantCount);
   }
 
@@ -173,8 +171,8 @@ public abstract class AbstractStructForwardingNode extends AbstractForwardingNod
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("nodeDelegate", super.toString())
                       .add("structDelegate", structDelegate().toString())
                       .toString();

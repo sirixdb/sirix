@@ -21,9 +21,8 @@
 
 package io.sirix.axis;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import it.unimi.dsi.fastutil.longs.LongIterator;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.api.Axis;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
@@ -35,7 +34,7 @@ import io.sirix.settings.Fixed;
 
 import java.util.NoSuchElementException;
 
-import static com.google.common.base.Preconditions.checkState;
+import static io.sirix.utils.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -247,7 +246,7 @@ public abstract class AbstractAxis implements Axis {
    * @param nodeKey the nodekey where the reset should occur to
    */
   @Override
-  public void reset(@NonNegative final long nodeKey) {
+  public void reset(final long nodeKey) {
     startNodeKey = nodeKey;
     nextNodeKey = nodeKey;
     state = State.NOT_READY;
@@ -363,6 +362,6 @@ public abstract class AbstractAxis implements Axis {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("trx", nodeCursor).toString();
+    return ToStringHelper.of(this).add("trx", nodeCursor).toString();
   }
 }

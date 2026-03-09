@@ -69,9 +69,7 @@ import io.sirix.settings.Fixed;
 import io.sirix.settings.VersioningType;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -89,7 +87,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Semaphore;
 import java.util.function.Function;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static io.sirix.cache.LinuxMemorySegmentAllocator.SIXTYFOUR_KB;
 import static java.nio.file.Files.deleteIfExists;
 import static java.nio.file.Files.newOutputStream;
@@ -285,7 +283,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public DataRecord prepareRecordForModification(final long recordKey, @NonNull final IndexType indexType,
+  public DataRecord prepareRecordForModification(final long recordKey, final IndexType indexType,
       final int index) {
     storageEngineReader.assertNotClosed();
     checkArgument(recordKey >= 0, "recordKey must be >= 0!");
@@ -428,8 +426,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   public long getAllocNodeKey() { return allocNodeKey; }
 
   @Override
-  public DataRecord createRecord(@NonNull final DataRecord record, @NonNull final IndexType indexType,
-      @NonNegative final int index) {
+  public DataRecord createRecord(final DataRecord record, final IndexType indexType,
+      final int index) {
     storageEngineReader.assertNotClosed();
 
     // Allocate record key and increment record count.
@@ -496,7 +494,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public void persistRecord(@NonNull final DataRecord record, @NonNull final IndexType indexType, final int index) {
+  public void persistRecord(final DataRecord record, final IndexType indexType, final int index) {
     if (record instanceof FlyweightNode fn && fn.isWriteSingleton() && fn.getOwnerPage() != null) {
       return; // Bound write singleton — mutations already on heap
     }
@@ -510,7 +508,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public void removeRecord(final long recordKey, @NonNull final IndexType indexType, final int index) {
+  public void removeRecord(final long recordKey, final IndexType indexType, final int index) {
     storageEngineReader.assertNotClosed();
 
     final long recordPageKey = storageEngineReader.pageKey(recordKey, indexType);
@@ -527,8 +525,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public <V extends DataRecord> V getRecord(final long recordKey, @NonNull final IndexType indexType,
-      @NonNegative final int index) {
+  public <V extends DataRecord> V getRecord(final long recordKey, final IndexType indexType,
+      final int index) {
     storageEngineReader.assertNotClosed();
 
     checkArgument(recordKey >= Fixed.NULL_NODE_KEY.getStandardProperty());
@@ -572,7 +570,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public String getName(final int nameKey, @NonNull final NodeKind nodeKind) {
+  public String getName(final int nameKey, final NodeKind nodeKind) {
     storageEngineReader.assertNotClosed();
     final NamePage currentNamePage = getNamePage(newRevisionRootPage);
     return (currentNamePage == null || currentNamePage.getName(nameKey, nodeKind, storageEngineReader) == null)
@@ -581,7 +579,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public int createNameKey(final @Nullable String name, @NonNull final NodeKind nodeKind) {
+  public int createNameKey(final @Nullable String name, final NodeKind nodeKind) {
     storageEngineReader.assertNotClosed();
     requireNonNull(nodeKind);
     final String string = name == null
@@ -1176,12 +1174,12 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public DeweyIDPage getDeweyIDPage(@NonNull RevisionRootPage revisionRoot) {
+  public DeweyIDPage getDeweyIDPage(RevisionRootPage revisionRoot) {
     // TODO
     return null;
   }
 
-  private PageContainer getPageContainer(final @NonNegative long recordPageKey, final int indexNumber,
+  private PageContainer getPageContainer(final long recordPageKey, final int indexNumber,
       final IndexType indexType) {
     PageContainer pageContainer =
         getMostRecentPageContainer(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision());
@@ -1204,7 +1202,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Nullable
   private PageContainer getMostRecentPageContainer(IndexType indexType, long recordPageKey,
-      @NonNegative int indexNumber, @NonNegative int revisionNumber) {
+      int indexNumber, int revisionNumber) {
     if (indexType == IndexType.PATH_SUMMARY) {
       return mostRecentPathSummaryPageContainer != null && mostRecentPathSummaryPageContainer.indexType == indexType
           && mostRecentPathSummaryPageContainer.indexNumber == indexNumber
@@ -1239,7 +1237,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    * @return {@link PageContainer} instance
    * @throws SirixIOException if an I/O error occurs
    */
-  private PageContainer prepareRecordPage(final @NonNegative long recordPageKey, final int indexNumber,
+  private PageContainer prepareRecordPage(final long recordPageKey, final int indexNumber,
       final IndexType indexType) {
     assert indexType != null;
     // Traditional KEYED_TRIE path (bit-decomposed).
@@ -1250,7 +1248,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   /**
    * Prepare record page using traditional bit-decomposed KEYED_TRIE.
    */
-  private PageContainer prepareRecordPageViaKeyedTrie(final @NonNegative long recordPageKey, final int indexNumber,
+  private PageContainer prepareRecordPageViaKeyedTrie(final long recordPageKey, final int indexNumber,
       final IndexType indexType) {
 
     PageContainer mostRecentPageContainer1 =
@@ -1372,7 +1370,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public @Nullable HOTLeafPage getHOTLeafPage(@NonNull IndexType indexType, int indexNumber) {
+  public @Nullable HOTLeafPage getHOTLeafPage(IndexType indexType, int indexNumber) {
     storageEngineReader.assertNotClosed();
 
     // CRITICAL: Use newRevisionRootPage (not the delegate's rootPage) because
@@ -1438,7 +1436,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public io.sirix.page.interfaces.@Nullable Page loadHOTPage(@NonNull PageReference reference) {
+  public io.sirix.page.interfaces.@Nullable Page loadHOTPage(PageReference reference) {
     storageEngineReader.assertNotClosed();
 
     if (reference == null) {
@@ -1463,7 +1461,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  protected @NonNull StorageEngineReader delegate() {
+  protected StorageEngineReader delegate() {
     return storageEngineReader;
   }
 
@@ -1474,7 +1472,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   @Override
   public KeyValueLeafPage getModifiedPageForRead(final long recordPageKey,
-      @NonNull final IndexType indexType, final int index) {
+      final IndexType indexType, final int index) {
     final PageContainer pc = getPageContainer(recordPageKey, index, indexType);
     if (pc != null) {
       final var modified = pc.getModified();
@@ -1486,8 +1484,8 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
-  public StorageEngineWriter appendLogRecord(@NonNull final PageReference reference,
-      @NonNull final PageContainer pageContainer) {
+  public StorageEngineWriter appendLogRecord(final PageReference reference,
+      final PageContainer pageContainer) {
     requireNonNull(pageContainer);
     log.put(reference, pageContainer);
     return this;

@@ -1,6 +1,6 @@
 package io.sirix.query.stream.json;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Stream;
 import io.sirix.api.Axis;
@@ -56,6 +56,6 @@ public final class SirixJsonStream implements Stream<Item> {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("axis", axis).toString();
+    return ToStringHelper.of(this).add("axis", axis).toString();
   }
 }

@@ -22,6 +22,7 @@
 package io.sirix.axis.filter;
 
 import java.util.Iterator;
+import java.util.stream.StreamSupport;
 
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.DescendantAxis;
@@ -33,7 +34,6 @@ import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.axis.AbsAxisTest;
 import io.sirix.axis.filter.xml.ElementFilter;
-import com.google.common.collect.FluentIterable;
 
 public class ElementFilterTest {
 
@@ -90,8 +90,10 @@ public class ElementFilterTest {
   public void testFluentIterable() throws SirixException {
     final XmlNodeReadOnlyTrx rtx = holder.getXmlNodeReadTrx();
 
+    final var axis = new DescendantAxis(rtx);
+    final var filter = new ElementFilter(rtx);
     final Iterator<Long> results =
-        FluentIterable.from(new DescendantAxis(rtx)).filter(new ElementFilter(rtx)).limit(2).iterator();
+        StreamSupport.stream(axis.spliterator(), false).filter(filter).limit(2).iterator();
     AbsAxisTest.testIterable(results, new long[] {1, 5});
   }
 

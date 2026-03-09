@@ -5,7 +5,6 @@ import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
 
 import io.sirix.node.delegates.NodeDelegate;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Immutable RBNode.
@@ -71,7 +70,7 @@ public final class ImmutableRBNodeImpl<K extends Comparable<? super K>> extends 
   }
 
   @Override
-  protected @NonNull NodeDelegate delegate() {
+  protected NodeDelegate delegate() {
     return node.delegate();
   }
 }

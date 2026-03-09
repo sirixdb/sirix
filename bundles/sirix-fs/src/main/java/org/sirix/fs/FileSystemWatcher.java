@@ -57,8 +57,8 @@ import org.sirix.settings.Fixed;
 import org.sirix.utils.LogWrapper;
 import org.sirix.utils.XMLToken;
 import org.slf4j.LoggerFactory;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Optional;
+import java.util.Optional;
+import io.sirix.utils.ToStringHelper;
 
 /**
  * <p>
@@ -269,7 +269,7 @@ public class FileSystemWatcher implements AutoCloseable {
     assert event != null;
     final Kind<?> type = event.kind();
 
-    Optional<?> optional = Optional.fromNullable(event.context());
+    Optional<?> optional = Optional.ofNullable(event.context());
     if (optional.isPresent()) {
       if (type == ENTRY_CREATE) {
         entryCreated(visitor, index, path);
@@ -404,7 +404,7 @@ public class FileSystemWatcher implements AutoCloseable {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
+    return ToStringHelper.of(this)
                       .add("path", mPath)
                       .add("database", mDatabase)
                       .add("transaction", mWtx)

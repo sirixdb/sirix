@@ -1,9 +1,6 @@
 package io.sirix.access;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.collect.BiMap;
-import com.google.common.collect.HashBiMap;
-import com.google.common.collect.Maps;
+import io.sirix.utils.ToStringHelper;
 import com.google.crypto.tink.InsecureSecretKeyAccess;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.TinkJsonProtoKeysetFormat;
@@ -25,8 +22,6 @@ import io.sirix.io.IOStorage;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.Encryptor;
 import io.sirix.utils.SirixFiles;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,7 +30,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Stream;
@@ -67,8 +64,10 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   /**
    * Central repository of all resource-ID/resource-name tuples.
+   * Uses two synchronized maps (forward + inverse) as a replacement for Guava BiMap.
    */
-  private final BiMap<Long, String> resourceIDsToResourceNames;
+  private final Map<Long, String> resourceIDsToResourceNames;
+  private final Map<String, Long> resourceNamesToResourceIDs;
 
   /**
    * DatabaseConfiguration with fixed settings.
@@ -121,13 +120,14 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     this.resourceStore = resourceStore;
     this.resourceSessions = resourceSessions;
     this.writeLocks = writeLocks;
-    this.resourceIDsToResourceNames = Maps.synchronizedBiMap(HashBiMap.create());
+    this.resourceIDsToResourceNames = new HashMap<>();
+    this.resourceNamesToResourceIDs = new HashMap<>();
     this.sessions.putObject(dbConfig.getDatabaseFile(), this);
     this.bufferManager = Databases.getGlobalBufferManager();
   }
 
   @Override
-  public @NonNull T beginResourceSession(final String resourceName) {
+  public T beginResourceSession(final String resourceName) {
     assertNotClosed();
 
     final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
@@ -152,7 +152,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
     assert resourceConfig.resourcePath.getParent().getParent().equals(dbConfig.getDatabaseFile());
 
     // Keep track of the resource-ID.
-    resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
+    biMapForcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
     // Use the global BufferManager for this resource session.
     // Cache keys include (databaseId, resourceId) to prevent collisions.
@@ -214,14 +214,14 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
       resourceID.set(dbConfig.getMaxResourceID());
       ResourceConfiguration.serialize(resourceConfig.setID(resourceID.getAndIncrement()));
       dbConfig.setMaximumResourceID(resourceID.get());
-      resourceIDsToResourceNames.forcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
+      biMapForcePut(resourceConfig.getID(), resourceConfig.getResource().getFileName().toString());
 
       returnVal = bootstrapResource(resourceConfig);
     }
 
     if (!returnVal) {
       // If something was not correct, delete the partly created substructure.
-      resourceIDsToResourceNames.inverse().remove(resourceConfig.getResource().getFileName().toString());
+      biMapInverseRemove(resourceConfig.getResource().getFileName().toString());
       SirixFiles.recursiveRemove(resourceConfig.resourcePath);
     }
 
@@ -321,7 +321,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   }
 
   @Override
-  public synchronized String getResourceName(final @NonNegative long id) {
+  public synchronized String getResourceName(final long id) {
     assertNotClosed();
     return resourceIDsToResourceNames.get(id);
   }
@@ -329,7 +329,7 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   @Override
   public synchronized long getResourceID(final String name) {
     assertNotClosed();
-    final Long id = resourceIDsToResourceNames.inverse().get(requireNonNull(name));
+    final Long id = resourceNamesToResourceIDs.get(requireNonNull(name));
     if (id == null) {
       throw new SirixUsageException("No resource found with name: " + name);
     }
@@ -339,6 +339,35 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
   private void assertNotClosed() {
     if (isClosed) {
       throw new IllegalStateException("Database is already closed.");
+    }
+  }
+
+  /**
+   * BiMap-style forcePut: removes any existing mapping for either the key or the value,
+   * then inserts the new mapping into both forward and inverse maps.
+   */
+  private void biMapForcePut(final long id, final String name) {
+    // Remove existing mapping for this value (name) if present
+    final Long existingId = resourceNamesToResourceIDs.remove(name);
+    if (existingId != null) {
+      resourceIDsToResourceNames.remove(existingId);
+    }
+    // Remove existing mapping for this key (id) if present
+    final String existingName = resourceIDsToResourceNames.remove(id);
+    if (existingName != null) {
+      resourceNamesToResourceIDs.remove(existingName);
+    }
+    resourceIDsToResourceNames.put(id, name);
+    resourceNamesToResourceIDs.put(name, id);
+  }
+
+  /**
+   * BiMap-style inverse remove: removes the mapping by name (value in forward map).
+   */
+  private void biMapInverseRemove(final String name) {
+    final Long id = resourceNamesToResourceIDs.remove(name);
+    if (id != null) {
+      resourceIDsToResourceNames.remove(id);
     }
   }
 
@@ -398,6 +427,6 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("dbConfig", dbConfig).toString();
+    return ToStringHelper.of(this).add("dbConfig", dbConfig).toString();
   }
 }

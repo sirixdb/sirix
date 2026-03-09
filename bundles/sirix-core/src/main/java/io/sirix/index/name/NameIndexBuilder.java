@@ -11,7 +11,7 @@ import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.utils.LogWrapper;
 import io.brackit.query.atomic.QNm;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
 import java.util.Optional;

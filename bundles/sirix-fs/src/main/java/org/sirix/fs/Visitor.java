@@ -24,7 +24,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import org.checkerframework.checker.nullness.qual.NonNull;
 import org.sirix.api.NodeReadOnlyTrx;
-import com.google.common.base.Optional;
+import java.util.Optional;
 
 /**
  * Interface for all visitor implementations to equip the parsing of directories with a thorough XML

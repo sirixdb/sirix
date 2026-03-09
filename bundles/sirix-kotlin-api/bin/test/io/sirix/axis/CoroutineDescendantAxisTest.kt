@@ -23,7 +23,6 @@ package io.sirix.axis
 import com.google.common.collect.ImmutableList
 import com.google.common.collect.testing.IteratorFeature
 import com.google.common.collect.testing.IteratorTester
-import org.checkerframework.org.apache.commons.lang3.time.StopWatch
 import org.junit.After
 import org.junit.Before
 import org.junit.Ignore
@@ -248,9 +247,8 @@ class CoroutineDescendantAxisTest {
                 database.beginResourceSession(JsonTestHelper.RESOURCE).use { session ->
                     session.beginNodeReadOnlyTrx().use { rtx ->
                         val axis = CoroutineDescendantAxis(session)
-                        val stopWatch = StopWatch()
+                        val startNanos = System.nanoTime()
                         logger.info("start")
-                        stopWatch.start()
                         logger.info("Max node key: " + rtx.maxNodeKey)
                         var count = 0
                         while (axis.hasNext()) {
@@ -260,7 +258,7 @@ class CoroutineDescendantAxisTest {
                             }
                             count++
                         }
-                        logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].")
+                        logger.info(" done [" + TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startNanos) + " s].")
                     }
                 }
             }
@@ -271,8 +269,7 @@ class CoroutineDescendantAxisTest {
 
     private fun createResource(jsonPath: Path, database: Database<JsonResourceSession>) {
         logger.info(" start shredding ")
-        val stopWatch = StopWatch()
-        stopWatch.start()
+        val startNanos = System.nanoTime()
         database.createResource(
             ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                 .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
@@ -290,7 +287,7 @@ class CoroutineDescendantAxisTest {
             session.beginNodeTrx(262144 shl 3)
                 .use { trx -> trx.insertSubtreeAsFirstChild(JsonShredder.createFileReader(jsonPath)) }
         }
-        logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + " s].")
+        logger.info(" done [" + TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startNanos) + " s].")
     }
 
     companion object {

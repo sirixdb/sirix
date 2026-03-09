@@ -8,7 +8,6 @@ import io.sirix.diff.algorithm.fmse.Matching;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.utils.LogWrapper;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.access.trx.node.xml.AbstractXmlNodeVisitor;
 import io.sirix.exception.SirixException;
 import io.sirix.node.immutable.xml.ImmutableComment;
@@ -20,7 +19,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -51,7 +50,7 @@ public class DeleteFMSEVisitor extends AbstractXmlNodeVisitor {
    * @param matching {@link Matching} reference
    * @param startKey start key
    */
-  public DeleteFMSEVisitor(final XmlNodeTrx wtx, final Matching matching, @NonNegative final long startKey) {
+  public DeleteFMSEVisitor(final XmlNodeTrx wtx, final Matching matching, final long startKey) {
     this.wtx = requireNonNull(wtx);
     this.matching = requireNonNull(matching);
     checkArgument(startKey >= 0, "start key must be >= 0!");

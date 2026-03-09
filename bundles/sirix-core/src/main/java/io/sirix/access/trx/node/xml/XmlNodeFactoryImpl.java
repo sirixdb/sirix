@@ -26,8 +26,6 @@ import io.sirix.utils.NamePageHash;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.lang.foreign.MemorySegment;
 import java.util.zip.Deflater;
@@ -118,8 +116,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public PathNode createPathNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
-      final long rightSibKey, @NonNull final QNm name, @NonNull final NodeKind kind, final @NonNegative int level) {
+  public PathNode createPathNode(final long parentKey, final long leftSibKey,
+      final long rightSibKey, final QNm name, final NodeKind kind, final int level) {
     final int uriKey = NamePageHash.generateHashForString(name.getNamespaceURI());
     final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
         ? NamePageHash.generateHashForString(name.getPrefix())
@@ -143,8 +141,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public ElementNode createElementNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
-      final @NonNegative long rightSibKey, @NonNull final QNm name, final @NonNegative long pathNodeKey,
+  public ElementNode createElementNode(final long parentKey, final long leftSibKey,
+      final long rightSibKey, final QNm name, final long pathNodeKey,
       final SirixDeweyID id) {
     final int uriKey = name.getNamespaceURI() != null && !name.getNamespaceURI().isEmpty()
         ? storageEngineWriter.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE)
@@ -176,8 +174,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public TextNode createTextNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
-      final @NonNegative long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
+  public TextNode createTextNode(final long parentKey, final long leftSibKey,
+      final long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
     // Compress value if needed
     final boolean compression = isCompressed && value.length > 10;
     final byte[] compressedValue = compression
@@ -203,8 +201,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public AttributeNode createAttributeNode(final @NonNegative long parentKey, final @NonNull QNm name,
-      final byte[] value, final @NonNegative long pathNodeKey, final SirixDeweyID id) {
+  public AttributeNode createAttributeNode(final long parentKey, final QNm name,
+      final byte[] value, final long pathNodeKey, final SirixDeweyID id) {
     final int uriKey = storageEngineWriter.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
     final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
         ? storageEngineWriter.createNameKey(name.getPrefix(), NodeKind.ATTRIBUTE)
@@ -231,8 +229,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public NamespaceNode createNamespaceNode(final @NonNegative long parentKey, final QNm name,
-      final @NonNegative long pathNodeKey, final SirixDeweyID id) {
+  public NamespaceNode createNamespaceNode(final long parentKey, final QNm name,
+      final long pathNodeKey, final SirixDeweyID id) {
     final int uriKey = storageEngineWriter.createNameKey(name.getNamespaceURI(), NodeKind.NAMESPACE);
     final int prefixKey = name.getPrefix() != null && !name.getPrefix().isEmpty()
         ? storageEngineWriter.createNameKey(name.getPrefix(), NodeKind.NAMESPACE)
@@ -259,9 +257,9 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public PINode createPINode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
-      final @NonNegative long rightSibKey, final QNm target, final byte[] content, final boolean isCompressed,
-      final @NonNegative long pathNodeKey, final SirixDeweyID id) {
+  public PINode createPINode(final long parentKey, final long leftSibKey,
+      final long rightSibKey, final QNm target, final byte[] content, final boolean isCompressed,
+      final long pathNodeKey, final SirixDeweyID id) {
     final int prefixKey = target.getPrefix() != null && !target.getPrefix().isEmpty()
         ? storageEngineWriter.createNameKey(target.getPrefix(), NodeKind.PROCESSING_INSTRUCTION)
         : -1;
@@ -293,8 +291,8 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
   }
 
   @Override
-  public CommentNode createCommentNode(final @NonNegative long parentKey, final @NonNegative long leftSibKey,
-      final @NonNegative long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
+  public CommentNode createCommentNode(final long parentKey, final long leftSibKey,
+      final long rightSibKey, final byte[] value, final boolean isCompressed, final SirixDeweyID id) {
     // Compress value if needed
     final boolean compression = isCompressed && value.length > 10;
     final byte[] compressedValue = compression

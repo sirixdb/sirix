@@ -21,9 +21,7 @@ import io.sirix.io.StorageType;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.OS;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
-import org.jetbrains.annotations.NotNull;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -35,7 +33,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Predicate;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -242,7 +239,9 @@ public final class BasicJsonDBStore implements JsonDBStore {
      * @return this builder instance
      */
     public Builder numberOfNodesBeforeAutoCommit(final int numberOfNodesBeforeAutoCommit) {
-      checkArgument(numberOfNodesBeforeAutoCommit > 0, "Must be > 0!");
+      if (numberOfNodesBeforeAutoCommit <= 0) {
+        throw new IllegalArgumentException("Must be > 0!");
+      }
       this.numberOfNodesBeforeAutoCommit = numberOfNodesBeforeAutoCommit;
       return this;
     }
@@ -440,7 +439,6 @@ public final class BasicJsonDBStore implements JsonDBStore {
     }
   }
 
-  @NotNull
   private Options createResource(Object options, Database<JsonResourceSession> database, String resourceName) {
     final var resourceOptions = OptionsFactory.createOptions(options, new Options(null, null, false, buildPathSummary,
         storageType, useDeweyIDs, hashType, versioningType, numberOfNodesBeforeAutoCommit));
@@ -495,7 +493,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
   }
 
   @Override
-  public JsonDBStore removeDatabase(final @NonNull Database<JsonResourceSession> database) {
+  public JsonDBStore removeDatabase(final Database<JsonResourceSession> database) {
     databases.remove(database);
     collections.remove(database);
     return this;

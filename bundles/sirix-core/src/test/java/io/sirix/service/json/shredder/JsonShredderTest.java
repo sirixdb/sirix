@@ -19,7 +19,6 @@ import io.sirix.service.InsertPosition;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.LogWrapper;
-import org.checkerframework.org.apache.commons.lang3.time.StopWatch;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Disabled;
@@ -106,9 +105,8 @@ public final class JsonShredderTest {
         }
 
         try (final var rtx = session.beginNodeReadOnlyTrx()) {
-          var stopWatch = new StopWatch();
+          var startNanos = System.nanoTime();
           logger.info("start");
-          stopWatch.start();
           logger.info("Max node key: " + rtx.getMaxNodeKey());
 
           Axis axis = new DescendantAxis(rtx);
@@ -124,13 +122,12 @@ public final class JsonShredderTest {
             count++;
           }
 
-          logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
+          logger.info(" done [" + TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startNanos) + "s].");
         } catch (Throwable t) {
           t.printStackTrace();
         }
 
-        // stopWatch = new StopWatch();
-        // stopWatch.start();
+        // startNanos = System.nanoTime();
         //
         // logger.info("start");
         // axis = new PostOrderAxis(rtx);
@@ -145,7 +142,7 @@ public final class JsonShredderTest {
         // count++;
         // }
         //
-        // logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS)+ "s].");
+        // logger.info(" done [" + TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startNanos) + "s].");
       }));
     }
 
@@ -168,9 +165,8 @@ public final class JsonShredderTest {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var rtx = manager.beginNodeReadOnlyTrx()) {
-      var stopWatch = new StopWatch();
+      var startNanos = System.nanoTime();
       logger.info("start");
-      stopWatch.start();
       logger.info("Max node key: " + rtx.getMaxNodeKey());
       Axis axis = new DescendantAxis(rtx);
 
@@ -184,10 +180,9 @@ public final class JsonShredderTest {
         count++;
       }
 
-      logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
+      logger.info(" done [" + TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startNanos) + "s].");
 
-      stopWatch = new StopWatch();
-      stopWatch.start();
+      startNanos = System.nanoTime();
 
       logger.info("start");
       axis = new PostOrderAxis(rtx);
@@ -202,7 +197,7 @@ public final class JsonShredderTest {
         count++;
       }
 
-      logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
+      logger.info(" done [" + TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startNanos) + "s].");
     }
   }
 
@@ -235,8 +230,7 @@ public final class JsonShredderTest {
   }
 
   private void createResource(Path jsonPath, Database<JsonResourceSession> database, boolean doTraverse) {
-    var stopWatch = new StopWatch();
-    stopWatch.start();
+    var startNanos = System.nanoTime();
     database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                                  .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
                                                  .buildPathSummary(true)
@@ -272,14 +266,13 @@ public final class JsonShredderTest {
       }
     }
 
-    logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
+    logger.info(" done [" + TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startNanos) + "s].");
   }
 
   @Disabled
   @Test
   public void testParseChicago() throws IOException {
-    final var stopWatch = new StopWatch();
-    stopWatch.start();
+    final var startNanos = System.nanoTime();
     try (final var reader = JsonShredder.createFileReader(JSON.resolve("cityofchicago.json"))) {
       while (reader.peek() != JsonToken.END_DOCUMENT) {
         final var nextToken = reader.peek();
@@ -298,7 +291,7 @@ public final class JsonShredderTest {
         }
       }
     }
-    System.out.println("Done in " + stopWatch.getTime(TimeUnit.MILLISECONDS) + "ms");
+    System.out.println("Done in " + TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos) + "ms");
   }
 
   @Test

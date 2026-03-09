@@ -21,13 +21,12 @@
 
 package io.sirix.page;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.access.DatabaseType;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.node.DeweyIDNode;
 import io.sirix.node.SirixDeweyID;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
@@ -85,8 +84,8 @@ public final class DeweyIDPage extends AbstractForwardingPage {
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("currMaxLevelOfIndirectPages", currentMaxLevelOfIndirectPages)
                       .add("maxNodeKey", maxNodeKey)
                       .toString();

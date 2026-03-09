@@ -34,8 +34,7 @@ import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorShuffle;
 import jdk.incubator.vector.VectorSpecies;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -272,7 +271,7 @@ public final class HOTIndirectPage implements Page {
    * @return new BiNode
    */
   public static HOTIndirectPage createBiNode(long pageKey, int revision, int discriminativeBitPos,
-      @NonNull PageReference leftChild, @NonNull PageReference rightChild) {
+      PageReference leftChild, PageReference rightChild) {
     return createBiNode(pageKey, revision, discriminativeBitPos, leftChild, rightChild, 0);
   }
 
@@ -293,7 +292,7 @@ public final class HOTIndirectPage implements Page {
    * @return new SpanNode with 2 children
    */
   public static HOTIndirectPage createBiNode(long pageKey, int revision, int discriminativeBitPos,
-      @NonNull PageReference leftChild, @NonNull PageReference rightChild, int height) {
+      PageReference leftChild, PageReference rightChild, int height) {
     HOTIndirectPage page = new HOTIndirectPage(pageKey, revision, height, NodeType.SPAN_NODE, 2);
     page.layoutType = LayoutType.SINGLE_MASK;
     page.initialBytePos = discriminativeBitPos / 8;

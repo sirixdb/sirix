@@ -1,6 +1,5 @@
 package io.sirix.query.function.jn.index.scan;
 
-import com.google.common.collect.ImmutableSet;
 import io.sirix.query.function.FunUtil;
 import io.sirix.query.function.sdb.SDBFun;
 import io.sirix.query.json.JsonDBItem;
@@ -94,7 +93,7 @@ public final class ScanCASIndex extends AbstractScanIndex {
     final String paths = FunUtil.getString(args, 4, "$paths", null, null, false);
     final CASFilter filter = (paths != null)
         ? controller.createCASFilter(Set.of(paths.split(";")), key, mode, new JsonPCRCollector(rtx))
-        : controller.createCASFilter(ImmutableSet.of(), key, mode, new JsonPCRCollector(rtx));
+        : controller.createCASFilter(Set.of(), key, mode, new JsonPCRCollector(rtx));
 
     return getSequence(document, controller.openCASIndex(document.getTrx().getStorageEngineReader(), indexDef, filter));
   }

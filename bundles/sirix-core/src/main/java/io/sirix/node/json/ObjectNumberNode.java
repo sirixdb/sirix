@@ -28,8 +28,8 @@
 
 package io.sirix.node.json;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
@@ -56,8 +56,7 @@ import io.sirix.page.NodeFieldLayout;
 import io.sirix.page.PageLayout;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -811,8 +810,8 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("nodeKey", nodeKey)
                       .add("number", value)
                       .add("parentKey", parentKey)
@@ -823,7 +822,7 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey, parentKey, value);
+    return Objects.hash(nodeKey, parentKey, value);
   }
 
   @Override
@@ -833,6 +832,6 @@ public final class ObjectNumberNode implements StructNode, ImmutableJsonNode, Nu
 
     return nodeKey == other.nodeKey
         && parentKey == other.parentKey
-        && Objects.equal(value, other.value);
+        && Objects.equals(value, other.value);
   }
 }

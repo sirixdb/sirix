@@ -21,15 +21,13 @@
 
 package io.sirix.page.delegates;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.node.BytesIn;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -114,7 +112,7 @@ public final class FullReferencesPage implements Page {
    * @return {@link PageReference} at given offset
    */
   @Override
-  public PageReference getOrCreateReference(final @NonNegative int offset) {
+  public PageReference getOrCreateReference(final int offset) {
     final var pageReference = references[offset];
     if (pageReference != null) {
       return pageReference;
@@ -136,7 +134,7 @@ public final class FullReferencesPage implements Page {
    * @param storageEngineWriter the storage engine writer
    */
   @Override
-  public void commit(@NonNull final StorageEngineWriter storageEngineWriter) {
+  public void commit(final StorageEngineWriter storageEngineWriter) {
     for (final PageReference reference : references) {
       if (reference != null && (reference.getLogKey() != Constants.NULL_ID_INT)) {
         storageEngineWriter.commit(reference);
@@ -147,7 +145,7 @@ public final class FullReferencesPage implements Page {
 
   @Override
   public String toString() {
-    final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
+    final ToStringHelper helper = ToStringHelper.of(this);
     for (final PageReference ref : references) {
       helper.add("reference", ref);
     }

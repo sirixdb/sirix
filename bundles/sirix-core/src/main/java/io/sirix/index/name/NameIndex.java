@@ -1,7 +1,6 @@
 package io.sirix.index.name;
 
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterators;
+import io.sirix.utils.Iterators;
 import io.sirix.access.IndexBackendType;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
@@ -121,7 +120,7 @@ public interface NameIndex<B, L extends ChangeListener> {
       return Iterators.forArray(optionalNodeReferences.orElse(new NodeReferences()));
     } else {
       final Iterator<RBNodeKey<QNm>> iter = reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-      final Set<Filter> setFilter = ImmutableSet.of(filter);
+      final Set<Filter> setFilter = Set.of(filter);
 
       return new IndexFilterAxis<>(reader, iter, setFilter);
     }

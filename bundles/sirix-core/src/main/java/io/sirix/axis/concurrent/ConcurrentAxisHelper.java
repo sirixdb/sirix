@@ -24,7 +24,6 @@ import java.util.concurrent.BlockingQueue;
 
 import io.sirix.api.Axis;
 import io.sirix.utils.LogWrapper;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.settings.Fixed;
 import org.slf4j.LoggerFactory;
 
@@ -62,7 +61,7 @@ public class ConcurrentAxisHelper implements Runnable {
    * @param axis Axis to bind with
    * @param results queue which has results related to the axis
    */
-  public ConcurrentAxisHelper(final Axis axis, @NonNull final BlockingQueue<Long> results) {
+  public ConcurrentAxisHelper(final Axis axis, final BlockingQueue<Long> results) {
     this.axis = requireNonNull(axis);
     this.results = requireNonNull(results);
   }

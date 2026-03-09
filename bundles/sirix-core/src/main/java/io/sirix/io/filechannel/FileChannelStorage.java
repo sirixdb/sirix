@@ -12,7 +12,6 @@ import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.Writer;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -190,7 +189,7 @@ public final class FileChannelStorage implements IOStorage {
   }
 
   @Override
-  public @NonNull RevisionIndexHolder getRevisionIndexHolder() {
+  public RevisionIndexHolder getRevisionIndexHolder() {
     return revisionIndexHolder;
   }
 }

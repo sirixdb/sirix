@@ -37,7 +37,6 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.xml.shredder.XmlShredder;
 import io.sirix.utils.SirixFiles;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.brackit.query.atomic.QNm;
 import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -63,7 +62,7 @@ public final class FMSEImport {
    * @throws SirixIOException if sirix fails to shredder the file
    * @throws NullPointerException if {@code resNewRev} or {@code newRev} is {@code null}
    */
-  public void shredder(final Path resNewRev, @NonNull final Path newRev) {
+  public void shredder(final Path resNewRev, final Path newRev) {
     assert resNewRev != null;
     assert newRev != null;
     final var conf = new DatabaseConfiguration(newRev);
@@ -92,7 +91,7 @@ public final class FMSEImport {
    * @param resNewRev {@link File} for new revision (XML resource)
    * @param idName the QName of the ID to use for matching elements
    */
-  public void xmlDataImport(final Path resOldRev, @NonNull final Path resNewRev, final QNm idName) {
+  public void xmlDataImport(final Path resOldRev, final Path resNewRev, final QNm idName) {
     importData(resOldRev, resNewRev, idName);
   }
 
@@ -102,7 +101,7 @@ public final class FMSEImport {
    * @param resOldRev {@link File} for old revision (sirix resource)
    * @param resNewRev {@link File} for new revision (XML resource)
    */
-  private void xmlDataImport(final Path resOldRev, @NonNull final Path resNewRev) {
+  private void xmlDataImport(final Path resOldRev, final Path resNewRev) {
     importData(resOldRev, resNewRev, null);
   }
 

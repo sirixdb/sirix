@@ -44,7 +44,6 @@ import io.sirix.node.Bytes;
 import io.sirix.node.BytesIn;
 import io.sirix.node.MemorySegmentBytesIn;
 import io.sirix.node.MemorySegmentBytesOut;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -200,7 +199,6 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
     }
   }
 
-  @NonNull
   private FileChannelWriter writePageReference(final ResourceConfiguration resourceConfiguration,
       final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes, long offset) {
     // Perform byte operations.

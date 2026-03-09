@@ -8,14 +8,13 @@ import io.brackit.query.jdm.node.Node;
 import io.brackit.query.node.parser.FragmentHelper;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -61,7 +60,7 @@ public final class Indexes implements Materializable {
    * Gets an index definition by index number and type. Thread-safe without synchronization due to
    * CopyOnWriteArraySet.
    */
-  public IndexDef getIndexDef(final @NonNegative int indexNo, final IndexType type) {
+  public IndexDef getIndexDef(final int indexNo, final IndexType type) {
     checkArgument(indexNo >= 0, "indexNo must be >= 0!");
     for (final IndexDef sid : indexes) {
       if (sid.getID() == indexNo && sid.getType() == type) {
@@ -149,7 +148,7 @@ public final class Indexes implements Materializable {
    * Removes an index definition by ID. Thread-safe: CopyOnWriteArraySet handles concurrent
    * modifications.
    */
-  public void removeIndex(final @NonNegative int indexID) {
+  public void removeIndex(final int indexID) {
     checkArgument(indexID >= 0, "indexID must be >= 0!");
     dirty = true;
     indexes.removeIf(indexDef -> indexDef.getID() == indexID);

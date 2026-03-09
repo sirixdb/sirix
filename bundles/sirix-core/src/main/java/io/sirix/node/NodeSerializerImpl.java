@@ -5,8 +5,6 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Arrays;
 
@@ -17,7 +15,7 @@ import java.util.Arrays;
  */
 public final class NodeSerializerImpl implements DeweyIdSerializer {
   @Override
-  public @NonNull DataRecord deserialize(final BytesIn<?> source, final @NonNegative long recordID,
+  public DataRecord deserialize(final BytesIn<?> source, final long recordID,
       final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
     final byte id = source.readByte();
     final NodeKind enumKind = NodeKind.getKind(id);
@@ -101,7 +99,7 @@ public final class NodeSerializerImpl implements DeweyIdSerializer {
     }
   }
 
-  private static void writeDeweyID(final BytesOut<?> sink, final byte[] deweyID, @NonNegative final int i) {
+  private static void writeDeweyID(final BytesOut<?> sink, final byte[] deweyID, final int i) {
     sink.writeByte((byte) i);
     sink.writeByte((byte) (deweyID.length - i));
     final var bytes = Arrays.copyOfRange(deweyID, i, deweyID.length);

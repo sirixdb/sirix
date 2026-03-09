@@ -1,12 +1,12 @@
 package io.sirix.io;
 
-import com.google.common.collect.ForwardingObject;
+import io.sirix.utils.ForwardingObject;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;

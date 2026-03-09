@@ -30,8 +30,6 @@ import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.node.NodeKind;
 import io.sirix.exception.SirixException;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.diff.DiffFactory.Builder;
 import io.sirix.diff.DiffFactory.DiffOptimized;
 import io.sirix.diff.DiffFactory.DiffType;
@@ -43,7 +41,6 @@ import static java.util.Objects.requireNonNull;
  *
  * @author Johannes Lichtenberger, University of Konstanz
  */
-@NonNull
 abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends NodeTrx & NodeCursor>
     extends AbstractDiffObservable {
 
@@ -701,7 +698,7 @@ abstract class AbstractDiff<R extends NodeReadOnlyTrx & NodeCursor, W extends No
    * @param startNodeKey the start node key
    * @param revision revision to iterate over
    */
-  private void adjustDepth(final R rtx, final @NonNegative long startNodeKey, final Revision revision) {
+  private void adjustDepth(final R rtx, final long startNodeKey, final Revision revision) {
     assert rtx != null;
     assert revision != null;
     final long nodeKey = rtx.getNodeKey();

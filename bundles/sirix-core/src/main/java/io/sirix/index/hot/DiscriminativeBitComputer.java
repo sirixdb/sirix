@@ -31,7 +31,6 @@ package io.sirix.index.hot;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Utility class for computing discriminative bits between keys.
@@ -84,7 +83,7 @@ public final class DiscriminativeBitComputer {
    * @return bit position (0-indexed from MSB), or -1 if keys are identical
    * @throws NullPointerException if either key is null
    */
-  public static int computeDifferingBit(@NonNull byte[] key1, @NonNull byte[] key2) {
+  public static int computeDifferingBit(byte[] key1, byte[] key2) {
     if (key1.length == 0 && key2.length == 0) {
       return -1; // Both empty, no difference
     }
@@ -135,7 +134,7 @@ public final class DiscriminativeBitComputer {
    * @param key2 second key segment
    * @return bit position (0-indexed from MSB), or -1 if keys are identical
    */
-  public static int computeDifferingBit(@NonNull MemorySegment key1, @NonNull MemorySegment key2) {
+  public static int computeDifferingBit(MemorySegment key1, MemorySegment key2) {
     final long len1 = key1.byteSize();
     final long len2 = key2.byteSize();
 
@@ -182,7 +181,7 @@ public final class DiscriminativeBitComputer {
    * @param key the on-heap key array
    * @return bit position (0-indexed from MSB), or -1 if keys are identical
    */
-  public static int computeDifferingBit(@NonNull MemorySegment seg, @NonNull byte[] key) {
+  public static int computeDifferingBit(MemorySegment seg, byte[] key) {
     final long segLen = seg.byteSize();
     final int keyLen = key.length;
 
@@ -227,7 +226,7 @@ public final class DiscriminativeBitComputer {
    * @param absoluteBitIndex the absolute bit index (0 = MSB of first byte)
    * @return true if the bit is set (1), false otherwise (0)
    */
-  public static boolean isBitSet(@NonNull MemorySegment key, int absoluteBitIndex) {
+  public static boolean isBitSet(MemorySegment key, int absoluteBitIndex) {
     if (absoluteBitIndex < 0) {
       return false;
     }
@@ -251,7 +250,7 @@ public final class DiscriminativeBitComputer {
    * @param absoluteBitIndex the absolute bit index (0 = MSB of first byte)
    * @return true if the bit is set (1), false otherwise (0)
    */
-  public static boolean isBitSet(@NonNull byte[] key, int absoluteBitIndex) {
+  public static boolean isBitSet(byte[] key, int absoluteBitIndex) {
     if (absoluteBitIndex < 0) {
       return false;
     }
@@ -277,7 +276,7 @@ public final class DiscriminativeBitComputer {
    * @param maxBytes maximum number of bytes to consider (up to 8 for 64-bit mask)
    * @return 64-bit mask with discriminative bit positions set
    */
-  public static long computeDiscriminativeMask(@NonNull byte[][] sortedKeys, int startBytePos, int maxBytes) {
+  public static long computeDiscriminativeMask(byte[][] sortedKeys, int startBytePos, int maxBytes) {
     if (sortedKeys.length < 2) {
       return 0L;
     }
@@ -350,7 +349,7 @@ public final class DiscriminativeBitComputer {
    * @param startBytePos starting byte position in key
    * @return extracted partial key (bits packed into low positions)
    */
-  public static int extractPartialKey(@NonNull byte[] key, long mask, int startBytePos) {
+  public static int extractPartialKey(byte[] key, long mask, int startBytePos) {
     // Build 64-bit value from key bytes
     long keyBits = 0L;
     for (int i = 0; i < 8 && (startBytePos + i) < key.length; i++) {

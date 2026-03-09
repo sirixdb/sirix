@@ -33,8 +33,7 @@ import io.sirix.axis.AbstractAxis;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.settings.Fixed;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 
@@ -257,7 +256,7 @@ public final class VisitorDescendantAxis extends AbstractAxis {
    * 
    * @param currKey node key of current node
    */
-  private long getNextNodeKey(final @NonNegative long nextKey, final @NonNegative long currKey) {
+  private long getNextNodeKey(final long nextKey, final long currKey) {
     final NodeCursor cursor = getCursor();
     cursor.moveTo(nextKey);
     if (cursor.getLeftSiblingKey() == getStartKey()) {

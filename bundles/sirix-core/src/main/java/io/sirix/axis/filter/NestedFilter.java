@@ -26,7 +26,6 @@ import java.util.List;
 
 import io.sirix.api.Filter;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * <p>
@@ -44,7 +43,7 @@ public final class NestedFilter extends AbstractFilter<XmlNodeReadOnlyTrx> {
    * @param rtx {@link XmlNodeReadOnlyTrx} this filter is bound to
    * @param axisTest test to perform for each node found with axis
    */
-  public NestedFilter(final XmlNodeReadOnlyTrx rtx, final @NonNull List<Filter<XmlNodeReadOnlyTrx>> axisTest) {
+  public NestedFilter(final XmlNodeReadOnlyTrx rtx, final List<Filter<XmlNodeReadOnlyTrx>> axisTest) {
     super(rtx);
     mFilter = new ArrayList<>(axisTest);
   }

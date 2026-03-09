@@ -1,6 +1,6 @@
 package io.sirix.access.trx.page;
 
-import com.google.common.collect.ForwardingObject;
+import io.sirix.utils.ForwardingObject;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.ResourceSession;
@@ -22,8 +22,6 @@ import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.KeyValuePage;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Forwards all methods to the delegate.
@@ -63,8 +61,8 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public PageReference getReferenceToLeafOfSubtree(@NonNull PageReference startReference, @NonNegative long pageKey,
-      int indexNumber, @NonNull IndexType indexType, RevisionRootPage revisionRootPage) {
+  public PageReference getReferenceToLeafOfSubtree(PageReference startReference, long pageKey,
+      int indexNumber, IndexType indexType, RevisionRootPage revisionRootPage) {
     return delegate().getReferenceToLeafOfSubtree(startReference, pageKey, indexNumber, indexType, revisionRootPage);
   }
 
@@ -74,7 +72,7 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public <V extends DataRecord> V getRecord(long key, @NonNull IndexType indexType, int index) {
+  public <V extends DataRecord> V getRecord(long key, IndexType indexType, int index) {
     return delegate().getRecord(key, indexType, index);
   }
 
@@ -104,27 +102,27 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public CASPage getCASPage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
+  public CASPage getCASPage(RevisionRootPage revisionRoot) throws SirixIOException {
     return delegate().getCASPage(revisionRoot);
   }
 
   @Override
-  public NamePage getNamePage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
+  public NamePage getNamePage(RevisionRootPage revisionRoot) throws SirixIOException {
     return delegate().getNamePage(revisionRoot);
   }
 
   @Override
-  public PathSummaryPage getPathSummaryPage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
+  public PathSummaryPage getPathSummaryPage(RevisionRootPage revisionRoot) throws SirixIOException {
     return delegate().getPathSummaryPage(revisionRoot);
   }
 
   @Override
-  public PathPage getPathPage(@NonNull RevisionRootPage revisionRoot) throws SirixIOException {
+  public PathPage getPathPage(RevisionRootPage revisionRoot) throws SirixIOException {
     return delegate().getPathPage(revisionRoot);
   }
 
   @Override
-  public long pageKey(@NonNegative long recordKey, @NonNull IndexType indexType) {
+  public long pageKey(long recordKey, IndexType indexType) {
     return delegate().pageKey(recordKey, indexType);
   }
 
@@ -134,17 +132,17 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public String getName(int nameKey, @NonNull NodeKind kind) {
+  public String getName(int nameKey, NodeKind kind) {
     return delegate().getName(nameKey, kind);
   }
 
   @Override
-  public int getNameCount(int nameKey, @NonNull NodeKind kind) {
+  public int getNameCount(int nameKey, NodeKind kind) {
     return delegate().getNameCount(nameKey, kind);
   }
 
   @Override
-  public byte[] getRawName(int nameKey, @NonNull NodeKind kind) {
+  public byte[] getRawName(int nameKey, NodeKind kind) {
     return delegate().getRawName(nameKey, kind);
   }
 
@@ -154,7 +152,7 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public NodeStorageEngineReader.PageReferenceToPage getRecordPage(@NonNull IndexLogKey indexLogKey) {
+  public NodeStorageEngineReader.PageReferenceToPage getRecordPage(IndexLogKey indexLogKey) {
     return delegate().getRecordPage(indexLogKey);
   }
 
@@ -179,26 +177,26 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   }
 
   @Override
-  public DeweyIDPage getDeweyIDPage(@NonNull RevisionRootPage revisionRoot) {
+  public DeweyIDPage getDeweyIDPage(RevisionRootPage revisionRoot) {
     return delegate().getDeweyIDPage(revisionRoot);
   }
 
   @Override
-  public HOTLeafPage getHOTLeafPage(@NonNull IndexType indexType, int indexNumber) {
+  public HOTLeafPage getHOTLeafPage(IndexType indexType, int indexNumber) {
     return delegate().getHOTLeafPage(indexType, indexNumber);
   }
 
   @Override
-  public io.sirix.page.interfaces.Page loadHOTPage(@NonNull PageReference reference) {
+  public io.sirix.page.interfaces.Page loadHOTPage(PageReference reference) {
     return delegate().loadHOTPage(reference);
   }
 
   @Override
-  public PageReference getLeafPageReference(@NonNegative long recordPageKey, int indexNumber,
-      @NonNull IndexType indexType) {
+  public PageReference getLeafPageReference(long recordPageKey, int indexNumber,
+      IndexType indexType) {
     return delegate().getLeafPageReference(recordPageKey, indexNumber, indexType);
   }
 
   @Override
-  protected abstract @NonNull StorageEngineReader delegate();
+  protected abstract StorageEngineReader delegate();
 }

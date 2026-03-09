@@ -29,7 +29,6 @@
 
 package io.sirix.diff.algorithm.fmse;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import static java.util.Objects.requireNonNull;
 
@@ -79,7 +78,7 @@ public final class Levenshtein {
    *
    * @return the estimated time in milliseconds taken to perform the similarity measure
    */
-  public static float getSimilarityTimingEstimated(final String first, @NonNull final String second) {
+  public static float getSimilarityTimingEstimated(final String first, final String second) {
     final float str1Length = first.length();
     final float str2Length = second.length();
     return (str1Length * str2Length) * ESTIMATEDTIMINGCONST;
@@ -96,7 +95,7 @@ public final class Levenshtein {
    *         completely different, {@code 1} denotes that the strings are equal
    * @throws NullPointerException if {@code pFirst} or {@code pSecond} is {@code null}
    */
-  public static float getSimilarity(final String first, @NonNull final String second) {
+  public static float getSimilarity(final String first, final String second) {
     requireNonNull(first);
     requireNonNull(second);
     if (first.equals(second)) {

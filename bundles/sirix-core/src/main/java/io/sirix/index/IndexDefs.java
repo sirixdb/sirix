@@ -1,6 +1,5 @@
 package io.sirix.index;
 
-import com.google.common.collect.ImmutableSet;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
@@ -52,25 +51,25 @@ public final class IndexDefs {
   public static IndexDef createNameIdxDef(final int indexDefNo, final IndexDef.DbType dbType) {
     return switch (dbType) {
       case JSON ->
-        new IndexDef(ImmutableSet.of(), ImmutableSet.of(), PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo, dbType);
+        new IndexDef(Set.of(), Set.of(), PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo, dbType);
       case XML ->
-        new IndexDef(ImmutableSet.of(), ImmutableSet.of(), PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo, dbType);
+        new IndexDef(Set.of(), Set.of(), PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo, dbType);
     };
   }
 
   public static IndexDef createFilteredNameIdxDef(final Set<QNm> excluded, final int indexDefNo,
       final IndexDef.DbType dbType) {
     return switch (dbType) {
-      case JSON -> new IndexDef(ImmutableSet.of(), excluded, PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo, dbType);
-      case XML -> new IndexDef(ImmutableSet.of(), excluded, PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo, dbType);
+      case JSON -> new IndexDef(Set.of(), excluded, PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo, dbType);
+      case XML -> new IndexDef(Set.of(), excluded, PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo, dbType);
     };
   }
 
   public static IndexDef createSelectiveNameIdxDef(final Set<QNm> included, final int indexDefNo,
       final IndexDef.DbType dbType) {
     return switch (dbType) {
-      case JSON -> new IndexDef(included, ImmutableSet.of(), PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo, dbType);
-      case XML -> new IndexDef(included, ImmutableSet.of(), PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo, dbType);
+      case JSON -> new IndexDef(included, Set.of(), PageConstants.JSON_NAME_INDEX_OFFSET + indexDefNo, dbType);
+      case XML -> new IndexDef(included, Set.of(), PageConstants.XML_NAME_INDEX_OFFSET + indexDefNo, dbType);
     };
   }
 }
