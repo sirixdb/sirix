@@ -32,7 +32,6 @@ import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.Writer;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
@@ -196,7 +195,7 @@ public final class FileStorage implements IOStorage {
   }
 
   @Override
-  public @NonNull RevisionIndexHolder getRevisionIndexHolder() {
+  public RevisionIndexHolder getRevisionIndexHolder() {
     return revisionIndexHolder;
   }
 }

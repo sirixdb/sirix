@@ -7,7 +7,6 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.IncludeSelf;
 import it.unimi.dsi.fastutil.longs.LongIterable;
 import it.unimi.dsi.fastutil.longs.LongIterator;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.index.path.summary.PathSummaryReader;
 
 /**
@@ -50,7 +49,7 @@ public interface Axis extends LongIterable, LongIterator, SirixAxis {
    *
    * @param nodeKey the nodekey where the reset should occur to
    */
-  void reset(@NonNegative long nodeKey);
+  void reset(long nodeKey);
 
   /**
    * Is self included?

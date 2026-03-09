@@ -21,10 +21,9 @@
 
 package io.sirix.diff;
 
-import org.checkerframework.checker.index.qual.NonNegative;
 import java.io.Serializable;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 
 /**
  * Immutable serializable diff depth container class to save the depth of the node in the old
@@ -51,7 +50,7 @@ public final class DiffDepth implements Serializable {
    * @param newDepth current depth in new revision
    * @param oldDepth current depth in old revision
    */
-  public DiffDepth(final @NonNegative int newDepth, final @NonNegative int oldDepth) {
+  public DiffDepth(final int newDepth, final int oldDepth) {
     checkArgument(newDepth >= -1);
     checkArgument(oldDepth >= -1);
     this.newDepth = newDepth;

@@ -17,7 +17,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Random;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**

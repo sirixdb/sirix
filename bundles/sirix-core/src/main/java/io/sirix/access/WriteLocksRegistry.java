@@ -5,8 +5,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.annotation.concurrent.ThreadSafe;
-import javax.inject.Inject;
-import javax.inject.Singleton;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -21,7 +19,6 @@ import java.util.concurrent.Semaphore;
  *
  * @author Joao Sousa
  */
-@Singleton
 @ThreadSafe
 public class WriteLocksRegistry {
 
@@ -33,7 +30,6 @@ public class WriteLocksRegistry {
   /** Central repository of all resource {@code <=>} write locks mappings. */
   private final Map<Path, Semaphore> locks;
 
-  @Inject
   WriteLocksRegistry() {
     locks = new ConcurrentHashMap<>();
   }

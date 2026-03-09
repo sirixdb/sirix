@@ -35,7 +35,6 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.BufferManager;
-import io.sirix.dagger.DatabaseName;
 import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.page.UberPage;
@@ -43,7 +42,6 @@ import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.io.IOStorage;
 
-import javax.inject.Inject;
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -84,10 +82,9 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
    * @param user a user, which interacts with SirixDB, might be {@code null}
    * @param storageEngineWriterFactory A factory that creates new {@link StorageEngineWriter} instances.
    */
-  @Inject
-  JsonResourceSessionImpl(final ResourceStore<JsonResourceSession> resourceStore,
+  public JsonResourceSessionImpl(final ResourceStore<JsonResourceSession> resourceStore,
       final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
-      final UberPage uberPage, final Semaphore writeLock, final User user, @DatabaseName final String databaseName,
+      final UberPage uberPage, final Semaphore writeLock, final User user, final String databaseName,
       final StorageEngineWriterFactory storageEngineWriterFactory) {
     super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, storageEngineWriterFactory);
 

@@ -3,7 +3,7 @@ package io.sirix.query.node;
 import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.node.parser.NodeSubtreeParser;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;

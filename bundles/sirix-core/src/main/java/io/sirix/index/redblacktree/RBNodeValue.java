@@ -1,13 +1,12 @@
 package io.sirix.index.redblacktree;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.index.redblacktree.interfaces.MutableRBNodeValue;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.settings.Fixed;
@@ -49,7 +48,7 @@ public final class RBNodeValue<V> extends AbstractForwardingNode implements Muta
   }
 
   @Override
-  protected @NonNull NodeDelegate delegate() {
+  protected NodeDelegate delegate() {
     return nodeDelegate;
   }
 
@@ -80,7 +79,7 @@ public final class RBNodeValue<V> extends AbstractForwardingNode implements Muta
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeDelegate.getNodeKey());
+    return Objects.hash(nodeDelegate.getNodeKey());
   }
 
   @Override
@@ -94,8 +93,8 @@ public final class RBNodeValue<V> extends AbstractForwardingNode implements Muta
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this).add("node delegate", nodeDelegate).add("value", value).toString();
+  public String toString() {
+    return ToStringHelper.of(this).add("node delegate", nodeDelegate).add("value", value).toString();
   }
 
   @Override

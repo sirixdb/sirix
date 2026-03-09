@@ -43,7 +43,6 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -293,7 +292,6 @@ public final class MMFileWriter extends AbstractForwardingReader implements Writ
     return output.toByteArray();
   }
 
-  @NonNull
   private MMFileWriter writePageReference(final ResourceConfiguration resourceConfiguration,
       final PageReference pageReference, final Page page, final BytesOut<?> bufferedBytes, long offset) {
     try {

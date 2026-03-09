@@ -33,8 +33,7 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.util.Objects;
@@ -104,7 +103,7 @@ public final class HOTTrieReader implements AutoCloseable {
    *
    * @param storageEngineReader the storage engine reader
    */
-  public HOTTrieReader(@NonNull StorageEngineReader storageEngineReader) {
+  public HOTTrieReader(StorageEngineReader storageEngineReader) {
     this.storageEngineReader = Objects.requireNonNull(storageEngineReader);
   }
 
@@ -115,7 +114,7 @@ public final class HOTTrieReader implements AutoCloseable {
    * @param key the search key
    * @return the value as a MemorySegment slice, or null if not found
    */
-  public @Nullable MemorySegment get(@NonNull PageReference rootRef, byte[] key) {
+  public @Nullable MemorySegment get(PageReference rootRef, byte[] key) {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
 
@@ -158,7 +157,7 @@ public final class HOTTrieReader implements AutoCloseable {
    * @param key the search key
    * @return true if key exists
    */
-  public boolean containsKey(@NonNull PageReference rootRef, byte[] key) {
+  public boolean containsKey(PageReference rootRef, byte[] key) {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
 
@@ -191,7 +190,7 @@ public final class HOTTrieReader implements AutoCloseable {
    * @param toKey the end key (inclusive)
    * @return the range cursor
    */
-  public HOTRangeCursor range(@NonNull PageReference rootRef, byte[] fromKey, byte[] toKey) {
+  public HOTRangeCursor range(PageReference rootRef, byte[] fromKey, byte[] toKey) {
     return new HOTRangeCursor(this, rootRef, fromKey, toKey);
   }
 
@@ -215,7 +214,7 @@ public final class HOTTrieReader implements AutoCloseable {
    * @param key the search key
    * @return the leaf page, or null if not found
    */
-  public @Nullable HOTLeafPage navigateToLeaf(@NonNull PageReference rootRef, byte[] key) {
+  public @Nullable HOTLeafPage navigateToLeaf(PageReference rootRef, byte[] key) {
     pathDepth = 0;
     PageReference currentRef = rootRef;
 
@@ -267,7 +266,7 @@ public final class HOTTrieReader implements AutoCloseable {
    * @param rootRef the root reference
    * @return the leftmost leaf, or null if empty
    */
-  public @Nullable HOTLeafPage navigateToLeftmostLeaf(@NonNull PageReference rootRef) {
+  public @Nullable HOTLeafPage navigateToLeftmostLeaf(PageReference rootRef) {
     pathDepth = 0;
     PageReference currentRef = rootRef;
 
@@ -356,7 +355,7 @@ public final class HOTTrieReader implements AutoCloseable {
    * Descend to the leftmost leaf from a given reference. Prefetches the next sibling
    * at each level for range scan readahead.
    */
-  private @Nullable HOTLeafPage descendToLeftmostLeaf(@NonNull PageReference ref) {
+  private @Nullable HOTLeafPage descendToLeftmostLeaf(PageReference ref) {
     PageReference currentRef = ref;
 
     while (true) {
@@ -433,7 +432,7 @@ public final class HOTTrieReader implements AutoCloseable {
    * have low height (typically 3-5 levels with compound nodes), keeping all internal nodes
    * swizzled is memory-efficient and avoids the dominant cost of random SSD reads.</p>
    */
-  private @Nullable Page loadPage(@NonNull PageReference ref) {
+  private @Nullable Page loadPage(PageReference ref) {
     // First check if page is already swizzled (in-memory from transaction log or prior load)
     final Page inMemory = ref.getPage();
     if (inMemory != null) {
@@ -476,7 +475,7 @@ public final class HOTTrieReader implements AutoCloseable {
    * is benign — both paths produce the same immutable page and {@code setPage} on
    * the volatile field is idempotent.</p>
    */
-  private void prefetchPage(@NonNull PageReference ref) {
+  private void prefetchPage(PageReference ref) {
     Thread.startVirtualThread(() -> {
       final Page loaded = storageEngineReader.loadHOTPage(ref);
       if (loaded != null) {

@@ -9,7 +9,7 @@ import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.sirix.index.cas.CASIndexListener;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 public final class XmlCASIndexListener implements PathNodeKeyChangeListener {
 

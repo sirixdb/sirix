@@ -1,6 +1,6 @@
 package io.sirix.access.trx.node;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.json.InternalJsonNodeReadOnlyTrx;
 import io.sirix.api.NodeCursor;
@@ -27,8 +27,7 @@ import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.UberPage;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,7 +47,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.nio.file.Files.deleteIfExists;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
@@ -189,7 +188,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
       final AfterCommitState afterCommitState, final AbstractNodeHashing<N, R> nodeHashing,
       final PathSummaryWriter<R> pathSummaryWriter, final NF nodeFactory,
       final RecordToRevisionsIndex nodeToRevisionsIndex, @Nullable final Lock transactionLock,
-      final Duration afterCommitDelay, @NonNegative final int maxNodeCount) {
+      final Duration afterCommitDelay, final int maxNodeCount) {
     // Do not accept negative values.
     checkArgument(maxNodeCount >= 0, "Negative argument for maxNodeCount is not accepted.");
     checkArgument(!afterCommitDelay.isNegative(), "After commit delay cannot be negative");
@@ -452,7 +451,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
    * @param trxID transaction ID
    * @param revNumber revision number
    */
-  private void reInstantiate(final @NonNegative int trxID, final @NonNegative int revNumber) {
+  private void reInstantiate(final int trxID, final int revNumber) {
     final boolean timing = LOGGER.isDebugEnabled();
     final long r0 = timing ? System.nanoTime() : 0;
 
@@ -755,7 +754,7 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
+    return ToStringHelper.of(this)
                       .add("super", super.toString())
                       .add("hashType", this.hashType)
                       .add("nodeReadOnlyTrx", this.nodeReadOnlyTrx)

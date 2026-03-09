@@ -23,7 +23,6 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.ObjectKeyNode;
 import io.sirix.settings.Fixed;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 import javax.xml.namespace.QName;
 
@@ -423,8 +422,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param localNameKey key of local name
    * @throws SirixException if Sirix fails to do so
    */
-  private void processFoundPathNode(final @NonNegative long oldPathNodeKey, final @NonNegative long newPathNodeKey,
-      final @NonNegative long oldNodeKey, final QNm name, final int uriKey, final int prefixKey,
+  private void processFoundPathNode(final long oldPathNodeKey, final long newPathNodeKey,
+      final long oldNodeKey, final QNm name, final int uriKey, final int prefixKey,
       final int localNameKey) {
     nodeRtx.moveTo(oldNodeKey);
 
@@ -611,7 +610,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * @param nodeKind the kind of the node to adapt
    * @throws SirixException if anything fails
    */
-  private void resetPathNodeKey(final @NonNegative long nodeKey, final NodeKind nodeKind) {
+  private void resetPathNodeKey(final long nodeKey, final NodeKind nodeKind) {
     if (nodeKind == NodeKind.ATTRIBUTE || nodeKind == NodeKind.ELEMENT || nodeKind == NodeKind.NAMESPACE) {
       final NameNode currNode = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
       currNode.setPathNodeKey(pathSummaryReader.getNodeKey());

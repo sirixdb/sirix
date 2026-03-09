@@ -28,8 +28,8 @@
 
 package io.sirix.node.json;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
@@ -54,8 +54,7 @@ import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.page.NodeFieldLayout;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * JSON Object Boolean node (direct child of ObjectKeyNode, no siblings).
@@ -751,8 +750,8 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("nodeKey", nodeKey)
                       .add("boolValue", value)
                       .add("parentKey", parentKey)
@@ -763,7 +762,7 @@ public final class ObjectBooleanNode implements StructNode, ImmutableJsonNode, B
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey, parentKey, value);
+    return Objects.hash(nodeKey, parentKey, value);
   }
 
   @Override

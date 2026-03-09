@@ -1,6 +1,6 @@
 package io.sirix.access.trx.node.json;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -48,7 +48,6 @@ import io.sirix.node.json.StringNode;
 import io.sirix.service.xml.xpath.ItemListImpl;
 import io.sirix.settings.Constants;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -74,7 +73,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
    * @param documentNode the document node
    */
   JsonNodeReadOnlyTrxImpl(final InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceSession,
-      final @NonNegative int trxId, final StorageEngineReader pageReadTransaction,
+      final int trxId, final StorageEngineReader pageReadTransaction,
       final ImmutableJsonNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceSession, new ItemListImpl());
   }
@@ -383,7 +382,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
 
   @Override
   public String toString() {
-    final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
+    final ToStringHelper helper = ToStringHelper.of(this);
     helper.add("Revision number", getRevisionNumber());
     final var currentNode = getStructuralNode();
     final var name = getName();

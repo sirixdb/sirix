@@ -3,7 +3,7 @@ package io.sirix.access.trx.node;
 import io.sirix.api.NodeCursor;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import com.google.common.collect.ForwardingObject;
+import io.sirix.utils.ForwardingObject;
 
 /**
  * Forwards all methods to the delegate.

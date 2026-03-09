@@ -1,7 +1,7 @@
 package io.sirix.index.path.summary;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.node.NodeKind;
 import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
@@ -9,12 +9,10 @@ import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.NameNode;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.node.xml.AbstractStructForwardingNode;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -82,9 +80,9 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * @param references number of references to this path node
    * @param level level of this path node
    */
-  public PathNode(final QNm name, final NodeDelegate nodeDel, @NonNull final StructNodeDelegate structNodeDel,
-      @NonNull final NameNodeDelegate nameNodeDel, @NonNull final NodeKind kind, @NonNegative final int references,
-      @NonNegative final int level) {
+  public PathNode(final QNm name, final NodeDelegate nodeDel, final StructNodeDelegate structNodeDel,
+      final NameNodeDelegate nameNodeDel, final NodeKind kind, final int references,
+      final int level) {
     this.name = name;
     this.nodeDel = requireNonNull(nodeDel);
     this.structNodeDel = requireNonNull(structNodeDel);
@@ -138,7 +136,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    *
    * @param references number of references
    */
-  public void setReferenceCount(final @NonNegative int references) {
+  public void setReferenceCount(final int references) {
     checkArgument(references > 0, "pReferences must be > 0!");
     this.references = references;
   }
@@ -210,7 +208,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   }
 
   @Override
-  protected @NonNull NodeDelegate delegate() {
+  protected NodeDelegate delegate() {
     return nodeDel;
   }
 
@@ -225,20 +223,20 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeDel, nameNodeDel);
+    return Objects.hash(nodeDel, nameNodeDel);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof PathNode other) {
-      return Objects.equal(nodeDel, other.nodeDel) && Objects.equal(nameNodeDel, other.nameNodeDel);
+      return Objects.equals(nodeDel, other.nodeDel) && Objects.equals(nameNodeDel, other.nameNodeDel);
     }
     return false;
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("node delegate", nodeDel)
                       .add("struct delegate", structNodeDel)
                       .add("name delegate", nameNodeDel)

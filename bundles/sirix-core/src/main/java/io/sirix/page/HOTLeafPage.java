@@ -45,9 +45,7 @@ import jdk.incubator.vector.ShortVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
 import jdk.incubator.vector.VectorSpecies;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -203,7 +201,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    * @param revision the revision number
    * @param indexType the index type (PATH, CAS, NAME)
    */
-  public HOTLeafPage(long recordPageKey, int revision, @NonNull IndexType indexType) {
+  public HOTLeafPage(long recordPageKey, int revision, IndexType indexType) {
     this.recordPageKey = recordPageKey;
     this.revision = revision;
     this.indexType = Objects.requireNonNull(indexType);
@@ -239,7 +237,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    * @param commonPrefix the common prefix shared by all keys
    * @param commonPrefixLen the length of the common prefix
    */
-  public HOTLeafPage(long recordPageKey, int revision, @NonNull IndexType indexType, @NonNull MemorySegment slotMemory,
+  public HOTLeafPage(long recordPageKey, int revision, IndexType indexType, MemorySegment slotMemory,
       @Nullable Runnable releaser, int[] slotOffsets, int entryCount, int usedSlotMemorySize,
       byte[] commonPrefix, int commonPrefixLen) {
     this.recordPageKey = recordPageKey;
@@ -261,7 +259,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Legacy deserialization constructor (no prefix — for backward compatibility with V1 format).
    */
-  public HOTLeafPage(long recordPageKey, int revision, @NonNull IndexType indexType, @NonNull MemorySegment slotMemory,
+  public HOTLeafPage(long recordPageKey, int revision, IndexType indexType, MemorySegment slotMemory,
       @Nullable Runnable releaser, int[] slotOffsets, int entryCount, int usedSlotMemorySize) {
     this(recordPageKey, revision, indexType, slotMemory, releaser, slotOffsets, entryCount, usedSlotMemorySize,
         EMPTY_PREFIX, 0);
@@ -1373,7 +1371,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    * @return the first key in the target page (split key for parent navigation), or {@code null} if
    *         the page cannot be split (e.g., only 1 entry)
    */
-  public @Nullable byte[] splitTo(@NonNull HOTLeafPage target) {
+  public @Nullable byte[] splitTo(HOTLeafPage target) {
     Objects.requireNonNull(target);
 
     if (entryCount < 2) {
@@ -1436,7 +1434,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    * @param valueLen the value length
    * @return {@code true} if the split+insert succeeded, {@code false} if it failed
    */
-  public boolean splitToWithInsert(@NonNull HOTLeafPage target, byte[] key, int keyLen,
+  public boolean splitToWithInsert(HOTLeafPage target, byte[] key, int keyLen,
       byte[] value, int valueLen) {
     Objects.requireNonNull(target);
 
@@ -1973,7 +1971,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public void setRecord(@NonNull DataRecord record) {
+  public void setRecord(DataRecord record) {
     throw new UnsupportedOperationException("HOTLeafPage uses put() instead of setRecord()");
   }
 
@@ -1996,7 +1994,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   @Override
-  public void setPageReference(long key, @NonNull PageReference reference) {
+  public void setPageReference(long key, PageReference reference) {
     pageReferences.put(key, reference);
   }
 
@@ -2017,8 +2015,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   @SuppressWarnings("unchecked")
-  public <C extends KeyValuePage<DataRecord>> C newInstance(@NonNegative long recordPageKey,
-      @NonNull IndexType indexType, @NonNull StorageEngineReader storageEngineReader) {
+  public <C extends KeyValuePage<DataRecord>> C newInstance(long recordPageKey,
+      IndexType indexType, StorageEngineReader storageEngineReader) {
     return (C) new HOTLeafPage(recordPageKey, storageEngineReader.getRevisionNumber(), indexType);
   }
 

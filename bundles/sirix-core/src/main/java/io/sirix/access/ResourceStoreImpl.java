@@ -8,7 +8,6 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,8 +33,8 @@ public class ResourceStoreImpl<R extends ResourceSession<? extends NodeReadOnlyT
   }
 
   @Override
-  public R beginResourceSession(final @NonNull ResourceConfiguration resourceConfig,
-      final @NonNull BufferManager bufferManager, final @NonNull Path resourceFile) {
+  public R beginResourceSession(final ResourceConfiguration resourceConfig,
+      final BufferManager bufferManager, final Path resourceFile) {
     return this.resourceSessions.computeIfAbsent(resourceFile, k -> {
       final var resourceSession = this.resourceSessionFactory.create(resourceConfig, bufferManager, resourceFile);
       this.allResourceSessions.putObject(resourceFile, resourceSession);

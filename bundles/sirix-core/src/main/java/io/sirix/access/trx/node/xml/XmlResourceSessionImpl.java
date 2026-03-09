@@ -42,7 +42,6 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.page.UberPage;
 
-import javax.inject.Inject;
 import java.time.Duration;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -78,8 +77,7 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
    * @param user a user, which interacts with SirixDB, might be {@code null}
    * @param storageEngineWriterFactory A factory that creates new {@link StorageEngineWriter} instances.
    */
-  @Inject
-  XmlResourceSessionImpl(final ResourceStore<XmlResourceSession> resourceStore,
+  public XmlResourceSessionImpl(final ResourceStore<XmlResourceSession> resourceStore,
       final ResourceConfiguration resourceConf, final BufferManager bufferManager, final IOStorage storage,
       final UberPage uberPage, final Semaphore writeLock, final User user,
       final StorageEngineWriterFactory storageEngineWriterFactory) {

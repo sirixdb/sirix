@@ -45,7 +45,6 @@ import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
 import io.sirix.node.MemorySegmentBytesIn;
 import one.jasyncfio.AsyncFile;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -215,7 +214,6 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     return segment.toArray(java.lang.foreign.ValueLayout.JAVA_BYTE);
   }
 
-  @NonNull
   private IOUringWriter writePageReference(final ResourceConfiguration resourceConfiguration,
       final PageReference pageReference, final Page page, BytesOut<?> bufferedBytes, long offset) {
     try {
@@ -226,7 +224,6 @@ public final class IOUringWriter extends AbstractForwardingReader implements Wri
     }
   }
 
-  @NonNull
   private IOUringWriter writePage(final ResourceConfiguration resourceConfiguration, final PageReference pageReference,
       final Page page, final BytesOut<?> bufferedBytes, long offset) {
     // Perform byte operations.

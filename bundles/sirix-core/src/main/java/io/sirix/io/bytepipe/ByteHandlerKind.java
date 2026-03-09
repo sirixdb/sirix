@@ -29,7 +29,6 @@ package io.sirix.io.bytepipe;
 
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.IOException;
 import java.lang.reflect.Constructor;
@@ -169,7 +168,7 @@ public enum ByteHandlerKind {
    * @param clazz the class for the page
    * @return the related page
    */
-  public static @NonNull ByteHandlerKind getKind(final Class<? extends ByteHandler> clazz) {
+  public static ByteHandlerKind getKind(final Class<? extends ByteHandler> clazz) {
     final ByteHandlerKind byteHandler = INSTANCEFORCLASS.get(clazz);
     if (byteHandler == null) {
       throw new IllegalStateException();

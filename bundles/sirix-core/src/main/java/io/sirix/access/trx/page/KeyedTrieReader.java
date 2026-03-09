@@ -29,9 +29,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import static java.util.Objects.requireNonNull;
 
@@ -74,8 +72,8 @@ final class KeyedTrieReader {
   @Nullable
   PageReference getReferenceToLeafOfSubtree(final StorageEngineReader storageEngineReader,
       final UberPage uberPage, final PageReference startReference,
-      @NonNegative final long pageKey, final int indexNumber,
-      final @NonNull IndexType indexType, final RevisionRootPage revisionRootPage) {
+      final long pageKey, final int indexNumber,
+      final IndexType indexType, final RevisionRootPage revisionRootPage) {
     // Initial state pointing to the indirect page of level 0.
     PageReference reference = requireNonNull(startReference);
     int offset;

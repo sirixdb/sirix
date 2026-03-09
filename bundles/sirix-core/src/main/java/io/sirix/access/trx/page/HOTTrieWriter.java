@@ -46,8 +46,7 @@ import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
 import io.sirix.utils.OS;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;
 
@@ -200,9 +199,9 @@ public final class HOTTrieWriter {
    * @param indexNumber the index number
    * @return PageContainer with complete and modifying HOTLeafPage, or null if not found
    */
-  public @Nullable PageContainer prepareKeyedLeafForModification(@NonNull StorageEngineWriter storageEngineReader,
-      @NonNull TransactionIntentLog log, @NonNull PageReference startReference, byte[] key,
-      @NonNull IndexType indexType, int indexNumber) {
+  public @Nullable PageContainer prepareKeyedLeafForModification(StorageEngineWriter storageEngineReader,
+      TransactionIntentLog log, PageReference startReference, byte[] key,
+      IndexType indexType, int indexNumber) {
 
     Objects.requireNonNull(storageEngineReader);
     Objects.requireNonNull(log);
@@ -242,8 +241,8 @@ public final class HOTTrieWriter {
    * @param log the transaction intent log
    * @return the leaf page reference, or null if not found
    */
-  private @Nullable PageReference navigateToLeaf(@NonNull StorageEngineReader storageEngineReader,
-      @NonNull PageReference startReference, byte[] key, @NonNull TransactionIntentLog log) {
+  private @Nullable PageReference navigateToLeaf(StorageEngineReader storageEngineReader,
+      PageReference startReference, byte[] key, TransactionIntentLog log) {
 
     PageReference currentRef = startReference;
 
@@ -316,8 +315,8 @@ public final class HOTTrieWriter {
    * Dereference HOT leaf page for modification using versioning pipeline. Uses pre-allocated cowPath
    * arrays - ZERO allocations except for page copies!
    */
-  private @Nullable PageContainer dereferenceHOTLeafForModification(@NonNull StorageEngineWriter storageEngineReader,
-      @NonNull PageReference leafRef, @NonNull TransactionIntentLog log) {
+  private @Nullable PageContainer dereferenceHOTLeafForModification(StorageEngineWriter storageEngineReader,
+      PageReference leafRef, TransactionIntentLog log) {
 
     // Check if already in log
     PageContainer existing = log.get(leafRef);
@@ -351,7 +350,7 @@ public final class HOTTrieWriter {
    * Propagate copy-on-write changes up to ancestors. Each modified HOTIndirectPage gets a new copy in
    * the log. Uses pre-allocated cowPath arrays - ZERO allocations except for page copies!
    */
-  private void propagateCOW(@NonNull TransactionIntentLog log, PageReference modifiedChildRef) {
+  private void propagateCOW(TransactionIntentLog log, PageReference modifiedChildRef) {
     PageReference childRef = modifiedChildRef;
 
     // Iterate backwards through pre-allocated arrays (no iterator allocation!)
@@ -373,8 +372,8 @@ public final class HOTTrieWriter {
   /**
    * Navigate within a cached tree that's already been modified (iterative, no stack overflow risk).
    */
-  private @Nullable PageContainer navigateWithinCachedTree(@NonNull PageContainer cached, byte[] key,
-      @NonNull StorageEngineWriter storageEngineReader, @NonNull TransactionIntentLog log, @NonNull IndexType indexType,
+  private @Nullable PageContainer navigateWithinCachedTree(PageContainer cached, byte[] key,
+      StorageEngineWriter storageEngineReader, TransactionIntentLog log, IndexType indexType,
       int indexNumber) {
 
     PageContainer current = cached;
@@ -407,8 +406,8 @@ public final class HOTTrieWriter {
   /**
    * Create a new leaf page for a key that doesn't exist yet.
    */
-  private @Nullable PageContainer createNewLeaf(@NonNull StorageEngineWriter storageEngineReader, @NonNull TransactionIntentLog log,
-      @NonNull PageReference startReference, byte[] key, @NonNull IndexType indexType, int indexNumber) {
+  private @Nullable PageContainer createNewLeaf(StorageEngineWriter storageEngineReader, TransactionIntentLog log,
+      PageReference startReference, byte[] key, IndexType indexType, int indexNumber) {
 
     // Create new HOTLeafPage
     long newPageKey = pageKeyAllocator.getAsLong();
@@ -443,7 +442,7 @@ public final class HOTTrieWriter {
    * then falls through to {@link StorageEngineReader#loadHOTPage(PageReference)} which handles
    * both the transaction log (via logKey) and persistent storage (via key).</p>
    */
-  private @Nullable Page loadPage(@NonNull StorageEngineReader storageEngineReader, @NonNull PageReference ref) {
+  private @Nullable Page loadPage(StorageEngineReader storageEngineReader, PageReference ref) {
     // Check swizzled in-memory page first — avoids I/O for pages already loaded
     final Page swizzled = ref.getPage();
     if (swizzled != null) {
@@ -493,9 +492,9 @@ public final class HOTTrieWriter {
    * @param valueLen the value length
    * @return {@code true} if the split+insert succeeded, {@code false} if it failed
    */
-  public boolean handleLeafSplitAndInsert(@NonNull StorageEngineWriter storageEngineReader,
-      @NonNull TransactionIntentLog log, @NonNull HOTLeafPage fullPage, @NonNull PageReference leafRef,
-      @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+  public boolean handleLeafSplitAndInsert(StorageEngineWriter storageEngineReader,
+      TransactionIntentLog log, HOTLeafPage fullPage, PageReference leafRef,
+      PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
       int[] pathChildIndices, int pathDepth, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen) {
 
     Objects.requireNonNull(storageEngineReader);
@@ -514,9 +513,9 @@ public final class HOTTrieWriter {
     }
   }
 
-  private boolean handleLeafSplitAndInsertInternal(@NonNull StorageEngineWriter storageEngineReader,
-      @NonNull TransactionIntentLog log, @NonNull HOTLeafPage fullPage, @NonNull PageReference leafRef,
-      @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+  private boolean handleLeafSplitAndInsertInternal(StorageEngineWriter storageEngineReader,
+      TransactionIntentLog log, HOTLeafPage fullPage, PageReference leafRef,
+      PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
       int[] pathChildIndices, int pathDepth, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen) {
 
     // If page has < 1 entry, can't split
@@ -618,10 +617,10 @@ public final class HOTTrieWriter {
    * <li>If parent IS full: split parent and recurse up</li>
    * </ol>
    */
-  private void updateParentForSplitWithPath(@NonNull StorageEngineWriter storageEngineReader, @NonNull TransactionIntentLog log,
-      @NonNull PageReference parentRef, @NonNull HOTIndirectPage parent, int originalChildIndex,
-      @NonNull PageReference leftChild, @NonNull PageReference rightChild, byte[] splitKey,
-      @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+  private void updateParentForSplitWithPath(StorageEngineWriter storageEngineReader, TransactionIntentLog log,
+      PageReference parentRef, HOTIndirectPage parent, int originalChildIndex,
+      PageReference leftChild, PageReference rightChild, byte[] splitKey,
+      PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
       int[] pathChildIndices, int currentPathIdx) {
 
     // Compute discriminative bit between the two split children.
@@ -952,10 +951,10 @@ public final class HOTTrieWriter {
    * "Larger" entries: those with MSB=1
    * </p>
    */
-  private void splitParentAndRecurse(@NonNull StorageEngineWriter storageEngineReader, @NonNull TransactionIntentLog log,
-      @NonNull PageReference parentRef, @NonNull HOTIndirectPage parent, int originalChildIndex,
-      @NonNull PageReference leftChild, @NonNull PageReference rightChild, int discriminativeBit,
-      @NonNull PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+  private void splitParentAndRecurse(StorageEngineWriter storageEngineReader, TransactionIntentLog log,
+      PageReference parentRef, HOTIndirectPage parent, int originalChildIndex,
+      PageReference leftChild, PageReference rightChild, int discriminativeBit,
+      PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
       int[] pathChildIndices, int currentPathIdx) {
 
     final int numChildren = parent.getNumChildren();
@@ -1077,9 +1076,9 @@ public final class HOTTrieWriter {
   /**
    * Fallback: split in half if MSB-based split fails.
    */
-  private void splitParentHalfAndRecurse(@NonNull StorageEngineWriter storageEngineReader, @NonNull TransactionIntentLog log,
-      @NonNull PageReference parentRef, @NonNull HOTIndirectPage parent, int originalChildIndex,
-      @NonNull PageReference leftChild, @NonNull PageReference rightChild, @NonNull PageReference rootReference,
+  private void splitParentHalfAndRecurse(StorageEngineWriter storageEngineReader, TransactionIntentLog log,
+      PageReference parentRef, HOTIndirectPage parent, int originalChildIndex,
+      PageReference leftChild, PageReference rightChild, PageReference rootReference,
       HOTIndirectPage[] pathNodes, PageReference[] pathRefs, int[] pathChildIndices, int currentPathIdx) {
 
     int numChildren = parent.getNumChildren();

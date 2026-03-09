@@ -23,7 +23,6 @@ package io.sirix.api;
 
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceConfiguration;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 
@@ -126,7 +125,7 @@ public interface Database<T extends ResourceSession<? extends NodeReadOnlyTrx, ?
    * @return resource name
    * @throws IllegalArgumentException if {@code pID} is negative
    */
-  String getResourceName(@NonNegative long id);
+  String getResourceName(long id);
 
   /**
    * Get the resource-ID associated with the given resource name.

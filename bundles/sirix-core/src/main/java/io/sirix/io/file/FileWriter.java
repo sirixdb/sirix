@@ -40,7 +40,6 @@ import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.node.BytesOut;
 import io.sirix.node.Bytes;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -160,7 +159,6 @@ public final class FileWriter extends AbstractForwardingReader implements Writer
     }
   }
 
-  @NonNull
   private FileWriter writePageReference(final ResourceConfiguration resourceConfiguration,
       final PageReference pageReference, final Page page, long offset) {
     // Perform byte operations.

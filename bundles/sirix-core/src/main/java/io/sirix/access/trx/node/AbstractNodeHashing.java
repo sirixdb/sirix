@@ -13,7 +13,6 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.xml.ElementNode;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends NodeCursor & NodeReadOnlyTrx> {
 
@@ -475,7 +474,7 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
    * @param descendantCount the descendantCount to add
    */
   private static void setAddDescendants(final boolean startIsStruct, final Node nodeToModify,
-      final @NonNegative long descendantCount) {
+      final long descendantCount) {
     assert nodeToModify != null;
     if (startIsStruct && nodeToModify instanceof StructNode node) {
       final long oldDescendantCount = node.getDescendantCount();

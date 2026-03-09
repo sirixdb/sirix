@@ -19,8 +19,6 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.index.IndexDef;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
-import org.checkerframework.checker.nullness.qual.NonNull;
-
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collector;
@@ -118,7 +116,6 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
     return null;
   }
 
-  @NonNull
   private static AST replaceAstNodeWithEmptySequenceAstNode(AST astNode) {
     // no path node keys found: replace with empty sequence node
     final var parentASTNode = astNode.getParent();

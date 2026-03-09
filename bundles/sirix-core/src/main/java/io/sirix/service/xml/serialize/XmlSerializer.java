@@ -21,7 +21,7 @@
 
 package io.sirix.service.xml.serialize;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 import static io.sirix.service.xml.serialize.XmlSerializerProperties.S_ID;
 import static io.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
@@ -54,8 +54,6 @@ import io.sirix.settings.Constants;
 import io.sirix.utils.SirixFiles;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.XMLToken;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.brackit.query.util.serialize.Serializer;
 import org.slf4j.LoggerFactory;
 
@@ -120,8 +118,8 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
    * @param revision revision to serialize
    * @param revsions further revisions to serialize
    */
-  private XmlSerializer(final XmlResourceSession resourceMgr, final @NonNegative long nodeKey,
-      final XmlSerializerBuilder builder, final boolean initialIndent, final @NonNegative int revision,
+  private XmlSerializer(final XmlResourceSession resourceMgr, final long nodeKey,
+      final XmlSerializerBuilder builder, final boolean initialIndent, final int revision,
       final int... revsions) {
     super(resourceMgr, builder.maxLevel == -1
         ? null
@@ -340,7 +338,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
   }
 
   @Override
-  protected void emitRevisionStartNode(final @NonNull XmlNodeReadOnlyTrx rtx) {
+  protected void emitRevisionStartNode(final XmlNodeReadOnlyTrx rtx) {
     try {
       final int length = (revisions.length == 1 && revisions[0] < 0)
           ? session.getMostRecentRevisionNumber()
@@ -392,7 +390,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
   }
 
   @Override
-  protected void emitRevisionEndNode(final @NonNull XmlNodeReadOnlyTrx rtx) {
+  protected void emitRevisionEndNode(final XmlNodeReadOnlyTrx rtx) {
     try {
       final int length = (revisions.length == 1 && revisions[0] < 0)
           ? session.getMostRecentRevisionNumber()
@@ -544,7 +542,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
    * @param properties {@link XmlSerializerProperties} to use
    * @param revisions revisions to serialize
    */
-  public static XmlSerializerBuilder newBuilder(final XmlResourceSession resMgr, final @NonNegative long nodeKey,
+  public static XmlSerializerBuilder newBuilder(final XmlResourceSession resMgr, final long nodeKey,
       final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
     return new XmlSerializerBuilder(resMgr, nodeKey, stream, properties, revisions);
   }
@@ -636,7 +634,7 @@ public final class XmlSerializer extends AbstractSerializer<XmlNodeReadOnlyTrx, 
      * @param properties {@link XmlSerializerProperties} to use
      * @param revisions revisions to serialize
      */
-    public XmlSerializerBuilder(final XmlResourceSession resourceSession, final @NonNegative long nodeKey,
+    public XmlSerializerBuilder(final XmlResourceSession resourceSession, final long nodeKey,
         final OutputStream stream, final XmlSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       maxLevel = -1;

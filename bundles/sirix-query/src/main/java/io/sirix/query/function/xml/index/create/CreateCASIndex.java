@@ -1,6 +1,6 @@
 package io.sirix.query.function.xml.index.create;
 
-import com.google.common.collect.ImmutableSet;
+import java.util.Set;
 import io.sirix.query.function.xml.XMLFun;
 import io.sirix.query.node.XmlDBNode;
 import io.brackit.query.QueryContext;
@@ -97,7 +97,7 @@ public final class CreateCASIndex extends AbstractFunction {
     final IndexDef idxDef = IndexDefs.createCASIdxDef(false, type, paths,
         controller.getIndexes().getNrOfIndexDefsWithType(IndexType.CAS), IndexDef.DbType.XML);
     try {
-      controller.createIndexes(ImmutableSet.of(idxDef), wtx);
+      controller.createIndexes(Set.of(idxDef), wtx);
     } catch (final SirixIOException e) {
       throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
     }

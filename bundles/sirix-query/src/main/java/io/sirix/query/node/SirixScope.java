@@ -4,7 +4,7 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Scope;
 import io.brackit.query.jdm.Stream;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.exception.SirixException;

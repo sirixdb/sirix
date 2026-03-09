@@ -13,7 +13,7 @@ import org.sirix.api.xml.XmlResourceSession;
 import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.fs.HierarchyFileVisitor.Builder;
-import com.google.common.base.Optional;
+import java.util.Optional;
 
 /**
  * Parses a directory in the file system and creates a sirix {@link Database} with an initial

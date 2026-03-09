@@ -21,8 +21,8 @@
 
 package io.sirix.node;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.node.interfaces.DataRecord;
 
 /**
@@ -77,12 +77,12 @@ public final class HashCountEntryNode implements DataRecord {
     if (!(obj instanceof HashCountEntryNode other))
       return false;
 
-    return Objects.equal(value, other.value);
+    return Objects.equals(value, other.value);
   }
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("value", value).toString();
+    return ToStringHelper.of(this).add("value", value).toString();
   }
 
   @Override

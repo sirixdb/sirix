@@ -30,8 +30,7 @@ package io.sirix.index.hot;
 
 import io.sirix.page.BitmapChunkPage;
 import io.sirix.page.PageReference;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.Objects;
@@ -208,7 +207,7 @@ public final class ChunkDirectory {
    * @param chunkIndex the chunk index
    * @return the page reference (never null)
    */
-  public @NonNull PageReference getOrCreateChunkRef(int chunkIndex) {
+  public PageReference getOrCreateChunkRef(int chunkIndex) {
     if (chunkIndex < 0) {
       throw new IllegalArgumentException("chunkIndex must be non-negative: " + chunkIndex);
     }
@@ -243,7 +242,7 @@ public final class ChunkDirectory {
    * @param chunkIndex the chunk index
    * @param ref the page reference
    */
-  public void setChunkRef(int chunkIndex, @NonNull PageReference ref) {
+  public void setChunkRef(int chunkIndex, PageReference ref) {
     Objects.requireNonNull(ref, "ref must not be null");
 
     int pos = findPosition(chunkIndex);

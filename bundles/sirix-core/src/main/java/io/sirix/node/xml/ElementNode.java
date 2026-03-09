@@ -28,8 +28,8 @@
 
 package io.sirix.node.xml;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
@@ -56,9 +56,7 @@ import io.sirix.utils.NamePageHash;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -843,7 +841,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   }
 
   @Override
-  public void setPathNodeKey(@NonNegative long pathNodeKey) {
+  public void setPathNodeKey(long pathNodeKey) {
     if (page != null) {
       final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.ELEM_PATH_NODE_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
@@ -1222,7 +1220,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     return attributeKeys.size();
   }
 
-  public long getAttributeKey(@NonNegative int index) {
+  public long getAttributeKey(int index) {
     if (page != null) {
       ensurePayloadParsed();
     }
@@ -1232,7 +1230,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     return attributeKeys.getLong(index);
   }
 
-  public void insertAttribute(@NonNegative long attrKey) {
+  public void insertAttribute(long attrKey) {
     if (page != null) {
       ensurePayloadParsed();
       // Payload changed: must unbind and re-serialize
@@ -1241,7 +1239,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     attributeKeys.add(attrKey);
   }
 
-  public void removeAttribute(@NonNegative long attrNodeKey) {
+  public void removeAttribute(long attrNodeKey) {
     if (page != null) {
       ensurePayloadParsed();
       unbind();
@@ -1273,7 +1271,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
     return namespaceKeys.size();
   }
 
-  public long getNamespaceKey(@NonNegative int namespaceKey) {
+  public long getNamespaceKey(int namespaceKey) {
     if (page != null) {
       ensurePayloadParsed();
     }
@@ -1492,8 +1490,8 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("nodeKey", nodeKey)
                       .add("qName", qNm)
                       .add("parentKey", parentKey)
@@ -1508,7 +1506,7 @@ public final class ElementNode implements StructNode, NameNode, ImmutableXmlNode
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey, parentKey, getPrefixKey(), getLocalNameKey(), getURIKey());
+    return Objects.hash(nodeKey, parentKey, getPrefixKey(), getLocalNameKey(), getURIKey());
   }
 
   @Override

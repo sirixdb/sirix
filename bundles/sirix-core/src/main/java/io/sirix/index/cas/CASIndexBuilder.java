@@ -24,7 +24,7 @@ import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
 import io.sirix.index.path.summary.PathSummaryReader;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
 import java.util.Optional;

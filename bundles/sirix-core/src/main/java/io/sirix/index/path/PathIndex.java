@@ -1,7 +1,6 @@
 package io.sirix.index.path;
 
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterators;
+import io.sirix.utils.Iterators;
 import io.sirix.access.IndexBackendType;
 import io.sirix.index.Filter;
 import io.sirix.index.IndexDef;
@@ -124,7 +123,7 @@ public interface PathIndex<B, L extends ChangeListener> {
     } else {
       final Iterator<RBNodeKey<Long>> iter =
           reader.new RBNodeIterator(Fixed.DOCUMENT_NODE_KEY.getStandardProperty());
-      final Set<Filter> setFilter = filter == null ? ImmutableSet.of() : ImmutableSet.of(filter);
+      final Set<Filter> setFilter = filter == null ? Set.of() : Set.of(filter);
 
       return new IndexFilterAxis<>(reader, iter, setFilter);
     }

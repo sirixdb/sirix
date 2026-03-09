@@ -2,7 +2,6 @@ package io.sirix.axis.concurrent
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import org.checkerframework.checker.index.qual.NonNegative
 import io.sirix.api.Axis
 import io.sirix.api.NodeCursor
 import io.sirix.api.NodeReadOnlyTrx
@@ -77,7 +76,7 @@ class CoroutineAxis<R>(rtx: R, childAxis: Axis) : AbstractAxis(rtx), CoroutineSc
         get() = CoroutineName("CoroutineAxis") + Dispatchers.Default
 
     @Synchronized
-    override fun reset(nodeKey:@NonNegative Long) {
+    override fun reset(nodeKey: Long) {
         super.reset(nodeKey)
         first = true
         finished = false

@@ -34,8 +34,6 @@ import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.List;
 
@@ -138,7 +136,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @param index index of attribute to move to
    * @return {@code true} if the attribute node is selected, {@code false} otherwise
    */
-  boolean moveToAttribute(@NonNegative int index);
+  boolean moveToAttribute(int index);
 
   /**
    * Move cursor to attribute by its name key.
@@ -154,7 +152,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @param index index of attribute to move to
    * @return {@code true} if the attribute node is selected, {@code false} otherwise
    */
-  boolean moveToNamespace(@NonNegative int index);
+  boolean moveToNamespace(int index);
 
   // --- Node Getters
   // ----------------------------------------------------------
@@ -294,7 +292,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @param kind node kind
    * @return number of nodes with the same name and node kind
    */
-  int getNameCount(String name, @NonNull NodeKind kind);
+  int getNameCount(String name, NodeKind kind);
 
   /**
    * Get the type key of the node.
@@ -309,7 +307,7 @@ public interface XmlNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
    * @param index the index to get key for
    * @return attribute key for index or {@code -1} if no attribute with the given index is available
    */
-  long getAttributeKey(@NonNegative int index);
+  long getAttributeKey(int index);
 
   /**
    * Determines if current node has children.

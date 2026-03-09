@@ -1,6 +1,5 @@
 package io.sirix.index;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 import java.util.Comparator;
 
 /**
@@ -13,7 +12,7 @@ public enum SearchMode {
   /** Greater than the specified key. */
   GREATER {
     @Override
-    public <K extends Comparable<? super K>> int compare(K firstKey, @NonNull K secondKey) {
+    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey) {
       return secondKey.compareTo(firstKey) > 0
           ? 0
           : -1;
@@ -30,7 +29,7 @@ public enum SearchMode {
   /** Lower than the specified key. */
   LOWER {
     @Override
-    public <K extends Comparable<? super K>> int compare(K firstKey, @NonNull K secondKey) {
+    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey) {
       return secondKey.compareTo(firstKey) < 0
           ? 0
           : -1;
@@ -47,7 +46,7 @@ public enum SearchMode {
   /** Greater or equal than the specified key. */
   GREATER_OR_EQUAL {
     @Override
-    public <K extends Comparable<? super K>> int compare(K firstKey, @NonNull K secondKey) {
+    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey) {
       return secondKey.compareTo(firstKey) >= 0
           ? 0
           : -1;
@@ -64,7 +63,7 @@ public enum SearchMode {
   /** Lower or equal than the specified key. */
   LOWER_OR_EQUAL {
     @Override
-    public <K extends Comparable<? super K>> int compare(K firstKey, @NonNull K secondKey) {
+    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey) {
       return secondKey.compareTo(firstKey) <= 0
           ? 0
           : -1;
@@ -81,7 +80,7 @@ public enum SearchMode {
   /** Equal to the specified key. */
   EQUAL {
     @Override
-    public <K extends Comparable<? super K>> int compare(K firstKey, @NonNull K secondKey) {
+    public <K extends Comparable<? super K>> int compare(K firstKey, K secondKey) {
       return firstKey.compareTo(secondKey);
     }
 

@@ -15,8 +15,6 @@ import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.service.xml.xpath.AtomicValue;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.time.Instant;
 import java.util.List;
@@ -123,7 +121,7 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default boolean moveToAttribute(final @NonNegative int index) {
+  default boolean moveToAttribute(final int index) {
     return nodeReadOnlyTrxDelegate().moveToAttribute(index);
   }
 
@@ -148,7 +146,7 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default boolean moveToNamespace(@NonNegative final int index) {
+  default boolean moveToNamespace(final int index) {
     return nodeReadOnlyTrxDelegate().moveToNamespace(index);
   }
 
@@ -193,7 +191,7 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default int getNameCount(final String name, @NonNull final NodeKind kind) {
+  default int getNameCount(final String name, final NodeKind kind) {
     return nodeReadOnlyTrxDelegate().getNameCount(name, kind);
   }
 
@@ -258,7 +256,7 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default long getAttributeKey(@NonNegative final int index) {
+  default long getAttributeKey(final int index) {
     return nodeReadOnlyTrxDelegate().getAttributeKey(index);
   }
 

@@ -22,8 +22,6 @@
 package io.sirix.io.file;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.google.common.hash.HashFunction;
-import com.google.common.hash.Hashing;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixCorruptionException;
@@ -43,8 +41,7 @@ import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.node.BytesIn;
 import io.sirix.node.Bytes;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -67,11 +64,6 @@ public final class FileReader implements Reader {
    * Inflater to decompress.
    */
   final ByteHandler byteHandler;
-
-  /**
-   * The hash function used to hash pages/page fragments.
-   */
-  final HashFunction hashFunction;
 
   /**
    * Data file.
@@ -106,7 +98,6 @@ public final class FileReader implements Reader {
   public FileReader(final RandomAccessFile dataFile, final RandomAccessFile revisionsOffsetFile,
       final ByteHandler byteHandler, final SerializationType serializationType, final PagePersister pagePersister,
       final Cache<Integer, RevisionFileData> cache) {
-    hashFunction = Hashing.sha256();
     this.dataFile = requireNonNull(dataFile);
 
     this.revisionsOffsetFile = serializationType == SerializationType.DATA
@@ -119,7 +110,7 @@ public final class FileReader implements Reader {
   }
 
   @Override
-  public Page read(final @NonNull PageReference reference,
+  public Page read(final PageReference reference,
       final @Nullable ResourceConfiguration resourceConfiguration) {
     try {
       // Read page from file.
@@ -159,7 +150,6 @@ public final class FileReader implements Reader {
     }
   }
 
-  @NonNull
   private Page getPage(ResourceConfiguration resourceConfiguration, byte[] page, PageReference reference)
       throws IOException {
     final var inputStream = byteHandler.deserialize(new ByteArrayInputStream(page));

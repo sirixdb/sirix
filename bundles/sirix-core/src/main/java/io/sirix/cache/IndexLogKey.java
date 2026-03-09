@@ -1,7 +1,6 @@
 package io.sirix.cache;
 
 import io.sirix.index.IndexType;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 /**
  * Index log key.
@@ -11,11 +10,11 @@ import org.checkerframework.checker.index.qual.NonNegative;
 public final class IndexLogKey {
   private IndexType indexType;
   private long recordPageKey;
-  private @NonNegative int indexNumber;
-  private @NonNegative int revisionNumber;
+  private int indexNumber;
+  private int revisionNumber;
 
-  public IndexLogKey(IndexType indexType, long recordPageKey, @NonNegative int indexNumber,
-      @NonNegative int revisionNumber) {
+  public IndexLogKey(IndexType indexType, long recordPageKey, int indexNumber,
+      int revisionNumber) {
     this.indexType = indexType;
     this.recordPageKey = recordPageKey;
     this.indexNumber = indexNumber;

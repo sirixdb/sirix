@@ -11,7 +11,6 @@ import io.sirix.index.IndexType;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.node.BytesIn;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.PageContainer;
 import io.sirix.page.delegates.FullReferencesPage;
@@ -69,7 +68,7 @@ public final class PageUtils {
    * @param reference reference from revision root
    * @param indexType the index type
    */
-  public static void createTree(final DatabaseType databaseType, @NonNull PageReference reference,
+  public static void createTree(final DatabaseType databaseType, PageReference reference,
       final IndexType indexType, final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
     // Create new record page.
     final ResourceConfiguration resourceConfiguration = storageEngineReader.getResourceSession().getResourceConfig();
@@ -110,7 +109,7 @@ public final class PageUtils {
    * @param storageEngineReader the storage engine reader
    * @param log the transaction intent log
    */
-  public static void createHOTTree(@NonNull PageReference reference, final IndexType indexType,
+  public static void createHOTTree(PageReference reference, final IndexType indexType,
       final StorageEngineReader storageEngineReader, final TransactionIntentLog log) {
 
     // Create new HOT leaf page (starts as a leaf, grows into trie on demand)

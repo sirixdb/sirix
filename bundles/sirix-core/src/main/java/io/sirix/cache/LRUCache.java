@@ -21,9 +21,8 @@
 
 package io.sirix.cache;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.collect.ImmutableMap;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import io.sirix.utils.ToStringHelper;
+import org.jspecify.annotations.Nullable;
 
 import java.util.*;
 
@@ -150,18 +149,19 @@ public final class LRUCache<K, V> implements Cache<K, V> {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("First Cache", map).add("Second Cache", secondCache).toString();
+    return ToStringHelper.of(this).add("First Cache", map).add("Second Cache", secondCache).toString();
   }
 
   @Override
-  public ImmutableMap<K, V> getAll(final Iterable<? extends K> keys) {
-    final ImmutableMap.Builder<K, V> builder = new ImmutableMap.Builder<>();
+  public Map<K, V> getAll(final Iterable<? extends K> keys) {
+    final Map<K, V> result = new LinkedHashMap<>();
     for (final K key : keys) {
-      if (map.get(key) != null) {
-        builder.put(key, map.get(key));
+      final V value = map.get(key);
+      if (value != null) {
+        result.put(key, value);
       }
     }
-    return builder.build();
+    return Collections.unmodifiableMap(result);
   }
 
   @Override

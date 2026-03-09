@@ -28,7 +28,6 @@
 
 package io.sirix.axis.pathsummary.filter;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
 
@@ -42,8 +41,8 @@ import java.util.function.Predicate;
  *
  * @author Johannes Lichtenberger
  */
-public record PathNameFilter(@NonNull String name,
-    @NonNull PathSummaryReader pathSummaryReader) implements Predicate<PathNode> {
+public record PathNameFilter(String name,
+    PathSummaryReader pathSummaryReader) implements Predicate<PathNode> {
   @Override
   public boolean test(PathNode pathNode) {
     var qNm = pathNode.getName();

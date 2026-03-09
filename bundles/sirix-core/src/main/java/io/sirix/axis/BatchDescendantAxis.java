@@ -15,7 +15,6 @@ import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.util.function.LongConsumer;
 
@@ -83,7 +82,7 @@ public final class BatchDescendantAxis {
    *
    * @param nodeKey start node key
    */
-  public void reset(@NonNegative final long nodeKey) {
+  public void reset(final long nodeKey) {
     this.startNodeKey = nodeKey;
     this.first = true;
     this.finished = false;

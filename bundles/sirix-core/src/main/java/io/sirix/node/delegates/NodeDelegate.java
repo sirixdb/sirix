@@ -20,7 +20,7 @@
  */
 package io.sirix.node.delegates;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.Node;
@@ -28,8 +28,7 @@ import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
 import io.sirix.node.BytesOut;
 import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Delegate method for all nodes. That means that all nodes stored in Sirix are represented by an
@@ -97,7 +96,7 @@ public class NodeDelegate implements Node {
    * @param lastModifiedRevision the revision, when the node has been last modified
    * @param deweyID optional DeweyID
    */
-  public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final LongHashFunction hashFunction,
+  public NodeDelegate(final long nodeKey, final long parentKey, final LongHashFunction hashFunction,
       final int previousRevision, final int lastModifiedRevision, final SirixDeweyID deweyID) {
     assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
     this.nodeKey = nodeKey;
@@ -119,7 +118,7 @@ public class NodeDelegate implements Node {
    * @param lastModifiedRevision the previousRevision, when the node has been last modified
    * @param deweyID optional DeweyID
    */
-  public NodeDelegate(final @NonNegative long nodeKey, final long parentKey, final LongHashFunction hashFunction,
+  public NodeDelegate(final long nodeKey, final long parentKey, final LongHashFunction hashFunction,
       final int previousRevision, final int lastModifiedRevision, final byte[] deweyID) {
     assert parentKey >= Fixed.NULL_NODE_KEY.getStandardProperty();
     this.nodeKey = nodeKey;
@@ -195,7 +194,7 @@ public class NodeDelegate implements Node {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
+    return ToStringHelper.of(this)
                       .add("node key", nodeKey)
                       .add("parent key", parentKey)
                       .add("type key", typeKey)

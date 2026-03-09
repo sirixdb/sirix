@@ -1,7 +1,7 @@
 package io.sirix.cache;
 
 import io.sirix.exception.SirixIOException;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.PageReference;

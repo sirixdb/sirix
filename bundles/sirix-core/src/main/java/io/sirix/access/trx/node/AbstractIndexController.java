@@ -9,8 +9,7 @@ import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
 import io.brackit.query.util.serialize.SubtreePrinter;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.exception.SirixRuntimeException;
 import io.sirix.index.cas.CASFilter;
 import io.sirix.index.cas.CASFilterRange;
@@ -142,7 +141,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public void notifyChange(final ChangeType type, @NonNull final ImmutableNode node, final long pathNodeKey) {
+  public void notifyChange(final ChangeType type, final ImmutableNode node, final long pathNodeKey) {
     if (listeners.isEmpty()) {
       return;
     }

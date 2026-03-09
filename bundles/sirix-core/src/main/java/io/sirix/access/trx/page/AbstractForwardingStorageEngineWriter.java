@@ -7,8 +7,6 @@ import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
 import io.sirix.exception.SirixIOException;
 import io.sirix.node.interfaces.DataRecord;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Forwards all methods to the delegate.
@@ -34,29 +32,29 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
-  public <V extends DataRecord> V createRecord(@NonNull V record, @NonNull IndexType indexType,
-      @NonNegative int index) {
+  public <V extends DataRecord> V createRecord(V record, IndexType indexType,
+      int index) {
     return delegate().createRecord(record, indexType, index);
   }
 
   @Override
-  public <V extends DataRecord> V prepareRecordForModification(@NonNegative long recordKey,
-      @NonNull IndexType indexType, @NonNegative int index) {
+  public <V extends DataRecord> V prepareRecordForModification(long recordKey,
+      IndexType indexType, int index) {
     return delegate().prepareRecordForModification(recordKey, indexType, index);
   }
 
   @Override
-  public void persistRecord(@NonNull DataRecord record, @NonNull IndexType indexType, int index) {
+  public void persistRecord(DataRecord record, IndexType indexType, int index) {
     delegate().persistRecord(record, indexType, index);
   }
 
   @Override
-  public void removeRecord(@NonNegative long recordKey, @NonNull IndexType indexType, @NonNegative int index) {
+  public void removeRecord(long recordKey, IndexType indexType, int index) {
     delegate().removeRecord(recordKey, indexType, index);
   }
 
   @Override
-  public int createNameKey(String name, @NonNull NodeKind kind) {
+  public int createNameKey(String name, NodeKind kind) {
     return delegate().createNameKey(name, kind);
   }
 
@@ -71,5 +69,5 @@ public abstract class AbstractForwardingStorageEngineWriter extends AbstractForw
   }
 
   @Override
-  protected abstract @NonNull StorageEngineWriter delegate();
+  protected abstract StorageEngineWriter delegate();
 }

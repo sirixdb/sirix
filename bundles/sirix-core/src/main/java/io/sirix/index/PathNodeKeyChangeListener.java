@@ -4,7 +4,7 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.node.NodeKind;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Primitive change listener contract for hot-path index notifications.

@@ -22,7 +22,6 @@
 package io.sirix.io.filechannel;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.google.common.hash.HashFunction;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
@@ -37,8 +36,7 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -57,11 +55,6 @@ import java.time.Instant;
  * @author Johannes Lichtenberger
  */
 public final class FileChannelReader extends AbstractReader {
-
-  /**
-   * The hash function used to hash pages/page fragments.
-   */
-  final HashFunction hashFunction = Reader.hashFunction;
 
   /**
    * Data file channel.
@@ -121,7 +114,7 @@ public final class FileChannelReader extends AbstractReader {
     this.cache = cache;
   }
 
-  public Page read(final @NonNull PageReference reference,
+  public Page read(final PageReference reference,
       final @Nullable ResourceConfiguration resourceConfiguration) {
     final int stripe = getStripeIndex();
 

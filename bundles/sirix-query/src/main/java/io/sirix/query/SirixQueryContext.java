@@ -22,7 +22,7 @@ import io.sirix.query.node.BasicXmlDBStore;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.node.XmlDBStore;
 import it.unimi.dsi.fastutil.ints.IntArraySet;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 import java.util.Collections;

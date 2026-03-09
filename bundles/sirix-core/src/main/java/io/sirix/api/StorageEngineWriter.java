@@ -12,9 +12,7 @@ import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.UberPage;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 
@@ -55,7 +53,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @param page the page to put into the cache
    * @return this storage engine writer instance
    */
-  StorageEngineWriter appendLogRecord(@NonNull PageReference reference, @NonNull PageContainer page);
+  StorageEngineWriter appendLogRecord(PageReference reference, PageContainer page);
 
   /**
    * Create fresh key/record (record must be a record) and prepare key/record-tuple for modifications
@@ -68,7 +66,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @throws SirixIOException if an I/O error occurs
    * @throws NullPointerException if {@code record} or {@code page} is {@code null}
    */
-  <V extends DataRecord> V createRecord(@NonNull V record, @NonNull IndexType indexType, int index);
+  <V extends DataRecord> V createRecord(V record, IndexType indexType, int index);
 
   /**
    * Prepare an entry for modification. This is getting the entry from the (persistence) layer,
@@ -83,7 +81,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @throws IllegalArgumentException if {@code recordKey < 0}
    * @throws NullPointerException if {@code page} is {@code null}
    */
-  <V extends DataRecord> V prepareRecordForModification(@NonNegative long key, @NonNull IndexType indexType, int index);
+  <V extends DataRecord> V prepareRecordForModification(long key, IndexType indexType, int index);
 
   /**
    * Fast-path variant of {@link #prepareRecordForModification} for the DOCUMENT index type.
@@ -110,7 +108,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @param indexType the index type
    * @param index     the index number
    */
-  void persistRecord(@NonNull DataRecord record, @NonNull IndexType indexType, int index);
+  void persistRecord(DataRecord record, IndexType indexType, int index);
 
   /**
    * Remove an entry from the storage.
@@ -122,7 +120,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @throws IllegalArgumentException if {@code recordKey < 0}
    * @throws NullPointerException if {@code indexType} is {@code null}
    */
-  void removeRecord(long key, @NonNull IndexType indexType, int index);
+  void removeRecord(long key, IndexType indexType, int index);
 
   /**
    * Creating a namekey for a given name.
@@ -133,7 +131,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @throws SirixIOException if something odd happens while storing the new key
    * @throws NullPointerException if {@code name} or {@code kind} is {@code null}
    */
-  int createNameKey(String name, @NonNull NodeKind kind);
+  int createNameKey(String name, NodeKind kind);
 
   /**
    * Commit the transaction, that is persist changes if any and create a new revision.
@@ -336,7 +334,7 @@ public interface StorageEngineWriter extends StorageEngineReader {
    * @param index the index number
    * @return the modified page if in TIL, null otherwise
    */
-  default @Nullable KeyValueLeafPage getModifiedPageForRead(long recordPageKey, @NonNull IndexType indexType, int index) {
+  default @Nullable KeyValueLeafPage getModifiedPageForRead(long recordPageKey, IndexType indexType, int index) {
     return null;
   }
 }

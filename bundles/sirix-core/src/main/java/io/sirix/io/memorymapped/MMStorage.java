@@ -34,7 +34,6 @@ import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Writer;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.io.filechannel.FileChannelReader;
 
 import java.io.IOException;
@@ -405,7 +404,7 @@ public final class MMStorage implements IOStorage {
   }
 
   @Override
-  public @NonNull RevisionIndexHolder getRevisionIndexHolder() {
+  public RevisionIndexHolder getRevisionIndexHolder() {
     return revisionIndexHolder;
   }
 }

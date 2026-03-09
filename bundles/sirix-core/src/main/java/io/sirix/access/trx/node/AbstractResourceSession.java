@@ -1,10 +1,6 @@
 package io.sirix.access.trx.node;
 
-import cn.danielw.fop.ObjectPool;
-import cn.danielw.fop.PoolConfig;
-import cn.danielw.fop.PoolExhaustedException;
-import cn.danielw.fop.PoolInvalidObjectException;
-import cn.danielw.fop.Poolable;
+import io.sirix.utils.ObjectPool;
 import io.brackit.query.jdm.DocumentException;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
@@ -44,9 +40,7 @@ import io.sirix.io.Writer;
 import io.sirix.node.interfaces.Node;
 import io.sirix.page.UberPage;
 import io.sirix.settings.Fixed;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -70,7 +64,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @SuppressWarnings("ConstantValue")
@@ -195,9 +189,9 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param storageEngineWriterFactory A factory that creates new {@link StorageEngineWriter} instances.
    * @throws SirixException if Sirix encounters an exception
    */
-  protected AbstractResourceSession(final @NonNull ResourceStore<? extends ResourceSession<R, W>> resourceStore,
-      final @NonNull ResourceConfiguration resourceConf, final @NonNull BufferManager bufferManager,
-      final @NonNull IOStorage storage, final @NonNull UberPage uberPage, final @NonNull Semaphore writeLock,
+  protected AbstractResourceSession(final ResourceStore<? extends ResourceSession<R, W>> resourceStore,
+      final ResourceConfiguration resourceConf, final BufferManager bufferManager,
+      final IOStorage storage, final UberPage uberPage, final Semaphore writeLock,
       final @Nullable User user, final StorageEngineWriterFactory storageEngineWriterFactory) {
     this.resourceStore = requireNonNull(resourceStore);
     resourceConfig = requireNonNull(resourceConf);
@@ -240,16 +234,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
   public void createStorageEnginePool() {
     if (pool.get() == null) {
-      final PoolConfig config = new PoolConfig();
-      config.setPartitionSize(3);
-      config.setMaxSize(10);
-      config.setMinSize(5);
-      config.setScavengeIntervalMilliseconds(60_000);
-      config.setMaxIdleMilliseconds(5);
-      config.setMaxWaitMilliseconds(5);
-      config.setShutdownWaitMilliseconds(1);
-
-      pool.set(new ObjectPool<>(config, new StorageEngineReaderFactory(this)));
+      final StorageEngineReaderFactory factory = new StorageEngineReaderFactory(this);
+      pool.set(new ObjectPool<>(factory, factory));
     }
   }
 
@@ -297,8 +283,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @return a new {@link StorageEngineWriter} instance
    */
   @Override
-  public StorageEngineWriter createPageTransaction(final @NonNegative int id, final @NonNegative int representRevision,
-      final @NonNegative int storedRevision, final Abort abort, boolean isBoundToNodeTrx) {
+  public StorageEngineWriter createPageTransaction(final int id, final int representRevision,
+      final int storedRevision, final Abort abort, boolean isBoundToNodeTrx) {
     checkArgument(id >= 0, "id must be >= 0!");
     checkArgument(representRevision >= 0, "representRevision must be >= 0!");
     checkArgument(storedRevision >= 0, "storedRevision must be >= 0!");
@@ -398,7 +384,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized R beginNodeReadOnlyTrx(@NonNegative final int revision) {
+  public synchronized R beginNodeReadOnlyTrx(final int revision) {
     assertAccess(revision);
 
     final StorageEngineReader storageEngineReader = beginStorageEngineReader(revision);
@@ -446,40 +432,40 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public W beginNodeTrx(final @NonNegative int maxNodeCount) {
+  public W beginNodeTrx(final int maxNodeCount) {
     return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS, AfterCommitState.KEEP_OPEN);
   }
 
   @Override
-  public W beginNodeTrx(final @NonNegative int maxTime, final @NonNull TimeUnit timeUnit) {
+  public W beginNodeTrx(final int maxTime, final TimeUnit timeUnit) {
     return beginNodeTrx(0, maxTime, timeUnit, AfterCommitState.KEEP_OPEN);
   }
 
   @Override
-  public W beginNodeTrx(final @NonNegative int maxNodeCount, final @NonNegative int maxTime,
-      final @NonNull TimeUnit timeUnit) {
+  public W beginNodeTrx(final int maxNodeCount, final int maxTime,
+      final TimeUnit timeUnit) {
     return beginNodeTrx(maxNodeCount, maxTime, timeUnit, AfterCommitState.KEEP_OPEN);
   }
 
   @Override
-  public W beginNodeTrx(final @NonNull AfterCommitState afterCommitState) {
+  public W beginNodeTrx(final AfterCommitState afterCommitState) {
     return beginNodeTrx(0, 0, TimeUnit.MILLISECONDS, afterCommitState);
   }
 
   @Override
-  public W beginNodeTrx(final @NonNegative int maxNodeCount, final @NonNull AfterCommitState afterCommitState) {
+  public W beginNodeTrx(final int maxNodeCount, final AfterCommitState afterCommitState) {
     return beginNodeTrx(maxNodeCount, 0, TimeUnit.MILLISECONDS, afterCommitState);
   }
 
   @Override
-  public W beginNodeTrx(final @NonNegative int maxTime, final @NonNull TimeUnit timeUnit,
-      final @NonNull AfterCommitState afterCommitState) {
+  public W beginNodeTrx(final int maxTime, final TimeUnit timeUnit,
+      final AfterCommitState afterCommitState) {
     return beginNodeTrx(0, maxTime, timeUnit, afterCommitState);
   }
 
   @Override
-  public synchronized W beginNodeTrx(final @NonNegative int maxNodeCount, final @NonNegative int maxTime,
-      final @NonNull TimeUnit timeUnit, final @NonNull AfterCommitState afterCommitState) {
+  public synchronized W beginNodeTrx(final int maxNodeCount, final int maxTime,
+      final TimeUnit timeUnit, final AfterCommitState afterCommitState) {
     // Checks.
     assertAccess(getMostRecentRevisionNumber());
     if (maxNodeCount < 0 || maxTime < 0) {
@@ -579,11 +565,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       storage.close();
 
       if (pool.get() != null) {
-        try {
-          pool.get().shutdown();
-        } catch (InterruptedException e) {
-          throw new RuntimeException(e);
-        }
+        pool.get().close();
       }
       isClosed = true;
     }
@@ -597,7 +579,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @throws IllegalArgumentException if revision isn't valid
    */
   @Override
-  public void assertAccess(final @NonNegative int revision) {
+  public void assertAccess(final int revision) {
     assertNotClosed();
     if (revision > getMostRecentRevisionNumber()) {
       throw new IllegalArgumentException(
@@ -634,8 +616,8 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param storageEngineWriter storage engine writer
    */
   @Override
-  public void setNodePageWriteTransaction(final @NonNegative int transactionID,
-      @NonNull final StorageEngineWriter storageEngineWriter) {
+  public void setNodePageWriteTransaction(final int transactionID,
+      final StorageEngineWriter storageEngineWriter) {
     assertNotClosed();
     storageEngineWriterMap.put(transactionID, storageEngineWriter);
   }
@@ -647,7 +629,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @throws SirixIOException if an I/O error occurs
    */
   @Override
-  public void closeNodePageWriteTransaction(final @NonNegative int transactionID) {
+  public void closeNodePageWriteTransaction(final int transactionID) {
     assertNotClosed();
     final StorageEngineReader storageEngineReader = storageEngineWriterMap.remove(transactionID);
     if (storageEngineReader != null) {
@@ -661,7 +643,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID write transaction ID
    */
   @Override
-  public void closeWriteTransaction(final @NonNegative int transactionID) {
+  public void closeWriteTransaction(final int transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -678,7 +660,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID read transaction ID
    */
   @Override
-  public void closeReadTransaction(final @NonNegative int transactionID) {
+  public void closeReadTransaction(final int transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -691,7 +673,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID write transaction ID
    */
   @Override
-  public void closePageWriteTransaction(final @NonNegative Integer transactionID) {
+  public void closePageWriteTransaction(final Integer transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -708,7 +690,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @param transactionID read transaction ID
    */
   @Override
-  public void closePageReadTransaction(final @NonNegative Integer transactionID) {
+  public void closePageReadTransaction(final Integer transactionID) {
     assertNotClosed();
 
     // Remove from internal map.
@@ -720,7 +702,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    *
    * @param transactionID transaction ID to remove
    */
-  private void removeFromPageMapping(final @NonNegative Integer transactionID) {
+  private void removeFromPageMapping(final Integer transactionID) {
     assertNotClosed();
 
     // Purge transaction from internal state.
@@ -771,36 +753,21 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized PathSummaryReader openPathSummary(final @NonNegative int revision) {
+  public synchronized PathSummaryReader openPathSummary(final int revision) {
     assertAccess(revision);
 
     StorageEngineReader storageEngineReader;
 
-    var pool = this.pool.get();
+    final ObjectPool<StorageEngineReader> currentPool = this.pool.get();
 
-    if (pool != null) {
-      Poolable<StorageEngineReader> poolable = null;
-      boolean invalidObject = true;
-      while (invalidObject) {
-        try {
-          poolable = pool.borrowObject(false);
-          invalidObject = false;
-        } catch (PoolInvalidObjectException e) {
-          LOGGER.trace("Pool returned invalid object, retrying", e);
-        } catch (PoolExhaustedException exception) {
-          invalidObject = false;
-        }
-      }
+    if (currentPool != null) {
+      final StorageEngineReader borrowed = currentPool.borrowObject();
 
-      if (poolable == null) {
+      if (borrowed.isClosed() || borrowed.getRevisionNumber() != revision) {
+        currentPool.returnObject(borrowed);
         storageEngineReader = beginStorageEngineReader(revision);
       } else {
-        storageEngineReader = poolable.getObject();
-
-        if (storageEngineReader.getRevisionNumber() != revision) {
-          pool.returnObject(poolable);
-          storageEngineReader = beginStorageEngineReader(revision);
-        }
+        storageEngineReader = borrowed;
       }
     } else {
       storageEngineReader = beginStorageEngineReader(revision);
@@ -810,7 +777,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public StorageEngineReader beginStorageEngineReader(final @NonNegative int revision) {
+  public StorageEngineReader beginStorageEngineReader(final int revision) {
     assertAccess(revision);
 
     final int currentStorageEngineID = storageEngineIDCounter.incrementAndGet();
@@ -826,7 +793,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized StorageEngineWriter beginStorageEngineWriter(final @NonNegative int revision) {
+  public synchronized StorageEngineWriter beginStorageEngineWriter(final int revision) {
     assertAccess(revision);
 
     // Make sure not to exceed available number of write transactions.
@@ -887,7 +854,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @return a read-only transaction at the revision valid at that time
    */
   @Override
-  public R beginNodeReadOnlyTrx(final @NonNull Instant pointInTime) {
+  public R beginNodeReadOnlyTrx(final Instant pointInTime) {
     requireNonNull(pointInTime);
     assertNotClosed();
 
@@ -964,7 +931,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
    * @return the revision number valid at that time
    */
   @Override
-  public int getRevisionNumber(final @NonNull Instant pointInTime) {
+  public int getRevisionNumber(final Instant pointInTime) {
     requireNonNull(pointInTime);
     assertNotClosed();
 

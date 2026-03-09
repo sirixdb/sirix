@@ -31,7 +31,6 @@ import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.settings.Constants;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 /**
  * Writer for the keyed indirect-page trie structure.
@@ -73,7 +72,7 @@ final class KeyedTrieWriter {
    */
   RevisionRootPage preparePreviousRevisionRootPage(final UberPage uberPage,
       final NodeStorageEngineReader storageEngineReader, final TransactionIntentLog log,
-      final @NonNegative int baseRevision, final @NonNegative int representRevision) {
+      final int baseRevision, final int representRevision) {
     final RevisionRootPage revisionRootPage;
 
     if (uberPage.isBootstrap()) {
@@ -109,7 +108,7 @@ final class KeyedTrieWriter {
    */
   PageReference prepareLeafOfTree(final StorageEngineWriter storageEngineWriter,
       final TransactionIntentLog log, final int[] inpLevelPageCountExp,
-      final PageReference startReference, @NonNegative final long pageKey, final int index,
+      final PageReference startReference, final long pageKey, final int index,
       final IndexType indexType, final RevisionRootPage revisionRootPage) {
     // Initial state pointing to the indirect nodePageReference of level 0.
     PageReference reference = startReference;

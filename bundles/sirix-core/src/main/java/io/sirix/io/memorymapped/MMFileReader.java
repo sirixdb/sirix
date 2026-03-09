@@ -33,8 +33,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.interfaces.Page;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.io.IOException;
 import java.lang.foreign.Arena;
@@ -122,7 +121,7 @@ public final class MMFileReader extends AbstractReader {
   }
 
   @Override
-  public Page read(final @NonNull PageReference reference,
+  public Page read(final PageReference reference,
       final @Nullable ResourceConfiguration resourceConfiguration) {
     try {
       final long offset = reference.getKey() + LAYOUT_INT.byteSize();

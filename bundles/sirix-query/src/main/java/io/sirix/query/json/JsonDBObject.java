@@ -1,6 +1,5 @@
 package io.sirix.query.json;
 
-import com.google.common.base.Preconditions;
 import io.sirix.access.trx.node.json.objectvalue.*;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -594,7 +593,9 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public Sequence value(final int index) {
-    Preconditions.checkArgument(index >= 0);
+    if (index < 0) {
+      throw new IllegalArgumentException();
+    }
 
     moveRtx();
 
@@ -617,7 +618,9 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public QNm name(IntNumeric numericIndex) {
-    Preconditions.checkArgument(numericIndex.intValue() >= 0);
+    if (numericIndex.intValue() < 0) {
+      throw new IllegalArgumentException();
+    }
 
     moveRtx();
 
@@ -626,7 +629,9 @@ public final class JsonDBObject extends AbstractItem
 
   @Override
   public QNm name(final int index) {
-    Preconditions.checkArgument(index >= 0);
+    if (index < 0) {
+      throw new IllegalArgumentException();
+    }
 
     moveRtx();
 

@@ -28,7 +28,6 @@
 
 package io.sirix.index.hot;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Partial key mapping for HOT (Height Optimized Trie) nodes.
@@ -113,7 +112,7 @@ public final class PartialKeyMapping {
    * @param newBitIndex the new discriminative bit to add
    * @return new PartialKeyMapping
    */
-  public static PartialKeyMapping withAdditionalBit(@NonNull PartialKeyMapping existing, int newBitIndex) {
+  public static PartialKeyMapping withAdditionalBit(PartialKeyMapping existing, int newBitIndex) {
     int newMostSig = Math.min(existing.mostSignificantBitIndex, newBitIndex);
     int newLeastSig = Math.max(existing.leastSignificantBitIndex, newBitIndex);
 
@@ -202,7 +201,7 @@ public final class PartialKeyMapping {
    * @param keyBytes the full key bytes
    * @return the extracted partial key
    */
-  public int extractMask(@NonNull byte[] keyBytes) {
+  public int extractMask(byte[] keyBytes) {
     if (isMultiMask) {
       return extractMaskMulti(keyBytes);
     }

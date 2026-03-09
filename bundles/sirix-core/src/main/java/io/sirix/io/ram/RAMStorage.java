@@ -7,13 +7,12 @@ import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.node.BytesOut;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.io.IOStorage;
 import io.sirix.io.Reader;
 import io.sirix.io.RevisionFileData;
 import io.sirix.io.RevisionIndexHolder;
 import io.sirix.io.Writer;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.page.interfaces.Page;
 
 import java.nio.ByteBuffer;
@@ -131,7 +130,7 @@ public final class RAMStorage implements IOStorage {
   }
 
   @Override
-  public @NonNull RevisionIndexHolder getRevisionIndexHolder() {
+  public RevisionIndexHolder getRevisionIndexHolder() {
     return revisionIndexHolder;
   }
 

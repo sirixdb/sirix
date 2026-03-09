@@ -1,11 +1,10 @@
 package io.sirix.service.json;
 
-import com.google.common.collect.ImmutableSet;
+import java.util.Set;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.JsonDiff;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.diff.*;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -78,7 +77,7 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
         session.getResourceConfig().hashType == HashType.NONE
             ? DiffFactory.DiffOptimized.NO
             : DiffFactory.DiffOptimized.HASHED,
-        ImmutableSet.of(this)).skipSubtrees(true)
+        Set.of(this)).skipSubtrees(true)
                               .newStartKey(startNodeKey)
                               .oldStartKey(startNodeKey)
                               .oldMaxDepth(maxDepth));
@@ -88,8 +87,8 @@ public final class BasicJsonDiff implements DiffObserver, JsonDiff {
   }
 
   @Override
-  public void diffListener(final DiffFactory.@NonNull DiffType diffType, final long newNodeKey, final long oldNodeKey,
-      @NonNull final DiffDepth depth) {
+  public void diffListener(final DiffFactory.DiffType diffType, final long newNodeKey, final long oldNodeKey,
+      final DiffDepth depth) {
     diffs.add(new DiffTuple(diffType, newNodeKey, oldNodeKey, depth));
   }
 

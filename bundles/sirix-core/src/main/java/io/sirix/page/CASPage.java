@@ -28,7 +28,7 @@
 
 package io.sirix.page;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.access.DatabaseType;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.page.delegates.BitmapReferencesPage;
@@ -36,7 +36,6 @@ import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.index.IndexType;
 import io.sirix.page.delegates.ReferencesPage4;
@@ -121,8 +120,8 @@ public final class CASPage extends AbstractForwardingPage {
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this).add("mDelegate", delegate).toString();
+  public String toString() {
+    return ToStringHelper.of(this).add("mDelegate", delegate).toString();
   }
 
   @Override

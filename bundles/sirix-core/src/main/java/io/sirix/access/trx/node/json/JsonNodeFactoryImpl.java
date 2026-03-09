@@ -30,8 +30,6 @@ import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
 import net.openhft.hashing.LongHashFunction;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.lang.foreign.MemorySegment;
 
@@ -138,8 +136,8 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public PathNode createPathNode(final @NonNegative long parentKey, final long leftSibKey, final long rightSibKey,
-      @NonNull final QNm name, @NonNull final NodeKind kind, final @NonNegative int level) {
+  public PathNode createPathNode(final long parentKey, final long leftSibKey, final long rightSibKey,
+      final QNm name, final NodeKind kind, final int level) {
     final int uriKey = -1;
     final int prefixKey = -1;
     final int localName = name.getLocalName() != null && !name.getLocalName().isEmpty()
@@ -403,7 +401,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
   }
 
   @Override
-  public DeweyIDNode createDeweyIdNode(long nodeKey, @NonNull SirixDeweyID id) {
+  public DeweyIDNode createDeweyIdNode(long nodeKey, SirixDeweyID id) {
     return storageEngineWriter.createRecord(new DeweyIDNode(nodeKey, id), IndexType.DEWEYID_TO_RECORDID, 0);
   }
 

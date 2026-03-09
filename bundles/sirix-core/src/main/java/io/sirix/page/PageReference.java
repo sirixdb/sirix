@@ -21,8 +21,8 @@
 
 package io.sirix.page;
 
-import com.google.common.base.MoreObjects;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import io.sirix.utils.ToStringHelper;
+import org.jspecify.annotations.Nullable;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.interfaces.PageFragmentKey;
 import io.sirix.settings.Constants;
@@ -268,7 +268,7 @@ public final class PageReference {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
+    return ToStringHelper.of(this)
                       .add("databaseId", databaseId)
                       .add("resourceId", resourceId)
                       .add("logKey", logKey)

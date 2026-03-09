@@ -28,12 +28,11 @@
 
 package io.sirix.access;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
 import com.google.gson.stream.JsonReader;
 import com.google.gson.stream.JsonWriter;
 import io.sirix.api.Database;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.exception.SirixIOException;
 
 import java.io.FileReader;
@@ -43,7 +42,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -314,7 +313,7 @@ public final class DatabaseConfiguration {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("File", file).toString();
+    return ToStringHelper.of(this).add("File", file).toString();
   }
 
   @Override
@@ -322,7 +321,7 @@ public final class DatabaseConfiguration {
     if (!(obj instanceof DatabaseConfiguration other))
       return false;
 
-    return Objects.equal(file, other.file);
+    return java.util.Objects.equals(file, other.file);
   }
 
   @Override

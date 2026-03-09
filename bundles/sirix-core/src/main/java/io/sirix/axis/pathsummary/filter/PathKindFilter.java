@@ -29,7 +29,6 @@
 package io.sirix.axis.pathsummary.filter;
 
 import io.sirix.node.NodeKind;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.index.path.summary.PathNode;
 
 import java.util.function.Predicate;
@@ -41,7 +40,7 @@ import java.util.function.Predicate;
  *
  * @author Johannes Lichtenberger
  */
-public record PathKindFilter(@NonNull NodeKind kind) implements Predicate<PathNode> {
+public record PathKindFilter(NodeKind kind) implements Predicate<PathNode> {
   @Override
   public boolean test(PathNode pathNode) {
     return kind == pathNode.getPathKind();

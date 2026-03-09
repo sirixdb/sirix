@@ -1,6 +1,6 @@
 package io.sirix.query.node;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.axis.*;
 import io.sirix.axis.temporal.*;
 import io.sirix.query.stream.node.SirixNodeStream;
@@ -21,7 +21,7 @@ import io.brackit.query.jdm.type.NodeType;
 import io.brackit.query.node.parser.NavigationalSubtreeParser;
 import io.brackit.query.node.parser.NodeSubtreeHandler;
 import io.brackit.query.node.parser.NodeSubtreeParser;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.api.Axis;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -1628,7 +1628,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
   @Override
   public String toString() {
     moveRtx();
-    return MoreObjects.toStringHelper(this).add("rtx", rtx).toString();
+    return ToStringHelper.of(this).add("rtx", rtx).toString();
   }
 
   @Override

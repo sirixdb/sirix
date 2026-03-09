@@ -5,8 +5,6 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.xml.ElementNode;
 import io.sirix.node.xml.PINode;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.brackit.query.atomic.QNm;
 import io.sirix.node.xml.AttributeNode;
 import io.sirix.node.xml.CommentNode;
@@ -34,8 +32,8 @@ public interface XmlNodeFactory extends NodeFactory {
    * @return the created node
    * @throws SirixIOException if an I/O error occurs
    */
-  PINode createPINode(@NonNegative long parentKey, @NonNegative long leftSibKey, @NonNegative long rightSibKey,
-      QNm target, byte[] content, boolean isCompressed, @NonNegative long pathNodeKey, SirixDeweyID id);
+  PINode createPINode(long parentKey, long leftSibKey, long rightSibKey,
+      QNm target, byte[] content, boolean isCompressed, long pathNodeKey, SirixDeweyID id);
 
   /**
    * Create a {@link CommentNode}.
@@ -49,8 +47,8 @@ public interface XmlNodeFactory extends NodeFactory {
    * @return the created node
    * @throws SirixIOException if an I/O error occurs
    */
-  CommentNode createCommentNode(@NonNegative long parentKey, @NonNegative long leftSibKey,
-      @NonNegative long rightSibKey, @NonNull byte[] value, boolean isCompressed, SirixDeweyID id);
+  CommentNode createCommentNode(long parentKey, long leftSibKey,
+      long rightSibKey, byte[] value, boolean isCompressed, SirixDeweyID id);
 
   /**
    * Create an {@link ElementNode}.
@@ -64,8 +62,8 @@ public interface XmlNodeFactory extends NodeFactory {
    * @return the created node
    * @throws SirixIOException if an I/O error occurs
    */
-  ElementNode createElementNode(@NonNegative long parentKey, @NonNegative long leftSibKey,
-      @NonNegative long rightSibKey, QNm name, @NonNegative long pathNodeKey, SirixDeweyID id);
+  ElementNode createElementNode(long parentKey, long leftSibKey,
+      long rightSibKey, QNm name, long pathNodeKey, SirixDeweyID id);
 
   /**
    * Create a {@link TextNode}.
@@ -79,7 +77,7 @@ public interface XmlNodeFactory extends NodeFactory {
    * @return the created node
    * @throws SirixIOException if an I/O error occurs
    */
-  TextNode createTextNode(@NonNegative long parentKey, @NonNegative long leftSibKey, @NonNegative long rightSibKey,
+  TextNode createTextNode(long parentKey, long leftSibKey, long rightSibKey,
       byte[] value, boolean isCompressed, SirixDeweyID id);
 
   /**
@@ -93,7 +91,7 @@ public interface XmlNodeFactory extends NodeFactory {
    * @return the created node
    * @throws SirixIOException if an I/O error occurs
    */
-  AttributeNode createAttributeNode(@NonNegative long parentKey, QNm name, byte[] value, @NonNegative long pathNodeKey,
+  AttributeNode createAttributeNode(long parentKey, QNm name, byte[] value, long pathNodeKey,
       SirixDeweyID id);
 
   /**
@@ -106,6 +104,6 @@ public interface XmlNodeFactory extends NodeFactory {
    * @return the created node
    * @throws SirixIOException if an I/O error occurs
    */
-  NamespaceNode createNamespaceNode(@NonNegative long parentKey, QNm name, @NonNegative long pathNodeKey,
+  NamespaceNode createNamespaceNode(long parentKey, QNm name, long pathNodeKey,
       SirixDeweyID id);
 }

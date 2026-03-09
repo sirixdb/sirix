@@ -28,8 +28,8 @@
 
 package io.sirix.node.xml;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.VisitResult;
@@ -51,8 +51,7 @@ import io.sirix.settings.Fixed;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Node representing the root of an XML document. This node is guaranteed to exist in revision 0 and
@@ -842,7 +841,7 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey);
+    return Objects.hash(nodeKey);
   }
 
   @Override
@@ -854,8 +853,8 @@ public final class XmlDocumentRootNode implements StructNode, ImmutableXmlNode, 
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("nodeKey", nodeKey)
                       .add("firstChildKey", firstChildKey)
                       .add("lastChildKey", lastChildKey)

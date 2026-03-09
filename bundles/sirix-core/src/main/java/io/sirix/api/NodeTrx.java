@@ -6,8 +6,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.path.summary.PathSummaryReader;
 
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -53,7 +52,7 @@ public interface NodeTrx extends NodeReadOnlyTrx {
    * @param revision revert to the revision
    * @return NodeTrx return current instance
    */
-  NodeTrx revertTo(@NonNegative int revision);
+  NodeTrx revertTo(int revision);
 
   /**
    * Add pre commit hook.

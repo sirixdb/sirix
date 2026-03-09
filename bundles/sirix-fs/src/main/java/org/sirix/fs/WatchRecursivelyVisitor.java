@@ -34,7 +34,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.checkerframework.checker.nullness.qual.NonNull;
-import com.google.common.collect.Maps;
+import java.util.HashMap;
 
 /** Watches a directory recursively. */
 @NonNull
@@ -56,8 +56,8 @@ public final class WatchRecursivelyVisitor extends SimpleFileVisitor<Path> {
    */
   private WatchRecursivelyVisitor(final WatchService pWatcher) {
     mWatcher = pWatcher;
-    mKeys = Maps.newHashMap();
-    mIdentifiers = Maps.newHashMap();
+    mKeys = new HashMap<>();
+    mIdentifiers = new HashMap<>();
   }
 
   /**

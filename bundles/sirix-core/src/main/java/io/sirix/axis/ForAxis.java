@@ -21,7 +21,6 @@
 
 package io.sirix.axis;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.api.Axis;
 
 /**
@@ -60,7 +59,7 @@ public final class ForAxis extends AbstractAxis {
    * @param range the range variable that holds the binding sequence
    * @param returnExpr the return expression of the for expression
    */
-  public ForAxis(final Axis range, @NonNull final Axis returnExpr) {
+  public ForAxis(final Axis range, final Axis returnExpr) {
     super(range.asXmlNodeReadTrx());
     mRange = range;
     mReturn = returnExpr;

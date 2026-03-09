@@ -21,12 +21,11 @@
 package io.sirix.axis;
 
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.node.NodeKind;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -129,7 +128,7 @@ public final class LevelOrderAxis extends AbstractAxis {
      * @param filterLevel maximum level to filter nodes
      * @return this builder instance
      */
-    public Builder filterLevel(final @NonNegative int filterLevel) {
+    public Builder filterLevel(final int filterLevel) {
       checkArgument(filterLevel >= 0, "filterLevel must be >= 0!");
       this.filterLevel = filterLevel;
       return this;

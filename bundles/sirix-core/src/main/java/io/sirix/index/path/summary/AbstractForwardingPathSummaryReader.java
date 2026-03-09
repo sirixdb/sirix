@@ -1,6 +1,6 @@
 package io.sirix.index.path.summary;
 
-import com.google.common.collect.ForwardingObject;
+import io.sirix.utils.ForwardingObject;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.api.*;

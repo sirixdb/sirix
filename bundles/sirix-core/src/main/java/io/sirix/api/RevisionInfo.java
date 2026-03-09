@@ -1,13 +1,13 @@
 package io.sirix.api;
 
-import static com.google.common.base.Preconditions.checkArgument;
-import static com.google.common.base.Preconditions.checkNotNull;
+import static io.sirix.utils.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkNotNull;
 import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 
 import io.sirix.access.User;
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 
 public final class RevisionInfo {
   private final User user;
@@ -69,7 +69,7 @@ public final class RevisionInfo {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
+    return ToStringHelper.of(this)
                       .add("user", user)
                       .add("revision", revision)
                       .add("revisionTimestamp", revisionTimestamp)

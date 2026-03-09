@@ -17,7 +17,7 @@ import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
 import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
 

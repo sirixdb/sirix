@@ -23,7 +23,6 @@ package io.sirix.axis
 
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
-import org.checkerframework.checker.index.qual.NonNegative
 import io.sirix.api.NodeCursor
 import io.sirix.api.NodeReadOnlyTrx
 import io.sirix.api.NodeTrx
@@ -181,7 +180,7 @@ class CoroutineDescendantAxis<R, W> :
      * @param currKey current node key
      * @return `false` if finished, `true` if not
      */
-    private fun hasNextNode(cursor: NodeCursor, key: @NonNegative Long, currKey: @NonNegative Long): Long {
+    private fun hasNextNode(cursor: NodeCursor, key: Long, currKey: Long): Long {
         cursor.moveTo(key)
         return if (cursor.leftSiblingKey == startKey) {
             done()

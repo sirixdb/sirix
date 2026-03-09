@@ -28,8 +28,8 @@
 
 package io.sirix.node.json;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
@@ -54,9 +54,7 @@ import io.sirix.page.NodeFieldLayout;
 import io.sirix.page.PageLayout;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * JSON Array node.
@@ -791,7 +789,7 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode, Flyweight
     return pathNodeKey;
   }
 
-  public ArrayNode setPathNodeKey(final @NonNegative long pathNodeKey) {
+  public ArrayNode setPathNodeKey(final long pathNodeKey) {
     if (page != null) {
       final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
           recordBase + 1 + NodeFieldLayout.ARRAY_PATH_NODE_KEY) & 0xFF;
@@ -1015,8 +1013,8 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode, Flyweight
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("nodeKey", nodeKey)
                       .add("pathNodeKey", pathNodeKey)
                       .add("parentKey", parentKey)
@@ -1034,7 +1032,7 @@ public final class ArrayNode implements StructNode, ImmutableJsonNode, Flyweight
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey, parentKey);
+    return Objects.hash(nodeKey, parentKey);
   }
 
   @Override

@@ -48,8 +48,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.concurrent.TimeUnit;
 
-import org.checkerframework.org.apache.commons.lang3.time.StopWatch;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
@@ -620,8 +618,7 @@ public final class JacksonJsonShredderTest {
   }
 
   private void createResourceWithJacksonAsync(Path jsonPath, Database<JsonResourceSession> database) {
-    var stopWatch = new StopWatch();
-    stopWatch.start();
+    var startNanos = System.nanoTime();
     database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                                  .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
                                                  .buildPathSummary(true)
@@ -643,12 +640,11 @@ public final class JacksonJsonShredderTest {
       throw new RuntimeException(e);
     }
 
-    logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
+    logger.info(" done [" + TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startNanos) + "s].");
   }
 
   private void createResourceWithJackson(Path jsonPath, Database<JsonResourceSession> database) {
-    var stopWatch = new StopWatch();
-    stopWatch.start();
+    var startNanos = System.nanoTime();
     database.createResource(ResourceConfiguration.newBuilder(JsonTestHelper.RESOURCE)
                                                  .versioningApproach(VersioningType.SLIDING_SNAPSHOT)
                                                  .buildPathSummary(true)
@@ -669,7 +665,7 @@ public final class JacksonJsonShredderTest {
       throw new RuntimeException(e);
     }
 
-    logger.info(" done [" + stopWatch.getTime(TimeUnit.SECONDS) + "s].");
+    logger.info(" done [" + TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - startNanos) + "s].");
   }
 
   // ==================== Helper Methods ====================

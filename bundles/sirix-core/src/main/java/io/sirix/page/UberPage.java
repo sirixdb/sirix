@@ -28,15 +28,13 @@
 
 package io.sirix.page;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.List;
 
@@ -142,7 +140,7 @@ public final class UberPage implements Page {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
+    return ToStringHelper.of(this)
                       .add("forwarding page", super.toString())
                       .add("revisionCount", revisionCount)
                       .add("isBootstrap", isBootstrap)
@@ -193,7 +191,7 @@ public final class UberPage implements Page {
   }
 
   @Override
-  public void commit(final @NonNull StorageEngineWriter storageEngineWriter) {
+  public void commit(final StorageEngineWriter storageEngineWriter) {
     storageEngineWriter.commit(rootPageReference);
   }
 
@@ -208,7 +206,7 @@ public final class UberPage implements Page {
   }
 
   @Override
-  public PageReference getOrCreateReference(@NonNegative int offset) {
+  public PageReference getOrCreateReference(int offset) {
     throw new UnsupportedOperationException();
   }
 

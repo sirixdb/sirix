@@ -25,7 +25,6 @@ import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.node.NodeKind;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -91,7 +90,7 @@ public final class Matching {
    * @param nodeX source node (in old revision)
    * @param nodeY partner of nodeX (in new revision)
    */
-  public void add(final @NonNegative long nodeX, final @NonNegative long nodeY) {
+  public void add(final long nodeX, final long nodeY) {
     rtxOld.moveTo(nodeX);
     rtxNew.moveTo(nodeY);
     if (rtxOld.getKind() != rtxNew.getKind()) {
@@ -108,7 +107,7 @@ public final class Matching {
    *
    * @param nodeX source node for which to remove the connection
    */
-  public boolean remove(final @NonNegative long nodeX) {
+  public boolean remove(final long nodeX) {
     reverseMapping.remove(mapping.get(nodeX));
     return mapping.remove(nodeX) != null;
   }
@@ -119,7 +118,7 @@ public final class Matching {
    * @param key key of node in subtree
    * @param rtx {@link XmlNodeReadOnlyTrx} reference
    */
-  private void updateSubtreeMap(final @NonNegative long key, final XmlNodeReadOnlyTrx rtx) {
+  private void updateSubtreeMap(final long key, final XmlNodeReadOnlyTrx rtx) {
     assert key >= 0;
     assert rtx != null;
 
@@ -141,7 +140,7 @@ public final class Matching {
    * @param nodeY partner of x
    * @return true iff add(x, y) was invoked first
    */
-  public boolean contains(final @NonNegative long nodeX, final @NonNegative long nodeY) {
+  public boolean contains(final long nodeX, final long nodeY) {
     final Long val = mapping.get(nodeX);
     return val != null && val == nodeY;
   }
@@ -153,7 +152,7 @@ public final class Matching {
    * @param nodeY second subtree root node
    * @return number of descendant which have been matched
    */
-  public long containedDescendants(final @NonNegative long nodeX, final @NonNegative long nodeY) {
+  public long containedDescendants(final long nodeX, final long nodeY) {
     long retVal = 0;
 
     rtxOld.moveTo(nodeX);
@@ -189,7 +188,7 @@ public final class Matching {
    * @param node node for which a partner has to be found
    * @return the {@code nodeKey} of the other node or {@code null}
    */
-  public Long partner(final @NonNegative long node) {
+  public Long partner(final long node) {
     return mapping.get(node);
   }
 
@@ -200,7 +199,7 @@ public final class Matching {
    * @param node node for which a reverse partner has to be found
    * @return x iff add(x, node) was called before
    */
-  public Long reversePartner(final @NonNegative long node) {
+  public Long reversePartner(final long node) {
     return reverseMapping.get(node);
   }
 

@@ -29,7 +29,6 @@ import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.axis.IncludeSelf;
 import it.unimi.dsi.fastutil.longs.LongIterator;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.settings.Fixed;
 
@@ -194,7 +193,7 @@ public abstract class AbstractAxis implements Axis {
    * @param pNodeKey the nodekey where the reset should occur to
    */
   @Override
-  public void reset(@NonNegative final long pNodeKey) {
+  public void reset(final long pNodeKey) {
     startKey = pNodeKey;
     key = pNodeKey;
     next = false;

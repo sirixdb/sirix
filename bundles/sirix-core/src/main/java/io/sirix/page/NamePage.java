@@ -28,7 +28,7 @@
 
 package io.sirix.page;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.access.DatabaseType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.delegates.BitmapReferencesPage;
@@ -36,7 +36,6 @@ import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
 import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.Cache;
@@ -235,7 +234,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key name key identifying name
    * @return raw name of name key, or {@code null} if not present
    */
-  public String getName(final int key, @NonNull final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
+  public String getName(final int key, final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
     return switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
@@ -279,7 +278,7 @@ public final class NamePage extends AbstractForwardingPage {
    * @param key name key identifying name
    * @return number of nodes with the given name key
    */
-  public int getCount(final int key, @NonNull final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
+  public int getCount(final int key, final NodeKind nodeKind, final StorageEngineReader storageEngineReader) {
     return switch (nodeKind) {
       case ELEMENT -> {
         if (elements == null) {
@@ -378,8 +377,8 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("elements", elements)
                       .add("attributes", attributes)
                       .add("URIs", namespaces)

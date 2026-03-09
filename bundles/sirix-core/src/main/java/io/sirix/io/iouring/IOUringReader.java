@@ -22,7 +22,6 @@
 package io.sirix.io.iouring;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.google.common.hash.HashFunction;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixIOException;
@@ -32,8 +31,7 @@ import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import one.jasyncfio.AsyncFile;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import io.sirix.io.AbstractReader;
 import io.sirix.io.IOStorage;
@@ -57,11 +55,6 @@ import java.util.concurrent.ExecutionException;
  * @author Johannes Lichtenberger
  */
 public final class IOUringReader extends AbstractReader {
-
-  /**
-   * The hash function used to hash pages/page fragments.
-   */
-  final HashFunction hashFunction = Reader.hashFunction;
 
   /**
    * Data file.
@@ -91,7 +84,7 @@ public final class IOUringReader extends AbstractReader {
     this.cache = cache;
   }
 
-  public Page read(final @NonNull PageReference reference,
+  public Page read(final PageReference reference,
       final @Nullable ResourceConfiguration resourceConfiguration) {
     try {
       return POOL.submit(() -> readPageFragment(reference, resourceConfiguration)).get();
@@ -101,13 +94,12 @@ public final class IOUringReader extends AbstractReader {
   }
 
   @Override
-  public CompletableFuture<? extends Page> readAsync(final @NonNull PageReference reference,
+  public CompletableFuture<? extends Page> readAsync(final PageReference reference,
       final @Nullable ResourceConfiguration resourceConfiguration) {
     return CompletableFuture.supplyAsync(() -> readPageFragment(reference, resourceConfiguration), POOL);
   }
 
-  @NonNull
-  private Page readPageFragment(@NonNull PageReference reference,
+  private Page readPageFragment(PageReference reference,
       @Nullable ResourceConfiguration resourceConfiguration) {
     try {
       // Read page from file.

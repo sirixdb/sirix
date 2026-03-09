@@ -3,8 +3,6 @@ package io.sirix.node.interfaces;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Persisting a record (first byte of a record must be its type).
@@ -22,8 +20,7 @@ public interface RecordSerializer {
    * @return a {@link DataRecord} instance
    * @throws NullPointerException if one of the parameters is {@code null}
    */
-  @NonNull
-  DataRecord deserialize(BytesIn<?> source, @NonNegative long recordID, byte[] deweyID,
+  DataRecord deserialize(BytesIn<?> source, long recordID, byte[] deweyID,
       ResourceConfiguration resourceConfiguration);
 
   /**

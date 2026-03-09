@@ -1,6 +1,7 @@
 package io.sirix.query.compiler.translator;
 
-import com.google.common.collect.ImmutableSet;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import io.sirix.api.Axis;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
@@ -18,10 +19,7 @@ import io.brackit.query.sequence.BaseIter;
 import io.brackit.query.sequence.ItemSequence;
 import io.brackit.query.sequence.LazySequence;
 import io.brackit.query.util.ExprUtil;
-import org.checkerframework.checker.index.qual.NonNegative;
-
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.jetbrains.annotations.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
@@ -40,7 +38,12 @@ import io.sirix.node.NodeKind;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.stream.json.SirixJsonStream;
 
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.BitSet;
+import java.util.Deque;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 class DerefDescendantExpr implements Expr {
 
@@ -185,17 +188,17 @@ class DerefDescendantExpr implements Expr {
               final var newRtx = resourceSession.beginNodeReadOnlyTrx(rtx.getRevisionNumber());
               newRtx.moveTo(nodeKey);
 
-              // Build an immutable set and turn it into a list for sorting.
-              final ImmutableSet.Builder<PathSegment> pathSegmentBuilder = ImmutableSet.builder();
+              // Build a set and turn it into a list for sorting.
+              final Set<PathSegment> pathSegmentSet = new LinkedHashSet<>();
               for (i = matches.nextSetBit(0); i >= 0; i = matches.nextSetBit(i + 1)) {
                 reader.moveTo(i);
                 for (int k = level; k > j; k--) {
                   reader.moveToParent();
                 }
-                pathSegmentBuilder.add(new PathSegment(reader.getName(), reader.getPathKind() == NodeKind.ARRAY));
+                pathSegmentSet.add(new PathSegment(reader.getName(), reader.getPathKind() == NodeKind.ARRAY));
               }
 
-              final List<PathSegment> pathSegmentsList = pathSegmentBuilder.build().asList();
+              final List<PathSegment> pathSegmentsList = List.copyOf(pathSegmentSet);
               final var pathSegment = pathSegmentsList.get(0);
               final QNm name = pathSegment.name;
               boolean sameName = true;
@@ -316,7 +319,7 @@ class DerefDescendantExpr implements Expr {
   }
 
   // Get all path segments on the path up to level.
-  private static Deque<PathSegment> getPathSegments(final @NonNegative int matchLevel, final @NonNegative int level,
+  private static Deque<PathSegment> getPathSegments(final int matchLevel, final int level,
       final PathSummaryReader reader) {
     // Match at a level below this level which is not a direct child.
     final Deque<PathSegment> pathSegments = new ArrayDeque<>(matchLevel - level);
@@ -327,7 +330,6 @@ class DerefDescendantExpr implements Expr {
     return pathSegments;
   }
 
-  @NonNull
   private SirixJsonLazySequence getLazySequence(final SirixJsonStream stream) {
     return new SirixJsonLazySequence(stream);
   }

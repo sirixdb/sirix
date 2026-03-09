@@ -6,7 +6,6 @@ import io.sirix.api.json.JsonResourceSession;
 import io.brackit.query.util.serialize.Serializer;
 import io.sirix.service.xml.serialize.XmlSerializerProperties;
 
-import org.checkerframework.checker.index.qual.NonNegative;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
@@ -14,7 +13,7 @@ import java.io.Writer;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentMap;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 import static io.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT;
 import static io.sirix.service.xml.serialize.XmlSerializerProperties.S_INDENT_SPACES;
@@ -69,7 +68,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * @param revisions further revisions to serialize
    */
   private JsonRecordSerializer(final JsonResourceSession resourceMgr, final Builder builder,
-      final @NonNegative int revision, final int... revisions) {
+      final int revision, final int... revisions) {
     this.numberOfRecords = builder.numberOfRecords;
     this.revisions = revisions == null
         ? new int[1]
@@ -93,7 +92,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  private void initialize(final @NonNegative int revision, final int... revisions) {
+  private void initialize(final int revision, final int... revisions) {
     this.revisions[0] = revision;
     if (revisions != null) {
       System.arraycopy(revisions, 0, this.revisions, 1, revisions.length);
@@ -124,7 +123,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
    * @param revisions revisions to serialize
    */
   public static Builder newBuilder(final JsonResourceSession resMgr, final int numberOfRecords,
-      final @NonNegative long nodeKey, final Writer writer, final JsonSerializerProperties properties,
+      final long nodeKey, final Writer writer, final JsonSerializerProperties properties,
       final int... revisions) {
     return new Builder(resMgr, numberOfRecords, nodeKey, writer, properties, revisions);
   }
@@ -237,7 +236,7 @@ public final class JsonRecordSerializer implements Callable<Void> {
      * @param properties {@link XmlSerializerProperties} to use
      * @param revisions revisions to serialize
      */
-    public Builder(final JsonResourceSession resourceMgr, final int numberOfRecords, final @NonNegative long nodeKey,
+    public Builder(final JsonResourceSession resourceMgr, final int numberOfRecords, final long nodeKey,
         final Writer stream, final JsonSerializerProperties properties, final int... revisions) {
       checkArgument(nodeKey >= 0, "nodeKey must be >= 0!");
       this.numberOfRecords = numberOfRecords;

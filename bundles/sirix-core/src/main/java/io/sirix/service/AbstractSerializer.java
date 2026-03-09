@@ -6,7 +6,6 @@ import io.sirix.axis.visitor.VisitorDescendantAxis;
 import io.sirix.exception.SirixException;
 import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import org.checkerframework.checker.index.qual.NonNegative;
 
 import java.util.concurrent.Callable;
 
@@ -55,7 +54,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    * @param revisions revisions to serialize
    */
   public AbstractSerializer(final ResourceSession<R, W> resMgr, final NodeVisitor visitor,
-      final @NonNegative int revision, final int... revisions) {
+      final int revision, final int... revisions) {
     this.visitor = visitor;
     stack = new LongArrayList();
     this.revisions = revisions == null
@@ -74,8 +73,8 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  public AbstractSerializer(final ResourceSession<R, W> resMgr, final NodeVisitor visitor, final @NonNegative long key,
-      final @NonNegative int revision, final int... revisions) {
+  public AbstractSerializer(final ResourceSession<R, W> resMgr, final NodeVisitor visitor, final long key,
+      final int revision, final int... revisions) {
     this.visitor = visitor;
     stack = new LongArrayList();
     this.revisions = revisions == null
@@ -92,7 +91,7 @@ public abstract class AbstractSerializer<R extends NodeReadOnlyTrx & NodeCursor,
    * @param revision first revision to serialize
    * @param revisions revisions to serialize
    */
-  private void initialize(final @NonNegative int revision, final int... revisions) {
+  private void initialize(final int revision, final int... revisions) {
     this.revisions[0] = revision;
     if (revisions != null) {
       System.arraycopy(revisions, 0, this.revisions, 1, revisions.length);

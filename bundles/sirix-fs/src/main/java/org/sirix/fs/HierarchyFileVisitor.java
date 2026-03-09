@@ -19,9 +19,9 @@ import org.sirix.service.xml.shredder.AbstractShredder;
 import org.sirix.service.xml.shredder.InsertPosition;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Optional;
-import com.google.common.collect.Maps;
+import java.util.HashMap;
+import java.util.Optional;
+import io.sirix.utils.ToStringHelper;
 
 /**
  * Implements the {@link FileVisitor} interface and shredders an XML representation of
@@ -66,7 +66,7 @@ public class HierarchyFileVisitor extends AbstractShredder
     private final XmlNodeTrx mWtx;
 
     /** Implementation of the {@link Visitor} interface. */
-    private Optional<Visitor<XmlNodeTrx>> mVisitor = Optional.absent();
+    private Optional<Visitor<XmlNodeTrx>> mVisitor = Optional.empty();
 
     /**
      * Constructor.
@@ -84,7 +84,7 @@ public class HierarchyFileVisitor extends AbstractShredder
      * @return this builder instance
      */
     public Builder setVisitor(final Visitor<XmlNodeTrx> pVisitor) {
-      mVisitor = Optional.fromNullable(pVisitor);
+      mVisitor = Optional.ofNullable(pVisitor);
       return this;
     }
 
@@ -112,7 +112,7 @@ public class HierarchyFileVisitor extends AbstractShredder
     mVisitor = builder.mVisitor;
     mWtx = builder.mWtx;
     mWtx.insertElementAsFirstChild(new QNm("fsml"));
-    mIndex = Maps.newHashMap();
+    mIndex = new HashMap<>();
   }
 
   /**
@@ -253,7 +253,7 @@ public class HierarchyFileVisitor extends AbstractShredder
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("instances", INSTANCES).add("wtx", mWtx).toString();
+    return ToStringHelper.of(this).add("instances", INSTANCES).add("wtx", mWtx).toString();
   }
 
   /**

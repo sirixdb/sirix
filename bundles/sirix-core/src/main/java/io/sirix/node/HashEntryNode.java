@@ -21,8 +21,8 @@
 
 package io.sirix.node;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.node.interfaces.DataRecord;
 
 import static java.util.Objects.requireNonNull;
@@ -69,7 +69,7 @@ public final class HashEntryNode implements DataRecord {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(key, value);
+    return Objects.hash(key, value);
   }
 
   @Override
@@ -78,12 +78,12 @@ public final class HashEntryNode implements DataRecord {
       return false;
 
     final HashEntryNode other = (HashEntryNode) obj;
-    return Objects.equal(key, other.key) && Objects.equal(value, other.value);
+    return Objects.equals(key, other.key) && Objects.equals(value, other.value);
   }
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("key", key).add("value", value).toString();
+    return ToStringHelper.of(this).add("key", key).add("value", value).toString();
   }
 
   @Override

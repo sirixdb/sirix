@@ -28,14 +28,12 @@
 
 package io.sirix.page;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 
 import io.sirix.access.DatabaseType;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
 import io.sirix.page.delegates.BitmapReferencesPage;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.TransactionIntentLog;
@@ -211,7 +209,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * @param committedRevisionRootPage page to clone
    * @param representRev revision number to use
    */
-  public RevisionRootPage(final RevisionRootPage committedRevisionRootPage, final @NonNegative int representRev) {
+  public RevisionRootPage(final RevisionRootPage committedRevisionRootPage, final int representRev) {
     final Page pageDelegate = committedRevisionRootPage.delegate();
     delegate = new BitmapReferencesPage(pageDelegate, ((BitmapReferencesPage) pageDelegate).getBitmap());
     revision = representRev;
@@ -338,7 +336,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    *
    * @param maxNodeKeyInDocumentIndex new maximum node key
    */
-  public void setMaxNodeKeyInDocumentIndex(final @NonNegative long maxNodeKeyInDocumentIndex) {
+  public void setMaxNodeKeyInDocumentIndex(final long maxNodeKeyInDocumentIndex) {
     this.maxNodeKeyInDocumentIndex = maxNodeKeyInDocumentIndex;
   }
 
@@ -363,7 +361,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    *
    * @param maxNodeKeyInChangedNodesIndex new maximum node key
    */
-  public void setMaxNodeKeyInInChangedNodesIndex(final @NonNegative long maxNodeKeyInChangedNodesIndex) {
+  public void setMaxNodeKeyInInChangedNodesIndex(final long maxNodeKeyInChangedNodesIndex) {
     this.maxNodeKeyInChangedNodesIndex = maxNodeKeyInChangedNodesIndex;
   }
 
@@ -388,7 +386,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    *
    * @param maxNodeKeyInRecordToRevisionsIndex new maximum node key
    */
-  public void setMaxNodeKeyInRecordToRevisionsIndex(final @NonNegative long maxNodeKeyInRecordToRevisionsIndex) {
+  public void setMaxNodeKeyInRecordToRevisionsIndex(final long maxNodeKeyInRecordToRevisionsIndex) {
     this.maxNodeKeyInRecordToRevisionsIndex = maxNodeKeyInRecordToRevisionsIndex;
   }
 
@@ -398,7 +396,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * {@inheritDoc}
    */
   @Override
-  public void commit(@NonNull final StorageEngineWriter storageEngineWriter) {
+  public void commit(final StorageEngineWriter storageEngineWriter) {
     if (revision == storageEngineWriter.getUberPage().getRevisionNumber()) {
       super.commit(storageEngineWriter);
     }
@@ -452,10 +450,9 @@ public final class RevisionRootPage extends AbstractForwardingPage {
     return ++currentMaxLevelOfRecordToRevisionsIndirectPages;
   }
 
-  @NonNull
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
+    return ToStringHelper.of(this)
                       .add("revisionTimestamp", revisionTimestamp)
                       .add("maxNodeKey", maxNodeKeyInDocumentIndex)
                       .add("delegate", delegate)

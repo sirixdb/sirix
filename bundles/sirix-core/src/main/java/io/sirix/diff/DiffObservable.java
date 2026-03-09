@@ -22,7 +22,6 @@
 package io.sirix.diff;
 
 import io.sirix.exception.SirixException;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Observable class to fire diffs for interested observers, which implement the {@link DiffObserver}
@@ -41,8 +40,8 @@ interface DiffObservable {
    * @param oldNodeKey node key of current node in old revision
    * @param depth current {@link DiffDepth} instance
    */
-  void fireDiff(DiffFactory.DiffType diff, @NonNull long newNodeKey, @NonNull long oldNodeKey,
-      @NonNull DiffDepth depth);
+  void fireDiff(DiffFactory.DiffType diff, long newNodeKey, long oldNodeKey,
+      DiffDepth depth);
 
   /**
    * Diff computation done, thus inform listeners.

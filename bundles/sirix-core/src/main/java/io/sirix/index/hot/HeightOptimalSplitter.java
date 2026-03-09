@@ -32,8 +32,7 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTIndirectPage.NodeType;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Implements height-optimal splitting for HOT (Height Optimized Trie).
@@ -81,8 +80,8 @@ public final class HeightOptimalSplitter {
    * @param rightChild reference to right child
    * @param discriminativeBitIndex the bit index that discriminates left from right
    */
-  public record SplitResult(@NonNull HOTIndirectPage newRoot, @NonNull PageReference leftChild,
-      @NonNull PageReference rightChild, int discriminativeBitIndex) {
+  public record SplitResult(HOTIndirectPage newRoot, PageReference leftChild,
+      PageReference rightChild, int discriminativeBitIndex) {
   }
 
   /**
@@ -106,7 +105,7 @@ public final class HeightOptimalSplitter {
    * @return the split result containing the new root and child references, or {@code null} if the
    *         page cannot be split (e.g., only 1 entry)
    */
-  public static @Nullable SplitResult splitLeafPage(@NonNull HOTLeafPage fullPage, @NonNull HOTLeafPage rightPage,
+  public static @Nullable SplitResult splitLeafPage(HOTLeafPage fullPage, HOTLeafPage rightPage,
       long newRootPageKey, int revision) {
 
     // 1. Split entries at midpoint (splitTo returns the split key, but we compute
@@ -199,8 +198,8 @@ public final class HeightOptimalSplitter {
    * @param revision current revision
    * @return the split result, or null if split not possible
    */
-  public static @Nullable SplitResult splitLeafPageOptimal(@NonNull HOTLeafPage fullPage,
-      @NonNull HOTLeafPage rightPage, long newRootPageKey, int revision) {
+  public static @Nullable SplitResult splitLeafPageOptimal(HOTLeafPage fullPage,
+      HOTLeafPage rightPage, long newRootPageKey, int revision) {
 
     // Get all keys to analyze discriminative bits
     byte[][] allKeys = fullPage.getAllKeys();
@@ -257,8 +256,8 @@ public final class HeightOptimalSplitter {
    * @param numDiscriminativeBits number of discriminative bits
    * @return the split result with SpanNode root, or null if not possible
    */
-  private static @Nullable SplitResult createSpanNodeSplit(@NonNull HOTLeafPage fullPage,
-      @NonNull HOTLeafPage rightPage, long newRootPageKey, int revision, byte[][] allKeys, long discriminativeMask,
+  private static @Nullable SplitResult createSpanNodeSplit(HOTLeafPage fullPage,
+      HOTLeafPage rightPage, long newRootPageKey, int revision, byte[][] allKeys, long discriminativeMask,
       int numDiscriminativeBits) {
 
     // For SpanNode, we need to:
@@ -322,7 +321,7 @@ public final class HeightOptimalSplitter {
    * @param discriminativeBit the computed discriminative bit
    * @return true if a SpanNode should be created
    */
-  public static boolean shouldCreateSpanNode(@NonNull byte[] leftMax, @NonNull byte[] rightMin, int discriminativeBit) {
+  public static boolean shouldCreateSpanNode(byte[] leftMax, byte[] rightMin, int discriminativeBit) {
     // Check if there are additional discriminative bits in the same byte
     int byteIndex = DiscriminativeBitComputer.getByteIndex(discriminativeBit);
 
@@ -358,7 +357,7 @@ public final class HeightOptimalSplitter {
    * @return the new BiNode
    */
   public static HOTIndirectPage createBiNode(long pageKey, int revision, int discriminativeBit,
-      @NonNull PageReference leftRef, @NonNull PageReference rightRef) {
+      PageReference leftRef, PageReference rightRef) {
     return HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit, leftRef, rightRef);
   }
 
@@ -379,7 +378,7 @@ public final class HeightOptimalSplitter {
    * @param childIndex index of the split child in the parent (unused in simple case)
    * @return the new root reference
    */
-  public static PageReference integrateBiNodeIntoTree(@NonNull SplitResult splitResult,
+  public static PageReference integrateBiNodeIntoTree(SplitResult splitResult,
       @Nullable PageReference parentRef, int childIndex) {
 
     // Create reference to the new root

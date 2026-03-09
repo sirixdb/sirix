@@ -1,6 +1,6 @@
 package io.sirix.query.function.jn.index.create;
 
-import com.google.common.collect.ImmutableSet;
+import java.util.Set;
 import io.sirix.query.json.JsonDBItem;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
@@ -93,7 +93,7 @@ public final class CreatePathIndex extends AbstractFunction {
     final IndexDef pathIdxDef = IndexDefs.createPathIdxDef(paths,
         controller.getIndexes().getNrOfIndexDefsWithType(IndexType.PATH), IndexDef.DbType.JSON);
     try {
-      controller.createIndexes(ImmutableSet.of(pathIdxDef), wtx);
+      controller.createIndexes(Set.of(pathIdxDef), wtx);
     } catch (final SirixIOException e) {
       throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
     }

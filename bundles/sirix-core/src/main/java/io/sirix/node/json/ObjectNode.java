@@ -28,8 +28,8 @@
 
 package io.sirix.node.json;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.visitor.JsonNodeVisitor;
@@ -53,8 +53,7 @@ import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NodeFieldLayout;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * JSON Object node.
@@ -1029,8 +1028,8 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("nodeKey", nodeKey)
                       .add("parentKey", parentKey)
                       .add("previousRevision", previousRevision)
@@ -1047,7 +1046,7 @@ public final class ObjectNode implements StructNode, ImmutableJsonNode, Flyweigh
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey, parentKey);
+    return Objects.hash(nodeKey, parentKey);
   }
 
   @Override

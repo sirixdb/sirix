@@ -20,8 +20,7 @@
  */
 package io.sirix.page;
 
-import com.google.common.collect.ForwardingObject;
-import org.checkerframework.checker.index.qual.NonNegative;
+import io.sirix.utils.ForwardingObject;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.page.interfaces.Page;
 
@@ -55,7 +54,7 @@ public abstract class AbstractForwardingPage extends ForwardingObject implements
   }
 
   @Override
-  public PageReference getOrCreateReference(final @NonNegative int offset) {
+  public PageReference getOrCreateReference(final int offset) {
     return delegate().getOrCreateReference(offset);
   }
 

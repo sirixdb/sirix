@@ -1,54 +1,35 @@
 package io.sirix.access;
 
-import dagger.Component;
-import io.sirix.access.json.JsonLocalDatabaseComponent;
-import io.sirix.access.xml.XmlLocalDatabaseComponent;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
 
-import javax.inject.Singleton;
-
 /**
- * The Dagger component that manages database dependencies. This class is internal and managed by
- * {@link Databases}.
+ * Manages database dependencies: factory methods for creating JSON and XML databases, and a pool
+ * of open database sessions.
  *
  * @author Joao Sousa
  */
-@Component(modules = DatabaseModule.class)
-@Singleton
 public interface DatabaseManager {
 
   /**
-   * Creates a new Json database subcomponent.
+   * Returns the factory used to create JSON database instances.
    *
-   * <p>
-   * This method is declared here in order to create a link between this component and
-   * {@link JsonLocalDatabaseComponent}, as parent component and subcomponent, respectively. Hence, it
-   * should not be called. Use {@link #jsonDatabaseFactory()} instead.
-   *
-   * @return A builder, used to create a new json database subcomponent.
+   * @return the JSON database factory
    */
-  @SuppressWarnings("unused")
-  JsonLocalDatabaseComponent.Builder jsonDatabaseBuilder();
-
-  /**
-   * Creates a new Json database subcomponent.
-   *
-   * <p>
-   * This method is declared here in order to create a link between this component and
-   * {@link XmlLocalDatabaseComponent}, as parent component and subcomponent, respectively. Hence, it
-   * should not be called. Use {@link #xmlDatabaseFactory()} instead.
-   *
-   * @return A builder, used to create a new json database subcomponent.
-   */
-  @SuppressWarnings("unused")
-  XmlLocalDatabaseComponent.Builder xmlDatabaseBuilder();
-
   LocalDatabaseFactory<JsonResourceSession> jsonDatabaseFactory();
 
+  /**
+   * Returns the factory used to create XML database instances.
+   *
+   * @return the XML database factory
+   */
   LocalDatabaseFactory<XmlResourceSession> xmlDatabaseFactory();
 
+  /**
+   * Returns the pool of open database sessions, indexed by path.
+   *
+   * @return the database session pool
+   */
   PathBasedPool<Database<?>> sessions();
-
 }

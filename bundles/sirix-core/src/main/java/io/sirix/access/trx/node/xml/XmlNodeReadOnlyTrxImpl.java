@@ -21,7 +21,7 @@
 
 package io.sirix.access.trx.node.xml;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.api.ItemList;
@@ -47,8 +47,6 @@ import io.sirix.service.xml.xpath.ItemListImpl;
 import io.sirix.settings.Constants;
 import io.sirix.utils.NamePageHash;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Collections;
 import java.util.List;
@@ -69,7 +67,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
    * @param documentNode the document node
    */
   XmlNodeReadOnlyTrxImpl(final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceSession,
-      final @NonNegative int trxId, final StorageEngineReader pageReadTransaction,
+      final int trxId, final StorageEngineReader pageReadTransaction,
       final ImmutableXmlNode documentNode) {
     super(trxId, pageReadTransaction, documentNode, resourceSession, new ItemListImpl());
   }
@@ -183,7 +181,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
 
   @Override
   public String toString() {
-    final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
+    final ToStringHelper helper = ToStringHelper.of(this);
     helper.add("Revision number", getRevisionNumber());
 
     final var currentNode = getCurrentNode();
@@ -303,7 +301,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   }
 
   @Override
-  public long getAttributeKey(final @NonNegative int index) {
+  public long getAttributeKey(final int index) {
     assertNotClosed();
     if (getKind() == NodeKind.ELEMENT) {
       return ((ElementNode) getStructuralNode()).getAttributeKey(index);
@@ -528,7 +526,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   }
 
   @Override
-  public int getNameCount(String name, @NonNull NodeKind kind) {
+  public int getNameCount(String name, NodeKind kind) {
     assertNotClosed();
     if (currentNameNodeOrNull() != null) {
       return storageEngineReader.getNameCount(NamePageHash.generateHashForString(name), kind);

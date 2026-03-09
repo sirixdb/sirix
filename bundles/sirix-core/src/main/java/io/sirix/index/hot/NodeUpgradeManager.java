@@ -31,7 +31,6 @@ package io.sirix.index.hot;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTIndirectPage.NodeType;
 import io.sirix.page.PageReference;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.List;
 
@@ -131,7 +130,7 @@ public final class NodeUpgradeManager {
    * @param biNode2 second BiNode
    * @return true if nodes should be merged into a SpanNode
    */
-  public static boolean shouldMergeToSpanNode(@NonNull HOTIndirectPage node1, @NonNull HOTIndirectPage node2) {
+  public static boolean shouldMergeToSpanNode(HOTIndirectPage node1, HOTIndirectPage node2) {
     if (node1.getNodeType() != NodeType.SPAN_NODE || node2.getNodeType() != NodeType.SPAN_NODE) {
       return false;
     }
@@ -146,7 +145,7 @@ public final class NodeUpgradeManager {
    * @param newChildCount the child count after insertion
    * @return true if the node needs upgrading
    */
-  public static boolean needsUpgrade(@NonNull HOTIndirectPage node, int newChildCount) {
+  public static boolean needsUpgrade(HOTIndirectPage node, int newChildCount) {
     NodeType currentType = node.getNodeType();
     NodeType requiredType = determineNodeType(newChildCount);
     return requiredType.ordinal() > currentType.ordinal();
@@ -159,7 +158,7 @@ public final class NodeUpgradeManager {
    * @param newChildCount the child count after deletion
    * @return true if the node should be downgraded
    */
-  public static boolean shouldDowngrade(@NonNull HOTIndirectPage node, int newChildCount) {
+  public static boolean shouldDowngrade(HOTIndirectPage node, int newChildCount) {
     if (newChildCount < 1) {
       return true; // Node should be removed entirely
     }
@@ -180,7 +179,7 @@ public final class NodeUpgradeManager {
    * @param revision current revision
    * @return the new SpanNode
    */
-  public static HOTIndirectPage mergeToSpanNode(@NonNull List<HOTIndirectPage> biNodes, long newPageKey, int revision) {
+  public static HOTIndirectPage mergeToSpanNode(List<HOTIndirectPage> biNodes, long newPageKey, int revision) {
     if (biNodes.isEmpty()) {
       throw new IllegalArgumentException("Cannot merge empty list of BiNodes");
     }
@@ -245,7 +244,7 @@ public final class NodeUpgradeManager {
    * @param additionalPartialKey partial key for the additional child
    * @return the new MultiNode
    */
-  public static HOTIndirectPage upgradeToMultiNode(@NonNull HOTIndirectPage spanNode, long newPageKey, int revision,
+  public static HOTIndirectPage upgradeToMultiNode(HOTIndirectPage spanNode, long newPageKey, int revision,
       PageReference additionalChild, int additionalPartialKey) {
     if (spanNode.getNodeType() != NodeType.SPAN_NODE) {
       throw new IllegalArgumentException("Can only upgrade SpanNode to MultiNode");
@@ -281,7 +280,7 @@ public final class NodeUpgradeManager {
    * @param revision current revision
    * @return the new BiNode
    */
-  public static HOTIndirectPage downgradeToNode(@NonNull HOTIndirectPage spanNode, long newPageKey, int revision) {
+  public static HOTIndirectPage downgradeToNode(HOTIndirectPage spanNode, long newPageKey, int revision) {
     int numChildren = spanNode.getNumChildren();
 
     if (numChildren > SPAN_NODE_MIN_CHILDREN) {
@@ -316,7 +315,7 @@ public final class NodeUpgradeManager {
    * @param node the node to check
    * @return true if the node is full
    */
-  public static boolean isFull(@NonNull HOTIndirectPage node) {
+  public static boolean isFull(HOTIndirectPage node) {
     return node.getNumChildren() >= MULTI_NODE_MAX_CHILDREN;
   }
 
@@ -332,7 +331,7 @@ public final class NodeUpgradeManager {
    * @param minFillFactor minimum fill factor (0.0-1.0)
    * @return true if node is underfilled
    */
-  public static boolean isUnderfilled(@NonNull HOTIndirectPage node, double minFillFactor) {
+  public static boolean isUnderfilled(HOTIndirectPage node, double minFillFactor) {
     int maxChildren = getMaxChildrenForType(node.getNodeType());
     return node.getNumChildren() < maxChildren * minFillFactor;
   }

@@ -22,7 +22,6 @@
 package io.sirix.axis;
 
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import org.checkerframework.checker.index.qual.NonNegative;
 import io.sirix.api.NodeCursor;
 import io.sirix.settings.Fixed;
 
@@ -145,7 +144,7 @@ public final class DescendantAxis extends AbstractAxis {
    * @param currKey current node key (unused after optimization, kept for API compatibility)
    * @return the key if traversal should continue, or done() if finished
    */
-  private long hasNextNode(@NonNegative final long key) {
+  private long hasNextNode(final long key) {
     // Check if the candidate is the right sibling of the start node
     // If so, we've finished traversing all descendants of the start subtree
     if (key == startNodeRightSiblingKey) {

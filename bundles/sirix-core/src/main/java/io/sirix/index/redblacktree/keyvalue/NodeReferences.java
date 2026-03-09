@@ -1,10 +1,9 @@
 package io.sirix.index.redblacktree.keyvalue;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.index.redblacktree.interfaces.References;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.longlong.LongIterator;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
@@ -38,7 +37,7 @@ public final class NodeReferences implements References {
   }
 
   @Override
-  public boolean isPresent(final @NonNegative long nodeKey) {
+  public boolean isPresent(final long nodeKey) {
     return nodeKeys.contains(nodeKey);
   }
 
@@ -48,13 +47,13 @@ public final class NodeReferences implements References {
   }
 
   @Override
-  public NodeReferences addNodeKey(final @NonNegative long nodeKey) {
+  public NodeReferences addNodeKey(final long nodeKey) {
     nodeKeys.add(nodeKey);
     return this;
   }
 
   @Override
-  public boolean removeNodeKey(@NonNegative long nodeKey) {
+  public boolean removeNodeKey(long nodeKey) {
     boolean containsNodeKey = nodeKeys.contains(nodeKey);
     nodeKeys.removeLong(nodeKey);
     return containsNodeKey;
@@ -62,7 +61,7 @@ public final class NodeReferences implements References {
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKeys);
+    return Objects.hash(nodeKeys);
   }
 
   @Override
@@ -75,7 +74,7 @@ public final class NodeReferences implements References {
 
   @Override
   public String toString() {
-    final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
+    final ToStringHelper helper = ToStringHelper.of(this);
     final LongIterator iterator = nodeKeys.getLongIterator();
     while (iterator.hasNext()) {
       final var nodeKey = iterator.next();
@@ -90,7 +89,7 @@ public final class NodeReferences implements References {
   }
 
   @Override
-  public boolean contains(@NonNegative long nodeKey) {
+  public boolean contains(long nodeKey) {
     return nodeKeys.contains(nodeKey);
   }
 }

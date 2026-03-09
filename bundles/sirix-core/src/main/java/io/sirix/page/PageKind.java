@@ -57,7 +57,6 @@ import it.unimi.dsi.fastutil.ints.Int2LongOpenHashMap;
 import io.sirix.node.BytesOut;
 import io.sirix.node.BytesIn;
 import io.sirix.node.MemorySegmentBytesIn;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -76,7 +75,6 @@ public enum PageKind {
    */
   KEYVALUELEAFPAGE((byte) 1, KeyValueLeafPage.class) {
     @Override
-    @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
@@ -345,7 +343,6 @@ public enum PageKind {
    */
   NAMEPAGE((byte) 2, NamePage.class) {
     @Override
-    @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
@@ -405,7 +402,6 @@ public enum PageKind {
    */
   UBERPAGE((byte) 3, UberPage.class) {
     @Override
-    @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
@@ -437,7 +433,6 @@ public enum PageKind {
    */
   INDIRECTPAGE((byte) 4, IndirectPage.class) {
     @Override
-    @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
@@ -470,7 +465,6 @@ public enum PageKind {
    */
   REVISIONROOTPAGE((byte) 5, RevisionRootPage.class) {
     @Override
-    @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
@@ -576,9 +570,8 @@ public enum PageKind {
    */
   PATHSUMMARYPAGE((byte) 6, PathSummaryPage.class) {
     @Override
-    @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
-        final @NonNull SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       switch (binaryVersion) {
@@ -604,7 +597,7 @@ public enum PageKind {
 
     @Override
     public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
-        final @NonNull SerializationType type) {
+        final SerializationType type) {
       PathSummaryPage pathSummaryPage = (PathSummaryPage) page;
       sink.writeByte(PATHSUMMARYPAGE.id);
       sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
@@ -632,7 +625,6 @@ public enum PageKind {
    * {@link CASPage}.
    */
   CASPAGE((byte) 8, CASPage.class) {
-    @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
@@ -688,7 +680,6 @@ public enum PageKind {
    */
   OVERFLOWPAGE((byte) 9, OverflowPage.class) {
     @Override
-    @NonNull
     public Page deserializePage(final ResourceConfiguration resourceConfiguration, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
@@ -707,7 +698,7 @@ public enum PageKind {
 
     @Override
     public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
-        @NonNull SerializationType type) {
+        SerializationType type) {
       OverflowPage overflowPage = (OverflowPage) page;
       sink.writeByte(OVERFLOWPAGE.id);
       sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
@@ -724,8 +715,8 @@ public enum PageKind {
    */
   PATHPAGE((byte) 10, PathPage.class) {
     @Override
-    public Page deserializePage(@NonNull ResourceConfiguration resourceConfiguration, BytesIn<?> source,
-        @NonNull SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+    public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
+        SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
       switch (binaryVersion) {
         case V0 -> {
@@ -743,8 +734,8 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(final ResourceConfiguration resourceConfig, BytesOut<?> sink, @NonNull Page page,
-        @NonNull SerializationType type) {
+    public void serializePage(final ResourceConfiguration resourceConfig, BytesOut<?> sink, Page page,
+        SerializationType type) {
       PathPage pathPage = (PathPage) page;
       Page delegate = pathPage.delegate();
       sink.writeByte(PATHPAGE.id);
@@ -778,8 +769,8 @@ public enum PageKind {
    */
   DEWEYIDPAGE((byte) 11, DeweyIDPage.class) {
     @Override
-    public Page deserializePage(@NonNull ResourceConfiguration resourceConfiguration, BytesIn<?> source,
-        @NonNull SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+    public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
+        SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       switch (binaryVersion) {
@@ -794,8 +785,8 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(@NonNull ResourceConfiguration resourceConfig, BytesOut<?> sink, @NonNull Page page,
-        @NonNull SerializationType type) {
+    public void serializePage(ResourceConfiguration resourceConfig, BytesOut<?> sink, Page page,
+        SerializationType type) {
       DeweyIDPage deweyIDPage = (DeweyIDPage) page;
       Page delegate = deweyIDPage.delegate();
       sink.writeByte(DEWEYIDPAGE.id);
@@ -814,8 +805,8 @@ public enum PageKind {
    */
   HOT_LEAF_PAGE((byte) 12, HOTLeafPage.class) {
     @Override
-    public Page deserializePage(@NonNull ResourceConfiguration resourceConfiguration, BytesIn<?> source,
-        @NonNull SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+    public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
+        SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       // Read header
@@ -875,8 +866,8 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(@NonNull ResourceConfiguration resourceConfig, @NonNull BytesOut<?> sink,
-        @NonNull Page page, @NonNull SerializationType type) {
+    public void serializePage(ResourceConfiguration resourceConfig, BytesOut<?> sink,
+        Page page, SerializationType type) {
       HOTLeafPage hotLeaf = (HOTLeafPage) page;
       sink.writeByte(HOT_LEAF_PAGE.id);
       sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
@@ -917,8 +908,8 @@ public enum PageKind {
    */
   HOT_INDIRECT_PAGE((byte) 13, HOTIndirectPage.class) {
     @Override
-    public Page deserializePage(@NonNull ResourceConfiguration resourceConfiguration, BytesIn<?> source,
-        @NonNull SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+    public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
+        SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
       
       // Read header
@@ -1021,8 +1012,8 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(@NonNull ResourceConfiguration resourceConfig, @NonNull BytesOut<?> sink,
-        @NonNull Page page, @NonNull SerializationType type) {
+    public void serializePage(ResourceConfiguration resourceConfig, BytesOut<?> sink,
+        Page page, SerializationType type) {
       HOTIndirectPage hotIndirect = (HOTIndirectPage) page;
       sink.writeByte(HOT_INDIRECT_PAGE.id);
       sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
@@ -1101,8 +1092,8 @@ public enum PageKind {
    */
   BITMAP_CHUNK_PAGE((byte) 14, BitmapChunkPage.class) {
     @Override
-    public Page deserializePage(@NonNull ResourceConfiguration resourceConfiguration, BytesIn<?> source,
-        @NonNull SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+    public Page deserializePage(ResourceConfiguration resourceConfiguration, BytesIn<?> source,
+        SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       // Skip binary version byte for now
       source.readByte();
       
@@ -1122,8 +1113,8 @@ public enum PageKind {
     }
 
     @Override
-    public void serializePage(@NonNull ResourceConfiguration resourceConfig, @NonNull BytesOut<?> sink,
-        @NonNull Page page, @NonNull SerializationType type) {
+    public void serializePage(ResourceConfiguration resourceConfig, BytesOut<?> sink,
+        Page page, SerializationType type) {
       BitmapChunkPage chunkPage = (BitmapChunkPage) page;
       sink.writeByte(BITMAP_CHUNK_PAGE.id);
       sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
@@ -1332,7 +1323,7 @@ public enum PageKind {
    * @param clazz the class for the page
    * @return the related page
    */
-  public static @NonNull PageKind getKind(final Class<? extends Page> clazz) {
+  public static PageKind getKind(final Class<? extends Page> clazz) {
     final PageKind page = INSTANCEFORCLASS.get(clazz);
     if (page == null) {
       throw new IllegalStateException();

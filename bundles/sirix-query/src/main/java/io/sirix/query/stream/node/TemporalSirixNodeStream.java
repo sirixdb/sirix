@@ -1,6 +1,6 @@
 package io.sirix.query.stream.node;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.brackit.query.jdm.DocumentException;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.node.AbstractTemporalNode;
@@ -54,6 +54,6 @@ public class TemporalSirixNodeStream implements Stream<AbstractTemporalNode<XmlD
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this).add("axis", axis).toString();
+    return ToStringHelper.of(this).add("axis", axis).toString();
   }
 }

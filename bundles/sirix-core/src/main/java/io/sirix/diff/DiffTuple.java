@@ -21,13 +21,12 @@
 
 package io.sirix.diff;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 
-import org.checkerframework.checker.index.qual.NonNegative;
 import java.io.Serializable;
 import java.util.Map;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -100,7 +99,7 @@ public final class DiffTuple implements Serializable {
    *
    * @param index index to set
    */
-  public DiffTuple setIndex(final @NonNegative int index) {
+  public DiffTuple setIndex(final int index) {
     checkArgument(index >= 0);
     this.index = index;
     return this;
@@ -135,7 +134,7 @@ public final class DiffTuple implements Serializable {
 
   @Override
   public String toString() {
-    return MoreObjects.toStringHelper(this)
+    return ToStringHelper.of(this)
                       .add("diff", diff)
                       .add("new nodeKey", newNodeKey)
                       .add("old nodeKey", oldNodeKey)

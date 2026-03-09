@@ -28,8 +28,8 @@
 
 package io.sirix.node.xml;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
@@ -57,9 +57,7 @@ import io.sirix.settings.Fixed;
 import io.sirix.utils.Compression;
 import io.sirix.utils.NamePageHash;
 import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -770,7 +768,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   }
 
   @Override
-  public void setPathNodeKey(@NonNegative long pathNodeKey) {
+  public void setPathNodeKey(long pathNodeKey) {
     if (page != null) {
       final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.PI_PATH_NODE_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
@@ -1266,7 +1264,7 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey, parentKey, prefixKey, localNameKey, uriKey);
+    return Objects.hash(nodeKey, parentKey, prefixKey, localNameKey, uriKey);
   }
 
   @Override
@@ -1278,8 +1276,8 @@ public final class PINode implements StructNode, NameNode, ValueNode, ImmutableX
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("nodeKey", nodeKey)
                       .add("parentKey", parentKey)
                       .add("qNm", qNm)

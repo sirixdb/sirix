@@ -20,8 +20,8 @@
  */
 package io.sirix.node.delegates;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.Node;
@@ -29,8 +29,7 @@ import io.sirix.node.interfaces.ValueNode;
 import io.sirix.settings.Constants;
 import io.sirix.utils.Compression;
 import io.sirix.node.BytesOut;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
 import java.util.zip.Deflater;
@@ -138,7 +137,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeDelegate, value);
+    return Objects.hash(nodeDelegate, value);
   }
 
   @Override
@@ -146,12 +145,12 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
     if (!(obj instanceof final ValueNodeDelegate other))
       return false;
 
-    return Objects.equal(nodeDelegate, other.nodeDelegate) && Arrays.equals(value, other.value);
+    return Objects.equals(nodeDelegate, other.nodeDelegate) && Arrays.equals(value, other.value);
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this).add("value", new String(value)).toString();
+  public String toString() {
+    return ToStringHelper.of(this).add("value", new String(value)).toString();
   }
 
   @Override
@@ -165,7 +164,7 @@ public class ValueNodeDelegate extends AbstractForwardingNode implements ValueNo
   }
 
   @Override
-  protected @NonNull NodeDelegate delegate() {
+  protected NodeDelegate delegate() {
     return nodeDelegate;
   }
 

@@ -25,7 +25,6 @@ import java.util.HashSet;
 import java.util.Set;
 
 import io.sirix.exception.SirixException;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Implements {@link DiffObservable}, which can be used for all classes, which implement the
@@ -49,8 +48,8 @@ abstract class AbstractDiffObservable implements DiffObservable {
   }
 
   @Override
-  public final void fireDiff(final DiffFactory.DiffType diff, final @NonNull long newNodeKey,
-      final @NonNull long oldNodeKey, final @NonNull DiffDepth depth) {
+  public final void fireDiff(final DiffFactory.DiffType diff, final long newNodeKey,
+      final long oldNodeKey, final DiffDepth depth) {
     for (final DiffObserver observer : diffObservers) {
       observer.diffListener(diff, newNodeKey, oldNodeKey, depth);
     }

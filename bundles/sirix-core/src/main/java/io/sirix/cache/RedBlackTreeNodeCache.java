@@ -5,7 +5,6 @@ import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.index.redblacktree.RBNodeKey;
 import io.sirix.node.interfaces.Node;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 import java.util.Map;
 
@@ -68,7 +67,7 @@ public final class RedBlackTreeNodeCache implements Cache<RBIndexKey, Node> {
   }
 
   @Override
-  public void put(RBIndexKey key, @NonNull Node value) {
+  public void put(RBIndexKey key, Node value) {
     cache.put(key, value);
   }
 

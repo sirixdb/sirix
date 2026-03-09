@@ -12,7 +12,7 @@ import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.settings.Constants;
 import io.sirix.node.BytesOut;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 import io.sirix.node.xml.AttributeNode;
 
 

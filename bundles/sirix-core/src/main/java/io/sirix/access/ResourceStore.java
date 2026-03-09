@@ -1,7 +1,6 @@
 package io.sirix.access;
 
 import io.sirix.cache.BufferManager;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
@@ -21,8 +20,8 @@ public interface ResourceStore<R extends ResourceSession<? extends NodeReadOnlyT
    * @return A resource session.
    * @throws NullPointerException if one if the arguments is {@code null}
    */
-  R beginResourceSession(@NonNull ResourceConfiguration resourceConfig, @NonNull BufferManager bufferManager,
-      @NonNull Path resourcePath);
+  R beginResourceSession(ResourceConfiguration resourceConfig, BufferManager bufferManager,
+      Path resourcePath);
 
   boolean hasOpenResourceSession(Path resourcePath);
 

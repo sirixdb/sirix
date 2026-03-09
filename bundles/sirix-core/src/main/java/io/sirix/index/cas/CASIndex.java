@@ -1,6 +1,6 @@
 package io.sirix.index.cas;
 
-import com.google.common.collect.Iterators;
+import io.sirix.utils.Iterators;
 import io.sirix.access.IndexBackendType;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;

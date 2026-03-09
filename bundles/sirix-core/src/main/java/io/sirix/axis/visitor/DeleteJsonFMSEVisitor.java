@@ -19,10 +19,9 @@ import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.utils.LogWrapper;
-import org.checkerframework.checker.index.qual.NonNegative;
 import org.slf4j.LoggerFactory;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -39,7 +38,7 @@ public final class DeleteJsonFMSEVisitor extends AbstractJsonNodeVisitor {
   private final long startKey;
 
   public DeleteJsonFMSEVisitor(final JsonNodeTrx wtx, final JsonMatching matching,
-      @NonNegative final long startKey) {
+      final long startKey) {
     this.wtx = requireNonNull(wtx);
     this.matching = requireNonNull(matching);
     checkArgument(startKey >= 0, "start key must be >= 0!");

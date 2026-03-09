@@ -8,7 +8,7 @@ import org.sirix.api.xml.XmlNodeTrx;
 import org.sirix.exception.SirixException;
 import org.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
-import com.google.common.base.Optional;
+import java.util.Optional;
 
 /**
  * Process file system attributes.

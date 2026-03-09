@@ -8,7 +8,7 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.interfaces.immutable.ImmutableStructNode;
 import io.sirix.node.BytesOut;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import java.nio.ByteBuffer;
 

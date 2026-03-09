@@ -68,9 +68,9 @@ public final class Databases {
   private static final AtomicLong DATABASE_ID_COUNTER = new AtomicLong(0);
 
   /**
-   * DI component that manages the database.
+   * Manually wired component that manages database dependencies.
    */
-  static final DatabaseManager MANAGER = DaggerDatabaseManager.create();
+  static final DatabaseManager MANAGER = DatabaseManagerFactory.create();
 
   /**
    * Get the database type

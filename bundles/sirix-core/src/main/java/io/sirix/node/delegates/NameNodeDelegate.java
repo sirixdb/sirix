@@ -28,16 +28,14 @@
 
 package io.sirix.node.delegates;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.brackit.query.atomic.QNm;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.NameNode;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Delegate method for all nodes containing naming-data. That means that different fixed defined
@@ -84,7 +82,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
    * @param pathNodeKey path node key associated with node
    */
   public NameNodeDelegate(final NodeDelegate delegate, final int uriKey, final int prefixKey, final int localNameKey,
-      final @NonNegative long pathNodeKey) {
+      final long pathNodeKey) {
     assert delegate != null : "delegate must not be null!";
     this.nodeDelegate = delegate;
     this.prefixKey = prefixKey;
@@ -152,7 +150,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
    * @param pathNodeKey the path class record to set
    */
   @Override
-  public void setPathNodeKey(@NonNegative final long pathNodeKey) {
+  public void setPathNodeKey(final long pathNodeKey) {
     this.pathNodeKey = pathNodeKey;
   }
 
@@ -168,7 +166,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(uriKey, prefixKey, localNameKey);
+    return Objects.hash(uriKey, prefixKey, localNameKey);
   }
 
   @Override
@@ -176,13 +174,13 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
     if (!(obj instanceof final NameNodeDelegate other))
       return false;
 
-    return Objects.equal(uriKey, other.uriKey) && Objects.equal(prefixKey, other.prefixKey)
-        && Objects.equal(localNameKey, other.localNameKey);
+    return Objects.equals(uriKey, other.uriKey) && Objects.equals(prefixKey, other.prefixKey)
+        && Objects.equals(localNameKey, other.localNameKey);
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("node delegate", nodeDelegate)
                       .add("uriKey", uriKey)
                       .add("prefixKey", prefixKey)
@@ -192,7 +190,7 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
   }
 
   @Override
-  protected @NonNull NodeDelegate delegate() {
+  protected NodeDelegate delegate() {
     return nodeDelegate;
   }
 

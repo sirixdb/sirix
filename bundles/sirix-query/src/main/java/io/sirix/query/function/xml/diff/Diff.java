@@ -28,7 +28,6 @@
 package io.sirix.query.function.xml.diff;
 
 import java.util.Objects;
-import com.google.common.collect.ImmutableSet;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.QNm;
@@ -38,7 +37,6 @@ import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.annotation.FunctionAnnotation;
-import org.checkerframework.checker.nullness.qual.NonNull;
 import io.sirix.access.Utils;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
@@ -136,7 +134,7 @@ public final class Diff extends AbstractFunction implements DiffObserver {
           resourceSession.getResourceConfig().hashType == HashType.NONE
               ? DiffOptimized.NO
               : DiffOptimized.HASHED,
-          ImmutableSet.of(this)).skipSubtrees(true)));
+          Set.of(this)).skipSubtrees(true)));
 
       try {
         latch.await(100000, TimeUnit.SECONDS);
@@ -339,8 +337,8 @@ public final class Diff extends AbstractFunction implements DiffObserver {
   }
 
   @Override
-  public void diffListener(final @NonNull DiffType diffType, final long newNodeKey, final long oldNodeKey,
-      final @NonNull DiffDepth depth) {
+  public void diffListener(final DiffType diffType, final long newNodeKey, final long oldNodeKey,
+      final DiffDepth depth) {
     diffs.add(new DiffTuple(diffType, newNodeKey, oldNodeKey, depth));
   }
 

@@ -4,7 +4,6 @@ import io.sirix.node.delegates.NodeDelegate;
 
 import static java.util.Objects.requireNonNull;
 
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * If a node is deleted, it will be encapsulated over this class.
@@ -34,7 +33,7 @@ public final class DeweyIDMappingNode extends AbstractForwardingNode {
   }
 
   @Override
-  protected @NonNull NodeDelegate delegate() {
+  protected NodeDelegate delegate() {
     return mDelegate;
   }
 }

@@ -21,8 +21,8 @@
 
 package io.sirix.node.json;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
@@ -42,8 +42,7 @@ import io.sirix.settings.Fixed;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Node representing the root of a JSON document. This node is guaranteed to exist in revision 0 and
@@ -810,7 +809,7 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeKey);
+    return Objects.hash(nodeKey);
   }
 
   @Override
@@ -822,8 +821,8 @@ public final class JsonDocumentRootNode implements StructNode, ImmutableJsonNode
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("nodeKey", nodeKey)
                       .add("firstChildKey", firstChildKey)
                       .add("lastChildKey", lastChildKey)

@@ -27,8 +27,6 @@
  */
 package io.sirix.node.json;
 
-import com.google.common.hash.Funnel;
-import com.google.common.hash.PrimitiveSink;
 import io.brackit.query.atomic.QNm;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
@@ -55,8 +53,7 @@ import io.sirix.page.NodeFieldLayout;
 import io.sirix.page.PageLayout;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Node representing an object key/field.
@@ -674,7 +671,7 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     return pathNodeKey;
   }
 
-  public void setPathNodeKey(final @NonNegative long pathNodeKey) {
+  public void setPathNodeKey(final long pathNodeKey) {
     if (page != null) {
       final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
           recordBase + 1 + NodeFieldLayout.OBJKEY_PATH_NODE_KEY) & 0xFF;
@@ -1058,14 +1055,4 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
         '}';
   }
 
-  public static Funnel<ObjectKeyNode> getFunnel() {
-    return (ObjectKeyNode node, PrimitiveSink into) -> {
-      into.putLong(node.getParentKey())
-          .putInt(node.getNameKey())
-          .putLong(node.getPathNodeKey())
-          .putLong(node.getRightSiblingKey())
-          .putLong(node.getLeftSiblingKey())
-          .putLong(node.getFirstChildKey());
-    };
-  }
 }

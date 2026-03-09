@@ -28,10 +28,9 @@
 
 package io.sirix.node;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
+import org.jspecify.annotations.Nullable;
 
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.Node;
@@ -76,12 +75,12 @@ public final class DeletedNode extends AbstractForwardingNode {
       return false;
 
     final DeletedNode other = (DeletedNode) obj;
-    return Objects.equal(nodeDelegate, other.nodeDelegate);
+    return Objects.equals(nodeDelegate, other.nodeDelegate);
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this).add("delegate", nodeDelegate.toString()).toString();
+  public String toString() {
+    return ToStringHelper.of(this).add("delegate", nodeDelegate.toString()).toString();
   }
 
   @Override
@@ -90,7 +89,7 @@ public final class DeletedNode extends AbstractForwardingNode {
   }
 
   @Override
-  protected @NonNull NodeDelegate delegate() {
+  protected NodeDelegate delegate() {
     return nodeDelegate;
   }
 }

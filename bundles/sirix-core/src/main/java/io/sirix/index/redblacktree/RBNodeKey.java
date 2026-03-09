@@ -1,14 +1,13 @@
 package io.sirix.index.redblacktree;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.Objects;
+import io.sirix.utils.ToStringHelper;
+import java.util.Objects;
 import io.sirix.index.redblacktree.interfaces.MutableRBNodeKey;
 import io.sirix.node.AbstractForwardingNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.brackit.query.atomic.QNm;
-import org.checkerframework.checker.nullness.qual.NonNull;
-import org.checkerframework.checker.nullness.qual.Nullable;
+import org.jspecify.annotations.Nullable;
 
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.node.delegates.NodeDelegate;
@@ -75,7 +74,7 @@ public final class RBNodeKey<K extends Comparable<? super K>> extends AbstractFo
   }
 
   @Override
-  protected @NonNull NodeDelegate delegate() {
+  protected NodeDelegate delegate() {
     return nodeDelegate;
   }
 
@@ -160,7 +159,7 @@ public final class RBNodeKey<K extends Comparable<? super K>> extends AbstractFo
 
   @Override
   public int hashCode() {
-    return Objects.hashCode(nodeDelegate.getNodeKey());
+    return Objects.hash(nodeDelegate.getNodeKey());
   }
 
   @Override
@@ -174,8 +173,8 @@ public final class RBNodeKey<K extends Comparable<? super K>> extends AbstractFo
   }
 
   @Override
-  public @NonNull String toString() {
-    return MoreObjects.toStringHelper(this)
+  public String toString() {
+    return ToStringHelper.of(this)
                       .add("node delegate", nodeDelegate)
                       .add("left child", left)
                       .add("right child", right)

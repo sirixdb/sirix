@@ -29,7 +29,6 @@ import io.sirix.page.UberPage;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
-import org.checkerframework.checker.nullness.qual.NonNull;
 
 /**
  * Interface to generate access to the storage. The storage is flexible as long as {@link Reader}
@@ -139,7 +138,6 @@ public interface IOStorage {
    *
    * @return the RevisionIndexHolder for this storage
    */
-  @NonNull
   RevisionIndexHolder getRevisionIndexHolder();
 
   /**
@@ -152,7 +150,7 @@ public interface IOStorage {
    *
    * @param holder the holder to populate
    */
-  default void loadRevisionIndex(@NonNull RevisionIndexHolder holder) {
+  default void loadRevisionIndex(RevisionIndexHolder holder) {
     if (!exists()) {
       return;
     }

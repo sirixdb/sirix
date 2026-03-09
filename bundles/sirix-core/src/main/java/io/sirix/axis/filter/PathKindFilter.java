@@ -1,6 +1,6 @@
 package io.sirix.axis.filter;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;

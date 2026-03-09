@@ -21,10 +21,9 @@
 
 package io.sirix.page.delegates;
 
-import com.google.common.base.MoreObjects;
+import io.sirix.utils.ToStringHelper;
 import io.sirix.node.BytesIn;
-import org.checkerframework.checker.index.qual.NonNegative;
-import org.magicwerk.brownies.collections.GapList;
+import io.sirix.utils.GapList;
 import io.sirix.page.DeserializedBitmapReferencesPageTuple;
 import io.sirix.page.PageReference;
 import io.sirix.page.SerializationType;
@@ -35,7 +34,7 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.List;
 
-import static com.google.common.base.Preconditions.checkArgument;
+import static io.sirix.utils.Preconditions.checkArgument;
 
 /**
  * Class to provide basic reference handling functionality.
@@ -85,7 +84,7 @@ public final class BitmapReferencesPage implements Page {
    *
    * @param referenceCount number of references of page
    */
-  public BitmapReferencesPage(final @NonNegative int referenceCount) {
+  public BitmapReferencesPage(final int referenceCount) {
     checkArgument(referenceCount >= 0);
 
     final int initialSize;
@@ -112,7 +111,7 @@ public final class BitmapReferencesPage implements Page {
    * @param in input stream to read from
    * @param type the serialization type
    */
-  public BitmapReferencesPage(final @NonNegative int referenceCount, final BytesIn<?> in,
+  public BitmapReferencesPage(final int referenceCount, final BytesIn<?> in,
       final SerializationType type) {
     final DeserializedBitmapReferencesPageTuple tuple = type.deserializeBitmapReferencesPage(referenceCount, in);
     references = tuple.getReferences();
@@ -161,7 +160,7 @@ public final class BitmapReferencesPage implements Page {
    * @return {@link PageReference} at given offset
    */
   @Override
-  public PageReference getOrCreateReference(final @NonNegative int offset) {
+  public PageReference getOrCreateReference(final int offset) {
     if (bitmap.get(offset)) {
       final int index = index(offset);
       return references.get(index);
@@ -249,7 +248,7 @@ public final class BitmapReferencesPage implements Page {
 
   @Override
   public String toString() {
-    final MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
+    final ToStringHelper helper = ToStringHelper.of(this);
     for (final PageReference ref : references) {
       helper.add("reference", ref);
     }
