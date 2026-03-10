@@ -135,9 +135,13 @@ jobs:
           python -m pytest sirix-python-client -v
 
   NativeImageTest:
-    name: Native Image Tests (GraalVM)
+    name: Native Image (${{ matrix.module }})
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [sirix-query, sirix-kotlin-cli, sirix-rest-api]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -149,16 +153,12 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
-      - name: Smoke tests (JVM fast gate)
-        run: ./gradlew :sirix-query:nativeImageSmokeTest :sirix-kotlin-cli:nativeImageSmokeTest :sirix-rest-api:nativeImageSmokeTest --parallel --info
+      - name: JVM smoke test
+        run: ./gradlew :${{ matrix.module }}:nativeImageSmokeTest --info
       - name: Stop Gradle daemon (free memory for native compilation)
         run: ./gradlew --stop
-      - name: Native smoke test sirix-query
-        run: ./gradlew :sirix-query:nativeSmokeTest --no-daemon --info
-      - name: Native smoke test sirix-kotlin-cli
-        run: ./gradlew :sirix-kotlin-cli:nativeSmokeTest --no-daemon --info
-      - name: Native smoke test sirix-rest-api
-        run: ./gradlew :sirix-rest-api:nativeSmokeTest --no-daemon --info
+      - name: Native image smoke test
+        run: ./gradlew :${{ matrix.module }}:nativeSmokeTest --no-daemon --info
 
   Deploy:
     name: Deploy to OSSRH and Docker Hub
