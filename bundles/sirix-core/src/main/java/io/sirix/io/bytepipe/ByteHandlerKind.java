@@ -54,10 +54,10 @@ public enum ByteHandlerKind {
     }
   },
 
-  SNAPPY_COMPRESSOR(SnappyCompressor.class) {
+  SNAPPY_COMPRESSOR(FFILz4Compressor.class) {
     @Override
     public ByteHandler deserialize(JsonReader reader) {
-      return callDefaultConstructor(reader, SnappyCompressor.class.getName());
+      return callDefaultConstructor(reader, FFILz4Compressor.class.getName());
     }
 
     @Override
@@ -66,10 +66,10 @@ public enum ByteHandlerKind {
     }
   },
 
-  LZ4_COMPRESSOR(LZ4Compressor.class) {
+  LZ4_COMPRESSOR(FFILz4Compressor.class) {
     @Override
     public ByteHandler deserialize(JsonReader reader) {
-      return callDefaultConstructor(reader, LZ4Compressor.class.getName());
+      return callDefaultConstructor(reader, FFILz4Compressor.class.getName());
     }
 
     @Override

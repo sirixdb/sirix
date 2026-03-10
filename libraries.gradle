@@ -15,9 +15,6 @@ implLibraries = [
         jspecify                    : 'org.jspecify:jspecify:1.0.0',
         brackit                     : 'io.sirix:brackit:0.6-SNAPSHOT',
         caffeine                    : 'com.github.ben-manes.caffeine:caffeine:3.1.6',
-        snappyJava                  : 'org.xerial.snappy:snappy-java:1.1.8.4',
-        lz4                         : 'org.lz4:lz4-java:1.8.0',
-        browniesCollections         : 'org.magicwerk:brownies-collections:0.9.14',
         tink                        : 'com.google.crypto.tink:tink:1.16.0',
         kotlinStdlib                : 'org.jetbrains.kotlin:kotlin-stdlib:2.2.20',
         kotlinxCoroutinesCore       : 'org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3',
@@ -51,12 +48,8 @@ testLibraries = [
         mockitoCore              : 'org.mockito:mockito-core:5.19.0',
         byteBuddy                : 'net.bytebuddy:byte-buddy:1.17.5',
         brackit                  : 'io.sirix:brackit:0.6-SNAPSHOT:tests',
-        kotlinTestJunit          : 'org.jetbrains.kotlin:kotlin-test-junit:1.5.31',
         junit                    : 'junit:junit:4.13.2',
         vertxJunit5              : "io.vertx:vertx-junit5:$vertxVersion",
         jsonassert               : 'org.skyscreamer:jsonassert:1.5.0',
-        kotestAssertions         : 'io.kotest:kotest-assertions-core-jvm:4.0.5',
-        commonsCollections4      : 'org.apache.commons:commons-collections4:4.3',
-        commonsCollections4Tests : 'org.apache.commons:commons-collections4:4.3:tests',
         assertjCore              : 'org.assertj:assertj-core:3.23.1'
 ]

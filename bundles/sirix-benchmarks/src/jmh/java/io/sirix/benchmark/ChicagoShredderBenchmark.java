@@ -15,7 +15,6 @@ import io.sirix.axis.PostOrderAxis;
 import io.sirix.io.StorageType;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.FFILz4Compressor;
-import io.sirix.io.bytepipe.LZ4Compressor;
 import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.settings.VersioningType;
@@ -58,7 +57,6 @@ public class ChicagoShredderBenchmark {
 
   public enum CompressionPipeline {
     NONE,
-    LZ4,
     FFI_LZ4
   }
 
@@ -156,7 +154,6 @@ public class ChicagoShredderBenchmark {
     private ByteHandlerPipeline newByteHandlerPipeline() {
       return switch (compressionPipeline) {
         case NONE -> new ByteHandlerPipeline();
-        case LZ4 -> new ByteHandlerPipeline(new LZ4Compressor());
         case FFI_LZ4 -> new ByteHandlerPipeline(new FFILz4Compressor());
       };
     }

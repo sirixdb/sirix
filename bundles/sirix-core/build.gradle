@@ -8,11 +8,7 @@ dependencies {
     api implLibraries.tink
     api implLibraries.fastUtil
     api implLibraries.iouring
-    api implLibraries.lz4
     api implLibraries.roaringbitmap
-
-    implementation implLibraries.snappyJava
-    implementation implLibraries.browniesCollections
     implementation implLibraries.integercompression
     implementation implLibraries.zeroAllocationHashing
 
@@ -30,8 +26,6 @@ dependencies {
     testImplementation testLibraries.byteBuddy
     testImplementation testLibraries.testng
     testImplementation testLibraries.jsonassert
-    testImplementation testLibraries.commonsCollections4
-    testImplementation testLibraries.commonsCollections4Tests
     testImplementation testLibraries.assertjCore
 }
 

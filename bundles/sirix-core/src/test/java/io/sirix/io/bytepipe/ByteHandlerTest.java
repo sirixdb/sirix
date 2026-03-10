@@ -77,11 +77,9 @@ public final class ByteHandlerTest {
     final Path encryptionKeyPath = Paths.get("src", "test", "resources", "resourceName");
 
     Object[][] returnVal = {{ByteHandler.class,
-        new ByteHandler[] {new Encryptor(encryptionKeyPath), new DeflateCompressor(), new SnappyCompressor(),
+        new ByteHandler[] {new Encryptor(encryptionKeyPath), new DeflateCompressor(),
             new ByteHandlerPipeline(new Encryptor(encryptionKeyPath), new DeflateCompressor()),
-            new ByteHandlerPipeline(new DeflateCompressor(), new Encryptor(encryptionKeyPath)),
-            new ByteHandlerPipeline(new Encryptor(encryptionKeyPath), new SnappyCompressor()),
-            new ByteHandlerPipeline(new SnappyCompressor(), new Encryptor(encryptionKeyPath))}}};
+            new ByteHandlerPipeline(new DeflateCompressor(), new Encryptor(encryptionKeyPath))}}};
     return returnVal;
   }
 
