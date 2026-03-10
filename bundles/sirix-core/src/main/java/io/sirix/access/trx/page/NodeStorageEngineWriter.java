@@ -1066,6 +1066,11 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   }
 
   @Override
+  public boolean isClosed() {
+    return isClosed;
+  }
+
+  @Override
   public void close() {
     if (!isClosed) {
       storageEngineReader.assertNotClosed();
