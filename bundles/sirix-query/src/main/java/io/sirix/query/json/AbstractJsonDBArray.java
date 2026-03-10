@@ -145,11 +145,21 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
 
   private void moveToIndex(int index, JsonNodeTrx trx) {
     // must have children
+    final long childCount = trx.getChildCount();
 
-    trx.moveToFirstChild();
-
-    for (int i = 1; i <= index; i++) {
-      trx.moveToRightSibling();
+    if (index <= childCount / 2) {
+      // Forward traversal from first child
+      trx.moveToFirstChild();
+      for (int i = 0; i < index; i++) {
+        trx.moveToRightSibling();
+      }
+    } else {
+      // Backward traversal from last child
+      trx.moveToLastChild();
+      final int stepsFromEnd = (int) (childCount - 1 - index);
+      for (int i = 0; i < stepsFromEnd; i++) {
+        trx.moveToLeftSibling();
+      }
     }
   }
 

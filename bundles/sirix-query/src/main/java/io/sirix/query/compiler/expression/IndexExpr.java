@@ -176,16 +176,28 @@ public final class IndexExpr implements Expr {
               } while (rtx.moveToRightSibling());
             }
           } else {
+            final long childCount = rtx.getChildCount();
             var index = arrayIndexes.getFirst();
             index = index < 0
-                ? (int) (rtx.getChildCount() + index)
+                ? (int) (childCount + index)
                 : index;
-            boolean hasMoved = rtx.moveToFirstChild();
-            assert hasMoved;
-            int k = 1;
-            for (; k <= index; k++) {
-              hasMoved = rtx.moveToRightSibling();
+            if (index <= childCount / 2) {
+              // Forward traversal from first child
+              boolean hasMoved = rtx.moveToFirstChild();
               assert hasMoved;
+              for (int k = 0; k < index; k++) {
+                hasMoved = rtx.moveToRightSibling();
+                assert hasMoved;
+              }
+            } else {
+              // Backward traversal from last child
+              boolean hasMoved = rtx.moveToLastChild();
+              assert hasMoved;
+              final int stepsFromEnd = (int) (childCount - 1 - index);
+              for (int k = 0; k < stepsFromEnd; k++) {
+                hasMoved = rtx.moveToLeftSibling();
+                assert hasMoved;
+              }
             }
             sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
           }
