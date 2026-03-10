@@ -115,6 +115,9 @@ public final class JacksonJsonShredder implements Callable<Long> {
   /** Insertion position. */
   private InsertPosition insert;
 
+  /** Maximum allowed nesting depth to prevent pathological input from exhausting memory. */
+  private static final int MAX_NESTING_DEPTH = 10_000;
+
   /** Current nesting level (depth in JSON structure). */
   private int level;
 
@@ -429,6 +432,9 @@ public final class JacksonJsonShredder implements Callable<Long> {
 
   private JsonToken processBeginObject() throws IOException {
     level++;
+    if (level > MAX_NESTING_DEPTH) {
+      throw new IllegalStateException("JSON nesting depth exceeds maximum of " + MAX_NESTING_DEPTH);
+    }
     if (!(level == 1 && skipRootJson)) {
       final var key = addObject();
       markRootIfUnset(key);
@@ -438,6 +444,9 @@ public final class JacksonJsonShredder implements Callable<Long> {
 
   private JsonToken processBeginArray() throws IOException {
     level++;
+    if (level > MAX_NESTING_DEPTH) {
+      throw new IllegalStateException("JSON nesting depth exceeds maximum of " + MAX_NESTING_DEPTH);
+    }
     if (!(level == 1 && skipRootJson)) {
       final var key = insertArray();
       markRootIfUnset(key);

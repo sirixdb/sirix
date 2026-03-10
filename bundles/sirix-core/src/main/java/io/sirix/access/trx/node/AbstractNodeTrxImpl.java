@@ -302,9 +302,12 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     if (lock != null) {
       lock.lock();
     }
-    runnable.run();
-    if (lock != null) {
-      lock.unlock();
+    try {
+      runnable.run();
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
     }
   }
 
@@ -522,48 +525,49 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     if (lock != null) {
       lock.lock();
     }
+    try {
+      nodeReadOnlyTrx.assertNotClosed();
 
-    nodeReadOnlyTrx.assertNotClosed();
+      // Save the current cursor position before closing the old page transaction.
+      final long rollbackNodeKey = nodeReadOnlyTrx.getNodeKey();
 
-    // Save the current cursor position before closing the old page transaction.
-    final long rollbackNodeKey = nodeReadOnlyTrx.getNodeKey();
+      // Reset modification counter.
+      modificationCount = 0L;
 
-    // Reset modification counter.
-    modificationCount = 0L;
+      // Close current page transaction.
+      final int trxID = getId();
+      final int revision = getRevisionNumber();
+      final int revNumber = storageEngineWriter.getUberPage().isBootstrap()
+          ? 0
+          : revision - 1;
 
-    // Close current page transaction.
-    final int trxID = getId();
-    final int revision = getRevisionNumber();
-    final int revNumber = storageEngineWriter.getUberPage().isBootstrap()
-        ? 0
-        : revision - 1;
+      final UberPage uberPage = storageEngineWriter.rollback();
 
-    final UberPage uberPage = storageEngineWriter.rollback();
+      // Remember successfully committed uber page in resource session.
+      resourceSession.setLastCommittedUberPage(uberPage);
 
-    // Remember successfully committed uber page in resource session.
-    resourceSession.setLastCommittedUberPage(uberPage);
+      resourceSession.closeNodePageWriteTransaction(getId());
+      nodeReadOnlyTrx.setPageReadTransaction(null);
+      removeCommitFile();
 
-    resourceSession.closeNodePageWriteTransaction(getId());
-    nodeReadOnlyTrx.setPageReadTransaction(null);
-    removeCommitFile();
+      storageEngineWriter =
+          resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.YES, true);
+      nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
+      resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
 
-    storageEngineWriter =
-        resourceSession.createPageTransaction(trxID, revNumber, revNumber, InternalResourceSession.Abort.YES, true);
-    nodeReadOnlyTrx.setPageReadTransaction(storageEngineWriter);
-    resourceSession.setNodePageWriteTransaction(getId(), storageEngineWriter);
+      nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
 
-    nodeFactory = reInstantiateNodeFactory(storageEngineWriter);
+      reInstantiateIndexes();
 
-    reInstantiateIndexes();
+      // Re-read the current node from the new page transaction (FlyweightNode binding is stale).
+      nodeReadOnlyTrx.moveTo(rollbackNodeKey);
 
-    // Re-read the current node from the new page transaction (FlyweightNode binding is stale).
-    nodeReadOnlyTrx.moveTo(rollbackNodeKey);
-
-    if (lock != null) {
-      lock.unlock();
+      return self();
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
     }
-
-    return self();
   }
 
   private void removeCommitFile() {

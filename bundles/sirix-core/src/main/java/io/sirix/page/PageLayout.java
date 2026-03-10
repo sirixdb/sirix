@@ -149,6 +149,10 @@ public final class PageLayout {
    * Same bit layout as existing directory entry bytes 4-7.
    */
   public static int packCompactDirEntry(final int dataLength, final int nodeKindId) {
+    if (dataLength > 0xFFFFFF) {
+      throw new IllegalArgumentException(
+          "dataLength " + dataLength + " exceeds 3-byte maximum (16,777,215)");
+    }
     return (dataLength << 8) | (nodeKindId & 0xFF);
   }
 
@@ -477,10 +481,10 @@ public final class PageLayout {
     final int heapEnd = getHeapEnd(page);
     final int newHeapEnd = heapEnd + size;
 
-    // Check if we've exceeded the page capacity
-    if (HEAP_START + newHeapEnd > page.byteSize()) {
+    // Check if we've exceeded the page capacity (use long arithmetic to prevent int overflow)
+    if ((long) HEAP_START + newHeapEnd > page.byteSize()) {
       throw new IllegalStateException(
-          "Heap overflow: need " + (HEAP_START + newHeapEnd) +
+          "Heap overflow: need " + ((long) HEAP_START + newHeapEnd) +
               " bytes but page is " + page.byteSize() + " bytes");
     }
 

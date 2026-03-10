@@ -501,25 +501,39 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     LOGGER.trace("Lock: lock acquired (beginNodeTrx)");
 
-    // Create new storage engine writer (shares the same ID with the node write trx).
-    final int nodeTrxId = nodeTrxIDCounter.incrementAndGet();
-    final int lastRev = getMostRecentRevisionNumber();
-    final StorageEngineWriter storageEngineWriter = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
+    boolean success = false;
+    try {
+      // Create new storage engine writer (shares the same ID with the node write trx).
+      final int nodeTrxId = nodeTrxIDCounter.incrementAndGet();
+      final int lastRev = getMostRecentRevisionNumber();
+      final StorageEngineWriter storageEngineWriter = createPageTransaction(nodeTrxId, lastRev, lastRev, Abort.NO, true);
 
-    final Node documentNode = getDocumentNode(storageEngineWriter);
+      final Node documentNode = getDocumentNode(storageEngineWriter);
 
-    // Create new node write transaction.
-    final var autoCommitDelay = Duration.of(maxTime, timeUnit.toChronoUnit());
-    final W wtx =
-        createNodeReadWriteTrx(nodeTrxId, storageEngineWriter, maxNodeCount, autoCommitDelay, documentNode, afterCommitState);
+      // Create new node write transaction.
+      final var autoCommitDelay = Duration.of(maxTime, timeUnit.toChronoUnit());
+      final W wtx =
+          createNodeReadWriteTrx(nodeTrxId, storageEngineWriter, maxNodeCount, autoCommitDelay, documentNode, afterCommitState);
 
-    // Remember node transaction for debugging and safe close.
-    // noinspection unchecked
-    if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null || storageEngineWriterMap.put(nodeTrxId, storageEngineWriter) != null) {
-      throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
+      // Remember node transaction for debugging and safe close.
+      // noinspection unchecked
+      if (nodeTrxMap.put(nodeTrxId, (R) wtx) != null || storageEngineWriterMap.put(nodeTrxId, storageEngineWriter) != null) {
+        // Clean up: remove any entries we just inserted, then close resources.
+        nodeTrxMap.remove(nodeTrxId);
+        storageEngineWriterMap.remove(nodeTrxId);
+        wtx.close();
+        storageEngineWriter.close();
+        throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
+      }
+
+      success = true;
+      return wtx;
+    } finally {
+      if (!success) {
+        writeLock.release();
+        LOGGER.trace("Lock: lock released (beginNodeTrx failed)");
+      }
     }
-
-    return wtx;
   }
 
   @Override
@@ -807,16 +821,25 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
     LOGGER.debug("Lock: lock acquired (beginStorageEngineWriter)");
 
-    final int currentStorageEngineID = storageEngineIDCounter.incrementAndGet();
-    final int lastRev = getMostRecentRevisionNumber();
-    final StorageEngineWriter storageEngineWriter = createPageTransaction(currentStorageEngineID, lastRev, lastRev, Abort.NO, false);
+    boolean success = false;
+    try {
+      final int currentStorageEngineID = storageEngineIDCounter.incrementAndGet();
+      final int lastRev = getMostRecentRevisionNumber();
+      final StorageEngineWriter storageEngineWriter = createPageTransaction(currentStorageEngineID, lastRev, lastRev, Abort.NO, false);
 
-    // Remember storage engine writer for debugging and safe close.
-    if (storageEngineReaderMap.put(currentStorageEngineID, storageEngineWriter) != null) {
-      throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
+      // Remember storage engine writer for debugging and safe close.
+      if (storageEngineReaderMap.put(currentStorageEngineID, storageEngineWriter) != null) {
+        throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
+      }
+
+      success = true;
+      return storageEngineWriter;
+    } finally {
+      if (!success) {
+        writeLock.release();
+        LOGGER.debug("Lock: lock released (beginStorageEngineWriter failed)");
+      }
     }
-
-    return storageEngineWriter;
   }
 
   @Override

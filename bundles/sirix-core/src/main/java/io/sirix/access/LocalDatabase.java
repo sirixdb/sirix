@@ -170,9 +170,14 @@ public final class LocalDatabase<T extends ResourceSession<? extends NodeReadOnl
 
     boolean returnVal = true;
     resourceConfig.setDatabaseConfiguration(dbConfig);
-    final Path path = dbConfig.getDatabaseFile()
-                              .resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile())
-                              .resolve(resourceConfig.resourcePath);
+    final Path dataDir = dbConfig.getDatabaseFile().resolve(DatabaseConfiguration.DatabasePaths.DATA.getFile());
+    final Path path = dataDir.resolve(resourceConfig.resourcePath).normalize();
+
+    if (!path.startsWith(dataDir)) {
+      throw new SirixUsageException("Invalid resource name: path traversal detected in '"
+          + resourceConfig.resourcePath + "'");
+    }
+
     // If file is existing, skip.
     if (Files.exists(path)) {
       return false;

@@ -246,6 +246,7 @@ public final class DatabaseConfiguration {
    */
   public DatabaseConfiguration setMaxSegmentAllocationSize(final long size) {
     checkArgument(size > 0, "Max buffer size must be positive");
+    checkArgument(size <= 1L << 40, "Max buffer size must not exceed 1 TB");
     this.maxSegmentAllocationSize = size;
     return this;
   }

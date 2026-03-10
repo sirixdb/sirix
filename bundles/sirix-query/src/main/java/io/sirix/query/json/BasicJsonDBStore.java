@@ -22,6 +22,8 @@ import io.sirix.service.json.shredder.JsonShredder;
 import io.sirix.settings.VersioningType;
 import io.sirix.utils.OS;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -41,6 +43,8 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes Lichtenberger
  */
 public final class BasicJsonDBStore implements JsonDBStore {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(BasicJsonDBStore.class);
 
   /**
    * User home directory.
@@ -647,20 +651,23 @@ public final class BasicJsonDBStore implements JsonDBStore {
               try {
                 wtx.commit();
               } catch (Exception e) {
+                LOGGER.warn("Failed to commit write transaction during store close", e);
                 try {
                   wtx.rollback();
-                } catch (Exception ignored) {
+                } catch (Exception rollbackEx) {
+                  LOGGER.warn("Failed to rollback write transaction during store close", rollbackEx);
                 }
               } finally {
                 try {
                   wtx.close();
-                } catch (Exception ignored) {
+                } catch (Exception closeEx) {
+                  LOGGER.warn("Failed to close write transaction during store close", closeEx);
                 }
               }
             });
           }
         } catch (Exception e) {
-          // Session might already be closed
+          LOGGER.warn("Failed to close session during store close", e);
         }
       }
       sessionsWithWriteTrx.clear();
@@ -672,7 +679,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
             database.close();
           }
         } catch (Exception e) {
-          // Database might have been closed concurrently
+          LOGGER.warn("Failed to close database during store close", e);
         }
       }
     } catch (final SirixException e) {
