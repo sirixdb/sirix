@@ -521,8 +521,11 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
         // Clean up: remove any entries we just inserted, then close resources.
         nodeTrxMap.remove(nodeTrxId);
         storageEngineWriterMap.remove(nodeTrxId);
-        wtx.close();
-        storageEngineWriter.close();
+        try {
+          wtx.close();
+        } finally {
+          storageEngineWriter.close();
+        }
         throw new SirixThreadedException(ID_GENERATION_EXCEPTION);
       }
 

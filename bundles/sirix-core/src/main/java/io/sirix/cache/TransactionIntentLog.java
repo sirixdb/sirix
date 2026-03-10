@@ -430,8 +430,18 @@ public final class TransactionIntentLog implements AutoCloseable {
     // are from orphaned COW references that will never be read.
     if (!completedDiskOffsets.isEmpty()) {
       final int pruneThreshold = currentGeneration - 2;
-      completedDiskOffsets.keySet().removeIf(packedKey -> (int) (packedKey >> 32) < pruneThreshold);
-      completedDiskHashes.keySet().removeIf(packedKey -> (int) (packedKey >> 32) < pruneThreshold);
+      final var offsetIt = completedDiskOffsets.long2LongEntrySet().fastIterator();
+      while (offsetIt.hasNext()) {
+        if ((int) (offsetIt.next().getLongKey() >> 32) < pruneThreshold) {
+          offsetIt.remove();
+        }
+      }
+      final var hashIt = completedDiskHashes.long2ObjectEntrySet().fastIterator();
+      while (hashIt.hasNext()) {
+        if ((int) (hashIt.next().getLongKey() >> 32) < pruneThreshold) {
+          hashIt.remove();
+        }
+      }
     }
 
     // Release snapshot arrays for GC
