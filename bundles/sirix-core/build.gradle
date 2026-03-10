@@ -2,13 +2,7 @@ dependencies {
     api implLibraries.jacksonCore
     api implLibraries.brackit
     api implLibraries.slf4jApi
-    api implLibraries.perfidix
-    api implLibraries.xmlunit
-    api implLibraries.logbackClassic
-    api implLibraries.logbackCore
     api implLibraries.gson
-    api implLibraries.guava
-    api implLibraries.guavaTestlib
     api implLibraries.jspecify
     api implLibraries.caffeine
     api implLibraries.tink
@@ -22,6 +16,10 @@ dependencies {
     implementation implLibraries.integercompression
     implementation implLibraries.zeroAllocationHashing
 
+    runtimeOnly implLibraries.logbackClassic
+    runtimeOnly implLibraries.logbackCore
+
+    testImplementation implLibraries.xmlunit
     testImplementation testLibraries.junitJupiterApi
     testImplementation testLibraries.junitJupiterEngine
     testImplementation testLibraries.junitJupiterParams

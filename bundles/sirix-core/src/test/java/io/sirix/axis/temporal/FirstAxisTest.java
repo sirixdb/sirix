@@ -1,18 +1,16 @@
 package io.sirix.axis.temporal;
 
-import java.util.Iterator;
+import java.util.List;
 
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
+import io.sirix.test.IteratorTester;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.utils.XmlDocumentCreator;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.testing.IteratorFeature;
-import com.google.common.collect.testing.IteratorTester;
 
 /**
  * Test {@link FirstAxis}.
@@ -50,11 +48,8 @@ public final class FirstAxisTest {
   public void testAxis() {
     final XmlNodeReadOnlyTrx firstRtx = holder.getResourceSession().beginNodeReadOnlyTrx(1);
 
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx), null) {
-      @Override
-      protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
-        return new FirstAxis<>(holder.getResourceSession(), holder.getXmlNodeReadTrx());
-      }
-    }.test();
+    new IteratorTester<>(ITERATIONS, List.of(firstRtx), () ->
+        new FirstAxis<>(holder.getResourceSession(), holder.getXmlNodeReadTrx())
+    ).test();
   }
 }

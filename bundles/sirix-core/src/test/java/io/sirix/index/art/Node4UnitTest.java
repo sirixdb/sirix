@@ -1,6 +1,5 @@
 package io.sirix.index.art;
 
-import com.google.common.primitives.UnsignedBytes;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -19,7 +18,7 @@ public class Node4UnitTest extends InnerNodeUnitTest {
     }
 
     byte[] keys = existingKeys();
-    UnsignedBytes.sortDescending(keys);
+    unsignedSortDescending(keys);
     Assert.assertEquals(keys[0], ((Node4) node).getOnlyChildKey());
   }
 

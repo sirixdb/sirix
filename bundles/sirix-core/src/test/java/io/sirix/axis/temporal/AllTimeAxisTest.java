@@ -1,18 +1,16 @@
 package io.sirix.axis.temporal;
 
-import java.util.Iterator;
+import java.util.List;
 
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
+import io.sirix.test.IteratorTester;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.utils.XmlDocumentCreator;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.testing.IteratorFeature;
-import com.google.common.collect.testing.IteratorTester;
 
 /**
  * Test {@link AllTimeAxis}.
@@ -51,13 +49,9 @@ public final class AllTimeAxisTest {
     try (final XmlNodeReadOnlyTrx firstReader = holder.getResourceSession().beginNodeReadOnlyTrx(1);
         final XmlNodeReadOnlyTrx secondReader = holder.getResourceSession().beginNodeReadOnlyTrx(2);
         final XmlNodeReadOnlyTrx thirdReader = holder.getXmlNodeReadTrx()) {
-      new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(firstReader, secondReader, thirdReader), null) {
-        @Override
-        protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
-          return new AllTimeAxis<>(holder.getResourceSession(), holder.getXmlNodeReadTrx());
-        }
-      }.test();
+      new IteratorTester<>(ITERATIONS, List.of(firstReader, secondReader, thirdReader), () ->
+          new AllTimeAxis<>(holder.getResourceSession(), holder.getXmlNodeReadTrx())
+      ).test();
     }
   }
 
@@ -87,13 +81,9 @@ public final class AllTimeAxisTest {
       thirdReader.moveTo(4);
       fourthReader.moveTo(4);
 
-      new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE,
-          ImmutableList.of(firstReader, secondReader, thirdReader, fourthReader), null) {
-        @Override
-        protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
-          return new AllTimeAxis<>(fourthReader.getResourceSession(), fourthReader);
-        }
-      }.test();
+      new IteratorTester<>(ITERATIONS, List.of(firstReader, secondReader, thirdReader, fourthReader), () ->
+          new AllTimeAxis<>(fourthReader.getResourceSession(), fourthReader)
+      ).test();
     }
   }
 }
