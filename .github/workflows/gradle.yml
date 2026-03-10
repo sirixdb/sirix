@@ -66,7 +66,7 @@ jobs:
         run: ./gradlew :sirix-core:test --info --stacktrace
 
   TestQuery:
-    name: Test sirix-query
+    name: Test sirix-query, sirix-kotlin-api, sirix-kotlin-cli
     needs: Build
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -88,8 +88,8 @@ jobs:
             ~/.gradle/wrapper
             **/build
           key: build-${{ github.run_id }}
-      - name: Test sirix-query and sirix-kotlin-api
-        run: ./gradlew :sirix-query:test :sirix-kotlin-api:test --parallel --info --stacktrace
+      - name: Test sirix-query, sirix-kotlin-api, and sirix-kotlin-cli
+        run: ./gradlew :sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test --parallel --info --stacktrace
 
   TestRestApi:
     name: Test sirix-rest-api + Python client
