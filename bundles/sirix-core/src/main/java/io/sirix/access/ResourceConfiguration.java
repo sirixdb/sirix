@@ -431,7 +431,7 @@ public final class ResourceConfiguration {
    * @return this instance
    */
   public ResourceConfiguration setID(final long id) {
-    checkArgument(true, "The ID must be >= 0!");
+    checkArgument(id >= 0, "The ID must be >= 0!");
     this.id = id;
     return this;
   }

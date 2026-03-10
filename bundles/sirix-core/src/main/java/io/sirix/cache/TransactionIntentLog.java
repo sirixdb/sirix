@@ -425,6 +425,25 @@ public final class TransactionIntentLog implements AutoCloseable {
       }
     }
 
+    // Prune stale entries from completedDiskOffsets/completedDiskHashes that belong
+    // to generations older than 2 epochs back. Entries that haven't been accessed by now
+    // are from orphaned COW references that will never be read.
+    if (!completedDiskOffsets.isEmpty()) {
+      final int pruneThreshold = currentGeneration - 2;
+      final var offsetIt = completedDiskOffsets.long2LongEntrySet().fastIterator();
+      while (offsetIt.hasNext()) {
+        if ((int) (offsetIt.next().getLongKey() >> 32) < pruneThreshold) {
+          offsetIt.remove();
+        }
+      }
+      final var hashIt = completedDiskHashes.long2ObjectEntrySet().fastIterator();
+      while (hashIt.hasNext()) {
+        if ((int) (hashIt.next().getLongKey() >> 32) < pruneThreshold) {
+          hashIt.remove();
+        }
+      }
+    }
+
     // Release snapshot arrays for GC
     snapshotEntries = null;
     snapshotRefs = null;

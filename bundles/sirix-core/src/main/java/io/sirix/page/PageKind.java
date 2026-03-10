@@ -38,6 +38,7 @@ import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.exception.SirixIOException;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -147,6 +148,11 @@ public enum PageKind {
         while (word != 0) {
           final int bit = Long.numberOfTrailingZeros(word);
           final int slot = (w << 6) | bit;
+          if (entryIdx >= compactDir.length) {
+            throw new SirixIOException(
+                "Bitmap has more set bits than compact directory entries: entryIdx="
+                    + entryIdx + ", compactDir.length=" + compactDir.length);
+          }
           final int packed = compactDir[entryIdx++];
           final int dataLength = packed >>> 8;
           final int nodeKindId = packed & 0xFF;
