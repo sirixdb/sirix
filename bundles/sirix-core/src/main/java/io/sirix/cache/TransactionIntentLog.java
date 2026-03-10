@@ -376,80 +376,82 @@ public final class TransactionIntentLog implements AutoCloseable {
       return;
     }
 
-    for (int i = 0; i < snapshotSize; i++) {
-      final PageContainer container = snapshotEntries[i];
-      if (container == null) {
-        continue;
-      }
-      final Page modified = container.getModified();
-      final PageReference ref = snapshotRefs[i];
+    try {
+      for (int i = 0; i < snapshotSize; i++) {
+        final PageContainer container = snapshotEntries[i];
+        if (container == null) {
+          continue;
+        }
+        final Page modified = container.getModified();
+        final PageReference ref = snapshotRefs[i];
 
-      if (modified instanceof KeyValueLeafPage) {
-        // KVL page: already written to disk by background thread.
-        // Validate: side-channel offset must be valid (not sentinel).
-        final long diskOffset = snapshotDiskOffsets[i];
-        if (diskOffset == Constants.NULL_ID_LONG) {
-          throw new SirixIOException(
-              "Snapshot entry " + i + " has no disk offset — background write incomplete or failed");
+        if (modified instanceof KeyValueLeafPage) {
+          // KVL page: already written to disk by background thread.
+          // Validate: side-channel offset must be valid (not sentinel).
+          final long diskOffset = snapshotDiskOffsets[i];
+          if (diskOffset == Constants.NULL_ID_LONG) {
+            throw new SirixIOException(
+                "Snapshot entry " + i + " has no disk offset — background write incomplete or failed");
+          }
+          // Apply disk offset from side-channel
+          ref.setKey(diskOffset);
+          if (snapshotHashes[i] != null) {
+            ref.setHash(snapshotHashes[i]);
+          }
+          // Store in completed map for stale-reference resolution (Layer 3 in get()).
+          // When IndirectPages are CoW'd, their child references are COPIES that don't get
+          // this disk offset update. The map allows get() to resolve stale copies.
+          final long packedKey = ((long) snapshotGeneration << 32) | (i & 0xFFFFFFFFL);
+          completedDiskOffsets.put(packedKey, diskOffset);
+          if (snapshotHashes[i] != null) {
+            completedDiskHashes.put(packedKey, snapshotHashes[i]);
+          }
+          // Close both complete and modified pages (release MemorySegment)
+          closePageContainer(container);
+          snapshotEntries[i] = null;
+          snapshotRefs[i] = null;
+        } else {
+          // IndirectPage / structural page: promote to current TIL
+          // so final commit traversal can find them via Layer 1 lookup.
+          //
+          // GUARD: Skip if ref was already moved to currentGeneration.
+          // This happens when reAddStructuralPagesToTil() re-added this page
+          // (same ref object, generation already updated). Without this check,
+          // put() would overwrite the ref's logKey, orphaning the earlier entry.
+          if (ref.getActiveTilGeneration() != currentGeneration) {
+            put(ref, container);
+          }
+          snapshotEntries[i] = null;
+          snapshotRefs[i] = null;
         }
-        // Apply disk offset from side-channel
-        ref.setKey(diskOffset);
-        if (snapshotHashes[i] != null) {
-          ref.setHash(snapshotHashes[i]);
-        }
-        // Store in completed map for stale-reference resolution (Layer 3 in get()).
-        // When IndirectPages are CoW'd, their child references are COPIES that don't get
-        // this disk offset update. The map allows get() to resolve stale copies.
-        final long packedKey = ((long) snapshotGeneration << 32) | (i & 0xFFFFFFFFL);
-        completedDiskOffsets.put(packedKey, diskOffset);
-        if (snapshotHashes[i] != null) {
-          completedDiskHashes.put(packedKey, snapshotHashes[i]);
-        }
-        // Close both complete and modified pages (release MemorySegment)
-        closePageContainer(container);
-        snapshotEntries[i] = null;
-        snapshotRefs[i] = null;
-      } else {
-        // IndirectPage / structural page: promote to current TIL
-        // so final commit traversal can find them via Layer 1 lookup.
-        //
-        // GUARD: Skip if ref was already moved to currentGeneration.
-        // This happens when reAddStructuralPagesToTil() re-added this page
-        // (same ref object, generation already updated). Without this check,
-        // put() would overwrite the ref's logKey, orphaning the earlier entry.
-        if (ref.getActiveTilGeneration() != currentGeneration) {
-          put(ref, container);
-        }
-        snapshotEntries[i] = null;
-        snapshotRefs[i] = null;
       }
+
+      // Prune stale entries from completedDiskOffsets/completedDiskHashes that belong
+      // to generations older than 2 epochs back. Entries that haven't been accessed by now
+      // are from orphaned COW references that will never be read.
+      if (!completedDiskOffsets.isEmpty()) {
+        final int pruneThreshold = currentGeneration - 2;
+        final var offsetIt = completedDiskOffsets.long2LongEntrySet().fastIterator();
+        while (offsetIt.hasNext()) {
+          if ((int) (offsetIt.next().getLongKey() >> 32) < pruneThreshold) {
+            offsetIt.remove();
+          }
+        }
+        final var hashIt = completedDiskHashes.long2ObjectEntrySet().fastIterator();
+        while (hashIt.hasNext()) {
+          if ((int) (hashIt.next().getLongKey() >> 32) < pruneThreshold) {
+            hashIt.remove();
+          }
+        }
+      }
+    } finally {
+      // Release snapshot arrays for GC even if processing fails
+      snapshotEntries = null;
+      snapshotRefs = null;
+      snapshotDiskOffsets = null;
+      snapshotHashes = null;
+      snapshotSize = 0;
     }
-
-    // Prune stale entries from completedDiskOffsets/completedDiskHashes that belong
-    // to generations older than 2 epochs back. Entries that haven't been accessed by now
-    // are from orphaned COW references that will never be read.
-    if (!completedDiskOffsets.isEmpty()) {
-      final int pruneThreshold = currentGeneration - 2;
-      final var offsetIt = completedDiskOffsets.long2LongEntrySet().fastIterator();
-      while (offsetIt.hasNext()) {
-        if ((int) (offsetIt.next().getLongKey() >> 32) < pruneThreshold) {
-          offsetIt.remove();
-        }
-      }
-      final var hashIt = completedDiskHashes.long2ObjectEntrySet().fastIterator();
-      while (hashIt.hasNext()) {
-        if ((int) (hashIt.next().getLongKey() >> 32) < pruneThreshold) {
-          hashIt.remove();
-        }
-      }
-    }
-
-    // Release snapshot arrays for GC
-    snapshotEntries = null;
-    snapshotRefs = null;
-    snapshotDiskOffsets = null;
-    snapshotHashes = null;
-    snapshotSize = 0;
   }
 
   // ==================== CLEAR / CLOSE ====================
