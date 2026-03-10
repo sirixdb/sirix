@@ -34,7 +34,7 @@ class EmptyPipelineTest {
 
   @Test
   void isEmpty_withHandlers_returnsFalse() {
-    final var pipeline = new ByteHandlerPipeline(new LZ4Compressor());
+    final var pipeline = new ByteHandlerPipeline(new DeflateCompressor());
     assertFalse(pipeline.isEmpty(), "Pipeline with handlers should return false for isEmpty()");
   }
 

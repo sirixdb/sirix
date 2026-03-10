@@ -44,7 +44,7 @@ import io.sirix.service.ShredderCommit;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.xml.shredder.XMLUpdateShredder;
 import io.sirix.service.xml.shredder.XmlShredder;
-import com.google.common.collect.ImmutableSet;
+import java.util.Set;
 
 public final class DiffTestHelper {
 
@@ -318,11 +318,11 @@ public final class DiffTestHelper {
 
   static void checkFullDiff(final Holder holder, final DiffObserver observer, final DiffOptimized optimized) {
     DiffFactory.invokeFullXmlDiff(
-        new DiffFactory.Builder<>(holder.getResourceSession(), 2, 1, optimized, ImmutableSet.of(observer)));
+        new DiffFactory.Builder<>(holder.getResourceSession(), 2, 1, optimized, Set.of(observer)));
   }
 
   static void checkStructuralDiff(final Holder holder, final DiffObserver observer, final DiffOptimized optimized) {
     DiffFactory.invokeStructuralXmlDiff(
-        new DiffFactory.Builder<>(holder.getResourceSession(), 2, 1, optimized, ImmutableSet.of(observer)));
+        new DiffFactory.Builder<>(holder.getResourceSession(), 2, 1, optimized, Set.of(observer)));
   }
 }

@@ -1,19 +1,17 @@
 package io.sirix.axis.temporal;
 
-import java.util.Iterator;
+import java.util.List;
 
 import io.sirix.api.xml.XmlNodeReadOnlyTrx;
 import io.sirix.api.xml.XmlNodeTrx;
 import io.sirix.axis.IncludeSelf;
+import io.sirix.test.IteratorTester;
 import io.sirix.XmlTestHelper;
 import io.sirix.utils.XmlDocumentCreator;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import io.sirix.Holder;
-import com.google.common.collect.ImmutableList;
-import com.google.common.collect.testing.IteratorFeature;
-import com.google.common.collect.testing.IteratorTester;
 
 /**
  * Test {@link FutureAxis}.
@@ -50,13 +48,9 @@ public final class FutureAxisTest {
     final XmlNodeReadOnlyTrx secondRtx = holder.getResourceSession().beginNodeReadOnlyTrx(2);
     final XmlNodeReadOnlyTrx thirdRtx = holder.getXmlNodeReadTrx();
 
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(firstRtx, secondRtx, thirdRtx),
-        null) {
-      @Override
-      protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
-        return new FutureAxis<>(firstRtx.getResourceSession(), firstRtx, IncludeSelf.YES);
-      }
-    }.test();
+    new IteratorTester<>(ITERATIONS, List.of(firstRtx, secondRtx, thirdRtx), () ->
+        new FutureAxis<>(firstRtx.getResourceSession(), firstRtx, IncludeSelf.YES)
+    ).test();
   }
 
   @Test
@@ -65,12 +59,9 @@ public final class FutureAxisTest {
     final XmlNodeReadOnlyTrx secondRtx = holder.getResourceSession().beginNodeReadOnlyTrx(2);
     final XmlNodeReadOnlyTrx thirdRtx = holder.getXmlNodeReadTrx();
 
-    new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(secondRtx, thirdRtx), null) {
-      @Override
-      protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
-        return new FutureAxis<>(firstRtx.getResourceSession(), firstRtx);
-      }
-    }.test();
+    new IteratorTester<>(ITERATIONS, List.of(secondRtx, thirdRtx), () ->
+        new FutureAxis<>(firstRtx.getResourceSession(), firstRtx)
+    ).test();
   }
 
   @Test
@@ -94,13 +85,9 @@ public final class FutureAxisTest {
       thirdReader.moveTo(4);
       fourthReader.moveTo(4);
 
-      new IteratorTester<>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(thirdReader, fourthReader),
-          null) {
-        @Override
-        protected Iterator<XmlNodeReadOnlyTrx> newTargetIterator() {
-          return new FutureAxis<>(thirdReader.getResourceSession(), thirdReader, IncludeSelf.YES);
-        }
-      }.test();
+      new IteratorTester<>(ITERATIONS, List.of(thirdReader, fourthReader), () ->
+          new FutureAxis<>(thirdReader.getResourceSession(), thirdReader, IncludeSelf.YES)
+      ).test();
     }
   }
 }

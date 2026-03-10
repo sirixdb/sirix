@@ -97,9 +97,6 @@ public final class FFILz4Compressor implements ByteHandler {
    */
   private final CompressionMode compressionMode;
 
-  // Fallback to lz4-java if native not available
-  private static final LZ4Compressor FALLBACK = new LZ4Compressor();
-
   // Memory segment allocator for decompression buffers
   private static final MemorySegmentAllocator ALLOCATOR = OS.isWindows()
       ? WindowsMemorySegmentAllocator.getInstance()
@@ -228,14 +225,12 @@ public final class FFILz4Compressor implements ByteHandler {
 
   @Override
   public OutputStream serialize(OutputStream toSerialize) {
-    // Delegate to fallback for stream-based API
-    return FALLBACK.serialize(toSerialize);
+    throw new UnsupportedOperationException("Stream-based API not supported — use MemorySegment compress/decompress");
   }
 
   @Override
   public InputStream deserialize(InputStream toDeserialize) {
-    // Delegate to fallback for stream-based API
-    return FALLBACK.deserialize(toDeserialize);
+    throw new UnsupportedOperationException("Stream-based API not supported — use MemorySegment compress/decompress");
   }
 
   @Override

@@ -1,6 +1,5 @@
 package io.sirix.io.bytepipe;
 
-import com.google.common.io.ByteStreams;
 import io.sirix.exception.SirixIOException;
 import io.sirix.XmlTestHelper;
 import org.testng.annotations.DataProvider;
@@ -41,7 +40,7 @@ public final class ByteHandlerTest {
       handledOutout.flush();
 
       ByteArrayInputStream input = new ByteArrayInputStream(bytes);
-      ByteStreams.copy(input, handledOutout);
+      input.transferTo(handledOutout);
       output.flush();
       output.close();
       handledOutout.flush();
@@ -55,7 +54,7 @@ public final class ByteHandlerTest {
       input = new ByteArrayInputStream(encoded);
       InputStream handledInput = handler.deserialize(input);
       output = new ByteArrayOutputStream();
-      ByteStreams.copy(handledInput, output);
+      handledInput.transferTo(output);
       output.flush();
       output.close();
       handledInput.close();
@@ -78,11 +77,9 @@ public final class ByteHandlerTest {
     final Path encryptionKeyPath = Paths.get("src", "test", "resources", "resourceName");
 
     Object[][] returnVal = {{ByteHandler.class,
-        new ByteHandler[] {new Encryptor(encryptionKeyPath), new DeflateCompressor(), new SnappyCompressor(),
+        new ByteHandler[] {new Encryptor(encryptionKeyPath), new DeflateCompressor(),
             new ByteHandlerPipeline(new Encryptor(encryptionKeyPath), new DeflateCompressor()),
-            new ByteHandlerPipeline(new DeflateCompressor(), new Encryptor(encryptionKeyPath)),
-            new ByteHandlerPipeline(new Encryptor(encryptionKeyPath), new SnappyCompressor()),
-            new ByteHandlerPipeline(new SnappyCompressor(), new Encryptor(encryptionKeyPath))}}};
+            new ByteHandlerPipeline(new DeflateCompressor(), new Encryptor(encryptionKeyPath))}}};
     return returnVal;
   }
 

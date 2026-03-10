@@ -1,6 +1,5 @@
 package io.sirix.index.art;
 
-import com.google.common.primitives.UnsignedBytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -24,7 +23,7 @@ public abstract class InnerNodeUnitTest {
 
     @Override
     public int compareTo(Pair o) {
-      return UnsignedBytes.compare(partialKey, o.partialKey);
+      return Integer.compare(Byte.toUnsignedInt(partialKey), Byte.toUnsignedInt(o.partialKey));
     }
   }
 
@@ -90,7 +89,7 @@ public abstract class InnerNodeUnitTest {
     }
     for (int i = 1; i < node.size(); i++) {
       byte next = node.greater(prev).uplinkKey();
-      assertTrue(UnsignedBytes.compare(prev, next) < 0);
+      assertTrue(Integer.compare(Byte.toUnsignedInt(prev), Byte.toUnsignedInt(next)) < 0);
       prev = next;
       if (prev < 0) {
         negExist = true;
@@ -101,7 +100,7 @@ public abstract class InnerNodeUnitTest {
     prev = node.last().uplinkKey();
     for (int i = node.size() - 2; i >= 0; i--) {
       byte next = node.lesser(prev).uplinkKey();
-      assertTrue(UnsignedBytes.compare(prev, next) > 0);
+      assertTrue(Integer.compare(Byte.toUnsignedInt(prev), Byte.toUnsignedInt(next)) > 0);
       prev = next;
     }
   }
@@ -144,7 +143,7 @@ public abstract class InnerNodeUnitTest {
   @Test
   public void testFirst() {
     byte[] data = existingKeys();
-    UnsignedBytes.sort(data);
+    unsignedSort(data);
     assertEquals(node.first().uplinkKey(), data[0]);
   }
 
@@ -154,7 +153,7 @@ public abstract class InnerNodeUnitTest {
   @Test
   public void testLast() {
     byte[] data = existingKeys();
-    UnsignedBytes.sortDescending(data);
+    unsignedSortDescending(data);
     assertEquals(node.last().uplinkKey(), data[0]);
   }
 
@@ -333,6 +332,26 @@ public abstract class InnerNodeUnitTest {
     assertEquals(node, newChild.parent());
     assertEquals(first.uplinkKey(), first.uplinkKey());
     assertEquals(node, first.parent());
+  }
+
+  static void unsignedSort(byte[] array) {
+    final Byte[] boxed = new Byte[array.length];
+    for (int i = 0; i < array.length; i++) {
+      boxed[i] = array[i];
+    }
+    Arrays.sort(boxed, (a, b) -> Integer.compare(Byte.toUnsignedInt(a), Byte.toUnsignedInt(b)));
+    for (int i = 0; i < array.length; i++) {
+      array[i] = boxed[i];
+    }
+  }
+
+  static void unsignedSortDescending(byte[] array) {
+    unsignedSort(array);
+    for (int i = 0, j = array.length - 1; i < j; i++, j--) {
+      final byte tmp = array[i];
+      array[i] = array[j];
+      array[j] = tmp;
+    }
   }
 
 }

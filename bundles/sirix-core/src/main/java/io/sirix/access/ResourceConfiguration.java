@@ -40,7 +40,6 @@ import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerKind;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.FFILz4Compressor;
-import io.sirix.io.bytepipe.LZ4Compressor;
 import io.sirix.node.NodeSerializerImpl;
 import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.settings.StringCompressionType;
@@ -919,12 +918,6 @@ public final class ResourceConfiguration {
     private BinaryEncodingVersion binaryEncodingVersion = BINARY_ENCODING_VERSION;
 
     /**
-     * If true, require native LZ4 support; otherwise builder will fall back to the stream LZ4
-     * compressor.
-     */
-    private boolean requireNativeLz4 = false;
-
-    /**
      * String compression type for string-containing nodes.
      */
     private StringCompressionType stringCompressionType = StringCompressionType.NONE;
@@ -974,25 +967,11 @@ public final class ResourceConfiguration {
       return this;
     }
 
-    /**
-     * Require native LZ4 support; if native is unavailable, builder throws.
-     *
-     * @param requireNative flag to enforce native LZ4
-     * @return builder
-     */
-    public Builder requireNativeLz4(boolean requireNative) {
-      this.requireNativeLz4 = requireNative;
-      return this;
-    }
-
     private ByteHandlerPipeline selectDefaultByteHandler() {
-      if (FFILz4Compressor.isNativeAvailable()) {
-        return new ByteHandlerPipeline(new FFILz4Compressor());
+      if (!FFILz4Compressor.isNativeAvailable()) {
+        throw new IllegalStateException("Native LZ4 library not available — install liblz4");
       }
-      if (requireNativeLz4) {
-        throw new IllegalStateException("Native LZ4 required but not available");
-      }
-      return new ByteHandlerPipeline(new LZ4Compressor());
+      return new ByteHandlerPipeline(new FFILz4Compressor());
     }
 
     /**

@@ -15,7 +15,6 @@ dependencies {
     implementation project(':sirix-core')
 
     api implLibraries.slf4jApi
-    api implLibraries.guava
 
     implementation implLibraries.kotlinStdlib
     implementation implLibraries.kotlinStdlibJdk8

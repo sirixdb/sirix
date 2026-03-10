@@ -20,9 +20,7 @@
  */
 package io.sirix.axis
 
-import com.google.common.collect.ImmutableList
-import com.google.common.collect.testing.IteratorFeature
-import com.google.common.collect.testing.IteratorTester
+import io.sirix.test.IteratorTester
 import org.junit.After
 import org.junit.Before
 import org.junit.Ignore
@@ -73,50 +71,32 @@ class CoroutineDescendantAxisTest {
             CoroutineDescendantAxis(rm),
             longArrayOf(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L)
         )
-        object : IteratorTester<Long?>(
-            ITERATIONS,
-            IteratorFeature.UNMODIFIABLE,
-            ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
-            null
-        ) {
-            override fun newTargetIterator(): Iterator<Long> {
-                return CoroutineDescendantAxis(rm)
-            }
+        IteratorTester(ITERATIONS, listOf(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L)) {
+            CoroutineDescendantAxis(rm)
         }.test()
         rtx.moveTo(1L)
         AbsAxisTest.testAxisConventions(
             CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx),
             longArrayOf(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L)
         )
-        object : IteratorTester<Long?>(
-            ITERATIONS,
-            IteratorFeature.UNMODIFIABLE,
-            ImmutableList.of(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
-            null
-        ) {
-            override fun newTargetIterator(): Iterator<Long> {
-                val rtx = holder!!.xmlNodeReadTrx
-                rtx.moveTo(1L)
-                return CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx)
-            }
+        IteratorTester(ITERATIONS, listOf(4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L)) {
+            val rtx2 = holder!!.xmlNodeReadTrx
+            rtx2.moveTo(1L)
+            CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx2)
         }.test()
         rtx.moveTo(9L)
         AbsAxisTest.testAxisConventions(CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx), longArrayOf(11L, 12L))
-        object : IteratorTester<Long?>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(11L, 12L), null) {
-            override fun newTargetIterator(): Iterator<Long> {
-                val rtx = holder!!.xmlNodeReadTrx
-                rtx.moveTo(9L)
-                return CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx)
-            }
+        IteratorTester(ITERATIONS, listOf(11L, 12L)) {
+            val rtx2 = holder!!.xmlNodeReadTrx
+            rtx2.moveTo(9L)
+            CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx2)
         }.test()
         rtx.moveTo(13L)
         AbsAxisTest.testAxisConventions(CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx), longArrayOf())
-        object : IteratorTester<Long?>(ITERATIONS, IteratorFeature.UNMODIFIABLE, emptyList<Long>(), null) {
-            override fun newTargetIterator(): Iterator<Long> {
-                val rtx = holder!!.xmlNodeReadTrx
-                rtx.moveTo(13L)
-                return CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx)
-            }
+        IteratorTester<Long>(ITERATIONS, emptyList()) {
+            val rtx2 = holder!!.xmlNodeReadTrx
+            rtx2.moveTo(13L)
+            CoroutineDescendantAxis(rm, IncludeSelf.NO, rtx2)
         }.test()
     }
 
@@ -130,62 +110,37 @@ class CoroutineDescendantAxisTest {
                 9L, 11L, 12L, 13L
             )
         )
-        object : IteratorTester<Long?>(
-            ITERATIONS,
-            IteratorFeature.UNMODIFIABLE,
-            ImmutableList.of(
+        IteratorTester(
+            ITERATIONS, listOf(
                 Fixed.DOCUMENT_NODE_KEY.standardProperty,
-                1L,
-                4L,
-                5L,
-                6L,
-                7L,
-                8L,
-                9L,
-                11L,
-                12L,
-                13L
-            ),
-            null
+                1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L
+            )
         ) {
-            override fun newTargetIterator(): Iterator<Long> {
-                return CoroutineDescendantAxis(rm, IncludeSelf.YES)
-            }
+            CoroutineDescendantAxis(rm, IncludeSelf.YES)
         }.test()
         rtx.moveTo(1L)
         AbsAxisTest.testAxisConventions(
             CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx),
             longArrayOf(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L)
         )
-        object : IteratorTester<Long?>(
-            ITERATIONS,
-            IteratorFeature.UNMODIFIABLE,
-            ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
-            null
-        ) {
-            override fun newTargetIterator(): Iterator<Long> {
-                val rtx: NodeCursor = rm.beginNodeReadOnlyTrx()
-                rtx.moveTo(1L)
-                return CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx)
-            }
+        IteratorTester(ITERATIONS, listOf(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L)) {
+            val rtx2: NodeCursor = rm.beginNodeReadOnlyTrx()
+            rtx2.moveTo(1L)
+            CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx2)
         }.test()
         rtx.moveTo(9L)
         AbsAxisTest.testAxisConventions(CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx), longArrayOf(9L, 11L, 12L))
-        object : IteratorTester<Long?>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(9L, 11L, 12L), null) {
-            override fun newTargetIterator(): Iterator<Long> {
-                val rtx: NodeCursor = rm.beginNodeReadOnlyTrx()
-                rtx.moveTo(9L)
-                return CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx)
-            }
+        IteratorTester(ITERATIONS, listOf(9L, 11L, 12L)) {
+            val rtx2: NodeCursor = rm.beginNodeReadOnlyTrx()
+            rtx2.moveTo(9L)
+            CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx2)
         }.test()
         rtx.moveTo(13L)
         AbsAxisTest.testAxisConventions(CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx), longArrayOf(13L))
-        object : IteratorTester<Long?>(ITERATIONS, IteratorFeature.UNMODIFIABLE, ImmutableList.of(13L), null) {
-            override fun newTargetIterator(): Iterator<Long> {
-                val rtx: NodeCursor = rm.beginNodeReadOnlyTrx()
-                rtx.moveTo(13L)
-                return CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx)
-            }
+        IteratorTester(ITERATIONS, listOf(13L)) {
+            val rtx2: NodeCursor = rm.beginNodeReadOnlyTrx()
+            rtx2.moveTo(13L)
+            CoroutineDescendantAxis(rm, IncludeSelf.YES, rtx2)
         }.test()
     }
 
@@ -199,32 +154,18 @@ class CoroutineDescendantAxisTest {
             CoroutineDescendantAxis(rm),
             longArrayOf(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L)
         )
-        object : IteratorTester<Long?>(
-            ITERATIONS,
-            IteratorFeature.UNMODIFIABLE,
-            ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
-            null
-        ) {
-            override fun newTargetIterator(): Iterator<Long> {
-                return CoroutineDescendantAxis(rm)
-            }
+        IteratorTester(ITERATIONS, listOf(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L)) {
+            CoroutineDescendantAxis(rm)
         }.test()
         val time2 = LocalDateTime.now()
         AbsAxisTest.testAxisConventions(
             DescendantAxis(
                 rtx
             ), longArrayOf(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L))
-        object : IteratorTester<Long?>(
-            ITERATIONS,
-            IteratorFeature.UNMODIFIABLE,
-            ImmutableList.of(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L),
-            null
-        ) {
-            override fun newTargetIterator(): Iterator<Long> {
-                val rtx = holder!!.xmlNodeReadTrx
-                rtx.moveToDocumentRoot()
-                return DescendantAxis(rtx)
-            }
+        IteratorTester(ITERATIONS, listOf(1L, 4L, 5L, 6L, 7L, 8L, 9L, 11L, 12L, 13L)) {
+            val rtx2 = holder!!.xmlNodeReadTrx
+            rtx2.moveToDocumentRoot()
+            DescendantAxis(rtx2)
         }.test()
         val time3 = LocalDateTime.now()
         println("CoroutineDescendantAxis -> " + Duration.between(time1, time2).toMillis())

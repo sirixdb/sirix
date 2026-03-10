@@ -12,6 +12,7 @@ dependencies {
 
     testImplementation project(path: ':sirix-core', configuration: 'testArtifacts')
     testImplementation testLibraries.brackit
+    testImplementation implLibraries.xmlunit
 }
 
 apply plugin: 'kotlin'

@@ -1,4 +1,3 @@
-time="2026-01-17T14:26:14+01:00" level=warning msg="No services to build"
  Network sirix-test_auth-network Creating 
  Network sirix-test_auth-network Created 
  Container sirix-test-keycloak-1 Creating 
