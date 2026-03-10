@@ -14,10 +14,10 @@ on:
   schedule:
     - cron: '0 4 * * *'
 jobs:
-  Test:
-    name: Run tests
+  Build:
+    name: Compile and package
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -26,44 +26,122 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '25'
-      - uses: actions/cache@v4
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Compile and package
+        run: ./gradlew classes testClasses --parallel --refresh-dependencies
+      - name: Cache build output
+        uses: actions/cache/save@v4
         with:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-      - name: Build with Gradle
-        run: ./gradlew clean build --info --stacktrace --refresh-dependencies
-      - name: Stop gradle daemon
-        run: ./gradlew --stop
-      - name: run python client tests
+            **/build
+          key: build-${{ github.run_id }}
+
+  TestCore:
+    name: Test sirix-core
+    needs: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Restore build output
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            **/build
+          key: build-${{ github.run_id }}
+      - name: Test sirix-core
+        run: ./gradlew :sirix-core:test --info --stacktrace
+
+  TestQuery:
+    name: Test sirix-query, sirix-kotlin-api, sirix-kotlin-cli
+    needs: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Restore build output
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            **/build
+          key: build-${{ github.run_id }}
+      - name: Test sirix-query, sirix-kotlin-api, and sirix-kotlin-cli
+        run: ./gradlew :sirix-query:test :sirix-kotlin-api:test :sirix-kotlin-cli:test --parallel --info --stacktrace
+
+  TestRestApi:
+    name: Test sirix-rest-api + Python client
+    needs: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Restore build output
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+            **/build
+          key: build-${{ github.run_id }}
+      - name: Checkout Python client
         uses: actions/checkout@v4
         with:
           repository: sirixdb/sirix-python-client
           path: ./sirix-python-client
-      - name: setup python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.9"
           architecture: x64
-      - name: install python client dependencies and run tests
+      - name: Install Python client dependencies and run tests
         run: |
           docker compose up -d keycloak
           python -m pip install --upgrade pip
           pip install -r sirix-python-client/requirements-all.txt
           sleep 40
-          # bash sirix-python-client/tests/resources/wait.sh
           java -Xms1g -Xmx4g --enable-preview --enable-native-access=ALL-UNNAMED --add-modules=jdk.incubator.vector --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED --add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED -jar ./bundles/sirix-rest-api/build/libs/sirix-rest-api-*-SNAPSHOT-fat.jar -conf ./bundles/sirix-rest-api/src/main/resources/sirix-conf.json &
           sleep 5
           python -m pytest sirix-python-client -v
+
   NativeImageTest:
-    name: Native Image Tests (GraalVM)
+    name: Native Image (${{ matrix.module }})
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [sirix-query, sirix-kotlin-cli, sirix-rest-api]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -73,34 +151,19 @@ jobs:
           java-version: '25'
           distribution: 'graalvm'
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-native-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: |
-            ${{ runner.os }}-gradle-native-
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-      - name: Smoke tests (JVM fast gate)
-        run: |
-          ./gradlew :sirix-query:nativeImageSmokeTest --info
-          ./gradlew :sirix-kotlin-cli:nativeImageSmokeTest --info
-          ./gradlew :sirix-rest-api:nativeImageSmokeTest --info
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: JVM smoke test
+        run: ./gradlew :${{ matrix.module }}:nativeImageSmokeTest --info
       - name: Stop Gradle daemon (free memory for native compilation)
         run: ./gradlew --stop
-      - name: Native smoke test sirix-query
-        run: ./gradlew :sirix-query:nativeSmokeTest --no-daemon --info
-      - name: Native smoke test sirix-kotlin-cli
-        run: ./gradlew :sirix-kotlin-cli:nativeSmokeTest --no-daemon --info
-      - name: Native smoke test sirix-rest-api
-        run: ./gradlew :sirix-rest-api:nativeSmokeTest --no-daemon --info
+      - name: Native image smoke test
+        run: ./gradlew :${{ matrix.module }}:nativeSmokeTest --no-daemon --info
 
   Deploy:
     name: Deploy to OSSRH and Docker Hub
     if: ${{ github.repository_owner == 'sirixdb' && (github.event_name == 'push' || github.event_name == 'schedule') }}
-    needs: Test
+    needs: [TestCore, TestQuery, TestRestApi]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -114,6 +177,8 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '25'
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
       - name: Gradle deploy
         run: ./gradlew travisReleaseSnapshot --info
       - name: Login to Docker Hub
