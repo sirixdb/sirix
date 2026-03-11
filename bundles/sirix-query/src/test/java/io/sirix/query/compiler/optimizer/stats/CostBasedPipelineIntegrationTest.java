@@ -28,7 +28,7 @@ final class CostBasedPipelineIntegrationTest {
     final var forBind = new AST(XQ.ForBind, null);
     forBind.addChild(new AST(XQ.Variable, "x"));
     final var bindExpr = new AST(XQ.DerefExpr, null);
-    bindExpr.setProperty("costBased.pathCardinality", 10000L);
+    bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 10000L);
     forBind.addChild(bindExpr);
 
     final var andExpr = new AST(XQ.AndExpr, null);
@@ -59,7 +59,7 @@ final class CostBasedPipelineIntegrationTest {
     final var forBind = new AST(XQ.ForBind, null);
     forBind.addChild(new AST(XQ.Variable, "x"));
     final var bindExpr = new AST(XQ.DerefExpr, null);
-    bindExpr.setProperty("costBased.pathCardinality", 500L);
+    bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 500L);
     forBind.addChild(bindExpr);
 
     final var selection = new AST(XQ.Selection, null);
@@ -78,7 +78,7 @@ final class CostBasedPipelineIntegrationTest {
     final var forBind = new AST(XQ.ForBind, null);
     forBind.addChild(new AST(XQ.Variable, "x"));
     final var bindExpr = new AST(XQ.DerefExpr, null);
-    bindExpr.setProperty("costBased.pathCardinality", 10000L);
+    bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 10000L);
     forBind.addChild(bindExpr);
 
     // OR selection
@@ -96,7 +96,7 @@ final class CostBasedPipelineIntegrationTest {
     final var forBind2 = new AST(XQ.ForBind, null);
     forBind2.addChild(new AST(XQ.Variable, "x"));
     final var bindExpr2 = new AST(XQ.DerefExpr, null);
-    bindExpr2.setProperty("costBased.pathCardinality", 10000L);
+    bindExpr2.setProperty(CostProperties.PATH_CARDINALITY, 10000L);
     forBind2.addChild(bindExpr2);
 
     final var andExpr = new AST(XQ.AndExpr, null);
@@ -120,7 +120,7 @@ final class CostBasedPipelineIntegrationTest {
     final var forBind = new AST(XQ.ForBind, null);
     forBind.addChild(new AST(XQ.Variable, "x"));
     final var bindExpr = new AST(XQ.DerefExpr, null);
-    bindExpr.setProperty("costBased.pathCardinality", 1000L);
+    bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 1000L);
     forBind.addChild(bindExpr);
 
     final var letBind = new AST(XQ.LetBind, null);
@@ -147,7 +147,7 @@ final class CostBasedPipelineIntegrationTest {
     final var forBind = new AST(XQ.ForBind, null);
     forBind.addChild(new AST(XQ.Variable, "x"));
     final var bindExpr = new AST(XQ.DerefExpr, null);
-    bindExpr.setProperty("costBased.pathCardinality", 100000L);
+    bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 100000L);
     forBind.addChild(bindExpr);
 
     final var andExpr = new AST(XQ.AndExpr, null);

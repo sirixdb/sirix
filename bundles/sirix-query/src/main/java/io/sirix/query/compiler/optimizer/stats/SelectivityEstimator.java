@@ -49,8 +49,11 @@ public final class SelectivityEstimator {
       return estimateComparisonSelectivity(predicateExpr);
     }
     // Brackit may represent comparisons with the operator type directly
-    if (isComparisonType(type)) {
-      return selectivityForComparisonType(type);
+    {
+      final double typeSel = selectivityForComparisonType(type);
+      if (typeSel != DEFAULT_SELECTIVITY) {
+        return typeSel;
+      }
     }
 
     // For Predicate wrapper nodes, recurse into child
@@ -136,12 +139,4 @@ public final class SelectivityEstimator {
     };
   }
 
-  private static boolean isComparisonType(int type) {
-    return type == XQ.ValueCompEQ || type == XQ.ValueCompNE
-        || type == XQ.ValueCompLT || type == XQ.ValueCompLE
-        || type == XQ.ValueCompGT || type == XQ.ValueCompGE
-        || type == XQ.GeneralCompEQ || type == XQ.GeneralCompNE
-        || type == XQ.GeneralCompLT || type == XQ.GeneralCompLE
-        || type == XQ.GeneralCompGT || type == XQ.GeneralCompGE;
-  }
 }

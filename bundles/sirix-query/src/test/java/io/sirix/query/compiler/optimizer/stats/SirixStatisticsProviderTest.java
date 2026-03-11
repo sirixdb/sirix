@@ -4,6 +4,7 @@ import io.brackit.query.Query;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.sirix.JsonTestHelper;
+import io.sirix.index.IndexType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -123,7 +124,7 @@ final class SirixStatisticsProviderTest {
           agePath, DB_NAME, RESOURCE_NAME, -1);
 
       assertFalse(indexInfo.exists(), "No index should be found when none is created");
-      assertEquals(IndexType.NONE, indexInfo.type());
+      assertEquals(null, indexInfo.type(), "No-index sentinel should have null type");
     }
   }
 

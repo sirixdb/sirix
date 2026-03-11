@@ -4,9 +4,9 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
-import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.ResourceSession;
 import io.sirix.index.IndexDef;
+import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.query.json.JsonDBStore;
 
@@ -17,8 +17,8 @@ import java.util.Objects;
 /**
  * Statistics provider backed by SirixDB's PathSummary and IndexController.
  *
- * <p>Caches path cardinalities and resource sessions to avoid repeated
- * lookups within a single query optimization pass. Call {@link #clearCaches()}
+ * <p>Caches path cardinalities, index lookups, and resource sessions to avoid
+ * repeated lookups within a single query optimization pass. Call {@link #clearCaches()}
  * between queries to prevent stale statistics.</p>
  */
 public final class SirixStatisticsProvider implements StatisticsProvider, AutoCloseable {
@@ -27,11 +27,14 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
 
   private final Map<PathCacheKey, Long> pathCardinalityCache;
 
+  private final Map<PathCacheKey, IndexInfo> indexInfoCache;
+
   private final Map<String, ResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx>> sessionCache;
 
   public SirixStatisticsProvider(JsonDBStore jsonStore) {
     this.jsonStore = Objects.requireNonNull(jsonStore);
     this.pathCardinalityCache = new HashMap<>(64);
+    this.indexInfoCache = new HashMap<>(16);
     this.sessionCache = new HashMap<>(4);
   }
 
@@ -59,6 +62,7 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
    */
   public void clearCaches() {
     pathCardinalityCache.clear();
+    indexInfoCache.clear();
     for (final var session : sessionCache.values()) {
       if (session != null) {
         try {
@@ -137,6 +141,23 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
   @Override
   public IndexInfo getIndexInfo(Path<QNm> path, String databaseName,
                                 String resourceName, int revision) {
+    final var key = new PathCacheKey(path, databaseName, resourceName, revision);
+    final IndexInfo cached = indexInfoCache.get(key);
+    if (cached != null) {
+      return cached;
+    }
+
+    final IndexInfo result = lookupIndexInfo(path, databaseName, resourceName, revision);
+    indexInfoCache.put(key, result);
+    return result;
+  }
+
+  /**
+   * Single-pass index lookup with priority: CAS > PATH > NAME.
+   * Iterates index definitions once, tracking the best match by priority.
+   */
+  private IndexInfo lookupIndexInfo(Path<QNm> path, String databaseName,
+                                    String resourceName, int revision) {
     try {
       final var resMgr = getSession(databaseName, resourceName);
       if (resMgr == null) {
@@ -149,40 +170,39 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
 
       final var indexes = indexController.getIndexes();
 
-      // CAS index first (most useful for value predicates)
+      // Single pass: track best match by priority (CAS=0, PATH=1, NAME=2)
+      IndexInfo bestMatch = null;
+      int bestPriority = Integer.MAX_VALUE;
+      final QNm leafName = path.getLength() > 0 ? path.tail() : null;
+
       for (final IndexDef indexDef : indexes.getIndexDefs()) {
-        if (indexDef.isCasIndex()) {
+        if (indexDef.isCasIndex() && bestPriority > 0) {
           for (final Path<QNm> indexedPath : indexDef.getPaths()) {
             if (indexedPath.matches(path)) {
-              return new IndexInfo(indexDef.getID(), IndexType.CAS, true);
+              bestMatch = new IndexInfo(indexDef.getID(), IndexType.CAS, true);
+              bestPriority = 0;
+              break; // CAS is highest priority — can't do better
             }
           }
-        }
-      }
-
-      // Path index
-      for (final IndexDef indexDef : indexes.getIndexDefs()) {
-        if (indexDef.isPathIndex()) {
+          if (bestPriority == 0) {
+            return bestMatch; // early exit: CAS found
+          }
+        } else if (indexDef.isPathIndex() && bestPriority > 1) {
           for (final Path<QNm> indexedPath : indexDef.getPaths()) {
             if (indexedPath.matches(path)) {
-              return new IndexInfo(indexDef.getID(), IndexType.PATH, true);
+              bestMatch = new IndexInfo(indexDef.getID(), IndexType.PATH, true);
+              bestPriority = 1;
+              break;
             }
           }
+        } else if (indexDef.isNameIndex() && bestPriority > 2
+            && leafName != null && indexDef.getIncluded().contains(leafName)) {
+          bestMatch = new IndexInfo(indexDef.getID(), IndexType.NAME, true);
+          bestPriority = 2;
         }
       }
 
-      // Name index — verify it covers the requested path's leaf name
-      if (path.getLength() > 0) {
-        final QNm leafName = path.tail();
-        for (final IndexDef indexDef : indexes.getIndexDefs()) {
-          if (indexDef.isNameIndex()
-              && indexDef.getIncluded().contains(leafName)) {
-            return new IndexInfo(indexDef.getID(), IndexType.NAME, true);
-          }
-        }
-      }
-
-      return IndexInfo.NO_INDEX;
+      return bestMatch != null ? bestMatch : IndexInfo.NO_INDEX;
     } catch (Exception e) {
       return IndexInfo.NO_INDEX;
     }
@@ -194,8 +214,8 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
     final long nodeCount = getPathCardinality(path, databaseName, resourceName, revision);
     final IndexInfo indexInfo = getIndexInfo(path, databaseName, resourceName, revision);
 
+    // Compute path level from PathSummary — reuse cached PCRs if possible
     int pathLevel = -1;
-
     try {
       final var resMgr = getSession(databaseName, resourceName);
       if (resMgr != null) {

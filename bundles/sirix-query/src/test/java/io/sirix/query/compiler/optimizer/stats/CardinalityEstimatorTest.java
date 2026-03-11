@@ -22,7 +22,7 @@ final class CardinalityEstimatorTest {
     final var forBind = new AST(XQ.ForBind, null);
     forBind.addChild(new AST(XQ.Variable, "x"));    // variable declaration
     final var bindingExpr = new AST(XQ.DerefExpr, null);
-    bindingExpr.setProperty("costBased.pathCardinality", 100L);
+    bindingExpr.setProperty(CostProperties.PATH_CARDINALITY, 100L);
     forBind.addChild(bindingExpr);                    // binding expression
 
     final long card = cardEstimator.estimatePipelineCardinality(forBind);
@@ -35,7 +35,7 @@ final class CardinalityEstimatorTest {
     final var forBind = new AST(XQ.ForBind, null);
     forBind.addChild(new AST(XQ.Variable, "x"));
     final var bindExpr = new AST(XQ.DerefExpr, null);
-    bindExpr.setProperty("costBased.pathCardinality", 50L);
+    bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 50L);
     forBind.addChild(bindExpr);
 
     final var letBind = new AST(XQ.LetBind, null);
@@ -53,7 +53,7 @@ final class CardinalityEstimatorTest {
     final var forBind = new AST(XQ.ForBind, null);
     forBind.addChild(new AST(XQ.Variable, "x"));
     final var bindExpr = new AST(XQ.DerefExpr, null);
-    bindExpr.setProperty("costBased.pathCardinality", 1000L);
+    bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 1000L);
     forBind.addChild(bindExpr);
 
     final var predicate = makeComparison("ValueCompEQ");
@@ -72,7 +72,7 @@ final class CardinalityEstimatorTest {
     final var source = new AST(XQ.ForBind, null);
     source.addChild(new AST(XQ.Variable, "x"));
     final var bindExpr = new AST(XQ.DerefExpr, null);
-    bindExpr.setProperty("costBased.pathCardinality", 500L);
+    bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 500L);
     source.addChild(bindExpr);
 
     final var predicate = new AST(XQ.Predicate, null);
@@ -92,7 +92,7 @@ final class CardinalityEstimatorTest {
     final var forBind = new AST(XQ.ForBind, null);
     forBind.addChild(new AST(XQ.Variable, "x"));
     final var bindExpr = new AST(XQ.DerefExpr, null);
-    bindExpr.setProperty("costBased.pathCardinality", 10000L);
+    bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 10000L);
     forBind.addChild(bindExpr);
 
     final var groupBy = new AST(XQ.GroupBy, null);
@@ -109,7 +109,7 @@ final class CardinalityEstimatorTest {
     final var forBind = new AST(XQ.ForBind, null);
     forBind.addChild(new AST(XQ.Variable, "x"));
     final var bindExpr = new AST(XQ.DerefExpr, null);
-    bindExpr.setProperty("costBased.pathCardinality", 2L);
+    bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 2L);
     forBind.addChild(bindExpr);
 
     final var predicate = makeComparison("ValueCompEQ"); // 0.01
@@ -127,12 +127,12 @@ final class CardinalityEstimatorTest {
     final var forBind = new AST(XQ.ForBind, null);
     forBind.addChild(new AST(XQ.Variable, "x"));
     final var bindExpr = new AST(XQ.DerefExpr, null);
-    bindExpr.setProperty("costBased.pathCardinality", 200L);
+    bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 200L);
     forBind.addChild(bindExpr);
 
     cardEstimator.annotateCardinalities(forBind);
 
-    final Object annotated = forBind.getProperty("costBased.estimatedCardinality");
+    final Object annotated = forBind.getProperty(CostProperties.ESTIMATED_CARDINALITY);
     assertTrue(annotated instanceof Long, "Should annotate with Long cardinality");
     assertEquals(200L, annotated, "Should annotate ForBind with its cardinality");
   }

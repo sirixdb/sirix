@@ -43,7 +43,7 @@ public final class CardinalityEstimator {
 
   /**
    * Annotate an AST subtree with estimated cardinalities on ForBind, LetBind,
-   * and Selection nodes. Sets the property {@code "costBased.estimatedCardinality"}.
+   * and Selection nodes. Sets the property {@code CostProperties.ESTIMATED_CARDINALITY}.
    *
    * @param node the root of the subtree to annotate
    */
@@ -54,7 +54,7 @@ public final class CardinalityEstimator {
     if (node.getType() == XQ.ForBind || node.getType() == XQ.LetBind
         || node.getType() == XQ.Selection || node.getType() == XQ.FilterExpr) {
       final long cardinality = walkPipeline(node, 0);
-      node.setProperty("costBased.estimatedCardinality", cardinality);
+      node.setProperty(CostProperties.ESTIMATED_CARDINALITY, cardinality);
     }
     for (int i = 0; i < node.getChildCount(); i++) {
       annotateCardinalities(node.getChild(i));
@@ -141,7 +141,7 @@ public final class CardinalityEstimator {
     final AST bindingExpr = forBind.getChild(1);
 
     // Check if CostBasedStage (M1) already annotated this
-    final Object pathCard = bindingExpr.getProperty("costBased.pathCardinality");
+    final Object pathCard = bindingExpr.getProperty(CostProperties.PATH_CARDINALITY);
     if (pathCard instanceof Number numCard) {
       return Math.max(1L, numCard.longValue());
     }

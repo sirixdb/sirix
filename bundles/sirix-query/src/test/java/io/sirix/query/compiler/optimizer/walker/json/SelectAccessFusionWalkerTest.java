@@ -2,6 +2,7 @@ package io.sirix.query.compiler.optimizer.walker.json;
 
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
+import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -24,13 +25,13 @@ final class SelectAccessFusionWalkerTest {
     walker.walk(filterExpr);
 
     assertTrue(walker.wasModified(), "Walker should report modification");
-    assertEquals(1, filterExpr.getProperty("fusedPredicate.count"));
-    assertEquals("ValueCompEQ", filterExpr.getProperty("fusedPredicate.operator"));
-    assertEquals("category", filterExpr.getProperty("fusedPredicate.fieldName"));
+    assertEquals(1, filterExpr.getProperty(CostProperties.FUSED_COUNT));
+    assertEquals("ValueCompEQ", filterExpr.getProperty(CostProperties.FUSED_OPERATOR));
+    assertEquals("category", filterExpr.getProperty(CostProperties.FUSED_FIELD_NAME));
 
     // Access expression should also be annotated
     final var accessExpr = filterExpr.getChild(0);
-    assertEquals(true, accessExpr.getProperty("fusedPredicate.hasPredicatePushdown"));
+    assertEquals(true, accessExpr.getProperty(CostProperties.FUSED_HAS_PUSHDOWN));
   }
 
   @Test
@@ -41,8 +42,8 @@ final class SelectAccessFusionWalkerTest {
     walker.walk(filterExpr);
 
     assertTrue(walker.wasModified());
-    assertEquals("ValueCompGT", filterExpr.getProperty("fusedPredicate.operator"));
-    assertEquals("price", filterExpr.getProperty("fusedPredicate.fieldName"));
+    assertEquals("ValueCompGT", filterExpr.getProperty(CostProperties.FUSED_OPERATOR));
+    assertEquals("price", filterExpr.getProperty(CostProperties.FUSED_FIELD_NAME));
   }
 
   @Test
@@ -67,9 +68,9 @@ final class SelectAccessFusionWalkerTest {
     walker.walk(filterExpr);
 
     assertTrue(walker.wasModified());
-    assertEquals(2, filterExpr.getProperty("fusedPredicate.count"));
-    assertEquals("ValueCompGT", filterExpr.getProperty("fusedPredicate.operator"));
-    assertEquals("ValueCompLT", filterExpr.getProperty("fusedPredicate.operator2"));
+    assertEquals(2, filterExpr.getProperty(CostProperties.FUSED_COUNT));
+    assertEquals("ValueCompGT", filterExpr.getProperty(CostProperties.FUSED_OPERATOR));
+    assertEquals("ValueCompLT", filterExpr.getProperty(CostProperties.FUSED_OPERATOR2));
   }
 
   @Test
@@ -83,7 +84,7 @@ final class SelectAccessFusionWalkerTest {
     final var result = walker.walk(deref);
 
     assertNotNull(result);
-    assertNull(deref.getProperty("fusedPredicate.count"));
+    assertNull(deref.getProperty(CostProperties.FUSED_COUNT));
   }
 
   @Test
@@ -95,20 +96,20 @@ final class SelectAccessFusionWalkerTest {
     final var walker = new SelectAccessFusionWalker();
     walker.walk(filterExpr);
 
-    assertNull(filterExpr.getProperty("fusedPredicate.count"),
+    assertNull(filterExpr.getProperty(CostProperties.FUSED_COUNT),
         "Should not annotate FilterExpr without a Predicate child");
   }
 
   @Test
   void skipAlreadyFusedFilterExpr() {
     final var filterExpr = buildFilterExpr("ValueCompEQ", "name");
-    filterExpr.setProperty("fusedPredicate.count", 1); // already fused
+    filterExpr.setProperty(CostProperties.FUSED_COUNT, 1); // already fused
 
     final var walker = new SelectAccessFusionWalker();
     walker.walk(filterExpr);
 
     // Should NOT re-fuse — count stays at 1 (not overwritten)
-    assertEquals(1, filterExpr.getProperty("fusedPredicate.count"));
+    assertEquals(1, filterExpr.getProperty(CostProperties.FUSED_COUNT));
   }
 
   @Test
@@ -129,8 +130,8 @@ final class SelectAccessFusionWalkerTest {
     walker.walk(filterExpr);
 
     assertTrue(walker.wasModified());
-    assertEquals("ValueCompEQ", filterExpr.getProperty("fusedPredicate.operator"));
-    assertEquals(true, arrayAccess.getProperty("fusedPredicate.hasPredicatePushdown"));
+    assertEquals("ValueCompEQ", filterExpr.getProperty(CostProperties.FUSED_OPERATOR));
+    assertEquals(true, arrayAccess.getProperty(CostProperties.FUSED_HAS_PUSHDOWN));
   }
 
   // --- helpers ---

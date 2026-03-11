@@ -3,6 +3,7 @@ package io.sirix.query.compiler.optimizer.walker.json;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.walker.Walker;
+import io.sirix.query.compiler.optimizer.stats.CostProperties;
 
 /**
  * Rule 3: Select-Access Fusion — pushes value predicates from FilterExpr
@@ -80,7 +81,7 @@ public final class SelectAccessFusionWalker extends Walker {
     }
 
     // Already fused — skip
-    if (node.getProperty("fusedPredicate.count") != null) {
+    if (node.getProperty(CostProperties.FUSED_COUNT) != null) {
       return node;
     }
 
@@ -117,17 +118,17 @@ public final class SelectAccessFusionWalker extends Walker {
     final String fieldName = extractPredicateFieldName(comparisonExpr);
 
     // Annotate the FilterExpr with fused predicate metadata
-    filterExpr.setProperty("fusedPredicate.count", 1);
-    filterExpr.setProperty("fusedPredicate.operator", operator);
+    filterExpr.setProperty(CostProperties.FUSED_COUNT, 1);
+    filterExpr.setProperty(CostProperties.FUSED_OPERATOR, operator);
     if (fieldName != null) {
-      filterExpr.setProperty("fusedPredicate.fieldName", fieldName);
+      filterExpr.setProperty(CostProperties.FUSED_FIELD_NAME, fieldName);
     }
 
     // Also annotate the access expression so CostBasedStage can find it
-    accessExpr.setProperty("fusedPredicate.hasPredicatePushdown", true);
-    accessExpr.setProperty("fusedPredicate.operator", operator);
+    accessExpr.setProperty(CostProperties.FUSED_HAS_PUSHDOWN, true);
+    accessExpr.setProperty(CostProperties.FUSED_OPERATOR, operator);
     if (fieldName != null) {
-      accessExpr.setProperty("fusedPredicate.fieldName", fieldName);
+      accessExpr.setProperty(CostProperties.FUSED_FIELD_NAME, fieldName);
     }
 
     modified = true;
@@ -165,21 +166,21 @@ public final class SelectAccessFusionWalker extends Walker {
     }
 
     // Annotate the FilterExpr
-    filterExpr.setProperty("fusedPredicate.count", validCount);
-    filterExpr.setProperty("fusedPredicate.operator", operators[0]);
+    filterExpr.setProperty(CostProperties.FUSED_COUNT, validCount);
+    filterExpr.setProperty(CostProperties.FUSED_OPERATOR, operators[0]);
     if (fieldNames[0] != null) {
-      filterExpr.setProperty("fusedPredicate.fieldName", fieldNames[0]);
+      filterExpr.setProperty(CostProperties.FUSED_FIELD_NAME, fieldNames[0]);
     }
     if (validCount >= 2) {
-      filterExpr.setProperty("fusedPredicate.operator2", operators[1]);
+      filterExpr.setProperty(CostProperties.FUSED_OPERATOR2, operators[1]);
       if (fieldNames[1] != null) {
-        filterExpr.setProperty("fusedPredicate.fieldName2", fieldNames[1]);
+        filterExpr.setProperty(CostProperties.FUSED_FIELD_NAME2, fieldNames[1]);
       }
     }
 
     // Annotate the access expression
-    accessExpr.setProperty("fusedPredicate.hasPredicatePushdown", true);
-    accessExpr.setProperty("fusedPredicate.predicateCount", validCount);
+    accessExpr.setProperty(CostProperties.FUSED_HAS_PUSHDOWN, true);
+    accessExpr.setProperty(CostProperties.FUSED_PREDICATE_COUNT, validCount);
 
     modified = true;
     return filterExpr;

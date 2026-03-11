@@ -32,6 +32,8 @@ public final class JqgmRewriteStage implements Stage {
 
   @Override
   public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
+    // Reuse walker instance across fixpoint iterations (prepare() resets state)
+    final var selectAccessWalker = new SelectAccessFusionWalker();
     boolean modified = true;
     int iterations = 0;
 
@@ -39,7 +41,6 @@ public final class JqgmRewriteStage implements Stage {
       modified = false;
 
       // Rule 3: Select-Access fusion (predicate pushdown)
-      final var selectAccessWalker = new SelectAccessFusionWalker();
       final AST prev = ast;
       ast = selectAccessWalker.walk(ast);
       if (ast != prev || selectAccessWalker.wasModified()) {
