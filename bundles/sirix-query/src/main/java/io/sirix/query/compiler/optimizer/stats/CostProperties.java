@@ -44,6 +44,22 @@ public final class CostProperties {
   public static final String JOIN_SWAPPED = "joinOrder.swapped";
   public static final String JOIN_PREDICATE_PUSHED = "joinOrder.predicatePushed";
 
+  // --- Join fusion annotations (Milestone 4, Rule 1) ---
+  public static final String JOIN_FUSED = "joinFusion.fused";
+  public static final String JOIN_FUSION_GROUP_ID = "joinFusion.groupId";
+  public static final String JOIN_FUSION_STEP_COUNT = "joinFusion.stepCount";
+
+  // --- Join decomposition annotations (Milestone 4, Rules 5-6) ---
+  public static final String DECOMPOSITION_APPLICABLE = "joinDecomposition.applicable";
+  public static final String DECOMPOSITION_TYPE = "joinDecomposition.type";
+  public static final String DECOMPOSITION_RULE_5 = "joinDecomposition.rule5";
+  public static final String DECOMPOSITION_RULE_6 = "joinDecomposition.rule6";
+  public static final String DECOMPOSITION_INDEX_ID = "joinDecomposition.indexId";
+  public static final String DECOMPOSITION_INDEX_TYPE = "joinDecomposition.indexType";
+  public static final String DECOMPOSITION_INDEX_ID_RIGHT = "joinDecomposition.indexId.right";
+  public static final String DECOMPOSITION_INDEX_TYPE_RIGHT = "joinDecomposition.indexType.right";
+  public static final String DECOMPOSITION_INTERSECT = "joinDecomposition.intersect";
+
   /**
    * Check if an AST node represents a left outer join.
    */
