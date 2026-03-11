@@ -8,8 +8,10 @@ import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.path.Path;
+import io.sirix.query.compiler.optimizer.stats.CardinalityEstimator;
 import io.sirix.query.compiler.optimizer.stats.IndexInfo;
 import io.sirix.query.compiler.optimizer.stats.JsonCostModel;
+import io.sirix.query.compiler.optimizer.stats.SelectivityEstimator;
 import io.sirix.query.compiler.optimizer.stats.SirixStatisticsProvider;
 import io.sirix.query.compiler.optimizer.stats.StatisticsProvider;
 import io.sirix.query.json.JsonDBStore;
@@ -35,11 +37,15 @@ public final class CostBasedStage implements Stage {
 
   private final JsonDBStore jsonStore;
   private final JsonCostModel costModel;
+  private final SelectivityEstimator selectivityEstimator;
+  private final CardinalityEstimator cardinalityEstimator;
   private SirixStatisticsProvider statsProvider;
 
   public CostBasedStage(JsonDBStore jsonStore) {
     this.jsonStore = jsonStore;
     this.costModel = new JsonCostModel();
+    this.selectivityEstimator = new SelectivityEstimator();
+    this.cardinalityEstimator = new CardinalityEstimator(selectivityEstimator);
   }
 
   /**
@@ -61,7 +67,25 @@ public final class CostBasedStage implements Stage {
     }
 
     annotateSubtree(ast);
+
+    // Phase 2: Annotate cardinality estimates throughout the pipeline
+    cardinalityEstimator.annotateCardinalities(ast);
+
     return ast;
+  }
+
+  /**
+   * Get the selectivity estimator for sharing with other stages.
+   */
+  public SelectivityEstimator getSelectivityEstimator() {
+    return selectivityEstimator;
+  }
+
+  /**
+   * Get the cardinality estimator for sharing with other stages.
+   */
+  public CardinalityEstimator getCardinalityEstimator() {
+    return cardinalityEstimator;
   }
 
   /**
