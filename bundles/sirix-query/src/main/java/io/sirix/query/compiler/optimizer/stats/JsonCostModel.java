@@ -70,4 +70,58 @@ public final class JsonCostModel {
   public boolean isIndexScanCheaper(double indexScanCost, double seqScanCost) {
     return Double.compare(indexScanCost, seqScanCost) < 0;
   }
+
+  // --- Join cost estimation (Milestone 3) ---
+
+  /** Hash table build/probe overhead multiplier (accounts for hashing + memory access). */
+  private static final double HASH_JOIN_FACTOR = 3.0;
+
+  /** Default join selectivity for equi-joins when no statistics are available. */
+  public static final double DEFAULT_JOIN_SELECTIVITY = 0.1;
+
+  /**
+   * Estimate the cost of a hash join.
+   *
+   * <p>Model: build hash table on right input, probe with left input.
+   * Cost = factor × (buildCard + probeCard) × CPU_PER_TUPLE.
+   * The factor accounts for hashing, memory allocation, and cache misses.</p>
+   *
+   * @param leftCard  cardinality of the probe (outer) side
+   * @param rightCard cardinality of the build (inner) side
+   * @return estimated hash join cost
+   */
+  public double estimateHashJoinCost(long leftCard, long rightCard) {
+    return HASH_JOIN_FACTOR * (leftCard + rightCard) * CPU_PER_TUPLE;
+  }
+
+  /**
+   * Estimate the cost of a nested-loop join.
+   *
+   * @param outerCard cardinality of the outer relation
+   * @param innerCard cardinality of the inner relation
+   * @return estimated nested-loop join cost
+   */
+  public double estimateNestedLoopJoinCost(long outerCard, long innerCard) {
+    return outerCard * innerCard * CPU_PER_TUPLE;
+  }
+
+  /**
+   * Estimate the output cardinality of a join.
+   *
+   * @param leftCard    cardinality of the left input
+   * @param rightCard   cardinality of the right input
+   * @param selectivity join predicate selectivity
+   * @return estimated output cardinality (at least 1)
+   */
+  public long estimateJoinCardinality(long leftCard, long rightCard, double selectivity) {
+    // Cast to double before multiplying to avoid long overflow for large cardinalities
+    return Math.max(1L, (long) ((double) leftCard * rightCard * selectivity));
+  }
+
+  /**
+   * Estimate join cardinality using default selectivity.
+   */
+  public long estimateJoinCardinality(long leftCard, long rightCard) {
+    return estimateJoinCardinality(leftCard, rightCard, DEFAULT_JOIN_SELECTIVITY);
+  }
 }
