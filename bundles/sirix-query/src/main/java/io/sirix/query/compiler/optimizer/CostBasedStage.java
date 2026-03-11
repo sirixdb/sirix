@@ -8,8 +8,11 @@ import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.function.json.JSONFun;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.path.Path;
+import io.sirix.query.compiler.optimizer.stats.CardinalityEstimator;
+import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.compiler.optimizer.stats.IndexInfo;
 import io.sirix.query.compiler.optimizer.stats.JsonCostModel;
+import io.sirix.query.compiler.optimizer.stats.SelectivityEstimator;
 import io.sirix.query.compiler.optimizer.stats.SirixStatisticsProvider;
 import io.sirix.query.compiler.optimizer.stats.StatisticsProvider;
 import io.sirix.query.json.JsonDBStore;
@@ -35,11 +38,15 @@ public final class CostBasedStage implements Stage {
 
   private final JsonDBStore jsonStore;
   private final JsonCostModel costModel;
+  private final SelectivityEstimator selectivityEstimator;
+  private final CardinalityEstimator cardinalityEstimator;
   private SirixStatisticsProvider statsProvider;
 
   public CostBasedStage(JsonDBStore jsonStore) {
     this.jsonStore = jsonStore;
     this.costModel = new JsonCostModel();
+    this.selectivityEstimator = new SelectivityEstimator();
+    this.cardinalityEstimator = new CardinalityEstimator(selectivityEstimator);
   }
 
   /**
@@ -61,7 +68,25 @@ public final class CostBasedStage implements Stage {
     }
 
     annotateSubtree(ast);
+
+    // Phase 2: Annotate cardinality estimates throughout the pipeline
+    cardinalityEstimator.annotateCardinalities(ast);
+
     return ast;
+  }
+
+  /**
+   * Get the selectivity estimator for sharing with other stages.
+   */
+  public SelectivityEstimator getSelectivityEstimator() {
+    return selectivityEstimator;
+  }
+
+  /**
+   * Get the cardinality estimator for sharing with other stages.
+   */
+  public CardinalityEstimator getCardinalityEstimator() {
+    return cardinalityEstimator;
   }
 
   /**
@@ -128,18 +153,18 @@ public final class CostBasedStage implements Stage {
 
     if (costModel.isIndexScanCheaper(indexScanCost, seqScanCost)) {
       // Annotate the binding expression with cost-based hint
-      bindingExpr.setProperty("costBased.preferIndex", true);
-      bindingExpr.setProperty("costBased.indexId", indexInfo.indexId());
-      bindingExpr.setProperty("costBased.indexType", indexInfo.type().name());
-      bindingExpr.setProperty("costBased.indexScanCost", indexScanCost);
-      bindingExpr.setProperty("costBased.seqScanCost", seqScanCost);
-      bindingExpr.setProperty("costBased.pathCardinality", pathCardinality);
-      bindingExpr.setProperty("costBased.totalNodeCount", totalNodeCount);
+      bindingExpr.setProperty(CostProperties.PREFER_INDEX, true);
+      bindingExpr.setProperty(CostProperties.INDEX_ID, indexInfo.indexId());
+      bindingExpr.setProperty(CostProperties.INDEX_TYPE, indexInfo.type().name());
+      bindingExpr.setProperty(CostProperties.INDEX_SCAN_COST, indexScanCost);
+      bindingExpr.setProperty(CostProperties.SEQ_SCAN_COST, seqScanCost);
+      bindingExpr.setProperty(CostProperties.PATH_CARDINALITY, pathCardinality);
+      bindingExpr.setProperty(CostProperties.TOTAL_NODE_COUNT, totalNodeCount);
     } else {
       // Mark that we explicitly decided against the index
-      bindingExpr.setProperty("costBased.preferIndex", false);
-      bindingExpr.setProperty("costBased.seqScanCost", seqScanCost);
-      bindingExpr.setProperty("costBased.indexScanCost", indexScanCost);
+      bindingExpr.setProperty(CostProperties.PREFER_INDEX, false);
+      bindingExpr.setProperty(CostProperties.SEQ_SCAN_COST, seqScanCost);
+      bindingExpr.setProperty(CostProperties.INDEX_SCAN_COST, indexScanCost);
     }
   }
 

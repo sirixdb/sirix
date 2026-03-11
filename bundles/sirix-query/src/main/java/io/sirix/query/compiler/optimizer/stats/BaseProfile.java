@@ -1,5 +1,7 @@
 package io.sirix.query.compiler.optimizer.stats;
 
+import io.sirix.index.IndexType;
+
 /**
  * Physical statistics profile for an access operator at a specific JSON path.
  * Populated from PathSummary and IndexController metadata.
@@ -10,7 +12,7 @@ package io.sirix.query.compiler.optimizer.stats;
  * @param nodeCount number of nodes at this path (from PathNode.getReferences())
  * @param pathLevel depth in the JSON tree (from PathNode.getLevel()), or -1 if unknown
  * @param hasIndex whether an index covers this access
- * @param indexType the type of covering index, or NONE
+ * @param indexType the type of covering index, or null if none
  */
 public record BaseProfile(
     long nodeCount,
@@ -20,5 +22,5 @@ public record BaseProfile(
 ) {
 
   /** Sentinel for unknown/empty profile. */
-  public static final BaseProfile UNKNOWN = new BaseProfile(-1L, -1, false, IndexType.NONE);
+  public static final BaseProfile UNKNOWN = new BaseProfile(-1L, -1, false, null);
 }

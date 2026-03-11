@@ -1,0 +1,58 @@
+package io.sirix.query.compiler.optimizer;
+
+import io.brackit.query.QueryException;
+import io.brackit.query.compiler.AST;
+import io.brackit.query.compiler.optimizer.Stage;
+import io.brackit.query.module.StaticContext;
+import io.sirix.query.compiler.optimizer.walker.json.SelectAccessFusionWalker;
+
+/**
+ * Applies JQGM rewrite rules adapted from Weiner et al. for JSON/JSONiq.
+ *
+ * <p>Currently implements:
+ * <ul>
+ *   <li><b>Rule 3</b>: Select-Access fusion — pushes WHERE predicates into
+ *       ObjectAccess/ArrayAccess operators, enabling direct CAS/PATH index mapping</li>
+ * </ul>
+ *
+ * <p>Future milestones will add:
+ * <ul>
+ *   <li>Rule 1: Fusion of adjacent JSON path joins</li>
+ *   <li>Rule 2: Fusion of Select + JSON path join</li>
+ *   <li>Rule 4: Commutativity of binary JSON path joins</li>
+ * </ul>
+ *
+ * <p>Rules are applied in a fixpoint loop (max 10 iterations) until no
+ * walker produces a change. Identity comparison on the AST reference
+ * detects whether a walker modified the tree (Brackit Walker contract).</p>
+ */
+public final class JqgmRewriteStage implements Stage {
+
+  private static final int MAX_ITERATIONS = 10;
+
+  @Override
+  public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
+    // Reuse walker instance across fixpoint iterations (prepare() resets state)
+    final var selectAccessWalker = new SelectAccessFusionWalker();
+    boolean modified = true;
+    int iterations = 0;
+
+    while (modified && iterations < MAX_ITERATIONS) {
+      modified = false;
+
+      // Rule 3: Select-Access fusion (predicate pushdown)
+      final AST prev = ast;
+      ast = selectAccessWalker.walk(ast);
+      if (ast != prev || selectAccessWalker.wasModified()) {
+        modified = true;
+      }
+
+      // Future: Rule 1 (JoinFusionWalker), Rule 2 (SelectJoinFusionWalker),
+      //         Rule 4 (JoinCommutativityWalker)
+
+      iterations++;
+    }
+
+    return ast;
+  }
+}
