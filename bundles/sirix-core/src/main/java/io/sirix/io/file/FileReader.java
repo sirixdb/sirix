@@ -39,9 +39,12 @@ import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
 import io.sirix.page.interfaces.Page;
+import io.sirix.io.Writer;
 import io.sirix.node.BytesIn;
 import io.sirix.node.Bytes;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -59,6 +62,22 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes Lichtenberger
  */
 public final class FileReader implements Reader {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(FileReader.class);
+
+  /**
+   * Secondary UberPage beacon offset. FileWriter writes the second beacon at offset 100,
+   * which gets aligned to PAGE_FRAGMENT_BYTE_ALIGN (8) during write, resulting in offset 104.
+   */
+  private static final int SECONDARY_UBER_PAGE_OFFSET;
+
+  static {
+    int offset = 100;
+    if (offset % Writer.PAGE_FRAGMENT_BYTE_ALIGN != 0) {
+      offset += Writer.PAGE_FRAGMENT_BYTE_ALIGN - (offset % Writer.PAGE_FRAGMENT_BYTE_ALIGN);
+    }
+    SECONDARY_UBER_PAGE_OFFSET = offset;
+  }
 
   /**
    * Inflater to decompress.
@@ -169,16 +188,34 @@ public final class FileReader implements Reader {
 
   @Override
   public PageReference readUberPageReference() {
-    final PageReference uberPageReference = new PageReference();
+    // Try primary beacon at offset 0
     try {
-      // Read primary beacon.
-      dataFile.seek(0);
-      uberPageReference.setKey(0);
-      final UberPage page = (UberPage) read(uberPageReference, null);
-      uberPageReference.setPage(page);
-      return uberPageReference;
-    } catch (final IOException e) {
-      throw new SirixIOException(e);
+      final PageReference primaryRef = new PageReference();
+      primaryRef.setKey(0);
+      final UberPage page = (UberPage) read(primaryRef, null);
+      primaryRef.setPage(page);
+      return primaryRef;
+    } catch (final Exception primaryException) {
+      LOGGER.warn("Primary UberPage beacon at offset 0 is corrupt, attempting secondary beacon at offset {}",
+          SECONDARY_UBER_PAGE_OFFSET, primaryException);
+
+      // Fallback to secondary beacon
+      try {
+        final PageReference secondaryRef = new PageReference();
+        secondaryRef.setKey(SECONDARY_UBER_PAGE_OFFSET);
+        final UberPage page = (UberPage) read(secondaryRef, null);
+        secondaryRef.setPage(page);
+        LOGGER.info("Successfully recovered UberPage from secondary beacon at offset {}", SECONDARY_UBER_PAGE_OFFSET);
+        return secondaryRef;
+      } catch (final Exception secondaryException) {
+        LOGGER.error("Both UberPage beacons are corrupt — primary at offset 0, secondary at offset {}",
+            SECONDARY_UBER_PAGE_OFFSET, secondaryException);
+        primaryException.addSuppressed(secondaryException);
+        if (primaryException instanceof RuntimeException rte) {
+          throw rte;
+        }
+        throw new SirixIOException(primaryException);
+      }
     }
   }
 
