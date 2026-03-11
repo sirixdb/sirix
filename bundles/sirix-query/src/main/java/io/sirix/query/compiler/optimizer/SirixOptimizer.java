@@ -24,6 +24,8 @@ public class SirixOptimizer extends TopDownOptimizer {
     super(options);
     this.xmlNodeStore = nodeStore;
     this.jsonItemStore = jsonItemStore;
+    // Cost-based optimization: annotate AST with index preference hints before index matching.
+    getStages().add(new CostBasedStage(jsonItemStore));
     // Perform index matching as last step.
     getStages().add(new IndexMatching(nodeStore, jsonItemStore));
   }
