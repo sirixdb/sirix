@@ -169,36 +169,19 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
           : resMgr.getRtxIndexController(revision);
 
       final var indexes = indexController.getIndexes();
-
-      // Single pass: track best match by priority (CAS=0, PATH=1, NAME=2)
-      IndexInfo bestMatch = null;
-      int bestPriority = Integer.MAX_VALUE;
       final QNm leafName = path.getLength() > 0 ? path.tail() : null;
 
+      IndexInfo bestMatch = null;
+      int bestPriority = Integer.MAX_VALUE;
+
       for (final IndexDef indexDef : indexes.getIndexDefs()) {
-        if (indexDef.isCasIndex() && bestPriority > 0) {
-          for (final Path<QNm> indexedPath : indexDef.getPaths()) {
-            if (indexedPath.matches(path)) {
-              bestMatch = new IndexInfo(indexDef.getID(), IndexType.CAS, true);
-              bestPriority = 0;
-              break; // CAS is highest priority — can't do better
-            }
-          }
+        final IndexInfo candidate = matchIndexDef(indexDef, path, leafName, bestPriority);
+        if (candidate != null) {
+          bestPriority = priorityOf(candidate.type());
+          bestMatch = candidate;
           if (bestPriority == 0) {
-            return bestMatch; // early exit: CAS found
+            return bestMatch; // CAS is highest priority — can't do better
           }
-        } else if (indexDef.isPathIndex() && bestPriority > 1) {
-          for (final Path<QNm> indexedPath : indexDef.getPaths()) {
-            if (indexedPath.matches(path)) {
-              bestMatch = new IndexInfo(indexDef.getID(), IndexType.PATH, true);
-              bestPriority = 1;
-              break;
-            }
-          }
-        } else if (indexDef.isNameIndex() && bestPriority > 2
-            && leafName != null && indexDef.getIncluded().contains(leafName)) {
-          bestMatch = new IndexInfo(indexDef.getID(), IndexType.NAME, true);
-          bestPriority = 2;
         }
       }
 
@@ -206,6 +189,44 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
     } catch (Exception e) {
       return IndexInfo.NO_INDEX;
     }
+  }
+
+  /**
+   * Attempt to match a single IndexDef against the query path.
+   * Returns an IndexInfo if this def matches and has higher priority than {@code currentBestPriority},
+   * or null if no improvement.
+   */
+  private static IndexInfo matchIndexDef(IndexDef indexDef, Path<QNm> path,
+                                         QNm leafName, int currentBestPriority) {
+    if (indexDef.isCasIndex() && currentBestPriority > 0) {
+      return matchByPath(indexDef, path, IndexType.CAS);
+    }
+    if (indexDef.isPathIndex() && currentBestPriority > 1) {
+      return matchByPath(indexDef, path, IndexType.PATH);
+    }
+    if (indexDef.isNameIndex() && currentBestPriority > 2
+        && leafName != null && indexDef.getIncluded().contains(leafName)) {
+      return new IndexInfo(indexDef.getID(), IndexType.NAME, true);
+    }
+    return null;
+  }
+
+  private static IndexInfo matchByPath(IndexDef indexDef, Path<QNm> path, IndexType type) {
+    for (final Path<QNm> indexedPath : indexDef.getPaths()) {
+      if (indexedPath.matches(path)) {
+        return new IndexInfo(indexDef.getID(), type, true);
+      }
+    }
+    return null;
+  }
+
+  private static int priorityOf(IndexType type) {
+    return switch (type) {
+      case CAS -> 0;
+      case PATH -> 1;
+      case NAME -> 2;
+      default -> throw new IllegalArgumentException("Unexpected index type for cost model: " + type);
+    };
   }
 
   @Override
