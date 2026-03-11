@@ -216,11 +216,34 @@ public abstract class AbstractReader implements Reader {
 
   @Override
   public PageReference readUberPageReference() {
-    final PageReference uberPageReference = new PageReference();
-    uberPageReference.setKey(0);
-    final UberPage page = (UberPage) read(uberPageReference, null);
-    uberPageReference.setPage(page);
-    return uberPageReference;
+    // Try primary beacon at offset 0
+    try {
+      final PageReference primaryRef = new PageReference();
+      primaryRef.setKey(0);
+      final UberPage page = (UberPage) read(primaryRef, null);
+      primaryRef.setPage(page);
+      return primaryRef;
+    } catch (final Exception primaryException) {
+      LOGGER.warn("Primary UberPage beacon at offset 0 is corrupt, attempting secondary beacon at offset {}",
+          IOStorage.FIRST_BEACON >> 1, primaryException);
+
+      // Fallback to secondary beacon (FileChannelWriter offset)
+      try {
+        final PageReference secondaryRef = new PageReference();
+        secondaryRef.setKey(IOStorage.FIRST_BEACON >> 1);
+        final UberPage page = (UberPage) read(secondaryRef, null);
+        secondaryRef.setPage(page);
+        LOGGER.info("Successfully recovered UberPage from secondary beacon at offset {}", IOStorage.FIRST_BEACON >> 1);
+        return secondaryRef;
+      } catch (final Exception secondaryException) {
+        LOGGER.error("Both UberPage beacons are corrupt — unrecoverable");
+        primaryException.addSuppressed(secondaryException);
+        if (primaryException instanceof RuntimeException rte) {
+          throw rte;
+        }
+        throw new RuntimeException("Failed to read UberPage from both beacons", primaryException);
+      }
+    }
   }
 
   public ByteHandler getByteHandler() {
