@@ -18,5 +18,17 @@ public enum ColumnType {
   STRING,
 
   /** Boolean flag (stored as {@code boolean[]}). */
-  BOOLEAN
+  BOOLEAN,
+
+  /**
+   * Deferred byte reference into a backing MemorySegment (late materialization).
+   *
+   * <p>Stored as offset + length + page index per row. The actual bytes are
+   * only decoded (e.g., FSST decompression) when explicitly materialized,
+   * enabling SIMD filtering on compressed data without decompression.</p>
+   */
+  DEFERRED_BYTES,
+
+  /** Raw byte array column (e.g., for DeweyIDs). Stored as {@code byte[][]}. */
+  BYTES
 }

@@ -119,6 +119,9 @@ public final class SimdSelect implements Block {
   private final class SimdSelectSink implements Sink {
     private final QueryContext ctx;
     private final Sink downstream;
+    // Pre-allocated gather arrays — reused across output() calls
+    private final long[] longValues = new long[LONG_SPECIES.length()];
+    private final double[] doubleValues = new double[DOUBLE_SPECIES.length()];
 
     SimdSelectSink(QueryContext ctx, Sink downstream) {
       this.ctx = ctx;
@@ -145,7 +148,7 @@ public final class SimdSelect implements Block {
     private int filterLong(Tuple[] buf, int len) throws QueryException {
       final int lanes = LONG_SPECIES.length();
       final int simdBound = len - (len % lanes);
-      final long[] values = new long[lanes];
+      final long[] values = longValues;
       final LongVector cst = LongVector.broadcast(LONG_SPECIES, longConstant);
       int outPos = 0;
 
@@ -203,7 +206,7 @@ public final class SimdSelect implements Block {
     private int filterDouble(Tuple[] buf, int len) throws QueryException {
       final int lanes = DOUBLE_SPECIES.length();
       final int simdBound = len - (len % lanes);
-      final double[] values = new double[lanes];
+      final double[] values = doubleValues;
       final DoubleVector cst = DoubleVector.broadcast(DOUBLE_SPECIES, doubleConstant);
       int outPos = 0;
 

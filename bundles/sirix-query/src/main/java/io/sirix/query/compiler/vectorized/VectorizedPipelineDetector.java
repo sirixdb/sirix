@@ -39,6 +39,9 @@ public final class VectorizedPipelineDetector {
   /** AST property key for the number of vectorizable predicates. */
   public static final String VECTORIZABLE_PREDICATE_COUNT = "vectorized.predicateCount";
 
+  /** AST property key for columnar string scan eligibility (page-at-a-time extraction). */
+  public static final String COLUMNAR_STRING_SCAN_ELIGIBLE = "vectorized.columnarStringScan";
+
   private static final int MAX_DEPTH = 8;
 
   /**
@@ -101,7 +104,88 @@ public final class VectorizedPipelineDetector {
     // Annotate the ForBind as vectorizable
     forBind.setProperty(VECTORIZABLE, true);
     forBind.setProperty(VECTORIZABLE_PREDICATE_COUNT, predicateCount);
+
+    // Check if the pipeline is eligible for columnar string scan:
+    // All predicates compare against string constants OR structural keys,
+    // and the return clause projects string values.
+    if (hasStringPredicate(selection, MAX_DEPTH) || hasFieldComparisonOnly(selection, MAX_DEPTH)) {
+      forBind.setProperty(COLUMNAR_STRING_SCAN_ELIGIBLE, true);
+    }
+
     return true;
+  }
+
+  /**
+   * Check if a Selection subtree contains at least one string comparison predicate.
+   */
+  private static boolean hasStringPredicate(final AST node, final int maxDepth) {
+    if (node == null || maxDepth <= 0) {
+      return false;
+    }
+    if (isComparisonNode(node) && hasDerefAndStringConstant(node)) {
+      return true;
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      if (hasStringPredicate(node.getChild(i), maxDepth - 1)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Check if all predicates in a subtree are field comparisons (structural key or string).
+   * Only supports conjunction (AND) — returns false for OR or other compound predicates
+   * to avoid incorrect vectorization of partially-vectorizable disjunctions.
+   */
+  private static boolean hasFieldComparisonOnly(final AST node, final int maxDepth) {
+    if (node == null || maxDepth <= 0) {
+      return false;
+    }
+    if (isComparisonNode(node)) {
+      return hasDerefAndConstant(node);
+    }
+    if (node.getType() == XQ.AndExpr) {
+      for (int i = 0; i < node.getChildCount(); i++) {
+        if (!hasFieldComparisonOnly(node.getChild(i), maxDepth - 1)) {
+          return false;
+        }
+      }
+      return node.getChildCount() > 0;
+    }
+    // For non-comparison, non-AND nodes (e.g., Selection wrapper), recurse into children
+    // but require ALL comparison children to be field comparisons
+    boolean foundAny = false;
+    for (int i = 0; i < node.getChildCount(); i++) {
+      final AST child = node.getChild(i);
+      if (isComparisonNode(child) || child.getType() == XQ.AndExpr) {
+        if (!hasFieldComparisonOnly(child, maxDepth - 1)) {
+          return false;
+        }
+        foundAny = true;
+      } else if (child.getChildCount() > 0) {
+        // Recurse into structural wrappers (Selection, etc.)
+        if (hasFieldComparisonOnly(child, maxDepth - 1)) {
+          foundAny = true;
+        }
+      }
+    }
+    return foundAny;
+  }
+
+  /**
+   * Check if a comparison node has one DerefExpr child and one string constant child.
+   * Reuses {@link #hasDerefAndConstant} and narrows to XQ.Str.
+   */
+  private static boolean hasDerefAndStringConstant(final AST cmpNode) {
+    if (!hasDerefAndConstant(cmpNode)) {
+      return false;
+    }
+    // At least one child is a constant — check if it's a string constant
+    final AST left = cmpNode.getChild(0);
+    final AST right = cmpNode.getChild(1);
+    return (left != null && left.getType() == XQ.Str)
+        || (right != null && right.getType() == XQ.Str);
   }
 
   /**
@@ -245,8 +329,9 @@ public final class VectorizedPipelineDetector {
    */
   private static AST findChild(AST parent, int type) {
     for (int i = 0; i < parent.getChildCount(); i++) {
-      if (parent.getChild(i).getType() == type) {
-        return parent.getChild(i);
+      final AST child = parent.getChild(i);
+      if (child.getType() == type) {
+        return child;
       }
     }
     return null;
