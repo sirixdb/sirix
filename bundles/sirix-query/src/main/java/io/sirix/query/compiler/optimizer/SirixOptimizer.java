@@ -24,10 +24,12 @@ public class SirixOptimizer extends TopDownOptimizer {
     super(options);
     this.xmlNodeStore = nodeStore;
     this.jsonItemStore = jsonItemStore;
-    // JQGM rewrite rules (Rule 3: Select-Access fusion) — predicate pushdown before cost analysis.
+    // JQGM rewrite rules (Rules 1-4) — predicate pushdown and join fusion before cost analysis.
     getStages().add(new JqgmRewriteStage());
     // Cost-based optimization: annotate AST with index preference hints and cardinality estimates.
     getStages().add(new CostBasedStage(jsonItemStore));
+    // Index-aware join decomposition (Rules 5-6) — splits joins at index boundaries.
+    getStages().add(new IndexDecompositionStage());
     // Perform index matching as last step.
     getStages().add(new IndexMatching(nodeStore, jsonItemStore));
   }
