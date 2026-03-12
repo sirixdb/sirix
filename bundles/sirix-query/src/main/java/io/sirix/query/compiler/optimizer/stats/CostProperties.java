@@ -49,6 +49,13 @@ public final class CostProperties {
   public static final String JOIN_FUSION_GROUP_ID = "joinFusion.groupId";
   public static final String JOIN_FUSION_STEP_COUNT = "joinFusion.stepCount";
 
+  // --- Mesh / search space annotations (Milestone 5) ---
+  public static final String MESH_CLASS_ID = "mesh.classId";
+
+  // --- Cost-driven routing annotations (Milestone 5) ---
+  /** Propagated from PREFER_INDEX to descendant nodes for index matching gate. */
+  public static final String INDEX_GATE_CLOSED = "costBased.indexGateClosed";
+
   // --- Join decomposition annotations (Milestone 4, Rules 5-6) ---
   public static final String DECOMPOSITION_APPLICABLE = "joinDecomposition.applicable";
   public static final String DECOMPOSITION_TYPE = "joinDecomposition.type";
@@ -65,6 +72,21 @@ public final class CostProperties {
    */
   public static boolean isLeftJoin(AST node) {
     return Boolean.TRUE.equals(node.getProperty(LEFT_JOIN));
+  }
+
+  /**
+   * Check if the index gate is closed for an AST node, meaning cost-based
+   * analysis determined that sequential scan is cheaper than index scan.
+   *
+   * <p>This is checked by index matching walkers before applying index
+   * rewrites. When the gate is closed, the walker should skip index
+   * replacement for this subtree.</p>
+   *
+   * @param node the AST node to check
+   * @return true if index usage should be suppressed
+   */
+  public static boolean isIndexGateClosed(AST node) {
+    return Boolean.TRUE.equals(node.getProperty(INDEX_GATE_CLOSED));
   }
 
   /**

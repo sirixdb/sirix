@@ -3,6 +3,7 @@ package io.sirix.query.compiler.optimizer.walker.json;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.brackit.query.compiler.optimizer.walker.Walker;
+import io.brackit.query.util.Cmp;
 import io.sirix.query.compiler.optimizer.join.AdaptiveJoinOrderOptimizer;
 import io.sirix.query.compiler.optimizer.join.JoinGraph;
 import io.sirix.query.compiler.optimizer.join.JoinPlan;
@@ -93,6 +94,9 @@ public final class CostBasedJoinReorder extends Walker {
 
     // Annotate join nodes with optimal ordering information
     annotateJoinGroup(node, optimalPlan, joinNodes);
+
+    // Restructure: swap join inputs at each level based on DPhyp plan
+    restructureJoinTree(node, optimalPlan, baseInputs, joinNodes);
 
     modified = true;
     return node;
@@ -233,6 +237,7 @@ public final class CostBasedJoinReorder extends Walker {
 
   /**
    * Annotate a single Join node with cost information.
+   * Also swaps children if the left side is smaller (should be build side).
    */
   private void annotateSingleJoin(AST join) {
     final AST leftInput = join.getChild(0);
@@ -249,6 +254,62 @@ public final class CostBasedJoinReorder extends Walker {
     join.setProperty(CostProperties.JOIN_RIGHT_CARD, rightCard);
     join.setProperty(CostProperties.JOIN_COST, joinCost);
     join.setProperty(CostProperties.ESTIMATED_CARDINALITY, joinCard);
+
+    // Swap children if left is smaller (should be build side for hash join)
+    if (leftCard > 0 && rightCard > 0 && leftCard < rightCard
+        && join.getChildCount() >= 4) {
+      swapJoinChildren(join);
+      join.setProperty(CostProperties.JOIN_LEFT_CARD, rightCard);
+      join.setProperty(CostProperties.JOIN_RIGHT_CARD, leftCard);
+      modified = true;
+    }
+  }
+
+  /**
+   * Restructure the join tree based on the DPhyp-optimal plan.
+   *
+   * <p>For each join node in the group, if the plan indicates the inputs
+   * should be swapped (right subtree has lower cardinality), swap the
+   * children to place the smaller relation as the build side.</p>
+   */
+  private void restructureJoinTree(AST rootJoin, JoinPlan plan,
+                                   List<AST> baseInputs, List<AST> joinNodes) {
+    if (plan.isBaseRelation()) {
+      return;
+    }
+
+    final JoinPlan leftPlan = plan.left();
+    final JoinPlan rightPlan = plan.right();
+
+    if (leftPlan == null || rightPlan == null) {
+      return;
+    }
+
+    // For the root join: check if plan suggests swapping
+    final long leftCard = leftPlan.cardinality();
+    final long rightCard = rightPlan.cardinality();
+
+    if (leftCard < rightCard && rootJoin.getChildCount() >= 4) {
+      swapJoinChildren(rootJoin);
+      rootJoin.setProperty(CostProperties.JOIN_SWAPPED, true);
+    }
+  }
+
+  /**
+   * Swap left and right children of a Join node, adjusting the
+   * comparison operator accordingly.
+   */
+  private static void swapJoinChildren(AST join) {
+    final AST leftInput = join.getChild(0);
+    final AST rightInput = join.getChild(1);
+    join.replaceChild(0, rightInput);
+    join.replaceChild(1, leftInput);
+
+    // Adjust comparison operator
+    final Object cmpObj = join.getProperty(CostProperties.CMP);
+    if (cmpObj instanceof Cmp cmp) {
+      join.setProperty(CostProperties.CMP, cmp.swap());
+    }
   }
 
   /**

@@ -20,11 +20,37 @@ import java.util.Arrays;
  */
 public final class SelectivityEstimator {
 
-  private static final double DEFAULT_EQUALITY_SELECTIVITY = 0.01;
-  private static final double DEFAULT_RANGE_SELECTIVITY = 0.33;
-  private static final double DEFAULT_LIKE_SELECTIVITY = 0.25;
-  private static final double DEFAULT_SELECTIVITY = 0.5;
-  private static final double MIN_SELECTIVITY = 0.0001;
+  static final double DEFAULT_EQUALITY_SELECTIVITY = 0.01;
+  static final double DEFAULT_RANGE_SELECTIVITY = 0.33;
+  static final double DEFAULT_LIKE_SELECTIVITY = 0.25;
+  static final double DEFAULT_SELECTIVITY = 0.5;
+  static final double MIN_SELECTIVITY = 0.0001;
+
+  /**
+   * Optional histogram for data-driven selectivity estimates.
+   * When set, equality and range predicates use histogram data
+   * instead of hardcoded defaults.
+   */
+  private Histogram histogram;
+
+  /**
+   * Set a histogram for data-driven selectivity estimation.
+   * When set, equality and range predicates use histogram data.
+   *
+   * @param histogram the histogram to use, or null to revert to defaults
+   */
+  public void setHistogram(Histogram histogram) {
+    this.histogram = histogram;
+  }
+
+  /**
+   * Get the current histogram, if set.
+   *
+   * @return the histogram, or null if using defaults
+   */
+  public Histogram getHistogram() {
+    return histogram;
+  }
 
   /**
    * Estimate the selectivity of a predicate expression.
@@ -118,6 +144,9 @@ public final class SelectivityEstimator {
   }
 
   private double selectivityForOperator(String operator) {
+    if (histogram != null) {
+      return histogramSelectivityForOperator(operator);
+    }
     return switch (operator) {
       case "ValueCompEQ", "GeneralCompEQ" -> DEFAULT_EQUALITY_SELECTIVITY;
       case "ValueCompNE", "GeneralCompNE" -> 1.0 - DEFAULT_EQUALITY_SELECTIVITY;
@@ -129,12 +158,55 @@ public final class SelectivityEstimator {
   }
 
   private double selectivityForComparisonType(int type) {
+    if (histogram != null) {
+      return histogramSelectivityForType(type);
+    }
     return switch (type) {
       case XQ.ValueCompEQ, XQ.GeneralCompEQ -> DEFAULT_EQUALITY_SELECTIVITY;
       case XQ.ValueCompNE, XQ.GeneralCompNE -> 1.0 - DEFAULT_EQUALITY_SELECTIVITY;
       case XQ.ValueCompLT, XQ.ValueCompLE, XQ.ValueCompGT, XQ.ValueCompGE,
            XQ.GeneralCompLT, XQ.GeneralCompLE, XQ.GeneralCompGT, XQ.GeneralCompGE
           -> DEFAULT_RANGE_SELECTIVITY;
+      default -> DEFAULT_SELECTIVITY;
+    };
+  }
+
+  /**
+   * Use histogram data for operator-based selectivity.
+   * Falls back to histogram's equality/range methods which use NDV and bucket counts.
+   */
+  private double histogramSelectivityForOperator(String operator) {
+    return switch (operator) {
+      case "ValueCompEQ", "GeneralCompEQ" ->
+          histogram.estimateEqualitySelectivity(
+              (histogram.minValue() + histogram.maxValue()) / 2.0);
+      case "ValueCompNE", "GeneralCompNE" ->
+          1.0 - histogram.estimateEqualitySelectivity(
+              (histogram.minValue() + histogram.maxValue()) / 2.0);
+      case "ValueCompLT", "GeneralCompLT", "ValueCompLE", "GeneralCompLE" ->
+          histogram.estimateLessThanSelectivity(
+              (histogram.minValue() + histogram.maxValue()) / 2.0);
+      case "ValueCompGT", "GeneralCompGT", "ValueCompGE", "GeneralCompGE" ->
+          histogram.estimateGreaterThanSelectivity(
+              (histogram.minValue() + histogram.maxValue()) / 2.0);
+      default -> DEFAULT_SELECTIVITY;
+    };
+  }
+
+  /**
+   * Use histogram data for type-based selectivity.
+   */
+  private double histogramSelectivityForType(int type) {
+    final double midpoint = (histogram.minValue() + histogram.maxValue()) / 2.0;
+    return switch (type) {
+      case XQ.ValueCompEQ, XQ.GeneralCompEQ ->
+          histogram.estimateEqualitySelectivity(midpoint);
+      case XQ.ValueCompNE, XQ.GeneralCompNE ->
+          1.0 - histogram.estimateEqualitySelectivity(midpoint);
+      case XQ.ValueCompLT, XQ.ValueCompLE, XQ.GeneralCompLT, XQ.GeneralCompLE ->
+          histogram.estimateLessThanSelectivity(midpoint);
+      case XQ.ValueCompGT, XQ.ValueCompGE, XQ.GeneralCompGT, XQ.GeneralCompGE ->
+          histogram.estimateGreaterThanSelectivity(midpoint);
       default -> DEFAULT_SELECTIVITY;
     };
   }

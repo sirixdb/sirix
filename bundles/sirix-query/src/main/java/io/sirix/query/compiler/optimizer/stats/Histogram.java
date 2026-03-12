@@ -1,0 +1,253 @@
+package io.sirix.query.compiler.optimizer.stats;
+
+/**
+ * Equi-width histogram for value distribution estimation.
+ *
+ * <p>Stores frequency counts for equi-width buckets over a value range.
+ * Used by {@link SelectivityEstimator} to provide data-driven selectivity
+ * estimates instead of hardcoded defaults.</p>
+ *
+ * <p>Design follows PostgreSQL's approach: equi-width buckets with separate
+ * tracking of most-common values (MCVs). For simplicity, this first version
+ * only implements equi-width buckets without MCV tracking.</p>
+ *
+ * <p>The histogram is immutable after construction via the {@link Builder}.</p>
+ */
+public final class Histogram {
+
+  /** Default number of buckets. */
+  public static final int DEFAULT_BUCKET_COUNT = 64;
+
+  private final double minValue;
+  private final double maxValue;
+  private final double bucketWidth;
+  private final long[] bucketCounts;
+  private final long totalCount;
+  private final long distinctCount;
+
+  private Histogram(double minValue, double maxValue, long[] bucketCounts,
+                    long totalCount, long distinctCount) {
+    this.minValue = minValue;
+    this.maxValue = maxValue;
+    this.bucketCounts = bucketCounts;
+    this.bucketWidth = bucketCounts.length > 0
+        ? (maxValue - minValue) / bucketCounts.length
+        : 0.0;
+    this.totalCount = totalCount;
+    this.distinctCount = distinctCount;
+  }
+
+  /**
+   * Estimate the selectivity of an equality predicate: value = constant.
+   *
+   * <p>Uses 1/NDV (number of distinct values) when distinctCount is known,
+   * falling back to uniform distribution within the matching bucket.</p>
+   *
+   * @param value the constant value to match
+   * @return estimated selectivity in (0, 1]
+   */
+  public double estimateEqualitySelectivity(double value) {
+    if (totalCount <= 0) {
+      return SelectivityEstimator.DEFAULT_SELECTIVITY;
+    }
+    if (value < minValue || value > maxValue) {
+      return SelectivityEstimator.MIN_SELECTIVITY;
+    }
+    if (distinctCount > 0) {
+      return Math.max(SelectivityEstimator.MIN_SELECTIVITY,
+          1.0 / distinctCount);
+    }
+    // Fallback: uniform distribution within the bucket
+    final int bucket = bucketIndex(value);
+    if (bucketCounts[bucket] == 0) {
+      return SelectivityEstimator.MIN_SELECTIVITY;
+    }
+    return Math.max(SelectivityEstimator.MIN_SELECTIVITY,
+        (double) bucketCounts[bucket] / totalCount);
+  }
+
+  /**
+   * Estimate the selectivity of a range predicate: value IN [low, high].
+   *
+   * <p>Sums the fraction of each overlapping bucket that falls within
+   * the range, assuming uniform distribution within each bucket.</p>
+   *
+   * @param low  the lower bound (inclusive)
+   * @param high the upper bound (inclusive)
+   * @return estimated selectivity in [MIN_SELECTIVITY, 1.0]
+   */
+  public double estimateRangeSelectivity(double low, double high) {
+    if (totalCount <= 0 || bucketWidth <= 0) {
+      return SelectivityEstimator.DEFAULT_SELECTIVITY;
+    }
+    if (high < minValue || low > maxValue) {
+      return SelectivityEstimator.MIN_SELECTIVITY;
+    }
+    // Clamp to histogram range
+    final double clampedLow = Math.max(low, minValue);
+    final double clampedHigh = Math.min(high, maxValue);
+
+    double matchingCount = 0.0;
+    for (int i = 0; i < bucketCounts.length; i++) {
+      final double bucketLow = minValue + i * bucketWidth;
+      final double bucketHigh = bucketLow + bucketWidth;
+
+      // Compute overlap fraction
+      final double overlapLow = Math.max(clampedLow, bucketLow);
+      final double overlapHigh = Math.min(clampedHigh, bucketHigh);
+
+      if (overlapHigh > overlapLow) {
+        final double fraction = (overlapHigh - overlapLow) / bucketWidth;
+        matchingCount += bucketCounts[i] * fraction;
+      }
+    }
+
+    final double selectivity = matchingCount / totalCount;
+    return Math.max(SelectivityEstimator.MIN_SELECTIVITY,
+        Math.min(1.0, selectivity));
+  }
+
+  /**
+   * Estimate the selectivity of a less-than predicate: value < threshold.
+   *
+   * @param threshold the upper bound (exclusive)
+   * @return estimated selectivity
+   */
+  public double estimateLessThanSelectivity(double threshold) {
+    return estimateRangeSelectivity(minValue, threshold);
+  }
+
+  /**
+   * Estimate the selectivity of a greater-than predicate: value > threshold.
+   *
+   * @param threshold the lower bound (exclusive)
+   * @return estimated selectivity
+   */
+  public double estimateGreaterThanSelectivity(double threshold) {
+    return estimateRangeSelectivity(threshold, maxValue);
+  }
+
+  public double minValue() {
+    return minValue;
+  }
+
+  public double maxValue() {
+    return maxValue;
+  }
+
+  public int bucketCount() {
+    return bucketCounts.length;
+  }
+
+  public long totalCount() {
+    return totalCount;
+  }
+
+  public long distinctCount() {
+    return distinctCount;
+  }
+
+  public long bucketCountAt(int index) {
+    return bucketCounts[index];
+  }
+
+  private int bucketIndex(double value) {
+    if (bucketWidth <= 0) {
+      return 0;
+    }
+    final int idx = (int) ((value - minValue) / bucketWidth);
+    return Math.max(0, Math.min(idx, bucketCounts.length - 1));
+  }
+
+  /**
+   * Builder for constructing histograms from raw data.
+   */
+  public static final class Builder {
+
+    private final int numBuckets;
+    private double minValue = Double.MAX_VALUE;
+    private double maxValue = -Double.MAX_VALUE;
+    private long totalCount;
+    private long distinctCount;
+    // Accumulate raw values for bucket assignment
+    private double[] values;
+    private int valueCount;
+
+    public Builder() {
+      this(DEFAULT_BUCKET_COUNT);
+    }
+
+    public Builder(int numBuckets) {
+      if (numBuckets < 1) {
+        throw new IllegalArgumentException("numBuckets must be >= 1: " + numBuckets);
+      }
+      this.numBuckets = numBuckets;
+      this.values = new double[256];
+      this.valueCount = 0;
+    }
+
+    /**
+     * Add a value observation to the histogram builder.
+     *
+     * @param value the observed value
+     * @return this builder
+     */
+    public Builder addValue(double value) {
+      if (valueCount == values.length) {
+        final double[] newValues = new double[values.length * 2];
+        System.arraycopy(values, 0, newValues, 0, values.length);
+        values = newValues;
+      }
+      values[valueCount++] = value;
+      if (value < minValue) {
+        minValue = value;
+      }
+      if (value > maxValue) {
+        maxValue = value;
+      }
+      totalCount++;
+      return this;
+    }
+
+    /**
+     * Set the number of distinct values (if known from external source).
+     *
+     * @param distinctCount number of distinct values
+     * @return this builder
+     */
+    public Builder setDistinctCount(long distinctCount) {
+      this.distinctCount = distinctCount;
+      return this;
+    }
+
+    /**
+     * Build the histogram from accumulated values.
+     *
+     * @return an immutable Histogram
+     */
+    public Histogram build() {
+      if (valueCount == 0) {
+        return new Histogram(0, 0, new long[numBuckets], 0, 0);
+      }
+
+      // Handle single-value case
+      if (minValue == maxValue) {
+        final long[] buckets = new long[numBuckets];
+        buckets[0] = totalCount;
+        return new Histogram(minValue, maxValue + 1.0, buckets, totalCount, distinctCount);
+      }
+
+      final double range = maxValue - minValue;
+      final double width = range / numBuckets;
+      final long[] buckets = new long[numBuckets];
+
+      for (int i = 0; i < valueCount; i++) {
+        int idx = (int) ((values[i] - minValue) / width);
+        idx = Math.max(0, Math.min(idx, numBuckets - 1));
+        buckets[idx]++;
+      }
+
+      return new Histogram(minValue, maxValue, buckets, totalCount, distinctCount);
+    }
+  }
+}
