@@ -295,6 +295,8 @@ public final class CostBasedJoinReorder extends Walker {
     if (leftCard < rightCard && rootJoin.getChildCount() >= 4) {
       swapJoinChildren(rootJoin);
       rootJoin.setProperty(CostProperties.JOIN_SWAPPED, true);
+      rootJoin.setProperty(CostProperties.JOIN_LEFT_CARD, rightCard);
+      rootJoin.setProperty(CostProperties.JOIN_RIGHT_CARD, leftCard);
     }
   }
 
