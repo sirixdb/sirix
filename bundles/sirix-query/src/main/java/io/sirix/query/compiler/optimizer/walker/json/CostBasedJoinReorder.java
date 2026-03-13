@@ -96,7 +96,7 @@ public final class CostBasedJoinReorder extends Walker {
     annotateJoinGroup(node, optimalPlan, joinNodes);
 
     // Restructure: swap join inputs at each level based on DPhyp plan
-    restructureJoinTree(node, optimalPlan, baseInputs, joinNodes);
+    restructureJoinTree(node, optimalPlan);
 
     modified = true;
     return node;
@@ -271,9 +271,12 @@ public final class CostBasedJoinReorder extends Walker {
    * <p>For each join node in the group, if the plan indicates the inputs
    * should be swapped (right subtree has lower cardinality), swap the
    * children to place the smaller relation as the build side.</p>
+   *
+   * <p>TODO: Currently only restructures the root join. Recursive restructuring
+   * of nested joins within the group requires mapping plan sub-trees to
+   * corresponding AST join nodes, which is deferred to a future iteration.</p>
    */
-  private void restructureJoinTree(AST rootJoin, JoinPlan plan,
-                                   List<AST> baseInputs, List<AST> joinNodes) {
+  private void restructureJoinTree(AST rootJoin, JoinPlan plan) {
     if (plan.isBaseRelation()) {
       return;
     }

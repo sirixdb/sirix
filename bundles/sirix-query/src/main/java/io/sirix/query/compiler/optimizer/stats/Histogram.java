@@ -108,22 +108,58 @@ public final class Histogram {
   }
 
   /**
-   * Estimate the selectivity of a less-than predicate: value < threshold.
+   * Estimate the selectivity of a strict less-than predicate: value < threshold.
+   *
+   * <p>Subtracts a small epsilon from the threshold to exclude the boundary,
+   * since {@link #estimateRangeSelectivity} is inclusive on both ends.</p>
    *
    * @param threshold the upper bound (exclusive)
    * @return estimated selectivity
    */
   public double estimateLessThanSelectivity(double threshold) {
+    if (bucketWidth <= 0 || totalCount <= 0) {
+      return estimateRangeSelectivity(minValue, threshold);
+    }
+    // Subtract a fraction of bucket width to make the upper bound exclusive
+    final double epsilon = bucketWidth * 1e-6;
+    return estimateRangeSelectivity(minValue, threshold - epsilon);
+  }
+
+  /**
+   * Estimate the selectivity of a less-than-or-equal predicate: value <= threshold.
+   *
+   * @param threshold the upper bound (inclusive)
+   * @return estimated selectivity
+   */
+  public double estimateLessThanOrEqualSelectivity(double threshold) {
     return estimateRangeSelectivity(minValue, threshold);
   }
 
   /**
-   * Estimate the selectivity of a greater-than predicate: value > threshold.
+   * Estimate the selectivity of a strict greater-than predicate: value > threshold.
+   *
+   * <p>Adds a small epsilon to the threshold to exclude the boundary,
+   * since {@link #estimateRangeSelectivity} is inclusive on both ends.</p>
    *
    * @param threshold the lower bound (exclusive)
    * @return estimated selectivity
    */
   public double estimateGreaterThanSelectivity(double threshold) {
+    if (bucketWidth <= 0 || totalCount <= 0) {
+      return estimateRangeSelectivity(threshold, maxValue);
+    }
+    // Add a fraction of bucket width to make the lower bound exclusive
+    final double epsilon = bucketWidth * 1e-6;
+    return estimateRangeSelectivity(threshold + epsilon, maxValue);
+  }
+
+  /**
+   * Estimate the selectivity of a greater-than-or-equal predicate: value >= threshold.
+   *
+   * @param threshold the lower bound (inclusive)
+   * @return estimated selectivity
+   */
+  public double estimateGreaterThanOrEqualSelectivity(double threshold) {
     return estimateRangeSelectivity(threshold, maxValue);
   }
 

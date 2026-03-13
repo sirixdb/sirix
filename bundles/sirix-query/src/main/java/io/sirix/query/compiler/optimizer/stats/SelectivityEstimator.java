@@ -1,5 +1,6 @@
 package io.sirix.query.compiler.optimizer.stats;
 
+import io.brackit.query.atomic.Numeric;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 
@@ -30,8 +31,9 @@ public final class SelectivityEstimator {
    * Optional histogram for data-driven selectivity estimates.
    * When set, equality and range predicates use histogram data
    * instead of hardcoded defaults.
+   * Volatile for safe publication across threads.
    */
-  private Histogram histogram;
+  private volatile Histogram histogram;
 
   /**
    * Set a histogram for data-driven selectivity estimation.
@@ -140,13 +142,17 @@ public final class SelectivityEstimator {
     if (operator == null) {
       return DEFAULT_SELECTIVITY;
     }
-    return selectivityForOperator(operator);
+    return selectivityForOperator(operator, compExpr);
   }
 
-  private double selectivityForOperator(String operator) {
+  private double selectivityForOperator(String operator, AST compExpr) {
     if (histogram != null) {
-      return histogramSelectivityForOperator(operator);
+      return histogramSelectivityForOperator(operator, compExpr);
     }
+    return defaultSelectivityForOperator(operator);
+  }
+
+  private static double defaultSelectivityForOperator(String operator) {
     return switch (operator) {
       case "ValueCompEQ", "GeneralCompEQ" -> DEFAULT_EQUALITY_SELECTIVITY;
       case "ValueCompNE", "GeneralCompNE" -> 1.0 - DEFAULT_EQUALITY_SELECTIVITY;
@@ -172,29 +178,84 @@ public final class SelectivityEstimator {
   }
 
   /**
-   * Use histogram data for operator-based selectivity.
-   * Falls back to histogram's equality/range methods which use NDV and bucket counts.
+   * Extract a numeric constant value from a comparison expression's operands.
+   *
+   * <p>ComparisonExpr has children: [operator, left, right].
+   * Tries child(2) (right operand) first, then child(1) (left operand),
+   * looking for a {@link Numeric} value or a parseable numeric string.</p>
+   *
+   * @param compExpr the ComparisonExpr AST node, or null
+   * @return the numeric constant, or {@link Double#NaN} if not found
    */
-  private double histogramSelectivityForOperator(String operator) {
+  static double extractConstantValue(AST compExpr) {
+    if (compExpr == null || compExpr.getChildCount() < 3) {
+      return Double.NaN;
+    }
+    // Try right operand first (child 2), then left (child 1)
+    double value = tryExtractNumeric(compExpr.getChild(2));
+    if (!Double.isNaN(value)) {
+      return value;
+    }
+    return tryExtractNumeric(compExpr.getChild(1));
+  }
+
+  /**
+   * Attempt to extract a numeric value from an AST node.
+   * Checks whether the node's value is a {@link Numeric} (Int32, Int64, Dbl, Dec)
+   * or a string that can be parsed as a double.
+   */
+  private static double tryExtractNumeric(AST node) {
+    if (node == null) {
+      return Double.NaN;
+    }
+    final Object val = node.getValue();
+    if (val instanceof Numeric numeric) {
+      return numeric.doubleValue();
+    }
+    // Try parsing the string value as a number (handles literal nodes
+    // whose value is stored as a String rather than an Atomic)
+    if (val instanceof String str) {
+      try {
+        return Double.parseDouble(str);
+      } catch (NumberFormatException ignored) {
+        // Not a numeric string
+      }
+    }
+    return Double.NaN;
+  }
+
+  /**
+   * Use histogram data for operator-based selectivity.
+   * Extracts the actual constant value from the comparison expression's operands.
+   * Falls back to the histogram midpoint if no constant can be extracted.
+   */
+  private double histogramSelectivityForOperator(String operator, AST compExpr) {
+    final double value = extractConstantValue(compExpr);
+    final double v = Double.isNaN(value)
+        ? (histogram.minValue() + histogram.maxValue()) / 2.0
+        : value;
+
     return switch (operator) {
       case "ValueCompEQ", "GeneralCompEQ" ->
-          histogram.estimateEqualitySelectivity(
-              (histogram.minValue() + histogram.maxValue()) / 2.0);
+          histogram.estimateEqualitySelectivity(v);
       case "ValueCompNE", "GeneralCompNE" ->
-          1.0 - histogram.estimateEqualitySelectivity(
-              (histogram.minValue() + histogram.maxValue()) / 2.0);
-      case "ValueCompLT", "GeneralCompLT", "ValueCompLE", "GeneralCompLE" ->
-          histogram.estimateLessThanSelectivity(
-              (histogram.minValue() + histogram.maxValue()) / 2.0);
-      case "ValueCompGT", "GeneralCompGT", "ValueCompGE", "GeneralCompGE" ->
-          histogram.estimateGreaterThanSelectivity(
-              (histogram.minValue() + histogram.maxValue()) / 2.0);
+          1.0 - histogram.estimateEqualitySelectivity(v);
+      case "ValueCompLT", "GeneralCompLT" ->
+          histogram.estimateLessThanSelectivity(v);
+      case "ValueCompLE", "GeneralCompLE" ->
+          histogram.estimateLessThanOrEqualSelectivity(v);
+      case "ValueCompGT", "GeneralCompGT" ->
+          histogram.estimateGreaterThanSelectivity(v);
+      case "ValueCompGE", "GeneralCompGE" ->
+          histogram.estimateGreaterThanOrEqualSelectivity(v);
       default -> DEFAULT_SELECTIVITY;
     };
   }
 
   /**
    * Use histogram data for type-based selectivity.
+   * Uses the midpoint as the comparison value since we don't have
+   * access to the full ComparisonExpr from the type-based path.
    */
   private double histogramSelectivityForType(int type) {
     final double midpoint = (histogram.minValue() + histogram.maxValue()) / 2.0;
@@ -203,10 +264,14 @@ public final class SelectivityEstimator {
           histogram.estimateEqualitySelectivity(midpoint);
       case XQ.ValueCompNE, XQ.GeneralCompNE ->
           1.0 - histogram.estimateEqualitySelectivity(midpoint);
-      case XQ.ValueCompLT, XQ.ValueCompLE, XQ.GeneralCompLT, XQ.GeneralCompLE ->
+      case XQ.ValueCompLT, XQ.GeneralCompLT ->
           histogram.estimateLessThanSelectivity(midpoint);
-      case XQ.ValueCompGT, XQ.ValueCompGE, XQ.GeneralCompGT, XQ.GeneralCompGE ->
+      case XQ.ValueCompLE, XQ.GeneralCompLE ->
+          histogram.estimateLessThanOrEqualSelectivity(midpoint);
+      case XQ.ValueCompGT, XQ.GeneralCompGT ->
           histogram.estimateGreaterThanSelectivity(midpoint);
+      case XQ.ValueCompGE, XQ.GeneralCompGE ->
+          histogram.estimateGreaterThanOrEqualSelectivity(midpoint);
       default -> DEFAULT_SELECTIVITY;
     };
   }
