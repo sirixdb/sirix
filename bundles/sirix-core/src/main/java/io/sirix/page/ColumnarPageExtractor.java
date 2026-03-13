@@ -53,9 +53,6 @@ public final class ColumnarPageExtractor {
         : "Parent key field index must be the same for STRING_VALUE and OBJECT_STRING_VALUE";
   }
 
-  // Pre-allocated scratch space for bitmap iteration
-  private final long[] bitmapWords = new long[PageLayout.BITMAP_WORDS];
-
   /**
    * Extract all string-type slots from a page, appending to the given arrays
    * starting at writePos. Returns the new write position.
@@ -91,6 +88,10 @@ public final class ColumnarPageExtractor {
     final boolean hasDewey = PageLayout.areDeweyIDsStored(page);
     final long pageBaseNodeKey = PageLayout.getRecordPageKey(page) << PageLayout.SLOT_COUNT_EXPONENT;
 
+    // Local scratch buffer for bitmap iteration — 16 longs = 128 bytes.
+    // Trivial allocation that the JIT will likely scalar-replace, and avoids
+    // thread-safety issues with a mutable instance field.
+    final long[] bitmapWords = new long[PageLayout.BITMAP_WORDS];
     PageLayout.copyBitmapTo(page, bitmapWords);
 
     int seen = 0;

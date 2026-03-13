@@ -87,14 +87,30 @@ public final class ColumnarStringFilter {
     final MemorySegment[] pages = pagesList.toArray(new MemorySegment[pageCount]);
     final byte[][][] symbolsByPage = symbolsByPageList.toArray(new byte[pageCount][][]);
 
-    // Pre-encode constant with each page's FSST table + wrap as MemorySegment
+    // Pre-encode constant with each page's FSST table + wrap as MemorySegment.
+    // FSSTCompressor.encode() prepends a 1-byte header (HEADER_COMPRESSED or HEADER_RAW),
+    // but ColumnarPageExtractor extracts payload offsets pointing past the page's own
+    // compression header — just the raw compressed bytes. We must strip the FSSTCompressor
+    // header byte before comparison.
     final byte[][] encodedByPage = new byte[pageCount][];
     final MemorySegment[] encodedSegByPage = new MemorySegment[pageCount];
     for (int p = 0; p < pageCount; p++) {
       final byte[][] symbols = symbolsByPage[p];
       if (symbols != null && symbols.length > 0) {
-        encodedByPage[p] = FSSTCompressor.encode(constantUtf8, symbols);
-        encodedSegByPage[p] = MemorySegment.ofArray(encodedByPage[p]);
+        final byte[] withHeader = FSSTCompressor.encode(constantUtf8, symbols);
+        if (withHeader.length > 1 && withHeader[0] == FSSTCompressor.HEADER_COMPRESSED) {
+          // Strip the 1-byte header — page data contains only the compressed payload
+          final byte[] stripped = new byte[withHeader.length - 1];
+          System.arraycopy(withHeader, 1, stripped, 0, stripped.length);
+          encodedByPage[p] = stripped;
+          encodedSegByPage[p] = MemorySegment.ofArray(stripped);
+        } else {
+          // Encoding returned raw (HEADER_RAW or short input fallback).
+          // On the page, uncompressed rows are compared via the raw UTF-8 path,
+          // so null out encodedByPage to force the fallback decompress-then-compare
+          // path for compressed rows whose FSST table produced no compression benefit.
+          encodedByPage[p] = null;
+        }
       }
     }
 

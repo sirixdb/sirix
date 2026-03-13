@@ -48,26 +48,42 @@ public final class ColumnBatchFilter {
     final int lanes = LONG_SPECIES.length();
     final int simdBound = inputCount - (inputCount % lanes);
 
-    final long[] gathered = new long[lanes];
     final LongVector cst = LongVector.broadcast(LONG_SPECIES, constant);
     int outPos = 0;
 
-    for (int i = 0; i < simdBound; i += lanes) {
-      boolean anyNull = false;
-      for (int j = 0; j < lanes; j++) {
-        final int row = sel[i + j];
-        gathered[j] = column[row];
-        if (nulls[row]) {
-          anyNull = true;
+    if (batch.isIdentitySelection()) {
+      // Fast path: selection vector is identity (sel[i] == i), so we can load
+      // directly from the column array without a scalar gather loop.
+      for (int i = 0; i < simdBound; i += lanes) {
+        final LongVector vec = LongVector.fromArray(LONG_SPECIES, column, i);
+        final VectorMask<Long> mask = op.applyLong(vec, cst);
+
+        for (int j = 0; j < lanes; j++) {
+          if (mask.laneIsSet(j) && !nulls[i + j]) {
+            sel[outPos++] = i + j;
+          }
         }
       }
+    } else {
+      // Slow path: selection vector is compacted — must gather via indirection.
+      final long[] gathered = new long[lanes];
+      for (int i = 0; i < simdBound; i += lanes) {
+        boolean anyNull = false;
+        for (int j = 0; j < lanes; j++) {
+          final int row = sel[i + j];
+          gathered[j] = column[row];
+          if (nulls[row]) {
+            anyNull = true;
+          }
+        }
 
-      final LongVector vec = LongVector.fromArray(LONG_SPECIES, gathered, 0);
-      final VectorMask<Long> mask = op.applyLong(vec, cst);
+        final LongVector vec = LongVector.fromArray(LONG_SPECIES, gathered, 0);
+        final VectorMask<Long> mask = op.applyLong(vec, cst);
 
-      for (int j = 0; j < lanes; j++) {
-        if (mask.laneIsSet(j) && !(anyNull && nulls[sel[i + j]])) {
-          sel[outPos++] = sel[i + j];
+        for (int j = 0; j < lanes; j++) {
+          if (mask.laneIsSet(j) && !(anyNull && nulls[sel[i + j]])) {
+            sel[outPos++] = sel[i + j];
+          }
         }
       }
     }

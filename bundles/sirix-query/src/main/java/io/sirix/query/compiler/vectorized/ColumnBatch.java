@@ -67,6 +67,10 @@ public final class ColumnBatch {
   private final int[] selectionVector;
   private int selectionCount;
 
+  // True when sel[i] == i for all active rows (initial state after seal()).
+  // Enables SIMD fast path: LongVector.fromArray directly instead of scalar gather.
+  private boolean identitySelection;
+
   // Number of rows currently loaded
   private int rowCount;
 
@@ -369,6 +373,7 @@ public final class ColumnBatch {
       selectionVector[i] = i;
     }
     selectionCount = rowCount;
+    identitySelection = true;
   }
 
   // --- Selection vector ---
@@ -382,10 +387,24 @@ public final class ColumnBatch {
           "Selection count out of range [0, " + rowCount + "]: " + count);
     }
     this.selectionCount = count;
+    // After filter compaction, the selection vector is no longer identity
+    // (unless count == rowCount and the caller preserved the identity pattern,
+    // but conservatively mark as non-identity — the cost is a scalar gather).
+    if (count < rowCount) {
+      this.identitySelection = false;
+    }
   }
 
   public int selectedRow(int i) {
     return selectionVector[i];
+  }
+
+  /**
+   * Whether the selection vector is in identity state: {@code sel[i] == i} for all active rows.
+   * Enables SIMD fast paths that can load directly from column arrays instead of gathering.
+   */
+  public boolean isIdentitySelection() {
+    return identitySelection;
   }
 
   // --- Direct column array access for SIMD operators ---
@@ -440,6 +459,7 @@ public final class ColumnBatch {
     final int clearLen = rowCount; // only touch populated range
     rowCount = 0;
     selectionCount = 0;
+    identitySelection = false;
     for (int col = 0; col < columnCount; col++) {
       if (columnTypes[col] == ColumnType.STRING && stringColumns[col] != null) {
         Arrays.fill(stringColumns[col], 0, clearLen, null);
