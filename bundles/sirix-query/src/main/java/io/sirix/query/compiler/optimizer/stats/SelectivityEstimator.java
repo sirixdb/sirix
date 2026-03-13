@@ -78,7 +78,7 @@ public final class SelectivityEstimator {
     }
     // Brackit may represent comparisons with the operator type directly
     {
-      final double typeSel = selectivityForComparisonType(type);
+      final double typeSel = selectivityForComparisonType(type, predicateExpr);
       if (typeSel != DEFAULT_SELECTIVITY) {
         return typeSel;
       }
@@ -164,8 +164,21 @@ public final class SelectivityEstimator {
   }
 
   private double selectivityForComparisonType(int type) {
+    return selectivityForComparisonType(type, null);
+  }
+
+  /**
+   * Estimate selectivity for a comparison type, optionally using the AST node
+   * to extract the actual predicate constant for histogram-based estimation.
+   *
+   * @param type the XQ comparison type constant
+   * @param compExpr the AST node (may be null); when non-null and a histogram
+   *                 is set, the constant is extracted from the AST operands
+   *                 instead of falling back to the histogram midpoint
+   */
+  private double selectivityForComparisonType(int type, AST compExpr) {
     if (histogram != null) {
-      return histogramSelectivityForType(type);
+      return histogramSelectivityForType(type, compExpr);
     }
     return switch (type) {
       case XQ.ValueCompEQ, XQ.GeneralCompEQ -> DEFAULT_EQUALITY_SELECTIVITY;
@@ -254,24 +267,31 @@ public final class SelectivityEstimator {
 
   /**
    * Use histogram data for type-based selectivity.
-   * Uses the midpoint as the comparison value since we don't have
-   * access to the full ComparisonExpr from the type-based path.
+   * When a non-null AST node is provided, extracts the actual predicate constant
+   * from the comparison operands. Falls back to the histogram midpoint when the
+   * AST is null or constant extraction fails.
+   *
+   * @param type the XQ comparison type constant
+   * @param compExpr the AST node (may be null)
    */
-  private double histogramSelectivityForType(int type) {
-    final double midpoint = (histogram.minValue() + histogram.maxValue()) / 2.0;
+  private double histogramSelectivityForType(int type, AST compExpr) {
+    final double value = extractConstantValue(compExpr);
+    final double v = Double.isNaN(value)
+        ? (histogram.minValue() + histogram.maxValue()) / 2.0
+        : value;
     return switch (type) {
       case XQ.ValueCompEQ, XQ.GeneralCompEQ ->
-          histogram.estimateEqualitySelectivity(midpoint);
+          histogram.estimateEqualitySelectivity(v);
       case XQ.ValueCompNE, XQ.GeneralCompNE ->
-          1.0 - histogram.estimateEqualitySelectivity(midpoint);
+          1.0 - histogram.estimateEqualitySelectivity(v);
       case XQ.ValueCompLT, XQ.GeneralCompLT ->
-          histogram.estimateLessThanSelectivity(midpoint);
+          histogram.estimateLessThanSelectivity(v);
       case XQ.ValueCompLE, XQ.GeneralCompLE ->
-          histogram.estimateLessThanOrEqualSelectivity(midpoint);
+          histogram.estimateLessThanOrEqualSelectivity(v);
       case XQ.ValueCompGT, XQ.GeneralCompGT ->
-          histogram.estimateGreaterThanSelectivity(midpoint);
+          histogram.estimateGreaterThanSelectivity(v);
       case XQ.ValueCompGE, XQ.GeneralCompGE ->
-          histogram.estimateGreaterThanOrEqualSelectivity(midpoint);
+          histogram.estimateGreaterThanOrEqualSelectivity(v);
       default -> DEFAULT_SELECTIVITY;
     };
   }
