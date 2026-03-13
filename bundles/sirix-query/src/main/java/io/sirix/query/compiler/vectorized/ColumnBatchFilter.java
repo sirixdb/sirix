@@ -117,26 +117,42 @@ public final class ColumnBatchFilter {
     final int lanes = DOUBLE_SPECIES.length();
     final int simdBound = inputCount - (inputCount % lanes);
 
-    final double[] gathered = new double[lanes];
     final DoubleVector cst = DoubleVector.broadcast(DOUBLE_SPECIES, constant);
     int outPos = 0;
 
-    for (int i = 0; i < simdBound; i += lanes) {
-      boolean anyNull = false;
-      for (int j = 0; j < lanes; j++) {
-        final int row = sel[i + j];
-        gathered[j] = column[row];
-        if (nulls[row]) {
-          anyNull = true;
+    if (batch.isIdentitySelection()) {
+      // Fast path: selection vector is identity (sel[i] == i), so we can load
+      // directly from the column array without a scalar gather loop.
+      for (int i = 0; i < simdBound; i += lanes) {
+        final DoubleVector vec = DoubleVector.fromArray(DOUBLE_SPECIES, column, i);
+        final VectorMask<Double> mask = op.applyDouble(vec, cst);
+
+        for (int j = 0; j < lanes; j++) {
+          if (mask.laneIsSet(j) && !nulls[i + j]) {
+            sel[outPos++] = i + j;
+          }
         }
       }
+    } else {
+      // Slow path: selection vector is compacted — must gather via indirection.
+      final double[] gathered = new double[lanes];
+      for (int i = 0; i < simdBound; i += lanes) {
+        boolean anyNull = false;
+        for (int j = 0; j < lanes; j++) {
+          final int row = sel[i + j];
+          gathered[j] = column[row];
+          if (nulls[row]) {
+            anyNull = true;
+          }
+        }
 
-      final DoubleVector vec = DoubleVector.fromArray(DOUBLE_SPECIES, gathered, 0);
-      final VectorMask<Double> mask = op.applyDouble(vec, cst);
+        final DoubleVector vec = DoubleVector.fromArray(DOUBLE_SPECIES, gathered, 0);
+        final VectorMask<Double> mask = op.applyDouble(vec, cst);
 
-      for (int j = 0; j < lanes; j++) {
-        if (mask.laneIsSet(j) && !(anyNull && nulls[sel[i + j]])) {
-          sel[outPos++] = sel[i + j];
+        for (int j = 0; j < lanes; j++) {
+          if (mask.laneIsSet(j) && !(anyNull && nulls[sel[i + j]])) {
+            sel[outPos++] = sel[i + j];
+          }
         }
       }
     }
