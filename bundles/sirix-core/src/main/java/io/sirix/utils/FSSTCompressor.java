@@ -650,10 +650,35 @@ public final class FSSTCompressor {
     }
 
     // Decode compressed data (skip header byte)
+    return decodeRawCompressed(data, offset + 1, length - 1, symbols);
+  }
+
+  /**
+   * Decode headerless FSST-compressed data from a slice of a byte array.
+   * Unlike {@link #decodeWithParsedSymbols}, this method does NOT expect a header byte —
+   * the data starts directly with compressed symbol codes and escape sequences.
+   *
+   * <p>Use this for page-extracted compressed payloads where the on-page format is
+   * {@code [isCompressed:1byte][length:varint][payload_bytes]} and the payload contains
+   * raw compressed bytes without the FSST header.</p>
+   *
+   * @param data    the byte array containing raw compressed data (no header)
+   * @param offset  start offset within data
+   * @param length  number of bytes to decode
+   * @param symbols pre-parsed FSST symbol table
+   * @return decoded byte array
+   */
+  static byte[] decodeRawCompressed(final byte[] data, final int offset,
+      final int length, final byte[][] symbols) {
+    if (length == 0) {
+      return EMPTY_BYTES;
+    }
+
+    final int end = offset + length;
     // Pre-allocate output buffer — use 3x as typical FSST expansion rather than 8x
     byte[] output = new byte[Math.max(length * 3, 64)];
     int outPos = 0;
-    int pos = offset + 1; // Skip header
+    int pos = offset;
 
     while (pos < end) {
       final int b = data[pos++] & 0xFF;
@@ -683,6 +708,32 @@ public final class FSSTCompressor {
 
     // Single allocation for final sized array
     return Arrays.copyOf(output, outPos);
+  }
+
+  /**
+   * Decode headerless FSST-compressed data using pre-parsed symbols.
+   * For page-extracted compressed payloads that do NOT have the FSST header byte.
+   *
+   * <p>Pages store compressed string values as {@code [isCompressed:1byte][length:varint][payload_bytes]}
+   * where {@code payload_bytes} are the raw compressed bytes without the FSST header.
+   * Use this method (instead of {@link #decode(byte[], byte[][])}) when decoding such payloads.</p>
+   *
+   * @param data    headerless compressed byte array
+   * @param symbols pre-parsed FSST symbol table from {@link #parseSymbolTable(byte[])}
+   * @return decoded byte array
+   */
+  public static byte[] decodeRaw(final byte[] data, final byte[][] symbols) {
+    Objects.requireNonNull(data, "data must not be null");
+
+    if (data.length == 0) {
+      return EMPTY_BYTES;
+    }
+
+    if (symbols == null || symbols.length == 0) {
+      return data.clone();
+    }
+
+    return decodeRawCompressed(data, 0, data.length, symbols);
   }
 
   private static final byte[] EMPTY_BYTES = new byte[0];
@@ -801,8 +852,8 @@ public final class FSSTCompressor {
         if (isCompressed[row]
             && (symbols = symbolsByPage[pageIndices[row]]) != null
             && symbols.length > 0) {
-          // Decode directly from buffer slice — no copy needed
-          final byte[] decoded = decodeWithParsedSymbols(buffer, 0, len, symbols);
+          // Decode directly from buffer slice — no copy needed (headerless page data)
+          final byte[] decoded = decodeRawCompressed(buffer, 0, len, symbols);
           output[row] = new String(decoded, StandardCharsets.UTF_8);
         } else {
           output[row] = new String(buffer, 0, len, StandardCharsets.UTF_8);

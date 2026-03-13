@@ -248,7 +248,7 @@ public final class ColumnBatch {
     final String result;
     if (deferredCompressed[col][row]) {
       final byte[][] symbols = parsedFsstSymbolsByPage[col].get(pageIdx);
-      final byte[] decoded = FSSTCompressor.decode(raw, symbols);
+      final byte[] decoded = FSSTCompressor.decodeRaw(raw, symbols);
       result = new String(decoded, StandardCharsets.UTF_8);
     } else {
       result = new String(raw, StandardCharsets.UTF_8);

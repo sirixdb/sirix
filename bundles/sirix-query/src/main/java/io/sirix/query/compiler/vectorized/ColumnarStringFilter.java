@@ -180,7 +180,7 @@ public final class ColumnarStringFilter {
 
     final byte[] raw = new byte[length];
     MemorySegment.copy(page, ValueLayout.JAVA_BYTE, offset, raw, 0, length);
-    final byte[] decoded = FSSTCompressor.decode(raw, symbols);
+    final byte[] decoded = FSSTCompressor.decodeRaw(raw, symbols);
 
     if (decoded.length != constantUtf8.length) {
       return false;
