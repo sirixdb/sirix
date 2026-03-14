@@ -10,6 +10,9 @@ import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.query.json.JsonDBStore;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -22,6 +25,8 @@ import java.util.Objects;
  * between queries to prevent stale statistics.</p>
  */
 public final class SirixStatisticsProvider implements StatisticsProvider, AutoCloseable {
+
+  private static final Logger LOG = LoggerFactory.getLogger(SirixStatisticsProvider.class);
 
   private final JsonDBStore jsonStore;
 
@@ -52,6 +57,7 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
       sessionCache.put(key, session);
       return session;
     } catch (Exception e) {
+      LOG.debug("Failed to open session for {}/{}: {}", databaseName, resourceName, e.getMessage());
       return null;
     }
   }
@@ -115,6 +121,7 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
         return totalReferences;
       }
     } catch (Exception e) {
+      LOG.debug("Failed to get path cardinality for {}/{}: {}", databaseName, resourceName, e.getMessage());
       return -1L;
     }
   }
@@ -134,6 +141,7 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
         return rtx.getDescendantCount();
       }
     } catch (Exception e) {
+      LOG.debug("Failed to get total node count for {}/{}: {}", databaseName, resourceName, e.getMessage());
       return -1L;
     }
   }
@@ -187,6 +195,7 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
 
       return bestMatch != null ? bestMatch : IndexInfo.NO_INDEX;
     } catch (Exception e) {
+      LOG.debug("Failed to look up index info for {}/{}: {}", databaseName, resourceName, e.getMessage());
       return IndexInfo.NO_INDEX;
     }
   }
@@ -260,7 +269,7 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
         }
       }
     } catch (Exception e) {
-      // defaults remain
+      LOG.debug("Failed to compute path level for {}/{}: {}", databaseName, resourceName, e.getMessage());
     }
 
     return new BaseProfile(nodeCount, pathLevel, indexInfo.exists(), indexInfo.type());

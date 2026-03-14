@@ -186,8 +186,9 @@ final class SirixStatisticsProviderTest {
       // Verify statistics correctness: 4 objects with "a" field → pathCard = 4
       assertEquals(4L, pathCard, "Expected 4 'a' nodes");
 
-      // The test document is small (~45 nodes, 1 page), so the B-tree overhead
-      // makes index scan more expensive than a single-page sequential scan.
+      // The test document is small (~45 nodes, fits in a single 1024-slot page),
+      // so the HOT trie traversal overhead + random I/O makes index scan more
+      // expensive than a single-page sequential scan.
       // Verify the cost model correctly reflects this:
       final var costModel = new JsonCostModel();
       final double seqCost = costModel.estimateSequentialScanCost(totalNodes);
@@ -195,7 +196,7 @@ final class SirixStatisticsProviderTest {
       assertTrue(seqCost > 0, "Sequential scan cost should be positive");
       assertTrue(idxCost > 0, "Index scan cost should be positive");
       assertFalse(costModel.isIndexScanCheaper(idxCost, seqCost),
-          "For tiny documents, B-tree overhead should make index scan more expensive");
+          "For tiny documents, index overhead should make index scan more expensive");
 
       // Now verify with the SAME selectivity ratio (4/45 ≈ 9%) but at realistic scale,
       // the index wins. Scale both counts by 1000x → ~45K total, ~4K matching.

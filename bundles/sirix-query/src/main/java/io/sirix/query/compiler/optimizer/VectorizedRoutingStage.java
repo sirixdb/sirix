@@ -8,6 +8,8 @@ import io.brackit.query.module.StaticContext;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.vectorized.ColumnType;
 import io.sirix.query.compiler.vectorized.ComparisonOperator;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.function.json.JSONFun;
 import io.sirix.query.compiler.vectorized.VectorizedPipelineDetector;
 import io.sirix.query.compiler.vectorized.VectorizedPredicate;
 
@@ -389,8 +391,15 @@ public final class VectorizedRoutingStage implements Stage {
    * Expected pattern: FunctionCall("jn:doc") with Str children for db and resource.
    */
   private static DocInfo extractDocInfoFromFunctionCall(AST funcCall) {
-    final String funcName = funcCall.getStringValue();
-    if (funcName == null || (!funcName.contains("doc") && !funcName.contains("collection"))) {
+    // Use proper QNm-based matching (consistent with CostBasedStage.isDocFunction)
+    final var value = funcCall.getValue();
+    if (value instanceof QNm qnm) {
+      if (!JSONFun.JSON_NSURI.equals(qnm.getNamespaceURI())
+          || (!"doc".equals(qnm.getLocalName()) && !"open".equals(qnm.getLocalName())
+              && !"collection".equals(qnm.getLocalName()))) {
+        return null;
+      }
+    } else {
       return null;
     }
 

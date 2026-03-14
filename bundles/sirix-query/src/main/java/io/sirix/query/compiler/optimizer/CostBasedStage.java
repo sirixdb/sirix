@@ -10,10 +10,12 @@ import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.path.Path;
 import io.sirix.query.compiler.optimizer.stats.CardinalityEstimator;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
+import io.sirix.query.compiler.optimizer.stats.Histogram;
 import io.sirix.query.compiler.optimizer.stats.IndexInfo;
 import io.sirix.query.compiler.optimizer.stats.JsonCostModel;
 import io.sirix.query.compiler.optimizer.stats.SelectivityEstimator;
 import io.sirix.query.compiler.optimizer.stats.SirixStatisticsProvider;
+import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.query.compiler.optimizer.stats.StatisticsProvider;
 import io.sirix.query.json.JsonDBStore;
 
@@ -128,6 +130,18 @@ public final class CostBasedStage implements Stage {
     final String databaseName = pathAndDoc.databaseName();
     final String resourceName = pathAndDoc.resourceName();
     final int revision = pathAndDoc.revision();
+
+    // Look up histogram from the catalog for data-driven selectivity estimation.
+    // Uses the leaf field name as the key — matches HistogramCollector's convention.
+    final QNm tail = path.getLength() > 0 ? path.tail() : null;
+    final String leafField = tail != null ? tail.getLocalName() : null;
+    if (leafField != null) {
+      final Histogram histogram = StatisticsCatalog.getInstance()
+          .get(databaseName, resourceName, leafField);
+      selectivityEstimator.setHistogram(histogram); // null clears previous
+    } else {
+      selectivityEstimator.setHistogram(null);
+    }
 
     // Get statistics
     final long pathCardinality = statsProvider.getPathCardinality(

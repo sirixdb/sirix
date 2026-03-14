@@ -225,10 +225,18 @@ public final class Histogram {
     /**
      * Add a value observation to the histogram builder.
      *
-     * @param value the observed value
+     * <p>NaN values are silently skipped — they would corrupt min/max tracking
+     * and produce meaningless bucket boundaries. Infinite values are also
+     * rejected because they would make {@code maxValue - minValue} infinite,
+     * yielding zero-width or infinite-width buckets.</p>
+     *
+     * @param value the observed value (must be finite)
      * @return this builder
      */
     public Builder addValue(double value) {
+      if (Double.isNaN(value) || Double.isInfinite(value)) {
+        return this; // skip — would corrupt min/max and bucket math
+      }
       if (valueCount == values.length) {
         final double[] newValues = new double[values.length * 2];
         System.arraycopy(values, 0, newValues, 0, values.length);

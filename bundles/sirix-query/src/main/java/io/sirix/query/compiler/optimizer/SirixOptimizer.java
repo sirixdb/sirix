@@ -20,11 +20,18 @@ public class SirixOptimizer extends TopDownOptimizer {
 
   private final XmlDBStore xmlNodeStore;
   private final JsonDBStore jsonItemStore;
+  private final PlanCache planCache;
 
   public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore, final JsonDBStore jsonItemStore) {
+    this(options, nodeStore, jsonItemStore, new PlanCache());
+  }
+
+  public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore,
+                         final JsonDBStore jsonItemStore, final PlanCache planCache) {
     super(options);
     this.xmlNodeStore = nodeStore;
     this.jsonItemStore = jsonItemStore;
+    this.planCache = planCache;
     // 1. JQGM rewrite rules (Rules 1-4) — predicate pushdown and join fusion before cost analysis.
     getStages().add(new JqgmRewriteStage());
     // 2. Cost-based optimization: annotate AST with index preference hints and cardinality estimates.
@@ -46,6 +53,38 @@ public class SirixOptimizer extends TopDownOptimizer {
     getStages().add(new VectorizedRoutingStage());
     // 10. Perform index matching as last step.
     getStages().add(new IndexMatching(nodeStore, jsonItemStore));
+  }
+
+  @Override
+  public AST optimize(StaticContext sctx, AST ast) {
+    // Use query string as cache key. AST.toString() gives the original query text.
+    final String cacheKey = ast.toString();
+    if (cacheKey != null) {
+      final AST cached = planCache.get(cacheKey);
+      if (cached != null) {
+        // Deep-copy the cached AST to prevent the 10-stage pipeline from
+        // mutating the cache entry (AST nodes are mutable — setProperty,
+        // replaceChild modify in-place).
+        return cached.copyTree();
+      }
+    }
+
+    final AST optimized = super.optimize(sctx, ast);
+
+    // Cache a deep copy so the caller's subsequent mutations don't corrupt the entry.
+    if (cacheKey != null) {
+      planCache.put(cacheKey, optimized.copyTree());
+    }
+    return optimized;
+  }
+
+  /**
+   * Get the plan cache.
+   *
+   * @return The plan cache
+   */
+  public PlanCache getPlanCache() {
+    return planCache;
   }
 
   /**

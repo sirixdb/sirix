@@ -241,6 +241,81 @@ final class HistogramTest {
         "Histogram should produce different selectivity than default 0.33, got " + histRangeSel);
   }
 
+  // --- Edge case tests (Phase 2b validation) ---
+
+  @Test
+  void addValueSkipsNaN() {
+    final var builder = new Histogram.Builder(10);
+    builder.addValue(1.0);
+    builder.addValue(Double.NaN);
+    builder.addValue(Double.NaN);
+    builder.addValue(2.0);
+    final Histogram hist = builder.build();
+
+    assertEquals(2, hist.totalCount(), "NaN values should be silently skipped");
+    assertEquals(1.0, hist.minValue(), 0.001, "min should be 1.0 (NaN excluded)");
+    assertEquals(2.0, hist.maxValue(), 0.001, "max should be 2.0 (NaN excluded)");
+  }
+
+  @Test
+  void addValueSkipsPositiveInfinity() {
+    final var builder = new Histogram.Builder(10);
+    builder.addValue(10.0);
+    builder.addValue(Double.POSITIVE_INFINITY);
+    builder.addValue(20.0);
+    final Histogram hist = builder.build();
+
+    assertEquals(2, hist.totalCount(), "Infinity should be silently skipped");
+    assertEquals(20.0, hist.maxValue(), 0.001, "max should be 20.0 (Infinity excluded)");
+  }
+
+  @Test
+  void addValueSkipsNegativeInfinity() {
+    final var builder = new Histogram.Builder(10);
+    builder.addValue(Double.NEGATIVE_INFINITY);
+    builder.addValue(5.0);
+    builder.addValue(15.0);
+    final Histogram hist = builder.build();
+
+    assertEquals(2, hist.totalCount(), "Negative infinity should be silently skipped");
+    assertEquals(5.0, hist.minValue(), 0.001, "min should be 5.0 (-Infinity excluded)");
+  }
+
+  @Test
+  void allNaNsProduceEmptyHistogram() {
+    final var builder = new Histogram.Builder(10);
+    builder.addValue(Double.NaN);
+    builder.addValue(Double.NaN);
+    builder.addValue(Double.NaN);
+    final Histogram hist = builder.build();
+
+    assertEquals(0, hist.totalCount(), "All-NaN histogram should be empty");
+    assertEquals(SelectivityEstimator.DEFAULT_SELECTIVITY,
+        hist.estimateEqualitySelectivity(42.0), 0.001,
+        "Empty histogram should return default selectivity");
+  }
+
+  @Test
+  void mixedFiniteAndNonFiniteValues() {
+    final var builder = new Histogram.Builder(10);
+    for (int i = 0; i < 100; i++) {
+      builder.addValue(i);
+    }
+    // Sprinkle in non-finite values
+    builder.addValue(Double.NaN);
+    builder.addValue(Double.POSITIVE_INFINITY);
+    builder.addValue(Double.NEGATIVE_INFINITY);
+    builder.setDistinctCount(100);
+    final Histogram hist = builder.build();
+
+    assertEquals(100, hist.totalCount(), "Only finite values should count");
+    assertEquals(0.0, hist.minValue(), 0.001);
+    assertEquals(99.0, hist.maxValue(), 0.001);
+    // Selectivity should work normally
+    final double sel = hist.estimateEqualitySelectivity(50.0);
+    assertEquals(0.01, sel, 0.001, "1/NDV = 1/100 = 0.01");
+  }
+
   // --- Helpers ---
 
   private static io.brackit.query.compiler.AST makeEqComparison() {

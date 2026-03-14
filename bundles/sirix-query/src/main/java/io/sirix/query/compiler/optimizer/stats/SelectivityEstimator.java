@@ -163,10 +163,6 @@ public final class SelectivityEstimator {
     };
   }
 
-  private double selectivityForComparisonType(int type) {
-    return selectivityForComparisonType(type, null);
-  }
-
   /**
    * Estimate selectivity for a comparison type, optionally using the AST node
    * to extract the actual predicate constant for histogram-based estimation.

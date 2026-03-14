@@ -62,7 +62,6 @@ import java.util.Map;
  */
 public final class VectorizedPipelineExpr implements Expr {
 
-  private final Map<String, Object> properties;
   private final String databaseName;
   private final String resourceName;
   private final Integer revision;
@@ -72,7 +71,6 @@ public final class VectorizedPipelineExpr implements Expr {
 
   @SuppressWarnings("unchecked")
   public VectorizedPipelineExpr(final Map<String, Object> properties) {
-    this.properties = properties;
     this.databaseName = (String) properties.get("databaseName");
     this.resourceName = (String) properties.get("resourceName");
     this.revision = (Integer) properties.get("revision");
@@ -164,15 +162,13 @@ public final class VectorizedPipelineExpr implements Expr {
    * Apply all extracted predicates to a batch.
    *
    * <p>Each predicate narrows the selection vector in-place. String EQ/NE predicates
-   * use ColumnarStringFilter with FSST-aware compressed comparison. All other predicates
-   * (numeric and string range) fall back to scalar evaluation: materialize the string
-   * value from {@code COL_STRING_VALUE}, parse to the target type, then compare.</p>
+   * use ColumnarStringFilter with FSST-aware compressed comparison. Numeric predicates
+   * use a combined filter that handles both number-type rows (via COL_NUMERIC_VALUE)
+   * and string-encoded numbers (via COL_STRING_VALUE) in a single pass.</p>
    *
-   * <p><b>Why scalar fallback for numerics:</b> ColumnarScanAxis has fixed columns
-   * (nodeKey, parentKey, stringValue, deweyId) — there are no per-field typed columns.
-   * SIMD filtering via {@code ColumnBatchFilter} requires a dedicated typed column, which
-   * doesn't exist for arbitrary JSON fields yet. When per-field columnar storage is added,
-   * this method should resolve field names to column indices and use SIMD paths.</p>
+   * <p><b>Design note:</b> SIMD and scalar fallback cannot be chained sequentially because
+   * {@code ColumnBatchFilter.filterDouble} removes rows with null in COL_NUMERIC_VALUE
+   * (string rows). A combined pass preserves both populations correctly.</p>
    */
   private void applyPredicates(ColumnBatch batch) {
     if (predicates == null) {
@@ -180,8 +176,8 @@ public final class VectorizedPipelineExpr implements Expr {
     }
     for (final VectorizedPredicate pred : predicates) {
       switch (pred.type()) {
-        case INT64 -> filterLongScalar(batch, pred);
-        case FLOAT64 -> filterDoubleScalar(batch, pred);
+        case INT64 -> filterNumericCombined(batch, pred, true);
+        case FLOAT64 -> filterNumericCombined(batch, pred, false);
         case STRING -> {
           if (pred.isStringFilterable()) {
             // EQ/NE: use FSST-aware compressed comparison
@@ -217,7 +213,7 @@ public final class VectorizedPipelineExpr implements Expr {
 
     for (int i = 0; i < inputCount; i++) {
       final int row = sel[i];
-      final String value = values[i];
+      final String value = values[row];
       if (value != null && compareString(value, constant, pred.op())) {
         sel[outPos++] = row;
       }
@@ -226,59 +222,73 @@ public final class VectorizedPipelineExpr implements Expr {
   }
 
   /**
-   * Scalar fallback for INT64 predicates. Materializes string values,
-   * parses each to long, and compares row-by-row.
+   * Combined numeric predicate filter for batches containing both number-type
+   * and string-type rows.
    *
-   * <p>Required because ColumnarScanAxis has no per-field typed column for
-   * arbitrary JSON fields. Values are stored as strings in COL_STRING_VALUE.</p>
-   */
-  private static void filterLongScalar(ColumnBatch batch, VectorizedPredicate pred) {
-    final long constant = ((Number) pred.constant()).longValue();
-    final ComparisonOperator op = pred.op();
-    filterNumericScalar(batch, value -> {
-      try {
-        return op.testLong(Long.parseLong(value), constant);
-      } catch (NumberFormatException e) {
-        return false;
-      }
-    });
-  }
-
-  /**
-   * Scalar fallback for FLOAT64 predicates. Materializes string values,
-   * parses each to double, and compares row-by-row.
-   */
-  private static void filterDoubleScalar(ColumnBatch batch, VectorizedPredicate pred) {
-    final double constant = ((Number) pred.constant()).doubleValue();
-    final ComparisonOperator op = pred.op();
-    filterNumericScalar(batch, value -> {
-      try {
-        return op.testDouble(Double.parseDouble(value), constant);
-      } catch (NumberFormatException e) {
-        return false;
-      }
-    });
-  }
-
-  /**
-   * Shared scalar fallback for numeric predicates. Materializes string values
-   * from {@code COL_STRING_VALUE} and applies a parse-then-test predicate row-by-row.
+   * <p>Number rows (non-null in COL_NUMERIC_VALUE) are compared directly via the
+   * double column — fast scalar path (SIMD can be added by splitting populations).
+   * String rows (null in COL_NUMERIC_VALUE, non-null in COL_STRING_VALUE) are
+   * materialized, parsed to number, and compared row-by-row.</p>
    *
-   * @param batch the column batch to filter in-place
-   * @param test  returns true if the materialized string value passes the predicate;
-   *              should handle parse failures internally (return false)
+   * <p><b>Why not chain SIMD + scalar?</b> {@code ColumnBatchFilter.filterDouble}
+   * removes null rows from the selection vector. String rows have null in
+   * COL_NUMERIC_VALUE, so they'd be removed before the scalar fallback runs.
+   * This combined pass handles both populations correctly in one iteration.</p>
+   *
+   * @param batch  the column batch to filter in-place
+   * @param pred   the numeric predicate
+   * @param isLong true for INT64 predicates (parse as long), false for FLOAT64
    */
-  private static void filterNumericScalar(ColumnBatch batch, java.util.function.Predicate<String> test) {
-    final String[] values = batch.materializeAllSelected(ColumnarScanAxis.COL_STRING_VALUE);
+  private static void filterNumericCombined(ColumnBatch batch, VectorizedPredicate pred, boolean isLong) {
+    final double doubleConstant = ((Number) pred.constant()).doubleValue();
+    final long longConstant = isLong ? ((Number) pred.constant()).longValue() : 0;
+    final ComparisonOperator op = pred.op();
+
+    final double[] numColumn = batch.doubleColumn(ColumnarScanAxis.COL_NUMERIC_VALUE);
+    final boolean[] numNulls = batch.nullFlags(ColumnarScanAxis.COL_NUMERIC_VALUE);
     final int[] sel = batch.selectionVector();
     final int inputCount = batch.selectionCount();
-    int outPos = 0;
 
+    // Check if any selected rows are string rows (null in COL_NUMERIC_VALUE).
+    // Skip expensive string materialization when all rows are number-type.
+    boolean hasStringRows = false;
+    for (int i = 0; i < inputCount; i++) {
+      if (numNulls[sel[i]]) {
+        hasStringRows = true;
+        break;
+      }
+    }
+
+    // Only materialize string values when needed (FSST decompression is expensive)
+    final String[] strValues = hasStringRows
+        ? batch.materializeAllSelected(ColumnarScanAxis.COL_STRING_VALUE) : null;
+
+    int outPos = 0;
     for (int i = 0; i < inputCount; i++) {
       final int row = sel[i];
-      final String value = values[i];
-      if (value != null && test.test(value)) {
-        sel[outPos++] = row;
+      if (!numNulls[row]) {
+        // Number row: compare via double column (fast path)
+        if (op.testDouble(numColumn[row], doubleConstant)) {
+          sel[outPos++] = row;
+        }
+      } else if (strValues != null) {
+        // String row: parse and compare (slow path)
+        final String value = strValues[row];
+        if (value != null) {
+          try {
+            if (isLong) {
+              if (op.testLong(Long.parseLong(value), longConstant)) {
+                sel[outPos++] = row;
+              }
+            } else {
+              if (op.testDouble(Double.parseDouble(value), doubleConstant)) {
+                sel[outPos++] = row;
+              }
+            }
+          } catch (NumberFormatException e) {
+            // Not a valid number — exclude from results
+          }
+        }
       }
     }
     batch.setSelectionCount(outPos);
@@ -288,15 +298,7 @@ public final class VectorizedPipelineExpr implements Expr {
    * Scalar string comparison for range predicates.
    */
   private static boolean compareString(String value, String constant, ComparisonOperator op) {
-    final int cmp = value.compareTo(constant);
-    return switch (op) {
-      case EQ -> cmp == 0;
-      case NE -> cmp != 0;
-      case LT -> cmp < 0;
-      case LE -> cmp <= 0;
-      case GT -> cmp > 0;
-      case GE -> cmp >= 0;
-    };
+    return op.testCompareTo(value.compareTo(constant));
   }
 
   @Override
