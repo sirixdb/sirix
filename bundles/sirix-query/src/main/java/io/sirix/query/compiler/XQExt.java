@@ -8,7 +8,7 @@ import io.brackit.query.compiler.XQ;
  */
 public final class XQExt {
 
-  private static final int OFFSET = XQ.allocate(3);
+  private static final int OFFSET = XQ.allocate(4);
 
   public static final int MultiStepExpr = OFFSET;
 
@@ -16,7 +16,9 @@ public final class XQExt {
 
   public static final int ParentExpr = OFFSET + 2;
 
-  public static final String NAMES[] = new String[] {"MultiStepExpr", "IndexExpr", "ParentExpr"};
+  public static final int VectorizedPipelineExpr = OFFSET + 3;
+
+  public static final String NAMES[] = new String[] {"MultiStepExpr", "IndexExpr", "ParentExpr", "VectorizedPipelineExpr"};
 
   public static Object toName(int key) {
     return NAMES[key - OFFSET];

@@ -12,6 +12,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.expression.IndexExpr;
+import io.sirix.query.compiler.expression.VectorizedPipelineExpr;
 import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.stream.node.SirixNodeStream;
 import io.sirix.query.stream.node.TemporalSirixNodeStream;
@@ -88,6 +89,8 @@ public class SirixTranslator extends TopDownTranslator {
   protected Expr anyExpr(AST node) throws QueryException {
     if (node.getType() == XQExt.IndexExpr) {
       return indexExpr(node);
+    } else if (node.getType() == XQExt.VectorizedPipelineExpr) {
+      return new VectorizedPipelineExpr(node.getProperties());
     } else if (node.getType() == XQ.DerefDescendantExpr) {
       return derefDescendantExpr(node);
     }

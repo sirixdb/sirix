@@ -266,37 +266,61 @@ public final class CostBasedJoinReorder extends Walker {
   }
 
   /**
-   * Restructure the join tree based on the DPhyp-optimal plan.
+   * Recursively restructure the join tree based on the DPhyp-optimal plan.
    *
-   * <p>For each join node in the group, if the plan indicates the inputs
-   * should be swapped (right subtree has lower cardinality), swap the
-   * children to place the smaller relation as the build side.</p>
+   * <p>At each join node, if the plan indicates the left subtree has lower
+   * cardinality than the right, the children are swapped so the larger
+   * relation is on the probe side (left) and the smaller on the build side
+   * (right) of a hash join.</p>
    *
-   * <p>TODO: Currently only restructures the root join. Recursive restructuring
-   * of nested joins within the group requires mapping plan sub-trees to
-   * corresponding AST join nodes, which is deferred to a future iteration.</p>
+   * <p>After swapping AST children, the plan references are also swapped
+   * so that recursion into child joins uses the correct sub-plan for each
+   * AST child direction. Left outer joins encountered during recursion
+   * are skipped (their commutativity constraints differ).</p>
    */
-  private void restructureJoinTree(AST rootJoin, JoinPlan plan) {
+  private void restructureJoinTree(AST join, JoinPlan plan) {
     if (plan.isBaseRelation()) {
       return;
     }
 
-    final JoinPlan leftPlan = plan.left();
-    final JoinPlan rightPlan = plan.right();
+    JoinPlan leftPlan = plan.left();
+    JoinPlan rightPlan = plan.right();
 
     if (leftPlan == null || rightPlan == null) {
       return;
     }
 
-    // For the root join: check if plan suggests swapping
+    // Swap children if left plan has lower cardinality (should be build side)
     final long leftCard = leftPlan.cardinality();
     final long rightCard = rightPlan.cardinality();
 
-    if (leftCard < rightCard && rootJoin.getChildCount() >= 4) {
-      swapJoinChildren(rootJoin);
-      rootJoin.setProperty(CostProperties.JOIN_SWAPPED, true);
-      rootJoin.setProperty(CostProperties.JOIN_LEFT_CARD, rightCard);
-      rootJoin.setProperty(CostProperties.JOIN_RIGHT_CARD, leftCard);
+    if (leftCard < rightCard && join.getChildCount() >= 4) {
+      swapJoinChildren(join);
+      join.setProperty(CostProperties.JOIN_SWAPPED, true);
+      join.setProperty(CostProperties.JOIN_LEFT_CARD, rightCard);
+      join.setProperty(CostProperties.JOIN_RIGHT_CARD, leftCard);
+      // After swapping AST children, swap plan references to stay in sync
+      final JoinPlan tmp = leftPlan;
+      leftPlan = rightPlan;
+      rightPlan = tmp;
+    }
+
+    // Recurse into left child join
+    if (!leftPlan.isBaseRelation()) {
+      final AST leftContent = findPipelineContent(join.getChild(0));
+      if (leftContent != null && leftContent.getType() == XQ.Join
+          && !CostProperties.isLeftJoin(leftContent)) {
+        restructureJoinTree(leftContent, leftPlan);
+      }
+    }
+
+    // Recurse into right child join
+    if (!rightPlan.isBaseRelation()) {
+      final AST rightContent = findPipelineContent(join.getChild(1));
+      if (rightContent != null && rightContent.getType() == XQ.Join
+          && !CostProperties.isLeftJoin(rightContent)) {
+        restructureJoinTree(rightContent, rightPlan);
+      }
     }
   }
 

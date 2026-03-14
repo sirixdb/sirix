@@ -32,6 +32,7 @@ import it.unimi.dsi.fastutil.objects.Object2IntOpenHashMap;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -616,37 +617,87 @@ public final class FSSTCompressor {
   }
 
   private static byte[] decodeWithParsedSymbols(final byte[] encoded, final byte[][] symbols) {
+    return decodeWithParsedSymbols(encoded, 0, encoded.length, symbols);
+  }
+
+  /**
+   * Decode FSST-compressed data from a slice of a byte array.
+   * Avoids the need to copy the slice into a separate array first.
+   *
+   * @param data    the byte array containing encoded data
+   * @param offset  start offset within data
+   * @param length  number of bytes to decode
+   * @param symbols pre-parsed FSST symbol table
+   * @return decoded byte array
+   */
+  private static byte[] decodeWithParsedSymbols(final byte[] data, final int offset,
+      final int length, final byte[][] symbols) {
+    if (length == 0) {
+      return EMPTY_BYTES;
+    }
+
     // Check header byte
-    final byte header = encoded[0];
+    final int end = offset + length;
+    final byte header = data[offset];
     if (header == HEADER_RAW) {
       // Data is raw, just strip the header
-      return Arrays.copyOfRange(encoded, 1, encoded.length);
+      return Arrays.copyOfRange(data, offset + 1, end);
     }
 
     if (header != HEADER_COMPRESSED) {
       // Unknown header - treat as legacy raw data
-      return encoded.clone();
+      return Arrays.copyOfRange(data, offset, end);
     }
 
     // Decode compressed data (skip header byte)
-    // Pre-allocate output buffer - worst case: every byte expands to MAX_SYMBOL_LENGTH
-    // Using primitive byte[] instead of List<Byte> to avoid boxing/GC pressure
-    byte[] output = new byte[encoded.length * MAX_SYMBOL_LENGTH];
-    int outPos = 0;
-    int pos = 1; // Skip header
+    return decodeRawCompressed(data, offset + 1, length - 1, symbols);
+  }
 
-    while (pos < encoded.length) {
-      final int b = encoded[pos++] & 0xFF;
+  /**
+   * Decode headerless FSST-compressed data from a slice of a byte array.
+   * Unlike {@link #decodeWithParsedSymbols}, this method does NOT expect a header byte —
+   * the data starts directly with compressed symbol codes and escape sequences.
+   *
+   * <p>Use this for page-extracted compressed payloads where the on-page format is
+   * {@code [isCompressed:1byte][length:varint][payload_bytes]} and the payload contains
+   * raw compressed bytes without the FSST header.</p>
+   *
+   * @param data    the byte array containing raw compressed data (no header)
+   * @param offset  start offset within data
+   * @param length  number of bytes to decode
+   * @param symbols pre-parsed FSST symbol table
+   * @return decoded byte array
+   */
+  static byte[] decodeRawCompressed(final byte[] data, final int offset,
+      final int length, final byte[][] symbols) {
+    if (length == 0) {
+      return EMPTY_BYTES;
+    }
+
+    final int end = offset + length;
+    // Pre-allocate output buffer — use 3x as typical FSST expansion rather than 8x
+    byte[] output = new byte[Math.max(length * 3, 64)];
+    int outPos = 0;
+    int pos = offset;
+
+    while (pos < end) {
+      final int b = data[pos++] & 0xFF;
 
       if (b == 0xFF) {
         // Escape: next byte is literal
-        if (pos >= encoded.length) {
+        if (pos >= end) {
           throw new IllegalStateException("Corrupted FSST data: escape at end");
         }
-        output[outPos++] = encoded[pos++];
+        if (outPos >= output.length) {
+          output = Arrays.copyOf(output, output.length * 2);
+        }
+        output[outPos++] = data[pos++];
       } else if (b < symbols.length) {
         // Symbol code: expand to symbol bytes using System.arraycopy for efficiency
         final byte[] symbol = symbols[b];
+        if (outPos + symbol.length > output.length) {
+          output = Arrays.copyOf(output, Math.max(output.length * 2, outPos + symbol.length));
+        }
         System.arraycopy(symbol, 0, output, outPos, symbol.length);
         outPos += symbol.length;
       } else {
@@ -658,6 +709,34 @@ public final class FSSTCompressor {
     // Single allocation for final sized array
     return Arrays.copyOf(output, outPos);
   }
+
+  /**
+   * Decode headerless FSST-compressed data using pre-parsed symbols.
+   * For page-extracted compressed payloads that do NOT have the FSST header byte.
+   *
+   * <p>Pages store compressed string values as {@code [isCompressed:1byte][length:varint][payload_bytes]}
+   * where {@code payload_bytes} are the raw compressed bytes without the FSST header.
+   * Use this method (instead of {@link #decode(byte[], byte[][])}) when decoding such payloads.</p>
+   *
+   * @param data    headerless compressed byte array
+   * @param symbols pre-parsed FSST symbol table from {@link #parseSymbolTable(byte[])}
+   * @return decoded byte array
+   */
+  public static byte[] decodeRaw(final byte[] data, final byte[][] symbols) {
+    Objects.requireNonNull(data, "data must not be null");
+
+    if (data.length == 0) {
+      return EMPTY_BYTES;
+    }
+
+    if (symbols == null || symbols.length == 0) {
+      return data.clone();
+    }
+
+    return decodeRawCompressed(data, 0, data.length, symbols);
+  }
+
+  private static final byte[] EMPTY_BYTES = new byte[0];
 
   /**
    * Decode from MemorySegment (zero-copy input).
@@ -725,6 +804,64 @@ public final class FSSTCompressor {
     }
 
     return frequentPatterns >= 8; // Require more frequent patterns
+  }
+
+  /**
+   * Batch-decode FSST values from MemorySegments, only for selected rows.
+   * Each row may reference a different page (multi-page batches).
+   * Reuses a single decode buffer to minimize allocation.
+   *
+   * @param pages           array of backing page MemorySegments
+   * @param pageIndices     per-row page index into pages array
+   * @param offsets         per-row absolute byte offset in the page
+   * @param lengths         per-row compressed value byte length
+   * @param isCompressed    per-row compression flag
+   * @param selectionVector indices of rows to decode
+   * @param selectionCount  number of valid entries in selectionVector
+   * @param symbolsByPage   per-page pre-parsed symbol tables (null entry = no FSST)
+   * @param output          output String[] (indexed by original row position)
+   */
+  public static void batchDecode(
+      final MemorySegment[] pages, final int[] pageIndices,
+      final int[] offsets, final int[] lengths, final boolean[] isCompressed,
+      final int[] selectionVector, final int selectionCount,
+      final byte[][][] symbolsByPage,
+      final String[] output) {
+
+    byte[] buffer = acquireBuffer(4096);
+    try {
+      for (int i = 0; i < selectionCount; i++) {
+        final int row = selectionVector[i];
+        if (output[row] != null) {
+          continue; // already materialized
+        }
+        final int len = lengths[row];
+        if (len <= 0) {
+          output[row] = "";
+          continue;
+        }
+        // Grow buffer if needed — use max with DEFAULT_BUFFER_SIZE to keep poolable
+        if (buffer.length < len) {
+          releaseBuffer(buffer);
+          buffer = new byte[Math.max(len, DEFAULT_BUFFER_SIZE)];
+        }
+        final MemorySegment page = pages[pageIndices[row]];
+        MemorySegment.copy(page, ValueLayout.JAVA_BYTE, offsets[row], buffer, 0, len);
+
+        final byte[][] symbols;
+        if (isCompressed[row]
+            && (symbols = symbolsByPage[pageIndices[row]]) != null
+            && symbols.length > 0) {
+          // Decode directly from buffer slice — no copy needed (headerless page data)
+          final byte[] decoded = decodeRawCompressed(buffer, 0, len, symbols);
+          output[row] = new String(decoded, StandardCharsets.UTF_8);
+        } else {
+          output[row] = new String(buffer, 0, len, StandardCharsets.UTF_8);
+        }
+      }
+    } finally {
+      releaseBuffer(buffer);
+    }
   }
 
   /**

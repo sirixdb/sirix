@@ -25,19 +25,26 @@ public class SirixOptimizer extends TopDownOptimizer {
     super(options);
     this.xmlNodeStore = nodeStore;
     this.jsonItemStore = jsonItemStore;
-    // JQGM rewrite rules (Rules 1-4) — predicate pushdown and join fusion before cost analysis.
+    // 1. JQGM rewrite rules (Rules 1-4) — predicate pushdown and join fusion before cost analysis.
     getStages().add(new JqgmRewriteStage());
-    // Cost-based optimization: annotate AST with index preference hints and cardinality estimates.
+    // 2. Cost-based optimization: annotate AST with index preference hints and cardinality estimates.
     getStages().add(new CostBasedStage(jsonItemStore));
-    // DPhyp-based join reordering — uses cardinality estimates to find optimal join orders.
+    // 3. DPhyp-based join reordering — uses cardinality estimates to find optimal join orders.
     getStages().add(new JoinReorderStage());
-    // Populate Mesh search space with plan alternatives from cost annotations.
-    getStages().add(new MeshPopulationStage(new Mesh(32)));
-    // Index-aware join decomposition (Rules 5-6) — splits joins at index boundaries.
+    // 4. Populate Mesh search space with plan alternatives from cost annotations.
+    final Mesh mesh = new Mesh(32);
+    getStages().add(new MeshPopulationStage(mesh));
+    // 5. Apply best-plan decisions from the shared Mesh to the original AST.
+    getStages().add(new MeshSelectionStage(mesh));
+    // 6. Index-aware join decomposition (Rules 5-6) — splits joins at index boundaries.
     getStages().add(new IndexDecompositionStage());
-    // Cost-driven execution routing — propagate PREFER_INDEX to downstream index matching.
+    // 7. Cost-driven execution routing — propagate PREFER_INDEX to downstream index matching.
     getStages().add(new CostDrivenRoutingStage());
-    // Perform index matching as last step.
+    // 8. Detect vectorizable scan-filter-project pipelines.
+    getStages().add(new VectorizedDetectionStage());
+    // 9. Route vectorizable pipelines to columnar/SIMD execution.
+    getStages().add(new VectorizedRoutingStage());
+    // 10. Perform index matching as last step.
     getStages().add(new IndexMatching(nodeStore, jsonItemStore));
   }
 
