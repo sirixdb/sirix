@@ -98,14 +98,24 @@ public final class VectorizedPipelineExpr implements Expr {
       throw e;
     }
 
+    // Resources can be closed after evaluateColumnar() because it fully materializes
+    // all surviving rows into an ArrayList. The returned ItemSequence does not hold
+    // references back to the transaction. The primary-exception tracking below mirrors
+    // the try-with-resources pattern to avoid masking the original exception.
+    Throwable primaryEx = null;
     try {
       return evaluateColumnar(rtx, resourceSession, jsonCollection);
+    } catch (final Throwable t) {
+      primaryEx = t;
+      throw t;
     } finally {
-      // Resources can be closed here because evaluateColumnar() fully materializes
-      // all surviving rows into an ArrayList before returning. The returned
-      // ItemSequence does not hold references back to the transaction.
-      rtx.close();
-      resourceSession.close();
+      if (primaryEx != null) {
+        try { rtx.close(); } catch (final Throwable s) { primaryEx.addSuppressed(s); }
+        try { resourceSession.close(); } catch (final Throwable s) { primaryEx.addSuppressed(s); }
+      } else {
+        rtx.close();
+        resourceSession.close();
+      }
     }
   }
 
@@ -160,7 +170,7 @@ public final class VectorizedPipelineExpr implements Expr {
    *
    * <p><b>Why scalar fallback for numerics:</b> ColumnarScanAxis has fixed columns
    * (nodeKey, parentKey, stringValue, deweyId) — there are no per-field typed columns.
-   * SIMD filtering via {@link ColumnBatchFilter} requires a dedicated typed column, which
+   * SIMD filtering via {@code ColumnBatchFilter} requires a dedicated typed column, which
    * doesn't exist for arbitrary JSON fields yet. When per-field columnar storage is added,
    * this method should resolve field names to column indices and use SIMD paths.</p>
    */
@@ -225,25 +235,13 @@ public final class VectorizedPipelineExpr implements Expr {
   private static void filterLongScalar(ColumnBatch batch, VectorizedPredicate pred) {
     final long constant = ((Number) pred.constant()).longValue();
     final ComparisonOperator op = pred.op();
-    final String[] values = batch.materializeAllSelected(ColumnarScanAxis.COL_STRING_VALUE);
-    final int[] sel = batch.selectionVector();
-    final int inputCount = batch.selectionCount();
-    int outPos = 0;
-
-    for (int i = 0; i < inputCount; i++) {
-      final int row = sel[i];
-      final String value = values[i];
-      if (value != null) {
-        try {
-          if (op.testLong(Long.parseLong(value), constant)) {
-            sel[outPos++] = row;
-          }
-        } catch (NumberFormatException ignored) {
-          // Non-numeric value — exclude from results
-        }
+    filterNumericScalar(batch, value -> {
+      try {
+        return op.testLong(Long.parseLong(value), constant);
+      } catch (NumberFormatException e) {
+        return false;
       }
-    }
-    batch.setSelectionCount(outPos);
+    });
   }
 
   /**
@@ -253,6 +251,24 @@ public final class VectorizedPipelineExpr implements Expr {
   private static void filterDoubleScalar(ColumnBatch batch, VectorizedPredicate pred) {
     final double constant = ((Number) pred.constant()).doubleValue();
     final ComparisonOperator op = pred.op();
+    filterNumericScalar(batch, value -> {
+      try {
+        return op.testDouble(Double.parseDouble(value), constant);
+      } catch (NumberFormatException e) {
+        return false;
+      }
+    });
+  }
+
+  /**
+   * Shared scalar fallback for numeric predicates. Materializes string values
+   * from {@code COL_STRING_VALUE} and applies a parse-then-test predicate row-by-row.
+   *
+   * @param batch the column batch to filter in-place
+   * @param test  returns true if the materialized string value passes the predicate;
+   *              should handle parse failures internally (return false)
+   */
+  private static void filterNumericScalar(ColumnBatch batch, java.util.function.Predicate<String> test) {
     final String[] values = batch.materializeAllSelected(ColumnarScanAxis.COL_STRING_VALUE);
     final int[] sel = batch.selectionVector();
     final int inputCount = batch.selectionCount();
@@ -261,14 +277,8 @@ public final class VectorizedPipelineExpr implements Expr {
     for (int i = 0; i < inputCount; i++) {
       final int row = sel[i];
       final String value = values[i];
-      if (value != null) {
-        try {
-          if (op.testDouble(Double.parseDouble(value), constant)) {
-            sel[outPos++] = row;
-          }
-        } catch (NumberFormatException ignored) {
-          // Non-numeric value — exclude from results
-        }
+      if (value != null && test.test(value)) {
+        sel[outPos++] = row;
       }
     }
     batch.setSelectionCount(outPos);
