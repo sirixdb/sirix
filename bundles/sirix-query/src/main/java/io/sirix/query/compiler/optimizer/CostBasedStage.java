@@ -153,12 +153,17 @@ public final class CostBasedStage implements Stage {
       return; // no stats available — don't annotate
     }
 
+    // Always annotate cardinality info so downstream stages (join reorder, vectorized
+    // routing) have statistics even when no index exists
+    bindingExpr.setProperty(CostProperties.PATH_CARDINALITY, pathCardinality);
+    bindingExpr.setProperty(CostProperties.TOTAL_NODE_COUNT, totalNodeCount);
+
     // Check if an index exists
     final IndexInfo indexInfo = statsProvider.getIndexInfo(
         path, databaseName, resourceName, revision);
 
     if (!indexInfo.exists()) {
-      return; // no index — nothing to annotate
+      return; // no index — cardinality annotated above, nothing more to do
     }
 
     // Cost comparison
@@ -172,8 +177,6 @@ public final class CostBasedStage implements Stage {
       bindingExpr.setProperty(CostProperties.INDEX_TYPE, indexInfo.type().name());
       bindingExpr.setProperty(CostProperties.INDEX_SCAN_COST, indexScanCost);
       bindingExpr.setProperty(CostProperties.SEQ_SCAN_COST, seqScanCost);
-      bindingExpr.setProperty(CostProperties.PATH_CARDINALITY, pathCardinality);
-      bindingExpr.setProperty(CostProperties.TOTAL_NODE_COUNT, totalNodeCount);
     } else {
       // Mark that we explicitly decided against the index
       bindingExpr.setProperty(CostProperties.PREFER_INDEX, false);

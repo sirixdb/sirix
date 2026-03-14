@@ -146,8 +146,11 @@ public final class SelectivityEstimator {
   }
 
   private double selectivityForOperator(String operator, AST compExpr) {
-    if (histogram != null) {
-      return histogramSelectivityForOperator(operator, compExpr);
+    // Cache volatile read to prevent TOCTOU race (another thread could set histogram=null
+    // between the null check and the use inside histogramSelectivityForOperator)
+    final Histogram hist = histogram;
+    if (hist != null) {
+      return histogramSelectivityForOperator(operator, compExpr, hist);
     }
     return defaultSelectivityForOperator(operator);
   }
@@ -173,8 +176,9 @@ public final class SelectivityEstimator {
    *                 instead of falling back to the histogram midpoint
    */
   private double selectivityForComparisonType(int type, AST compExpr) {
-    if (histogram != null) {
-      return histogramSelectivityForType(type, compExpr);
+    final Histogram hist = histogram;
+    if (hist != null) {
+      return histogramSelectivityForType(type, compExpr, hist);
     }
     return switch (type) {
       case XQ.ValueCompEQ, XQ.GeneralCompEQ -> DEFAULT_EQUALITY_SELECTIVITY;
@@ -237,26 +241,28 @@ public final class SelectivityEstimator {
    * Use histogram data for operator-based selectivity.
    * Extracts the actual constant value from the comparison expression's operands.
    * Falls back to the histogram midpoint if no constant can be extracted.
+   *
+   * @param hist locally cached histogram reference (avoids volatile re-read)
    */
-  private double histogramSelectivityForOperator(String operator, AST compExpr) {
+  private double histogramSelectivityForOperator(String operator, AST compExpr, Histogram hist) {
     final double value = extractConstantValue(compExpr);
     final double v = Double.isNaN(value)
-        ? (histogram.minValue() + histogram.maxValue()) / 2.0
+        ? (hist.minValue() + hist.maxValue()) / 2.0
         : value;
 
     return switch (operator) {
       case "ValueCompEQ", "GeneralCompEQ" ->
-          histogram.estimateEqualitySelectivity(v);
+          hist.estimateEqualitySelectivity(v);
       case "ValueCompNE", "GeneralCompNE" ->
-          1.0 - histogram.estimateEqualitySelectivity(v);
+          1.0 - hist.estimateEqualitySelectivity(v);
       case "ValueCompLT", "GeneralCompLT" ->
-          histogram.estimateLessThanSelectivity(v);
+          hist.estimateLessThanSelectivity(v);
       case "ValueCompLE", "GeneralCompLE" ->
-          histogram.estimateLessThanOrEqualSelectivity(v);
+          hist.estimateLessThanOrEqualSelectivity(v);
       case "ValueCompGT", "GeneralCompGT" ->
-          histogram.estimateGreaterThanSelectivity(v);
+          hist.estimateGreaterThanSelectivity(v);
       case "ValueCompGE", "GeneralCompGE" ->
-          histogram.estimateGreaterThanOrEqualSelectivity(v);
+          hist.estimateGreaterThanOrEqualSelectivity(v);
       default -> DEFAULT_SELECTIVITY;
     };
   }
@@ -269,25 +275,26 @@ public final class SelectivityEstimator {
    *
    * @param type the XQ comparison type constant
    * @param compExpr the AST node (may be null)
+   * @param hist locally cached histogram reference (avoids volatile re-read)
    */
-  private double histogramSelectivityForType(int type, AST compExpr) {
+  private double histogramSelectivityForType(int type, AST compExpr, Histogram hist) {
     final double value = extractConstantValue(compExpr);
     final double v = Double.isNaN(value)
-        ? (histogram.minValue() + histogram.maxValue()) / 2.0
+        ? (hist.minValue() + hist.maxValue()) / 2.0
         : value;
     return switch (type) {
       case XQ.ValueCompEQ, XQ.GeneralCompEQ ->
-          histogram.estimateEqualitySelectivity(v);
+          hist.estimateEqualitySelectivity(v);
       case XQ.ValueCompNE, XQ.GeneralCompNE ->
-          1.0 - histogram.estimateEqualitySelectivity(v);
+          1.0 - hist.estimateEqualitySelectivity(v);
       case XQ.ValueCompLT, XQ.GeneralCompLT ->
-          histogram.estimateLessThanSelectivity(v);
+          hist.estimateLessThanSelectivity(v);
       case XQ.ValueCompLE, XQ.GeneralCompLE ->
-          histogram.estimateLessThanOrEqualSelectivity(v);
+          hist.estimateLessThanOrEqualSelectivity(v);
       case XQ.ValueCompGT, XQ.GeneralCompGT ->
-          histogram.estimateGreaterThanSelectivity(v);
+          hist.estimateGreaterThanSelectivity(v);
       case XQ.ValueCompGE, XQ.GeneralCompGE ->
-          histogram.estimateGreaterThanOrEqualSelectivity(v);
+          hist.estimateGreaterThanOrEqualSelectivity(v);
       default -> DEFAULT_SELECTIVITY;
     };
   }

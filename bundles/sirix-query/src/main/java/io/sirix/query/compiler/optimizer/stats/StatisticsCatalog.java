@@ -1,7 +1,9 @@
 package io.sirix.query.compiler.optimizer.stats;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Thread-safe in-memory catalog mapping (database, resource, path) → {@link Histogram}.
@@ -10,18 +12,16 @@ import java.util.concurrent.ConcurrentHashMap;
  * built by {@link HistogramCollector} (ANALYZE) to inform selectivity
  * estimates in subsequent query optimizations.</p>
  *
- * <p>Uses {@link ConcurrentHashMap} for lock-free reads on the hot path
- * (query optimization). Writes (histogram registration) are infrequent
- * and amortized over many queries.</p>
+ * <p>Uses a synchronized {@link LinkedHashMap} in access-order mode for
+ * true LRU eviction. Reads and writes both update the access order, so
+ * frequently-used histograms survive eviction. This is preferable to
+ * ConcurrentHashMap's random-order eviction which can evict hot entries.</p>
  *
- * <p>Thread-safety: all methods are safe for concurrent use. The singleton
- * pattern is intentional — a single catalog serves all compile chains in
- * the same JVM, matching PostgreSQL's shared pg_statistic catalog.</p>
+ * <p>Thread-safety: all methods are synchronized. Reads are infrequent
+ * (once per query optimization per field) so lock contention is negligible.</p>
  *
- * <p>Size is bounded by {@link #MAX_ENTRIES} (default 4096). When the limit
- * is reached, new entries silently replace the oldest via ConcurrentHashMap's
- * natural behavior after eviction. This prevents unbounded memory growth
- * in long-running server processes with many databases/resources.</p>
+ * <p>Singleton: a single catalog serves all compile chains in the same JVM,
+ * matching PostgreSQL's shared pg_statistic catalog.</p>
  */
 public final class StatisticsCatalog {
 
@@ -30,9 +30,21 @@ public final class StatisticsCatalog {
 
   private static final StatisticsCatalog INSTANCE = new StatisticsCatalog();
 
-  private final ConcurrentHashMap<CatalogKey, Histogram> histograms = new ConcurrentHashMap<>();
+  /**
+   * LRU cache: access-order LinkedHashMap with automatic eviction at MAX_ENTRIES.
+   * Wrapped in Collections.synchronizedMap for thread safety.
+   */
+  private final Map<CatalogKey, Histogram> histograms;
 
-  private StatisticsCatalog() {}
+  private StatisticsCatalog() {
+    this.histograms = Collections.synchronizedMap(
+        new LinkedHashMap<CatalogKey, Histogram>(256, 0.75f, true) {
+          @Override
+          protected boolean removeEldestEntry(Map.Entry<CatalogKey, Histogram> eldest) {
+            return size() > MAX_ENTRIES;
+          }
+        });
+  }
 
   /**
    * Get the singleton catalog instance.
@@ -54,16 +66,6 @@ public final class StatisticsCatalog {
     Objects.requireNonNull(resourceName, "resourceName");
     Objects.requireNonNull(pathString, "pathString");
     Objects.requireNonNull(histogram, "histogram");
-    // Evict oldest entries when at capacity. ConcurrentHashMap doesn't have LRU,
-    // so we do a simple bulk eviction (remove ~25%) to amortize the cost.
-    if (histograms.size() >= MAX_ENTRIES) {
-      final var iterator = histograms.keySet().iterator();
-      final int toRemove = MAX_ENTRIES / 4;
-      for (int i = 0; i < toRemove && iterator.hasNext(); i++) {
-        iterator.next();
-        iterator.remove();
-      }
-    }
     histograms.put(new CatalogKey(databaseName, resourceName, pathString), histogram);
   }
 
@@ -96,8 +98,11 @@ public final class StatisticsCatalog {
    * Useful when data changes invalidate statistics.
    */
   public void invalidate(String databaseName, String resourceName) {
-    histograms.keySet().removeIf(key ->
-        key.databaseName.equals(databaseName) && key.resourceName.equals(resourceName));
+    // Synchronize on the map for safe iteration
+    synchronized (histograms) {
+      histograms.keySet().removeIf(key ->
+          key.databaseName.equals(databaseName) && key.resourceName.equals(resourceName));
+    }
   }
 
   /**

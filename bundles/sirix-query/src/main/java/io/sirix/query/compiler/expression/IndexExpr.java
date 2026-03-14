@@ -223,8 +223,9 @@ public final class IndexExpr implements Expr {
 
       return new ItemSequence(sequence.toArray(new Item[0]));
     } catch (final Exception e) {
-      rtx.close();
-      resourceSession.close();
+      // Close resources with proper exception suppression to avoid masking the original error
+      try { rtx.close(); } catch (final Exception s) { e.addSuppressed(s); }
+      try { resourceSession.close(); } catch (final Exception s) { e.addSuppressed(s); }
       throw e;
     }
   }

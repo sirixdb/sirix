@@ -241,7 +241,12 @@ public final class VectorizedRoutingStage implements Stage {
    * chains, recursion finds the innermost leaf.</p>
    */
   static String extractFieldName(AST node) {
-    if (node == null) {
+    return extractFieldNameImpl(node, 32);
+  }
+
+  /** Max depth limit prevents StackOverflowError on pathological AST structures. */
+  private static String extractFieldNameImpl(AST node, int maxDepth) {
+    if (node == null || maxDepth <= 0) {
       return null;
     }
 
@@ -254,7 +259,7 @@ public final class VectorizedRoutingStage implements Stage {
         }
         // Recurse into nested DerefExpr to find the leaf
         if (child.getType() == XQ.DerefExpr) {
-          return extractFieldName(child);
+          return extractFieldNameImpl(child, maxDepth - 1);
         }
       }
       // Try the node's own string value
@@ -270,7 +275,7 @@ public final class VectorizedRoutingStage implements Stage {
 
     // Recurse into children
     for (int i = 0; i < node.getChildCount(); i++) {
-      final String name = extractFieldName(node.getChild(i));
+      final String name = extractFieldNameImpl(node.getChild(i), maxDepth - 1);
       if (name != null) {
         return name;
       }

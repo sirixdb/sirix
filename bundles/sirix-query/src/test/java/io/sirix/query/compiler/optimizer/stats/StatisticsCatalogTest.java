@@ -132,7 +132,7 @@ final class StatisticsCatalogTest {
   }
 
   @Test
-  @DisplayName("Catalog evicts entries when exceeding MAX_ENTRIES")
+  @DisplayName("Catalog evicts LRU entries when exceeding MAX_ENTRIES")
   void evictsWhenExceedingMaxEntries() {
     // Fill to capacity
     for (int i = 0; i < StatisticsCatalog.MAX_ENTRIES; i++) {
@@ -140,13 +140,16 @@ final class StatisticsCatalogTest {
     }
     assertEquals(StatisticsCatalog.MAX_ENTRIES, catalog.size());
 
-    // Add one more — should trigger eviction of ~25%
+    // Add one more — LRU eviction keeps size at MAX_ENTRIES
     catalog.put("dbOverflow", "res", "path", buildSimpleHistogram(10));
 
-    assertTrue(catalog.size() < StatisticsCatalog.MAX_ENTRIES,
-        "Size should be below MAX after eviction, got " + catalog.size());
+    assertEquals(StatisticsCatalog.MAX_ENTRIES, catalog.size(),
+        "Size should stay at MAX after LRU eviction, got " + catalog.size());
     assertNotNull(catalog.get("dbOverflow", "res", "path"),
         "Newly added entry should be present after eviction");
+    // Oldest entry (db0) should have been evicted
+    assertNull(catalog.get("db0", "res", "path"),
+        "Oldest entry should be evicted by LRU");
   }
 
   private static Histogram buildSimpleHistogram(int count) {

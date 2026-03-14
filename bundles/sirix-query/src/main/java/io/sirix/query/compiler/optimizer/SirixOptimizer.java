@@ -57,8 +57,12 @@ public class SirixOptimizer extends TopDownOptimizer {
 
   @Override
   public AST optimize(StaticContext sctx, AST ast) {
-    // Use query string as cache key. AST.toString() gives the original query text.
-    final String cacheKey = ast.toString();
+    // Include index schema version in cache key so that plans are invalidated
+    // when indexes are created or dropped (prevents stale index/scan decisions).
+    final String queryText = ast.toString();
+    final String cacheKey = queryText != null
+        ? queryText + "@v" + PlanCache.indexSchemaVersion()
+        : null;
     if (cacheKey != null) {
       final AST cached = planCache.get(cacheKey);
       if (cached != null) {

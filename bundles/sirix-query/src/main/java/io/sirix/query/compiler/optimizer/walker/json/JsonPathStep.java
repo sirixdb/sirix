@@ -10,6 +10,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.index.IndexDef;
 import io.sirix.query.compiler.XQExt;
+import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.json.JsonDBStore;
 
 import java.util.Deque;
@@ -31,6 +32,11 @@ public final class JsonPathStep extends AbstractJsonPathWalker {
   @Override
   protected AST visit(AST astNode) {
     if (astNode.getType() != XQ.DerefExpr && astNode.getType() != XQ.ArrayAccess) {
+      return astNode;
+    }
+
+    // Cost-based gate: skip index rewrite when cost model determined sequential scan is cheaper
+    if (CostProperties.isIndexGateClosed(astNode)) {
       return astNode;
     }
 

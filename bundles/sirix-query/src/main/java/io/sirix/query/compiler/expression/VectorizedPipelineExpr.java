@@ -96,24 +96,17 @@ public final class VectorizedPipelineExpr implements Expr {
       throw e;
     }
 
-    // Resources can be closed after evaluateColumnar() because it fully materializes
-    // all surviving rows into an ArrayList. The returned ItemSequence does not hold
-    // references back to the transaction. The primary-exception tracking below mirrors
-    // the try-with-resources pattern to avoid masking the original exception.
-    Throwable primaryEx = null;
+    // Resources must NOT be closed on the success path: the returned Items
+    // (JsonDBObject, JsonDBArray, etc.) hold lazy references to the rtx.
+    // Brackit's pipeline evaluates lazily, so closing the rtx here would cause
+    // use-after-close errors when the caller accesses the returned Sequence.
+    // This matches IndexExpr's resource management pattern.
     try {
       return evaluateColumnar(rtx, resourceSession, jsonCollection);
-    } catch (final Throwable t) {
-      primaryEx = t;
-      throw t;
-    } finally {
-      if (primaryEx != null) {
-        try { rtx.close(); } catch (final Throwable s) { primaryEx.addSuppressed(s); }
-        try { resourceSession.close(); } catch (final Throwable s) { primaryEx.addSuppressed(s); }
-      } else {
-        rtx.close();
-        resourceSession.close();
-      }
+    } catch (final Exception e) {
+      try { rtx.close(); } catch (final Exception s) { e.addSuppressed(s); }
+      try { resourceSession.close(); } catch (final Exception s) { e.addSuppressed(s); }
+      throw e;
     }
   }
 
@@ -202,18 +195,21 @@ public final class VectorizedPipelineExpr implements Expr {
 
   /**
    * Scalar fallback for string range predicates (LT/LE/GT/GE).
-   * Materializes string values and compares row-by-row.
+   * Materializes string values per-row and compares.
+   *
+   * <p>Uses per-row {@code materializeDeferredString} instead of bulk
+   * {@code materializeAllSelected} because mixed batches may contain number rows
+   * with garbage in COL_STRING_VALUE deferred arrays — bulk decode would crash.</p>
    */
   private static void filterStringScalar(ColumnBatch batch, VectorizedPredicate pred) {
     final String constant = (String) pred.constant();
-    final String[] values = batch.materializeAllSelected(ColumnarScanAxis.COL_STRING_VALUE);
     final int[] sel = batch.selectionVector();
     final int inputCount = batch.selectionCount();
     int outPos = 0;
 
     for (int i = 0; i < inputCount; i++) {
       final int row = sel[i];
-      final String value = values[row];
+      final String value = batch.materializeDeferredString(ColumnarScanAxis.COL_STRING_VALUE, row);
       if (value != null && compareString(value, constant, pred.op())) {
         sel[outPos++] = row;
       }
@@ -228,12 +224,20 @@ public final class VectorizedPipelineExpr implements Expr {
    * <p>Number rows (non-null in COL_NUMERIC_VALUE) are compared directly via the
    * double column — fast scalar path (SIMD can be added by splitting populations).
    * String rows (null in COL_NUMERIC_VALUE, non-null in COL_STRING_VALUE) are
-   * materialized, parsed to number, and compared row-by-row.</p>
+   * materialized per-row, parsed to number, and compared row-by-row.</p>
    *
    * <p><b>Why not chain SIMD + scalar?</b> {@code ColumnBatchFilter.filterDouble}
    * removes null rows from the selection vector. String rows have null in
    * COL_NUMERIC_VALUE, so they'd be removed before the scalar fallback runs.
    * This combined pass handles both populations correctly in one iteration.</p>
+   *
+   * <p><b>Why per-row materialization?</b> {@code batch.materializeAllSelected()}
+   * processes ALL selected rows via {@code FSSTCompressor.batchDecode}, which
+   * reads deferred byte arrays (offsets, page indices) without checking null flags.
+   * For number rows, COL_STRING_VALUE has null flags set but stale garbage in
+   * deferred byte arrays — batchDecode would read garbage page indices and crash
+   * with ArrayIndexOutOfBoundsException. Per-row {@code materializeDeferredString}
+   * checks null flags first and returns null for null rows.</p>
    *
    * @param batch  the column batch to filter in-place
    * @param pred   the numeric predicate
@@ -249,20 +253,6 @@ public final class VectorizedPipelineExpr implements Expr {
     final int[] sel = batch.selectionVector();
     final int inputCount = batch.selectionCount();
 
-    // Check if any selected rows are string rows (null in COL_NUMERIC_VALUE).
-    // Skip expensive string materialization when all rows are number-type.
-    boolean hasStringRows = false;
-    for (int i = 0; i < inputCount; i++) {
-      if (numNulls[sel[i]]) {
-        hasStringRows = true;
-        break;
-      }
-    }
-
-    // Only materialize string values when needed (FSST decompression is expensive)
-    final String[] strValues = hasStringRows
-        ? batch.materializeAllSelected(ColumnarScanAxis.COL_STRING_VALUE) : null;
-
     int outPos = 0;
     for (int i = 0; i < inputCount; i++) {
       final int row = sel[i];
@@ -271,9 +261,9 @@ public final class VectorizedPipelineExpr implements Expr {
         if (op.testDouble(numColumn[row], doubleConstant)) {
           sel[outPos++] = row;
         }
-      } else if (strValues != null) {
-        // String row: parse and compare (slow path)
-        final String value = strValues[row];
+      } else {
+        // String row: materialize per-row (safe — checks null flags, returns null for number rows)
+        final String value = batch.materializeDeferredString(ColumnarScanAxis.COL_STRING_VALUE, row);
         if (value != null) {
           try {
             if (isLong) {

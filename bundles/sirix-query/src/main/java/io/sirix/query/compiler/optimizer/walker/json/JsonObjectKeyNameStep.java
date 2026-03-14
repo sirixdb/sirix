@@ -1,6 +1,7 @@
 package io.sirix.query.compiler.optimizer.walker.json;
 
 import io.sirix.query.compiler.XQExt;
+import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.json.JsonDBStore;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.AST;
@@ -32,6 +33,11 @@ public class JsonObjectKeyNameStep extends AbstractJsonPathWalker {
   @Override
   protected AST visit(AST astNode) {
     if (astNode.getType() != XQ.DerefExpr) {
+      return astNode;
+    }
+
+    // Cost-based gate: skip index rewrite when cost model determined sequential scan is cheaper
+    if (CostProperties.isIndexGateClosed(astNode)) {
       return astNode;
     }
 

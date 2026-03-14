@@ -4,6 +4,7 @@ import io.brackit.query.compiler.AST;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * LRU cache for optimized query plans (ASTs).
@@ -34,6 +35,32 @@ public final class PlanCache {
 
   /** Default maximum number of cached plans. */
   public static final int DEFAULT_MAX_SIZE = 128;
+
+  /**
+   * Global index schema version. Incremented whenever indexes are created or dropped.
+   * Used by the optimizer to detect stale cached plans — when the version changes,
+   * all plans cached under the previous version become cache misses.
+   *
+   * <p>Static because index changes affect all optimizer instances in the JVM.</p>
+   */
+  private static final AtomicLong INDEX_SCHEMA_VERSION = new AtomicLong(0);
+
+  /**
+   * Signal that the index schema has changed (index created, dropped, or modified).
+   * All plan caches will produce misses for plans cached before this call.
+   *
+   * <p>Call this from index-modifying operations (jn:create-cas-index, etc.).</p>
+   */
+  public static void signalIndexSchemaChange() {
+    INDEX_SCHEMA_VERSION.incrementAndGet();
+  }
+
+  /**
+   * Get the current index schema version. Used to build version-aware cache keys.
+   */
+  public static long indexSchemaVersion() {
+    return INDEX_SCHEMA_VERSION.get();
+  }
 
   private final Map<String, AST> cache;
   private long hits;
