@@ -160,8 +160,10 @@ public final class ColumnarPageExtractor {
             deweyOffs[writePos] = -1;
             deweyLens[writePos] = 0;
           }
+        } else {
+          deweyOffs[writePos] = -1;
+          deweyLens[writePos] = 0;
         }
-        // When !hasDewey, caller handles bulk-null via Arrays.fill — no per-row stores needed
 
         writePos++;
         if (writePos >= nodeKeys.length) {
