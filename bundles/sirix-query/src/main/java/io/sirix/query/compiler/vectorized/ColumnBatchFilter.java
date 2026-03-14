@@ -45,48 +45,13 @@ public final class ColumnBatchFilter {
     final boolean[] nulls = batch.nullFlags(col);
     final int[] sel = batch.selectionVector();
     final int inputCount = batch.selectionCount();
-    final int lanes = LONG_SPECIES.length();
-    final int simdBound = inputCount - (inputCount % lanes);
+    final int simdBound = inputCount - (inputCount % LONG_SPECIES.length());
 
     final LongVector cst = LongVector.broadcast(LONG_SPECIES, constant);
-    int outPos = 0;
 
-    if (batch.isIdentitySelection()) {
-      // Fast path: selection vector is identity (sel[i] == i), so we can load
-      // directly from the column array without a scalar gather loop.
-      for (int i = 0; i < simdBound; i += lanes) {
-        final LongVector vec = LongVector.fromArray(LONG_SPECIES, column, i);
-        final VectorMask<Long> mask = op.applyLong(vec, cst);
-
-        for (int j = 0; j < lanes; j++) {
-          if (mask.laneIsSet(j) && !nulls[i + j]) {
-            sel[outPos++] = i + j;
-          }
-        }
-      }
-    } else {
-      // Slow path: selection vector is compacted — must gather via indirection.
-      final long[] gathered = new long[lanes];
-      for (int i = 0; i < simdBound; i += lanes) {
-        boolean anyNull = false;
-        for (int j = 0; j < lanes; j++) {
-          final int row = sel[i + j];
-          gathered[j] = column[row];
-          if (nulls[row]) {
-            anyNull = true;
-          }
-        }
-
-        final LongVector vec = LongVector.fromArray(LONG_SPECIES, gathered, 0);
-        final VectorMask<Long> mask = op.applyLong(vec, cst);
-
-        for (int j = 0; j < lanes; j++) {
-          if (mask.laneIsSet(j) && !(anyNull && nulls[sel[i + j]])) {
-            sel[outPos++] = sel[i + j];
-          }
-        }
-      }
-    }
+    int outPos = batch.isIdentitySelection()
+        ? filterLongIdentity(column, nulls, sel, simdBound, cst, op)
+        : filterLongGathered(column, nulls, sel, simdBound, cst, op);
 
     // Scalar tail
     for (int i = simdBound; i < inputCount; i++) {
@@ -97,6 +62,49 @@ public final class ColumnBatchFilter {
     }
 
     batch.setSelectionCount(outPos);
+  }
+
+  /** Identity fast path: load directly from column without gather. */
+  private static int filterLongIdentity(long[] column, boolean[] nulls, int[] sel,
+      int simdBound, LongVector cst, ComparisonOperator op) {
+    final int lanes = LONG_SPECIES.length();
+    int outPos = 0;
+    for (int i = 0; i < simdBound; i += lanes) {
+      final LongVector vec = LongVector.fromArray(LONG_SPECIES, column, i);
+      final VectorMask<Long> mask = op.applyLong(vec, cst);
+      for (int j = 0; j < lanes; j++) {
+        if (mask.laneIsSet(j) && !nulls[i + j]) {
+          sel[outPos++] = i + j;
+        }
+      }
+    }
+    return outPos;
+  }
+
+  /** Gathered slow path: scatter-gather via selection vector indirection. */
+  private static int filterLongGathered(long[] column, boolean[] nulls, int[] sel,
+      int simdBound, LongVector cst, ComparisonOperator op) {
+    final int lanes = LONG_SPECIES.length();
+    final long[] gathered = new long[lanes];
+    int outPos = 0;
+    for (int i = 0; i < simdBound; i += lanes) {
+      boolean anyNull = false;
+      for (int j = 0; j < lanes; j++) {
+        final int row = sel[i + j];
+        gathered[j] = column[row];
+        if (nulls[row]) {
+          anyNull = true;
+        }
+      }
+      final LongVector vec = LongVector.fromArray(LONG_SPECIES, gathered, 0);
+      final VectorMask<Long> mask = op.applyLong(vec, cst);
+      for (int j = 0; j < lanes; j++) {
+        if (mask.laneIsSet(j) && !(anyNull && nulls[sel[i + j]])) {
+          sel[outPos++] = sel[i + j];
+        }
+      }
+    }
+    return outPos;
   }
 
   /**
@@ -114,48 +122,13 @@ public final class ColumnBatchFilter {
     final boolean[] nulls = batch.nullFlags(col);
     final int[] sel = batch.selectionVector();
     final int inputCount = batch.selectionCount();
-    final int lanes = DOUBLE_SPECIES.length();
-    final int simdBound = inputCount - (inputCount % lanes);
+    final int simdBound = inputCount - (inputCount % DOUBLE_SPECIES.length());
 
     final DoubleVector cst = DoubleVector.broadcast(DOUBLE_SPECIES, constant);
-    int outPos = 0;
 
-    if (batch.isIdentitySelection()) {
-      // Fast path: selection vector is identity (sel[i] == i), so we can load
-      // directly from the column array without a scalar gather loop.
-      for (int i = 0; i < simdBound; i += lanes) {
-        final DoubleVector vec = DoubleVector.fromArray(DOUBLE_SPECIES, column, i);
-        final VectorMask<Double> mask = op.applyDouble(vec, cst);
-
-        for (int j = 0; j < lanes; j++) {
-          if (mask.laneIsSet(j) && !nulls[i + j]) {
-            sel[outPos++] = i + j;
-          }
-        }
-      }
-    } else {
-      // Slow path: selection vector is compacted — must gather via indirection.
-      final double[] gathered = new double[lanes];
-      for (int i = 0; i < simdBound; i += lanes) {
-        boolean anyNull = false;
-        for (int j = 0; j < lanes; j++) {
-          final int row = sel[i + j];
-          gathered[j] = column[row];
-          if (nulls[row]) {
-            anyNull = true;
-          }
-        }
-
-        final DoubleVector vec = DoubleVector.fromArray(DOUBLE_SPECIES, gathered, 0);
-        final VectorMask<Double> mask = op.applyDouble(vec, cst);
-
-        for (int j = 0; j < lanes; j++) {
-          if (mask.laneIsSet(j) && !(anyNull && nulls[sel[i + j]])) {
-            sel[outPos++] = sel[i + j];
-          }
-        }
-      }
-    }
+    int outPos = batch.isIdentitySelection()
+        ? filterDoubleIdentity(column, nulls, sel, simdBound, cst, op)
+        : filterDoubleGathered(column, nulls, sel, simdBound, cst, op);
 
     // Scalar tail
     for (int i = simdBound; i < inputCount; i++) {
@@ -166,5 +139,48 @@ public final class ColumnBatchFilter {
     }
 
     batch.setSelectionCount(outPos);
+  }
+
+  /** Identity fast path: load directly from column without gather. */
+  private static int filterDoubleIdentity(double[] column, boolean[] nulls, int[] sel,
+      int simdBound, DoubleVector cst, ComparisonOperator op) {
+    final int lanes = DOUBLE_SPECIES.length();
+    int outPos = 0;
+    for (int i = 0; i < simdBound; i += lanes) {
+      final DoubleVector vec = DoubleVector.fromArray(DOUBLE_SPECIES, column, i);
+      final VectorMask<Double> mask = op.applyDouble(vec, cst);
+      for (int j = 0; j < lanes; j++) {
+        if (mask.laneIsSet(j) && !nulls[i + j]) {
+          sel[outPos++] = i + j;
+        }
+      }
+    }
+    return outPos;
+  }
+
+  /** Gathered slow path: scatter-gather via selection vector indirection. */
+  private static int filterDoubleGathered(double[] column, boolean[] nulls, int[] sel,
+      int simdBound, DoubleVector cst, ComparisonOperator op) {
+    final int lanes = DOUBLE_SPECIES.length();
+    final double[] gathered = new double[lanes];
+    int outPos = 0;
+    for (int i = 0; i < simdBound; i += lanes) {
+      boolean anyNull = false;
+      for (int j = 0; j < lanes; j++) {
+        final int row = sel[i + j];
+        gathered[j] = column[row];
+        if (nulls[row]) {
+          anyNull = true;
+        }
+      }
+      final DoubleVector vec = DoubleVector.fromArray(DOUBLE_SPECIES, gathered, 0);
+      final VectorMask<Double> mask = op.applyDouble(vec, cst);
+      for (int j = 0; j < lanes; j++) {
+        if (mask.laneIsSet(j) && !(anyNull && nulls[sel[i + j]])) {
+          sel[outPos++] = sel[i + j];
+        }
+      }
+    }
+    return outPos;
   }
 }
