@@ -126,14 +126,18 @@ public final class VectorizedRoutingStage implements Stage {
       vectorizedNode.setProperty("revision", revision);
     }
 
-    // Replace the Start node in the parent
+    // Replace the Start node in the parent.
+    // A Start node without a parent would be a malformed AST — skip replacement
+    // rather than silently discarding the built vectorizedNode.
     final AST parent = startNode.getParent();
-    if (parent != null) {
-      for (int i = 0; i < parent.getChildCount(); i++) {
-        if (parent.getChild(i) == startNode) {
-          parent.replaceChild(i, vectorizedNode);
-          break;
-        }
+    if (parent == null) {
+      assert false : "Start node has no parent — AST is malformed, skipping vectorized replacement";
+      return;
+    }
+    for (int i = 0; i < parent.getChildCount(); i++) {
+      if (parent.getChild(i) == startNode) {
+        parent.replaceChild(i, vectorizedNode);
+        break;
       }
     }
   }
@@ -227,23 +231,26 @@ public final class VectorizedRoutingStage implements Stage {
   }
 
   /**
-   * Extract the field name from a DerefExpr chain.
-   * Walks children to find the string key (last string-valued child).
+   * Extract the leaf field name from a DerefExpr chain.
+   *
+   * <p>For nested paths like {@code $x.address.city}, returns the leaf field
+   * ({@code "city"}), which is the field whose value is compared in the predicate.
+   * The outermost DerefExpr's last Str child is preferred; for nested DerefExpr
+   * chains, recursion finds the innermost leaf.</p>
    */
   static String extractFieldName(AST node) {
     if (node == null) {
       return null;
     }
 
-    // For DerefExpr, the field name is typically the last child's string value
+    // For DerefExpr, find the leaf field name (last Str child at the deepest level)
     if (node.getType() == XQ.DerefExpr) {
-      // Walk to find the deepest string key
       for (int i = node.getChildCount() - 1; i >= 0; i--) {
         final AST child = node.getChild(i);
         if (child.getType() == XQ.Str) {
           return child.getStringValue();
         }
-        // Recurse into nested DerefExpr
+        // Recurse into nested DerefExpr to find the leaf
         if (child.getType() == XQ.DerefExpr) {
           return extractFieldName(child);
         }

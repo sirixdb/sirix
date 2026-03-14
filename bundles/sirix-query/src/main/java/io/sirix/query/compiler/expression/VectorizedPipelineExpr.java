@@ -14,7 +14,6 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.compiler.optimizer.VectorizedRoutingStage;
 import io.sirix.query.compiler.vectorized.ColumnBatch;
-import io.sirix.query.compiler.vectorized.ColumnBatchFilter;
 import io.sirix.query.compiler.vectorized.ColumnarScanAxis;
 import io.sirix.query.compiler.vectorized.ColumnarStringFilter;
 import io.sirix.query.compiler.vectorized.ComparisonOperator;
@@ -42,8 +41,9 @@ import java.util.Map;
  *   <li>Create ColumnarScanAxis for multi-page columnar scan</li>
  *   <li>Loop: while nextBatch() != null
  *     <ul>
- *       <li>Apply string predicates via ColumnarStringFilter (EQ/NE only)</li>
- *       <li>Apply numeric predicates via ColumnBatchFilter.filterLong/filterDouble</li>
+ *       <li>Apply string EQ/NE predicates via ColumnarStringFilter (FSST-aware)</li>
+ *       <li>Apply numeric and string range predicates via scalar fallback
+ *           (materialize string value → parse → compare row-by-row)</li>
  *       <li>Skip batch if selectionCount == 0</li>
  *       <li>Materialize surviving rows → moveTo(nodeKey) → add to result</li>
  *     </ul>
@@ -53,9 +53,12 @@ import java.util.Map;
  *
  * <h3>HFT-grade analysis:</h3>
  * <p>No hot-path allocation violations: ColumnarScanAxis pre-allocates extraction
- * arrays, ColumnBatch reuses arrays via reset(), SIMD broadcast happens once per
- * filterLong call. The only per-batch allocation is JsonDBItem wrappers for
- * surviving rows (unavoidable — Brackit requires Item objects).</p>
+ * arrays, ColumnBatch reuses arrays via reset(). String EQ/NE uses FSST-aware
+ * compressed comparison via ColumnarStringFilter. Numeric predicates currently use
+ * scalar fallback (parse-then-compare) — SIMD acceleration via ColumnBatchFilter
+ * will be available when per-field typed columns are added to ColumnarScanAxis.
+ * The only per-batch allocation is JsonDBItem wrappers for surviving rows
+ * (unavoidable — Brackit requires Item objects).</p>
  */
 public final class VectorizedPipelineExpr implements Expr {
 
@@ -97,10 +100,12 @@ public final class VectorizedPipelineExpr implements Expr {
 
     try {
       return evaluateColumnar(rtx, resourceSession, jsonCollection);
-    } catch (final Exception e) {
+    } finally {
+      // Resources can be closed here because evaluateColumnar() fully materializes
+      // all surviving rows into an ArrayList before returning. The returned
+      // ItemSequence does not hold references back to the transaction.
       rtx.close();
       resourceSession.close();
-      throw e;
     }
   }
 
@@ -148,10 +153,16 @@ public final class VectorizedPipelineExpr implements Expr {
   /**
    * Apply all extracted predicates to a batch.
    *
-   * <p>Each predicate narrows the selection vector in-place. String predicates
-   * use ColumnarStringFilter (EQ/NE only). Numeric predicates use ColumnBatchFilter
-   * with SIMD acceleration. String range predicates (LT/GT/LE/GE) fall back
-   * to row-by-row materialization and comparison.</p>
+   * <p>Each predicate narrows the selection vector in-place. String EQ/NE predicates
+   * use ColumnarStringFilter with FSST-aware compressed comparison. All other predicates
+   * (numeric and string range) fall back to scalar evaluation: materialize the string
+   * value from {@code COL_STRING_VALUE}, parse to the target type, then compare.</p>
+   *
+   * <p><b>Why scalar fallback for numerics:</b> ColumnarScanAxis has fixed columns
+   * (nodeKey, parentKey, stringValue, deweyId) — there are no per-field typed columns.
+   * SIMD filtering via {@link ColumnBatchFilter} requires a dedicated typed column, which
+   * doesn't exist for arbitrary JSON fields yet. When per-field columnar storage is added,
+   * this method should resolve field names to column indices and use SIMD paths.</p>
    */
   private void applyPredicates(ColumnBatch batch) {
     if (predicates == null) {
@@ -159,16 +170,8 @@ public final class VectorizedPipelineExpr implements Expr {
     }
     for (final VectorizedPredicate pred : predicates) {
       switch (pred.type()) {
-        case INT64 -> ColumnBatchFilter.filterLong(
-            batch,
-            ColumnarScanAxis.COL_PARENT_KEY,
-            pred.op(),
-            ((Number) pred.constant()).longValue());
-        case FLOAT64 -> ColumnBatchFilter.filterDouble(
-            batch,
-            ColumnarScanAxis.COL_PARENT_KEY,
-            pred.op(),
-            ((Number) pred.constant()).doubleValue());
+        case INT64 -> filterLongScalar(batch, pred);
+        case FLOAT64 -> filterDoubleScalar(batch, pred);
         case STRING -> {
           if (pred.isStringFilterable()) {
             // EQ/NE: use FSST-aware compressed comparison
@@ -207,6 +210,65 @@ public final class VectorizedPipelineExpr implements Expr {
       final String value = values[i];
       if (value != null && compareString(value, constant, pred.op())) {
         sel[outPos++] = row;
+      }
+    }
+    batch.setSelectionCount(outPos);
+  }
+
+  /**
+   * Scalar fallback for INT64 predicates. Materializes string values,
+   * parses each to long, and compares row-by-row.
+   *
+   * <p>Required because ColumnarScanAxis has no per-field typed column for
+   * arbitrary JSON fields. Values are stored as strings in COL_STRING_VALUE.</p>
+   */
+  private static void filterLongScalar(ColumnBatch batch, VectorizedPredicate pred) {
+    final long constant = ((Number) pred.constant()).longValue();
+    final ComparisonOperator op = pred.op();
+    final String[] values = batch.materializeAllSelected(ColumnarScanAxis.COL_STRING_VALUE);
+    final int[] sel = batch.selectionVector();
+    final int inputCount = batch.selectionCount();
+    int outPos = 0;
+
+    for (int i = 0; i < inputCount; i++) {
+      final int row = sel[i];
+      final String value = values[i];
+      if (value != null) {
+        try {
+          if (op.testLong(Long.parseLong(value), constant)) {
+            sel[outPos++] = row;
+          }
+        } catch (NumberFormatException ignored) {
+          // Non-numeric value — exclude from results
+        }
+      }
+    }
+    batch.setSelectionCount(outPos);
+  }
+
+  /**
+   * Scalar fallback for FLOAT64 predicates. Materializes string values,
+   * parses each to double, and compares row-by-row.
+   */
+  private static void filterDoubleScalar(ColumnBatch batch, VectorizedPredicate pred) {
+    final double constant = ((Number) pred.constant()).doubleValue();
+    final ComparisonOperator op = pred.op();
+    final String[] values = batch.materializeAllSelected(ColumnarScanAxis.COL_STRING_VALUE);
+    final int[] sel = batch.selectionVector();
+    final int inputCount = batch.selectionCount();
+    int outPos = 0;
+
+    for (int i = 0; i < inputCount; i++) {
+      final int row = sel[i];
+      final String value = values[i];
+      if (value != null) {
+        try {
+          if (op.testDouble(Double.parseDouble(value), constant)) {
+            sel[outPos++] = row;
+          }
+        } catch (NumberFormatException ignored) {
+          // Non-numeric value — exclude from results
+        }
       }
     }
     batch.setSelectionCount(outPos);

@@ -23,9 +23,11 @@ import io.sirix.query.compiler.vectorized.VectorizedPipelineDetector;
  */
 public final class VectorizedDetectionStage implements Stage {
 
+  private final VectorizedPipelineDetector detector = new VectorizedPipelineDetector();
+
   @Override
   public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
-    new VectorizedPipelineDetector().analyze(ast);
+    detector.analyze(ast);
     return ast;
   }
 }
