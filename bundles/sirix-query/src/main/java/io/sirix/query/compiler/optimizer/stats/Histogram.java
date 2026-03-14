@@ -87,12 +87,15 @@ public final class Histogram {
     final double clampedLow = Math.max(low, minValue);
     final double clampedHigh = Math.min(high, maxValue);
 
+    // Narrow iteration to only the overlapping bucket range
+    final int startBucket = bucketIndex(clampedLow);
+    final int endBucket = bucketIndex(clampedHigh);
+
     double matchingCount = 0.0;
-    for (int i = 0; i < bucketCounts.length; i++) {
+    for (int i = startBucket; i <= endBucket; i++) {
       final double bucketLow = minValue + i * bucketWidth;
       final double bucketHigh = bucketLow + bucketWidth;
 
-      // Compute overlap fraction
       final double overlapLow = Math.max(clampedLow, bucketLow);
       final double overlapHigh = Math.min(clampedHigh, bucketHigh);
 
@@ -203,7 +206,6 @@ public final class Histogram {
     private final int numBuckets;
     private double minValue = Double.MAX_VALUE;
     private double maxValue = -Double.MAX_VALUE;
-    private long totalCount;
     private long distinctCount;
     // Accumulate raw values for bucket assignment
     private double[] values;
@@ -249,7 +251,6 @@ public final class Histogram {
       if (value > maxValue) {
         maxValue = value;
       }
-      totalCount++;
       return this;
     }
 
@@ -277,8 +278,8 @@ public final class Histogram {
       // Handle single-value case
       if (minValue == maxValue) {
         final long[] buckets = new long[numBuckets];
-        buckets[0] = totalCount;
-        return new Histogram(minValue, maxValue + 1.0, buckets, totalCount, distinctCount);
+        buckets[0] = valueCount;
+        return new Histogram(minValue, maxValue + 1.0, buckets, valueCount, distinctCount);
       }
 
       final double range = maxValue - minValue;
@@ -291,7 +292,7 @@ public final class Histogram {
         buckets[idx]++;
       }
 
-      return new Histogram(minValue, maxValue, buckets, totalCount, distinctCount);
+      return new Histogram(minValue, maxValue, buckets, valueCount, distinctCount);
     }
   }
 }
