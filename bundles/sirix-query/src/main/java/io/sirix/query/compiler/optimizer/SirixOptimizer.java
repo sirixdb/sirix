@@ -2,6 +2,7 @@ package io.sirix.query.compiler.optimizer;
 
 import java.util.Map;
 
+import io.sirix.query.compiler.optimizer.mesh.Mesh;
 import io.sirix.query.compiler.optimizer.walker.json.JsonPathStep;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.QNm;
@@ -28,8 +29,14 @@ public class SirixOptimizer extends TopDownOptimizer {
     getStages().add(new JqgmRewriteStage());
     // Cost-based optimization: annotate AST with index preference hints and cardinality estimates.
     getStages().add(new CostBasedStage(jsonItemStore));
+    // DPhyp-based join reordering — uses cardinality estimates to find optimal join orders.
+    getStages().add(new JoinReorderStage());
+    // Populate Mesh search space with plan alternatives from cost annotations.
+    getStages().add(new MeshPopulationStage(new Mesh(32)));
     // Index-aware join decomposition (Rules 5-6) — splits joins at index boundaries.
     getStages().add(new IndexDecompositionStage());
+    // Cost-driven execution routing — propagate PREFER_INDEX to downstream index matching.
+    getStages().add(new CostDrivenRoutingStage());
     // Perform index matching as last step.
     getStages().add(new IndexMatching(nodeStore, jsonItemStore));
   }

@@ -1,5 +1,6 @@
 package io.sirix.query.compiler.optimizer.stats;
 
+import io.brackit.query.atomic.Numeric;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 
@@ -20,11 +21,38 @@ import java.util.Arrays;
  */
 public final class SelectivityEstimator {
 
-  private static final double DEFAULT_EQUALITY_SELECTIVITY = 0.01;
-  private static final double DEFAULT_RANGE_SELECTIVITY = 0.33;
-  private static final double DEFAULT_LIKE_SELECTIVITY = 0.25;
-  private static final double DEFAULT_SELECTIVITY = 0.5;
-  private static final double MIN_SELECTIVITY = 0.0001;
+  static final double DEFAULT_EQUALITY_SELECTIVITY = 0.01;
+  static final double DEFAULT_RANGE_SELECTIVITY = 0.33;
+  static final double DEFAULT_LIKE_SELECTIVITY = 0.25;
+  static final double DEFAULT_SELECTIVITY = 0.5;
+  static final double MIN_SELECTIVITY = 0.0001;
+
+  /**
+   * Optional histogram for data-driven selectivity estimates.
+   * When set, equality and range predicates use histogram data
+   * instead of hardcoded defaults.
+   * Volatile for safe publication across threads.
+   */
+  private volatile Histogram histogram;
+
+  /**
+   * Set a histogram for data-driven selectivity estimation.
+   * When set, equality and range predicates use histogram data.
+   *
+   * @param histogram the histogram to use, or null to revert to defaults
+   */
+  public void setHistogram(Histogram histogram) {
+    this.histogram = histogram;
+  }
+
+  /**
+   * Get the current histogram, if set.
+   *
+   * @return the histogram, or null if using defaults
+   */
+  public Histogram getHistogram() {
+    return histogram;
+  }
 
   /**
    * Estimate the selectivity of a predicate expression.
@@ -50,7 +78,7 @@ public final class SelectivityEstimator {
     }
     // Brackit may represent comparisons with the operator type directly
     {
-      final double typeSel = selectivityForComparisonType(type);
+      final double typeSel = selectivityForComparisonType(type, predicateExpr);
       if (typeSel != DEFAULT_SELECTIVITY) {
         return typeSel;
       }
@@ -114,21 +142,30 @@ public final class SelectivityEstimator {
     if (operator == null) {
       return DEFAULT_SELECTIVITY;
     }
-    return selectivityForOperator(operator);
+    return selectivityForOperator(operator, compExpr);
   }
 
-  private double selectivityForOperator(String operator) {
-    return switch (operator) {
-      case "ValueCompEQ", "GeneralCompEQ" -> DEFAULT_EQUALITY_SELECTIVITY;
-      case "ValueCompNE", "GeneralCompNE" -> 1.0 - DEFAULT_EQUALITY_SELECTIVITY;
-      case "ValueCompLT", "ValueCompLE", "ValueCompGT", "ValueCompGE",
-           "GeneralCompLT", "GeneralCompLE", "GeneralCompGT", "GeneralCompGE"
-          -> DEFAULT_RANGE_SELECTIVITY;
-      default -> DEFAULT_SELECTIVITY;
-    };
+  private double selectivityForOperator(String operator, AST compExpr) {
+    final int opType = operatorStringToType(operator);
+    if (opType < 0) {
+      return DEFAULT_SELECTIVITY;
+    }
+    return selectivityForComparisonType(opType, compExpr);
   }
 
   private double selectivityForComparisonType(int type) {
+    return selectivityForComparisonType(type, null);
+  }
+
+  /**
+   * Unified selectivity dispatch for comparison operators.
+   * Uses histogram data when available, otherwise falls back to defaults.
+   */
+  private double selectivityForComparisonType(int type, AST compExpr) {
+    final Histogram hist = this.histogram; // capture volatile once
+    if (hist != null) {
+      return histogramSelectivity(hist, type, compExpr);
+    }
     return switch (type) {
       case XQ.ValueCompEQ, XQ.GeneralCompEQ -> DEFAULT_EQUALITY_SELECTIVITY;
       case XQ.ValueCompNE, XQ.GeneralCompNE -> 1.0 - DEFAULT_EQUALITY_SELECTIVITY;
@@ -136,6 +173,100 @@ public final class SelectivityEstimator {
            XQ.GeneralCompLT, XQ.GeneralCompLE, XQ.GeneralCompGT, XQ.GeneralCompGE
           -> DEFAULT_RANGE_SELECTIVITY;
       default -> DEFAULT_SELECTIVITY;
+    };
+  }
+
+  /** Map operator string names to XQ type constants. Returns -1 if unknown. */
+  private static int operatorStringToType(String operator) {
+    return switch (operator) {
+      case "ValueCompEQ" -> XQ.ValueCompEQ;
+      case "ValueCompNE" -> XQ.ValueCompNE;
+      case "ValueCompLT" -> XQ.ValueCompLT;
+      case "ValueCompLE" -> XQ.ValueCompLE;
+      case "ValueCompGT" -> XQ.ValueCompGT;
+      case "ValueCompGE" -> XQ.ValueCompGE;
+      case "GeneralCompEQ" -> XQ.GeneralCompEQ;
+      case "GeneralCompNE" -> XQ.GeneralCompNE;
+      case "GeneralCompLT" -> XQ.GeneralCompLT;
+      case "GeneralCompLE" -> XQ.GeneralCompLE;
+      case "GeneralCompGT" -> XQ.GeneralCompGT;
+      case "GeneralCompGE" -> XQ.GeneralCompGE;
+      default -> -1;
+    };
+  }
+
+  /**
+   * Extract a numeric constant value from a comparison expression's operands.
+   *
+   * <p>ComparisonExpr has children: [operator, left, right].
+   * Tries child(2) (right operand) first, then child(1) (left operand),
+   * looking for a {@link Numeric} value or a parseable numeric string.</p>
+   *
+   * @param compExpr the ComparisonExpr AST node, or null
+   * @return the numeric constant, or {@link Double#NaN} if not found
+   */
+  static double extractConstantValue(AST compExpr) {
+    if (compExpr == null || compExpr.getChildCount() < 3) {
+      return Double.NaN;
+    }
+    // Try right operand first (child 2), then left (child 1)
+    double value = tryExtractNumeric(compExpr.getChild(2));
+    if (!Double.isNaN(value)) {
+      return value;
+    }
+    return tryExtractNumeric(compExpr.getChild(1));
+  }
+
+  /**
+   * Attempt to extract a numeric value from an AST node.
+   * Checks whether the node's value is a {@link Numeric} (Int32, Int64, Dbl, Dec)
+   * or a string that can be parsed as a double.
+   */
+  private static double tryExtractNumeric(AST node) {
+    if (node == null) {
+      return Double.NaN;
+    }
+    final Object val = node.getValue();
+    if (val instanceof Numeric numeric) {
+      return numeric.doubleValue();
+    }
+    // Try parsing the string value as a number (handles literal nodes
+    // whose value is stored as a String rather than an Atomic)
+    if (val instanceof String str) {
+      try {
+        return Double.parseDouble(str);
+      } catch (NumberFormatException ignored) {
+        // Not a numeric string
+      }
+    }
+    return Double.NaN;
+  }
+
+  /**
+   * Unified histogram-based selectivity dispatch.
+   * Extracts the actual constant from the AST operands when available,
+   * falling back to the histogram midpoint otherwise.
+   */
+  private static double histogramSelectivity(Histogram hist, int type, AST compExpr) {
+    final double value = extractConstantValue(compExpr);
+    final double v = Double.isNaN(value)
+        ? (hist.minValue() + hist.maxValue()) / 2.0
+        : value;
+
+    return switch (type) {
+      case XQ.ValueCompEQ, XQ.GeneralCompEQ ->
+          hist.estimateEqualitySelectivity(v);
+      case XQ.ValueCompNE, XQ.GeneralCompNE ->
+          1.0 - hist.estimateEqualitySelectivity(v);
+      case XQ.ValueCompLT, XQ.GeneralCompLT ->
+          hist.estimateLessThanSelectivity(v);
+      case XQ.ValueCompLE, XQ.GeneralCompLE ->
+          hist.estimateLessThanOrEqualSelectivity(v);
+      case XQ.ValueCompGT, XQ.GeneralCompGT ->
+          hist.estimateGreaterThanSelectivity(v);
+      case XQ.ValueCompGE, XQ.GeneralCompGE ->
+          hist.estimateGreaterThanOrEqualSelectivity(v);
+      default -> SelectivityEstimator.DEFAULT_SELECTIVITY;
     };
   }
 
