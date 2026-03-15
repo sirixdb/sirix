@@ -167,6 +167,61 @@ final class MeshSelectionStageTest {
   }
 
   @Test
+  @DisplayName("INDEX_TYPE copied when present on best plan")
+  void indexTypeCopiedFromBestPlan() throws Exception {
+    final AST ast = new AST(XQ.FlowrExpr, null);
+    final AST forBind = new AST(XQ.ForBind, null);
+    forBind.addChild(new AST(XQ.Variable, "x"));
+    final AST bindExpr = new AST(XQ.DerefExpr, null);
+    bindExpr.setProperty(CostProperties.PREFER_INDEX, true);
+    bindExpr.setProperty(CostProperties.SEQ_SCAN_COST, 3000.0);
+    bindExpr.setProperty(CostProperties.INDEX_SCAN_COST, 20.0);
+    bindExpr.setProperty(CostProperties.INDEX_ID, 5);
+    bindExpr.setProperty(CostProperties.INDEX_TYPE, "CAS");
+    forBind.addChild(bindExpr);
+    ast.addChild(forBind);
+
+    final var mesh = new Mesh(16);
+    final var populationStage = new MeshPopulationStage(mesh, costModel);
+    populationStage.rewrite(null, ast);
+
+    final var selectionStage = new MeshSelectionStage(mesh);
+    selectionStage.rewrite(null, ast);
+
+    assertEquals("CAS", bindExpr.getProperty(CostProperties.INDEX_TYPE),
+        "INDEX_TYPE should be copied from best plan");
+  }
+
+  @Test
+  @DisplayName("Non-decision properties are NOT overwritten by selection stage")
+  void nonDecisionPropertiesPreserved() throws Exception {
+    final AST ast = new AST(XQ.FlowrExpr, null);
+    final AST forBind = new AST(XQ.ForBind, null);
+    forBind.addChild(new AST(XQ.Variable, "x"));
+    final AST bindExpr = new AST(XQ.DerefExpr, null);
+    bindExpr.setProperty(CostProperties.PREFER_INDEX, true);
+    bindExpr.setProperty(CostProperties.SEQ_SCAN_COST, 1000.0);
+    bindExpr.setProperty(CostProperties.INDEX_SCAN_COST, 50.0);
+    bindExpr.setProperty(CostProperties.INDEX_ID, 7);
+    bindExpr.setProperty(CostProperties.ESTIMATED_CARDINALITY, 42000L);
+    forBind.addChild(bindExpr);
+    ast.addChild(forBind);
+
+    final var mesh = new Mesh(16);
+    final var populationStage = new MeshPopulationStage(mesh, costModel);
+    populationStage.rewrite(null, ast);
+
+    final var selectionStage = new MeshSelectionStage(mesh);
+    selectionStage.rewrite(null, ast);
+
+    // SEQ_SCAN_COST and ESTIMATED_CARDINALITY should remain from original
+    assertEquals(1000.0, bindExpr.getProperty(CostProperties.SEQ_SCAN_COST),
+        "SEQ_SCAN_COST should be preserved from original");
+    assertEquals(42000L, bindExpr.getProperty(CostProperties.ESTIMATED_CARDINALITY),
+        "ESTIMATED_CARDINALITY should be preserved from original");
+  }
+
+  @Test
   @DisplayName("Join alternatives: JOIN_COST updated when swapped ordering is cheaper")
   void joinAlternativesCostUpdated() throws Exception {
     final AST ast = new AST(XQ.FlowrExpr, null);

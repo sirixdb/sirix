@@ -222,11 +222,31 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
 
   private static IndexInfo matchByPath(IndexDef indexDef, Path<QNm> path, IndexType type) {
     for (final Path<QNm> indexedPath : indexDef.getPaths()) {
-      if (indexedPath.matches(path)) {
+      if (indexedPath.matches(path) || isPrefixOf(path, indexedPath)) {
         return new IndexInfo(indexDef.getID(), type, true);
       }
     }
     return null;
+  }
+
+  /**
+   * Check if {@code prefix} is a strict prefix of {@code fullPath}.
+   * E.g., /[]/item is a prefix of /[]/item/price.
+   * This enables the cost model to find CAS indexes on child paths
+   * when the binding expression only navigates to the parent.
+   */
+  private static boolean isPrefixOf(Path<QNm> prefix, Path<QNm> fullPath) {
+    if (prefix.getLength() >= fullPath.getLength()) {
+      return false; // must be strictly shorter to be a prefix
+    }
+    final var prefixSteps = prefix.steps();
+    final var fullSteps = fullPath.steps();
+    for (int i = 0; i < prefixSteps.size(); i++) {
+      if (!prefixSteps.get(i).equals(fullSteps.get(i))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private static int priorityOf(IndexType type) {

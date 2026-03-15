@@ -25,10 +25,32 @@ public final class CardinalityEstimator {
   private static final int MAX_PIPELINE_DEPTH = 500;
   private static final long DEFAULT_BINDING_CARDINALITY = 10L;
 
+  /**
+   * Default GroupBy divisor: assumes GroupBy output is 1% of input cardinality.
+   * Conservative for typical grouping (GROUP BY category, status) where real-world
+   * group counts are often much lower than 1% of input rows.
+   */
+  public static final int DEFAULT_GROUP_BY_DIVISOR = 100;
+
   private final SelectivityEstimator selectivityEstimator;
+  private final int groupByDivisor;
 
   public CardinalityEstimator(SelectivityEstimator selectivityEstimator) {
+    this(selectivityEstimator, DEFAULT_GROUP_BY_DIVISOR);
+  }
+
+  /**
+   * Create a cardinality estimator with a configurable GroupBy divisor.
+   *
+   * @param selectivityEstimator the selectivity estimator
+   * @param groupByDivisor       estimated output = inputCard / groupByDivisor (must be &gt; 0)
+   */
+  public CardinalityEstimator(SelectivityEstimator selectivityEstimator, int groupByDivisor) {
     this.selectivityEstimator = selectivityEstimator;
+    if (groupByDivisor <= 0) {
+      throw new IllegalArgumentException("groupByDivisor must be positive: " + groupByDivisor);
+    }
+    this.groupByDivisor = groupByDivisor;
   }
 
   /**
@@ -99,11 +121,11 @@ public final class CardinalityEstimator {
     }
 
     if (type == XQ.GroupBy) {
-      // Heuristic: assume 1% of input cardinality for group count.
+      // Heuristic: assume input/groupByDivisor cardinality for group count.
       // √n overestimates for typical grouping (50 categories over 1M rows → √1M=1000 vs actual ~50).
-      // 1% is conservative and closer to real-world grouping patterns (GROUP BY category, status, etc.).
+      // Default divisor=100 (1%) is conservative and closer to real-world grouping patterns.
       final long inputCard = walkChildPipeline(node, depth);
-      return Math.max(1L, inputCard / 100);
+      return Math.max(1L, inputCard / groupByDivisor);
     }
 
     if (type == XQ.OrderBy) {

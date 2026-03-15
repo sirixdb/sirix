@@ -128,6 +128,35 @@ public final class JsonCostModel {
   }
 
   /**
+   * Estimate the cost of a selectivity-adjusted index scan.
+   *
+   * <p>When a filter predicate narrows the result set (e.g., {@code price > 9990}),
+   * the effective number of index entries to scan is {@code pathCardinality × selectivity}.
+   * This dramatically reduces cost for highly selective predicates.</p>
+   *
+   * @param pathCardinality number of nodes matching the indexed path
+   * @param selectivity     predicate selectivity in (0, 1]
+   * @return estimated cost
+   */
+  public double estimateSelectiveIndexScanCost(long pathCardinality, double selectivity) {
+    if (pathCardinality <= 0 || selectivity <= 0.0) {
+      return Double.MAX_VALUE;
+    }
+    // Effective cardinality after applying predicate selectivity
+    final long effectiveCard = Math.max(1L, (long) (pathCardinality * selectivity));
+    // Trie traversal cost is the same (must navigate to the range),
+    // but leaf page reads and CPU are reduced
+    final int trieDepth = pathCardinality > 1
+        ? Math.max(1, (int) Math.ceil(Math.log(pathCardinality) / LOG_FANOUT))
+        : 1;
+    final double traversalIO = trieDepth * TRIE_COLD_FRACTION * RANDOM_IO_PER_PAGE;
+    final long matchingPages = Math.max(1L, (long) Math.ceil(effectiveCard / HOT_LEAF_ENTRIES));
+    final double dataIO = matchingPages * RANDOM_IO_PER_PAGE;
+    final double cpuCost = effectiveCard * CPU_PER_TUPLE;
+    return INDEX_SETUP_OVERHEAD + traversalIO + dataIO + cpuCost;
+  }
+
+  /**
    * Compare two costs. Returns true if indexScanCost is strictly cheaper.
    */
   public boolean isIndexScanCheaper(double indexScanCost, double seqScanCost) {

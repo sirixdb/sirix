@@ -27,6 +27,12 @@ import io.sirix.query.compiler.optimizer.stats.CostProperties;
  * with metadata indicating a pushed predicate is available. The
  * CostBasedJoinReorder walker uses this information when computing
  * base relation cardinalities (filtered by pushed predicates).</p>
+ *
+ * <p><b>Current status:</b> Annotation-only. The {@code JOIN_PREDICATE_PUSHED}
+ * and {@code FUSED_HAS_PUSHDOWN} annotations are set on Join/Selection nodes,
+ * but the physical predicate pushdown into join operators is not yet
+ * implemented. The annotations serve as metadata for the cost model
+ * (selectivity-aware join reordering) rather than triggering AST restructuring.</p>
  */
 public final class SelectJoinFusionWalker extends Walker {
 

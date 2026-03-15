@@ -20,6 +20,8 @@ import io.sirix.query.compiler.optimizer.stats.StatisticsProvider;
 import io.sirix.query.json.JsonDBStore;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Cost-based optimization stage that annotates AST nodes with index preference hints.
@@ -43,6 +45,13 @@ public final class CostBasedStage implements Stage {
   private final SelectivityEstimator selectivityEstimator;
   private final CardinalityEstimator cardinalityEstimator;
   private SirixStatisticsProvider statsProvider;
+
+  /**
+   * Tracks variable bindings for resolving VariableRef nodes.
+   * Maps the variable's binding key (AST child(0) value) to its binding expression (child(1)).
+   * Cleared between queries via rewrite().
+   */
+  private final Map<Object, AST> variableBindings = new HashMap<>(8);
 
   public CostBasedStage(JsonDBStore jsonStore) {
     this.jsonStore = jsonStore;
@@ -68,11 +77,21 @@ public final class CostBasedStage implements Stage {
     } else {
       statsProvider.clearCaches();
     }
+    variableBindings.clear();
 
-    annotateSubtree(ast);
+    try {
+      annotateSubtree(ast);
 
-    // Phase 2: Annotate cardinality estimates throughout the pipeline
-    cardinalityEstimator.annotateCardinalities(ast);
+      // Phase 2: Annotate cardinality estimates throughout the pipeline
+      cardinalityEstimator.annotateCardinalities(ast);
+    } catch (final Exception e) {
+      // Ensure cached resource sessions are closed on exception path.
+      // Without this, sessions opened by SirixStatisticsProvider during
+      // annotateSubtree() would leak if an exception prevents clearCaches()
+      // from being called on the next rewrite() invocation.
+      statsProvider.clearCaches();
+      throw e;
+    }
 
     return ast;
   }
@@ -102,6 +121,14 @@ public final class CostBasedStage implements Stage {
 
     // Look for ForBind nodes that bind over a deref chain from jn:doc()
     if (node.getType() == XQ.ForBind || node.getType() == XQ.LetBind) {
+      // Track variable binding for VariableRef resolution (Issue 2)
+      if (node.getChildCount() >= 2) {
+        final AST varDecl = node.getChild(0);
+        final Object varKey = varDecl.getValue();
+        if (varKey != null) {
+          variableBindings.put(varKey, node.getChild(1));
+        }
+      }
       tryAnnotateBinding(node);
     }
 
@@ -166,9 +193,16 @@ public final class CostBasedStage implements Stage {
       return; // no index — cardinality annotated above, nothing more to do
     }
 
-    // Cost comparison
+    // Estimate predicate selectivity to refine index scan cost.
+    // If a filter predicate narrows the result set (e.g., price > 9990),
+    // the index only needs to scan pathCardinality × selectivity entries.
+    final double selectivity = estimatePredicateSelectivity(bindNode, bindingExpr);
+
+    // Cost comparison — use selectivity-adjusted cost when predicate is present
     final double seqScanCost = costModel.estimateSequentialScanCost(totalNodeCount);
-    final double indexScanCost = costModel.estimateIndexScanCost(pathCardinality);
+    final double indexScanCost = selectivity < 1.0
+        ? costModel.estimateSelectiveIndexScanCost(pathCardinality, selectivity)
+        : costModel.estimateIndexScanCost(pathCardinality);
 
     if (costModel.isIndexScanCheaper(indexScanCost, seqScanCost)) {
       // Annotate the binding expression with cost-based hint
@@ -186,6 +220,58 @@ public final class CostBasedStage implements Stage {
   }
 
   /**
+   * Estimate the selectivity of predicates associated with this binding.
+   *
+   * <p>Searches for predicates in two places:
+   * <ol>
+   *   <li>FilterExpr in the binding expression itself (e.g., {@code jn:doc(...)[].item[?$$.price gt X]})</li>
+   *   <li>Sibling Selection nodes in the parent pipeline</li>
+   * </ol>
+   *
+   * @return selectivity in (0, 1], or 1.0 if no predicate found
+   */
+  private double estimatePredicateSelectivity(AST bindNode, AST bindingExpr) {
+    // Check if the binding expression itself is or contains a FilterExpr
+    final AST filterPredicate = findFilterPredicate(bindingExpr, 5);
+    if (filterPredicate != null) {
+      return selectivityEstimator.estimateSelectivity(filterPredicate);
+    }
+
+    // Look for sibling Selection nodes in the parent FLWOR pipeline
+    final AST parent = bindNode.getParent();
+    if (parent != null) {
+      for (int i = 0; i < parent.getChildCount(); i++) {
+        final AST sibling = parent.getChild(i);
+        if (sibling.getType() == XQ.Selection && sibling.getChildCount() > 0) {
+          return selectivityEstimator.estimateSelectivity(sibling.getChild(0));
+        }
+      }
+    }
+
+    return 1.0; // no predicate found
+  }
+
+  /**
+   * Search for a filter predicate in the expression subtree.
+   * Returns the predicate AST node (child(1) of FilterExpr), or null.
+   */
+  private static AST findFilterPredicate(AST expr, int maxDepth) {
+    if (expr == null || maxDepth <= 0) {
+      return null;
+    }
+    if (expr.getType() == XQ.FilterExpr && expr.getChildCount() >= 2) {
+      return expr.getChild(1);
+    }
+    for (int i = 0; i < expr.getChildCount(); i++) {
+      final AST found = findFilterPredicate(expr.getChild(i), maxDepth - 1);
+      if (found != null) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Extract a Path and document context from a deref expression chain.
    * Walks from outer deref inward until reaching a jn:doc() call.
    *
@@ -196,8 +282,9 @@ public final class CostBasedStage implements Stage {
     // Collect path steps outside-in (will be reversed for root-to-leaf order)
     final var steps = new ArrayList<PathStep>(8);
     AST current = expr;
+    int maxIterations = 50; // guard against pathological ASTs
 
-    while (current != null) {
+    while (current != null && --maxIterations > 0) {
       if (current.getType() == XQ.DerefExpr && current.getChildCount() >= 2) {
         final String fieldName = current.getChild(1).getStringValue();
         if (fieldName != null) {
@@ -211,9 +298,19 @@ public final class CostBasedStage implements Stage {
       } else if (current.getType() == XQ.FunctionCall && isDocFunction(current)) {
         // Reached jn:doc() — build path in root-to-leaf order and extract doc context
         return buildPathAndDocument(current, steps);
+      } else if (current.getType() == XQ.FilterExpr && current.getChildCount() >= 1) {
+        // Unwrap filter predicate — extract path from the filtered expression.
+        // E.g., jn:doc(...)[].item[?$$.price gt 9990] → extract path from jn:doc(...)[].item
+        current = current.getChild(0);
       } else if (current.getType() == XQ.VariableRef) {
-        // Could follow variable binding, but skip for now (Phase 1 simplicity)
-        return null;
+        // Resolve variable binding — follow the reference to its definition
+        final Object varKey = current.getValue();
+        final AST resolvedExpr = varKey != null ? variableBindings.get(varKey) : null;
+        if (resolvedExpr != null) {
+          current = resolvedExpr;
+        } else {
+          return null;
+        }
       } else {
         return null;
       }

@@ -20,6 +20,7 @@ import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
+import io.sirix.query.compiler.optimizer.PlanCache;
 
 import java.util.HashSet;
 import java.util.Optional;
@@ -101,6 +102,8 @@ public final class CreateCASIndex extends AbstractFunction {
     } catch (final SirixIOException e) {
       throw new QueryException(new QNm("I/O exception: " + e.getMessage()), e);
     }
+
+    PlanCache.signalIndexSchemaChange();
 
     return idxDef.materialize();
   }

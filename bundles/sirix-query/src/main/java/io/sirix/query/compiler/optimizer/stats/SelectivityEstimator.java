@@ -1,8 +1,10 @@
 package io.sirix.query.compiler.optimizer.stats;
 
+import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Numeric;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
+import io.brackit.query.module.Namespaces;
 
 import java.util.Arrays;
 
@@ -76,6 +78,10 @@ public final class SelectivityEstimator {
     if (type == XQ.ComparisonExpr) {
       return estimateComparisonSelectivity(predicateExpr);
     }
+    // fn:not() is represented as a FunctionCall with QNm "not" in the FN namespace
+    if (type == XQ.FunctionCall && isFnNot(predicateExpr)) {
+      return estimateNotSelectivity(predicateExpr);
+    }
     // Brackit may represent comparisons with the operator type directly
     {
       final double typeSel = selectivityForComparisonType(type, predicateExpr);
@@ -127,6 +133,31 @@ public final class SelectivityEstimator {
       selectivity = selectivity + childSel - (selectivity * childSel);
     }
     return Math.min(1.0, selectivity);
+  }
+
+  /**
+   * fn:not(p): selectivity = 1 - selectivity(p).
+   * Child(0) of the FunctionCall is the argument expression.
+   */
+  private double estimateNotSelectivity(AST fnNotExpr) {
+    if (fnNotExpr.getChildCount() < 1) {
+      return DEFAULT_SELECTIVITY;
+    }
+    final double childSel = estimateSelectivity(fnNotExpr.getChild(0));
+    return Math.max(MIN_SELECTIVITY, 1.0 - childSel);
+  }
+
+  /**
+   * Check if a FunctionCall AST node represents fn:not().
+   */
+  private static boolean isFnNot(AST node) {
+    final Object value = node.getValue();
+    if (value instanceof QNm qnm) {
+      return "not".equals(qnm.getLocalName())
+          && (Namespaces.FN_NSURI.equals(qnm.getNamespaceURI())
+              || Namespaces.DEFAULT_FN_NSURI.equals(qnm.getNamespaceURI()));
+    }
+    return false;
   }
 
   /**
