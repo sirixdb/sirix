@@ -211,6 +211,10 @@ public final class CostBasedStage implements Stage {
       } else if (current.getType() == XQ.FunctionCall && isDocFunction(current)) {
         // Reached jn:doc() — build path in root-to-leaf order and extract doc context
         return buildPathAndDocument(current, steps);
+      } else if (current.getType() == XQ.FilterExpr && current.getChildCount() >= 1) {
+        // Unwrap filter predicate — extract path from the filtered expression.
+        // E.g., jn:doc(...)[].item[?$$.price gt 9990] → extract path from jn:doc(...)[].item
+        current = current.getChild(0);
       } else if (current.getType() == XQ.VariableRef) {
         // Could follow variable binding, but skip for now (Phase 1 simplicity)
         return null;

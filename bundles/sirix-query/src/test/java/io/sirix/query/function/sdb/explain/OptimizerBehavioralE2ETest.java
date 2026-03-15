@@ -92,6 +92,8 @@ final class OptimizerBehavioralE2ETest {
           store, null);
 
       assertNotNull(plan.optimizedAST());
+      assertFalse(plan.usesIndex(),
+          "No index exists → optimizer must not prefer index scan");
       assertTrue(plan.toJSON().contains("\"operator\""));
     }
 
@@ -119,6 +121,9 @@ final class OptimizerBehavioralE2ETest {
       final QueryPlan plan = QueryPlan.explain(
           "for $x in jn:doc('json-path1','mydoc.jn')[] return $x",
           store, null);
+
+      assertFalse(plan.usesIndex(),
+          "No index exists → optimizer must not prefer index scan");
 
       final long cardinality = plan.estimatedCardinality();
       assertTrue(cardinality > 0 || cardinality == -1,
@@ -149,6 +154,8 @@ final class OptimizerBehavioralE2ETest {
 
       assertNotNull(plan.parsedAST(), "Parsed AST should be present");
       assertNotNull(plan.optimizedAST(), "Optimized AST should be present");
+      assertFalse(plan.usesIndex(),
+          "CAS index exists but cost model should prefer seq scan for 2 rows");
 
       final String verbose = plan.toVerboseJSON();
       assertTrue(verbose.contains("\"parsed\":"), "Verbose should include parsed section");
@@ -231,6 +238,8 @@ final class OptimizerBehavioralE2ETest {
           store, null);
 
       assertNotNull(plan.optimizedAST());
+      assertFalse(plan.usesIndex(),
+          "No index exists → optimizer must not prefer index scan");
       assertTrue(plan.toJSON().contains("\"operator\""));
     }
 
@@ -255,6 +264,8 @@ final class OptimizerBehavioralE2ETest {
           store, null);
 
       assertNotNull(plan.optimizedAST());
+      assertFalse(plan.usesIndex(),
+          "No index exists → optimizer must not prefer index scan");
     }
 
     assertEquals("3",
@@ -275,6 +286,11 @@ final class OptimizerBehavioralE2ETest {
     try (final var store = newStore()) {
       final QueryPlan plan1 = QueryPlan.explain(query, store, null);
       final QueryPlan plan2 = QueryPlan.explain(query, store, null);
+
+      assertFalse(plan1.usesIndex(),
+          "No index exists → optimizer must not prefer index scan");
+      assertFalse(plan2.usesIndex(),
+          "No index exists → second compilation must also not prefer index scan");
 
       assertEquals(plan1.toJSON(), plan2.toJSON(),
           "Same query should produce identical plans");
@@ -314,6 +330,14 @@ final class OptimizerBehavioralE2ETest {
         return {"revision": sdb:commit($doc)}
         """);
 
+    // After index — plan should still prefer seq scan for 5 rows
+    try (final var store = newStore()) {
+      assertFalse(QueryPlan.explain(
+          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.score gt 25 return $x",
+          store, null).usesIndex(),
+          "CAS index exists but cost model should still prefer seq scan for 5 rows");
+    }
+
     // After index — results must be identical
     final String resultAfter = executeQuery(queryExpr);
     assertEquals("30 40 50", resultAfter, "After index: exact result");
@@ -335,6 +359,8 @@ final class OptimizerBehavioralE2ETest {
           "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.x gt 999 return $x",
           store, null);
       assertNotNull(plan.optimizedAST(), "Plan should exist even for empty result");
+      assertFalse(plan.usesIndex(),
+          "No index exists → optimizer must not prefer index scan");
     }
 
     assertNull(executeQuery(
@@ -369,6 +395,8 @@ final class OptimizerBehavioralE2ETest {
           "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.a gt 1 and $x.b gt 15 return $x",
           store, null);
       assertNotNull(plan.optimizedAST());
+      assertFalse(plan.usesIndex(),
+          "No index exists → optimizer must not prefer index scan");
     }
 
     // a>1 AND b>15 → only {a:2,b:20} and {a:3,b:30} match
@@ -385,8 +413,190 @@ final class OptimizerBehavioralE2ETest {
   void letBindingSumExactResult() {
     storeAndCommit("jn:store('json-path1','mydoc.jn','[{\"v\":10},{\"v\":20},{\"v\":30}]')");
 
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "let $sum := fn:sum(for $x in jn:doc('json-path1','mydoc.jn')[] return $x.v) return $sum",
+          store, null);
+      assertNotNull(plan.optimizedAST());
+      assertFalse(plan.usesIndex(),
+          "No index exists → optimizer must not prefer index scan");
+    }
+
     assertEquals("60",
         executeQuery("let $sum := fn:sum(for $x in jn:doc('json-path1','mydoc.jn')[] return $x.v) return $sum"));
+  }
+
+  // ─────────────────────────────────────────────
+  // 14. Cost model gates index: tiny dataset rejects CAS index
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("Cost model rejects CAS index for filter predicate on tiny dataset")
+  void costModelRejectsCasIndexForTinyDataset() {
+    // Same nested structure as test 15, but only 5 rows.
+    // Cost model: seqScan ≈ 1.2 vs indexScan ≈ 7.5 → seq scan wins → gate closes
+    storeAndCommit("jn:store('json-path1','mydoc.jn','" + buildNestedPriceArray(5) + "')");
+
+    storeAndCommit("""
+        let $doc := jn:doc('json-path1','mydoc.jn')
+        let $stats := jn:create-cas-index($doc, 'xs:integer', '/[]/item/price')
+        return {"revision": sdb:commit($doc)}
+        """);
+
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 3] return $i",
+          store, null);
+
+      assertFalse(plan.usesIndex(),
+          "Cost model should close index gate for 5-row dataset — seq scan is cheaper");
+      assertNull(plan.indexType(),
+          "No IndexExpr → no index type");
+    }
+
+    // Results still correct via sequential scan
+    assertEquals("{\"price\":4} {\"price\":5}",
+        executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.item.price gt 3 order by $x.item.price return $x.item"));
+  }
+
+  // ─────────────────────────────────────────────
+  // 15. Large dataset: CAS index preferred
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("CAS index used for range predicate on large dataset")
+  void casIndexPreferredForLargeDataset() {
+    // Nested structure: [{"item":{"price":1}},...]
+    // JsonCASStep requires DerefExpr before the filter predicate
+    storeAndCommit("jn:store('json-path1','mydoc.jn','" + buildNestedPriceArray(10_000) + "')");
+
+    storeAndCommit("""
+        let $doc := jn:doc('json-path1','mydoc.jn')
+        let $stats := jn:create-cas-index($doc, 'xs:integer', '/[]/item/price')
+        return {"revision": sdb:commit($doc)}
+        """);
+
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 9990] return $i",
+          store, null);
+
+      assertTrue(plan.usesIndex(),
+          "IndexMatching should create IndexExpr for CAS index on /[]/item/price");
+
+      assertEquals("CAS", plan.indexType(),
+          "Should use CAS index type");
+    }
+
+    // Verify results: 10 items with price 9991..10000
+    final String result14 = executeQuery(
+        "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.item.price gt 9990 order by $x.item.price return $x.item.price");
+    assertEquals("9991 9992 9993 9994 9995 9996 9997 9998 9999 10000", result14);
+  }
+
+  // ─────────────────────────────────────────────
+  // 15. CAS index with equality predicate
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("CAS index used for equality lookup on large dataset")
+  void casIndexUsedForEqualityOnLargeDataset() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn','" + buildNestedPriceArray(10_000) + "')");
+
+    storeAndCommit("""
+        let $doc := jn:doc('json-path1','mydoc.jn')
+        let $stats := jn:create-cas-index($doc, 'xs:integer', '/[]/item/price')
+        return {"revision": sdb:commit($doc)}
+        """);
+
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price eq 5000] return $i",
+          store, null);
+
+      assertTrue(plan.usesIndex(),
+          "IndexMatching should rewrite to IndexExpr for equality on 10000 rows");
+
+      assertEquals("CAS", plan.indexType(),
+          "Should use CAS index type for equality predicate");
+    }
+
+    assertEquals("{\"price\":5000}",
+        executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.item.price eq 5000 return $x.item"));
+  }
+
+  // ─────────────────────────────────────────────
+  // 16. Index precedence: CAS > PATH
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("CAS index takes precedence over PATH index for value predicate")
+  void casIndexTakesPrecedenceOverPath() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn','" + buildNestedPriceArray(10_000) + "')");
+
+    // Create both PATH and CAS indexes — CAS should win for value predicates
+    storeAndCommit("""
+        let $doc := jn:doc('json-path1','mydoc.jn')
+        let $p := jn:create-path-index($doc, '/[]/item/price')
+        let $c := jn:create-cas-index($doc, 'xs:integer', '/[]/item/price')
+        return {"revision": sdb:commit($doc)}
+        """);
+
+    // IndexMatching runs JsonCASStep before JsonPathStep — CAS wins
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 9990] return $i",
+          store, null);
+
+      assertTrue(plan.usesIndex(),
+          "Should use an index for 10000-row dataset");
+
+      assertEquals("CAS", plan.indexType(),
+          "CAS should take precedence over PATH index");
+    }
+
+    final String result16 = executeQuery(
+        "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.item.price gt 9990 order by $x.item.price return $x.item.price");
+    assertEquals("9991 9992 9993 9994 9995 9996 9997 9998 9999 10000", result16);
+  }
+
+  // ─────────────────────────────────────────────
+  // 17. PATH index fallback when no CAS
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("Without CAS index, no index rewrite for value predicate")
+  void noCasIndexNoRewrite() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn','" + buildNestedPriceArray(10_000) + "')");
+
+    // Only PATH index — JsonCASStep won't match (no CAS), and JsonPathStep
+    // doesn't handle value predicates. So no index rewrite.
+    storeAndCommit("""
+        let $doc := jn:doc('json-path1','mydoc.jn')
+        let $p := jn:create-path-index($doc, '/[]/item/price')
+        return {"revision": sdb:commit($doc)}
+        """);
+
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "for $i in jn:doc('json-path1','mydoc.jn')[].item[?$$.price gt 9990] return $i",
+          store, null);
+
+      // Cost model finds the PATH index and prefers it...
+      assertTrue(plan.prefersIndex(),
+          "Cost model should prefer PATH index over seq scan at 10K rows");
+
+      // ...but JsonCASStep can't use a PATH index for value predicates → no rewrite
+      assertFalse(plan.usesIndex(),
+          "Without CAS index, value predicate cannot use PATH index");
+      assertNull(plan.indexType(),
+          "No index type when no CAS index available");
+    }
+
+    // Results still correct via sequential scan
+    final String result17 = executeQuery(
+        "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.item.price gt 9990 order by $x.item.price return $x.item.price");
+    assertEquals("9991 9992 9993 9994 9995 9996 9997 9998 9999 10000", result17);
   }
 
   // ─────────────────────────────────────────────
@@ -418,6 +628,20 @@ final class OptimizerBehavioralE2ETest {
       fail("Query execution failed: " + e.getMessage(), e);
       return null;
     }
+  }
+
+  /**
+   * Build nested array: [{"item":{"price":1}},{"item":{"price":2}},...].
+   * This structure produces the DerefExpr AST node that JsonCASStep requires.
+   */
+  private String buildNestedPriceArray(int count) {
+    final var sb = new StringBuilder("[");
+    for (int i = 1; i <= count; i++) {
+      if (i > 1) sb.append(",");
+      sb.append("{\"item\":{\"price\":").append(i).append("}}");
+    }
+    sb.append("]");
+    return sb.toString();
   }
 
   private BasicJsonDBStore newStore() {

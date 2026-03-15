@@ -48,13 +48,13 @@ final class QueryPlanTest {
   }
 
   @Test
-  @DisplayName("usesIndex returns true when PREFER_INDEX found in subtree")
+  @DisplayName("usesIndex returns true when IndexExpr found in subtree")
   void usesIndexTrue() {
     final var root = new AST(XQ.FlowrExpr, null);
     final var start = new AST(XQ.Start, null);
-    final var forBind = new AST(XQ.ForBind, null);
-    forBind.setProperty(CostProperties.PREFER_INDEX, true);
-    start.addChild(forBind);
+    final var indexExpr = new AST(XQExt.IndexExpr, XQExt.toName(XQExt.IndexExpr));
+    indexExpr.setProperty("indexType", "CAS");
+    start.addChild(indexExpr);
     root.addChild(start);
 
     final var plan = new QueryPlan(root, null);
@@ -63,7 +63,21 @@ final class QueryPlanTest {
   }
 
   @Test
-  @DisplayName("usesIndex returns false when no PREFER_INDEX")
+  @DisplayName("usesIndex returns false when only PREFER_INDEX but no IndexExpr")
+  void usesIndexFalseWithPreferIndex() {
+    final var root = new AST(XQ.FlowrExpr, null);
+    final var forBind = new AST(XQ.ForBind, null);
+    forBind.setProperty(CostProperties.PREFER_INDEX, true);
+    root.addChild(forBind);
+
+    final var plan = new QueryPlan(root, null);
+
+    assertFalse(plan.usesIndex(), "PREFER_INDEX alone should not indicate actual index usage");
+    assertTrue(plan.prefersIndex(), "prefersIndex should detect PREFER_INDEX hint");
+  }
+
+  @Test
+  @DisplayName("usesIndex returns false when no IndexExpr")
   void usesIndexFalse() {
     final var ast = new AST(XQ.FlowrExpr, null);
     final var plan = new QueryPlan(ast, null);

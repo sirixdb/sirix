@@ -1,9 +1,8 @@
 package io.sirix.query.function.sdb.explain;
 
-import io.brackit.query.Query;
 import io.brackit.query.compiler.AST;
-import io.brackit.query.compiler.CompileChain;
 import io.sirix.query.SirixCompileChain;
+import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.query.node.XmlDBStore;
@@ -82,10 +81,38 @@ public record QueryPlan(AST optimizedAST, AST parsedAST) {
   }
 
   /**
-   * Check if the optimizer decided to use an index for any node in the plan.
+   * Check if the optimizer actually rewrote the plan to use an index.
+   *
+   * <p>Detects {@code IndexExpr} AST nodes created by IndexMatching
+   * (JsonCASStep/JsonPathStep/JsonObjectKeyNameStep). This is the ground truth
+   * of index usage — the cost model's {@code PREFER_INDEX} hint may or may not
+   * result in an actual rewrite depending on whether a matching index exists.</p>
    */
   public boolean usesIndex() {
+    return searchNodeType(optimizedAST, XQExt.IndexExpr, 20);
+  }
+
+  /**
+   * Check if the cost model prefers an index scan over sequential scan.
+   *
+   * <p>This reflects the cost model's recommendation, which may differ from
+   * actual index usage. For example, the cost model may prefer an index but
+   * no matching CAS/PATH index exists for the specific predicate pattern.</p>
+   */
+  public boolean prefersIndex() {
     return searchProperty(optimizedAST, CostProperties.PREFER_INDEX, Boolean.TRUE, 20);
+  }
+
+  /**
+   * Get the index type used in the plan, or null if no index is used.
+   *
+   * <p>Extracts from {@code IndexExpr} nodes created by IndexMatching.</p>
+   */
+  public String indexType() {
+    if (optimizedAST == null) {
+      return null;
+    }
+    return findIndexType(optimizedAST, 20);
   }
 
   /**
@@ -125,6 +152,40 @@ public record QueryPlan(AST optimizedAST, AST parsedAST) {
       }
     }
     return false;
+  }
+
+  private static boolean searchNodeType(AST node, int type, int maxDepth) {
+    if (node == null || maxDepth <= 0) {
+      return false;
+    }
+    if (node.getType() == type) {
+      return true;
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      if (searchNodeType(node.getChild(i), type, maxDepth - 1)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static String findIndexType(AST node, int maxDepth) {
+    if (node == null || maxDepth <= 0) {
+      return null;
+    }
+    if (node.getType() == XQExt.IndexExpr) {
+      final Object type = node.getProperty("indexType");
+      if (type != null) {
+        return type.toString();
+      }
+    }
+    for (int i = 0; i < node.getChildCount(); i++) {
+      final String found = findIndexType(node.getChild(i), maxDepth - 1);
+      if (found != null) {
+        return found;
+      }
+    }
+    return null;
   }
 
   private static String findStringProperty(AST node, String key, int maxDepth) {
