@@ -5,11 +5,36 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 
+import io.sirix.access.DatabaseConfiguration;
+import io.sirix.access.Databases;
+import io.sirix.access.DatabaseType;
+import io.sirix.api.Database;
+import io.sirix.api.RevisionInfo;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.api.json.JsonResourceSession;
+import io.sirix.query.SirixCompileChain;
+import io.sirix.query.SirixQueryContext;
+import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.service.json.BasicJsonDiff;
+
+import io.brackit.query.Query;
+
 import tools.jackson.databind.json.JsonMapper;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringReader;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -25,20 +50,20 @@ import java.util.Map;
  *   <li>Log to audit trail</li>
  *   <li>Return result</li>
  * </ol>
- *
- * <p>This class contains stubs that will be filled in as SirixDB integration is wired up.
- * The security infrastructure (access control, sanitization, audit) is fully functional.
  */
 public final class ToolHandlers {
 
   private static final Logger LOG = LoggerFactory.getLogger(ToolHandlers.class);
   private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
+  private static final int DEFAULT_HISTORY_COUNT = 20;
+
   private final McpServerConfig config;
   private final AccessControl accessControl;
   private final OutputSanitizer sanitizer;
   private final SnapshotRegistry snapshots;
   private final AuditLog auditLog;
+  private final Path databasePath;
 
   public ToolHandlers(McpServerConfig config, AccessControl accessControl,
       OutputSanitizer sanitizer, SnapshotRegistry snapshots, AuditLog auditLog) {
@@ -47,14 +72,29 @@ public final class ToolHandlers {
     this.sanitizer = sanitizer;
     this.snapshots = snapshots;
     this.auditLog = auditLog;
+    this.databasePath = Path.of(config.databasePath());
   }
 
   // --- Read tools ---
 
   public CallToolResult listDatabases(McpSyncServerExchange exchange, CallToolRequest request) {
     return withAudit("sirix_list_databases", request.arguments(), () -> {
-      // Stub: wire up Databases.openDatabase() to list available databases at config.databasePath()
-      return textResult("[]");
+      final var dbNames = new ArrayList<String>();
+
+      if (Files.isDirectory(databasePath)) {
+        try (final DirectoryStream<Path> stream = Files.newDirectoryStream(databasePath)) {
+          for (final Path entry : stream) {
+            if (Files.isDirectory(entry) && Databases.existsDatabase(entry)) {
+              final String name = entry.getFileName().toString();
+              if (config.isDatabaseAllowed(name)) {
+                dbNames.add(name);
+              }
+            }
+          }
+        }
+      }
+
+      return textResult(MAPPER.writeValueAsString(dbNames));
     });
   }
 
@@ -64,8 +104,18 @@ public final class ToolHandlers {
 
     return withAudit("sirix_list_resources", args, () -> {
       accessControl.checkDatabaseAccess(database);
-      // Stub: wire up Database.listResources()
-      return textResult("[]");
+
+      final var resourceNames = new ArrayList<String>();
+      final Path dbPath = databasePath.resolve(database);
+
+      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
+        final List<Path> resources = db.listResources();
+        for (final Path resourcePath : resources) {
+          resourceNames.add(resourcePath.getFileName().toString());
+        }
+      }
+
+      return textResult(MAPPER.writeValueAsString(resourceNames));
     });
   }
 
@@ -76,8 +126,29 @@ public final class ToolHandlers {
 
     return withAudit("sirix_resource_info", args, () -> {
       accessControl.checkAccess(database, resource);
-      // Stub: wire up ResourceSession.getMostRecentRevisionNumber(), getHistory(), etc.
-      return textResult("{}");
+
+      final Path dbPath = databasePath.resolve(database);
+
+      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+           final JsonResourceSession session = db.beginResourceSession(resource)) {
+
+        final int latestRevision = session.getMostRecentRevisionNumber();
+        final var info = new LinkedHashMap<String, Object>();
+        info.put("database", database);
+        info.put("resource", resource);
+        info.put("latestRevision", latestRevision);
+
+        // Get timestamps from first and latest revisions
+        try (final JsonNodeReadOnlyTrx firstRtx = session.beginNodeReadOnlyTrx(1)) {
+          info.put("created", firstRtx.getRevisionTimestamp().toString());
+        }
+
+        try (final JsonNodeReadOnlyTrx latestRtx = session.beginNodeReadOnlyTrx(latestRevision)) {
+          info.put("lastModified", latestRtx.getRevisionTimestamp().toString());
+        }
+
+        return textResult(MAPPER.writeValueAsString(info));
+      }
     });
   }
 
@@ -94,9 +165,19 @@ public final class ToolHandlers {
         accessControl.checkDatabaseAccess(database);
       }
 
-      // Stub: wire up SirixQueryContext with read-only CommitStrategy.EXPLICIT
-      // Resolve revision from: args.revision, args.snapshot (via snapshotRegistry), or args.timestamp
-      var result = "[]"; // placeholder
+      final String result;
+
+      try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
+              .location(databasePath).build();
+           final SirixQueryContext ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
+              store, SirixQueryContext.CommitStrategy.EXPLICIT);
+           final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
+           final ByteArrayOutputStream out = new ByteArrayOutputStream();
+           final PrintWriter writer = new PrintWriter(out)) {
+        new Query(chain, queryStr).serialize(ctx, writer);
+        writer.flush();
+        result = out.toString();
+      }
 
       // Check for prompt injection in results
       var warning = sanitizer.detectInjection(result);
@@ -116,8 +197,28 @@ public final class ToolHandlers {
 
     return withAudit("sirix_history", args, () -> {
       accessControl.checkAccess(database, resource);
-      // Stub: wire up ResourceSession.getHistory(count)
-      return textResult("[]");
+
+      final Integer count = optionalInt(args, "count");
+      final int limit = count != null ? count : DEFAULT_HISTORY_COUNT;
+      final Path dbPath = databasePath.resolve(database);
+
+      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+           final JsonResourceSession session = db.beginResourceSession(resource)) {
+
+        final List<RevisionInfo> revisions = session.getHistory(limit);
+        final var entries = new ArrayList<Map<String, Object>>(revisions.size());
+
+        for (final RevisionInfo rev : revisions) {
+          final var entry = new LinkedHashMap<String, Object>();
+          entry.put("revision", rev.getRevision());
+          entry.put("timestamp", rev.getRevisionTimestamp().toString());
+          rev.getCommitMessage().ifPresent(msg -> entry.put("message", msg));
+          entry.put("user", rev.getUser().getName());
+          entries.add(entry);
+        }
+
+        return textResult(MAPPER.writeValueAsString(entries));
+      }
     });
   }
 
@@ -129,9 +230,29 @@ public final class ToolHandlers {
     return withAudit("sirix_diff", args, () -> {
       accessControl.checkAccess(database, resource);
 
-      // Resolve from/to revisions (support both revision numbers and snapshot names)
-      // Stub: wire up diff infrastructure
-      return textResult("{}");
+      final Path dbPath = databasePath.resolve(database);
+
+      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+           final JsonResourceSession session = db.beginResourceSession(resource)) {
+
+        final int fromRev = resolveRevision(args, "from_revision", "from_snapshot",
+            database, resource, session, session.getMostRecentRevisionNumber() - 1);
+        final int toRev = resolveRevision(args, "to_revision", "to_snapshot",
+            database, resource, session, session.getMostRecentRevisionNumber());
+
+        if (fromRev < 1 || toRev < 1 || fromRev > session.getMostRecentRevisionNumber()
+            || toRev > session.getMostRecentRevisionNumber()) {
+          throw new IllegalArgumentException(
+              "Invalid revision range: " + fromRev + ".." + toRev
+                  + " (latest: " + session.getMostRecentRevisionNumber() + ")");
+        }
+
+        final var jsonDiff = new BasicJsonDiff(database);
+        final String diffResult = jsonDiff.generateDiff(session, fromRev, toRev);
+
+        var sanitized = sanitizer.sanitize(diffResult);
+        return textResult(sanitized);
+      }
     });
   }
 
@@ -157,12 +278,15 @@ public final class ToolHandlers {
     return withAudit("sirix_create_snapshot", args, () -> {
       accessControl.checkAccess(database, resource);
 
-      int rev;
+      final int rev;
       if (revision != null) {
         rev = revision;
       } else {
-        // Stub: get latest revision from ResourceSession.getMostRecentRevisionNumber()
-        rev = 0; // placeholder
+        final Path dbPath = databasePath.resolve(database);
+        try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+             final JsonResourceSession session = db.beginResourceSession(resource)) {
+          rev = session.getMostRecentRevisionNumber();
+        }
       }
 
       snapshots.create(database, resource, name, rev);
@@ -176,12 +300,40 @@ public final class ToolHandlers {
     var args = request.arguments();
     var database = requireString(args, "database");
     var resource = requireString(args, "resource");
+    var data = requireString(args, "data");
+    var message = optionalString(args, "message");
 
     return withAudit("sirix_insert", args, () -> {
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
-      // Stub: wire up JsonNodeTrx.insertSubtreeAsFirstChild()
-      return textResult("Insert completed");
+
+      final Path dbPath = databasePath.resolve(database);
+
+      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+           final JsonResourceSession session = db.beginResourceSession(resource);
+           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+        wtx.moveToDocumentRoot();
+        if (wtx.moveToFirstChild()) {
+          // Resource has existing content — insert as right sibling of root element
+          wtx.insertSubtreeAsRightSibling(
+              new com.google.gson.stream.JsonReader(new StringReader(data)),
+              JsonNodeTrx.Commit.NO);
+        } else {
+          // Empty resource — insert as first child of document root
+          wtx.insertSubtreeAsFirstChild(
+              new com.google.gson.stream.JsonReader(new StringReader(data)),
+              JsonNodeTrx.Commit.NO);
+        }
+
+        if (message != null) {
+          wtx.commit(message);
+        } else {
+          wtx.commit();
+        }
+
+        return textResult("Insert completed (revision " + session.getMostRecentRevisionNumber() + ")");
+      }
     });
   }
 
@@ -189,12 +341,45 @@ public final class ToolHandlers {
     var args = request.arguments();
     var database = requireString(args, "database");
     var resource = requireString(args, "resource");
+    var nodeKey = requireLong(args, "nodeKey");
+    var value = requireString(args, "value");
+    var message = optionalString(args, "message");
 
     return withAudit("sirix_update", args, () -> {
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
-      // Stub: wire up JsonNodeTrx.setStringValue() / setNumberValue() etc.
-      return textResult("Update completed");
+
+      final Path dbPath = databasePath.resolve(database);
+
+      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+           final JsonResourceSession session = db.beginResourceSession(resource);
+           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+        if (!wtx.moveTo(nodeKey)) {
+          throw new IllegalArgumentException("Node not found: " + nodeKey);
+        }
+
+        if (wtx.isStringValue()) {
+          wtx.setStringValue(value);
+        } else if (wtx.isNumberValue()) {
+          wtx.setNumberValue(Double.parseDouble(value));
+        } else if (wtx.isBooleanValue()) {
+          wtx.setBooleanValue(Boolean.parseBoolean(value));
+        } else if (wtx.isObjectKey()) {
+          wtx.setObjectKeyName(value);
+        } else {
+          throw new IllegalArgumentException(
+              "Node " + nodeKey + " is not a value or object key node");
+        }
+
+        if (message != null) {
+          wtx.commit(message);
+        } else {
+          wtx.commit();
+        }
+
+        return textResult("Update completed (revision " + session.getMostRecentRevisionNumber() + ")");
+      }
     });
   }
 
@@ -202,12 +387,33 @@ public final class ToolHandlers {
     var args = request.arguments();
     var database = requireString(args, "database");
     var resource = requireString(args, "resource");
+    var nodeKey = requireLong(args, "nodeKey");
+    var message = optionalString(args, "message");
 
     return withAudit("sirix_delete", args, () -> {
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
-      // Stub: wire up JsonNodeTrx.remove()
-      return textResult("Delete completed");
+
+      final Path dbPath = databasePath.resolve(database);
+
+      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+           final JsonResourceSession session = db.beginResourceSession(resource);
+           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+        if (!wtx.moveTo(nodeKey)) {
+          throw new IllegalArgumentException("Node not found: " + nodeKey);
+        }
+
+        wtx.remove();
+
+        if (message != null) {
+          wtx.commit(message);
+        } else {
+          wtx.commit();
+        }
+
+        return textResult("Delete completed (revision " + session.getMostRecentRevisionNumber() + ")");
+      }
     });
   }
 
@@ -215,12 +421,38 @@ public final class ToolHandlers {
     var args = request.arguments();
     var database = requireString(args, "database");
     var resource = requireString(args, "resource");
+    var message = optionalString(args, "message");
 
     return withAudit("sirix_revert", args, () -> {
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
-      // Stub: wire up JsonNodeTrx.revertTo(revision)
-      return textResult("Revert completed");
+
+      final Path dbPath = databasePath.resolve(database);
+
+      try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
+           final JsonResourceSession session = db.beginResourceSession(resource);
+           final JsonNodeTrx wtx = session.beginNodeTrx()) {
+
+        final int targetRevision = resolveRevision(args, "revision", "snapshot",
+            database, resource, session, -1);
+
+        if (targetRevision < 1 || targetRevision > session.getMostRecentRevisionNumber()) {
+          throw new IllegalArgumentException(
+              "Invalid revision: " + targetRevision
+                  + " (latest: " + session.getMostRecentRevisionNumber() + ")");
+        }
+
+        wtx.revertTo(targetRevision);
+
+        if (message != null) {
+          wtx.commit(message);
+        } else {
+          wtx.commit("Reverted to revision " + targetRevision);
+        }
+
+        return textResult("Reverted to revision " + targetRevision
+            + " (new revision " + session.getMostRecentRevisionNumber() + ")");
+      }
     });
   }
 
@@ -240,6 +472,45 @@ public final class ToolHandlers {
   }
 
   // --- Helpers ---
+
+  /**
+   * Resolves a revision number from either a direct revision parameter or a snapshot name.
+   *
+   * @param args the request arguments
+   * @param revisionKey the key for the revision number parameter
+   * @param snapshotKey the key for the snapshot name parameter
+   * @param database the database name (for snapshot lookup)
+   * @param resource the resource name (for snapshot lookup)
+   * @param session the resource session (for timestamp lookup)
+   * @param defaultRevision fallback if neither is specified (-1 means required)
+   * @return the resolved revision number
+   */
+  private int resolveRevision(Map<String, Object> args, String revisionKey, String snapshotKey,
+      String database, String resource, JsonResourceSession session, int defaultRevision) {
+    final var revisionArg = optionalInt(args, revisionKey);
+    if (revisionArg != null) {
+      return revisionArg;
+    }
+
+    final var snapshotName = optionalString(args, snapshotKey);
+    if (snapshotName != null) {
+      final var snapshotMap = snapshots.list(database, resource);
+      final var rev = snapshotMap.get(snapshotName);
+      if (rev == null) {
+        throw new IllegalArgumentException("Snapshot not found: " + snapshotName);
+      }
+      if (rev instanceof Number n) {
+        return n.intValue();
+      }
+      return Integer.parseInt(rev.toString());
+    }
+
+    if (defaultRevision < 0) {
+      throw new IllegalArgumentException(
+          "Either '" + revisionKey + "' or '" + snapshotKey + "' must be specified");
+    }
+    return defaultRevision;
+  }
 
   @FunctionalInterface
   private interface ToolAction {
@@ -287,5 +558,14 @@ public final class ToolHandlers {
     if (value == null) return null;
     if (value instanceof Number n) return n.intValue();
     return Integer.parseInt(value.toString());
+  }
+
+  private static long requireLong(Map<String, Object> args, String key) {
+    var value = args.get(key);
+    if (value == null) {
+      throw new IllegalArgumentException("Missing required parameter: " + key);
+    }
+    if (value instanceof Number n) return n.longValue();
+    return Long.parseLong(value.toString());
   }
 }
