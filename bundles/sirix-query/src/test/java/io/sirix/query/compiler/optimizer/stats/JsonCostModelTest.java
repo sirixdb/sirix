@@ -64,12 +64,17 @@ final class JsonCostModelTest {
   }
 
   @Test
-  void unknownCardinalityReturnsMaxValue() {
+  void unknownCardinalityReturnsFiniteSentinel() {
     final double seqCost = costModel.estimateSequentialScanCost(-1L);
     final double idxCost = costModel.estimateIndexScanCost(-1L);
 
-    assertTrue(seqCost == Double.MAX_VALUE, "Unknown total count should return MAX_VALUE");
-    assertTrue(idxCost == Double.MAX_VALUE, "Unknown path cardinality should return MAX_VALUE");
+    assertEquals(JsonCostModel.UNKNOWN_COST, seqCost,
+        "Unknown total count should return UNKNOWN_COST sentinel");
+    assertEquals(JsonCostModel.UNKNOWN_COST, idxCost,
+        "Unknown path cardinality should return UNKNOWN_COST sentinel");
+    // Verify the sentinel is finite (not Double.MAX_VALUE) so costs remain summable
+    assertTrue(Double.isFinite(seqCost), "UNKNOWN_COST should be finite");
+    assertTrue(seqCost + 1.0 > seqCost, "UNKNOWN_COST should be summable without overflow");
   }
 
   @Test

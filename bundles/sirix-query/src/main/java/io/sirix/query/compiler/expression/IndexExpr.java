@@ -180,12 +180,17 @@ public final class IndexExpr implements Expr {
             index = index < 0
                 ? (int) (rtx.getChildCount() + index)
                 : index;
-            boolean hasMoved = rtx.moveToFirstChild();
-            assert hasMoved;
+            if (!rtx.moveToFirstChild()) {
+              throw new QueryException(JNFun.ERR_INVALID_ARGUMENT,
+                  new QNm("Index expression: moveToFirstChild failed for nodeKey " + nodeKey));
+            }
             int k = 1;
             for (; k <= index; k++) {
-              hasMoved = rtx.moveToRightSibling();
-              assert hasMoved;
+              if (!rtx.moveToRightSibling()) {
+                throw new QueryException(JNFun.ERR_INVALID_ARGUMENT,
+                    new QNm("Index expression: moveToRightSibling failed at position " + k
+                        + " of " + index + " for nodeKey " + nodeKey));
+              }
             }
             sequence.add(jsonItemFactory.getSequence(rtx, jsonCollection));
           }
@@ -298,8 +303,12 @@ public final class IndexExpr implements Expr {
 
                 final Deque<Integer> tempIndexes;
 
-                assert currentPathSegmentNamesToArrayIndexes.peekLast() != null;
-                tempIndexes = currentPathSegmentNamesToArrayIndexes.peekLast().arrayIndexes();
+                final var lastSegment = currentPathSegmentNamesToArrayIndexes.peekLast();
+                if (lastSegment == null) {
+                  currNodeKeys.remove(nodeKey);
+                  break outer;
+                }
+                tempIndexes = lastSegment.arrayIndexes();
                 final Deque<Integer> indexes = tempIndexes == null
                     ? null
                     : new ArrayDeque<>(tempIndexes);
