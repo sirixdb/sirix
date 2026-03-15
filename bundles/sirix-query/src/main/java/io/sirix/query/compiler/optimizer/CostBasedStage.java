@@ -10,10 +10,12 @@ import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.path.Path;
 import io.sirix.query.compiler.optimizer.stats.CardinalityEstimator;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
+import io.sirix.query.compiler.optimizer.stats.Histogram;
 import io.sirix.query.compiler.optimizer.stats.IndexInfo;
 import io.sirix.query.compiler.optimizer.stats.JsonCostModel;
 import io.sirix.query.compiler.optimizer.stats.SelectivityEstimator;
 import io.sirix.query.compiler.optimizer.stats.SirixStatisticsProvider;
+import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.query.compiler.optimizer.stats.StatisticsProvider;
 import io.sirix.query.json.JsonDBStore;
 
@@ -129,6 +131,18 @@ public final class CostBasedStage implements Stage {
     final String resourceName = pathAndDoc.resourceName();
     final int revision = pathAndDoc.revision();
 
+    // Look up histogram from the catalog for data-driven selectivity estimation.
+    // Uses the leaf field name as the key — matches HistogramCollector's convention.
+    final QNm tail = path.getLength() > 0 ? path.tail() : null;
+    final String leafField = tail != null ? tail.getLocalName() : null;
+    if (leafField != null) {
+      final Histogram histogram = StatisticsCatalog.getInstance()
+          .get(databaseName, resourceName, leafField);
+      selectivityEstimator.setHistogram(histogram); // null clears previous
+    } else {
+      selectivityEstimator.setHistogram(null);
+    }
+
     // Get statistics
     final long pathCardinality = statsProvider.getPathCardinality(
         path, databaseName, resourceName, revision);
@@ -139,12 +153,17 @@ public final class CostBasedStage implements Stage {
       return; // no stats available — don't annotate
     }
 
+    // Always annotate cardinality info so downstream stages (join reorder, vectorized
+    // routing) have statistics even when no index exists
+    bindingExpr.setProperty(CostProperties.PATH_CARDINALITY, pathCardinality);
+    bindingExpr.setProperty(CostProperties.TOTAL_NODE_COUNT, totalNodeCount);
+
     // Check if an index exists
     final IndexInfo indexInfo = statsProvider.getIndexInfo(
         path, databaseName, resourceName, revision);
 
     if (!indexInfo.exists()) {
-      return; // no index — nothing to annotate
+      return; // no index — cardinality annotated above, nothing more to do
     }
 
     // Cost comparison
@@ -158,8 +177,6 @@ public final class CostBasedStage implements Stage {
       bindingExpr.setProperty(CostProperties.INDEX_TYPE, indexInfo.type().name());
       bindingExpr.setProperty(CostProperties.INDEX_SCAN_COST, indexScanCost);
       bindingExpr.setProperty(CostProperties.SEQ_SCAN_COST, seqScanCost);
-      bindingExpr.setProperty(CostProperties.PATH_CARDINALITY, pathCardinality);
-      bindingExpr.setProperty(CostProperties.TOTAL_NODE_COUNT, totalNodeCount);
     } else {
       // Mark that we explicitly decided against the index
       bindingExpr.setProperty(CostProperties.PREFER_INDEX, false);

@@ -70,9 +70,10 @@ public final class CardinalityEstimator {
 
     if (type == XQ.ForBind) {
       // card(for $x in R return f($x)) = card(R) × card(binding)
+      // Cast to double before multiplying to avoid long overflow for large cardinalities
       final long bindingCard = estimateBindingCardinality(node);
       final long inputCard = walkChildPipeline(node, depth);
-      return Math.max(1L, inputCard * bindingCard);
+      return Math.max(1L, (long) ((double) inputCard * bindingCard));
     }
 
     if (type == XQ.LetBind) {
@@ -98,9 +99,11 @@ public final class CardinalityEstimator {
     }
 
     if (type == XQ.GroupBy) {
-      // Heuristic: √(input cardinality)
+      // Heuristic: assume 1% of input cardinality for group count.
+      // √n overestimates for typical grouping (50 categories over 1M rows → √1M=1000 vs actual ~50).
+      // 1% is conservative and closer to real-world grouping patterns (GROUP BY category, status, etc.).
       final long inputCard = walkChildPipeline(node, depth);
-      return Math.max(1L, (long) Math.sqrt(inputCard));
+      return Math.max(1L, inputCard / 100);
     }
 
     if (type == XQ.OrderBy) {
@@ -113,9 +116,10 @@ public final class CardinalityEstimator {
       if (node.getChildCount() >= 2) {
         final long leftCard = walkPipeline(node.getChild(0), depth + 1);
         final long rightCard = walkPipeline(node.getChild(1), depth + 1);
-        // Default join selectivity: reciprocal of the larger relation
-        final double joinSel = 1.0 / Math.max(leftCard, rightCard);
-        return Math.max(1L, (long) (leftCard * rightCard * joinSel));
+        // Use consistent default selectivity with JsonCostModel
+        final double joinSel = JsonCostModel.DEFAULT_JOIN_SELECTIVITY;
+        // Cast to double before multiplying to avoid long overflow for large cardinalities
+        return Math.max(1L, (long) ((double) leftCard * rightCard * joinSel));
       }
     }
 

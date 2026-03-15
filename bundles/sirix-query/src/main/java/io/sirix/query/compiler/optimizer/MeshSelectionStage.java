@@ -59,34 +59,25 @@ public final class MeshSelectionStage implements Stage {
     }
   }
 
+  /** Properties that represent plan decisions to copy from best plan to original. */
+  private static final String[] DECISION_PROPERTIES = {
+      CostProperties.PREFER_INDEX,
+      CostProperties.INDEX_ID,
+      CostProperties.INDEX_TYPE,
+      CostProperties.JOIN_COST,
+  };
+
   /**
    * Copy decision properties from the best plan to the original AST node.
    * Only copies properties that represent plan decisions, not properties
    * that already exist on the original from prior stages.
    */
   private static void copyDecisionProperties(AST bestPlan, AST original) {
-    // PREFER_INDEX — the key access path decision
-    final Object preferIndex = bestPlan.getProperty(CostProperties.PREFER_INDEX);
-    if (preferIndex != null) {
-      original.setProperty(CostProperties.PREFER_INDEX, preferIndex);
-    }
-
-    // INDEX_ID — which index to use (set on Mesh copies when index wins)
-    final Object indexId = bestPlan.getProperty(CostProperties.INDEX_ID);
-    if (indexId != null) {
-      original.setProperty(CostProperties.INDEX_ID, indexId);
-    }
-
-    // INDEX_TYPE — type of index (PATH, CAS, NAME)
-    final Object indexType = bestPlan.getProperty(CostProperties.INDEX_TYPE);
-    if (indexType != null) {
-      original.setProperty(CostProperties.INDEX_TYPE, indexType);
-    }
-
-    // JOIN_COST — updated if swapped ordering won in the Mesh
-    final Object joinCost = bestPlan.getProperty(CostProperties.JOIN_COST);
-    if (joinCost != null) {
-      original.setProperty(CostProperties.JOIN_COST, joinCost);
+    for (final String key : DECISION_PROPERTIES) {
+      final Object value = bestPlan.getProperty(key);
+      if (value != null) {
+        original.setProperty(key, value);
+      }
     }
   }
 }

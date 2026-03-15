@@ -104,4 +104,24 @@ public enum ComparisonOperator {
       case GE -> a >= b;
     };
   }
+
+  /**
+   * Scalar comparison using a pre-computed {@link Comparable#compareTo} result.
+   *
+   * <p>Useful for string range predicates where the comparison result
+   * is already available from {@code String.compareTo()}.</p>
+   *
+   * @param cmp the compareTo result (negative, zero, or positive)
+   * @return true if the comparison holds
+   */
+  public boolean testCompareTo(int cmp) {
+    return switch (this) {
+      case EQ -> cmp == 0;
+      case NE -> cmp != 0;
+      case LT -> cmp < 0;
+      case LE -> cmp <= 0;
+      case GT -> cmp > 0;
+      case GE -> cmp >= 0;
+    };
+  }
 }

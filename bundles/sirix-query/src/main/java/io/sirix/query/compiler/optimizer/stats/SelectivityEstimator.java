@@ -153,16 +153,14 @@ public final class SelectivityEstimator {
     return selectivityForComparisonType(opType, compExpr);
   }
 
-  private double selectivityForComparisonType(int type) {
-    return selectivityForComparisonType(type, null);
-  }
-
   /**
    * Unified selectivity dispatch for comparison operators.
    * Uses histogram data when available, otherwise falls back to defaults.
    */
   private double selectivityForComparisonType(int type, AST compExpr) {
-    final Histogram hist = this.histogram; // capture volatile once
+    // Capture volatile once to prevent TOCTOU race (another thread could
+    // set histogram=null between the null check and the use)
+    final Histogram hist = this.histogram;
     if (hist != null) {
       return histogramSelectivity(hist, type, compExpr);
     }
@@ -266,7 +264,7 @@ public final class SelectivityEstimator {
           hist.estimateGreaterThanSelectivity(v);
       case XQ.ValueCompGE, XQ.GeneralCompGE ->
           hist.estimateGreaterThanOrEqualSelectivity(v);
-      default -> SelectivityEstimator.DEFAULT_SELECTIVITY;
+      default -> DEFAULT_SELECTIVITY;
     };
   }
 
