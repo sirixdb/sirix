@@ -6,6 +6,8 @@ import io.sirix.page.ColumnarPageExtractor;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageScanIterator;
 import io.sirix.utils.FSSTCompressor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
@@ -35,6 +37,8 @@ import java.util.List;
  * </ul>
  */
 public final class ColumnarScanAxis implements AutoCloseable {
+
+  private static final Logger LOG = LoggerFactory.getLogger(ColumnarScanAxis.class);
 
   /** Column indices for the output batch. */
   public static final int COL_NODE_KEY = 0;
@@ -179,9 +183,14 @@ public final class ColumnarScanAxis implements AutoCloseable {
     // number rows if necessary. Truncated rows are a rare edge case when
     // pages have very high density of mixed string + number nodes.
     if (strWritePos > ColumnBatch.DEFAULT_CAPACITY) {
+      LOG.warn("Batch capacity exceeded: {} string rows clamped to {}, {} number rows truncated",
+          strWritePos, ColumnBatch.DEFAULT_CAPACITY, numWritePos);
       strWritePos = ColumnBatch.DEFAULT_CAPACITY;
       numWritePos = 0;
     } else if (strWritePos + numWritePos > ColumnBatch.DEFAULT_CAPACITY) {
+      final int truncated = strWritePos + numWritePos - ColumnBatch.DEFAULT_CAPACITY;
+      LOG.warn("Batch capacity exceeded: truncated {} number rows (kept {} string + {} number)",
+          truncated, strWritePos, ColumnBatch.DEFAULT_CAPACITY - strWritePos);
       numWritePos = ColumnBatch.DEFAULT_CAPACITY - strWritePos;
     }
 

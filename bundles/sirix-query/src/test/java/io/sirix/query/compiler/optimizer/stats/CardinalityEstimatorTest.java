@@ -5,6 +5,7 @@ import io.brackit.query.compiler.XQ;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -88,7 +89,7 @@ final class CardinalityEstimatorTest {
   }
 
   @Test
-  void groupByUsesSquareRootHeuristic() {
+  void groupByUsesDivisorHeuristic() {
     final var forBind = new AST(XQ.ForBind, null);
     forBind.addChild(new AST(XQ.Variable, "x"));
     final var bindExpr = new AST(XQ.DerefExpr, null);
@@ -99,8 +100,37 @@ final class CardinalityEstimatorTest {
     groupBy.addChild(forBind); // pipeline input
 
     final long card = cardEstimator.estimatePipelineCardinality(groupBy);
-    // √10000 = 100
-    assertEquals(100L, card, "GroupBy should use √(input) heuristic");
+    // 10000 / 100 (default divisor) = 100
+    assertEquals(100L, card, "GroupBy should use input/divisor heuristic (default divisor=100)");
+  }
+
+  @Test
+  void groupByWithCustomDivisor() {
+    // Custom divisor of 10 → more groups estimated
+    final var customEstimator = new CardinalityEstimator(selEstimator, 10);
+
+    final var forBind = new AST(XQ.ForBind, null);
+    forBind.addChild(new AST(XQ.Variable, "x"));
+    final var bindExpr = new AST(XQ.DerefExpr, null);
+    bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 10000L);
+    forBind.addChild(bindExpr);
+
+    final var groupBy = new AST(XQ.GroupBy, null);
+    groupBy.addChild(forBind);
+
+    final long card = customEstimator.estimatePipelineCardinality(groupBy);
+    // 10000 / 10 = 1000
+    assertEquals(1000L, card, "GroupBy with divisor=10 should produce 10000/10=1000");
+  }
+
+  @Test
+  void groupByDivisorMustBePositive() {
+    assertThrows(IllegalArgumentException.class,
+        () -> new CardinalityEstimator(selEstimator, 0),
+        "Divisor of 0 should throw");
+    assertThrows(IllegalArgumentException.class,
+        () -> new CardinalityEstimator(selEstimator, -1),
+        "Negative divisor should throw");
   }
 
   @Test

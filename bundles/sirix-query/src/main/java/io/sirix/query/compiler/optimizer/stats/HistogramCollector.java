@@ -235,7 +235,7 @@ public final class HistogramCollector {
         }
       }
     } catch (Exception e) {
-      // Ignore parsing errors
+      LOG.debug("Failed to extract numeric value at node {}: {}", currentKey, e.getMessage());
     }
     rtx.moveTo(currentKey);
     return null;

@@ -26,10 +26,9 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>Eviction: LRU (least-recently-used) via {@link LinkedHashMap} with
  * access-order. Default capacity is 128 plans.</p>
  *
- * <p><b>Important:</b> AST nodes are mutable. Cached ASTs must be deep-copied
- * before use to prevent downstream stages from mutating the cache entry.
- * The {@link #get} method returns the cached AST directly — the caller
- * is responsible for copying if the AST will be modified.</p>
+ * <p><b>Important:</b> AST nodes are mutable. The {@link #get} method returns
+ * a deep copy of the cached AST to prevent downstream stages from mutating
+ * the cache entry.</p>
  */
 public final class PlanCache {
 
@@ -85,17 +84,21 @@ public final class PlanCache {
   /**
    * Look up a cached optimized AST for the given query template.
    *
+   * <p>Returns a deep copy to prevent downstream stages from mutating
+   * the cache entry. The copy cost is negligible compared to the
+   * 10-stage optimization pipeline it replaces on cache hits.</p>
+   *
    * @param queryTemplate the query template string
-   * @return the cached AST, or {@code null} if not found
+   * @return a deep copy of the cached AST, or {@code null} if not found
    */
   public synchronized AST get(String queryTemplate) {
     final AST cached = cache.get(queryTemplate);
     if (cached != null) {
       hits++;
-    } else {
-      misses++;
+      return cached.copyTree();
     }
-    return cached;
+    misses++;
+    return null;
   }
 
   /**

@@ -32,12 +32,18 @@ final class PlanCacheTest {
   }
 
   @Test
-  @DisplayName("Put and get returns cached AST")
+  @DisplayName("Put and get returns deep copy of cached AST")
   void putAndGet() {
     final AST ast = new AST(XQ.FlowrExpr, null);
+    ast.addChild(new AST(XQ.ForBind, null));
     cache.put("query1", ast);
 
-    assertSame(ast, cache.get("query1"));
+    final AST retrieved = cache.get("query1");
+    assertNotNull(retrieved);
+    // PlanCache.get() returns a deep copy to prevent downstream mutation
+    assertNotSame(ast, retrieved, "get() should return a deep copy, not the same reference");
+    assertEquals(ast.getType(), retrieved.getType(), "Copy should have same AST type");
+    assertEquals(ast.getChildCount(), retrieved.getChildCount(), "Copy should have same child count");
     assertEquals(1, cache.hits());
     assertEquals(0, cache.misses());
   }

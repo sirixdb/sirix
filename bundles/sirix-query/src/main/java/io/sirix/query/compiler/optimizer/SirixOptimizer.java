@@ -66,10 +66,8 @@ public class SirixOptimizer extends TopDownOptimizer {
     if (cacheKey != null) {
       final AST cached = planCache.get(cacheKey);
       if (cached != null) {
-        // Deep-copy the cached AST to prevent the 10-stage pipeline from
-        // mutating the cache entry (AST nodes are mutable — setProperty,
-        // replaceChild modify in-place).
-        return cached.copyTree();
+        // PlanCache.get() already returns a deep copy — no need to copy again.
+        return cached;
       }
     }
 

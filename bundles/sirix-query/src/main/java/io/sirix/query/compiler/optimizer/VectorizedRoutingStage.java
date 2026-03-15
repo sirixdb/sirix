@@ -13,6 +13,9 @@ import io.brackit.query.function.json.JSONFun;
 import io.sirix.query.compiler.vectorized.VectorizedPipelineDetector;
 import io.sirix.query.compiler.vectorized.VectorizedPredicate;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -33,6 +36,8 @@ import java.util.List;
  * otherwise → "simd".</p>
  */
 public final class VectorizedRoutingStage implements Stage {
+
+  private static final Logger LOG = LoggerFactory.getLogger(VectorizedRoutingStage.class);
 
   /** AST property key for the vectorized execution route. */
   public static final String VECTORIZED_ROUTE = "vectorized.route";
@@ -129,11 +134,9 @@ public final class VectorizedRoutingStage implements Stage {
     }
 
     // Replace the Start node in the parent.
-    // A Start node without a parent would be a malformed AST — skip replacement
-    // rather than silently discarding the built vectorizedNode.
     final AST parent = startNode.getParent();
     if (parent == null) {
-      assert false : "Start node has no parent — AST is malformed, skipping vectorized replacement";
+      LOG.warn("Start node has no parent — AST is malformed, skipping vectorized replacement");
       return;
     }
     for (int i = 0; i < parent.getChildCount(); i++) {
