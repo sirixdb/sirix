@@ -1,0 +1,51 @@
+plugins {
+    id 'application'
+}
+
+dependencies {
+    implementation project(':sirix-core')
+    implementation project(':sirix-query')
+    implementation 'io.modelcontextprotocol.sdk:mcp:1.0.0' // brings Jackson 3 transitively
+    implementation implLibraries.slf4jApi
+    implementation implLibraries.logbackClassic
+
+    testImplementation testLibraries.junitJupiterApi
+    testImplementation testLibraries.junitJupiterEngine
+    testImplementation testLibraries.assertjCore
+    testImplementation project(path: ':sirix-core', configuration: 'testArtifacts')
+}
+
+ext {
+    javaMainClass = "io.sirix.mcp.SirixMcpServer"
+}
+
+application {
+    mainClass = javaMainClass
+}
+
+run {
+    standardInput = System.in
+    jvmArgs = [
+        '--enable-native-access=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.io=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED'
+    ]
+}
+
+description = 'SirixDB MCP server for AI agent integration.'
+
+jar {
+    manifest {
+        attributes('Main-Class': javaMainClass)
+    }
+}
+
+test {
+    useJUnitPlatform()
+    jvmArgs = [
+        '--enable-native-access=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.io=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--enable-preview'
+    ]
+}
