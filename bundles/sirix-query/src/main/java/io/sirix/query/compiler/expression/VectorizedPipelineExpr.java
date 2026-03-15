@@ -275,8 +275,12 @@ public final class VectorizedPipelineExpr implements Expr {
    * @param isLong true for INT64 predicates (parse as long), false for FLOAT64
    */
   private static void filterNumericCombined(ColumnBatch batch, VectorizedPredicate pred, boolean isLong) {
-    final double doubleConstant = ((Number) pred.constant()).doubleValue();
-    final long longConstant = isLong ? ((Number) pred.constant()).longValue() : 0;
+    if (!(pred.constant() instanceof Number numConst)) {
+      // Non-numeric constant for a numeric predicate — skip (conservative)
+      return;
+    }
+    final double doubleConstant = numConst.doubleValue();
+    final long longConstant = isLong ? numConst.longValue() : 0;
     final ComparisonOperator op = pred.op();
 
     final double[] numColumn = batch.doubleColumn(ColumnarScanAxis.COL_NUMERIC_VALUE);

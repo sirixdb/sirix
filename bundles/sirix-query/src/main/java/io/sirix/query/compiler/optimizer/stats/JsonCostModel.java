@@ -75,6 +75,16 @@ public final class JsonCostModel {
   private static final double TRIE_COLD_FRACTION = 0.2;
 
   /**
+   * Finite sentinel cost returned when statistics are unavailable.
+   *
+   * <p>Using {@code Double.MAX_VALUE} would mask cost differences when costs
+   * are summed (MAX_VALUE + x = MAX_VALUE), making all unknown-cardinality
+   * plans compare equal. A large finite value preserves relative ordering
+   * while still being "very expensive" compared to any real plan.</p>
+   */
+  public static final double UNKNOWN_COST = 1e15;
+
+  /**
    * Estimate the cost of a sequential scan over all nodes.
    *
    * <p>Models a linear walk through the keyed trie's leaf pages.
@@ -86,7 +96,7 @@ public final class JsonCostModel {
    */
   public double estimateSequentialScanCost(long totalNodeCount) {
     if (totalNodeCount <= 0) {
-      return Double.MAX_VALUE;
+      return UNKNOWN_COST;
     }
     final long pages = Math.max(1L, (long) Math.ceil(totalNodeCount / ENTRIES_PER_PAGE));
     final double ioCost = pages * SEQ_IO_PER_PAGE;
@@ -111,7 +121,7 @@ public final class JsonCostModel {
    */
   public double estimateIndexScanCost(long pathCardinality) {
     if (pathCardinality <= 0) {
-      return Double.MAX_VALUE;
+      return UNKNOWN_COST;
     }
     // HOT trie depth: log_16(n) for effective fanout ~16
     final int trieDepth = pathCardinality > 1
@@ -140,7 +150,7 @@ public final class JsonCostModel {
    */
   public double estimateSelectiveIndexScanCost(long pathCardinality, double selectivity) {
     if (pathCardinality <= 0 || selectivity <= 0.0) {
-      return Double.MAX_VALUE;
+      return UNKNOWN_COST;
     }
     // Effective cardinality after applying predicate selectivity
     final long effectiveCard = Math.max(1L, (long) (pathCardinality * selectivity));

@@ -11,7 +11,9 @@ import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.compiler.optimizer.stats.JsonCostModel;
 
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Extracts join groups from the AST, runs DPhyp to find optimal join
@@ -183,16 +185,25 @@ public final class CostBasedJoinReorder extends Walker {
   /**
    * Add edges to the join graph based on the join predicates.
    * Each binary Join connects two base input groups.
+   *
+   * <p>Uses an IdentityHashMap for O(1) lookup of base input indices
+   * instead of O(n) linear scan per join child.</p>
    */
   private static void addEdgesFromJoinChain(JoinGraph graph, List<AST> joinNodes,
                                             List<AST> baseInputs) {
+    // Build identity-based index map for O(1) lookup (was O(n) per call)
+    final Map<AST, Integer> baseInputIndex = new IdentityHashMap<>(baseInputs.size() * 2);
+    for (int i = 0; i < baseInputs.size(); i++) {
+      baseInputIndex.put(baseInputs.get(i), i);
+    }
+
     // For each join node, determine which base inputs are on its left vs right
     for (final AST join : joinNodes) {
       final AST leftInput = join.getChild(0);
       final AST rightInput = join.getChild(1);
 
-      final int leftIdx = findBaseInputIndex(leftInput, baseInputs);
-      final int rightIdx = findBaseInputIndex(rightInput, baseInputs);
+      final int leftIdx = findBaseInputIndex(leftInput, baseInputIndex);
+      final int rightIdx = findBaseInputIndex(rightInput, baseInputIndex);
 
       if (leftIdx >= 0 && rightIdx >= 0 && leftIdx != rightIdx) {
         graph.addEdge(leftIdx, rightIdx, JsonCostModel.DEFAULT_JOIN_SELECTIVITY);
@@ -209,18 +220,19 @@ public final class CostBasedJoinReorder extends Walker {
 
   /**
    * Find which base input index corresponds to a join's left/right child.
+   * Uses IdentityHashMap for O(1) lookup instead of O(n) linear scan.
    */
-  private static int findBaseInputIndex(AST input, List<AST> baseInputs) {
-    for (int i = 0; i < baseInputs.size(); i++) {
-      if (baseInputs.get(i) == input) {
-        return i;
-      }
+  private static int findBaseInputIndex(AST input, Map<AST, Integer> baseInputIndex) {
+    final Integer directIdx = baseInputIndex.get(input);
+    if (directIdx != null) {
+      return directIdx;
     }
     // Check if the content of the input matches a base input
     final AST content = findPipelineContent(input);
-    for (int i = 0; i < baseInputs.size(); i++) {
-      if (baseInputs.get(i) == content) {
-        return i;
+    if (content != null) {
+      final Integer contentIdx = baseInputIndex.get(content);
+      if (contentIdx != null) {
+        return contentIdx;
       }
     }
     return -1;

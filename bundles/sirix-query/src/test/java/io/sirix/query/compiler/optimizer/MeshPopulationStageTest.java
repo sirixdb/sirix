@@ -175,6 +175,61 @@ final class MeshPopulationStageTest {
   }
 
   @Test
+  void nWayJoinChildClassesPopulated() throws Exception {
+    // Build a 3-way join: Join(Join(A, B), C) — both sub-joins should get mesh classes
+    final AST ast = new AST(XQ.FlowrExpr, null);
+    final AST outerJoin = new AST(XQ.Join, null);
+    outerJoin.setProperty(CostProperties.JOIN_COST, 300.0);
+    outerJoin.setProperty(CostProperties.JOIN_LEFT_CARD, 5000L);
+    outerJoin.setProperty(CostProperties.JOIN_RIGHT_CARD, 200L);
+
+    // Inner join (left child of outer)
+    final AST innerJoin = new AST(XQ.Join, null);
+    innerJoin.setProperty(CostProperties.JOIN_COST, 100.0);
+    innerJoin.setProperty(CostProperties.JOIN_LEFT_CARD, 1000L);
+    innerJoin.setProperty(CostProperties.JOIN_RIGHT_CARD, 500L);
+
+    final AST inputA = new AST(XQ.ForBind, null);
+    inputA.addChild(new AST(XQ.Variable, "a"));
+    inputA.addChild(new AST(XQ.DerefExpr, null));
+    innerJoin.addChild(inputA);
+
+    final AST inputB = new AST(XQ.ForBind, null);
+    inputB.addChild(new AST(XQ.Variable, "b"));
+    inputB.addChild(new AST(XQ.DerefExpr, null));
+    innerJoin.addChild(inputB);
+
+    outerJoin.addChild(innerJoin);
+
+    final AST inputC = new AST(XQ.ForBind, null);
+    inputC.addChild(new AST(XQ.Variable, "c"));
+    inputC.addChild(new AST(XQ.DerefExpr, null));
+    outerJoin.addChild(inputC);
+
+    ast.addChild(outerJoin);
+
+    final var mesh = new Mesh(16);
+    final var stage = new MeshPopulationStage(mesh, costModel);
+    stage.rewrite(null, ast);
+
+    // Both joins should have mesh class IDs
+    assertNotNull(outerJoin.getProperty(CostProperties.MESH_CLASS_ID),
+        "Outer join should have MESH_CLASS_ID");
+    assertNotNull(innerJoin.getProperty(CostProperties.MESH_CLASS_ID),
+        "Inner join should have MESH_CLASS_ID");
+
+    // They should be different equivalence classes
+    final int outerClassId = (Integer) outerJoin.getProperty(CostProperties.MESH_CLASS_ID);
+    final int innerClassId = (Integer) innerJoin.getProperty(CostProperties.MESH_CLASS_ID);
+    assertTrue(outerClassId != innerClassId,
+        "Outer and inner joins should have different mesh class IDs");
+
+    // Mesh should have at least 2 classes for the joins
+    assertTrue(mesh.classCount() >= 2,
+        "Mesh should have >= 2 classes for n-way join: " + mesh.classCount());
+  }
+
+  @Test
   void meshBestPlanSelectsCheapestAlternative() throws Exception {
     // ForBind where index scan is much cheaper
     final AST ast = new AST(XQ.FlowrExpr, null);
