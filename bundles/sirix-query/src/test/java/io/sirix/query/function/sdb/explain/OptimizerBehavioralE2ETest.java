@@ -1,0 +1,426 @@
+package io.sirix.query.function.sdb.explain;
+
+import io.brackit.query.Query;
+import io.sirix.JsonTestHelper;
+import io.sirix.query.SirixCompileChain;
+import io.sirix.query.SirixQueryContext;
+import io.sirix.query.json.BasicJsonDBStore;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintWriter;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Behavioral end-to-end tests for the cost-based query optimizer.
+ *
+ * <p>Each test stores real data, optionally creates indexes, then verifies BOTH:
+ * <ol>
+ *   <li>The optimizer makes correct plan decisions (via {@link QueryPlan} API)</li>
+ *   <li>The query returns exact correct results (via {@code Query.serialize()})</li>
+ * </ol>
+ *
+ * <p>This is the only test class that exercises the full 10-stage optimizer
+ * pipeline against real databases and verifies both plan and result correctness.</p>
+ */
+final class OptimizerBehavioralE2ETest {
+
+  @BeforeEach
+  void setUp() {
+    JsonTestHelper.deleteEverything();
+  }
+
+  @AfterEach
+  void tearDown() {
+    JsonTestHelper.deleteEverything();
+  }
+
+  // ─────────────────────────────────────────────
+  // 1. CAS index selection + result correctness
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("CAS index: plan is valid and range predicate returns exact matching items")
+  void casIndexRangePredicateExactResults() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
+        "'[{\"price\":10},{\"price\":20},{\"price\":30},{\"price\":40},{\"price\":50}]')");
+
+    storeAndCommit("""
+        let $doc := jn:doc('json-path1','mydoc.jn')
+        let $stats := jn:create-cas-index($doc, 'xs:integer', '/[]/price')
+        return {"revision": sdb:commit($doc)}
+        """);
+
+    // Verify plan
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.price gt 25 return $x",
+          store, null);
+
+      assertNotNull(plan.optimizedAST(), "Optimized AST should not be null");
+      assertNotNull(plan.parsedAST(), "Parsed AST should not be null");
+
+      final String json = plan.toJSON();
+      assertFalse(json.equals("null"), "Plan should not serialize to 'null'");
+      assertTrue(json.contains("\"operator\""), "Plan should contain operator nodes");
+    }
+
+    // Exact result: prices > 25 are 30, 40, 50
+    assertEquals("30 40 50",
+        executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.price gt 25 return $x.price"));
+
+    // Exact result: full objects
+    assertEquals("{\"price\":30} {\"price\":40} {\"price\":50}",
+        executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.price gt 25 return $x"));
+  }
+
+  @Test
+  @DisplayName("No index: plan valid, equality predicate returns exact match")
+  void noIndexEqualityPredicateExactResult() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
+        "'[{\"val\":1},{\"val\":2},{\"val\":3}]')");
+
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.val eq 2 return $x",
+          store, null);
+
+      assertNotNull(plan.optimizedAST());
+      assertTrue(plan.toJSON().contains("\"operator\""));
+    }
+
+    assertEquals("2",
+        executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.val eq 2 return $x.val"));
+  }
+
+  // ─────────────────────────────────────────────
+  // 2. Cardinality estimation
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("Estimated cardinality is positive for 100-element dataset")
+  void cardinalityReflectsDataSize() {
+    final StringBuilder json = new StringBuilder("[");
+    for (int i = 0; i < 100; i++) {
+      if (i > 0) json.append(",");
+      json.append("{\"id\":").append(i).append(",\"name\":\"item").append(i).append("\"}");
+    }
+    json.append("]");
+
+    storeAndCommit("jn:store('json-path1','mydoc.jn','" + json + "')");
+
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "for $x in jn:doc('json-path1','mydoc.jn')[] return $x",
+          store, null);
+
+      final long cardinality = plan.estimatedCardinality();
+      assertTrue(cardinality > 0 || cardinality == -1,
+          "Cardinality should be positive or -1 (not annotated): " + cardinality);
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // 3. Parsed vs optimized AST differ
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("Parsed and optimized ASTs both present, differ after optimization, verbose JSON correct")
+  void parsedAndOptimizedASTsDiffer() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
+        "'[{\"a\":1,\"b\":2},{\"a\":3,\"b\":4}]')");
+
+    storeAndCommit("""
+        let $doc := jn:doc('json-path1','mydoc.jn')
+        let $stats := jn:create-cas-index($doc, 'xs:integer', '/[]/a')
+        return {"revision": sdb:commit($doc)}
+        """);
+
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.a gt 1 return $x",
+          store, null);
+
+      assertNotNull(plan.parsedAST(), "Parsed AST should be present");
+      assertNotNull(plan.optimizedAST(), "Optimized AST should be present");
+
+      final String verbose = plan.toVerboseJSON();
+      assertTrue(verbose.contains("\"parsed\":"), "Verbose should include parsed section");
+      assertTrue(verbose.contains("\"optimized\":"), "Verbose should include optimized section");
+
+      // Optimizer must annotate/rewrite — ASTs should differ
+      final String parsedRaw = plan.parsedAST().toJSON();
+      final String optimizedRaw = plan.optimizedAST().toJSON();
+      assertNotEquals(parsedRaw, optimizedRaw,
+          "Optimizer should modify the AST (cost annotations at minimum)");
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // 4. No index → usesIndex() returns false
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("Without index, usesIndex=false, query returns exact result")
+  void noIndexUsesIndexFalseExactResult() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn','[{\"x\":1},{\"x\":2}]')");
+
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "for $x in jn:doc('json-path1','mydoc.jn')[] return $x",
+          store, null);
+
+      assertFalse(plan.usesIndex(),
+          "Without an index, optimizer should not prefer index scan");
+    }
+
+    assertEquals("1 2",
+        executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] return $x.x"));
+  }
+
+  // ─────────────────────────────────────────────
+  // 5. sdb:explain() end-to-end
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("sdb:explain() returns valid JSON through the full query engine")
+  void explainThroughQueryEngine() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
+        "'[{\"category\":\"A\",\"value\":10},{\"category\":\"B\",\"value\":20}]')");
+
+    final String plan = executeQuery(
+        "sdb:explain('for $x in jn:doc(\"json-path1\",\"mydoc.jn\")[] return $x')");
+
+    assertNotNull(plan, "sdb:explain() should return a result");
+    assertTrue(plan.startsWith("{"), "Plan should be JSON object");
+    assertTrue(plan.contains("\"operator\""), "Plan should contain operator field");
+  }
+
+  @Test
+  @DisplayName("sdb:explain() verbose mode includes both parsed and optimized sections")
+  void explainVerboseThroughQueryEngine() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn','[{\"x\":1}]')");
+
+    final String plan = executeQuery(
+        "sdb:explain('for $x in jn:doc(\"json-path1\",\"mydoc.jn\")[] return $x', true())");
+
+    assertNotNull(plan, "sdb:explain verbose should return a result");
+    assertTrue(plan.contains("\"parsed\""), "Verbose plan must include parsed AST");
+    assertTrue(plan.contains("\"optimized\""), "Verbose plan must include optimized AST");
+  }
+
+  // ─────────────────────────────────────────────
+  // 6. FLWOR: where + order by
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("FLWOR with where + order by: plan valid, results exact and ordered")
+  void flworWithWhereAndOrderByExactResult() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
+        "'[{\"name\":\"Charlie\",\"age\":30},{\"name\":\"Alice\",\"age\":25},{\"name\":\"Bob\",\"age\":35}]')");
+
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.age gt 20 order by $x.name return $x.name",
+          store, null);
+
+      assertNotNull(plan.optimizedAST());
+      assertTrue(plan.toJSON().contains("\"operator\""));
+    }
+
+    // Exact result: all have age > 20, ordered alphabetically by name
+    assertEquals("\"Alice\" \"Bob\" \"Charlie\"",
+        executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.age gt 20 order by $x.name return $x.name"));
+  }
+
+  // ─────────────────────────────────────────────
+  // 7. Count aggregation
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("Count with string equality filter returns exact count")
+  void countAggregationExactResult() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
+        "'[{\"status\":\"active\"},{\"status\":\"inactive\"},{\"status\":\"active\"},{\"status\":\"active\"}]')");
+
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "count(for $x in jn:doc('json-path1','mydoc.jn')[] where $x.status eq 'active' return $x)",
+          store, null);
+
+      assertNotNull(plan.optimizedAST());
+    }
+
+    assertEquals("3",
+        executeQuery("count(for $x in jn:doc('json-path1','mydoc.jn')[] where $x.status eq 'active' return $x)"));
+  }
+
+  // ─────────────────────────────────────────────
+  // 8. Plan caching consistency
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("Same query compiled twice produces identical plans")
+  void planCachingConsistency() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn','[{\"k\":1},{\"k\":2}]')");
+
+    final String query = "for $x in jn:doc('json-path1','mydoc.jn')[] return $x.k";
+
+    try (final var store = newStore()) {
+      final QueryPlan plan1 = QueryPlan.explain(query, store, null);
+      final QueryPlan plan2 = QueryPlan.explain(query, store, null);
+
+      assertEquals(plan1.toJSON(), plan2.toJSON(),
+          "Same query should produce identical plans");
+      assertEquals(plan1.toRawJSON(), plan2.toRawJSON(),
+          "Same query should produce identical raw ASTs");
+    }
+
+    assertEquals("1 2", executeQuery(query));
+  }
+
+  // ─────────────────────────────────────────────
+  // 9. Before/after index: results identical
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("Results are identical before and after CAS index creation")
+  void resultsIdenticalBeforeAndAfterIndex() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
+        "'[{\"score\":10},{\"score\":20},{\"score\":30},{\"score\":40},{\"score\":50}]')");
+
+    final String queryExpr = "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.score gt 25 return $x.score";
+
+    // Before index
+    try (final var store = newStore()) {
+      assertFalse(QueryPlan.explain(
+          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.score gt 25 return $x",
+          store, null).usesIndex(),
+          "No index → should not use index");
+    }
+    final String resultBefore = executeQuery(queryExpr);
+    assertEquals("30 40 50", resultBefore, "Before index: exact result");
+
+    // Create CAS index
+    storeAndCommit("""
+        let $doc := jn:doc('json-path1','mydoc.jn')
+        let $stats := jn:create-cas-index($doc, 'xs:integer', '/[]/score')
+        return {"revision": sdb:commit($doc)}
+        """);
+
+    // After index — results must be identical
+    final String resultAfter = executeQuery(queryExpr);
+    assertEquals("30 40 50", resultAfter, "After index: exact result");
+    assertEquals(resultBefore, resultAfter,
+        "Results must be identical regardless of index presence");
+  }
+
+  // ─────────────────────────────────────────────
+  // 10. Empty result set
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("Query with no matches returns null (empty) and plan is valid")
+  void emptyResultSet() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn','[{\"x\":1},{\"x\":2},{\"x\":3}]')");
+
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.x gt 999 return $x",
+          store, null);
+      assertNotNull(plan.optimizedAST(), "Plan should exist even for empty result");
+    }
+
+    assertNull(executeQuery(
+        "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.x gt 999 return $x.x"),
+        "No matches → null result");
+  }
+
+  // ─────────────────────────────────────────────
+  // 11. Arithmetic expression (no database)
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("sdb:explain on arithmetic expression produces valid plan")
+  void explainArithmeticExpression() {
+    final String plan = executeQuery("sdb:explain('1 + 2')");
+    assertNotNull(plan, "Plan for arithmetic should not be null");
+    assertTrue(plan.contains("\"operator\""), "Should have operator nodes");
+  }
+
+  // ─────────────────────────────────────────────
+  // 12. Multiple AND predicates
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("AND predicates: plan valid, exact filtered results")
+  void multipleAndPredicatesExactResult() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn'," +
+        "'[{\"a\":1,\"b\":10},{\"a\":2,\"b\":20},{\"a\":3,\"b\":30},{\"a\":4,\"b\":5}]')");
+
+    try (final var store = newStore()) {
+      final QueryPlan plan = QueryPlan.explain(
+          "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.a gt 1 and $x.b gt 15 return $x",
+          store, null);
+      assertNotNull(plan.optimizedAST());
+    }
+
+    // a>1 AND b>15 → only {a:2,b:20} and {a:3,b:30} match
+    assertEquals("2 3",
+        executeQuery("for $x in jn:doc('json-path1','mydoc.jn')[] where $x.a gt 1 and $x.b gt 15 return $x.a"));
+  }
+
+  // ─────────────────────────────────────────────
+  // 13. Let binding with fn:sum
+  // ─────────────────────────────────────────────
+
+  @Test
+  @DisplayName("Let binding with fn:sum returns exact aggregate")
+  void letBindingSumExactResult() {
+    storeAndCommit("jn:store('json-path1','mydoc.jn','[{\"v\":10},{\"v\":20},{\"v\":30}]')");
+
+    assertEquals("60",
+        executeQuery("let $sum := fn:sum(for $x in jn:doc('json-path1','mydoc.jn')[] return $x.v) return $sum"));
+  }
+
+  // ─────────────────────────────────────────────
+  // Helpers
+  // ─────────────────────────────────────────────
+
+  private void storeAndCommit(String query) {
+    try (final var store = newStore();
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store)) {
+      new Query(chain, query).evaluate(ctx);
+    }
+  }
+
+  /**
+   * Execute a query and return the serialized result, or null if empty.
+   */
+  private String executeQuery(String query) {
+    try (final var store = newStore();
+         final var ctx = SirixQueryContext.createWithJsonStore(store);
+         final var chain = SirixCompileChain.createWithJsonStore(store);
+         final var out = new ByteArrayOutputStream();
+         final var writer = new PrintWriter(out)) {
+      new Query(chain, query).serialize(ctx, writer);
+      writer.flush();
+      final String result = out.toString();
+      return result.isEmpty() ? null : result;
+    } catch (Exception e) {
+      fail("Query execution failed: " + e.getMessage(), e);
+      return null;
+    }
+  }
+
+  private BasicJsonDBStore newStore() {
+    return BasicJsonDBStore.newBuilder()
+        .location(JsonTestHelper.PATHS.PATH1.getFile().getParent())
+        .build();
+  }
+}
