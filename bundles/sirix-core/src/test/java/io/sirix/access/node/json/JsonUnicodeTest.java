@@ -94,11 +94,11 @@ public final class JsonUnicodeTest {
       wtx.insertStringValueAsFirstChild(zeroWidthStr);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveToFirstChild();
-      rtx.moveToFirstChild();
-      assertEquals(zeroWidthStr, rtx.getValue());
-      rtx.close();
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveToFirstChild();
+        rtx.moveToFirstChild();
+        assertEquals(zeroWidthStr, rtx.getValue());
+      }
     }
   }
 
@@ -111,11 +111,11 @@ public final class JsonUnicodeTest {
       wtx.insertStringValueAsFirstChild("line1\tcolumn2\nline2");
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveToFirstChild();
-      rtx.moveToFirstChild();
-      assertEquals("line1\tcolumn2\nline2", rtx.getValue());
-      rtx.close();
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveToFirstChild();
+        rtx.moveToFirstChild();
+        assertEquals("line1\tcolumn2\nline2", rtx.getValue());
+      }
     }
   }
 
@@ -162,20 +162,20 @@ public final class JsonUnicodeTest {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json));
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveToFirstChild();
-      rtx.moveToFirstChild();
-      assertEquals("hello\nworld", rtx.getValue());
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveToFirstChild();
+        rtx.moveToFirstChild();
+        assertEquals("hello\nworld", rtx.getValue());
 
-      rtx.moveToRightSibling();
-      assertEquals("tab\there", rtx.getValue());
+        rtx.moveToRightSibling();
+        assertEquals("tab\there", rtx.getValue());
 
-      rtx.moveToRightSibling();
-      assertEquals("quote\"inside", rtx.getValue());
+        rtx.moveToRightSibling();
+        assertEquals("quote\"inside", rtx.getValue());
 
-      rtx.moveToRightSibling();
-      assertEquals("back\\slash", rtx.getValue());
-      rtx.close();
+        rtx.moveToRightSibling();
+        assertEquals("back\\slash", rtx.getValue());
+      }
     }
   }
 
@@ -212,10 +212,10 @@ public final class JsonUnicodeTest {
       wtx.setStringValue("\u4F60\u597D\u4E16\u754C\uD83D\uDE00");
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveTo(nodeKey);
-      assertEquals("\u4F60\u597D\u4E16\u754C\uD83D\uDE00", rtx.getValue());
-      rtx.close();
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveTo(nodeKey);
+        assertEquals("\u4F60\u597D\u4E16\u754C\uD83D\uDE00", rtx.getValue());
+      }
     }
   }
 
@@ -234,11 +234,11 @@ public final class JsonUnicodeTest {
       wtx.insertStringValueAsFirstChild(longStr);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveToFirstChild();
-      rtx.moveToFirstChild();
-      assertEquals(longStr, rtx.getValue());
-      rtx.close();
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveToFirstChild();
+        rtx.moveToFirstChild();
+        assertEquals(longStr, rtx.getValue());
+      }
     }
   }
 
@@ -257,11 +257,11 @@ public final class JsonUnicodeTest {
       wtx.insertStringValueAsFirstChild(longStr);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveToFirstChild();
-      rtx.moveToFirstChild();
-      assertEquals(longStr, rtx.getValue());
-      rtx.close();
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveToFirstChild();
+        rtx.moveToFirstChild();
+        assertEquals(longStr, rtx.getValue());
+      }
     }
   }
 
@@ -295,15 +295,15 @@ public final class JsonUnicodeTest {
       wtx.insertStringValueAsFirstChild("forward/slash");
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveToFirstChild();
-      rtx.moveToFirstChild();
-      assertEquals("forward/slash", rtx.getValue());
-      assertTrue(rtx.moveToRightSibling());
-      assertEquals("back\\slash", rtx.getValue());
-      assertTrue(rtx.moveToRightSibling());
-      assertEquals("quote\"here", rtx.getValue());
-      rtx.close();
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveToFirstChild();
+        rtx.moveToFirstChild();
+        assertEquals("forward/slash", rtx.getValue());
+        assertTrue(rtx.moveToRightSibling());
+        assertEquals("back\\slash", rtx.getValue());
+        assertTrue(rtx.moveToRightSibling());
+        assertEquals("quote\"here", rtx.getValue());
+      }
     }
   }
 

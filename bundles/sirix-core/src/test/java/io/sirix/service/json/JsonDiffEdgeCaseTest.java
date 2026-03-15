@@ -35,7 +35,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testIdenticalDocumentsDiff() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
@@ -54,7 +54,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testInsertOnlyDiff() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
@@ -81,7 +81,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testDeleteOnlyDiff() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
@@ -110,7 +110,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testStringValueUpdate() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
@@ -139,7 +139,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testNumberValueUpdate() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
@@ -168,7 +168,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testBooleanValueUpdate() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
@@ -197,7 +197,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testMultipleOperationsOneDiff() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
@@ -233,7 +233,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testDeepNestedChange() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
@@ -266,7 +266,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testInsertObjectRecord() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
@@ -291,7 +291,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testRemoveObjectRecord() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
@@ -319,7 +319,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testThreeRevisionDiffChain() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
@@ -358,7 +358,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testDiffWithEmptyStartDocument() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
@@ -383,7 +383,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testInsertMultipleElements() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
@@ -422,7 +422,7 @@ public final class JsonDiffEdgeCaseTest {
   @Test
   void testObjectKeyRename() {
     final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(PATHS.PATH1.getFile());
-    assert database != null;
+
     final var databaseName = database.getName();
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {

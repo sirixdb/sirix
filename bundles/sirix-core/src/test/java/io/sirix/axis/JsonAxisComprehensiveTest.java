@@ -80,12 +80,18 @@ final class JsonAxisComprehensiveTest {
 
   @AfterEach
   void tearDown() {
+    if (openSession != null && !openSession.isClosed()) {
+      openSession.close();
+      openSession = null;
+    }
     JsonTestHelper.deleteEverything();
   }
 
+  private JsonResourceSession openSession;
+
   /**
    * Creates the standard test document and returns a read-only transaction positioned at the
-   * document root.
+   * document root. The session is tracked and closed in tearDown.
    */
   private JsonNodeReadOnlyTrx openReadTrx() {
     final var database = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
@@ -95,8 +101,8 @@ final class JsonAxisComprehensiveTest {
       wtx.commit();
     }
 
-    final JsonResourceSession session = database.beginResourceSession(JsonTestHelper.RESOURCE);
-    final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx();
+    openSession = database.beginResourceSession(JsonTestHelper.RESOURCE);
+    final JsonNodeReadOnlyTrx rtx = openSession.beginNodeReadOnlyTrx();
     rtx.moveToDocumentRoot();
     return rtx;
   }
