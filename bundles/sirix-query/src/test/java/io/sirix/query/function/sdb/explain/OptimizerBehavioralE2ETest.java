@@ -44,8 +44,8 @@ final class OptimizerBehavioralE2ETest {
   // ─────────────────────────────────────────────
 
   @Test
-  @DisplayName("CAS index: plan is valid and range predicate returns exact matching items")
-  void casIndexRangePredicateExactResults() {
+  @DisplayName("CAS index present but optimizer correctly prefers seq scan for tiny dataset")
+  void casIndexNotUsedForTinyDataset() {
     storeAndCommit("jn:store('json-path1','mydoc.jn'," +
         "'[{\"price\":10},{\"price\":20},{\"price\":30},{\"price\":40},{\"price\":50}]')");
 
@@ -55,7 +55,7 @@ final class OptimizerBehavioralE2ETest {
         return {"revision": sdb:commit($doc)}
         """);
 
-    // Verify plan
+    // Verify plan: index exists but cost model should reject it for 5 rows
     try (final var store = newStore()) {
       final QueryPlan plan = QueryPlan.explain(
           "for $x in jn:doc('json-path1','mydoc.jn')[] where $x.price gt 25 return $x",
@@ -63,6 +63,8 @@ final class OptimizerBehavioralE2ETest {
 
       assertNotNull(plan.optimizedAST(), "Optimized AST should not be null");
       assertNotNull(plan.parsedAST(), "Parsed AST should not be null");
+      assertFalse(plan.usesIndex(),
+          "Cost model should prefer seq scan over index for 5 rows");
 
       final String json = plan.toJSON();
       assertFalse(json.equals("null"), "Plan should not serialize to 'null'");
