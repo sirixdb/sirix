@@ -53,7 +53,7 @@ public final class ToolHandlers {
 
   public CallToolResult listDatabases(McpSyncServerExchange exchange, CallToolRequest request) {
     return withAudit("sirix_list_databases", request.arguments(), () -> {
-      // TODO: Wire up Databases.openDatabase() to list available databases at config.databasePath()
+      // Stub: wire up Databases.openDatabase() to list available databases at config.databasePath()
       return textResult("[]");
     });
   }
@@ -64,7 +64,7 @@ public final class ToolHandlers {
 
     return withAudit("sirix_list_resources", args, () -> {
       accessControl.checkDatabaseAccess(database);
-      // TODO: Wire up Database.listResources()
+      // Stub: wire up Database.listResources()
       return textResult("[]");
     });
   }
@@ -76,7 +76,7 @@ public final class ToolHandlers {
 
     return withAudit("sirix_resource_info", args, () -> {
       accessControl.checkAccess(database, resource);
-      // TODO: Wire up ResourceSession.getMostRecentRevisionNumber(), getHistory(), etc.
+      // Stub: wire up ResourceSession.getMostRecentRevisionNumber(), getHistory(), etc.
       return textResult("{}");
     });
   }
@@ -94,7 +94,7 @@ public final class ToolHandlers {
         accessControl.checkDatabaseAccess(database);
       }
 
-      // TODO: Wire up SirixQueryContext with read-only CommitStrategy.EXPLICIT
+      // Stub: wire up SirixQueryContext with read-only CommitStrategy.EXPLICIT
       // Resolve revision from: args.revision, args.snapshot (via snapshotRegistry), or args.timestamp
       var result = "[]"; // placeholder
 
@@ -116,7 +116,7 @@ public final class ToolHandlers {
 
     return withAudit("sirix_history", args, () -> {
       accessControl.checkAccess(database, resource);
-      // TODO: Wire up ResourceSession.getHistory(count)
+      // Stub: wire up ResourceSession.getHistory(count)
       return textResult("[]");
     });
   }
@@ -130,7 +130,7 @@ public final class ToolHandlers {
       accessControl.checkAccess(database, resource);
 
       // Resolve from/to revisions (support both revision numbers and snapshot names)
-      // TODO: Wire up diff infrastructure
+      // Stub: wire up diff infrastructure
       return textResult("{}");
     });
   }
@@ -161,7 +161,7 @@ public final class ToolHandlers {
       if (revision != null) {
         rev = revision;
       } else {
-        // TODO: Get latest revision from ResourceSession.getMostRecentRevisionNumber()
+        // Stub: get latest revision from ResourceSession.getMostRecentRevisionNumber()
         rev = 0; // placeholder
       }
 
@@ -180,7 +180,7 @@ public final class ToolHandlers {
     return withAudit("sirix_insert", args, () -> {
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
-      // TODO: Wire up JsonNodeTrx.insertSubtreeAsFirstChild()
+      // Stub: wire up JsonNodeTrx.insertSubtreeAsFirstChild()
       return textResult("Insert completed");
     });
   }
@@ -193,7 +193,7 @@ public final class ToolHandlers {
     return withAudit("sirix_update", args, () -> {
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
-      // TODO: Wire up JsonNodeTrx.setStringValue() / setNumberValue() etc.
+      // Stub: wire up JsonNodeTrx.setStringValue() / setNumberValue() etc.
       return textResult("Update completed");
     });
   }
@@ -206,7 +206,7 @@ public final class ToolHandlers {
     return withAudit("sirix_delete", args, () -> {
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
-      // TODO: Wire up JsonNodeTrx.remove()
+      // Stub: wire up JsonNodeTrx.remove()
       return textResult("Delete completed");
     });
   }
@@ -219,7 +219,7 @@ public final class ToolHandlers {
     return withAudit("sirix_revert", args, () -> {
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
-      // TODO: Wire up JsonNodeTrx.revertTo(revision)
+      // Stub: wire up JsonNodeTrx.revertTo(revision)
       return textResult("Revert completed");
     });
   }
