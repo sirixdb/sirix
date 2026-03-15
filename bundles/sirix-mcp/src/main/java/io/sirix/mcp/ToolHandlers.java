@@ -5,18 +5,16 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 
-import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
-import io.sirix.access.DatabaseType;
 import io.sirix.api.Database;
 import io.sirix.api.RevisionInfo;
-import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.service.json.BasicJsonDiff;
+import io.sirix.service.json.shredder.JsonShredder;
 
 import io.brackit.query.Query;
 
@@ -26,13 +24,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.io.PrintWriter;
-import java.io.StringReader;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -84,7 +79,7 @@ public final class ToolHandlers {
       if (Files.isDirectory(databasePath)) {
         try (final DirectoryStream<Path> stream = Files.newDirectoryStream(databasePath)) {
           for (final Path entry : stream) {
-            if (Files.isDirectory(entry) && Databases.existsDatabase(entry)) {
+            if (Databases.existsDatabase(entry)) {
               final String name = entry.getFileName().toString();
               if (config.isDatabaseAllowed(name)) {
                 dbNames.add(name);
@@ -138,13 +133,10 @@ public final class ToolHandlers {
         info.put("resource", resource);
         info.put("latestRevision", latestRevision);
 
-        // Get timestamps from first and latest revisions
-        try (final JsonNodeReadOnlyTrx firstRtx = session.beginNodeReadOnlyTrx(1)) {
-          info.put("created", firstRtx.getRevisionTimestamp().toString());
-        }
-
-        try (final JsonNodeReadOnlyTrx latestRtx = session.beginNodeReadOnlyTrx(latestRevision)) {
-          info.put("lastModified", latestRtx.getRevisionTimestamp().toString());
+        final List<RevisionInfo> history = session.getHistory(latestRevision, 1);
+        if (!history.isEmpty()) {
+          info.put("lastModified", history.getFirst().getRevisionTimestamp().toString());
+          info.put("created", history.getLast().getRevisionTimestamp().toString());
         }
 
         return textResult(MAPPER.writeValueAsString(info));
@@ -236,9 +228,9 @@ public final class ToolHandlers {
            final JsonResourceSession session = db.beginResourceSession(resource)) {
 
         final int fromRev = resolveRevision(args, "from_revision", "from_snapshot",
-            database, resource, session, session.getMostRecentRevisionNumber() - 1);
+            database, resource, session.getMostRecentRevisionNumber() - 1);
         final int toRev = resolveRevision(args, "to_revision", "to_snapshot",
-            database, resource, session, session.getMostRecentRevisionNumber());
+            database, resource, session.getMostRecentRevisionNumber());
 
         if (fromRev < 1 || toRev < 1 || fromRev > session.getMostRecentRevisionNumber()
             || toRev > session.getMostRecentRevisionNumber()) {
@@ -315,22 +307,14 @@ public final class ToolHandlers {
 
         wtx.moveToDocumentRoot();
         if (wtx.moveToFirstChild()) {
-          // Resource has existing content — insert as right sibling of root element
           wtx.insertSubtreeAsRightSibling(
-              new com.google.gson.stream.JsonReader(new StringReader(data)),
-              JsonNodeTrx.Commit.NO);
+              JsonShredder.createStringReader(data), JsonNodeTrx.Commit.NO);
         } else {
-          // Empty resource — insert as first child of document root
           wtx.insertSubtreeAsFirstChild(
-              new com.google.gson.stream.JsonReader(new StringReader(data)),
-              JsonNodeTrx.Commit.NO);
+              JsonShredder.createStringReader(data), JsonNodeTrx.Commit.NO);
         }
 
-        if (message != null) {
-          wtx.commit(message);
-        } else {
-          wtx.commit();
-        }
+        wtx.commit(message);
 
         return textResult("Insert completed (revision " + session.getMostRecentRevisionNumber() + ")");
       }
@@ -372,11 +356,7 @@ public final class ToolHandlers {
               "Node " + nodeKey + " is not a value or object key node");
         }
 
-        if (message != null) {
-          wtx.commit(message);
-        } else {
-          wtx.commit();
-        }
+        wtx.commit(message);
 
         return textResult("Update completed (revision " + session.getMostRecentRevisionNumber() + ")");
       }
@@ -405,12 +385,7 @@ public final class ToolHandlers {
         }
 
         wtx.remove();
-
-        if (message != null) {
-          wtx.commit(message);
-        } else {
-          wtx.commit();
-        }
+        wtx.commit(message);
 
         return textResult("Delete completed (revision " + session.getMostRecentRevisionNumber() + ")");
       }
@@ -434,7 +409,7 @@ public final class ToolHandlers {
            final JsonNodeTrx wtx = session.beginNodeTrx()) {
 
         final int targetRevision = resolveRevision(args, "revision", "snapshot",
-            database, resource, session, -1);
+            database, resource, -1);
 
         if (targetRevision < 1 || targetRevision > session.getMostRecentRevisionNumber()) {
           throw new IllegalArgumentException(
@@ -481,12 +456,11 @@ public final class ToolHandlers {
    * @param snapshotKey the key for the snapshot name parameter
    * @param database the database name (for snapshot lookup)
    * @param resource the resource name (for snapshot lookup)
-   * @param session the resource session (for timestamp lookup)
    * @param defaultRevision fallback if neither is specified (-1 means required)
    * @return the resolved revision number
    */
   private int resolveRevision(Map<String, Object> args, String revisionKey, String snapshotKey,
-      String database, String resource, JsonResourceSession session, int defaultRevision) {
+      String database, String resource, int defaultRevision) {
     final var revisionArg = optionalInt(args, revisionKey);
     if (revisionArg != null) {
       return revisionArg;
@@ -494,15 +468,11 @@ public final class ToolHandlers {
 
     final var snapshotName = optionalString(args, snapshotKey);
     if (snapshotName != null) {
-      final var snapshotMap = snapshots.list(database, resource);
-      final var rev = snapshotMap.get(snapshotName);
+      final var rev = snapshots.resolve(database, resource, snapshotName);
       if (rev == null) {
         throw new IllegalArgumentException("Snapshot not found: " + snapshotName);
       }
-      if (rev instanceof Number n) {
-        return n.intValue();
-      }
-      return Integer.parseInt(rev.toString());
+      return rev;
     }
 
     if (defaultRevision < 0) {
@@ -526,9 +496,12 @@ public final class ToolHandlers {
       auditLog.log(toolName, params, "denied", e.getMessage());
       return errorResult(e.getMessage());
     } catch (Exception e) {
-      auditLog.log(toolName, params, "error", e.getMessage());
+      final String detail = e.getMessage() != null
+          ? e.getMessage()
+          : e.getClass().getSimpleName();
+      auditLog.log(toolName, params, "error", detail);
       LOG.error("Tool {} failed", toolName, e);
-      return errorResult("Internal error: " + e.getMessage());
+      return errorResult("Internal error: " + detail);
     }
   }
 
