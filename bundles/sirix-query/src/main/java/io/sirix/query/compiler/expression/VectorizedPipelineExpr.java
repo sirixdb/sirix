@@ -51,6 +51,27 @@ import java.util.Map;
  *   <li>Return ItemSequence of all surviving items</li>
  * </ol>
  *
+ * <h3>Known limitations (current implementation):</h3>
+ * <ul>
+ *   <li><b>Route field unused:</b> The {@code route} property ("columnar"/"simd") is
+ *       extracted from the AST but not consumed — execution always takes the columnar
+ *       path. The SIMD route is a placeholder for future per-field typed columns in
+ *       ColumnarScanAxis, which would enable {@code ColumnBatchFilter.filterLong/filterDouble}
+ *       SIMD vectorization.</li>
+ *   <li><b>Field name not dispatched:</b> {@code VectorizedPredicate.fieldName()} is
+ *       extracted during routing but not used for column dispatch. All predicates are
+ *       applied to global columns (COL_NUMERIC_VALUE / COL_STRING_VALUE) rather than
+ *       per-field typed columns. This is correct for single-field queries but limits
+ *       multi-field predicate efficiency.</li>
+ *   <li><b>ColumnBatchFilter SIMD dead code:</b> {@code ColumnBatchFilter.filterLong}
+ *       and {@code filterDouble} are fully implemented with SIMD Vector API but never
+ *       called from this expression. The reason: mixed batches contain both number-type
+ *       and string-type rows, and {@code filterDouble} removes null rows (string rows)
+ *       from the selection vector before the scalar fallback can process them. The
+ *       {@code filterNumericCombined} method handles both populations correctly in a
+ *       single pass. SIMD can be enabled by pre-splitting populations.</li>
+ * </ul>
+ *
  * <h3>HFT-grade analysis:</h3>
  * <p>No hot-path allocation violations: ColumnarScanAxis pre-allocates extraction
  * arrays, ColumnBatch reuses arrays via reset(). String EQ/NE uses FSST-aware
@@ -80,6 +101,16 @@ public final class VectorizedPipelineExpr implements Expr {
 
   @Override
   public Sequence evaluate(QueryContext ctx, Tuple tuple) throws QueryException {
+    if (databaseName == null || resourceName == null) {
+      throw new QueryException(new QNm("VectorizedPipelineExpr"),
+          "Cannot execute vectorized pipeline: database=%s, resource=%s"
+              .formatted(databaseName, resourceName));
+    }
+    if (predicates == null || predicates.isEmpty()) {
+      throw new QueryException(new QNm("VectorizedPipelineExpr"),
+          "Cannot execute vectorized pipeline: no predicates extracted");
+    }
+
     final var jsonItemStore = ((SirixQueryContext) ctx).getJsonItemStore();
 
     final JsonDBCollection jsonCollection = jsonItemStore.lookup(databaseName);

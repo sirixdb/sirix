@@ -1,6 +1,8 @@
 package io.sirix.query.compiler.optimizer;
 
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 import io.sirix.query.compiler.optimizer.mesh.Mesh;
 import io.sirix.query.compiler.optimizer.walker.json.JsonPathStep;
@@ -21,6 +23,7 @@ public class SirixOptimizer extends TopDownOptimizer {
   private final XmlDBStore xmlNodeStore;
   private final JsonDBStore jsonItemStore;
   private final PlanCache planCache;
+  private final Set<Class<? extends Stage>> disabledStages = new HashSet<>(4);
 
   public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore, final JsonDBStore jsonItemStore) {
     this(options, nodeStore, jsonItemStore, new PlanCache());
@@ -71,7 +74,14 @@ public class SirixOptimizer extends TopDownOptimizer {
       }
     }
 
-    final AST optimized = super.optimize(sctx, ast);
+    // Run stages inline (instead of super.optimize()) to support disabled stages.
+    AST current = ast;
+    for (final Stage stage : getStages()) {
+      if (!disabledStages.contains(stage.getClass())) {
+        current = stage.rewrite(sctx, current);
+      }
+    }
+    final AST optimized = current;
 
     // Cache a deep copy so the caller's subsequent mutations don't corrupt the entry.
     if (cacheKey != null) {
@@ -162,6 +172,38 @@ public class SirixOptimizer extends TopDownOptimizer {
    */
   protected int getStageCount() {
     return getStages().size();
+  }
+
+  /**
+   * Disable an optimization stage by its class.
+   *
+   * <p>Disabled stages are skipped during optimization. This allows enterprise
+   * subclasses or tests to selectively turn off stages without removing them
+   * from the pipeline (preserving stage ordering for later re-enable).</p>
+   *
+   * @param stageClass the stage class to disable
+   */
+  public void disableStage(Class<? extends Stage> stageClass) {
+    disabledStages.add(stageClass);
+  }
+
+  /**
+   * Re-enable a previously disabled optimization stage.
+   *
+   * @param stageClass the stage class to enable
+   */
+  public void enableStage(Class<? extends Stage> stageClass) {
+    disabledStages.remove(stageClass);
+  }
+
+  /**
+   * Check if a stage is currently enabled.
+   *
+   * @param stageClass the stage class to check
+   * @return true if the stage is enabled (not in the disabled set)
+   */
+  public boolean isStageEnabled(Class<? extends Stage> stageClass) {
+    return !disabledStages.contains(stageClass);
   }
 
   private static class IndexMatching implements Stage {

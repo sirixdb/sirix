@@ -36,7 +36,12 @@ public final class VectorizedPipelineDetector {
   /** AST property key for vectorization eligibility annotation. */
   public static final String VECTORIZABLE = "vectorized.eligible";
 
-  /** AST property key for the number of vectorizable predicates. */
+  /**
+   * AST property key for the number of vectorizable predicates.
+   * <p><b>Note:</b> Currently write-only — set during detection but not read by
+   * {@code VectorizedRoutingStage}, which extracts predicates independently.
+   * Retained for diagnostic/debugging and future use by cost estimation.</p>
+   */
   public static final String VECTORIZABLE_PREDICATE_COUNT = "vectorized.predicateCount";
 
   /** AST property key for columnar string scan eligibility (page-at-a-time extraction). */

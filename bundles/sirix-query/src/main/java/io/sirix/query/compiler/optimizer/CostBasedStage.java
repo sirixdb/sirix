@@ -79,10 +79,19 @@ public final class CostBasedStage implements Stage {
     }
     variableBindings.clear();
 
-    annotateSubtree(ast);
+    try {
+      annotateSubtree(ast);
 
-    // Phase 2: Annotate cardinality estimates throughout the pipeline
-    cardinalityEstimator.annotateCardinalities(ast);
+      // Phase 2: Annotate cardinality estimates throughout the pipeline
+      cardinalityEstimator.annotateCardinalities(ast);
+    } catch (final Exception e) {
+      // Ensure cached resource sessions are closed on exception path.
+      // Without this, sessions opened by SirixStatisticsProvider during
+      // annotateSubtree() would leak if an exception prevents clearCaches()
+      // from being called on the next rewrite() invocation.
+      statsProvider.clearCaches();
+      throw e;
+    }
 
     return ast;
   }

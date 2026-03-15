@@ -4,7 +4,6 @@ import io.brackit.query.QueryException;
 import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.optimizer.Stage;
 import io.brackit.query.module.StaticContext;
-import io.sirix.query.compiler.optimizer.walker.json.JoinCommutativityWalker;
 import io.sirix.query.compiler.optimizer.walker.json.JoinFusionWalker;
 import io.sirix.query.compiler.optimizer.walker.json.SelectAccessFusionWalker;
 import io.sirix.query.compiler.optimizer.walker.json.SelectJoinFusionWalker;
@@ -16,13 +15,16 @@ import io.sirix.query.compiler.optimizer.walker.json.SelectJoinFusionWalker;
  * <ul>
  *   <li><b>Rule 1</b>: Join fusion — fuses adjacent binary joins over
  *       DerefExpr chains into logically n-way joins</li>
- *   <li><b>Rule 2</b>: Select-Join fusion — pushes WHERE predicates into
- *       adjacent Join nodes, reducing input cardinality before the join</li>
+ *   <li><b>Rule 2</b>: Select-Join fusion — annotates WHERE predicates as
+ *       pushable into adjacent Join nodes (annotation-only; physical pushdown
+ *       is a future extension)</li>
  *   <li><b>Rule 3</b>: Select-Access fusion — pushes WHERE predicates into
  *       ObjectAccess/ArrayAccess operators, enabling direct CAS/PATH index mapping</li>
- *   <li><b>Rule 4</b>: Join commutativity — swaps join inputs when the smaller
- *       relation should be the build side of a hash join</li>
  * </ul>
+ *
+ * <p><b>Note:</b> Join commutativity (Rule 4) was removed from this stage because
+ * it reads cardinality annotations that are only available after CostBasedStage (Stage 2).
+ * Join reordering is handled by JoinReorderStage (Stage 3) after cardinalities are set.</p>
  *
  * <p>Rules are applied in a fixpoint loop (max 10 iterations) until no
  * walker produces a change. Identity comparison on the AST reference
@@ -38,7 +40,6 @@ public final class JqgmRewriteStage implements Stage {
     final var joinFusionWalker = new JoinFusionWalker();
     final var selectJoinWalker = new SelectJoinFusionWalker();
     final var selectAccessWalker = new SelectAccessFusionWalker();
-    final var joinCommutativityWalker = new JoinCommutativityWalker();
     boolean modified = true;
     int iterations = 0;
 
@@ -52,7 +53,7 @@ public final class JqgmRewriteStage implements Stage {
         modified = true;
       }
 
-      // Rule 2: Select-Join fusion (predicate pushdown into joins)
+      // Rule 2: Select-Join fusion (annotate pushable predicates on joins)
       prev = ast;
       ast = selectJoinWalker.walk(ast);
       if (ast != prev || selectJoinWalker.wasModified()) {
@@ -63,13 +64,6 @@ public final class JqgmRewriteStage implements Stage {
       prev = ast;
       ast = selectAccessWalker.walk(ast);
       if (ast != prev || selectAccessWalker.wasModified()) {
-        modified = true;
-      }
-
-      // Rule 4: Join commutativity (swap join inputs for hash join efficiency)
-      prev = ast;
-      ast = joinCommutativityWalker.walk(ast);
-      if (ast != prev || joinCommutativityWalker.wasModified()) {
         modified = true;
       }
 

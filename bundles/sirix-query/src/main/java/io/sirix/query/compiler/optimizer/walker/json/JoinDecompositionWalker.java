@@ -23,6 +23,13 @@ import io.sirix.query.compiler.optimizer.stats.CostProperties;
  * and fusion annotations set by {@code JoinFusionWalker}, then marks joins
  * with decomposition metadata for the {@code IndexDecompositionStage}.</p>
  *
+ * <p><b>Current status:</b> Annotation-only scaffolding. The annotations
+ * ({@code DECOMPOSITION_APPLICABLE}, {@code DECOMPOSITION_TYPE}, etc.)
+ * are correctly set on Join nodes, but no downstream stage currently
+ * restructures the AST based on these annotations. The physical join
+ * splitting at index boundaries is a future extension — these annotations
+ * provide the metadata needed for that transformation.</p>
+ *
  * <p>Based on Weiner et al. Rules 5-6 (Section 4.3).</p>
  */
 public final class JoinDecompositionWalker extends Walker {
