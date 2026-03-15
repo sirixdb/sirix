@@ -1,5 +1,6 @@
 package io.sirix.query.function.sdb;
 
+import io.sirix.query.function.sdb.explain.Explain;
 import io.sirix.query.function.sdb.trx.Commit;
 import io.sirix.query.function.sdb.trx.GetAuthorID;
 import io.sirix.query.function.sdb.trx.GetAuthorName;
@@ -261,5 +262,14 @@ public final class SDBFun {
     // valid-to (bitemporal)
     Functions.predefine(new GetValidTo(GetValidTo.VALID_TO,
         new Signature(new SequenceType(AtomicType.DATI, Cardinality.ZeroOrOne), SequenceType.ITEM)));
+
+    // explain — query plan inspection
+    Functions.predefine(new Explain(Explain.EXPLAIN,
+        new Signature(SequenceType.STRING,
+            new SequenceType(AtomicType.STR, Cardinality.One))));
+    Functions.predefine(new Explain(Explain.EXPLAIN,
+        new Signature(SequenceType.STRING,
+            new SequenceType(AtomicType.STR, Cardinality.One),
+            new SequenceType(AtomicType.BOOL, Cardinality.ZeroOrOne))));
   }
 }
