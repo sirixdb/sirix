@@ -43,10 +43,11 @@ public final class JsonNumberEdgeCaseTest {
       wtx.insertNumberValueAsFirstChild(0);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveTo(wtx.getNodeKey());
-      assertTrue(rtx.isNumberValue());
-      assertEquals(0, rtx.getNumberValue().intValue());
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveTo(wtx.getNodeKey());
+        assertTrue(rtx.isNumberValue());
+        assertEquals(0, rtx.getNumberValue().intValue());
+      }
 
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
@@ -64,10 +65,11 @@ public final class JsonNumberEdgeCaseTest {
       wtx.insertNumberValueAsFirstChild(-42);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveTo(wtx.getNodeKey());
-      assertTrue(rtx.isNumberValue());
-      assertEquals(-42, rtx.getNumberValue().intValue());
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveTo(wtx.getNodeKey());
+        assertTrue(rtx.isNumberValue());
+        assertEquals(-42, rtx.getNumberValue().intValue());
+      }
 
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
@@ -85,10 +87,11 @@ public final class JsonNumberEdgeCaseTest {
       wtx.insertNumberValueAsFirstChild(Integer.MAX_VALUE);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveTo(wtx.getNodeKey());
-      assertTrue(rtx.isNumberValue());
-      assertEquals(Integer.MAX_VALUE, rtx.getNumberValue().intValue());
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveTo(wtx.getNodeKey());
+        assertTrue(rtx.isNumberValue());
+        assertEquals(Integer.MAX_VALUE, rtx.getNumberValue().intValue());
+      }
 
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
@@ -106,10 +109,11 @@ public final class JsonNumberEdgeCaseTest {
       wtx.insertNumberValueAsFirstChild(Integer.MIN_VALUE);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveTo(wtx.getNodeKey());
-      assertTrue(rtx.isNumberValue());
-      assertEquals(Integer.MIN_VALUE, rtx.getNumberValue().intValue());
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveTo(wtx.getNodeKey());
+        assertTrue(rtx.isNumberValue());
+        assertEquals(Integer.MIN_VALUE, rtx.getNumberValue().intValue());
+      }
 
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
@@ -127,10 +131,11 @@ public final class JsonNumberEdgeCaseTest {
       wtx.insertNumberValueAsFirstChild(Long.MAX_VALUE);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveTo(wtx.getNodeKey());
-      assertTrue(rtx.isNumberValue());
-      assertEquals(Long.MAX_VALUE, rtx.getNumberValue().longValue());
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveTo(wtx.getNodeKey());
+        assertTrue(rtx.isNumberValue());
+        assertEquals(Long.MAX_VALUE, rtx.getNumberValue().longValue());
+      }
 
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
@@ -148,10 +153,11 @@ public final class JsonNumberEdgeCaseTest {
       wtx.insertNumberValueAsFirstChild(Long.MIN_VALUE);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveTo(wtx.getNodeKey());
-      assertTrue(rtx.isNumberValue());
-      assertEquals(Long.MIN_VALUE, rtx.getNumberValue().longValue());
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveTo(wtx.getNodeKey());
+        assertTrue(rtx.isNumberValue());
+        assertEquals(Long.MIN_VALUE, rtx.getNumberValue().longValue());
+      }
 
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
@@ -169,10 +175,11 @@ public final class JsonNumberEdgeCaseTest {
       wtx.insertNumberValueAsFirstChild(Double.MAX_VALUE);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveTo(wtx.getNodeKey());
-      assertTrue(rtx.isNumberValue());
-      assertEquals(Double.MAX_VALUE, rtx.getNumberValue().doubleValue(), 0.0);
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveTo(wtx.getNodeKey());
+        assertTrue(rtx.isNumberValue());
+        assertEquals(Double.MAX_VALUE, rtx.getNumberValue().doubleValue(), 0.0);
+      }
 
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
@@ -190,10 +197,11 @@ public final class JsonNumberEdgeCaseTest {
       wtx.insertNumberValueAsFirstChild(Double.MIN_VALUE);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveTo(wtx.getNodeKey());
-      assertTrue(rtx.isNumberValue());
-      assertEquals(Double.MIN_VALUE, rtx.getNumberValue().doubleValue(), 0.0);
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveTo(wtx.getNodeKey());
+        assertTrue(rtx.isNumberValue());
+        assertEquals(Double.MIN_VALUE, rtx.getNumberValue().doubleValue(), 0.0);
+      }
 
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
@@ -211,10 +219,11 @@ public final class JsonNumberEdgeCaseTest {
       wtx.insertNumberValueAsFirstChild(-3.14159);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveTo(wtx.getNodeKey());
-      assertTrue(rtx.isNumberValue());
-      assertEquals(-3.14159, rtx.getNumberValue().doubleValue(), 0.0);
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveTo(wtx.getNodeKey());
+        assertTrue(rtx.isNumberValue());
+        assertEquals(-3.14159, rtx.getNumberValue().doubleValue(), 0.0);
+      }
 
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
@@ -232,10 +241,11 @@ public final class JsonNumberEdgeCaseTest {
       wtx.insertNumberValueAsFirstChild(0.000000001);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveTo(wtx.getNodeKey());
-      assertTrue(rtx.isNumberValue());
-      assertEquals(0.000000001, rtx.getNumberValue().doubleValue(), 0.0);
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveTo(wtx.getNodeKey());
+        assertTrue(rtx.isNumberValue());
+        assertEquals(0.000000001, rtx.getNumberValue().doubleValue(), 0.0);
+      }
 
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
@@ -287,20 +297,21 @@ public final class JsonNumberEdgeCaseTest {
       wtx.commit();
 
       // Verify types via read-only transaction
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveToDocumentRoot();
-      rtx.moveToFirstChild(); // array
-      rtx.moveToFirstChild(); // first number: 42
-      assertTrue(rtx.isNumberValue());
-      assertEquals(42, rtx.getNumberValue().intValue());
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveToDocumentRoot();
+        rtx.moveToFirstChild(); // array
+        rtx.moveToFirstChild(); // first number: 42
+        assertTrue(rtx.isNumberValue());
+        assertEquals(42, rtx.getNumberValue().intValue());
 
-      rtx.moveToRightSibling(); // second number: 9999999999
-      assertTrue(rtx.isNumberValue());
-      assertEquals(9999999999L, rtx.getNumberValue().longValue());
+        rtx.moveToRightSibling(); // second number: 9999999999
+        assertTrue(rtx.isNumberValue());
+        assertEquals(9999999999L, rtx.getNumberValue().longValue());
 
-      rtx.moveToRightSibling(); // third number: 2.718
-      assertTrue(rtx.isNumberValue());
-      assertEquals(2.718, rtx.getNumberValue().doubleValue(), 0.0);
+        rtx.moveToRightSibling(); // third number: 2.718
+        assertTrue(rtx.isNumberValue());
+        assertEquals(2.718, rtx.getNumberValue().doubleValue(), 0.0);
+      }
 
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
@@ -345,10 +356,11 @@ public final class JsonNumberEdgeCaseTest {
       wtx.insertNumberValueAsFirstChild(3.14f);
       wtx.commit();
 
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveTo(wtx.getNodeKey());
-      assertTrue(rtx.isNumberValue());
-      assertEquals(3.14f, rtx.getNumberValue().floatValue(), 0.0f);
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveTo(wtx.getNodeKey());
+        assertTrue(rtx.isNumberValue());
+        assertEquals(3.14f, rtx.getNumberValue().floatValue(), 0.0f);
+      }
 
       final var serializer = new JsonSerializer.Builder(session, writer).build();
       serializer.call();
@@ -368,28 +380,29 @@ public final class JsonNumberEdgeCaseTest {
       wtx.commit();
 
       // Navigate and verify individual values
-      final var rtx = session.beginNodeReadOnlyTrx();
-      rtx.moveToDocumentRoot();
-      rtx.moveToFirstChild(); // array
+      try (final var rtx = session.beginNodeReadOnlyTrx()) {
+        rtx.moveToDocumentRoot();
+        rtx.moveToFirstChild(); // array
 
-      rtx.moveToFirstChild(); // 1.0e10
-      assertTrue(rtx.isNumberValue());
-      assertEquals(1.0e10, rtx.getNumberValue().doubleValue(), 1.0);
+        rtx.moveToFirstChild(); // 1.0e10
+        assertTrue(rtx.isNumberValue());
+        assertEquals(1.0e10, rtx.getNumberValue().doubleValue(), 1.0);
 
-      rtx.moveToRightSibling(); // 1.5E-3
-      assertTrue(rtx.isNumberValue());
-      assertEquals(1.5E-3, rtx.getNumberValue().doubleValue(), 1e-10);
+        rtx.moveToRightSibling(); // 1.5E-3
+        assertTrue(rtx.isNumberValue());
+        assertEquals(1.5E-3, rtx.getNumberValue().doubleValue(), 1e-10);
 
-      rtx.moveToRightSibling(); // 42
-      assertTrue(rtx.isNumberValue());
-      assertEquals(42, rtx.getNumberValue().intValue());
+        rtx.moveToRightSibling(); // 42
+        assertTrue(rtx.isNumberValue());
+        assertEquals(42, rtx.getNumberValue().intValue());
 
-      rtx.moveToRightSibling(); // -7
-      assertTrue(rtx.isNumberValue());
-      assertEquals(-7, rtx.getNumberValue().intValue());
+        rtx.moveToRightSibling(); // -7
+        assertTrue(rtx.isNumberValue());
+        assertEquals(-7, rtx.getNumberValue().intValue());
 
-      rtx.moveToRightSibling(); // 0.5
-      assertTrue(rtx.isNumberValue());
+        rtx.moveToRightSibling(); // 0.5
+        assertTrue(rtx.isNumberValue());
+      }
 
       // Serialize and verify round-trip
       final var serializer = new JsonSerializer.Builder(session, writer).build();

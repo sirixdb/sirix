@@ -9,7 +9,6 @@ import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.exception.SirixUsageException;
 import io.sirix.service.InsertPosition;
 import io.sirix.service.json.serialize.JsonSerializer;
 import io.sirix.service.json.shredder.JsonShredder;
