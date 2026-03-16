@@ -176,6 +176,53 @@ final class CostBasedStageTest {
   }
 
   @Test
+  @DisplayName("Circular variable references are detected and do not loop forever")
+  void circularVariableReferenceDetected() throws Exception {
+    // let $x := $y, let $y := $x — circular reference
+    final AST ast = new AST(XQ.FlowrExpr, null);
+
+    // LetBind: let $x := $y
+    final AST letX = new AST(XQ.LetBind, null);
+    final AST letXVar = new AST(XQ.Variable, "x");
+    letXVar.setValue("x");
+    letX.addChild(letXVar);
+    final AST varRefY = new AST(XQ.VariableRef, null);
+    varRefY.setValue("y");
+    letX.addChild(varRefY);
+    ast.addChild(letX);
+
+    // LetBind: let $y := $x
+    final AST letY = new AST(XQ.LetBind, null);
+    final AST letYVar = new AST(XQ.Variable, "y");
+    letYVar.setValue("y");
+    letY.addChild(letYVar);
+    final AST varRefX = new AST(XQ.VariableRef, null);
+    varRefX.setValue("x");
+    letY.addChild(varRefX);
+    ast.addChild(letY);
+
+    // ForBind: for $z in $x.field — triggers variable resolution
+    final AST forBind = new AST(XQ.ForBind, null);
+    final AST forVar = new AST(XQ.Variable, "z");
+    forVar.setValue("z");
+    forBind.addChild(forVar);
+    final AST deref = new AST(XQ.DerefExpr, null);
+    final AST varRefXInFor = new AST(XQ.VariableRef, null);
+    varRefXInFor.setValue("x");
+    deref.addChild(varRefXInFor);
+    deref.addChild(new AST(XQ.Str, "field"));
+    forBind.addChild(deref);
+    ast.addChild(forBind);
+
+    final var stage = new CostBasedStage(store);
+    // Should terminate quickly without looping, cycle detection returns null
+    assertDoesNotThrow(() -> stage.rewrite(null, ast));
+
+    // No annotations since the cycle prevents path extraction
+    assertNull(deref.getProperty(CostProperties.PREFER_INDEX));
+  }
+
+  @Test
   @DisplayName("CardinalityEstimator annotates ForBind with cardinality from child")
   void cardinalityEstimatorAnnotatesForBind() throws Exception {
     final AST ast = new AST(XQ.FlowrExpr, null);

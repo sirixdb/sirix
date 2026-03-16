@@ -1,28 +1,45 @@
 package io.sirix.query.compiler.optimizer.join;
 
 import io.sirix.query.compiler.optimizer.stats.JsonCostModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Join order optimizer using the DPhyp algorithm from
- * Moerkotte &amp; Neumann, "Dynamic Programming Strikes Back" (2006).
+ * Moerkotte &amp; Neumann, "Dynamic Programming Strikes Back" (2006),
+ * with a GOO (Greedy Operator Ordering) fallback for large queries.
  *
  * <p>DPhyp efficiently enumerates <em>connected subgraph complement pairs</em>
  * (csg-cmp-pairs) to find the optimal join ordering. For n relations, it runs
  * in O(n · 3^n) vs O(4^n) for System-R style bottom-up DP.</p>
  *
- * <p>The algorithm is optimal for queries with up to ~14 relations, which covers
- * essentially all real-world JSONiq queries. For larger queries, IKKBZ
- * linearization or GOO-DP would be needed (not implemented yet).</p>
+ * <p>For queries with more than {@link #DPHYP_THRESHOLD} relations, the optimizer
+ * falls back to GOO-DP — a greedy algorithm that picks the cheapest connected
+ * pair of plans at each step, running in O(n^3) time. GOO does not guarantee
+ * global optimality but produces good plans for any practical query size.</p>
  *
- * <h3>Algorithm outline</h3>
+ * <h3>Algorithm outline (DPhyp)</h3>
  * <ol>
  *   <li>Initialize single-relation plans in the DP table</li>
  *   <li>For each relation (high to low), enumerate connected subgraphs containing it</li>
  *   <li>For each connected subgraph S1, find complement connected subgraphs S2</li>
  *   <li>For each (S1, S2) pair, compute join cost and keep the cheaper plan for S1∪S2</li>
  * </ol>
+ *
+ * <h3>Algorithm outline (GOO fallback)</h3>
+ * <ol>
+ *   <li>Create one plan per base relation</li>
+ *   <li>Greedily pick the pair of plans with the lowest join cost that share an edge</li>
+ *   <li>Merge them into a single plan and update connectivity</li>
+ *   <li>Repeat until one plan remains</li>
+ * </ol>
  */
 public final class AdaptiveJoinOrderOptimizer {
+
+  private static final Logger LOG = LoggerFactory.getLogger(AdaptiveJoinOrderOptimizer.class);
+
+  /** DPhyp is used for up to this many relations; above this threshold GOO kicks in. */
+  private static final int DPHYP_THRESHOLD = 20;
 
   private final JoinGraph graph;
   private final JsonCostModel costModel;
@@ -35,7 +52,8 @@ public final class AdaptiveJoinOrderOptimizer {
   public AdaptiveJoinOrderOptimizer(JoinGraph graph, JsonCostModel costModel) {
     this.graph = graph;
     this.costModel = costModel;
-    // Size DP table for expected number of entries (2^n in worst case)
+    // Size DP table for expected number of entries (2^n in worst case for DPhyp,
+    // but cap at 16 to avoid enormous allocations for large n in GOO path)
     final int n = graph.relationCount();
     this.dpTable = new DpTable(1 << Math.min(n, 16));
   }
@@ -43,9 +61,24 @@ public final class AdaptiveJoinOrderOptimizer {
   /**
    * Find the optimal join ordering for all relations in the graph.
    *
+   * <p>Uses DPhyp for n &le; {@link #DPHYP_THRESHOLD}, GOO otherwise.</p>
+   *
    * @return the optimal join plan, or null if the graph has no edges
    */
   public JoinPlan optimize() {
+    final int n = graph.relationCount();
+    if (n > DPHYP_THRESHOLD) {
+      LOG.info("Join graph has {} relations (> {}), using GOO greedy fallback instead of DPhyp",
+          n, DPHYP_THRESHOLD);
+      return greedyOptimize();
+    }
+    return dphypOptimize();
+  }
+
+  /**
+   * DPhyp enumeration — the optimal algorithm for small n.
+   */
+  private JoinPlan dphypOptimize() {
     final int n = graph.relationCount();
 
     // Phase 1: Initialize base relation plans
@@ -66,6 +99,101 @@ public final class AdaptiveJoinOrderOptimizer {
     }
 
     return dpTable.get(graph.fullSet());
+  }
+
+  /**
+   * GOO (Greedy Operator Ordering) — O(n^3) fallback for large join graphs.
+   *
+   * <p>Starts with one plan per base relation. At each step, finds the pair
+   * of existing plans that are connected by an edge and whose join has the
+   * lowest cost, merges them, and repeats until a single plan covers all
+   * relations.</p>
+   *
+   * <p>The algorithm does not guarantee global optimality but produces good
+   * plans for any reasonable query size.</p>
+   *
+   * @return the greedy join plan, or null if the graph is disconnected
+   */
+  private JoinPlan greedyOptimize() {
+    final int n = graph.relationCount();
+
+    // Active plans: plans[i] is null if merged into another plan.
+    // relationSets[i] tracks the bitmask of relations covered by plans[i].
+    final JoinPlan[] plans = new JoinPlan[n];
+    final long[] relationSets = new long[n];
+    int activePlanCount = n;
+
+    // Initialize one plan per base relation
+    for (int i = 0; i < n; i++) {
+      final long cardinality = graph.baseCardinality(i);
+      final double cost = graph.baseCost(i);
+      plans[i] = JoinPlan.baseRelation(i, cardinality, cost);
+      relationSets[i] = 1L << i;
+    }
+
+    // Merge plans greedily until only one remains
+    while (activePlanCount > 1) {
+      int bestI = -1;
+      int bestJ = -1;
+      double bestCost = Double.MAX_VALUE;
+
+      // Find the cheapest pair of connected plans
+      for (int i = 0; i < n; i++) {
+        if (plans[i] == null) {
+          continue;
+        }
+        for (int j = i + 1; j < n; j++) {
+          if (plans[j] == null) {
+            continue;
+          }
+          // Check if these two plans share a join edge
+          if (!graph.hasEdgeBetween(relationSets[i], relationSets[j])) {
+            continue;
+          }
+
+          final double joinCost = costModel.estimateHashJoinCost(
+              plans[i].cardinality(), plans[j].cardinality());
+          final double totalCost = plans[i].cost() + plans[j].cost() + joinCost;
+
+          if (totalCost < bestCost) {
+            bestCost = totalCost;
+            bestI = i;
+            bestJ = j;
+          }
+        }
+      }
+
+      if (bestI < 0) {
+        // No connected pair found — graph is disconnected
+        LOG.warn("GOO fallback: join graph is disconnected, cannot produce a full plan");
+        return null;
+      }
+
+      // Merge bestI and bestJ into bestI
+      final double selectivity = graph.joinSelectivity(relationSets[bestI], relationSets[bestJ]);
+      final long joinCard = costModel.estimateJoinCardinality(
+          plans[bestI].cardinality(), plans[bestJ].cardinality(), selectivity);
+      final double joinCost = costModel.estimateHashJoinCost(
+          plans[bestI].cardinality(), plans[bestJ].cardinality());
+
+      plans[bestI] = JoinPlan.join(plans[bestI], plans[bestJ], joinCost, joinCard);
+      relationSets[bestI] = relationSets[bestI] | relationSets[bestJ];
+
+      // Deactivate the merged plan
+      plans[bestJ] = null;
+      relationSets[bestJ] = 0L;
+      activePlanCount--;
+    }
+
+    // Find the surviving plan
+    for (int i = 0; i < n; i++) {
+      if (plans[i] != null) {
+        // Also put into DP table so dpTable() accessor works consistently
+        dpTable.put(relationSets[i], plans[i]);
+        return plans[i];
+      }
+    }
+    return null;
   }
 
   /**

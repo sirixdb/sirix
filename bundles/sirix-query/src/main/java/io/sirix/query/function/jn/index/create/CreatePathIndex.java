@@ -23,10 +23,10 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.query.compiler.optimizer.PlanCache;
+import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 
 import java.util.HashSet;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Function for creating path indexes on stored documents, optionally restricted to a set of paths.
@@ -101,6 +101,15 @@ public final class CreatePathIndex extends AbstractFunction {
 
     // Invalidate cached query plans so the optimizer considers this new index
     PlanCache.signalIndexSchemaChange();
+
+    // Invalidate stale histogram statistics for this resource since index schema changed
+    try {
+      final String dbName = document.getCollection().getDatabase().getName();
+      final String resName = resourceSession.getResourceConfig().getName();
+      StatisticsCatalog.getInstance().invalidate(dbName, resName);
+    } catch (final Exception e) {
+      // Histogram invalidation is best-effort; must not prevent index creation
+    }
 
     return pathIdxDef.materialize();
   }
