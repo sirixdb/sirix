@@ -5,7 +5,7 @@ plugins {
 dependencies {
     implementation project(':sirix-core')
     implementation project(':sirix-query')
-    implementation 'io.modelcontextprotocol.sdk:mcp:1.0.0' // brings Jackson 3 transitively
+    implementation 'io.modelcontextprotocol.sdk:mcp:1.1.0' // brings Jackson 3 transitively
     implementation implLibraries.slf4jApi
     implementation implLibraries.logbackClassic
 
