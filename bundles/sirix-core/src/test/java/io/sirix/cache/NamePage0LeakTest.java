@@ -12,8 +12,6 @@ import org.junit.Test;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-import static org.junit.Assert.*;
-
 /**
  * Specific test to track down the 12 NAME Page 0 finalizer leaks.
  */

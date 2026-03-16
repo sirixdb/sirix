@@ -16,7 +16,8 @@ import org.junit.Test;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 /**
  * Verify that BOTH RecordPageCache AND RecordPageFragmentCache are scanned for pins.
