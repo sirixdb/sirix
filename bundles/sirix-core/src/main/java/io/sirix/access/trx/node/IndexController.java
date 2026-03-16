@@ -5,6 +5,7 @@ import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
@@ -250,6 +251,35 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    */
   default VectorSearchResult searchVectorIndex(StorageEngineReader storageEngineReader, IndexDef indexDef,
       float[] query, int k) {
+    throw new IllegalStateException("This document does not support vector indexes.");
+  }
+
+  /**
+   * Searches the vector index for the k nearest neighbors with a caller-provided efSearch.
+   *
+   * @param storageEngineReader the storage engine reader for the target revision
+   * @param indexDef the vector index definition
+   * @param query the query vector (must match indexDef dimension)
+   * @param k the number of nearest neighbors to return
+   * @param efSearch the efSearch parameter override for this query
+   * @return the search result containing document node keys and distances
+   * @throws IllegalStateException if no vector index support is available
+   */
+  default VectorSearchResult searchVectorIndex(StorageEngineReader storageEngineReader, IndexDef indexDef,
+      float[] query, int k, int efSearch) {
+    throw new IllegalStateException("This document does not support vector indexes.");
+  }
+
+  /**
+   * Tombstone-deletes a vector entry from the HNSW graph by its HNSW node key.
+   *
+   * @param storageEngineWriter the storage engine writer for page-level operations
+   * @param indexDef the vector index definition
+   * @param hnswNodeKey the HNSW-internal node key to delete
+   * @throws IllegalStateException if no vector index support is available
+   */
+  default void deleteVectorEntry(StorageEngineWriter storageEngineWriter, IndexDef indexDef,
+      long hnswNodeKey) {
     throw new IllegalStateException("This document does not support vector indexes.");
   }
 

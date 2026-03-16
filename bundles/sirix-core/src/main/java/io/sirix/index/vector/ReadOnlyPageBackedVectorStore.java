@@ -172,4 +172,19 @@ public final class ReadOnlyPageBackedVectorStore implements VectorStore {
   public int getDimension() {
     return cachedDimension;
   }
+
+  @Override
+  public void markDeleted(final long nodeKey) {
+    throw new UnsupportedOperationException("Read-only vector store does not support mutations");
+  }
+
+  @Override
+  public boolean isDeleted(final long nodeKey) {
+    final VectorNode node = storageEngineReader.getRecord(
+        nodeKey, IndexType.VECTOR, indexNumber);
+    if (node == null) {
+      throw new IllegalArgumentException("No vector node at key: " + nodeKey);
+    }
+    return node.isDeleted();
+  }
 }

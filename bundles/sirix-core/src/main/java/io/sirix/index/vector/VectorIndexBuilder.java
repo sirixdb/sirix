@@ -46,13 +46,11 @@ import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 
 /**
- * Stub builder for vector indexes. Vector indexes are typically populated
- * explicitly via the API (not by traversing the document tree), so this
- * builder is a no-op that simply implements the {@link JsonNodeVisitor}
- * contract.
- *
- * <p>Future implementations may support automatic vector extraction from
- * document nodes matching a path pattern defined in the {@link IndexDef}.</p>
+ * Intentionally minimal builder for vector indexes. Vector indexes are populated
+ * exclusively via the explicit API ({@link io.sirix.index.vector.VectorIndex#insertVector})
+ * rather than through document tree traversal. This builder implements the
+ * {@link JsonNodeVisitor} contract as a no-op so it can be registered in the
+ * standard index lifecycle without requiring special-case handling.
  *
  * @author Johannes Lichtenberger
  */

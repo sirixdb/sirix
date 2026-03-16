@@ -67,7 +67,7 @@ public interface VectorIndex {
       long documentNodeKey, float[] vector);
 
   /**
-   * Searches for the k nearest neighbors to the query vector.
+   * Searches for the k nearest neighbors to the query vector using the default efSearch.
    *
    * @param reader   the storage engine reader for the target revision
    * @param indexDef the vector index definition
@@ -78,4 +78,29 @@ public interface VectorIndex {
    */
   VectorSearchResult searchKnn(StorageEngineReader reader, IndexDef indexDef,
       float[] query, int k);
+
+  /**
+   * Searches for the k nearest neighbors to the query vector with a caller-provided efSearch.
+   *
+   * @param reader   the storage engine reader for the target revision
+   * @param indexDef the vector index definition
+   * @param query    the query vector (must match indexDef dimension)
+   * @param k        the number of nearest neighbors to return
+   * @param efSearch the efSearch parameter to override the index default
+   * @return the search result containing document node keys and distances
+   * @throws IllegalArgumentException if k <= 0 or efSearch <= 0 or query dimension does not match
+   */
+  VectorSearchResult searchKnn(StorageEngineReader reader, IndexDef indexDef,
+      float[] query, int k, int efSearch);
+
+  /**
+   * Tombstone-deletes a vector from the HNSW graph. The vector node is marked as deleted
+   * and excluded from future search results, but remains in the graph for neighbor traversal.
+   *
+   * @param writer       the storage engine writer
+   * @param indexDef     the vector index definition
+   * @param hnswNodeKey  the HNSW-internal node key of the vector to delete
+   * @throws IllegalArgumentException if the node key does not exist
+   */
+  void deleteVector(StorageEngineWriter writer, IndexDef indexDef, long hnswNodeKey);
 }

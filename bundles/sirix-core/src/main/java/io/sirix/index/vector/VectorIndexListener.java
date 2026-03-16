@@ -39,12 +39,17 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Stub change listener for vector indexes. Vector indexes are typically
- * populated explicitly via the API, not through the document change listener
- * pathway, so this listener is a no-op.
+ * Intentionally minimal change listener for vector indexes. Vector indexes are
+ * populated and deleted exclusively via the explicit API
+ * ({@link io.sirix.index.vector.VectorIndex#insertVector} and
+ * {@link io.sirix.index.vector.VectorIndex#deleteVector}) rather than through
+ * the document change listener pathway. This listener implements the
+ * {@link ChangeListener} and {@link PathNodeKeyChangeListener} contracts as
+ * no-ops so it can be registered in the standard index lifecycle.
  *
- * <p>Future implementations may support incremental vector updates when
- * document nodes matching a path pattern are modified.</p>
+ * <p>Automatic deletion of vector entries when document nodes are removed would
+ * require a reverse mapping from document node keys to HNSW node keys, which is
+ * not yet implemented.</p>
  *
  * @author Johannes Lichtenberger
  */

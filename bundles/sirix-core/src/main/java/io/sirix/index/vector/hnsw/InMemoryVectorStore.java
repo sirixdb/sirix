@@ -2,7 +2,9 @@ package io.sirix.index.vector.hnsw;
 
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * In-memory implementation of {@link VectorStore} for testing the HNSW algorithm in isolation.
@@ -16,6 +18,8 @@ public final class InMemoryVectorStore implements VectorStore {
   private final Map<Long, long[][]> neighborLists;  // nodeKey -> layer -> neighbor keys
   private final Map<Long, int[]> neighborCounts;     // nodeKey -> layer -> count
   private final Map<Long, Integer> maxLayers;        // nodeKey -> max layer
+
+  private final Set<Long> deletedKeys;
 
   private long entryPointKey = -1;
   private int maxLevel = -1;
@@ -35,6 +39,7 @@ public final class InMemoryVectorStore implements VectorStore {
     this.neighborLists = new HashMap<>(1024);
     this.neighborCounts = new HashMap<>(1024);
     this.maxLayers = new HashMap<>(1024);
+    this.deletedKeys = new HashSet<>();
   }
 
   @Override
@@ -136,5 +141,18 @@ public final class InMemoryVectorStore implements VectorStore {
   @Override
   public int getDimension() {
     return dimension;
+  }
+
+  @Override
+  public void markDeleted(final long nodeKey) {
+    if (!vectors.containsKey(nodeKey)) {
+      throw new IllegalArgumentException("Node key not found: " + nodeKey);
+    }
+    deletedKeys.add(nodeKey);
+  }
+
+  @Override
+  public boolean isDeleted(final long nodeKey) {
+    return deletedKeys.contains(nodeKey);
   }
 }

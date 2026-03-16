@@ -44,6 +44,8 @@ public final class IndexDef implements Materializable {
 
   private static final QNm HNSW_EF_CONSTRUCTION_ATTRIBUTE = new QNm("hnswEfConstruction");
 
+  private static final QNm HNSW_EF_SEARCH_ATTRIBUTE = new QNm("hnswEfSearch");
+
   public static final QNm INDEX_TAG = new QNm("index");
 
   private DbType dbType;
@@ -68,6 +70,8 @@ public final class IndexDef implements Materializable {
   private int hnswM = 16;
 
   private int hnswEfConstruction = 200;
+
+  private int hnswEfSearch = 50;
 
   public enum DbType {
     XML,
@@ -134,6 +138,24 @@ public final class IndexDef implements Materializable {
     this.paths.addAll(paths);
     this.hnswM = hnswM;
     this.hnswEfConstruction = hnswEfConstruction;
+    this.hnswEfSearch = 50;
+    id = indexDefNo;
+    this.dbType = dbType;
+  }
+
+  /**
+   * Vector index with custom efSearch.
+   */
+  IndexDef(final int dimension, final String distanceType, final Set<Path<QNm>> paths,
+      final int hnswM, final int hnswEfConstruction, final int hnswEfSearch,
+      final int indexDefNo, final DbType dbType) {
+    type = IndexType.VECTOR;
+    this.dimension = dimension;
+    this.distanceType = requireNonNull(distanceType);
+    this.paths.addAll(paths);
+    this.hnswM = hnswM;
+    this.hnswEfConstruction = hnswEfConstruction;
+    this.hnswEfSearch = hnswEfSearch;
     id = indexDefNo;
     this.dbType = dbType;
   }
@@ -160,6 +182,7 @@ public final class IndexDef implements Materializable {
       tmp.attribute(DISTANCE_TYPE_ATTRIBUTE, new Una(distanceType));
       tmp.attribute(HNSW_M_ATTRIBUTE, new Una(Integer.toString(hnswM)));
       tmp.attribute(HNSW_EF_CONSTRUCTION_ATTRIBUTE, new Una(Integer.toString(hnswEfConstruction)));
+      tmp.attribute(HNSW_EF_SEARCH_ATTRIBUTE, new Una(Integer.toString(hnswEfSearch)));
     }
 
     if (!paths.isEmpty()) {
@@ -260,6 +283,11 @@ public final class IndexDef implements Materializable {
       hnswEfConstruction = Integer.parseInt(attribute.getValue().stringValue());
     }
 
+    attribute = root.getAttribute(HNSW_EF_SEARCH_ATTRIBUTE);
+    if (attribute != null) {
+      hnswEfSearch = Integer.parseInt(attribute.getValue().stringValue());
+    }
+
     try (Stream<? extends Node<?>> children = root.getChildren()) {
       Node<?> child;
       while ((child = children.next()) != null) {
@@ -335,6 +363,10 @@ public final class IndexDef implements Materializable {
 
   public int getHnswEfConstruction() {
     return hnswEfConstruction;
+  }
+
+  public int getHnswEfSearch() {
+    return hnswEfSearch;
   }
 
   public boolean isUnique() {

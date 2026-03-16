@@ -105,4 +105,24 @@ public final class IndexDefs {
       final int indexDefNo, final IndexDef.DbType dbType) {
     return new IndexDef(dimension, distanceType, paths, hnswM, hnswEfConstruction, indexDefNo, dbType);
   }
+
+  /**
+   * Create a vector {@link IndexDef} with custom HNSW parameters including efSearch.
+   *
+   * @param dimension the vector dimension
+   * @param distanceType the distance metric ("L2", "COSINE", "INNER_PRODUCT")
+   * @param paths the paths to index
+   * @param hnswM the HNSW M parameter (max connections per layer)
+   * @param hnswEfConstruction the HNSW efConstruction parameter (candidate list size during build)
+   * @param hnswEfSearch the HNSW efSearch parameter (candidate list size during search)
+   * @param indexDefNo the index definition number
+   * @param dbType the database type
+   * @return a new vector {@link IndexDef} instance
+   */
+  public static IndexDef createVectorIdxDef(final int dimension, final String distanceType,
+      final Set<Path<QNm>> paths, final int hnswM, final int hnswEfConstruction,
+      final int hnswEfSearch, final int indexDefNo, final IndexDef.DbType dbType) {
+    return new IndexDef(dimension, distanceType, paths, hnswM, hnswEfConstruction,
+        hnswEfSearch, indexDefNo, dbType);
+  }
 }

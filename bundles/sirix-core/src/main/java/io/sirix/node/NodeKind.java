@@ -1590,9 +1590,17 @@ public enum NodeKind implements DeweyIdSerializer {
    * HNSW vector graph node storing an embedding vector and per-layer neighbor lists.
    */
   VECTOR_NODE((byte) 56) {
+    /** Current serialization format version. */
+    private static final byte CURRENT_VERSION = 1;
+
     @Override
     public DataRecord deserialize(final BytesIn<?> source, final long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // Version byte (added in version 1).
+      final byte version = source.readByte();
+      if (version != 1) {
+        throw new IllegalStateException("Unknown VECTOR_NODE version: " + version);
+      }
       // Document node key (delta from recordID).
       final long documentNodeKey = recordID + getVarLong(source);
       // Vector dimension and raw float data.
@@ -1625,8 +1633,10 @@ public enum NodeKind implements DeweyIdSerializer {
       }
       // Revision number.
       final int previousRevision = (int) getVarLong(source);
+      // Deleted flag (version 1).
+      final boolean deleted = source.readByte() != 0;
       return new VectorNode(recordID, documentNodeKey, vector, maxLayer,
-          neighbors, neighborCounts, previousRevision);
+          neighbors, neighborCounts, previousRevision, deleted);
     }
 
     @Override
@@ -1634,6 +1644,8 @@ public enum NodeKind implements DeweyIdSerializer {
         final ResourceConfiguration resourceConfiguration) {
       final VectorNode node = (VectorNode) record;
       final long nodeKey = node.getNodeKey();
+      // Version byte.
+      sink.writeByte(CURRENT_VERSION);
       // Document node key (delta from nodeKey).
       putVarLong(sink, node.getDocumentNodeKey() - nodeKey);
       // Vector dimension and raw float data.
@@ -1664,6 +1676,8 @@ public enum NodeKind implements DeweyIdSerializer {
       }
       // Revision number.
       putVarLong(sink, node.getPreviousRevisionNumber());
+      // Deleted flag.
+      sink.writeByte(node.isDeleted() ? (byte) 1 : (byte) 0);
     }
 
     @Override
@@ -1684,9 +1698,17 @@ public enum NodeKind implements DeweyIdSerializer {
    * Stores graph-level metadata: entry point, max level, dimension, distance type, node count.
    */
   VECTOR_INDEX_METADATA((byte) 58) {
+    /** Current serialization format version. */
+    private static final byte CURRENT_VERSION = 1;
+
     @Override
     public DataRecord deserialize(final BytesIn<?> source, final long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // Version byte.
+      final byte version = source.readByte();
+      if (version != 1) {
+        throw new IllegalStateException("Unknown VECTOR_INDEX_METADATA version: " + version);
+      }
       final long entryPointKey = source.readLong();
       final int maxLevel = (int) getVarLong(source);
       final int dimension = (int) getVarLong(source);
@@ -1705,6 +1727,8 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final VectorIndexMetadataNode node = (VectorIndexMetadataNode) record;
+      // Version byte.
+      sink.writeByte(CURRENT_VERSION);
       sink.writeLong(node.getEntryPointKey());
       putVarLong(sink, node.getMaxLevel());
       putVarLong(sink, node.getDimension());

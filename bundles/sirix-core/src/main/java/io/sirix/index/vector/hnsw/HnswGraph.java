@@ -156,13 +156,25 @@ public final class HnswGraph {
   }
 
   /**
-   * Finds the k nearest neighbors to the query vector.
+   * Finds the k nearest neighbors to the query vector using the default efSearch parameter.
    *
    * @param query the query vector
    * @param k     the number of nearest neighbors to return
    * @return array of node keys sorted by distance ascending (nearest first), length &lt;= k
    */
   public long[] searchKnn(final float[] query, final int k) {
+    return searchKnn(query, k, params.efSearch());
+  }
+
+  /**
+   * Finds the k nearest neighbors to the query vector with a caller-provided efSearch override.
+   *
+   * @param query           the query vector
+   * @param k               the number of nearest neighbors to return
+   * @param efSearchOverride the efSearch value to use (overrides the default from params)
+   * @return array of node keys sorted by distance ascending (nearest first), length &lt;= k
+   */
+  public long[] searchKnn(final float[] query, final int k, final int efSearchOverride) {
     if (query == null || query.length < params.dimension()) {
       throw new IllegalArgumentException("Query vector must have at least " + params.dimension() + " dimensions");
     }
@@ -173,6 +185,9 @@ public final class HnswGraph {
     }
     if (k <= 0) {
       throw new IllegalArgumentException("k must be positive: " + k);
+    }
+    if (efSearchOverride <= 0) {
+      throw new IllegalArgumentException("efSearchOverride must be positive: " + efSearchOverride);
     }
 
     final long epKey = store.getEntryPointKey();
@@ -194,6 +209,9 @@ public final class HnswGraph {
         final int neighborCount = store.getNeighborCount(currentEp, level);
         for (int i = 0; i < neighborCount; i++) {
           final long neighborKey = neighbors[i];
+          if (store.isDeleted(neighborKey)) {
+            continue;
+          }
           final float dist = distanceFunction.distance(query, store.getVector(neighborKey));
           if (dist < epDist) {
             epDist = dist;
@@ -204,18 +222,37 @@ public final class HnswGraph {
       }
     }
 
-    // Phase 2: Search layer 0 with efSearch
-    final int ef = Math.max(params.efSearch(), k);
+    // Phase 2: Search layer 0 with efSearch override
+    final int ef = Math.max(efSearchOverride, k);
     searchLayer(currentEp, query, ef, 0);
 
-    // Extract top-k from result heap
-    // resultHeap is a max-heap; we want the k closest
-    // First, trim the result heap to k elements
-    while (resultHeap.size() > k) {
-      resultHeap.poll();
+    // Filter out deleted nodes and extract top-k from result heap.
+    // resultHeap is a max-heap; drain all, filter deleted, keep closest k.
+    final int totalResults = resultHeap.size();
+    final long[] allKeys = new long[totalResults];
+    final float[] allDists = new float[totalResults];
+    for (int i = totalResults - 1; i >= 0; i--) {
+      allDists[i] = resultHeap.peekDistance();
+      allKeys[i] = resultHeap.poll();
     }
 
-    return resultHeap.toSortedKeysAscending();
+    // Filter deleted and collect up to k results (already sorted ascending by distance).
+    final long[] filteredKeys = new long[Math.min(k, totalResults)];
+    int filteredCount = 0;
+    for (int i = 0; i < totalResults && filteredCount < k; i++) {
+      if (!store.isDeleted(allKeys[i])) {
+        filteredKeys[filteredCount] = allKeys[i];
+        filteredCount++;
+      }
+    }
+
+    if (filteredCount == filteredKeys.length) {
+      return filteredKeys;
+    }
+    // Trim to actual count.
+    final long[] trimmed = new long[filteredCount];
+    System.arraycopy(filteredKeys, 0, trimmed, 0, filteredCount);
+    return trimmed;
   }
 
   /**
@@ -248,15 +285,19 @@ public final class HnswGraph {
 
     visited.add(entryPointKey);
     candidateHeap.insert(entryPointKey, epDist);
-    resultHeap.insert(entryPointKey, epDist);
+    // Only add to result heap if not deleted; still add to candidate heap
+    // so we can explore the deleted node's neighbors for graph connectivity.
+    if (!store.isDeleted(entryPointKey)) {
+      resultHeap.insert(entryPointKey, epDist);
+    }
 
     while (!candidateHeap.isEmpty()) {
       final float candidateDist = candidateHeap.peekDistance();
       final long candidateKey = candidateHeap.poll();
 
-      // Stop if the closest candidate is farther than the farthest result
-      final float farthestResult = resultHeap.peekDistance();
-      if (candidateDist > farthestResult) {
+      // Stop if the closest candidate is farther than the farthest result.
+      // If result heap is empty (all seen nodes were deleted), keep exploring.
+      if (resultHeap.size() > 0 && candidateDist > resultHeap.peekDistance()) {
         break;
       }
 
@@ -273,14 +314,24 @@ public final class HnswGraph {
         visited.add(neighborKey);
 
         final float dist = distanceFunction.distance(query, store.getVector(neighborKey));
-        final float currentFarthest = resultHeap.peekDistance();
+        final boolean neighborDeleted = store.isDeleted(neighborKey);
 
-        if (dist < currentFarthest || resultHeap.size() < ef) {
+        // Use the farthest result distance as threshold, or allow everything if results are
+        // not yet full. This ensures graph traversal continues through deleted nodes.
+        final boolean resultNotFull = resultHeap.size() < ef;
+        final boolean closerThanFarthest = resultHeap.size() > 0
+            && dist < resultHeap.peekDistance();
+
+        if (closerThanFarthest || resultNotFull) {
+          // Always add to candidate heap so we can explore through deleted nodes.
           candidateHeap.insert(neighborKey, dist);
-          resultHeap.insert(neighborKey, dist);
 
-          if (resultHeap.size() > ef) {
-            resultHeap.poll();
+          // Only add non-deleted nodes to the result heap.
+          if (!neighborDeleted) {
+            resultHeap.insert(neighborKey, dist);
+            if (resultHeap.size() > ef) {
+              resultHeap.poll();
+            }
           }
         }
       }

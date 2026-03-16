@@ -138,8 +138,37 @@ public final class JsonVectorIndexImpl implements VectorIndex {
   }
 
   @Override
+  public void deleteVector(final StorageEngineWriter writer, final IndexDef indexDef,
+      final long hnswNodeKey) {
+    if (writer == null) {
+      throw new IllegalArgumentException("writer must not be null");
+    }
+    if (indexDef == null) {
+      throw new IllegalArgumentException("indexDef must not be null");
+    }
+    if (indexDef.getType() != IndexType.VECTOR) {
+      throw new IllegalArgumentException("indexDef must be of type VECTOR, was: " + indexDef.getType());
+    }
+
+    final int indexNumber = indexDef.getID();
+    final int dimension = indexDef.getDimension();
+    final String distanceType = indexDef.getDistanceType();
+
+    final PageBackedVectorStore store = new PageBackedVectorStore(
+        writer, indexNumber, dimension, distanceType);
+    store.loadMetadata(METADATA_NODE_KEY);
+    store.markDeleted(hnswNodeKey);
+  }
+
+  @Override
   public VectorSearchResult searchKnn(final StorageEngineReader reader, final IndexDef indexDef,
       final float[] query, final int k) {
+    return searchKnn(reader, indexDef, query, k, indexDef.getHnswEfSearch());
+  }
+
+  @Override
+  public VectorSearchResult searchKnn(final StorageEngineReader reader, final IndexDef indexDef,
+      final float[] query, final int k, final int efSearch) {
     if (reader == null) {
       throw new IllegalArgumentException("reader must not be null");
     }
@@ -151,6 +180,9 @@ public final class JsonVectorIndexImpl implements VectorIndex {
     }
     if (k <= 0) {
       throw new IllegalArgumentException("k must be positive, was: " + k);
+    }
+    if (efSearch <= 0) {
+      throw new IllegalArgumentException("efSearch must be positive, was: " + efSearch);
     }
     if (indexDef.getType() != IndexType.VECTOR) {
       throw new IllegalArgumentException("indexDef must be of type VECTOR, was: " + indexDef.getType());
@@ -180,13 +212,15 @@ public final class JsonVectorIndexImpl implements VectorIndex {
     final HnswParams params = HnswParams.builder(dimension, distType)
         .m(indexDef.getHnswM())
         .efConstruction(indexDef.getHnswEfConstruction())
+        .efSearch(efSearch)
         .build();
 
     // Create graph for navigation (read-only — no inserts).
     final HnswGraph graph = new HnswGraph(roStore, params);
 
-    // Perform the k-NN search. Returns HNSW internal node keys sorted by distance.
-    final long[] hnswNodeKeys = graph.searchKnn(query, k);
+    // Perform the k-NN search with the provided efSearch. Returns HNSW internal node keys
+    // sorted by distance.
+    final long[] hnswNodeKeys = graph.searchKnn(query, k, efSearch);
 
     if (hnswNodeKeys.length == 0) {
       return VectorSearchResult.empty();

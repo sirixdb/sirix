@@ -160,6 +160,24 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
+  public VectorSearchResult searchVectorIndex(final StorageEngineReader storageEngineReader,
+      final IndexDef indexDef, final float[] query, final int k, final int efSearch) {
+    if (vectorIndex == null) {
+      throw new IllegalStateException("This document does not support vector indexes.");
+    }
+    return vectorIndex.searchKnn(storageEngineReader, indexDef, query, k, efSearch);
+  }
+
+  @Override
+  public void deleteVectorEntry(final StorageEngineWriter storageEngineWriter,
+      final IndexDef indexDef, final long hnswNodeKey) {
+    if (vectorIndex == null) {
+      throw new IllegalStateException("This document does not support vector indexes.");
+    }
+    vectorIndex.deleteVector(storageEngineWriter, indexDef, hnswNodeKey);
+  }
+
+  @Override
   public Indexes getIndexes() {
     return indexes;
   }

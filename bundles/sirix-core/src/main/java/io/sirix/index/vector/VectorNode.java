@@ -76,6 +76,9 @@ public final class VectorNode implements DataRecord {
   /** The revision number when this node was last persisted. */
   private final int previousRevisionNumber;
 
+  /** Whether this vector node has been tombstone-deleted. */
+  private boolean deleted;
+
   /**
    * Constructor for creating a new VectorNode (no neighbors yet).
    *
@@ -109,10 +112,12 @@ public final class VectorNode implements DataRecord {
       this.neighbors[i] = new long[0];
     }
     this.previousRevisionNumber = previousRevisionNumber;
+    this.deleted = false;
   }
 
   /**
-   * Constructor for deserialization (all fields provided).
+   * Constructor for deserialization (all fields provided, without deleted flag).
+   * The node is not deleted by default.
    *
    * @param nodeKey                unique node key
    * @param documentNodeKey        the document node this vector belongs to
@@ -126,6 +131,26 @@ public final class VectorNode implements DataRecord {
   public VectorNode(final long nodeKey, final long documentNodeKey, final float[] vector,
       final int maxLayer, final long[][] neighbors, final int[] neighborCounts,
       final int previousRevisionNumber) {
+    this(nodeKey, documentNodeKey, vector, maxLayer, neighbors, neighborCounts,
+        previousRevisionNumber, false);
+  }
+
+  /**
+   * Constructor for deserialization (all fields provided, including deleted flag).
+   *
+   * @param nodeKey                unique node key
+   * @param documentNodeKey        the document node this vector belongs to
+   * @param vector                 the embedding vector (must not be null)
+   * @param maxLayer               maximum HNSW layer (0-based, >= 0)
+   * @param neighbors              per-layer neighbor arrays (must not be null, length == maxLayer + 1)
+   * @param neighborCounts         per-layer neighbor counts (must not be null, length == maxLayer + 1)
+   * @param previousRevisionNumber the revision number
+   * @param deleted                whether this node is tombstone-deleted
+   * @throws IllegalArgumentException if any argument is invalid
+   */
+  public VectorNode(final long nodeKey, final long documentNodeKey, final float[] vector,
+      final int maxLayer, final long[][] neighbors, final int[] neighborCounts,
+      final int previousRevisionNumber, final boolean deleted) {
     if (vector == null) {
       throw new IllegalArgumentException("Vector must not be null");
     }
@@ -149,6 +174,24 @@ public final class VectorNode implements DataRecord {
     this.neighbors = neighbors;
     this.neighborCounts = neighborCounts;
     this.previousRevisionNumber = previousRevisionNumber;
+    this.deleted = deleted;
+  }
+
+  /**
+   * Returns whether this vector node has been tombstone-deleted.
+   *
+   * @return true if this node is deleted
+   */
+  public boolean isDeleted() {
+    return deleted;
+  }
+
+  /**
+   * Marks this vector node as tombstone-deleted. Once deleted, the node is excluded
+   * from search results but remains in the graph for neighbor traversal continuity.
+   */
+  public void markDeleted() {
+    this.deleted = true;
   }
 
   /**
@@ -270,6 +313,7 @@ public final class VectorNode implements DataRecord {
     result = 31 * result + Long.hashCode(documentNodeKey);
     result = 31 * result + Arrays.hashCode(vector);
     result = 31 * result + maxLayer;
+    result = 31 * result + Boolean.hashCode(deleted);
     return result;
   }
 
@@ -284,6 +328,7 @@ public final class VectorNode implements DataRecord {
     return nodeKey == other.nodeKey
         && documentNodeKey == other.documentNodeKey
         && maxLayer == other.maxLayer
+        && deleted == other.deleted
         && Arrays.equals(vector, other.vector)
         && Arrays.equals(neighborCounts, other.neighborCounts)
         && deepEqualsNeighbors(other);
@@ -318,6 +363,7 @@ public final class VectorNode implements DataRecord {
         + ", documentNodeKey=" + documentNodeKey
         + ", dimension=" + vector.length
         + ", maxLayer=" + maxLayer
+        + ", deleted=" + deleted
         + ", previousRevision=" + previousRevisionNumber + '}';
   }
 }

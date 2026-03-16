@@ -91,4 +91,21 @@ public interface VectorStore {
    * @return the vector dimension
    */
   int getDimension();
+
+  /**
+   * Marks a vector node as tombstone-deleted. The node remains in the graph
+   * for neighbor traversal continuity but is excluded from search results.
+   *
+   * @param nodeKey the node key of the vector to mark as deleted
+   * @throws UnsupportedOperationException if this store is read-only
+   */
+  void markDeleted(long nodeKey);
+
+  /**
+   * Checks whether a vector node has been tombstone-deleted.
+   *
+   * @param nodeKey the node key to check
+   * @return true if the node is deleted, false otherwise
+   */
+  boolean isDeleted(long nodeKey);
 }

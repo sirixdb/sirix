@@ -291,6 +291,38 @@ public final class PageBackedVectorStore implements VectorStore {
     return dimension;
   }
 
+  @Override
+  public void markDeleted(final long nodeKey) {
+    // Prepare the record for modification — this copies the record from the complete page
+    // to the modified page and returns a mutable reference.
+    final VectorNode node = storageEngineWriter.prepareRecordForModification(
+        nodeKey, IndexType.VECTOR, indexNumber);
+    if (node == null) {
+      throw new IllegalArgumentException("No vector node at key: " + nodeKey);
+    }
+    node.markDeleted();
+
+    // Decrement node count in metadata.
+    if (metadataInitialized && metadataNodeKey >= 0) {
+      final VectorIndexMetadataNode metadata = storageEngineWriter.prepareRecordForModification(
+          metadataNodeKey, IndexType.VECTOR, indexNumber);
+      final long currentCount = metadata.getNodeCount();
+      if (currentCount > 0) {
+        metadata.setNodeCount(currentCount - 1);
+      }
+    }
+  }
+
+  @Override
+  public boolean isDeleted(final long nodeKey) {
+    final VectorNode node = storageEngineWriter.getRecord(
+        nodeKey, IndexType.VECTOR, indexNumber);
+    if (node == null) {
+      throw new IllegalArgumentException("No vector node at key: " + nodeKey);
+    }
+    return node.isDeleted();
+  }
+
   /**
    * Validates that a vector is non-null, has the expected dimension, and contains no NaN or
    * Infinity values.
