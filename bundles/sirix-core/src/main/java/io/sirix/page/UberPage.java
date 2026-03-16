@@ -183,7 +183,7 @@ public final class UberPage implements Page {
   public int[] getPageCountExp(final IndexType indexType) {
     return switch (indexType) {
       case PATH_SUMMARY -> Constants.PATHINP_LEVEL_PAGE_COUNT_EXPONENT;
-      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, DEWEYID_TO_RECORDID, PATH, CAS, NAME ->
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, DEWEYID_TO_RECORDID, PATH, CAS, NAME, VECTOR ->
         Constants.INP_LEVEL_PAGE_COUNT_EXPONENT;
       case REVISIONS -> Constants.UBPINP_LEVEL_PAGE_COUNT_EXPONENT;
       // $CASES-OMITTED$

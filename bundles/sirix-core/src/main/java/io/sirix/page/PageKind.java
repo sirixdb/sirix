@@ -477,7 +477,7 @@ public enum PageKind {
 
       switch (binaryVersion) {
         case V0 -> {
-          Page delegate = new BitmapReferencesPage(8, source, type);
+          Page delegate = new BitmapReferencesPage(9, source, type);
           final int revision = source.readInt();
           final long maxNodeKeyInDocumentIndex = source.readLong();
           final long maxNodeKeyInChangedNodesIndex = source.readLong();
@@ -1136,6 +1136,54 @@ public enum PageKind {
         sink.write(data);
       } catch (IOException e) {
         throw new UncheckedIOException("Failed to serialize BitmapChunkPage", e);
+      }
+    }
+  },
+
+  /**
+   * {@link VectorPage}.
+   */
+  VECTORPAGE((byte) 15, VectorPage.class) {
+    @Override
+    public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+
+      switch (binaryVersion) {
+        case V0 -> {
+          final Page delegate = PageUtils.createDelegate(source, type);
+
+          final Int2LongMap maxNodeKeys = PageKind.deserializeMaxNodeKeys(source);
+          final Int2IntMap currentMaxLevelsOfIndirectPages =
+              PageKind.deserializeCurrentMaxLevelsOfIndirectPages(source);
+
+          return new VectorPage(delegate, maxNodeKeys, currentMaxLevelsOfIndirectPages);
+        }
+        default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      }
+    }
+
+    @Override
+    public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
+        final SerializationType type) {
+      final VectorPage vectorPage = (VectorPage) page;
+      final Page delegate = vectorPage.delegate();
+      sink.writeByte(VECTORPAGE.id);
+      sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
+
+      PageKind.writeDelegateType(delegate, sink);
+      PageKind.serializeDelegate(sink, delegate, type);
+
+      final int maxNodeKeySize = vectorPage.getMaxNodeKeySize();
+      sink.writeInt(maxNodeKeySize);
+      for (int i = 0; i < maxNodeKeySize; i++) {
+        sink.writeLong(vectorPage.getMaxNodeKey(i));
+      }
+
+      final int currentMaxLevelOfIndirectPagesSize = vectorPage.getCurrentMaxLevelOfIndirectPagesSize();
+      sink.writeInt(currentMaxLevelOfIndirectPagesSize);
+      for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
+        sink.writeByte((byte) vectorPage.getCurrentMaxLevelOfIndirectPages(i));
       }
     }
   };

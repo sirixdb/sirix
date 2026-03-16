@@ -36,6 +36,14 @@ public final class IndexDef implements Materializable {
 
   private static final QNm ID_ATTRIBUTE = new QNm("id");
 
+  private static final QNm DIMENSION_ATTRIBUTE = new QNm("dimension");
+
+  private static final QNm DISTANCE_TYPE_ATTRIBUTE = new QNm("distanceType");
+
+  private static final QNm HNSW_M_ATTRIBUTE = new QNm("hnswM");
+
+  private static final QNm HNSW_EF_CONSTRUCTION_ATTRIBUTE = new QNm("hnswEfConstruction");
+
   public static final QNm INDEX_TAG = new QNm("index");
 
   private DbType dbType;
@@ -50,6 +58,16 @@ public final class IndexDef implements Materializable {
 
   // populated when index is built
   private int id;
+
+  // vector index fields
+  private int dimension;
+
+  // Store as string to avoid circular dep — "L2", "COSINE", "INNER_PRODUCT"
+  private String distanceType;
+
+  private int hnswM = 16;
+
+  private int hnswEfConstruction = 200;
 
   public enum DbType {
     XML,
@@ -105,6 +123,21 @@ public final class IndexDef implements Materializable {
     this.dbType = dbType;
   }
 
+  /**
+   * Vector index.
+   */
+  IndexDef(final int dimension, final String distanceType, final Set<Path<QNm>> paths,
+      final int hnswM, final int hnswEfConstruction, final int indexDefNo, final DbType dbType) {
+    type = IndexType.VECTOR;
+    this.dimension = dimension;
+    this.distanceType = requireNonNull(distanceType);
+    this.paths.addAll(paths);
+    this.hnswM = hnswM;
+    this.hnswEfConstruction = hnswEfConstruction;
+    id = indexDefNo;
+    this.dbType = dbType;
+  }
+
   @Override
   public Node<?> materialize() throws DocumentException {
     final FragmentHelper tmp = new FragmentHelper();
@@ -120,6 +153,13 @@ public final class IndexDef implements Materializable {
 
     if (unique) {
       tmp.attribute(UNIQUE_ATTRIBUTE, new Una(Boolean.toString(unique)));
+    }
+
+    if (type == IndexType.VECTOR) {
+      tmp.attribute(DIMENSION_ATTRIBUTE, new Una(Integer.toString(dimension)));
+      tmp.attribute(DISTANCE_TYPE_ATTRIBUTE, new Una(distanceType));
+      tmp.attribute(HNSW_M_ATTRIBUTE, new Una(Integer.toString(hnswM)));
+      tmp.attribute(HNSW_EF_CONSTRUCTION_ATTRIBUTE, new Una(Integer.toString(hnswEfConstruction)));
     }
 
     if (!paths.isEmpty()) {
@@ -200,6 +240,26 @@ public final class IndexDef implements Materializable {
                      .orElseThrow(() -> new DocumentException("Invalid db type"));
     }
 
+    attribute = root.getAttribute(DIMENSION_ATTRIBUTE);
+    if (attribute != null) {
+      dimension = Integer.parseInt(attribute.getValue().stringValue());
+    }
+
+    attribute = root.getAttribute(DISTANCE_TYPE_ATTRIBUTE);
+    if (attribute != null) {
+      distanceType = attribute.getValue().stringValue();
+    }
+
+    attribute = root.getAttribute(HNSW_M_ATTRIBUTE);
+    if (attribute != null) {
+      hnswM = Integer.parseInt(attribute.getValue().stringValue());
+    }
+
+    attribute = root.getAttribute(HNSW_EF_CONSTRUCTION_ATTRIBUTE);
+    if (attribute != null) {
+      hnswEfConstruction = Integer.parseInt(attribute.getValue().stringValue());
+    }
+
     try (Stream<? extends Node<?>> children = root.getChildren()) {
       Node<?> child;
       while ((child = children.next()) != null) {
@@ -255,6 +315,26 @@ public final class IndexDef implements Materializable {
 
   public boolean isPathIndex() {
     return type == IndexType.PATH;
+  }
+
+  public boolean isVectorIndex() {
+    return type == IndexType.VECTOR;
+  }
+
+  public int getDimension() {
+    return dimension;
+  }
+
+  public String getDistanceType() {
+    return distanceType;
+  }
+
+  public int getHnswM() {
+    return hnswM;
+  }
+
+  public int getHnswEfConstruction() {
+    return hnswEfConstruction;
   }
 
   public boolean isUnique() {

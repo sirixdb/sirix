@@ -52,7 +52,12 @@ public enum IndexType {
   /**
    * DeweyIDs to record-IDs.
    */
-  DEWEYID_TO_RECORDID((byte) 8);
+  DEWEYID_TO_RECORDID((byte) 8),
+
+  /**
+   * Vector index for nearest-neighbor search on embeddings.
+   */
+  VECTOR((byte) 9);
 
   /**
    * Unique ID.

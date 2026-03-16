@@ -6,6 +6,7 @@ import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
+import io.sirix.page.VectorPage;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
@@ -243,6 +244,15 @@ public interface StorageEngineReader extends AutoCloseable {
    * @throws SirixIOException if an I/O error occurs
    */
   DeweyIDPage getDeweyIDPage(RevisionRootPage revisionRoot);
+
+  /**
+   * Get the {@link VectorPage} associated with the current revision root.
+   *
+   * @param revisionRoot {@link RevisionRootPage} for which to get the {@link VectorPage}
+   * @return VectorPage the associated VectorPage
+   * @throws SirixIOException if an I/O error occurs
+   */
+  VectorPage getVectorPage(RevisionRootPage revisionRoot);
 
   /**
    * Get the page reference pointing to the page denoted by {@code pageKey}.

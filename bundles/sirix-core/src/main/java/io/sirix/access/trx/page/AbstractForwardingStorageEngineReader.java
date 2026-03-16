@@ -13,6 +13,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
+import io.sirix.page.VectorPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.NamePage;
@@ -179,6 +180,11 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   @Override
   public DeweyIDPage getDeweyIDPage(RevisionRootPage revisionRoot) {
     return delegate().getDeweyIDPage(revisionRoot);
+  }
+
+  @Override
+  public VectorPage getVectorPage(final RevisionRootPage revisionRoot) {
+    return delegate().getVectorPage(revisionRoot);
   }
 
   @Override
