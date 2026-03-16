@@ -40,7 +40,9 @@ import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.XmlTestHelper.PATHS;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 public final class XmlNodeReadOnlyTrxImplTest {
 

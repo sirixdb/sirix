@@ -4,7 +4,11 @@ import java.util.Set;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.api.JsonDiff;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.diff.*;
+import io.sirix.diff.DiffDepth;
+import io.sirix.diff.DiffFactory;
+import io.sirix.diff.DiffObserver;
+import io.sirix.diff.DiffTuple;
+import io.sirix.diff.JsonDiffSerializer;
 
 import java.util.ArrayList;
 import java.util.List;

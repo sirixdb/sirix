@@ -15,7 +15,7 @@ import org.junit.Test;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.fail;
 
 /**
  * Diagnostic test to analyze guard/pin count leaks. Run with: -Dsirix.debug.guard.tracking=true

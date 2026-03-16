@@ -1,6 +1,10 @@
 package io.sirix.examples;
 
-import io.brackit.query.*;
+import io.brackit.query.BrackitQueryContext;
+import io.brackit.query.Query;
+import io.brackit.query.QueryContext;
+import io.brackit.query.QueryException;
+import io.brackit.query.Tuple;
 import io.brackit.query.compiler.CompileChain;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Iter;

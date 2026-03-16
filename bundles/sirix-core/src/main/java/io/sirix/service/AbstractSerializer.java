@@ -1,6 +1,10 @@
 package io.sirix.service;
 
-import io.sirix.api.*;
+import io.sirix.api.Axis;
+import io.sirix.api.NodeCursor;
+import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.NodeTrx;
+import io.sirix.api.ResourceSession;
 import io.sirix.api.visitor.NodeVisitor;
 import io.sirix.axis.visitor.VisitorDescendantAxis;
 import io.sirix.exception.SirixException;

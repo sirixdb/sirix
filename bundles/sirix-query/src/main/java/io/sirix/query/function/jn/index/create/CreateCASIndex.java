@@ -7,7 +7,11 @@ import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.function.AbstractFunction;
 import io.brackit.query.function.json.JSONFun;
-import io.brackit.query.jdm.*;
+import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Iter;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.Signature;
+import io.brackit.query.jdm.Type;
 import io.brackit.query.module.Namespaces;
 import io.brackit.query.module.StaticContext;
 import io.brackit.query.util.path.Path;
@@ -20,6 +24,7 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.query.compiler.optimizer.PlanCache;
+import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 
 import java.util.HashSet;
 import java.util.Optional;
@@ -104,6 +109,15 @@ public final class CreateCASIndex extends AbstractFunction {
 
     // Invalidate cached query plans so the optimizer considers this new index
     PlanCache.signalIndexSchemaChange();
+
+    // Invalidate stale histogram statistics for this resource since index schema changed
+    try {
+      final String dbName = document.getCollection().getDatabase().getName();
+      final String resName = resourceSession.getResourceConfig().getName();
+      StatisticsCatalog.getInstance().invalidate(dbName, resName);
+    } catch (final Exception e) {
+      // Histogram invalidation is best-effort; must not prevent index creation
+    }
 
     return casIdxDef.materialize();
   }

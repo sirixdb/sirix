@@ -3,7 +3,9 @@ package io.sirix.page;
 import io.sirix.settings.Constants;
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Tests for PageReference with global BufferManager composite keys. Validates that PageReferences

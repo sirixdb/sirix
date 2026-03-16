@@ -9,6 +9,8 @@ import io.sirix.query.compiler.optimizer.join.JoinGraph;
 import io.sirix.query.compiler.optimizer.join.JoinPlan;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.compiler.optimizer.stats.JsonCostModel;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.IdentityHashMap;
@@ -32,6 +34,8 @@ import java.util.Map;
  * commutativity constraints are different).</p>
  */
 public final class CostBasedJoinReorder extends Walker {
+
+  private static final Logger LOG = LoggerFactory.getLogger(CostBasedJoinReorder.class);
 
   private final JsonCostModel costModel;
   private boolean modified;
@@ -81,7 +85,9 @@ public final class CostBasedJoinReorder extends Walker {
     // Build join graph from the collected group
     final int n = baseInputs.size();
     if (n > JoinGraph.MAX_RELATIONS) {
-      return node; // Too many relations for bitmask DP
+      LOG.warn("Join group has {} base relations (exceeds MAX_RELATIONS={}), "
+          + "skipping join reorder for this group", n, JoinGraph.MAX_RELATIONS);
+      return node;
     }
 
     final JoinGraph graph = buildJoinGraph(joinNodes, baseInputs);

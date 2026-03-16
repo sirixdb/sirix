@@ -21,7 +21,10 @@
 
 package io.sirix.api.xml;
 
-import io.sirix.api.*;
+import io.sirix.api.ItemList;
+import io.sirix.api.NodeCursor;
+import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.VisitResultType;
 import io.sirix.api.visitor.XmlNodeVisitor;

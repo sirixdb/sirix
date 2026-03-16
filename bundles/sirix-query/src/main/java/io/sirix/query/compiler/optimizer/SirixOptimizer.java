@@ -3,6 +3,7 @@ package io.sirix.query.compiler.optimizer;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import io.sirix.query.compiler.optimizer.mesh.Mesh;
 import io.sirix.query.compiler.optimizer.walker.json.JsonPathStep;
@@ -17,8 +18,18 @@ import io.sirix.query.compiler.optimizer.walker.json.JsonCASStep;
 import io.sirix.query.compiler.optimizer.walker.json.JsonObjectKeyNameStep;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.query.node.XmlDBStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class SirixOptimizer extends TopDownOptimizer {
+
+  private static final Logger LOG = LoggerFactory.getLogger(SirixOptimizer.class);
+
+  /** Maximum time allowed for the full optimization pipeline before circuit-breaking. */
+  private static final long OPTIMIZATION_TIMEOUT_MS = 500L;
+
+  /** Pre-computed timeout in nanoseconds to avoid repeated conversion. */
+  private static final long OPTIMIZATION_TIMEOUT_NS = TimeUnit.MILLISECONDS.toNanos(OPTIMIZATION_TIMEOUT_MS);
 
   private final XmlDBStore xmlNodeStore;
   private final JsonDBStore jsonItemStore;
@@ -75,10 +86,22 @@ public class SirixOptimizer extends TopDownOptimizer {
     }
 
     // Run stages inline (instead of super.optimize()) to support disabled stages.
+    // Circuit breaker: if total optimization time exceeds the timeout, return
+    // the partially-optimized AST to avoid blocking query execution.
+    final long startNanos = System.nanoTime();
     AST current = ast;
     for (final Stage stage : getStages()) {
       if (!disabledStages.contains(stage.getClass())) {
         current = stage.rewrite(sctx, current);
+      }
+      final long elapsedNanos = System.nanoTime() - startNanos;
+      if (elapsedNanos > OPTIMIZATION_TIMEOUT_NS) {
+        LOG.warn("Optimization pipeline exceeded {}ms timeout after stage {} (elapsed {}ms), "
+                + "returning partially-optimized AST",
+            OPTIMIZATION_TIMEOUT_MS,
+            stage.getClass().getSimpleName(),
+            TimeUnit.NANOSECONDS.toMillis(elapsedNanos));
+        break;
       }
     }
     final AST optimized = current;

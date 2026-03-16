@@ -3,7 +3,17 @@ package io.sirix.access.trx.node.json;
 import io.sirix.access.trx.node.NodeFactory;
 import io.sirix.node.DeweyIDNode;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.json.*;
+import io.sirix.node.json.ArrayNode;
+import io.sirix.node.json.BooleanNode;
+import io.sirix.node.json.NullNode;
+import io.sirix.node.json.NumberNode;
+import io.sirix.node.json.ObjectBooleanNode;
+import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNode;
+import io.sirix.node.json.ObjectNullNode;
+import io.sirix.node.json.ObjectNumberNode;
+import io.sirix.node.json.ObjectStringNode;
+import io.sirix.node.json.StringNode;
 
 /**
  * Node factory for creating nodes.

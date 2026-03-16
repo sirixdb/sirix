@@ -29,7 +29,8 @@ import org.junit.Before;
 import io.sirix.XmlTestHelper;
 import io.sirix.exception.SirixException;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertArrayEquals;
+import static org.junit.Assert.fail;
 
 public class XPathStringChecker {
 

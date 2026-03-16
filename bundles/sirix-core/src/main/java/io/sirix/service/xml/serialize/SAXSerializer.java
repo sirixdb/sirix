@@ -35,7 +35,15 @@ import io.sirix.utils.LogWrapper;
 import io.sirix.utils.XMLToken;
 import io.brackit.query.atomic.QNm;
 import org.slf4j.LoggerFactory;
-import org.xml.sax.*;
+import org.xml.sax.ContentHandler;
+import org.xml.sax.DTDHandler;
+import org.xml.sax.EntityResolver;
+import org.xml.sax.ErrorHandler;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.SAXNotRecognizedException;
+import org.xml.sax.SAXNotSupportedException;
+import org.xml.sax.XMLReader;
 import org.xml.sax.helpers.AttributesImpl;
 import org.xml.sax.helpers.DefaultHandler;
 

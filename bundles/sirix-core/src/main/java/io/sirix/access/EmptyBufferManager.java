@@ -1,6 +1,13 @@
 package io.sirix.access;
 
-import io.sirix.cache.*;
+import io.sirix.cache.BufferManager;
+import io.sirix.cache.Cache;
+import io.sirix.cache.EmptyCache;
+import io.sirix.cache.NamesCacheKey;
+import io.sirix.cache.PathSummaryCacheKey;
+import io.sirix.cache.PathSummaryData;
+import io.sirix.cache.RBIndexKey;
+import io.sirix.cache.RevisionRootPageCacheKey;
 import io.sirix.index.name.Names;
 import io.sirix.node.interfaces.Node;
 import io.sirix.page.KeyValueLeafPage;

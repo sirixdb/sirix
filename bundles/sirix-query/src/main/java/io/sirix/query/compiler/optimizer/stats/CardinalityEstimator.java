@@ -121,10 +121,13 @@ public final class CardinalityEstimator {
     }
 
     if (type == XQ.GroupBy) {
-      // Heuristic: assume input/groupByDivisor cardinality for group count.
-      // √n overestimates for typical grouping (50 categories over 1M rows → √1M=1000 vs actual ~50).
-      // Default divisor=100 (1%) is conservative and closer to real-world grouping patterns.
+      // Use histogram distinct count when available for data-driven estimation.
+      // Falls back to input/groupByDivisor heuristic when no histogram is set.
       final long inputCard = walkChildPipeline(node, depth);
+      final Histogram hist = selectivityEstimator.getHistogram();
+      if (hist != null && hist.distinctCount() > 0) {
+        return Math.max(1L, Math.min(inputCard, hist.distinctCount()));
+      }
       return Math.max(1L, inputCard / groupByDivisor);
     }
 

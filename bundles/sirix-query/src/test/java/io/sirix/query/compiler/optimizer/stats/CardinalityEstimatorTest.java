@@ -124,6 +124,81 @@ final class CardinalityEstimatorTest {
   }
 
   @Test
+  void groupByUsesHistogramDistinctCountWhenAvailable() {
+    // Build a histogram with distinctCount=50
+    final var histogram = new Histogram.Builder(8)
+        .addValue(1.0)
+        .addValue(50.0)
+        .setDistinctCount(50)
+        .build();
+    selEstimator.setHistogram(histogram);
+
+    try {
+      final var forBind = new AST(XQ.ForBind, null);
+      forBind.addChild(new AST(XQ.Variable, "x"));
+      final var bindExpr = new AST(XQ.DerefExpr, null);
+      bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 10000L);
+      forBind.addChild(bindExpr);
+
+      final var groupBy = new AST(XQ.GroupBy, null);
+      groupBy.addChild(forBind);
+
+      final long card = cardEstimator.estimatePipelineCardinality(groupBy);
+      // With histogram distinctCount=50, GroupBy should use min(10000, 50) = 50
+      assertEquals(50L, card, "GroupBy should use histogram distinctCount when available");
+    } finally {
+      selEstimator.setHistogram(null);
+    }
+  }
+
+  @Test
+  void groupByFallsToDivisorWhenNoHistogram() {
+    // Ensure no histogram is set
+    selEstimator.setHistogram(null);
+
+    final var forBind = new AST(XQ.ForBind, null);
+    forBind.addChild(new AST(XQ.Variable, "x"));
+    final var bindExpr = new AST(XQ.DerefExpr, null);
+    bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 10000L);
+    forBind.addChild(bindExpr);
+
+    final var groupBy = new AST(XQ.GroupBy, null);
+    groupBy.addChild(forBind);
+
+    final long card = cardEstimator.estimatePipelineCardinality(groupBy);
+    // Without histogram, should use divisor: 10000 / 100 = 100
+    assertEquals(100L, card, "GroupBy should fall back to divisor when no histogram is set");
+  }
+
+  @Test
+  void groupByHistogramDistinctCountCappedByInputCard() {
+    // distinctCount > inputCard — should use min(inputCard, distinctCount)
+    final var histogram = new Histogram.Builder(8)
+        .addValue(1.0)
+        .addValue(1000.0)
+        .setDistinctCount(500)
+        .build();
+    selEstimator.setHistogram(histogram);
+
+    try {
+      final var forBind = new AST(XQ.ForBind, null);
+      forBind.addChild(new AST(XQ.Variable, "x"));
+      final var bindExpr = new AST(XQ.DerefExpr, null);
+      bindExpr.setProperty(CostProperties.PATH_CARDINALITY, 100L);
+      forBind.addChild(bindExpr);
+
+      final var groupBy = new AST(XQ.GroupBy, null);
+      groupBy.addChild(forBind);
+
+      final long card = cardEstimator.estimatePipelineCardinality(groupBy);
+      // min(100, 500) = 100
+      assertEquals(100L, card, "GroupBy output should not exceed input cardinality");
+    } finally {
+      selEstimator.setHistogram(null);
+    }
+  }
+
+  @Test
   void groupByDivisorMustBePositive() {
     assertThrows(IllegalArgumentException.class,
         () -> new CardinalityEstimator(selEstimator, 0),

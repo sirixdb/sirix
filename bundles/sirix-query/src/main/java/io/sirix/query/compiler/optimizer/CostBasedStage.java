@@ -21,7 +21,9 @@ import io.sirix.query.json.JsonDBStore;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Cost-based optimization stage that annotates AST nodes with index preference hints.
@@ -53,6 +55,13 @@ public final class CostBasedStage implements Stage {
    */
   private final Map<Object, AST> variableBindings = new HashMap<>(8);
 
+  /**
+   * Tracks which variable keys are currently being resolved in {@link #extractPathAndDocument}.
+   * Prevents infinite loops from circular variable references (e.g., let $x := $y, let $y := $x).
+   * Initialized per call to {@link #extractPathAndDocument}.
+   */
+  private Set<Object> activeVarResolutions;
+
   public CostBasedStage(JsonDBStore jsonStore) {
     this.jsonStore = jsonStore;
     this.costModel = new JsonCostModel();
@@ -73,10 +82,12 @@ public final class CostBasedStage implements Stage {
   @Override
   public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
     if (statsProvider == null) {
-      getStatsProvider();
+      statsProvider = new SirixStatisticsProvider(jsonStore);
     } else {
       statsProvider.clearCaches();
     }
+    // Clear stale histogram from previous query to ensure fresh selectivity estimation
+    selectivityEstimator.setHistogram(null);
     variableBindings.clear();
 
     try {
@@ -283,6 +294,7 @@ public final class CostBasedStage implements Stage {
     final var steps = new ArrayList<PathStep>(8);
     AST current = expr;
     int maxIterations = 50; // guard against pathological ASTs
+    activeVarResolutions = new HashSet<>(4);
 
     while (current != null && --maxIterations > 0) {
       if (current.getType() == XQ.DerefExpr && current.getChildCount() >= 2) {
@@ -305,7 +317,15 @@ public final class CostBasedStage implements Stage {
       } else if (current.getType() == XQ.VariableRef) {
         // Resolve variable binding — follow the reference to its definition
         final Object varKey = current.getValue();
-        final AST resolvedExpr = varKey != null ? variableBindings.get(varKey) : null;
+        if (varKey == null) {
+          return null;
+        }
+        // Cycle detection: if we've already started resolving this variable,
+        // we have a circular reference (e.g., let $x := $y, let $y := $x)
+        if (!activeVarResolutions.add(varKey)) {
+          return null; // cycle detected
+        }
+        final AST resolvedExpr = variableBindings.get(varKey);
         if (resolvedExpr != null) {
           current = resolvedExpr;
         } else {

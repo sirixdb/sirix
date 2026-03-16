@@ -1,7 +1,11 @@
 package io.sirix.access.trx.node;
 
 import io.sirix.access.trx.RevisionEpochTracker;
-import io.sirix.api.*;
+import io.sirix.api.NodeCursor;
+import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.NodeTrx;
+import io.sirix.api.ResourceSession;
+import io.sirix.api.StorageEngineWriter;
 import io.sirix.io.Reader;
 import io.sirix.page.UberPage;
 

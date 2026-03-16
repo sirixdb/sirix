@@ -1,8 +1,22 @@
 package io.sirix.query.node;
 
 import io.sirix.utils.ToStringHelper;
-import io.sirix.axis.*;
-import io.sirix.axis.temporal.*;
+import io.sirix.axis.AbstractTemporalAxis;
+import io.sirix.axis.AncestorAxis;
+import io.sirix.axis.AttributeAxis;
+import io.sirix.axis.ChildAxis;
+import io.sirix.axis.DescendantAxis;
+import io.sirix.axis.FollowingAxis;
+import io.sirix.axis.IncludeSelf;
+import io.sirix.axis.NonStructuralWrapperAxis;
+import io.sirix.axis.PrecedingAxis;
+import io.sirix.axis.temporal.AllTimeAxis;
+import io.sirix.axis.temporal.FirstAxis;
+import io.sirix.axis.temporal.FutureAxis;
+import io.sirix.axis.temporal.LastAxis;
+import io.sirix.axis.temporal.NextAxis;
+import io.sirix.axis.temporal.PastAxis;
+import io.sirix.axis.temporal.PreviousAxis;
 import io.sirix.query.stream.node.SirixNodeStream;
 import io.sirix.query.stream.node.TemporalSirixNodeStream;
 import io.sirix.node.NodeKind;

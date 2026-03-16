@@ -1,8 +1,5 @@
 package io.sirix.query.function.xml.index.create;
 
-import java.util.Set;
-import io.sirix.query.function.xml.XMLFun;
-import io.sirix.query.node.XmlDBNode;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.QNm;
@@ -22,6 +19,8 @@ import io.sirix.index.IndexDef;
 import io.sirix.index.IndexDefs;
 import io.sirix.index.IndexType;
 import io.sirix.query.compiler.optimizer.PlanCache;
+import io.sirix.query.function.xml.XMLFun;
+import io.sirix.query.node.XmlDBNode;
 
 import java.util.HashSet;
 import java.util.Optional;

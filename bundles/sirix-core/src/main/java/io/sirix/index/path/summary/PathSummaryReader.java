@@ -6,7 +6,12 @@ import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
 import io.sirix.access.User;
 import io.sirix.access.trx.node.CommitCredentials;
-import io.sirix.api.*;
+import io.sirix.api.Axis;
+import io.sirix.api.NodeCursor;
+import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.NodeTrx;
+import io.sirix.api.ResourceSession;
+import io.sirix.api.StorageEngineReader;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.axis.DescendantAxis;
 import io.sirix.axis.IncludeSelf;
@@ -42,7 +47,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.util.*;
+import java.util.Arrays;
+import java.util.BitSet;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
