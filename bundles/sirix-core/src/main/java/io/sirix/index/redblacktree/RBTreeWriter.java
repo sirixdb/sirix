@@ -42,7 +42,6 @@ import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.page.CASPage;
 import io.sirix.page.NamePage;
-import io.sirix.page.PageContainer;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
 import io.sirix.page.RevisionRootPage;
