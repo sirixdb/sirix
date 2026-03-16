@@ -62,6 +62,7 @@ import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.SerializationType;
 import io.sirix.page.UberPage;
+import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
@@ -469,6 +470,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       case NAME -> {
         final NamePage namePage = storageEngineReader.getNamePage(newRevisionRootPage);
         yield namePage.incrementAndGetMaxNodeKey(index);
+      }
+      case VECTOR -> {
+        final VectorPage vectorPage = storageEngineReader.getVectorPage(newRevisionRootPage);
+        yield vectorPage.incrementAndGetMaxNodeKey(index);
       }
       default -> throw new IllegalStateException();
     };

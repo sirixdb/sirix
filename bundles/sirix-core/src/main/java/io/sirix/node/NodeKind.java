@@ -40,6 +40,8 @@ import io.sirix.index.redblacktree.RBNodeKey;
 import io.sirix.index.redblacktree.RBNodeValue;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.index.vector.VectorIndexMetadataNode;
+import io.sirix.index.vector.VectorNode;
 import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
@@ -81,6 +83,8 @@ import java.io.UncheckedIOException;
 import java.lang.foreign.MemorySegment;
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 
 import static io.sirix.node.Utils.getVarLong;
 import static io.sirix.node.Utils.putVarLong;
@@ -1579,6 +1583,173 @@ public enum NodeKind implements DeweyIdSerializer {
       for (int compressedRevision : compressedRevisions) {
         sink.writeInt(compressedRevision);
       }
+    }
+  },
+
+  /**
+   * HNSW vector graph node storing an embedding vector and per-layer neighbor lists.
+   */
+  VECTOR_NODE((byte) 56) {
+    /** Current serialization format version. */
+    private static final byte CURRENT_VERSION = 1;
+
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // Version byte (added in version 1).
+      final byte version = source.readByte();
+      if (version != 1) {
+        throw new IllegalStateException("Unknown VECTOR_NODE version: " + version);
+      }
+      // Document node key (delta from recordID).
+      final long documentNodeKey = recordID + getVarLong(source);
+      // Vector dimension and raw float data.
+      final int dimension = (int) getVarLong(source);
+      final float[] vector = new float[dimension];
+      for (int i = 0; i < dimension; i++) {
+        vector[i] = source.readFloat();
+      }
+      // HNSW layer.
+      final int maxLayer = source.readByte() & 0xFF;
+      if (maxLayer > 30) {
+        throw new IllegalStateException(
+            "Invalid maxLayer value: " + maxLayer + " (max allowed: 30)");
+      }
+      // Per-layer neighbor lists (delta-encoded, sorted).
+      final long[][] neighbors = new long[maxLayer + 1][];
+      final int[] neighborCounts = new int[maxLayer + 1];
+      for (int layer = 0; layer <= maxLayer; layer++) {
+        final int count = (int) getVarLong(source);
+        neighborCounts[layer] = count;
+        if (count > 0) {
+          final long[] keys = new long[count];
+          long prev = 0;
+          for (int i = 0; i < count; i++) {
+            prev += getVarLong(source);
+            keys[i] = prev;
+          }
+          neighbors[layer] = keys;
+        }
+      }
+      // Revision number.
+      final int previousRevision = (int) getVarLong(source);
+      // Deleted flag (version 1).
+      final boolean deleted = source.readByte() != 0;
+      return new VectorNode(recordID, documentNodeKey, vector, maxLayer,
+          neighbors, neighborCounts, previousRevision, deleted);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final VectorNode node = (VectorNode) record;
+      final long nodeKey = node.getNodeKey();
+      // Version byte.
+      sink.writeByte(CURRENT_VERSION);
+      // Document node key (delta from nodeKey).
+      putVarLong(sink, node.getDocumentNodeKey() - nodeKey);
+      // Vector dimension and raw float data.
+      final float[] vector = node.getVector();
+      final int dimension = vector.length;
+      putVarLong(sink, dimension);
+      for (int i = 0; i < dimension; i++) {
+        sink.writeFloat(vector[i]);
+      }
+      // HNSW layer.
+      final int maxLayer = node.getMaxLayer();
+      sink.writeByte((byte) maxLayer);
+      // Per-layer neighbor lists (delta-encoded, sorted).
+      for (int layer = 0; layer <= maxLayer; layer++) {
+        final int count = node.getNeighborCount(layer);
+        putVarLong(sink, count);
+        if (count > 0) {
+          final long[] keys = node.getNeighbors(layer);
+          // Sort a copy for delta encoding.
+          final long[] sorted = Arrays.copyOf(keys, count);
+          Arrays.sort(sorted);
+          long prev = 0;
+          for (int i = 0; i < count; i++) {
+            putVarLong(sink, sorted[i] - prev);
+            prev = sorted[i];
+          }
+        }
+      }
+      // Revision number.
+      putVarLong(sink, node.getPreviousRevisionNumber());
+      // Deleted flag.
+      sink.writeByte(node.isDeleted() ? (byte) 1 : (byte) 0);
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /**
+   * HNSW vector index metadata node (always at nodeKey 0).
+   * Stores graph-level metadata: entry point, max level, dimension, distance type, node count.
+   */
+  VECTOR_INDEX_METADATA((byte) 58) {
+    /** Current serialization format version. */
+    private static final byte CURRENT_VERSION = 1;
+
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      // Version byte.
+      final byte version = source.readByte();
+      if (version != 1) {
+        throw new IllegalStateException("Unknown VECTOR_INDEX_METADATA version: " + version);
+      }
+      final long entryPointKey = source.readLong();
+      final int maxLevel = (int) getVarLong(source);
+      final int dimension = (int) getVarLong(source);
+      // Distance type: length-prefixed UTF-8.
+      final int dtLen = (int) getVarLong(source);
+      final byte[] dtBytes = new byte[dtLen];
+      source.read(dtBytes, 0, dtLen);
+      final String distanceType = new String(dtBytes, StandardCharsets.UTF_8);
+      final long nodeCount = source.readLong();
+      final int previousRevision = (int) getVarLong(source);
+      return new VectorIndexMetadataNode(recordID, entryPointKey, maxLevel, dimension,
+          distanceType, nodeCount, previousRevision);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final VectorIndexMetadataNode node = (VectorIndexMetadataNode) record;
+      // Version byte.
+      sink.writeByte(CURRENT_VERSION);
+      sink.writeLong(node.getEntryPointKey());
+      putVarLong(sink, node.getMaxLevel());
+      putVarLong(sink, node.getDimension());
+      // Distance type: length-prefixed UTF-8.
+      final byte[] dtBytes = node.getDistanceType().getBytes(StandardCharsets.UTF_8);
+      putVarLong(sink, dtBytes.length);
+      sink.write(dtBytes, 0, dtBytes.length);
+      sink.writeLong(node.getNodeCount());
+      putVarLong(sink, node.getPreviousRevisionNumber());
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
     }
   },
 

@@ -1,7 +1,16 @@
 package io.sirix.access.trx.node;
 
-import io.sirix.api.*;
-import io.sirix.index.*;
+import io.sirix.api.NodeCursor;
+import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.NodeTrx;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
+import io.sirix.index.ChangeListener;
+import io.sirix.index.IndexDef;
+import io.sirix.index.IndexType;
+import io.sirix.index.Indexes;
+import io.sirix.index.PathNodeKeyChangeListener;
+import io.sirix.index.SearchMode;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
@@ -21,6 +30,9 @@ import io.sirix.index.path.PathFilter;
 import io.sirix.index.path.PathIndex;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.index.vector.VectorIndex;
+import io.sirix.index.vector.VectorIndexListener;
+import io.sirix.index.vector.VectorSearchResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 
@@ -67,11 +79,17 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   protected final NameIndex<?, ?> nameIndex;
 
   /**
+   * Used to provide vector indexes (may be null for XML controllers).
+   */
+  protected final @Nullable VectorIndex vectorIndex;
+
+  /**
    * Cached capabilities for hot-path checks.
    */
   private boolean hasPathIndex;
   private boolean hasCASIndex;
   private boolean hasNameIndex;
+  private boolean hasVectorIndex;
 
   /**
    * Constructor.
@@ -81,9 +99,11 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
    * @param pathIndex the path index manager
    * @param casIndex the CAS index manager
    * @param nameIndex the name index manager
+   * @param vectorIndex the vector index manager (may be null for XML controllers)
    */
   public AbstractIndexController(final Indexes indexes, final Set<ChangeListener> listeners,
-      final PathIndex<?, ?> pathIndex, final CASIndex<?, ?, R> casIndex, final NameIndex<?, ?> nameIndex) {
+      final PathIndex<?, ?> pathIndex, final CASIndex<?, ?, R> casIndex, final NameIndex<?, ?> nameIndex,
+      final @Nullable VectorIndex vectorIndex) {
     this.indexes = indexes;
     this.listeners = listeners;
     this.primitiveListeners = new HashSet<>(listeners.size());
@@ -95,6 +115,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
     this.pathIndex = pathIndex;
     this.casIndex = casIndex;
     this.nameIndex = nameIndex;
+    this.vectorIndex = vectorIndex;
     for (final IndexDef indexDef : indexes.getIndexDefs()) {
       updateIndexCapability(indexDef.getType());
     }
@@ -122,6 +143,38 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
   @Override
   public boolean hasNameIndex() {
     return hasNameIndex;
+  }
+
+  @Override
+  public boolean hasVectorIndex() {
+    return hasVectorIndex;
+  }
+
+  @Override
+  public VectorSearchResult searchVectorIndex(final StorageEngineReader storageEngineReader,
+      final IndexDef indexDef, final float[] query, final int k) {
+    if (vectorIndex == null) {
+      throw new IllegalStateException("This document does not support vector indexes.");
+    }
+    return vectorIndex.searchKnn(storageEngineReader, indexDef, query, k);
+  }
+
+  @Override
+  public VectorSearchResult searchVectorIndex(final StorageEngineReader storageEngineReader,
+      final IndexDef indexDef, final float[] query, final int k, final int efSearch) {
+    if (vectorIndex == null) {
+      throw new IllegalStateException("This document does not support vector indexes.");
+    }
+    return vectorIndex.searchKnn(storageEngineReader, indexDef, query, k, efSearch);
+  }
+
+  @Override
+  public void deleteVectorEntry(final StorageEngineWriter storageEngineWriter,
+      final IndexDef indexDef, final long hnswNodeKey) {
+    if (vectorIndex == null) {
+      throw new IllegalStateException("This document does not support vector indexes.");
+    }
+    vectorIndex.deleteVector(storageEngineWriter, indexDef, hnswNodeKey);
   }
 
   @Override
@@ -174,6 +227,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
         case CAS ->
           addListener(createCASIndexListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
         case NAME -> addListener(createNameIndexListener(nodeWriteTrx.getStorageEngineWriter(), indexDef));
+        case VECTOR -> addListener(new VectorIndexListener(indexDef));
         default -> {
         }
       }
@@ -187,6 +241,7 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
       case PATH -> hasPathIndex = true;
       case CAS -> hasCASIndex = true;
       case NAME -> hasNameIndex = true;
+      case VECTOR -> hasVectorIndex = true;
       default -> {
       }
     }

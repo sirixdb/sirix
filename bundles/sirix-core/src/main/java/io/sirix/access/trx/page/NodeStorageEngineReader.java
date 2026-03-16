@@ -343,7 +343,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     // $CASES-OMITTED$
     final PageReferenceToPage pageReferenceToPage = switch (indexType) {
-      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(reusableIndexLogKey);
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME, VECTOR -> getRecordPage(reusableIndexLogKey);
       default -> throw new IllegalStateException();
     };
 
@@ -525,7 +525,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     // Get the page reference (uses cache) - ONE lookup for both paths
     final PageReferenceToPage pageReferenceToPage = switch (indexType) {
-      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(reusableIndexLogKey);
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME, VECTOR -> getRecordPage(reusableIndexLogKey);
       default -> null;
     };
 
@@ -623,7 +623,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     // Get the page reference
     final PageReferenceToPage pageReferenceToPage = switch (indexType) {
-      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME -> getRecordPage(reusableIndexLogKey);
+      case DOCUMENT, CHANGED_NODES, RECORD_TO_REVISIONS, PATH_SUMMARY, PATH, CAS, NAME, VECTOR -> getRecordPage(reusableIndexLogKey);
       default -> throw new IllegalStateException("Unsupported index type: " + indexType);
     };
 
@@ -747,6 +747,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   public DeweyIDPage getDeweyIDPage(final RevisionRootPage revisionRoot) {
     assertNotClosed();
     return (DeweyIDPage) getPage(revisionRoot.getDeweyIdPageReference());
+  }
+
+  @Override
+  public VectorPage getVectorPage(final RevisionRootPage revisionRoot) {
+    assertNotClosed();
+    return (VectorPage) getPage(revisionRoot.getVectorPageReference());
   }
 
   @Override
@@ -937,6 +943,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case CAS -> index < mostRecentCasPages.length ? mostRecentCasPages[index] : null;
       case NAME -> index < mostRecentNamePages.length ? mostRecentNamePages[index] : null;
       case DEWEYID_TO_RECORDID -> mostRecentDeweyIdPage;
+      case VECTOR -> null;
       default -> null;
     };
 
@@ -999,6 +1006,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         mostRecentDeweyIdPage = page;
         yield old;
       }
+      case VECTOR -> null;
       default -> null;
     };
 
@@ -1425,6 +1433,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case PATH -> getPathPage(revisionRoot).getIndirectPageReference(index);
       case NAME -> getNamePage(revisionRoot).getIndirectPageReference(index);
       case PATH_SUMMARY -> getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
+      case VECTOR -> getVectorPage(revisionRoot).getIndirectPageReference(index);
       default ->
           throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     };
@@ -1467,7 +1476,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return switch (indexType) {
       case PATH_SUMMARY -> recordKey >> Constants.PATHINP_REFERENCE_COUNT_EXPONENT;
       case REVISIONS -> recordKey >> Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
-      case PATH, DOCUMENT, CAS, NAME -> recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
+      case PATH, DOCUMENT, CAS, NAME, VECTOR -> recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
       default -> recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
     };
   }
@@ -1500,6 +1509,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case NAME -> getNamePage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
       case PATH_SUMMARY -> getPathSummaryPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
       case DEWEYID_TO_RECORDID -> getDeweyIDPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages();
+      case VECTOR -> getVectorPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
     };
 
     return maxLevel;

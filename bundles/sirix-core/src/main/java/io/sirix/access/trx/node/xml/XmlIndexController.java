@@ -32,7 +32,7 @@ public final class XmlIndexController extends AbstractIndexController<XmlNodeRea
    * Constructor.
    */
   public XmlIndexController() {
-    super(new Indexes(), new HashSet<>(), new XmlPathIndexImpl(), new XmlCASIndexImpl(), new XmlNameIndexImpl());
+    super(new Indexes(), new HashSet<>(), new XmlPathIndexImpl(), new XmlCASIndexImpl(), new XmlNameIndexImpl(), null);
   }
 
   @Override

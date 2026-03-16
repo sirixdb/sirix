@@ -211,6 +211,8 @@ final class KeyedTrieWriter {
         storageEngineReader.getNamePage(revisionRoot).setOrCreateReference(index, pageReference);
       case PATH_SUMMARY -> storageEngineReader.getPathSummaryPage(revisionRoot)
                                               .setOrCreateReference(index, pageReference);
+      case VECTOR ->
+        storageEngineReader.getVectorPage(revisionRoot).setOrCreateReference(index, pageReference);
       default -> throw new IllegalStateException(
           "Only defined for node, path summary, text value and attribute value pages!");
     }
@@ -237,6 +239,8 @@ final class KeyedTrieWriter {
                                       .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
       case PATH_SUMMARY -> storageEngineReader.getPathSummaryPage(revisionRoot)
                                               .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
+      case VECTOR -> storageEngineReader.getVectorPage(revisionRoot)
+                                        .incrementAndGetCurrentMaxLevelOfIndirectPages(index);
       default -> throw new IllegalStateException(
           "Only defined for node, path summary, text value and attribute value pages!");
     };

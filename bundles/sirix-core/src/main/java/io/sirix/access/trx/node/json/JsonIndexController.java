@@ -13,11 +13,12 @@ import io.sirix.index.name.json.JsonNameIndexImpl;
 import io.sirix.index.path.PathFilter;
 import io.sirix.index.path.json.JsonPCRCollector;
 import io.sirix.index.path.json.JsonPathIndexImpl;
+import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.index.vector.json.JsonVectorIndexImpl;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import io.brackit.query.util.path.PathException;
 import io.brackit.query.util.path.PathParser;
-import io.sirix.index.path.summary.PathSummaryReader;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -33,7 +34,8 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
    * Constructor.
    */
   public JsonIndexController() {
-    super(new Indexes(), new HashSet<>(), new JsonPathIndexImpl(), new JsonCASIndexImpl(), new JsonNameIndexImpl());
+    super(new Indexes(), new HashSet<>(), new JsonPathIndexImpl(), new JsonCASIndexImpl(), new JsonNameIndexImpl(),
+        new JsonVectorIndexImpl());
   }
 
   @Override
@@ -71,6 +73,10 @@ public final class JsonIndexController extends AbstractIndexController<JsonNodeR
         case CAS -> indexBuilders.add(
             createCASIndexBuilder(nodeWriteTrx, nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
         case NAME -> indexBuilders.add(createNameIndexBuilder(nodeWriteTrx.getStorageEngineWriter(), indexDef));
+        case VECTOR -> {
+          // Vector indexes are populated explicitly, not by document traversal.
+          // No builder needed.
+        }
       }
     }
     return indexBuilders;

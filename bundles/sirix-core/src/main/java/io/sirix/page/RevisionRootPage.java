@@ -92,6 +92,11 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   private static final int DEWEYID_REFERENCE_OFFSET = 7;
 
   /**
+   * Offset of vector page reference.
+   */
+  private static final int VECTOR_REFERENCE_OFFSET = 8;
+
+  /**
    * Last allocated node key.
    */
   private long maxNodeKeyInDocumentIndex;
@@ -152,12 +157,13 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Create revision root page.
    */
   public RevisionRootPage() {
-    delegate = new BitmapReferencesPage(8);
+    delegate = new BitmapReferencesPage(9);
     getOrCreateReference(PATH_SUMMARY_REFERENCE_OFFSET).setPage(new PathSummaryPage());
     getOrCreateReference(NAME_REFERENCE_OFFSET).setPage(new NamePage());
     getOrCreateReference(CAS_REFERENCE_OFFSET).setPage(new CASPage());
     getOrCreateReference(PATH_REFERENCE_OFFSET).setPage(new PathPage());
     getOrCreateReference(DEWEYID_REFERENCE_OFFSET).setPage(new DeweyIDPage());
+    getOrCreateReference(VECTOR_REFERENCE_OFFSET).setPage(new VectorPage());
     revision = Constants.UBP_ROOT_REVISION_NUMBER;
     maxNodeKeyInDocumentIndex = -1L;
     maxNodeKeyInChangedNodesIndex = -1L;
@@ -295,6 +301,15 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   public PageReference getDeweyIdPageReference() {
     return getOrCreateReference(DEWEYID_REFERENCE_OFFSET);
+  }
+
+  /**
+   * Get vector page reference.
+   *
+   * @return vector page reference.
+   */
+  public PageReference getVectorPageReference() {
+    return getOrCreateReference(VECTOR_REFERENCE_OFFSET);
   }
 
   /**
@@ -462,6 +477,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
                       .add("pathPage", getOrCreateReference(PATH_REFERENCE_OFFSET))
                       .add("CASPage", getOrCreateReference(CAS_REFERENCE_OFFSET))
                       .add("deweyIDPage", getOrCreateReference(DEWEYID_REFERENCE_OFFSET))
+                      .add("vectorPage", getOrCreateReference(VECTOR_REFERENCE_OFFSET))
                       .toString();
   }
 

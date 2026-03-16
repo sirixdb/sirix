@@ -1,6 +1,11 @@
 package io.sirix.access.trx.node;
 
-import io.sirix.api.*;
+import io.sirix.api.NodeCursor;
+import io.sirix.api.NodeReadOnlyTrx;
+import io.sirix.api.NodeTrx;
+import io.sirix.api.ResourceSession;
+import io.sirix.api.StorageEngineReader;
+import io.sirix.api.StorageEngineWriter;
 import io.brackit.query.atomic.Atomic;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
@@ -25,6 +30,7 @@ import io.sirix.index.name.NameFilter;
 import io.sirix.index.path.PCRCollector;
 import io.sirix.index.path.PathFilter;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
+import io.sirix.index.vector.VectorSearchResult;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import org.jspecify.annotations.Nullable;
@@ -94,6 +100,17 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
    */
   default boolean hasNameIndex() {
     return containsIndex(IndexType.NAME);
+  }
+
+  /**
+   * Fast-path check for vector indexes.
+   *
+   * <p>
+   * Implementations may override with cached constant-time checks.
+   * </p>
+   */
+  default boolean hasVectorIndex() {
+    return containsIndex(IndexType.VECTOR);
   }
 
   /**
@@ -221,6 +238,50 @@ public interface IndexController<R extends NodeReadOnlyTrx & NodeCursor, W exten
   Iterator<NodeReferences> openCASIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilter filter);
 
   Iterator<NodeReferences> openCASIndex(StorageEngineReader storageEngineReader, IndexDef indexDef, CASFilterRange filter);
+
+  /**
+   * Searches the vector index for the k nearest neighbors to the query vector.
+   *
+   * @param storageEngineReader the storage engine reader for the target revision
+   * @param indexDef the vector index definition
+   * @param query the query vector (must match indexDef dimension)
+   * @param k the number of nearest neighbors to return
+   * @return the search result containing document node keys and distances
+   * @throws IllegalStateException if no vector index support is available
+   */
+  default VectorSearchResult searchVectorIndex(StorageEngineReader storageEngineReader, IndexDef indexDef,
+      float[] query, int k) {
+    throw new IllegalStateException("This document does not support vector indexes.");
+  }
+
+  /**
+   * Searches the vector index for the k nearest neighbors with a caller-provided efSearch.
+   *
+   * @param storageEngineReader the storage engine reader for the target revision
+   * @param indexDef the vector index definition
+   * @param query the query vector (must match indexDef dimension)
+   * @param k the number of nearest neighbors to return
+   * @param efSearch the efSearch parameter override for this query
+   * @return the search result containing document node keys and distances
+   * @throws IllegalStateException if no vector index support is available
+   */
+  default VectorSearchResult searchVectorIndex(StorageEngineReader storageEngineReader, IndexDef indexDef,
+      float[] query, int k, int efSearch) {
+    throw new IllegalStateException("This document does not support vector indexes.");
+  }
+
+  /**
+   * Tombstone-deletes a vector entry from the HNSW graph by its HNSW node key.
+   *
+   * @param storageEngineWriter the storage engine writer for page-level operations
+   * @param indexDef the vector index definition
+   * @param hnswNodeKey the HNSW-internal node key to delete
+   * @throws IllegalStateException if no vector index support is available
+   */
+  default void deleteVectorEntry(StorageEngineWriter storageEngineWriter, IndexDef indexDef,
+      long hnswNodeKey) {
+    throw new IllegalStateException("This document does not support vector indexes.");
+  }
 
   /**
    * Deserialize from an {@link InputStream}.
