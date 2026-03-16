@@ -28,10 +28,13 @@
 
 package io.sirix.index.vector;
 
+import io.sirix.api.StorageEngineWriter;
+import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.visitor.JsonNodeVisitor;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.api.visitor.VisitResultType;
 import io.sirix.index.IndexDef;
+import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
@@ -44,31 +47,61 @@ import io.sirix.node.immutable.json.ImmutableObjectNullNode;
 import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
+import it.unimi.dsi.fastutil.longs.LongSet;
 
 /**
- * Intentionally minimal builder for vector indexes. Vector indexes are populated
- * exclusively via the explicit API ({@link io.sirix.index.vector.VectorIndex#insertVector})
- * rather than through document tree traversal. This builder implements the
- * {@link JsonNodeVisitor} contract as a no-op so it can be registered in the
- * standard index lifecycle without requiring special-case handling.
+ * Builder for vector indexes that traverses JSON document trees and indexes
+ * arrays matching configured paths as vector embeddings.
+ *
+ * <p>On visiting an {@link ImmutableArrayNode} whose path class record (PCR)
+ * matches one of the paths in the {@link IndexDef}, the builder traverses
+ * the array's children via the read-only transaction, collects numeric values
+ * into a float buffer, and inserts the resulting vector into the HNSW graph
+ * via the {@link VectorIndex}.</p>
  *
  * @author Johannes Lichtenberger
  */
 public final class VectorIndexBuilder implements JsonNodeVisitor {
 
   private final IndexDef indexDef;
+  private final StorageEngineWriter storageEngineWriter;
+  private final JsonNodeReadOnlyTrx rtx;
+  private final VectorIndex vectorIndex;
+  private final LongSet matchingPCRs;
 
   /**
-   * Creates a new vector index builder for the given index definition.
+   * Creates a new vector index builder.
    *
-   * @param indexDef the vector index definition (must not be null)
-   * @throws IllegalArgumentException if indexDef is null
+   * @param storageEngineWriter the storage engine writer for page-level operations
+   * @param indexDef            the vector index definition (must not be null)
+   * @param rtx                 the read-only transaction for tree navigation
+   * @param vectorIndex         the vector index implementation for inserting vectors
+   * @param pathSummaryReader   the path summary reader for resolving PCRs
+   * @throws IllegalArgumentException if any argument is null
    */
-  public VectorIndexBuilder(final IndexDef indexDef) {
+  public VectorIndexBuilder(final StorageEngineWriter storageEngineWriter,
+      final IndexDef indexDef, final JsonNodeReadOnlyTrx rtx,
+      final VectorIndex vectorIndex, final PathSummaryReader pathSummaryReader) {
+    if (storageEngineWriter == null) {
+      throw new IllegalArgumentException("storageEngineWriter must not be null");
+    }
     if (indexDef == null) {
       throw new IllegalArgumentException("indexDef must not be null");
     }
+    if (rtx == null) {
+      throw new IllegalArgumentException("rtx must not be null");
+    }
+    if (vectorIndex == null) {
+      throw new IllegalArgumentException("vectorIndex must not be null");
+    }
+    if (pathSummaryReader == null) {
+      throw new IllegalArgumentException("pathSummaryReader must not be null");
+    }
+    this.storageEngineWriter = storageEngineWriter;
     this.indexDef = indexDef;
+    this.rtx = rtx;
+    this.vectorIndex = vectorIndex;
+    this.matchingPCRs = pathSummaryReader.getPCRsForPaths(indexDef.getPaths());
   }
 
   /**
@@ -97,7 +130,36 @@ public final class VectorIndexBuilder implements JsonNodeVisitor {
 
   @Override
   public VisitResult visit(final ImmutableArrayNode node) {
-    return VisitResultType.CONTINUE;
+    final long pathNodeKey = node.getPathNodeKey();
+    if (matchingPCRs.isEmpty() || !matchingPCRs.contains(pathNodeKey)) {
+      return VisitResultType.CONTINUE;
+    }
+
+    // Save cursor position.
+    final long savedKey = rtx.getNodeKey();
+    rtx.moveTo(node.getNodeKey());
+
+    final int dim = indexDef.getDimension();
+    final float[] buffer = new float[dim];
+    int count = 0;
+
+    if (rtx.moveToFirstChild()) {
+      do {
+        if (rtx.isNumberValue() && count < dim) {
+          buffer[count] = rtx.getNumberValue().floatValue();
+          count++;
+        }
+      } while (rtx.moveToRightSibling());
+    }
+
+    // Restore cursor.
+    rtx.moveTo(savedKey);
+
+    if (count == dim) {
+      vectorIndex.insertVector(storageEngineWriter, indexDef, node.getNodeKey(), buffer);
+    }
+
+    return VisitResultType.SKIPSUBTREE;
   }
 
   @Override

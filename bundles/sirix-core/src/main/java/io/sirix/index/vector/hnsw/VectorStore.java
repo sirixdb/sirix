@@ -108,4 +108,13 @@ public interface VectorStore {
    * @return true if the node is deleted, false otherwise
    */
   boolean isDeleted(long nodeKey);
+
+  /**
+   * Finds the HNSW-internal node key for a vector that was created for the given
+   * document node key.
+   *
+   * @param documentNodeKey the document-level node key to look up
+   * @return the HNSW-internal node key, or -1 if no vector exists for the document key
+   */
+  long findNodeKeyByDocumentKey(long documentNodeKey);
 }

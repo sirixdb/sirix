@@ -227,7 +227,8 @@ public abstract class AbstractIndexController<R extends NodeReadOnlyTrx & NodeCu
         case CAS ->
           addListener(createCASIndexListener(nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary(), indexDef));
         case NAME -> addListener(createNameIndexListener(nodeWriteTrx.getStorageEngineWriter(), indexDef));
-        case VECTOR -> addListener(new VectorIndexListener(indexDef));
+        case VECTOR -> addListener(new VectorIndexListener(indexDef,
+            nodeWriteTrx.getStorageEngineWriter(), nodeWriteTrx.getPathSummary()));
         default -> {
         }
       }

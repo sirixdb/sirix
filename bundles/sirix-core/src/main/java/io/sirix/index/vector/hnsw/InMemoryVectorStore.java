@@ -20,6 +20,7 @@ public final class InMemoryVectorStore implements VectorStore {
   private final Map<Long, Integer> maxLayers;        // nodeKey -> max layer
 
   private final Set<Long> deletedKeys;
+  private final Map<Long, Long> documentKeyToNodeKey; // documentNodeKey -> hnswNodeKey
 
   private long entryPointKey = -1;
   private int maxLevel = -1;
@@ -40,6 +41,7 @@ public final class InMemoryVectorStore implements VectorStore {
     this.neighborCounts = new HashMap<>(1024);
     this.maxLayers = new HashMap<>(1024);
     this.deletedKeys = new HashSet<>();
+    this.documentKeyToNodeKey = new HashMap<>(1024);
   }
 
   @Override
@@ -107,6 +109,7 @@ public final class InMemoryVectorStore implements VectorStore {
     final long nodeKey = nextNodeKey++;
     vectors.put(nodeKey, Arrays.copyOf(vector, dimension));
     maxLayers.put(nodeKey, maxLayer);
+    documentKeyToNodeKey.put(documentNodeKey, nodeKey);
 
     // Pre-allocate neighbor arrays for all layers
     final int layerCount = maxLayer + 1;
@@ -154,5 +157,11 @@ public final class InMemoryVectorStore implements VectorStore {
   @Override
   public boolean isDeleted(final long nodeKey) {
     return deletedKeys.contains(nodeKey);
+  }
+
+  @Override
+  public long findNodeKeyByDocumentKey(final long documentNodeKey) {
+    final Long nodeKey = documentKeyToNodeKey.get(documentNodeKey);
+    return nodeKey != null ? nodeKey : -1L;
   }
 }

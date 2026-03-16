@@ -157,7 +157,16 @@ public final class JsonVectorIndexImpl implements VectorIndex {
     final PageBackedVectorStore store = new PageBackedVectorStore(
         writer, indexNumber, dimension, distanceType);
     store.loadMetadata(METADATA_NODE_KEY);
-    store.markDeleted(hnswNodeKey);
+
+    // Build HNSW params and graph to perform full neighbor repair on delete.
+    final VectorDistanceType distType = VectorDistanceType.valueOf(distanceType);
+    final HnswParams params = HnswParams.builder(dimension, distType)
+        .m(indexDef.getHnswM())
+        .efConstruction(indexDef.getHnswEfConstruction())
+        .build();
+
+    final HnswGraph graph = new HnswGraph(store, params);
+    graph.delete(hnswNodeKey);
   }
 
   @Override

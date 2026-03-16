@@ -323,6 +323,27 @@ public final class PageBackedVectorStore implements VectorStore {
     return node.isDeleted();
   }
 
+  @Override
+  public long findNodeKeyByDocumentKey(final long documentNodeKey) {
+    if (!metadataInitialized || metadataNodeKey < 0) {
+      return -1L;
+    }
+    final VectorIndexMetadataNode metadata = storageEngineWriter.getRecord(
+        metadataNodeKey, IndexType.VECTOR, indexNumber);
+    final long nodeCount = metadata.getNodeCount();
+    // Vector nodes start at key 2 (key 0 = doc root, key 1 = metadata).
+    final long firstVectorKey = 2L;
+    final long lastVectorKey = firstVectorKey + nodeCount - 1;
+    for (long key = firstVectorKey; key <= lastVectorKey; key++) {
+      final VectorNode node = storageEngineWriter.getRecord(
+          key, IndexType.VECTOR, indexNumber);
+      if (node != null && node.getDocumentNodeKey() == documentNodeKey) {
+        return key;
+      }
+    }
+    return -1L;
+  }
+
   /**
    * Validates that a vector is non-null, has the expected dimension, and contains no NaN or
    * Infinity values.

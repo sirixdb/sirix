@@ -187,4 +187,28 @@ public final class ReadOnlyPageBackedVectorStore implements VectorStore {
     }
     return node.isDeleted();
   }
+
+  @Override
+  public long findNodeKeyByDocumentKey(final long documentNodeKey) {
+    if (!metadataLoaded) {
+      return -1L;
+    }
+    final VectorIndexMetadataNode metadata = storageEngineReader.getRecord(
+        metadataNodeKey, IndexType.VECTOR, indexNumber);
+    if (metadata == null) {
+      return -1L;
+    }
+    final long nodeCount = metadata.getNodeCount();
+    // Vector nodes start at key 2 (key 0 = doc root, key 1 = metadata).
+    final long firstVectorKey = 2L;
+    final long lastVectorKey = firstVectorKey + nodeCount - 1;
+    for (long key = firstVectorKey; key <= lastVectorKey; key++) {
+      final VectorNode node = storageEngineReader.getRecord(
+          key, IndexType.VECTOR, indexNumber);
+      if (node != null && node.getDocumentNodeKey() == documentNodeKey) {
+        return key;
+      }
+    }
+    return -1L;
+  }
 }

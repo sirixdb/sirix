@@ -513,6 +513,148 @@ public final class HnswGraph {
   }
 
   /**
+   * Deletes a node from the HNSW graph with full neighbor repair.
+   *
+   * <p>This method:
+   * <ol>
+   *   <li>Marks the node as tombstone-deleted in the store</li>
+   *   <li>For each layer the node participates in, removes it from all neighbors' lists</li>
+   *   <li>Reconnects those neighbors to the deleted node's other neighbors (capacity permitting)</li>
+   *   <li>If the deleted node was the entry point, picks a new one from its neighbors</li>
+   * </ol>
+   *
+   * @param nodeKey the node key to delete
+   */
+  public void delete(final long nodeKey) {
+    final int deletedMaxLayer = store.getMaxLayer(nodeKey);
+
+    // Gather neighbor lists before marking deleted, so we can repair links.
+    // Copy them since store.setNeighbors may invalidate references.
+    final long[][] deletedNeighborsByLayer = new long[deletedMaxLayer + 1][];
+    final int[] deletedNeighborCounts = new int[deletedMaxLayer + 1];
+    for (int layer = 0; layer <= deletedMaxLayer; layer++) {
+      final int count = store.getNeighborCount(nodeKey, layer);
+      final long[] neighbors = store.getNeighbors(nodeKey, layer);
+      deletedNeighborsByLayer[layer] = new long[count];
+      if (count > 0) {
+        System.arraycopy(neighbors, 0, deletedNeighborsByLayer[layer], 0, count);
+      }
+      deletedNeighborCounts[layer] = count;
+    }
+
+    // Mark deleted in store (tombstone).
+    store.markDeleted(nodeKey);
+
+    // Repair neighbors at each layer.
+    for (int layer = 0; layer <= deletedMaxLayer; layer++) {
+      final int maxNeighbors = params.maxNeighbors(layer);
+      final int deletedCount = deletedNeighborCounts[layer];
+      final long[] deletedNeighbors = deletedNeighborsByLayer[layer];
+
+      for (int i = 0; i < deletedCount; i++) {
+        final long neighborKey = deletedNeighbors[i];
+
+        // Remove the deleted node from this neighbor's list.
+        removeFromNeighborList(neighborKey, nodeKey, layer);
+
+        // Try to reconnect this neighbor to the deleted node's other neighbors.
+        for (int j = 0; j < deletedCount; j++) {
+          if (j == i) {
+            continue; // Skip self (would be neighborKey -> neighborKey).
+          }
+          final long candidate = deletedNeighbors[j];
+          if (candidate == neighborKey) {
+            continue; // Skip if same node.
+          }
+          appendNeighbor(neighborKey, candidate, layer, maxNeighbors);
+        }
+      }
+    }
+
+    // If deleted node was entry point, pick a new one.
+    if (store.getEntryPointKey() == nodeKey) {
+      long newEntryPoint = -1;
+      int newMaxLevel = -1;
+
+      // Search from highest layer downward for a non-deleted neighbor.
+      for (int layer = deletedMaxLayer; layer >= 0 && newEntryPoint == -1; layer--) {
+        final int count = deletedNeighborCounts[layer];
+        final long[] neighbors = deletedNeighborsByLayer[layer];
+        for (int i = 0; i < count; i++) {
+          if (!store.isDeleted(neighbors[i])) {
+            newEntryPoint = neighbors[i];
+            newMaxLevel = store.getMaxLayer(neighbors[i]);
+            break;
+          }
+        }
+      }
+
+      store.updateEntryPoint(newEntryPoint, newMaxLevel);
+    }
+  }
+
+  /**
+   * Removes {@code toRemove} from the neighbor list of {@code nodeKey} at the given layer.
+   * Compacts the array in-place.
+   *
+   * @param nodeKey  the node whose neighbor list to modify
+   * @param toRemove the node key to remove from the list
+   * @param layer    the HNSW layer
+   */
+  public void removeFromNeighborList(final long nodeKey, final long toRemove, final int layer) {
+    final long[] neighbors = store.getNeighbors(nodeKey, layer);
+    final int count = store.getNeighborCount(nodeKey, layer);
+
+    int writeIdx = 0;
+    for (int i = 0; i < count; i++) {
+      if (neighbors[i] != toRemove) {
+        neighbors[writeIdx] = neighbors[i];
+        writeIdx++;
+      }
+    }
+
+    if (writeIdx < count) {
+      store.setNeighbors(nodeKey, layer, neighbors, writeIdx);
+    }
+  }
+
+  /**
+   * Appends {@code newNeighbor} to the neighbor list of {@code nodeKey} at the given layer,
+   * but only if the list is not already at capacity and the neighbor is not already present.
+   *
+   * @param nodeKey      the node whose neighbor list to extend
+   * @param newNeighbor  the node key to add
+   * @param layer        the HNSW layer
+   * @param maxNeighbors the maximum allowed neighbors at this layer
+   */
+  public void appendNeighbor(final long nodeKey, final long newNeighbor, final int layer, final int maxNeighbors) {
+    final long[] neighbors = store.getNeighbors(nodeKey, layer);
+    final int count = store.getNeighborCount(nodeKey, layer);
+
+    if (count >= maxNeighbors) {
+      return; // Already at capacity.
+    }
+
+    // Check for duplicates.
+    for (int i = 0; i < count; i++) {
+      if (neighbors[i] == newNeighbor) {
+        return; // Already present.
+      }
+    }
+
+    // Append.
+    final long[] newNeighbors;
+    if (neighbors.length > count) {
+      newNeighbors = neighbors;
+    } else {
+      newNeighbors = new long[count + 1];
+      System.arraycopy(neighbors, 0, newNeighbors, 0, count);
+    }
+    newNeighbors[count] = newNeighbor;
+    store.setNeighbors(nodeKey, layer, newNeighbors, count + 1);
+  }
+
+  /**
    * Simple insertion sort for small arrays — sorts both keys and dists by distance ascending.
    */
   private static void sortByDistance(final long[] keys, final float[] dists, final int count) {
