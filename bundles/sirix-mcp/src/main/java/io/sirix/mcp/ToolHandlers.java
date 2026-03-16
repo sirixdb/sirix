@@ -5,6 +5,7 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 
+import io.sirix.access.DatabaseType;
 import io.sirix.access.Databases;
 import io.sirix.api.Database;
 import io.sirix.api.RevisionInfo;
@@ -32,6 +33,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * MCP tool handler implementations for SirixDB operations.
@@ -52,6 +54,7 @@ public final class ToolHandlers {
   private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
   private static final int DEFAULT_HISTORY_COUNT = 20;
+  private static final Pattern VALID_NAME = Pattern.compile("^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$");
 
   private final McpServerConfig config;
   private final AccessControl accessControl;
@@ -79,7 +82,7 @@ public final class ToolHandlers {
       if (Files.isDirectory(databasePath)) {
         try (final DirectoryStream<Path> stream = Files.newDirectoryStream(databasePath)) {
           for (final Path entry : stream) {
-            if (Databases.existsDatabase(entry)) {
+            if (Databases.existsDatabase(entry) && Databases.getDatabaseType(entry) == DatabaseType.JSON) {
               final String name = entry.getFileName().toString();
               if (config.isDatabaseAllowed(name)) {
                 dbNames.add(name);
@@ -101,7 +104,7 @@ public final class ToolHandlers {
       accessControl.checkDatabaseAccess(database);
 
       final var resourceNames = new ArrayList<String>();
-      final Path dbPath = databasePath.resolve(database);
+      final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath)) {
         final List<Path> resources = db.listResources();
@@ -121,8 +124,9 @@ public final class ToolHandlers {
 
     return withAudit("sirix_resource_info", args, () -> {
       accessControl.checkAccess(database, resource);
+      validateResourceName(resource);
 
-      final Path dbPath = databasePath.resolve(database);
+      final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
            final JsonResourceSession session = db.beginResourceSession(resource)) {
@@ -133,10 +137,18 @@ public final class ToolHandlers {
         info.put("resource", resource);
         info.put("latestRevision", latestRevision);
 
-        final List<RevisionInfo> history = session.getHistory(latestRevision, 1);
-        if (!history.isEmpty()) {
-          info.put("lastModified", history.getFirst().getRevisionTimestamp().toString());
-          info.put("created", history.getLast().getRevisionTimestamp().toString());
+        if (latestRevision > 1) {
+          final List<RevisionInfo> history = session.getHistory(latestRevision, 1);
+          if (!history.isEmpty()) {
+            info.put("lastModified", history.getFirst().getRevisionTimestamp().toString());
+            info.put("created", history.getLast().getRevisionTimestamp().toString());
+          }
+        } else {
+          final List<RevisionInfo> history = session.getHistory(1);
+          if (!history.isEmpty()) {
+            info.put("created", history.getFirst().getRevisionTimestamp().toString());
+            info.put("lastModified", history.getFirst().getRevisionTimestamp().toString());
+          }
         }
 
         return textResult(MAPPER.writeValueAsString(info));
@@ -159,9 +171,11 @@ public final class ToolHandlers {
 
       final String result;
 
-      try (final BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
-              .location(databasePath).build();
-           final SirixQueryContext ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
+      final BasicJsonDBStore baseStore = BasicJsonDBStore.newBuilder()
+          .location(databasePath).build();
+      final var store = new GuardedJsonDBStore(baseStore, accessControl);
+
+      try (final SirixQueryContext ctx = SirixQueryContext.createWithJsonStoreAndCommitStrategy(
               store, SirixQueryContext.CommitStrategy.EXPLICIT);
            final SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
            final ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -189,10 +203,11 @@ public final class ToolHandlers {
 
     return withAudit("sirix_history", args, () -> {
       accessControl.checkAccess(database, resource);
+      validateResourceName(resource);
 
       final Integer count = optionalInt(args, "count");
       final int limit = count != null ? count : DEFAULT_HISTORY_COUNT;
-      final Path dbPath = databasePath.resolve(database);
+      final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
            final JsonResourceSession session = db.beginResourceSession(resource)) {
@@ -221,22 +236,27 @@ public final class ToolHandlers {
 
     return withAudit("sirix_diff", args, () -> {
       accessControl.checkAccess(database, resource);
+      validateResourceName(resource);
 
-      final Path dbPath = databasePath.resolve(database);
+      final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
            final JsonResourceSession session = db.beginResourceSession(resource)) {
 
-        final int fromRev = resolveRevision(args, "from_revision", "from_snapshot",
-            database, resource, session.getMostRecentRevisionNumber() - 1);
-        final int toRev = resolveRevision(args, "to_revision", "to_snapshot",
-            database, resource, session.getMostRecentRevisionNumber());
+        final int latest = session.getMostRecentRevisionNumber();
+        if (latest < 2) {
+          return textResult("No diff available: only 1 revision exists");
+        }
 
-        if (fromRev < 1 || toRev < 1 || fromRev > session.getMostRecentRevisionNumber()
-            || toRev > session.getMostRecentRevisionNumber()) {
+        final int fromRev = resolveRevision(args, "from_revision", "from_snapshot",
+            database, resource, latest - 1);
+        final int toRev = resolveRevision(args, "to_revision", "to_snapshot",
+            database, resource, latest);
+
+        if (fromRev < 1 || toRev < 1 || fromRev > latest || toRev > latest) {
           throw new IllegalArgumentException(
               "Invalid revision range: " + fromRev + ".." + toRev
-                  + " (latest: " + session.getMostRecentRevisionNumber() + ")");
+                  + " (latest: " + latest + ")");
         }
 
         final var jsonDiff = new BasicJsonDiff(database);
@@ -269,12 +289,13 @@ public final class ToolHandlers {
 
     return withAudit("sirix_create_snapshot", args, () -> {
       accessControl.checkAccess(database, resource);
+      validateResourceName(resource);
 
       final int rev;
       if (revision != null) {
         rev = revision;
       } else {
-        final Path dbPath = databasePath.resolve(database);
+        final Path dbPath = safeDatabasePath(database);
         try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
              final JsonResourceSession session = db.beginResourceSession(resource)) {
           rev = session.getMostRecentRevisionNumber();
@@ -298,8 +319,9 @@ public final class ToolHandlers {
     return withAudit("sirix_insert", args, () -> {
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
+      validateResourceName(resource);
 
-      final Path dbPath = databasePath.resolve(database);
+      final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
            final JsonResourceSession session = db.beginResourceSession(resource);
@@ -332,8 +354,9 @@ public final class ToolHandlers {
     return withAudit("sirix_update", args, () -> {
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
+      validateResourceName(resource);
 
-      final Path dbPath = databasePath.resolve(database);
+      final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
            final JsonResourceSession session = db.beginResourceSession(resource);
@@ -373,8 +396,9 @@ public final class ToolHandlers {
     return withAudit("sirix_delete", args, () -> {
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
+      validateResourceName(resource);
 
-      final Path dbPath = databasePath.resolve(database);
+      final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
            final JsonResourceSession session = db.beginResourceSession(resource);
@@ -401,20 +425,26 @@ public final class ToolHandlers {
     return withAudit("sirix_revert", args, () -> {
       accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
+      validateResourceName(resource);
 
-      final Path dbPath = databasePath.resolve(database);
+      final Path dbPath = safeDatabasePath(database);
 
       try (final Database<JsonResourceSession> db = Databases.openJsonDatabase(dbPath);
            final JsonResourceSession session = db.beginResourceSession(resource);
            final JsonNodeTrx wtx = session.beginNodeTrx()) {
 
+        final int latest = session.getMostRecentRevisionNumber();
         final int targetRevision = resolveRevision(args, "revision", "snapshot",
             database, resource, -1);
 
-        if (targetRevision < 1 || targetRevision > session.getMostRecentRevisionNumber()) {
+        if (targetRevision < 1 || targetRevision > latest) {
           throw new IllegalArgumentException(
               "Invalid revision: " + targetRevision
-                  + " (latest: " + session.getMostRecentRevisionNumber() + ")");
+                  + " (latest: " + latest + ")");
+        }
+
+        if (targetRevision == latest) {
+          return textResult("Already at revision " + latest + ", nothing to revert");
         }
 
         wtx.revertTo(targetRevision);
@@ -438,12 +468,36 @@ public final class ToolHandlers {
     var name = requireString(args, "name");
 
     return withAudit("sirix_delete_snapshot", args, () -> {
+      accessControl.checkWriteAccess();
       accessControl.checkAccess(database, resource);
       boolean existed = snapshots.delete(database, resource, name);
       return textResult(existed
           ? "Snapshot '" + name + "' deleted"
           : "Snapshot '" + name + "' not found");
     });
+  }
+
+  private Path safeDatabasePath(String database) {
+    validateDatabaseName(database);
+    final Path resolved = databasePath.resolve(database).normalize();
+    if (!resolved.startsWith(databasePath)) {
+      throw new IllegalArgumentException("Invalid database name");
+    }
+    return resolved;
+  }
+
+  private static void validateDatabaseName(String name) {
+    if (!VALID_NAME.matcher(name).matches()) {
+      throw new IllegalArgumentException(
+          "Invalid database name: must be 1-128 alphanumeric characters, hyphens, underscores, or dots");
+    }
+  }
+
+  private static void validateResourceName(String name) {
+    if (!VALID_NAME.matcher(name).matches()) {
+      throw new IllegalArgumentException(
+          "Invalid resource name: must be 1-128 alphanumeric characters, hyphens, underscores, or dots");
+    }
   }
 
   // --- Helpers ---
@@ -495,13 +549,16 @@ public final class ToolHandlers {
     } catch (AccessControl.AccessDeniedException e) {
       auditLog.log(toolName, params, "denied", e.getMessage());
       return errorResult(e.getMessage());
+    } catch (IllegalArgumentException e) {
+      auditLog.log(toolName, params, "error", e.getMessage());
+      return errorResult(e.getMessage());
     } catch (Exception e) {
       final String detail = e.getMessage() != null
           ? e.getMessage()
           : e.getClass().getSimpleName();
       auditLog.log(toolName, params, "error", detail);
       LOG.error("Tool {} failed", toolName, e);
-      return errorResult("Internal error: " + detail);
+      return errorResult("Operation failed. Check server logs for details.");
     }
   }
 
