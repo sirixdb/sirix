@@ -1,7 +1,16 @@
 package io.sirix.index;
 
 import io.brackit.query.QueryException;
-import io.brackit.query.atomic.*;
+import io.brackit.query.atomic.Atomic;
+import io.brackit.query.atomic.Bool;
+import io.brackit.query.atomic.Dbl;
+import io.brackit.query.atomic.Dec;
+import io.brackit.query.atomic.Flt;
+import io.brackit.query.atomic.Int;
+import io.brackit.query.atomic.Int32;
+import io.brackit.query.atomic.Int64;
+import io.brackit.query.atomic.Numeric;
+import io.brackit.query.atomic.Str;
 import io.brackit.query.expr.Cast;
 import io.brackit.query.jdm.Type;
 import io.sirix.exception.SirixException;

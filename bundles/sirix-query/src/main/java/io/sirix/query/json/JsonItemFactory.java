@@ -1,6 +1,11 @@
 package io.sirix.query.json;
 
-import io.brackit.query.atomic.*;
+import io.brackit.query.atomic.Bool;
+import io.brackit.query.atomic.Dbl;
+import io.brackit.query.atomic.Dec;
+import io.brackit.query.atomic.Flt;
+import io.brackit.query.atomic.Int32;
+import io.brackit.query.atomic.Int64;
 import io.brackit.query.jdm.json.JsonItem;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 

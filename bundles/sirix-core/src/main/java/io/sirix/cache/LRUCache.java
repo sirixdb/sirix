@@ -24,7 +24,11 @@ package io.sirix.cache;
 import io.sirix.utils.ToStringHelper;
 import org.jspecify.annotations.Nullable;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 import static java.util.Objects.requireNonNull;
 

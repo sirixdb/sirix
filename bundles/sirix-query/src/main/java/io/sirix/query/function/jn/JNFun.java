@@ -1,6 +1,10 @@
 package io.sirix.query.function.jn;
 
-import io.brackit.query.jdm.type.*;
+import io.brackit.query.jdm.type.AnyJsonItemType;
+import io.brackit.query.jdm.type.AtomicType;
+import io.brackit.query.jdm.type.Cardinality;
+import io.brackit.query.jdm.type.ObjectType;
+import io.brackit.query.jdm.type.SequenceType;
 import io.sirix.query.function.jn.diff.Diff;
 import io.sirix.query.function.jn.index.create.CreateCASIndex;
 import io.sirix.query.function.jn.index.create.CreateNameIndex;
@@ -12,7 +16,15 @@ import io.sirix.query.function.jn.index.scan.ScanCASIndex;
 import io.sirix.query.function.jn.index.scan.ScanCASIndexRange;
 import io.sirix.query.function.jn.index.scan.ScanNameIndex;
 import io.sirix.query.function.jn.index.scan.ScanPathIndex;
-import io.sirix.query.function.jn.io.*;
+import io.sirix.query.function.jn.io.Doc;
+import io.sirix.query.function.jn.io.DocByPointInTime;
+import io.sirix.query.function.jn.io.DropDatabase;
+import io.sirix.query.function.jn.io.DropResource;
+import io.sirix.query.function.jn.io.ExistsDatabase;
+import io.sirix.query.function.jn.io.ExistsResource;
+import io.sirix.query.function.jn.io.Load;
+import io.sirix.query.function.jn.io.OpenRevisions;
+import io.sirix.query.function.jn.io.Store;
 import io.sirix.query.function.jn.temporal.AllTimes;
 import io.sirix.query.function.jn.temporal.First;
 import io.sirix.query.function.jn.temporal.FirstExisting;

@@ -82,7 +82,7 @@ public final class CostBasedStage implements Stage {
   @Override
   public AST rewrite(StaticContext sctx, AST ast) throws QueryException {
     if (statsProvider == null) {
-      getStatsProvider();
+      statsProvider = new SirixStatisticsProvider(jsonStore);
     } else {
       statsProvider.clearCaches();
     }

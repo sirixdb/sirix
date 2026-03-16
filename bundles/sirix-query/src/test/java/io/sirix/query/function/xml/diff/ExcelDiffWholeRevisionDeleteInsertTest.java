@@ -24,7 +24,11 @@ import io.sirix.service.xml.serialize.XmlSerializer;
 import io.sirix.service.xml.serialize.XmlSerializer.XmlSerializerBuilder;
 import io.sirix.service.xml.shredder.XmlShredder;
 
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;

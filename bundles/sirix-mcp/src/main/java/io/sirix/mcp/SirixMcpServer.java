@@ -4,7 +4,10 @@ import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServer.SyncSpecification;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
-import io.modelcontextprotocol.spec.McpSchema.*;
+import io.modelcontextprotocol.spec.McpSchema.JsonSchema;
+import io.modelcontextprotocol.spec.McpSchema.ServerCapabilities;
+import io.modelcontextprotocol.spec.McpSchema.Tool;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
