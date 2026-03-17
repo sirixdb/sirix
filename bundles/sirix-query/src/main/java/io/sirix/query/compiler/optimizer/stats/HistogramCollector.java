@@ -11,9 +11,8 @@ import io.sirix.query.json.JsonDBStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.HashSet;
+import it.unimi.dsi.fastutil.doubles.DoubleOpenHashSet;
 import java.util.Objects;
-import java.util.Set;
 
 /**
  * Collects value samples from a JSON resource and builds a {@link Histogram}.
@@ -169,7 +168,7 @@ public final class HistogramCollector {
   private Histogram sampleValues(JsonNodeReadOnlyTrx rtx, String fieldPath,
                                   int sampleSize, int bucketCount) {
     final var builder = new Histogram.Builder(bucketCount);
-    final Set<Double> distinctValues = new HashSet<>();
+    final DoubleOpenHashSet distinctValues = new DoubleOpenHashSet();
 
     rtx.moveToDocumentRoot();
     final long totalNodes = rtx.getDescendantCount();

@@ -38,7 +38,7 @@ public final class EquivalenceClass {
     if (plan == null) {
       throw new IllegalArgumentException("Plan must not be null");
     }
-    if (Double.isNaN(cost) || cost < 0) {
+    if (!Double.isFinite(cost) || cost < 0) {
       throw new IllegalArgumentException("Cost must be non-negative and finite: " + cost);
     }
     alternatives.add(new PlanAlternative(plan, cost));

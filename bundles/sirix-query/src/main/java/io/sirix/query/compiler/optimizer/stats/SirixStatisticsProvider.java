@@ -254,7 +254,10 @@ public final class SirixStatisticsProvider implements StatisticsProvider, AutoCl
       case CAS -> 0;
       case PATH -> 1;
       case NAME -> 2;
-      default -> throw new IllegalArgumentException("Unexpected index type for cost model: " + type);
+      default -> {
+        LOG.warn("Unknown index type for cost model priority: {}, assigning lowest priority", type);
+        yield Integer.MAX_VALUE - 1;
+      }
     };
   }
 

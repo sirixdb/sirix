@@ -47,6 +47,11 @@ public final class JoinGraph {
   public void addEdge(int rel1, int rel2, double selectivity) {
     checkRelationIndex(rel1);
     checkRelationIndex(rel2);
+    // Skip duplicate edges — an edge between rel1 and rel2 already exists
+    // if the adjacency bitmask already has the bit set.
+    if ((adjacency[rel1] & (1L << rel2)) != 0) {
+      return;
+    }
     if (edgeCount >= edges.length) {
       throw new IllegalStateException("Edge capacity exceeded: " + edgeCount);
     }

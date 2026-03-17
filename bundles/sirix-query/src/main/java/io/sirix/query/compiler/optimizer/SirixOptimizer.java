@@ -21,7 +21,7 @@ import io.sirix.query.node.XmlDBStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class SirixOptimizer extends TopDownOptimizer {
+public class SirixOptimizer extends TopDownOptimizer implements AutoCloseable {
 
   private static final Logger LOG = LoggerFactory.getLogger(SirixOptimizer.class);
 
@@ -227,6 +227,20 @@ public class SirixOptimizer extends TopDownOptimizer {
    */
   public boolean isStageEnabled(Class<? extends Stage> stageClass) {
     return !disabledStages.contains(stageClass);
+  }
+
+  /**
+   * Release resources held by optimizer stages (e.g., cached database sessions
+   * in the statistics provider). Call when the optimizer is no longer needed
+   * to prevent resource leaks.
+   */
+  @Override
+  public void close() {
+    for (final Stage stage : getStages()) {
+      if (stage instanceof CostBasedStage costBasedStage) {
+        costBasedStage.closeResources();
+      }
+    }
   }
 
   private static class IndexMatching implements Stage {

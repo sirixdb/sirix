@@ -46,7 +46,8 @@ public final class CostBasedStage implements Stage {
   private final JsonCostModel costModel;
   private final SelectivityEstimator selectivityEstimator;
   private final CardinalityEstimator cardinalityEstimator;
-  private SirixStatisticsProvider statsProvider;
+  /** Lazily initialized; not final because it depends on jsonStore being available at query time. */
+  private volatile SirixStatisticsProvider statsProvider;
 
   /**
    * Tracks variable bindings for resolving VariableRef nodes.
@@ -58,9 +59,9 @@ public final class CostBasedStage implements Stage {
   /**
    * Tracks which variable keys are currently being resolved in {@link #extractPathAndDocument}.
    * Prevents infinite loops from circular variable references (e.g., let $x := $y, let $y := $x).
-   * Initialized per call to {@link #extractPathAndDocument}.
+   * Reused across calls (cleared at start of each extractPathAndDocument call) to avoid GC pressure.
    */
-  private Set<Object> activeVarResolutions;
+  private final Set<Object> activeVarResolutions = new HashSet<>(4);
 
   public CostBasedStage(JsonDBStore jsonStore) {
     this.jsonStore = jsonStore;
@@ -73,10 +74,12 @@ public final class CostBasedStage implements Stage {
    * Get the statistics provider for sharing with other stages.
    */
   public StatisticsProvider getStatsProvider() {
-    if (statsProvider == null) {
-      statsProvider = new SirixStatisticsProvider(jsonStore);
+    SirixStatisticsProvider local = statsProvider;
+    if (local == null) {
+      local = new SirixStatisticsProvider(jsonStore);
+      statsProvider = local;
     }
-    return statsProvider;
+    return local;
   }
 
   @Override
@@ -105,6 +108,18 @@ public final class CostBasedStage implements Stage {
     }
 
     return ast;
+  }
+
+  /**
+   * Close resources held by this stage (e.g., cached database sessions).
+   * Safe to call even if the stage was never used.
+   */
+  public void closeResources() {
+    final SirixStatisticsProvider local = statsProvider;
+    if (local != null) {
+      local.close();
+      statsProvider = null;
+    }
   }
 
   /**
@@ -294,7 +309,7 @@ public final class CostBasedStage implements Stage {
     final var steps = new ArrayList<PathStep>(8);
     AST current = expr;
     int maxIterations = 50; // guard against pathological ASTs
-    activeVarResolutions = new HashSet<>(4);
+    activeVarResolutions.clear();
 
     while (current != null && --maxIterations > 0) {
       if (current.getType() == XQ.DerefExpr && current.getChildCount() >= 2) {
