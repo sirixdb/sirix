@@ -122,41 +122,56 @@ Revision Roots                    Page Trie (persistent, copy-on-write)
 SirixDB supports multiple strategies for storing page versions, configurable per resource:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│ FULL: Each page stores complete data                                    │
-│                                                                         │
-│   Rev1: [████████]  Rev2: [████████]  Rev3: [████████]                  │
-│         (full)            (full)            (full)                      │
-│                                                                         │
-│   + Fast reads (no reconstruction)                                      │
-│   - High storage cost                                                   │
-├─────────────────────────────────────────────────────────────────────────┤
-│ INCREMENTAL: Each page stores diff from previous revision               │
-│                                                                         │
-│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←2]  Rev4: [Δ←3]               │
-│         (full)       (diff)       (diff)       (diff)                   │
-│                                                                         │
-│   + Minimal storage                                                     │
-│   - Read cost grows: Rev4 = apply(Δ3, apply(Δ2, apply(Δ1, Rev1)))       │
-├─────────────────────────────────────────────────────────────────────────┤
-│ DIFFERENTIAL: Each page stores diff from a reference snapshot           │
-│                                                                         │
-│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←1]  Rev4: [Δ←1]               │
-│         (full)       (diff)       (diff)       (diff)                   │
-│                                                                         │
-│   + Bounded read cost (max 1 diff to apply)                             │
-│   - Diffs grow larger over time                                         │
-├─────────────────────────────────────────────────────────────────────────┤
-│ SLIDING SNAPSHOT: Periodic full snapshots + incremental diffs           │
-│                                                                         │
-│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←2]  Rev4: [████████]  Rev5:   │
-│         (full)       (diff)       (diff)       (full)           [Δ←4]   │
-│         ◄──────── window N=3 ────────►        ◄──── window ────►        │
-│                                                                         │
-│   + Bounded read cost (max N diffs)                                     │
-│   + Bounded diff size (reset at each snapshot)                          │
-│   = Best balance of storage vs read performance                         │
-└─────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ FULL: Each page stores complete data                                         │
+│                                                                              │
+│   Rev1: [████████]  Rev2: [████████]  Rev3: [████████]                       │
+│         (full)            (full)            (full)                           │
+│                                                                              │
+│   + Fast reads (no reconstruction)                                           │
+│   - High storage cost                                                        │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ INCREMENTAL: Diffs from previous revision + periodic full snapshots          │
+│                                                                              │
+│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←2]  Rev4: [████████]              │
+│         (full)       (diff)       (diff)       (full snapshot)              │
+│                                                                              │
+│   Rev5: [Δ←4]  Rev6: [Δ←5]  Rev7: [████████]  ...                           │
+│         (diff)       (diff)       (full snapshot)                           │
+│                                                                              │
+│   Full snapshot written every N revisions (N = configurable window)          │
+│   + Bounded read cost (max N-1 diffs between full snapshots)                 │
+│   + Compact diffs (each diff is against previous revision only)              │
+│   - Read cost grows linearly within each window                              │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ DIFFERENTIAL: Diffs from reference snapshot + periodic full snapshots        │
+│                                                                              │
+│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [████████]  Rev4: [Δ←3]              │
+│         (full)       (diff)       (full snapshot)    (diff)                 │
+│                                                                              │
+│   Rev5: [Δ←3]  Rev6: [████████]  Rev7: [Δ←6]  ...                           │
+│         (diff)       (full snapshot)    (diff)                              │
+│                                                                              │
+│   Full snapshot every N revisions; diffs reference the last snapshot         │
+│   + Bounded read cost (max 1 diff to apply)                                  │
+│   - Diffs grow larger as they diverge from last snapshot                     │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ SLIDING SNAPSHOT: Incremental diffs within a sliding window of size N       │
+│                                                                              │
+│   Rev1: [████████]  Rev2: [Δ←1]  Rev3: [Δ←2]  Rev4: [Δ←3 + R1 copy]        │
+│         (full)       (diff)       (diff)       (diff + out-of-window        │
+│                                                 records from Rev1)          │
+│         ◄──────── window N=3 ──────────►                                    │
+│                      ◄──────── window N=3 ──────────►                       │
+│                                                                              │
+│   As the window slides forward, records from pages that fall out of         │
+│   the window are copied into the newest diff page, ensuring any             │
+│   revision can be reconstructed from at most N page fragments.              │
+│                                                                              │
+│   + Bounded read cost (max N page fragments to combine)                      │
+│   + No unbounded diff growth (out-of-window data is always rescued)         │
+│   = Best balance of storage vs read performance                              │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 When you modify data:
