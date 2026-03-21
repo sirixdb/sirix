@@ -74,6 +74,12 @@ Both questions have correct, different answers. Without bitemporal support, the 
 
 ## How Versioning Works
 
+<p align="center">
+<img src="images/sirix-revisions.png" alt="Logical page structure of a resource with 3 revisions" width="800"/>
+<br/>
+<em>Logical page structure of a resource with 3 revisions — read-only transactions (RTX) can open any revision, while a single write transaction (WTX) appends to the latest.</em>
+</p>
+
 SirixDB stores data in a persistent tree structure where revisions share unchanged pages and nodes. Traditional databases overwrite data in place and use write-ahead logs for recovery. SirixDB takes a different approach:
 
 ### Physical Storage: Append-Only Log
@@ -497,6 +503,34 @@ docker compose -f docker-compose.demo.yml up
 Open `http://localhost:3000` (login: `admin`/`admin`)
 
 ## Architecture
+
+### JSON Tree Encoding
+
+SirixDB shreds JSON into a typed node tree where each node has a stable key across revisions:
+
+<p align="center">
+<img src="images/sirix-json-tree-encoding.png" alt="How JSON is encoded as a node tree" width="700"/>
+<br/>
+<em>A JSON document and its internal tree representation — each node carries a stable key (nodeKey) for identity tracking across revisions.</em>
+</p>
+
+### Document Storage and Path Summary
+
+When JSON is stored, SirixDB also builds a **path summary** — a compact trie capturing all unique paths in the document. This powers the path and CAS indexes:
+
+<p align="center">
+<img src="images/sirix-doc-storage-and-path-summary.png" alt="Document tree and path summary" width="700"/>
+<br/>
+<em>Left: the document tree. Right: the path summary trie with stable path class records (PCR) used for indexing.</em>
+</p>
+
+### On-Device Layout
+
+<p align="center">
+<img src="images/sirix-on-device-layout.png" alt="Logical device layout of a resource" width="700"/>
+<br/>
+<em>Physical layout on disk — data is split across two logical devices (LD₀ for metadata offsets, LD₁ for page data), written sequentially per revision.</em>
+</p>
 
 ### Storage Model
 
