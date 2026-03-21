@@ -1,7 +1,6 @@
 package io.sirix.axis.concurrent;
 
 import io.sirix.api.Axis;
-import io.sirix.service.xml.xpath.EXPathError;
 import io.sirix.exception.SirixXPathException;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.LogWrapper;
@@ -38,7 +37,7 @@ public final class Util {
   public static boolean isValid(final long nodeKey) {
     if (nodeKey < 0) {
       try {
-        throw EXPathError.XPTY0004.getEncapsulatedException();
+        throw new SirixXPathException("err:XPTY0004 The type is not appropriate the expression or the type does not match a required type as specified by the matching rules.");
       } catch (final SirixXPathException e) {
         LOGGER.error(e.getMessage(), e);
       }

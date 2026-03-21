@@ -44,7 +44,7 @@ import io.sirix.node.xml.TextNode;
 import io.sirix.node.xml.XmlDocumentRootNode;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageLayout;
-import io.sirix.service.xml.xpath.AtomicValue;
+import io.sirix.node.AtomicValue;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;

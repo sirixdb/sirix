@@ -6,6 +6,7 @@ apply plugin: 'org.graalvm.buildtools.native'
 
 dependencies {
     implementation project(':sirix-core')
+    implementation project(':sirix-xpath-legacy')
     implementation implLibraries.vertxAuthOauth2
     implementation implLibraries.fastUtil
     implementation implLibraries.jline

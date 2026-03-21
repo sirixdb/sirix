@@ -45,7 +45,7 @@ import io.sirix.node.json.ObjectNullNode;
 import io.sirix.node.json.ObjectNumberNode;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
-import io.sirix.service.xml.xpath.ItemListImpl;
+import io.sirix.api.ItemListImpl;
 import io.sirix.settings.Constants;
 import io.brackit.query.atomic.QNm;
 

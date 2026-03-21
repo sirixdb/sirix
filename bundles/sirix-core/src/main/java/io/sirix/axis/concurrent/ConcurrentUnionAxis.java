@@ -25,7 +25,7 @@ import io.sirix.api.Axis;
 import io.sirix.api.NodeCursor;
 import io.sirix.api.NodeReadOnlyTrx;
 import io.sirix.axis.AbstractAxis;
-import io.sirix.service.xml.xpath.EXPathError;
+import io.sirix.exception.SirixXPathException;
 
 /**
  * <p>
@@ -111,7 +111,7 @@ public final class ConcurrentUnionAxis<R extends NodeCursor & NodeReadOnlyTrx> e
         }
 
         if (nodeKey < 0) {
-          throw EXPathError.XPTY0004.getEncapsulatedException();
+          throw new SirixXPathException("err:XPTY0004 The type is not appropriate the expression or the type does not match a required type as specified by the matching rules.");
         }
         return nodeKey;
       }

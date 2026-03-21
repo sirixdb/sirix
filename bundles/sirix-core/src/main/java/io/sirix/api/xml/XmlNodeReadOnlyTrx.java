@@ -31,7 +31,7 @@ import io.sirix.api.visitor.XmlNodeVisitor;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.ValueNode;
-import io.sirix.service.xml.xpath.AtomicValue;
+import io.sirix.node.AtomicValue;
 import io.brackit.query.atomic.QNm;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;

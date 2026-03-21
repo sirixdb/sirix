@@ -1,0 +1,36 @@
+dependencies {
+    api project(':sirix-core')
+
+    testImplementation project(path: ':sirix-core', configuration: 'testArtifacts')
+    testImplementation implLibraries.xmlunit
+    testImplementation testLibraries.junitJupiterApi
+    testImplementation testLibraries.junitJupiterEngine
+    testImplementation testLibraries.junitJupiterParams
+    testImplementation testLibraries.junitVintageEngine
+    testImplementation testLibraries.junitPlatformLauncher
+    testImplementation testLibraries.junitPlatformRunner
+    testImplementation testLibraries.mockitoCore
+    testImplementation testLibraries.byteBuddy
+    testImplementation testLibraries.testng
+    testImplementation testLibraries.assertjCore
+}
+
+description = 'Legacy XPath 2.0 implementation for SirixDB XML resources.'
+
+test {
+    useJUnitPlatform()
+
+    jvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '-XX:+UnlockDiagnosticVMOptions',
+        '-XX:+DebugNonSafepoints',
+    ]
+
+    testLogging {
+        showStandardStreams = true
+        exceptionFormat = 'full'
+    }
+}
