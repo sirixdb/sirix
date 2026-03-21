@@ -589,13 +589,15 @@ bundles/
 
 ## Community
 
-- **[Discord](https://discord.gg/yC33wVpv7t)** - Quick questions and chat
-- **[Forum](https://sirix.discourse.group/)** - Discussions and support
-- **[GitHub Issues](https://github.com/sirixdb/sirix/issues)** - Bug reports and features
+- **[Discord](https://discord.gg/yC33wVpv7t)** — Quick questions and chat
+- **[Forum](https://sirix.discourse.group/)** — Discussions and support
+- **[GitHub Issues](https://github.com/sirixdb/sirix/issues)** — Bug reports and feature requests
 
 ## Contributing
 
-Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines, and please review our [Code of Conduct](CODE_OF_CONDUCT.md).
+
+For security vulnerabilities, see [SECURITY.md](SECURITY.md).
 
 ## Contributors
 
