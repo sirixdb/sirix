@@ -6,7 +6,6 @@ import io.sirix.node.interfaces.DeweyIdSerializer;
 import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 
-import java.util.Arrays;
 
 /**
  * Serialize and deserialize nodes.
@@ -102,7 +101,6 @@ public final class NodeSerializerImpl implements DeweyIdSerializer {
   private static void writeDeweyID(final BytesOut<?> sink, final byte[] deweyID, final int i) {
     sink.writeByte((byte) i);
     sink.writeByte((byte) (deweyID.length - i));
-    final var bytes = Arrays.copyOfRange(deweyID, i, deweyID.length);
-    sink.write(bytes);
+    sink.write(deweyID, i, deweyID.length - i);
   }
 }

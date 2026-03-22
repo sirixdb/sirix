@@ -76,7 +76,6 @@ import org.slf4j.LoggerFactory;
 
 import java.lang.foreign.MemorySegment;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -168,8 +167,31 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private final boolean isBoundToNodeTrx;
 
-  private record IndexLogKeyToPageContainer(IndexType indexType, long recordPageKey, int indexNumber,
-      int revisionNumber, PageContainer pageContainer) {
+  private static final class IndexLogKeyToPageContainer {
+    IndexType indexType;
+    long recordPageKey;
+    int indexNumber;
+    int revisionNumber;
+    PageContainer pageContainer;
+
+    IndexLogKeyToPageContainer(final IndexType indexType, final long recordPageKey,
+        final int indexNumber, final int revisionNumber, final PageContainer pageContainer) {
+      set(indexType, recordPageKey, indexNumber, revisionNumber, pageContainer);
+    }
+
+    void set(final IndexType indexType, final long recordPageKey, final int indexNumber,
+        final int revisionNumber, final PageContainer pageContainer) {
+      this.indexType = indexType;
+      this.recordPageKey = recordPageKey;
+      this.indexNumber = indexNumber;
+      this.revisionNumber = revisionNumber;
+      this.pageContainer = pageContainer;
+    }
+
+    void copyFrom(final IndexLogKeyToPageContainer other) {
+      set(other.indexType, other.recordPageKey, other.indexNumber,
+          other.revisionNumber, other.pageContainer);
+    }
   }
 
   /**
@@ -188,6 +210,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private IndexLogKeyToPageContainer mostRecentPathSummaryPageContainer;
 
   private final LinkedHashMap<IndexLogKey, PageContainer> pageContainerCache;
+
+  /**
+   * Reusable lookup key for pageContainerCache to avoid allocating a new IndexLogKey on every
+   * cache probe. MUST NOT be passed to computeIfAbsent as the stored key — the map retains a
+   * reference, and subsequent mutations would corrupt it.
+   */
+  private final IndexLogKey lookupKey = new IndexLogKey(IndexType.DOCUMENT, -1, -1, -1);
 
   /**
    * Optional binder for write-path singletons.
@@ -234,7 +263,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     this.representRevision = representRevision;
     this.isBoundToNodeTrx = isBoundToNodeTrx;
     mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
-    secondMostRecentPageContainer = mostRecentPageContainer;
+    secondMostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
     mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
     pageContainerCache = new LinkedHashMap<>(100, 0.75f, true) {
       @Override
@@ -728,11 +757,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
    */
   private void clearLocalContainerCaches() {
     pageContainerCache.clear();
-    mostRecentPageContainer = new IndexLogKeyToPageContainer(
-        IndexType.DOCUMENT, -1, -1, -1, null);
-    secondMostRecentPageContainer = mostRecentPageContainer;
-    mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(
-        IndexType.PATH_SUMMARY, -1, -1, -1, null);
+    mostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
+    secondMostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
+    mostRecentPathSummaryPageContainer.set(IndexType.PATH_SUMMARY, -1, -1, -1, null);
   }
 
   /**
@@ -927,10 +954,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       // Clear local cache (pages are already handled by log.clear())
       pageContainerCache.clear();
 
-      // Null out cache references since pages have been returned to pool
-      mostRecentPageContainer = new IndexLogKeyToPageContainer(IndexType.DOCUMENT, -1, -1, -1, null);
-      secondMostRecentPageContainer = mostRecentPageContainer;
-      mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(IndexType.PATH_SUMMARY, -1, -1, -1, null);
+      // Reset cache references since pages have been returned to pool
+      mostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
+      secondMostRecentPageContainer.set(IndexType.DOCUMENT, -1, -1, -1, null);
+      mostRecentPathSummaryPageContainer.set(IndexType.PATH_SUMMARY, -1, -1, -1, null);
 
       final long t8 = timing ? System.nanoTime() : 0;
 
@@ -988,37 +1015,38 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
   private void parallelSerializationOfKeyValuePages() {
     final var resourceConfig = getResourceSession().getResourceConfig();
-
-    // Filter KeyValueLeafPages first to get accurate count
     final var logList = log.getList();
-    final var keyValuePages = new ArrayList<Page>(logList.size());
-    for (final var container : logList) {
-      final var modified = container.getModified();
-      if (modified instanceof KeyValueLeafPage) {
-        keyValuePages.add(modified);
-      }
-    }
 
-    // Adaptive: use sequential for small commits to avoid parallel stream overhead
-    var stream = keyValuePages.size() < PARALLEL_SERIALIZATION_THRESHOLD
-        ? keyValuePages.stream()
-        : keyValuePages.parallelStream();
-
-    stream.forEach(page -> {
-      // Use pooled buffer instead of creating new Arena.ofAuto() per page
-      var pooledSeg = SerializationBufferPool.INSTANCE.acquire();
-      try {
-        var bytes = new PooledBytesOut(pooledSeg);
-        PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
-      } catch (final Exception e) {
-        if (e instanceof RuntimeException re) {
-          throw re;
+    if (logList.size() < PARALLEL_SERIALIZATION_THRESHOLD) {
+      // Sequential: iterate directly — no intermediate collection
+      for (final var container : logList) {
+        final var modified = container.getModified();
+        if (modified instanceof KeyValueLeafPage) {
+          serializeKeyValuePage(resourceConfig, modified);
         }
-        throw new SirixIOException(e);
-      } finally {
-        SerializationBufferPool.INSTANCE.release(pooledSeg);
       }
-    });
+    } else {
+      // Parallel: stream-filter avoids materializing an intermediate ArrayList
+      logList.parallelStream()
+          .map(PageContainer::getModified)
+          .filter(p -> p instanceof KeyValueLeafPage)
+          .forEach(page -> serializeKeyValuePage(resourceConfig, page));
+    }
+  }
+
+  private void serializeKeyValuePage(final ResourceConfiguration resourceConfig, final Page page) {
+    var pooledSeg = SerializationBufferPool.INSTANCE.acquire();
+    try {
+      var bytes = new PooledBytesOut(pooledSeg);
+      PageKind.KEYVALUELEAFPAGE.serializePage(resourceConfig, bytes, page, SerializationType.DATA);
+    } catch (final Exception e) {
+      if (e instanceof RuntimeException re) {
+        throw re;
+      }
+      throw new SirixIOException(e);
+    } finally {
+      SerializationBufferPool.INSTANCE.release(pooledSeg);
+    }
   }
 
   private static long ms(final long nanos) {
@@ -1197,8 +1225,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return pageContainer;
     }
 
+    final int revision = newRevisionRootPage.getRevision();
+    lookupKey.setIndexType(indexType).setRecordPageKey(recordPageKey)
+        .setIndexNumber(indexNumber).setRevisionNumber(revision);
+    final PageContainer cached = pageContainerCache.get(lookupKey);
+    if (cached != null) {
+      return cached;
+    }
+
     return pageContainerCache.computeIfAbsent(
-        new IndexLogKey(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision()), _ -> {
+        new IndexLogKey(indexType, recordPageKey, indexNumber, revision), _ -> {
           final PageReference pageReference = storageEngineReader.getPageReference(newRevisionRootPage, indexType, indexNumber);
           // Use writer's TIL-aware trie traversal instead of reader's disk-only traversal.
           // After async epoch rotation, IndirectPages may be in the TIL but not yet on disk;
@@ -1318,15 +1354,22 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       }
     };
 
-    var currPageContainer = pageContainerCache.computeIfAbsent(
-        new IndexLogKey(indexType, recordPageKey, indexNumber, newRevisionRootPage.getRevision()), fetchPageContainer);
+    final int revision = newRevisionRootPage.getRevision();
+    lookupKey.setIndexType(indexType).setRecordPageKey(recordPageKey)
+        .setIndexNumber(indexNumber).setRevisionNumber(revision);
+    var currPageContainer = pageContainerCache.get(lookupKey);
+    if (currPageContainer == null) {
+      currPageContainer = pageContainerCache.computeIfAbsent(
+          new IndexLogKey(indexType, recordPageKey, indexNumber, revision), fetchPageContainer);
+    }
 
     if (indexType == IndexType.PATH_SUMMARY) {
-      mostRecentPathSummaryPageContainer = new IndexLogKeyToPageContainer(indexType, recordPageKey, indexNumber,
+      mostRecentPathSummaryPageContainer.set(indexType, recordPageKey, indexNumber,
           newRevisionRootPage.getRevision(), currPageContainer);
     } else {
-      secondMostRecentPageContainer = mostRecentPageContainer;
-      mostRecentPageContainer = new IndexLogKeyToPageContainer(indexType, recordPageKey, indexNumber,
+      // Copy mostRecent into secondMostRecent BEFORE mutating mostRecent
+      secondMostRecentPageContainer.copyFrom(mostRecentPageContainer);
+      mostRecentPageContainer.set(indexType, recordPageKey, indexNumber,
           newRevisionRootPage.getRevision(), currPageContainer);
     }
 
