@@ -213,6 +213,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   private final IndexLogKey reusableIndexLogKey = new IndexLogKey(null, 0, 0, 0);
 
   /**
+   * Reusable MemorySegmentBytesIn to avoid allocations on every non-flyweight record
+   * deserialization. Safe to reuse because this transaction is single-threaded (see class javadoc).
+   */
+  private final MemorySegmentBytesIn reusableBytesIn = new MemorySegmentBytesIn(MemorySegment.NULL);
+
+  /**
    * The keyed trie reader for navigating the IndirectPage trie structure.
    */
   private final KeyedTrieReader keyedTrieReader = new KeyedTrieReader();
@@ -458,7 +464,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
   @SuppressWarnings({"unchecked", "rawtypes"})
   private DataRecord getDataRecord(long key, int offset, MemorySegment data, KeyValuePage<? extends DataRecord> page) {
-    var record = resourceConfig.recordPersister.deserialize(new MemorySegmentBytesIn(data),
+    reusableBytesIn.reset(data, 0);
+    var record = resourceConfig.recordPersister.deserialize(reusableBytesIn,
                                                             key,
                                                             page.getDeweyIdAsByteArray(offset),
                                                             resourceConfig);
