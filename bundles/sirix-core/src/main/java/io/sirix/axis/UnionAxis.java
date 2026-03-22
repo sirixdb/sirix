@@ -1,6 +1,6 @@
-/**
+/*
  * Copyright (c) 2011, University of Konstanz, Distributed Systems Group All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without modification, are permitted
  * provided that the following conditions are met: * Redistributions of source code must retain the
  * above copyright notice, this list of conditions and the following disclaimer. * Redistributions
@@ -8,7 +8,7 @@
  * following disclaimer in the documentation and/or other materials provided with the distribution.
  * * Neither the name of the University of Konstanz nor the names of its contributors may be used to
  * endorse or promote products derived from this software without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
  * IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
  * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE
@@ -19,13 +19,59 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-/**
- * <p>
- * Contains classes for scanning and parsing xpath queries and to build the query evaluation
- * pipeline.
- * </p>
- * 
- * @author Tina Scherer, University of Konstanz
- */
-package io.sirix.service.xml.xpath;
+package io.sirix.axis;
 
+import io.sirix.api.Axis;
+import io.sirix.api.NodeCursor;
+
+import static java.util.Objects.requireNonNull;
+
+/**
+ * Returns a union of two operands. This axis takes two node sequences as operands and returns a
+ * sequence containing all the items that occur in either of the operands. A union of two sequences
+ * may lead to a sequence containing duplicates. The resulting sequence may also be out of document
+ * order.
+ */
+public final class UnionAxis extends AbstractAxis {
+
+  /** First operand sequence. */
+  private final Axis op1;
+
+  /** Second operand sequence. */
+  private final Axis op2;
+
+  /**
+   * Constructor. Initializes the internal state.
+   *
+   * @param cursor exclusive (immutable) cursor to iterate with
+   * @param operand1 first operand
+   * @param operand2 second operand
+   */
+  public UnionAxis(final NodeCursor cursor, final Axis operand1, final Axis operand2) {
+    super(cursor);
+    op1 = requireNonNull(operand1);
+    op2 = requireNonNull(operand2);
+  }
+
+  @Override
+  public void reset(final long nodeKey) {
+    super.reset(nodeKey);
+    if (op1 != null) {
+      op1.reset(nodeKey);
+    }
+    if (op2 != null) {
+      op2.reset(nodeKey);
+    }
+  }
+
+  @Override
+  protected long nextKey() {
+    if (op1.hasNext()) {
+      return op1.nextLong();
+    }
+    if (op2.hasNext()) {
+      return op2.nextLong();
+    }
+    return done();
+  }
+}

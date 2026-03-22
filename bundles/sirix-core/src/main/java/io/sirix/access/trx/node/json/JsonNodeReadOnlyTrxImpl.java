@@ -45,7 +45,7 @@ import io.sirix.node.json.ObjectNullNode;
 import io.sirix.node.json.ObjectNumberNode;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
-import io.sirix.service.xml.xpath.ItemListImpl;
+import io.sirix.node.DefaultItemList;
 import io.sirix.settings.Constants;
 import io.brackit.query.atomic.QNm;
 
@@ -75,7 +75,7 @@ public final class JsonNodeReadOnlyTrxImpl extends
   JsonNodeReadOnlyTrxImpl(final InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> resourceSession,
       final int trxId, final StorageEngineReader pageReadTransaction,
       final ImmutableJsonNode documentNode) {
-    super(trxId, pageReadTransaction, documentNode, resourceSession, new ItemListImpl());
+    super(trxId, pageReadTransaction, documentNode, resourceSession, new DefaultItemList<>());
   }
 
   private static final String INSERT = InsertOperations.INSERT.getName();

@@ -54,8 +54,8 @@ import io.sirix.node.xml.NamespaceNode;
 import io.sirix.node.xml.PINode;
 import io.sirix.node.xml.TextNode;
 import io.sirix.node.xml.XmlDocumentRootNode;
-import io.sirix.service.xml.xpath.AtomicValue;
-import io.sirix.service.xml.xpath.ItemListImpl;
+import io.sirix.node.DefaultItemList;
+import io.sirix.node.interfaces.Node;
 import io.sirix.settings.Constants;
 import io.sirix.utils.NamePageHash;
 import io.brackit.query.atomic.QNm;
@@ -81,7 +81,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   XmlNodeReadOnlyTrxImpl(final InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> resourceSession,
       final int trxId, final StorageEngineReader pageReadTransaction,
       final ImmutableXmlNode documentNode) {
-    super(trxId, pageReadTransaction, documentNode, resourceSession, new ItemListImpl());
+    super(trxId, pageReadTransaction, documentNode, resourceSession, new DefaultItemList<>());
   }
 
   @Override
@@ -186,7 +186,7 @@ public final class XmlNodeReadOnlyTrxImpl extends
   }
 
   @Override
-  public ItemList<AtomicValue> getItemList() {
+  public ItemList<Node> getItemList() {
     assertNotClosed();
     return itemList;
   }

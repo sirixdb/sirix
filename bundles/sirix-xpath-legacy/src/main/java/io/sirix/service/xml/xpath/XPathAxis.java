@@ -71,7 +71,9 @@ import static java.util.Objects.requireNonNull;
  * </pre>
  *
  *
+ * @deprecated Use sirix-query (Brackit-based XQuery) instead.
  */
+@Deprecated(forRemoval = true)
 public final class XPathAxis extends AbstractAxis {
 
   /** Declares if the evaluation is compatible to XPath 1.0 or not. */

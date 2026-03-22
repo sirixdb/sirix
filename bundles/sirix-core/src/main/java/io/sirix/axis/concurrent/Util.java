@@ -1,8 +1,6 @@
 package io.sirix.axis.concurrent;
 
 import io.sirix.api.Axis;
-import io.sirix.service.xml.xpath.EXPathError;
-import io.sirix.exception.SirixXPathException;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
@@ -32,16 +30,12 @@ public final class Util {
    * expression.
    * 
    * @param nodeKey the node key to validate
-   * @return {@code true}, if key is a key of a node, otherwise throws an exception
-   * @throws SirixXPathException if the key is no node key
+   * @return {@code true}, if key is a key of a node, {@code false} for atomic values
    */
   public static boolean isValid(final long nodeKey) {
     if (nodeKey < 0) {
-      try {
-        throw EXPathError.XPTY0004.getEncapsulatedException();
-      } catch (final SirixXPathException e) {
-        LOGGER.error(e.getMessage(), e);
-      }
+      LOGGER.error("err:XPTY0004 Atomic values are not allowed in this expression.");
+      return false;
     }
     return true;
   }

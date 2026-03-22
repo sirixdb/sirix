@@ -44,7 +44,6 @@ import io.sirix.node.xml.TextNode;
 import io.sirix.node.xml.XmlDocumentRootNode;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageLayout;
-import io.sirix.service.xml.xpath.AtomicValue;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
 import io.sirix.utils.NamePageHash;
@@ -94,7 +93,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   /**
    * Read-transaction-exclusive item list.
    */
-  protected final ItemList<AtomicValue> itemList;
+  protected final ItemList<Node> itemList;
   
   // ==================== CURSOR STATE ====================
   
@@ -162,7 +161,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
    */
   protected AbstractNodeReadOnlyTrx(final int trxId, final StorageEngineReader pageReadTransaction,
       final N documentNode, final InternalResourceSession<T, W> resourceSession,
-      final ItemList<AtomicValue> itemList) {
+      final ItemList<Node> itemList) {
     this.itemList = itemList;
     this.resourceSession = requireNonNull(resourceSession);
     this.id = trxId;

@@ -13,7 +13,7 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
 import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
-import io.sirix.service.xml.xpath.AtomicValue;
+import io.sirix.node.interfaces.Node;
 import io.brackit.query.atomic.QNm;
 
 import java.time.Instant;
@@ -41,7 +41,7 @@ public interface ForwardingXmlNodeReadOnlyTrx extends XmlNodeReadOnlyTrx {
   }
 
   @Override
-  default ItemList<AtomicValue> getItemList() {
+  default ItemList<Node> getItemList() {
     return nodeReadOnlyTrxDelegate().getItemList();
   }
 
