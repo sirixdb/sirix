@@ -14,6 +14,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import org.junit.Assert.assertEquals
+import org.junit.Ignore
 import io.sirix.JsonTestHelper
 import io.sirix.access.DatabaseConfiguration
 import io.sirix.access.Databases
@@ -294,6 +295,7 @@ class PrefetchingDescendantAxisTest {
      * Uses the same database configuration as JsonShredderTest for realistic versioning.
      * Note: This test requires significant memory and may be skipped on low-memory systems.
      */
+    @Ignore("Requires ~3.6 GB Chicago dataset — not available in CI")
     @Test
     fun testPerformanceWithChicago() {
         // Skip if running in CI or low memory environment
@@ -387,6 +389,7 @@ class PrefetchingDescendantAxisTest {
      * Comprehensive benchmark comparing different prefetch configurations.
      * Tests multiple prefetch depths to find optimal settings for the workload.
      */
+    @Ignore("Requires ~3.6 GB Chicago dataset — not available in CI")
     @Test
     fun testBenchmarkTraversalStrategies() {
         val maxMem = Runtime.getRuntime().maxMemory() / (1024 * 1024)
