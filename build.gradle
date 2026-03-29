@@ -186,8 +186,8 @@ subprojects {
         repositories {
             maven {
                 credentials {
-                    username System.getenv("SONATYPE_NEXUS_USERNAME")
-                    password System.getenv("SONATYPE_NEXUS_PASSWORD")
+                    username System.getenv("SONATYPE_NEXUS_USERNAME") ?: findProperty("SONATYPE_NEXUS_USERNAME")
+                    password System.getenv("SONATYPE_NEXUS_PASSWORD") ?: findProperty("SONATYPE_NEXUS_PASSWORD")
                 }
                 def releasesRepoUrl = "https://central.sonatype.com/api/v1/publisher/upload"
                 def snapshotsRepoUrl = "https://central.sonatype.com/repository/maven-snapshots/"
