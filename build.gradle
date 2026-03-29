@@ -208,6 +208,7 @@ subprojects {
         //def signingKey = System.getenv("OSSRH_GPG_SECRET_KEY")
         //def signingPassword = System.getenv("OSSRH_GPG_SECRET_KEY_PASSWORD")
         //useInMemoryPgpKeys(signingKey, signingPassword)
+        useGpgCmd()
         required { isReleaseVersion }
         sign publishing.publications.maven
     }
