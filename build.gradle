@@ -38,6 +38,7 @@ apply plugin: 'net.researchgate.release'
 
 release {
     failOnSnapshotDependencies = false
+    failOnUnversionedFiles = false
     tagTemplate = 'sirix-$version'
     buildTasks = ['releaseBuild']
 }
