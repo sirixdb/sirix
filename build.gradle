@@ -61,7 +61,8 @@ task travisReleaseSnapshot {
     }
 }
 
-afterReleaseBuild.dependsOn(uploadPublications)
+// Release publishing is handled by CI workflow on tag push
+// afterReleaseBuild.dependsOn(uploadPublications)
 
 allprojects {
     group = 'io.sirix'
@@ -185,13 +186,16 @@ subprojects {
         }
         repositories {
             maven {
+                name = 'maven'
                 credentials {
                     username System.getenv("SONATYPE_NEXUS_USERNAME") ?: findProperty("SONATYPE_NEXUS_USERNAME")
                     password System.getenv("SONATYPE_NEXUS_PASSWORD") ?: findProperty("SONATYPE_NEXUS_PASSWORD")
                 }
-                def releasesRepoUrl = "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
-                def snapshotsRepoUrl = "https://central.sonatype.com/repository/maven-snapshots/"
-                url = rootProject.getProperties().version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
+                url = "https://central.sonatype.com/repository/maven-snapshots/"
+            }
+            maven {
+                name = 'staging'
+                url = layout.buildDirectory.dir("staging-deploy")
             }
         }
     }
