@@ -477,6 +477,9 @@ public final class HOTTrieReader implements AutoCloseable {
    */
   private void prefetchPage(PageReference ref) {
     Thread.startVirtualThread(() -> {
+      if (storageEngineReader.isClosed()) {
+        return;
+      }
       final Page loaded = storageEngineReader.loadHOTPage(ref);
       if (loaded != null) {
         ref.setPage(loaded);
