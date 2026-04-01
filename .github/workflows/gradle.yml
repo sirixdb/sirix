@@ -122,7 +122,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r sirix-python-client/requirements-all.txt
           sleep 40
-          java -Xms1g -Xmx4g --enable-preview --enable-native-access=ALL-UNNAMED --add-modules=jdk.incubator.vector --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED --add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED -jar ./bundles/sirix-rest-api/build/libs/sirix-rest-api-*-SNAPSHOT-fat.jar -conf ./bundles/sirix-rest-api/src/main/resources/sirix-conf.json &
+          java -Xms1g -Xmx4g --enable-preview --enable-native-access=ALL-UNNAMED --add-modules=jdk.incubator.vector --add-exports=java.base/jdk.internal.ref=ALL-UNNAMED --add-exports=java.base/sun.nio.ch=ALL-UNNAMED --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.file=ALL-UNNAMED --add-opens=jdk.compiler/com.sun.tools.javac=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.reflect=ALL-UNNAMED --add-opens=java.base/java.io=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED -jar ./bundles/sirix-rest-api/build/libs/sirix-rest-api-*-fat.jar -conf ./bundles/sirix-rest-api/src/main/resources/sirix-conf.json &
           echo "Waiting for REST API on port 9443..."
           for i in $(seq 1 120); do
             if curl -s -o /dev/null http://localhost:9443/ 2>/dev/null; then
