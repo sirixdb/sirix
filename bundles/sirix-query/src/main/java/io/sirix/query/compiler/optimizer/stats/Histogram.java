@@ -111,7 +111,7 @@ public final class Histogram {
   }
 
   /**
-   * Estimate the selectivity of a strict less-than predicate: value < threshold.
+   * Estimate the selectivity of a strict less-than predicate: {@code value < threshold}.
    *
    * <p>Subtracts a small epsilon from the threshold to exclude the boundary,
    * since {@link #estimateRangeSelectivity} is inclusive on both ends.</p>
@@ -129,7 +129,7 @@ public final class Histogram {
   }
 
   /**
-   * Estimate the selectivity of a less-than-or-equal predicate: value <= threshold.
+   * Estimate the selectivity of a less-than-or-equal predicate: {@code value <= threshold}.
    *
    * @param threshold the upper bound (inclusive)
    * @return estimated selectivity

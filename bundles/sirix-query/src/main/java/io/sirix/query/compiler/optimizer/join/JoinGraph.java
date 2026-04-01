@@ -150,7 +150,7 @@ public final class JoinGraph {
   }
 
   /**
-   * Returns the bitmask of all relations: (1 << n) - 1.
+   * Returns the bitmask of all relations: {@code (1 << n) - 1}.
    */
   public long fullSet() {
     return (1L << relationCount) - 1;
