@@ -12,23 +12,19 @@ import io.vertx.core.http.HttpHeaders
 
 abstract class AbstractUpdateHandler(protected val location: Path) {
     suspend fun handle(ctx: RoutingContext): Route {
-        val databaseName = ctx.pathParam("database")
-        val resource = ctx.pathParam("resource")
+        val databaseName = ctx.pathParam("database")!!
+        val resource = ctx.pathParam("resource")!!
         val nodeId: String? = ctx.queryParam("nodeId").getOrNull(0)
         val insertionMode: String? = ctx.queryParam("insert").getOrNull(0)
-
-        if (databaseName == null || resource == null) {
-            throw IllegalArgumentException("Database name and resource name not given.")
-        }
 
         PathValidation.validatePathParam(databaseName, "database")
         PathValidation.validatePathParam(resource, "resource")
 
-        val body = ctx.body().asString()
+        val body = ctx.body().asString()!!
 
         update(databaseName, resource, nodeId?.toLongOrNull(), insertionMode, body, ctx)
 
-        return ctx.currentRoute()
+        return ctx.currentRoute()!!
     }
     protected abstract suspend fun update(
         databaseName: String,

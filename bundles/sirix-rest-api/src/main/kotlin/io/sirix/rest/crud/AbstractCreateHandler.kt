@@ -43,7 +43,7 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
             val vertxContext = ctx.vertx().orCreateContext
             createDatabaseIfNotExists(dbFile, vertxContext)
             ctx.response().setStatusCode(201).end()
-            return ctx.currentRoute()
+            return ctx.currentRoute()!!
         }
 
         if (databaseName == null) {
@@ -51,10 +51,10 @@ abstract class AbstractCreateHandler<T : ResourceSession<*, *>>(
         } else {
             if (createMultipleResources) {
                 createMultipleResources(databaseName, ctx)
-                return ctx.currentRoute()
+                return ctx.currentRoute()!!
             }
             shredder(databaseName, resource, ctx)
-            return ctx.currentRoute()
+            return ctx.currentRoute()!!
         }
     }
 

@@ -20,13 +20,13 @@ import java.nio.file.Path
 class PathSummaryHandler(private val location: Path, private val authz: AuthorizationProvider) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
-        val databaseName = ctx.pathParam("database")
-        val resourceName = ctx.pathParam("resource")
+        val databaseName = ctx.pathParam("database")!!
+        val resourceName = ctx.pathParam("resource")!!
 
         PathValidation.validatePathParam(databaseName, "database")
         PathValidation.validatePathParam(resourceName, "resource")
 
-        val user = ctx.get<User>("user")
+        val user = ctx.get<User>("user")!!
         Auth.checkIfAuthorized(user, databaseName, AuthRole.VIEW, authz)
 
         @Suppress("WHEN_ENUM_CAN_BE_NULL_IN_JAVA") val database: Database<*> =
@@ -100,6 +100,6 @@ class PathSummaryHandler(private val location: Path, private val authz: Authoriz
                 .end(content)
         }.coAwait()
 
-        return ctx.currentRoute()
+        return ctx.currentRoute()!!
     }
 }

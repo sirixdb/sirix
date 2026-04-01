@@ -671,7 +671,6 @@ class KotlinJsonStreamingShredder(
             }
             InsertPosition.AS_LEFT_SIBLING -> wtx.insertNumberValueAsLeftSibling(numberValue).nodeKey
             InsertPosition.AS_RIGHT_SIBLING -> wtx.insertNumberValueAsRightSibling(numberValue).nodeKey
-            else -> throw AssertionError()
         }
         adaptTrxPosAndStack(isNextTokenParent, key)
         return key
@@ -690,7 +689,6 @@ class KotlinJsonStreamingShredder(
             }
             InsertPosition.AS_LEFT_SIBLING -> wtx.insertNullValueAsLeftSibling().nodeKey
             InsertPosition.AS_RIGHT_SIBLING -> wtx.insertNullValueAsRightSibling().nodeKey
-            else -> throw AssertionError()
         }
         adaptTrxPosAndStack(isNextTokenParent, key)
         return key
@@ -730,7 +728,6 @@ class KotlinJsonStreamingShredder(
                 insert = InsertPosition.AS_FIRST_CHILD
                 k
             }
-            else -> throw AssertionError()
         }
         if (!parents.isEmpty) parents.popLong()
         parents.push(key)
@@ -761,7 +758,6 @@ class KotlinJsonStreamingShredder(
                 insert = InsertPosition.AS_FIRST_CHILD
                 k
             }
-            else -> throw AssertionError()
         }
         if (!parents.isEmpty) parents.popLong()
         parents.push(key)
@@ -786,7 +782,6 @@ class KotlinJsonStreamingShredder(
             }
             InsertPosition.AS_LEFT_SIBLING -> wtx.insertObjectRecordAsLeftSibling(name, value).nodeKey
             InsertPosition.AS_RIGHT_SIBLING -> wtx.insertObjectRecordAsRightSibling(name, value).nodeKey
-            else -> throw AssertionError()
         }
         if (!parents.isEmpty) {
             parents.popLong()

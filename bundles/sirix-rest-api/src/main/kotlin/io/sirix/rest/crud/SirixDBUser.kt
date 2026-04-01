@@ -9,7 +9,7 @@ import java.util.UUID
 class SirixDBUser {
     companion object {
         fun create(ctx: RoutingContext): io.sirix.access.User {
-            val user = ctx.get<User>("user")
+            val user = ctx.get<User>("user")!!
             val accessToken = user.attributes().get<JsonObject>("accessToken")
             val userId = accessToken.getString("sub")
             val userName = accessToken.getString("preferred_username")

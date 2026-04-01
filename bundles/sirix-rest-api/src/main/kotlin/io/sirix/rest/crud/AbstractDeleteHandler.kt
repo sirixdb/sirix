@@ -39,7 +39,7 @@ abstract class AbstractDeleteHandler(protected val location: Path) {
             delete(databaseName, resource, nodeId?.toLongOrNull(), ctx)
         }
 
-        return ctx.currentRoute()
+        return ctx.currentRoute()!!
     }
 
     protected suspend fun dropDatabasesOfType(ctx: RoutingContext, dbType: DatabaseType) {

@@ -34,6 +34,6 @@ class CreateMultipleResources(private val location: Path) {
         if (isXmlFiles) XmlCreate(location, true).handle(ctx)
         else if (isJsonFiles) JsonCreate(location, true).handle(ctx)
 
-        return ctx.currentRoute()
+        return ctx.currentRoute()!!
     }
 }

@@ -121,7 +121,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
             SirixCompileChain.createWithNodeAndJsonStore(xmlDBStore, jsonDBStore).use { sirixCompileChain ->
                 if (startResultSeqIndex == null) {
                     PermissionCheckingQuery(
-                        sirixCompileChain, query, keycloak, routingContext.get("user"), authz
+                        sirixCompileChain, query, keycloak, routingContext.get("user")!!, authz
                     ).prettyPrint().serialize(
                         queryCtx, XmlDBSerializer(printStream, true, true)
                     )
@@ -134,7 +134,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
                         endResultSeqIndex,
                         keycloak,
                         authz,
-                        routingContext.get("user"),
+                        routingContext.get("user")!!,
                         XmlDBSerializer(printStream, true, true),
                     ) { serializer, startItem -> serializer.serialize(startItem) }
                 }
@@ -160,7 +160,7 @@ class XmlGet(private val location: Path, private val keycloak: OAuth2Auth, priva
         rtx: XmlNodeReadOnlyTrx,
         dbCollection: XmlDBCollection,
         queryContext: SirixQueryContext,
-        jsonDBStore: JsonSessionDBStore
+        jsonSessionDBStore: JsonSessionDBStore
     ) {
         val dbNode = XmlDBNode(rtx, dbCollection)
         queryContext.contextItem = dbNode

@@ -59,7 +59,7 @@ class GetHandler(
             dispatchByAcceptHeader(acceptHeader, ctx)
         }
 
-        return ctx.currentRoute()
+        return ctx.currentRoute()!!
     }
 
     private suspend fun executeGlobalQuery(
@@ -98,7 +98,7 @@ class GetHandler(
             ctx.response().setStatusCode(404).end()
             return
         }
-        Auth.checkIfAuthorized(ctx.get<User>("user"), databaseName, AuthRole.VIEW, authz)
+        Auth.checkIfAuthorized(ctx.get<User>("user")!!, databaseName, AuthRole.VIEW, authz)
         val buffer = StringBuilder()
         buffer.append("{")
         val databaseType = Databases.getDatabaseType(databasePath.toAbsolutePath()).stringType

@@ -45,7 +45,7 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
         PathValidation.validatePathParam(databaseName, "database")
         PathValidation.validatePathParam(resourceName, "resource")
 
-        val user = ctx.get<User>("user")
+        val user = ctx.get<User>("user")!!
         Auth.checkIfAuthorized(user, databaseName, AuthRole.VIEW, authz)
 
         logger.debug("Open databases before: ${DatabasesInternals.getOpenDatabases()}")
@@ -168,7 +168,7 @@ class DiffHandler(private val location: Path, private val authz: AuthorizationPr
         res.write(diff)
         res.end()
 
-        return ctx.currentRoute()
+        return ctx.currentRoute()!!
     }
 
     private fun useUpdateOperations(

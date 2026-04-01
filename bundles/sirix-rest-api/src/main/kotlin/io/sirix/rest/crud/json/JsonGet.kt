@@ -56,10 +56,10 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
                     sirixCompileChain,
                     query,
                     keycloak,
-                    routingContext.get("user"),
+                    routingContext.get("user")!!,
                     authz
                 )
-                permissionCheckingQuery!!.prettyPrint().serialize(queryCtx, serializer)
+                permissionCheckingQuery.prettyPrint().serialize(queryCtx, serializer)
             } else {
                 QuerySerializer.serializePaginated(
                     sirixCompileChain,
@@ -69,7 +69,7 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
                     endResultSeqIndex,
                     keycloak,
                     authz,
-                    routingContext.get("user"),
+                    routingContext.get("user")!!,
                     JsonDBSerializer(stringBuilder, true)
                 ) { serializer, startItem -> serializer.serialize(startItem) }
             }
@@ -80,7 +80,7 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
 
         // If plan is requested, wrap results with plan information
         if (includePlan && permissionCheckingQuery != null) {
-            val compileChain = permissionCheckingQuery!!.compileChain
+            val compileChain = permissionCheckingQuery.compileChain
             if (compileChain != null) {
                 val planStage = when (planStageStr.lowercase()) {
                     "parsed" -> CompileChain.PlanStage.PARSED
@@ -138,7 +138,7 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
             }
 
             if (maxChildren != null) {
-                serializerBuilder.maxChildren(maxChildren.toLong())
+                serializerBuilder.maxChildren(maxChildren)
             }
 
             if (prettyPrint != null) {
@@ -175,7 +175,7 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
             }
 
             if (maxChildren != null) {
-                serializerBuilder.maxChildren(maxChildren.toLong())
+                serializerBuilder.maxChildren(maxChildren)
             }
 
             if (prettyPrint != null) {

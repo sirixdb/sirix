@@ -47,13 +47,13 @@ class DeleteHandler(private val location: Path, private val authz: Authorization
             val databasePath = location.resolve(databaseName)
             if (!Databases.existsDatabase(databasePath)) {
                 ctx.response().setStatusCode(404).end()
-                return ctx.currentRoute()
+                return ctx.currentRoute()!!
             }
             removeDatabase(databaseName, ctx)
         }
 
         ctx.response().setStatusCode(204).end()
-        return ctx.currentRoute()
+        return ctx.currentRoute()!!
     }
 
     private suspend fun removeDatabase(

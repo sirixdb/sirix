@@ -28,8 +28,8 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
 ) {
     suspend fun handle(ctx: RoutingContext): Route {
         val context = ctx.vertx().orCreateContext
-        val databaseName: String = ctx.pathParam("database")
-        val resource: String = ctx.pathParam("resource")
+        val databaseName: String = ctx.pathParam("database")!!
+        val resource: String = ctx.pathParam("resource")!!
 
         PathValidation.validatePathParam(databaseName, "database")
         PathValidation.validatePathParam(resource, "resource")
@@ -41,7 +41,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         withContext(context.dispatcher()) {
             get(databaseName, ctx, resource, query, context, ctx.get("user") as User, jsonBody)
         }
-        return ctx.currentRoute()
+        return ctx.currentRoute()!!
     }
 
     suspend fun get(
@@ -206,7 +206,7 @@ abstract class AbstractGetHandler<T : ResourceSession<*, *>,
         }.coAwait()
         ctx.response().setStatusCode(200)
             .putHeader(HttpHeaders.CONTENT_TYPE, "application/json")
-        return result
+        return result!!
     }
 
     abstract suspend fun openDatabase(dbFile: Path): Database<T>

@@ -32,7 +32,7 @@ abstract class AbstractHeadHandler< T : ResourceSession<*, *>> (
             head(databaseName, ctx, resource)
         }.coAwait()
 
-        return ctx.currentRoute()
+        return ctx.currentRoute()!!
     }
     fun head(databaseName: String, ctx: RoutingContext, resource: String) {
         // Check if database exists first

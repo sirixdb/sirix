@@ -294,7 +294,7 @@ class JsonUpdate(location: Path) :
     AbstractUpdateHandler(location) {
 
     override suspend fun update(
-        databaseName: String, resPathName: String, nodeId: Long?, insertionModeAsString: String?,
+        databaseName: String, resPathName: String, nodeId: Long?, insertionMode: String?,
         resFileToStore: String, ctx: RoutingContext
     ) {
         val vertxContext = ctx.vertx().orCreateContext
@@ -323,13 +323,13 @@ class JsonUpdate(location: Path) :
                             wtx.moveToFirstChild()
                         }
                         checkHashCode(ctx, wtx, manager.resourceConfig)
-                        if (insertionModeAsString == null) {
+                        if (insertionMode == null) {
                             throw IllegalArgumentException("Insertion mode must be given.")
                         }
 
                         val jsonReader = JsonShredder.createStringReader(resFileToStore)
 
-                        val insertionModeByName = getInsertionModeByName(insertionModeAsString)
+                        val insertionModeByName = getInsertionModeByName(insertionMode)
 
                         @Suppress("unused")
                         if (jsonReader.peek() != JsonToken.BEGIN_ARRAY && jsonReader.peek() != JsonToken.BEGIN_OBJECT) {
