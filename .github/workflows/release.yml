@@ -11,9 +11,6 @@ jobs:
     if: ${{ github.repository_owner == 'sirixdb' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      SONATYPE_NEXUS_USERNAME: ${{ secrets.SONATYPE_USERNAME_TOKEN }}
-      SONATYPE_NEXUS_PASSWORD: ${{ secrets.SONATYPE_PASSWORD_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,29 +30,13 @@ jobs:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
 
-      - name: Publish to local staging directory
-        run: ./gradlew publishAllPublicationsToStagingRepository -Psigning.gnupg.keyName=${{ secrets.GPG_KEY_ID }} --no-daemon
-
-      - name: Create deployment bundle
-        run: |
-          cd build/staging-deploy
-          zip -r ../../bundle.zip .
-
-      - name: Upload bundle to Maven Central
-        run: |
-          UPLOAD_RESPONSE=$(curl -s -w "\n%{http_code}" \
-            -u "${SONATYPE_NEXUS_USERNAME}:${SONATYPE_NEXUS_PASSWORD}" \
-            -F "bundle=@bundle.zip" \
-            "https://central.sonatype.com/api/v1/publisher/upload?publishingType=AUTOMATIC")
-          HTTP_CODE=$(echo "$UPLOAD_RESPONSE" | tail -1)
-          BODY=$(echo "$UPLOAD_RESPONSE" | head -n -1)
-          echo "Response: $BODY"
-          echo "HTTP Code: $HTTP_CODE"
-          if [ "$HTTP_CODE" -ge 400 ]; then
-            echo "Upload failed with HTTP $HTTP_CODE"
-            exit 1
-          fi
-          echo "Deployment ID: $BODY"
+      - name: Publish to Maven Central
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.SONATYPE_USERNAME_TOKEN }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.SONATYPE_PASSWORD_TOKEN }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.GPG_PASSPHRASE }}
+        run: ./gradlew publishAllPublicationsToMavenCentralRepository --no-daemon
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
