@@ -4,6 +4,9 @@ import io.brackit.query.compiler.AST;
 import io.brackit.query.compiler.XQ;
 import io.sirix.query.compiler.XQExt;
 import io.sirix.query.compiler.optimizer.VectorizedRoutingStage;
+import io.sirix.query.compiler.optimizer.mesh.EquivalenceClass;
+import io.sirix.query.compiler.optimizer.mesh.Mesh;
+import io.sirix.query.compiler.optimizer.mesh.PlanAlternative;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.compiler.vectorized.VectorizedPredicate;
 
@@ -69,6 +72,87 @@ public final class QueryPlanSerializer {
     sb.append('\n');
     sb.append('}');
     return sb.toString();
+  }
+
+  /**
+   * Serialize the optimized plan together with all candidate plans from the Mesh.
+   *
+   * @param optimized the optimized AST
+   * @param mesh      the Mesh containing equivalence classes with plan alternatives
+   * @return JSON string with "chosenPlan" and "candidates" fields
+   */
+  public static String serializeWithCandidates(AST optimized, Mesh mesh) {
+    final var sb = new StringBuilder(8192);
+    sb.append("{\n");
+    indent(sb, 1);
+    sb.append("\"chosenPlan\": ");
+    if (optimized != null) {
+      serializeNode(optimized, sb, 1);
+    } else {
+      sb.append("null");
+    }
+    sb.append(",\n");
+    indent(sb, 1);
+    sb.append("\"candidates\": ");
+    if (mesh != null && mesh.classCount() > 0) {
+      serializeMesh(mesh, sb, 1);
+    } else {
+      sb.append("[]");
+    }
+    sb.append('\n');
+    sb.append('}');
+    return sb.toString();
+  }
+
+  private static void serializeMesh(Mesh mesh, StringBuilder sb, int depth) {
+    sb.append("[\n");
+    boolean firstClass = true;
+    for (int classId = 0; classId < mesh.nextClassId(); classId++) {
+      final EquivalenceClass eqClass = mesh.getClass(classId);
+      if (eqClass == null || eqClass.size() <= 1) {
+        continue; // skip classes with only one alternative (no choice was made)
+      }
+      if (!firstClass) {
+        sb.append(",\n");
+      }
+      firstClass = false;
+      indent(sb, depth + 1);
+      sb.append("{\n");
+      indent(sb, depth + 2);
+      sb.append("\"equivalenceClassId\": ").append(eqClass.classId()).append(",\n");
+      indent(sb, depth + 2);
+      sb.append("\"alternativeCount\": ").append(eqClass.size()).append(",\n");
+      indent(sb, depth + 2);
+      sb.append("\"bestCost\": ").append(eqClass.getBestCost()).append(",\n");
+      indent(sb, depth + 2);
+      sb.append("\"alternatives\": [\n");
+      for (int i = 0; i < eqClass.size(); i++) {
+        if (i > 0) {
+          sb.append(",\n");
+        }
+        final PlanAlternative alt = eqClass.getAlternative(i);
+        indent(sb, depth + 3);
+        sb.append("{\n");
+        indent(sb, depth + 4);
+        sb.append("\"cost\": ").append(alt.cost()).append(",\n");
+        indent(sb, depth + 4);
+        sb.append("\"chosen\": ").append(alt.cost() == eqClass.getBestCost()).append(",\n");
+        indent(sb, depth + 4);
+        sb.append("\"plan\": ");
+        serializeNode(alt.plan(), sb, depth + 4);
+        sb.append('\n');
+        indent(sb, depth + 3);
+        sb.append('}');
+      }
+      sb.append('\n');
+      indent(sb, depth + 2);
+      sb.append("]\n");
+      indent(sb, depth + 1);
+      sb.append('}');
+    }
+    sb.append('\n');
+    indent(sb, depth);
+    sb.append(']');
   }
 
   private static void serializeNode(AST node, StringBuilder sb, int depth) {

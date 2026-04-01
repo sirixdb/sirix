@@ -3,6 +3,7 @@ package io.sirix.query;
 import java.util.Map;
 
 import io.sirix.query.compiler.optimizer.SirixOptimizer;
+import io.sirix.query.compiler.optimizer.mesh.Mesh;
 import io.sirix.query.compiler.translator.SirixTranslator;
 import io.sirix.query.function.jn.JNFun;
 import io.sirix.query.function.sdb.SDBFun;
@@ -55,6 +56,9 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
 
   /** Whether parallel output must preserve input order. */
   private final boolean ordered;
+
+  /** The last optimizer instance, retained to access the Mesh after compilation. */
+  private SirixOptimizer lastOptimizer;
 
   // ---- Sequential (default) factory methods ----
 
@@ -143,7 +147,17 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
     if (!OPTIMIZE) {
       return super.getOptimizer(options);
     }
-    return new SirixOptimizer(options, nodeStore, jsonItemStore);
+    lastOptimizer = new SirixOptimizer(options, nodeStore, jsonItemStore);
+    return lastOptimizer;
+  }
+
+  /**
+   * Get the Mesh containing plan alternatives from the last compilation.
+   *
+   * @return the Mesh, or null if optimization was disabled or no compilation happened
+   */
+  public Mesh getMesh() {
+    return lastOptimizer != null ? lastOptimizer.getMesh() : null;
   }
 
   @Override

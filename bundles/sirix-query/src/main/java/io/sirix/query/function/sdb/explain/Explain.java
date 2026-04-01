@@ -6,6 +6,7 @@ import io.brackit.query.atomic.Bool;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
 import io.brackit.query.function.AbstractFunction;
+import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Signature;
 import io.brackit.query.module.StaticContext;
@@ -57,8 +58,23 @@ public final class Explain extends AbstractFunction {
   public Sequence execute(final StaticContext sctx, final QueryContext ctx, final Sequence[] args)
       throws QueryException {
     final String queryString = ((Str) args[0]).stringValue();
-    final boolean verbose = args.length >= 2 && args[1] != null
-        && ((Bool) args[1]).booleanValue();
+
+    // Second argument: true for verbose, or "candidates" string for candidate plans
+    final boolean verbose;
+    final boolean showCandidates;
+    if (args.length >= 2 && args[1] != null) {
+      final Item arg1 = (Item) args[1];
+      if (arg1 instanceof Str str) {
+        showCandidates = "candidates".equalsIgnoreCase(str.stringValue());
+        verbose = !showCandidates;
+      } else {
+        showCandidates = false;
+        verbose = ((Bool) arg1).booleanValue();
+      }
+    } else {
+      verbose = false;
+      showCandidates = false;
+    }
 
     // Borrow stores from the current query context
     final JsonDBStore jsonStore;
@@ -83,7 +99,10 @@ public final class Explain extends AbstractFunction {
     }
 
     final String json;
-    if (verbose) {
+    if (showCandidates) {
+      json = QueryPlanSerializer.serializeWithCandidates(
+          chain.getOptimizedAST(), chain.getMesh());
+    } else if (verbose) {
       json = QueryPlanSerializer.serializeBoth(
           chain.getParsedAST(), chain.getOptimizedAST());
     } else {

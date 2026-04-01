@@ -3,6 +3,7 @@ package io.sirix.query.function.sdb.explain;
 import io.brackit.query.compiler.AST;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.compiler.XQExt;
+import io.sirix.query.compiler.optimizer.mesh.Mesh;
 import io.sirix.query.compiler.optimizer.stats.CostProperties;
 import io.sirix.query.json.JsonDBStore;
 import io.sirix.query.node.XmlDBStore;
@@ -26,8 +27,9 @@ import io.sirix.query.node.XmlDBStore;
  *
  * @param optimizedAST the optimized AST after all 10 optimizer stages
  * @param parsedAST    the parsed AST before optimization (null if not requested)
+ * @param mesh         the Mesh containing plan alternatives (null if not available)
  */
-public record QueryPlan(AST optimizedAST, AST parsedAST) {
+public record QueryPlan(AST optimizedAST, AST parsedAST, Mesh mesh) {
 
   /**
    * Compile a query through the full optimizer pipeline and return the plan.
@@ -44,7 +46,7 @@ public record QueryPlan(AST optimizedAST, AST parsedAST) {
     // We intentionally do NOT close this chain — close() would close the borrowed stores.
     final var chain = new SirixCompileChain(xmlStore, jsonStore);
     chain.compile(query);
-    return new QueryPlan(chain.getOptimizedAST(), chain.getParsedAST());
+    return new QueryPlan(chain.getOptimizedAST(), chain.getParsedAST(), chain.getMesh());
   }
 
   /**
@@ -59,6 +61,13 @@ public record QueryPlan(AST optimizedAST, AST parsedAST) {
    */
   public String toVerboseJSON() {
     return QueryPlanSerializer.serializeBoth(parsedAST, optimizedAST);
+  }
+
+  /**
+   * Serialize the chosen plan together with all candidate plans from the Mesh.
+   */
+  public String toCandidatesJSON() {
+    return QueryPlanSerializer.serializeWithCandidates(optimizedAST, mesh);
   }
 
   /**

@@ -24,7 +24,7 @@ final class QueryPlanTest {
     final var ast = new AST(XQ.ForBind, null);
     ast.setProperty(CostProperties.ESTIMATED_CARDINALITY, 42L);
 
-    final var plan = new QueryPlan(ast, null);
+    final var plan = new QueryPlan(ast, null, null);
 
     assertEquals(42L, plan.estimatedCardinality());
   }
@@ -37,7 +37,7 @@ final class QueryPlanTest {
     child.setProperty(CostProperties.ESTIMATED_CARDINALITY, 100L);
     root.addChild(child);
 
-    final var plan = new QueryPlan(root, null);
+    final var plan = new QueryPlan(root, null, null);
 
     assertEquals(100L, plan.estimatedCardinality());
   }
@@ -46,7 +46,7 @@ final class QueryPlanTest {
   @DisplayName("estimatedCardinality returns -1 when not annotated")
   void estimatedCardinalityMissing() {
     final var ast = new AST(XQ.FlowrExpr, null);
-    final var plan = new QueryPlan(ast, null);
+    final var plan = new QueryPlan(ast, null, null);
 
     assertEquals(-1L, plan.estimatedCardinality());
   }
@@ -61,7 +61,7 @@ final class QueryPlanTest {
     start.addChild(indexExpr);
     root.addChild(start);
 
-    final var plan = new QueryPlan(root, null);
+    final var plan = new QueryPlan(root, null, null);
 
     assertTrue(plan.usesIndex());
   }
@@ -74,7 +74,7 @@ final class QueryPlanTest {
     forBind.setProperty(CostProperties.PREFER_INDEX, true);
     root.addChild(forBind);
 
-    final var plan = new QueryPlan(root, null);
+    final var plan = new QueryPlan(root, null, null);
 
     assertFalse(plan.usesIndex(), "PREFER_INDEX alone should not indicate actual index usage");
     assertTrue(plan.prefersIndex(), "prefersIndex should detect PREFER_INDEX hint");
@@ -84,7 +84,7 @@ final class QueryPlanTest {
   @DisplayName("usesIndex returns false when no IndexExpr")
   void usesIndexFalse() {
     final var ast = new AST(XQ.FlowrExpr, null);
-    final var plan = new QueryPlan(ast, null);
+    final var plan = new QueryPlan(ast, null, null);
 
     assertFalse(plan.usesIndex());
   }
@@ -97,7 +97,7 @@ final class QueryPlanTest {
     child.setProperty(CostProperties.INDEX_GATE_CLOSED, true);
     root.addChild(child);
 
-    final var plan = new QueryPlan(root, null);
+    final var plan = new QueryPlan(root, null, null);
 
     assertTrue(plan.hasClosedGate());
   }
@@ -111,7 +111,7 @@ final class QueryPlanTest {
     vec.setProperty("vectorized.route", "columnar");
     root.addChild(vec);
 
-    final var plan = new QueryPlan(root, null);
+    final var plan = new QueryPlan(root, null, null);
 
     assertEquals("columnar", plan.vectorizedRoute());
   }
@@ -120,7 +120,7 @@ final class QueryPlanTest {
   @DisplayName("vectorizedRoute returns null when not present")
   void vectorizedRouteNull() {
     final var ast = new AST(XQ.FlowrExpr, null);
-    final var plan = new QueryPlan(ast, null);
+    final var plan = new QueryPlan(ast, null, null);
 
     assertNull(plan.vectorizedRoute());
   }
@@ -133,7 +133,7 @@ final class QueryPlanTest {
     join.setProperty(CostProperties.JOIN_REORDERED, true);
     root.addChild(join);
 
-    final var plan = new QueryPlan(root, null);
+    final var plan = new QueryPlan(root, null, null);
 
     assertTrue(plan.isJoinReordered());
   }
@@ -144,7 +144,7 @@ final class QueryPlanTest {
     final var ast = new AST(XQ.ForBind, "x");
     ast.setProperty(CostProperties.ESTIMATED_CARDINALITY, 1000L);
 
-    final var plan = new QueryPlan(ast, null);
+    final var plan = new QueryPlan(ast, null, null);
     final String json = plan.toJSON();
 
     assertNotNull(json);
@@ -159,7 +159,7 @@ final class QueryPlanTest {
     final var optimized = new AST(XQ.FlowrExpr, null);
     optimized.setProperty(CostProperties.ESTIMATED_CARDINALITY, 500L);
 
-    final var plan = new QueryPlan(optimized, parsed);
+    final var plan = new QueryPlan(optimized, parsed, null);
     final String json = plan.toVerboseJSON();
 
     assertTrue(json.contains("\"parsed\":"));
@@ -169,7 +169,7 @@ final class QueryPlanTest {
   @Test
   @DisplayName("null AST handled gracefully")
   void nullAST() {
-    final var plan = new QueryPlan(null, null);
+    final var plan = new QueryPlan(null, null, null);
 
     assertEquals(-1L, plan.estimatedCardinality());
     assertFalse(plan.usesIndex());

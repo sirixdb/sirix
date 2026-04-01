@@ -35,6 +35,7 @@ public class SirixOptimizer extends TopDownOptimizer {
   private final JsonDBStore jsonItemStore;
   private final PlanCache planCache;
   private final Set<Class<? extends Stage>> disabledStages = new HashSet<>(4);
+  private final Mesh mesh;
 
   public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore, final JsonDBStore jsonItemStore) {
     this(options, nodeStore, jsonItemStore, new PlanCache());
@@ -53,7 +54,7 @@ public class SirixOptimizer extends TopDownOptimizer {
     // 3. DPhyp-based join reordering — uses cardinality estimates to find optimal join orders.
     getStages().add(new JoinReorderStage());
     // 4. Populate Mesh search space with plan alternatives from cost annotations.
-    final Mesh mesh = new Mesh(32);
+    this.mesh = new Mesh(32);
     getStages().add(new MeshPopulationStage(mesh));
     // 5. Apply best-plan decisions from the shared Mesh to the original AST.
     getStages().add(new MeshSelectionStage(mesh));
@@ -120,6 +121,15 @@ public class SirixOptimizer extends TopDownOptimizer {
    */
   public PlanCache getPlanCache() {
     return planCache;
+  }
+
+  /**
+   * Get the Mesh containing plan alternatives from the last optimization run.
+   *
+   * @return the Mesh search space
+   */
+  public Mesh getMesh() {
+    return mesh;
   }
 
   /**
