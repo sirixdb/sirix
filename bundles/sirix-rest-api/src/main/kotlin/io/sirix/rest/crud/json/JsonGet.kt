@@ -10,14 +10,22 @@ import io.sirix.api.json.JsonResourceSession
 import io.sirix.rest.crud.PermissionCheckingQuery
 import io.sirix.rest.crud.QuerySerializer
 import io.sirix.rest.crud.xml.XmlSessionDBStore
+import io.sirix.query.SirixCompileChain
+import io.sirix.query.function.sdb.explain.QueryPlanSerializer
 import io.sirix.service.json.serialize.JsonRecordSerializer
 import io.sirix.service.json.serialize.JsonSerializer
 import io.sirix.query.JsonDBSerializer
-import io.sirix.query.SirixCompileChain
 import io.sirix.rest.crud.AbstractGetHandler
 import io.sirix.rest.crud.OutputWrapper
 import io.sirix.query.SirixQueryContext
-import io.sirix.query.json.*
+import io.sirix.query.json.AbstractJsonDBArray
+import io.sirix.query.json.AtomicBooleanJsonDBItem
+import io.sirix.query.json.AtomicNullJsonDBItem
+import io.sirix.query.json.AtomicStrJsonDBItem
+import io.sirix.query.json.JsonDBCollection
+import io.sirix.query.json.JsonDBObject
+import io.sirix.query.json.JsonItemFactory
+import io.sirix.query.json.NumericJsonDBItem
 import io.vertx.core.http.HttpHeaders
 import io.brackit.query.compiler.CompileChain
 import java.io.StringWriter
@@ -82,12 +90,36 @@ class JsonGet(location: Path, private val keycloak: OAuth2Auth, private val auth
         if (includePlan && permissionCheckingQuery != null) {
             val compileChain = permissionCheckingQuery.compileChain
             if (compileChain != null) {
-                val planStage = when (planStageStr.lowercase()) {
-                    "parsed" -> CompileChain.PlanStage.PARSED
-                    "both" -> CompileChain.PlanStage.BOTH
-                    else -> CompileChain.PlanStage.OPTIMIZED
+                val planJson: String? = if (planStageStr.lowercase() == "candidates" && compileChain is SirixCompileChain) {
+                    // Return parsed + optimized + all candidate plans from the Mesh
+                    val optimizedAST = compileChain.optimizedAST
+                    val mesh = compileChain.mesh
+                    if (optimizedAST != null) {
+                        val sb = StringBuilder(8192)
+                        sb.append("{\"parsed\": ")
+                        val parsedAST = compileChain.parsedAST
+                        sb.append(if (parsedAST != null) QueryPlanSerializer.serialize(parsedAST) else "null")
+                        sb.append(", \"optimized\": ")
+                        sb.append(QueryPlanSerializer.serialize(optimizedAST))
+                        sb.append(", \"candidates\": ")
+                        if (mesh != null && mesh.classCount() > 0) {
+                            sb.append(QueryPlanSerializer.serializeWithCandidates(optimizedAST, mesh))
+                        } else {
+                            sb.append("{\"chosenPlan\": null, \"candidates\": []}")
+                        }
+                        sb.append("}")
+                        sb.toString()
+                    } else {
+                        null
+                    }
+                } else {
+                    val planStage = when (planStageStr.lowercase()) {
+                        "parsed" -> CompileChain.PlanStage.PARSED
+                        "both" -> CompileChain.PlanStage.BOTH
+                        else -> CompileChain.PlanStage.OPTIMIZED
+                    }
+                    compileChain.getPlanAsJSON(planStage)
                 }
-                val planJson = compileChain.getPlanAsJSON(planStage)
 
                 val resultBuilder = StringBuilder()
                 resultBuilder.append("{\"results\":")

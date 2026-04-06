@@ -384,7 +384,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized R beginNodeReadOnlyTrx(final int revision) {
+  public R beginNodeReadOnlyTrx(final int revision) {
     assertAccess(revision);
 
     final StorageEngineReader storageEngineReader = beginStorageEngineReader(revision);

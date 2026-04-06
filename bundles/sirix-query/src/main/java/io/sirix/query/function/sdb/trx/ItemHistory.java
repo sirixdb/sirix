@@ -23,6 +23,9 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * <p>
@@ -60,8 +63,13 @@ public final class ItemHistory extends AbstractFunction {
     final var resourceSession = rtx.getResourceSession();
     final NodeReadOnlyTrx rtxInMostRecentRevision = resourceSession.beginNodeReadOnlyTrx();
 
-    final RevisionReferencesNode node =
-        rtxInMostRecentRevision.getStorageEngineReader().getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
+    final RevisionReferencesNode node;
+    try {
+      node = rtxInMostRecentRevision.getStorageEngineReader()
+          .getRecord(item.getNodeKey(), IndexType.RECORD_TO_REVISIONS, 0);
+    } finally {
+      rtxInMostRecentRevision.close();
+    }
 
     if (node == null) {
       final Deque<Item> sequences = new ArrayDeque<>();
@@ -88,24 +96,50 @@ public final class ItemHistory extends AbstractFunction {
 
       return new ItemSequence(sequences.toArray(new Item[0]));
     } else {
+      // Fast path: use RECORD_TO_REVISIONS index for the revision list,
+      // then open all transactions concurrently using virtual threads.
       final int[] revisions = node.getRevisions();
+      final long nodeKey = item.getNodeKey();
+      final boolean isJson = item instanceof JsonDBItem;
+      final JsonItemFactory jsonItemFactory = isJson ? new JsonItemFactory() : null;
+
+      // Open transactions and resolve nodes in parallel using virtual threads
+      final Item[] results = new Item[revisions.length];
+      try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+        final List<Future<?>> futures = new ArrayList<>(revisions.length);
+        for (int i = 0; i < revisions.length; i++) {
+          final int idx = i;
+          final int revision = revisions[i];
+          futures.add(executor.submit(() -> {
+            final NodeReadOnlyTrx rtxInRevision = resourceSession.beginNodeReadOnlyTrx(revision);
+            if (rtxInRevision.moveTo(nodeKey)) {
+              if (isJson) {
+                results[idx] = jsonItemFactory.getSequence(
+                    (JsonNodeReadOnlyTrx) rtxInRevision, ((JsonDBItem) item).getCollection());
+              } else {
+                results[idx] = new XmlDBNode(
+                    (XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection());
+              }
+            } else {
+              rtxInRevision.close();
+            }
+          }));
+        }
+        for (final Future<?> future : futures) {
+          future.get();
+        }
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException("Failed to load item history in parallel", e);
+      } catch (Exception e) {
+        throw new RuntimeException("Failed to load item history in parallel", e);
+      }
+
+      // Filter out nulls (revisions where node wasn't found) and collect in order
       final List<Item> sequences = new ArrayList<>(revisions.length);
-
-      for (final int revision : revisions) {
-        final NodeReadOnlyTrx rtxInRevision = resourceSession.beginNodeReadOnlyTrx(revision);
-
-        if (rtxInRevision.moveTo(item.getNodeKey())) {
-          if (rtxInRevision instanceof XmlNodeReadOnlyTrx) {
-            assert item instanceof XmlDBNode;
-            sequences.add(new XmlDBNode((XmlNodeReadOnlyTrx) rtxInRevision, ((XmlDBNode) item).getCollection()));
-          } else if (rtxInRevision instanceof JsonNodeReadOnlyTrx) {
-            assert item instanceof JsonDBItem;
-            final JsonDBItem jsonItem = (JsonDBItem) item;
-            sequences.add(
-                new JsonItemFactory().getSequence((JsonNodeReadOnlyTrx) rtxInRevision, jsonItem.getCollection()));
-          }
-        } else {
-          sequences.add(null);
+      for (final Item result : results) {
+        if (result != null) {
+          sequences.add(result);
         }
       }
 
