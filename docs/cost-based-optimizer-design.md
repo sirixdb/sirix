@@ -1,475 +1,786 @@
-# SirixDB Cost-Based Query Optimizer: Design Document & Code Tour
+# SirixDB Cost-Based Query Optimizer
+
+## Design Document, Code Tour & Educational Guide
+
+---
 
 ## Table of Contents
 
-1. [Introduction](#1-introduction)
+1. [What Is a Cost-Based Optimizer and Why Do We Need One?](#1-what-is-a-cost-based-optimizer-and-why-do-we-need-one)
 2. [Architecture Overview](#2-architecture-overview)
 3. [The 10-Stage Pipeline](#3-the-10-stage-pipeline)
-4. [Stage 1: JQGM Rewrite Rules](#4-stage-1-jqgm-rewrite-rules)
+4. [Stage 1: JQGM Rewrite Rules (Logical Optimization)](#4-stage-1-jqgm-rewrite-rules-logical-optimization)
 5. [Stage 2: Cost-Based Analysis](#5-stage-2-cost-based-analysis)
 6. [Stage 3: Join Reordering](#6-stage-3-join-reordering)
 7. [Stages 4-5: Mesh Population & Selection](#7-stages-4-5-mesh-population--selection)
-8. [Stage 6: Index Decomposition](#8-stage-6-index-decomposition)
+8. [Stage 6: Index Decomposition (Rules 5-6)](#8-stage-6-index-decomposition-rules-5-6)
 9. [Stage 7: Cost-Driven Routing](#9-stage-7-cost-driven-routing)
 10. [Stages 8-9: Vectorized Execution](#10-stages-8-9-vectorized-execution)
-11. [Stage 10: Index Matching](#11-stage-10-index-matching)
+11. [Stage 10: Index Matching (Physical Rewrite)](#11-stage-10-index-matching-physical-rewrite)
 12. [Statistics Infrastructure](#12-statistics-infrastructure)
 13. [Adaptive Re-Optimization](#13-adaptive-re-optimization)
 14. [Plan Cache](#14-plan-cache)
 15. [EXPLAIN Function & QueryPlan API](#15-explain-function--queryplan-api)
 16. [Runtime Integration](#16-runtime-integration)
 17. [Testing Strategy](#17-testing-strategy)
-18. [References](#18-references)
+18. [Glossary](#18-glossary)
+19. [References](#19-references)
+20. [Code Tour: File Map](#20-code-tour-file-map)
 
 ---
 
-## 1. Introduction
+## 1. What Is a Cost-Based Optimizer and Why Do We Need One?
 
-SirixDB's cost-based query optimizer transforms JSONiq/XQuery queries into efficient execution plans by reasoning about data distribution, index availability, and operator costs. It is based on the **JQGM (JSON Query Graph Model)** from Weiner et al. (TU Kaiserslautern, CEUR-WS 2008), adapted for JSON paths and SirixDB's unique bitemporal storage architecture.
+### The Problem
 
-**Key design decisions:**
-- **Property-based AST annotation**: Optimization decisions are recorded as properties on Brackit AST nodes, not as separate plan trees. This avoids maintaining two representations and makes the optimizer non-invasive.
-- **Stage-based pipeline**: 10 independent stages run sequentially, each reading/writing AST properties. Stages can be disabled, reordered, or extended without changing others.
-- **Revision-aware statistics**: Since SirixDB stores every revision immutably, histogram statistics for historical revisions never go stale. Only the latest revision's statistics require TTL-based expiry.
-- **Circuit breaker**: A 50ms timeout prevents optimization from blocking query execution.
+Consider this query over a JSON document with 10 million product records:
 
-**Scale**: ~8,900 lines of optimizer code, ~8,300 lines of tests, across 91 files.
+```xquery
+for $product in jn:doc('shop','products')[]
+where $product.price > 9990
+return $product.name
+```
+
+Without an optimizer, the database would:
+1. Scan **all 10 million records** sequentially
+2. Check each record's `price` field
+3. Return the ~10 records that match
+
+With a CAS (Content And Structure) index on `price`, the database could instead:
+1. Look up `price > 9990` in the index directly
+2. Read only the ~10 matching records
+
+The first approach reads 10 million records. The second reads ~10. But the optimizer must **decide which approach is cheaper**, because indexes aren't always faster — for a query like `where $product.price > 0` that matches *everything*, the index lookup adds overhead without filtering anything out.
+
+### What a Cost-Based Optimizer Does
+
+A cost-based optimizer is a compiler component that:
+
+1. **Considers multiple execution strategies** ("plans") for the same query
+2. **Estimates the cost** of each plan using statistics about the data (how many records exist, how values are distributed, what indexes are available)
+3. **Picks the cheapest plan**
+
+This is exactly what happens when you use a GPS navigator: it considers multiple routes, estimates travel time for each (using traffic data = statistics), and picks the fastest one. A "rule-based" optimizer would be like always taking highways — usually good, but not when the highway is congested.
+
+### How This Fits Into SirixDB
+
+SirixDB is a **bitemporal database**: it stores every revision of your data immutably. This creates unique optimization challenges:
+
+- **Time-travel queries** (`jn:doc('db','res',5)`) target a specific historical revision. The data distribution at revision 5 may be completely different from revision 50.
+- **Immutable revisions** mean statistics collected for revision 5 are **forever valid** — the data can never change. This is a major advantage over traditional databases where statistics go stale.
+- **Multiple index types** (CAS, PATH, NAME) serve different query patterns, and the optimizer must pick the right one — or decide that no index helps.
+
+### Scale of the Implementation
+
+- ~8,900 lines of optimizer code
+- ~8,300 lines of tests
+- 91 files total
+- 10 optimization stages
+- Based on academic research from TU Kaiserslautern, VLDB, and SIGMOD
 
 ---
 
 ## 2. Architecture Overview
 
+### The Big Picture
+
+When you execute a query in SirixDB, it goes through three phases:
+
 ```
-                          Query String
-                               |
-                        SirixCompileChain
-                               |
-                    +----------+-----------+
-                    |    Brackit Parser     |
-                    +----------+-----------+
-                               |
-                          Parsed AST
-                               |
-              +----------------+----------------+
-              |        SirixOptimizer           |
-              |   (10-stage pipeline, 50ms CB) |
-              +----------------+----------------+
-                               |
-                       Optimized AST
-                    (annotated with costs,
-                     index decisions, etc.)
-                               |
-              +----------------+----------------+
-              |     SirixTranslator             |
-              |  + SirixPipelineStrategy        |
-              +----------------+----------------+
-                               |
-                    Physical Operators
-                 (TableJoin, IndexExpr,
-                  VectorizedPipelineExpr)
-                               |
-                         Execution
+  ┌─────────────────────────────────────────────────────────────┐
+  │                     Query Compilation                       │
+  │                                                             │
+  │   Query String ──► Parser ──► AST ──► Optimizer ──► AST'   │
+  │                              (tree)   (10 stages)  (better  │
+  │                                                     tree)   │
+  └─────────────────────────────────┬───────────────────────────┘
+                                    │
+  ┌─────────────────────────────────▼───────────────────────────┐
+  │                      Translation                            │
+  │                                                             │
+  │   AST' ──► SirixTranslator ──► Physical Operators           │
+  │            (reads annotations)  (TableJoin, IndexExpr, etc) │
+  └─────────────────────────────────┬───────────────────────────┘
+                                    │
+  ┌─────────────────────────────────▼───────────────────────────┐
+  │                       Execution                             │
+  │                                                             │
+  │   Physical Operators ──► Cursor iteration ──► Results       │
+  └─────────────────────────────────────────────────────────────┘
 ```
 
-### Entry Point
+**Key insight**: The optimizer doesn't produce a separate "plan" data structure. Instead, it **annotates the existing AST** (Abstract Syntax Tree) with properties like "use index #7" or "estimated cardinality: 150". The translator reads these annotations when building physical operators. This keeps the optimizer non-invasive — the AST is the plan.
 
-**`SirixCompileChain`** (`SirixCompileChain.java:38`) orchestrates parsing, optimization, and translation. It creates a `SirixOptimizer` via `getOptimizer()` (line 147) and a `SirixTranslator` via `getTranslator()` (line 136).
+### What Is an AST?
 
-### AST Properties
+An AST (Abstract Syntax Tree) is a tree representation of a parsed query. For example:
 
-All optimization metadata is stored as string-keyed properties on Brackit `AST` nodes via `node.setProperty(key, value)`. The 40+ property keys are centralized in `CostProperties.java` to prevent typos and enable refactoring:
+```xquery
+for $x in jn:doc('db','res')[] where $x.price > 50 return $x.name
+```
 
-| Category | Example Keys | Set By |
-|----------|-------------|--------|
-| Cost hints | `PREFER_INDEX`, `INDEX_SCAN_COST`, `SEQ_SCAN_COST` | CostBasedStage |
-| Cardinality | `ESTIMATED_CARDINALITY`, `PATH_CARDINALITY` | CardinalityEstimator, CostBasedStage |
-| Join metadata | `JOIN_COST`, `JOIN_LEFT_CARD`, `JOIN_SWAPPED` | JoinReorderStage |
-| Fusion | `JOIN_FUSED`, `FUSED_OPERATOR`, `FUSED_FIELD_NAME` | JqgmRewriteStage |
-| Decomposition | `DECOMPOSITION_TYPE`, `INTERSECTION_JOIN` | IndexDecompositionStage |
-| Mesh | `MESH_CLASS_ID` | MeshPopulationStage |
-| Routing | `INDEX_GATE_CLOSED` | CostDrivenRoutingStage |
+Becomes roughly:
+
+```
+FlowrExpr
+├── ForBind
+│   ├── Variable: $x
+│   └── FunctionCall: jn:doc('db','res')
+│       └── ArrayAccess: []
+├── Selection (where)
+│   └── ComparisonExpr: $x.price > 50
+└── Return
+    └── DerefExpr: $x.name
+```
+
+Each node in this tree is a Brackit `AST` object. The optimizer walks this tree, analyzes it, and annotates nodes with optimization decisions stored as key-value properties.
+
+### Entry Points
+
+**`SirixCompileChain`** (`SirixCompileChain.java`) is the entry point. It extends Brackit's `CompileChain` and plugs in:
+- `SirixOptimizer` (our 10-stage optimizer) via `getOptimizer()`
+- `SirixTranslator` (our custom translator) via `getTranslator()`
+
+```java
+// How a query gets compiled and executed:
+try (var chain = SirixCompileChain.createWithJsonStore(store);
+     var ctx = SirixQueryContext.createWithJsonStore(store)) {
+    new Query(chain, "for $x in jn:doc('db','res')[] return $x").serialize(ctx, writer);
+}
+```
+
+### AST Properties — The Communication Channel
+
+Optimization decisions flow between stages via **AST properties**. These are string-keyed values attached to AST nodes. All 40+ property keys are defined as constants in `CostProperties.java` to prevent typos:
+
+```java
+// CostProperties.java — centralized property key constants
+public static final String PREFER_INDEX = "costBased.preferIndex";       // Boolean
+public static final String INDEX_SCAN_COST = "costBased.indexScanCost";  // Double
+public static final String ESTIMATED_CARDINALITY = "costBased.estimatedCardinality"; // Long
+// ... 37 more keys
+```
+
+This is analogous to how HTTP headers carry metadata alongside the request body — the AST carries the query structure, and properties carry optimization metadata alongside it.
+
+| Category | Example Keys | Set By | Read By |
+|----------|-------------|--------|---------|
+| Cost hints | `PREFER_INDEX`, `INDEX_SCAN_COST`, `SEQ_SCAN_COST` | CostBasedStage | MeshPopulation, CostDrivenRouting |
+| Cardinality | `ESTIMATED_CARDINALITY`, `PATH_CARDINALITY` | CardinalityEstimator | JoinReorder, MeshPopulation |
+| Join metadata | `JOIN_COST`, `JOIN_LEFT_CARD`, `JOIN_SWAPPED` | JoinReorderStage | MeshPopulation, MeshSelection |
+| Fusion | `JOIN_FUSED`, `FUSED_OPERATOR` | JqgmRewriteStage | CostBasedJoinReorder |
+| Decomposition | `DECOMPOSITION_TYPE`, `INTERSECTION_JOIN` | IndexDecompositionStage | SirixPipelineStrategy |
+| Mesh | `MESH_CLASS_ID` | MeshPopulationStage | MeshSelectionStage |
+| Routing | `INDEX_GATE_CLOSED` | CostDrivenRoutingStage | IndexMatching walkers |
 
 ---
 
 ## 3. The 10-Stage Pipeline
 
-**`SirixOptimizer`** (`SirixOptimizer.java:41-71`) assembles the pipeline:
+The optimizer is a **pipeline** of 10 stages. Each stage implements the `Stage` interface with a single method: `AST rewrite(StaticContext sctx, AST ast)`. The stages run sequentially, each receiving the AST from the previous stage and returning a (possibly modified) AST.
+
+**`SirixOptimizer`** (`SirixOptimizer.java`) assembles and runs the pipeline:
 
 ```
- Stage  Class                      Purpose
- ─────  ─────                      ───────
-   1    JqgmRewriteStage           Logical rewrites: Rules 1-3 (predicate pushdown, join fusion)
-   2    CostBasedStage             Cost analysis: annotate PREFER_INDEX + cardinality estimates
-   3    JoinReorderStage           DPhyp/GOO join ordering using cardinality estimates
-   4    MeshPopulationStage        Build search space with plan alternatives
-   5    MeshSelectionStage         Select best plan per equivalence class (bottom-up)
-   6    IndexDecompositionStage    Rules 5-6: restructure joins at index boundaries
-   7    CostDrivenRoutingStage     Propagate PREFER_INDEX → INDEX_GATE_CLOSED
-   8    VectorizedDetectionStage   Detect SIMD-eligible scan-filter-project pipelines
-   9    VectorizedRoutingStage     Route to columnar/SIMD execution
-  10    IndexMatching              Final index rewrite (CAS/PATH/NAME)
+ Stage  Class                      What It Does (One Sentence)
+ ─────  ─────                      ─────────────────────────────
+   1    JqgmRewriteStage           Reorganize the query logically (push predicates down, fuse joins)
+   2    CostBasedStage             Estimate how much each operation costs and whether indexes help
+   3    JoinReorderStage           Find the cheapest order to join multiple tables/collections
+   4    MeshPopulationStage        Record all the alternative plans we've considered
+   5    MeshSelectionStage         Pick the winner from each set of alternatives
+   6    IndexDecompositionStage    Restructure joins to exploit index boundaries
+   7    CostDrivenRoutingStage     Tell downstream stages "don't use the index here, it's too expensive"
+   8    VectorizedDetectionStage   Detect simple scan-filter patterns that can use SIMD
+   9    VectorizedRoutingStage     Replace those patterns with SIMD operators
+  10    IndexMatching              Actually rewrite the AST to use specific indexes
 ```
 
-The pipeline runs inline in `optimize()` (line 94-108) with a circuit breaker: if total time exceeds 50ms, the partially-optimized AST is returned.
+### Why This Order?
+
+The ordering is deliberate:
+- **Logical rewrites first** (Stage 1): Simplify the query before analyzing costs, so the cost model sees a cleaner structure.
+- **Cost analysis before join reordering** (Stages 2-3): The join reorderer needs cardinality estimates to compare join orders. Those estimates come from Stage 2.
+- **Mesh before decomposition** (Stages 4-6): The Mesh records the alternative plans. Decomposition happens after the best alternative is selected, so it only restructures the chosen plan.
+- **Routing before index matching** (Stages 7, 10): The routing stage decides which subtrees should use indexes. Index matching in Stage 10 respects those decisions via the `INDEX_GATE_CLOSED` flag.
+
+### Circuit Breaker
+
+The pipeline has a **50ms timeout** (configurable in `SirixOptimizer.java:29`). If the 10 stages haven't completed within 50ms, the optimizer returns the partially-optimized AST. This prevents pathological queries (e.g., 50-way joins) from blocking execution indefinitely.
+
+For context: PostgreSQL typically optimizes queries in <1ms; CockroachDB budgets ~10ms. Our 50ms budget is generous and only activates for extreme cases.
 
 ---
 
-## 4. Stage 1: JQGM Rewrite Rules
+## 4. Stage 1: JQGM Rewrite Rules (Logical Optimization)
 
-**`JqgmRewriteStage`** (`JqgmRewriteStage.java:38`) applies three logical rewrite walkers in sequence:
+### What Are Logical Rewrites?
 
-### Rule 1: Join Fusion (`JoinFusionWalker.java`)
+Logical rewrites transform a query into an **equivalent but more efficient form** without considering physical execution details (indexes, I/O costs, etc.). Think of it like algebraic simplification: `2x + 3x = 5x` is the same math, just simpler.
 
-Identifies chains of binary joins that can be fused into n-way joins. Annotates join nodes with `JOIN_FUSED=true` and a shared `JOIN_FUSION_GROUP_ID`. Downstream stages use this to detect fusable join groups.
+**`JqgmRewriteStage`** (`JqgmRewriteStage.java`) applies three rewrite "walkers" (tree visitors) based on the JQGM model from Weiner et al.:
 
-**Example**: `A JOIN B JOIN C` where both joins share a common variable are annotated as a single fusion group, enabling the join reorderer to consider all three relations simultaneously.
+### Rule 1: Join Fusion (`JoinFusionWalker.java`, 194 lines)
 
-### Rule 2: Select-Join Fusion (`SelectJoinFusionWalker.java`)
+**Problem**: The parser may produce a chain of binary (two-input) joins: `A JOIN B`, then the result `JOIN C`. But the join reorderer (Stage 3) needs to see all three relations at once to find the optimal order.
 
-Identifies predicates (Selection nodes) that can be pushed into joins. Annotates pushable predicates with `JOIN_PREDICATE_PUSHED=true`. Does not physically move the predicate — that's left to downstream stages.
+**Solution**: Walk the AST looking for adjacent joins that share variables. Annotate them with a shared `JOIN_FUSION_GROUP_ID` so Stage 3 treats them as one n-way join.
 
-### Rule 3: Select-Access Fusion (`SelectAccessFusionWalker.java`)
+**Example**:
+```
+Before: Join(Join(A, B), C)   -- two separate binary joins
+After:  Join(A, B, C)         -- fused: reorderer can consider all 3! = 6 orderings
+```
 
-Pushes WHERE predicates into access operators (ObjectAccess/ArrayAccess). When a filter predicate references a field accessed via a deref chain, the walker fuses the predicate info into the access node via `FUSED_OPERATOR`, `FUSED_FIELD_NAME`, etc. This enables CAS index matching in Stage 10.
+### Rule 2: Select-Join Fusion (`SelectJoinFusionWalker.java`, 96 lines)
+
+**Problem**: A WHERE predicate sitting above a join could be pushed into the join condition, filtering rows earlier and reducing intermediate result sizes.
+
+**Solution**: Identify predicates that reference variables from both sides of a join. Annotate them with `JOIN_PREDICATE_PUSHED=true` so downstream stages know the predicate can be evaluated during the join, not after.
+
+**Analogy**: Instead of inviting 1000 people to a party and then checking IDs at the door, check IDs before they enter the bus (push the filter earlier in the pipeline).
+
+### Rule 3: Select-Access Fusion (`SelectAccessFusionWalker.java`, 211 lines)
+
+**Problem**: A WHERE predicate like `$x.price > 50` is separate from the `$x.price` field access. But for CAS index matching (Stage 10) to work, the predicate information needs to be **on the access node itself**.
+
+**Solution**: When a filter predicate references a field accessed via a deref chain (e.g., `$x.price`), fuse the predicate operator and value into the access node via properties (`FUSED_OPERATOR`, `FUSED_FIELD_NAME`). Stage 10's `JsonCASStep` reads these to determine if a CAS index can serve the predicate.
 
 ---
 
 ## 5. Stage 2: Cost-Based Analysis
 
-**`CostBasedStage`** (`CostBasedStage.java:43`) is the heaviest stage. For each ForBind/LetBind node in the AST, it:
+### What Happens Here
 
-1. **Extracts the JSON path** from the deref chain rooted at `jn:doc()` (line 182-185)
-2. **Looks up histogram** from `StatisticsCatalog` (revision-aware, line 197-205)
-3. **Queries PathSummary** for path cardinality and total node count (line 211-214)
-4. **Checks for available indexes** via `SirixStatisticsProvider.getIndexInfo()` (line 226)
-5. **Estimates predicate selectivity** using `SelectivityEstimator` (line 236)
-6. **Compares costs**: sequential scan vs. index scan via `JsonCostModel` (line 239-243)
-7. **Annotates the AST** with `PREFER_INDEX`, `INDEX_ID`, `INDEX_TYPE`, costs (line 245-256)
-8. **Propagates cardinalities** through the entire FLWOR pipeline via `CardinalityEstimator` (line 113)
+This is the **core** of the optimizer. `CostBasedStage` (`CostBasedStage.java`, 477 lines) answers the fundamental question: **for each data access in the query, is it cheaper to scan all records or use an index?**
 
-### Cost Model (`JsonCostModel.java`)
+For each ForBind/LetBind node (which represents a loop over data), it:
 
-Models SirixDB's storage architecture:
+1. **Extracts the JSON path** from the `jn:doc('db','res')[]...` expression
+2. **Looks up statistics** — how many records match this path? What's the value distribution?
+3. **Checks for indexes** — is there a CAS/PATH/NAME index that covers this path?
+4. **Estimates selectivity** — what fraction of records does the WHERE predicate filter out?
+5. **Calculates costs** — sequential scan cost vs. index scan cost
+6. **Annotates the AST** with the decision
 
-**Sequential scan** (keyed trie with io_uring prefetch):
+### The Cost Model (`JsonCostModel.java`, 229 lines)
+
+The cost model assigns a **numeric cost** to each physical operation. Costs are unitless — they only need to be **comparable** to each other (like comparing GPS route times).
+
+The model captures SirixDB's specific storage architecture:
+
+**Sequential scan** — reading the entire document:
 ```
-cost = pages × 1.0 + tuples × 0.01
-     = (totalNodeCount / 1024) × SEQ_IO_PER_PAGE + totalNodeCount × CPU_PER_TUPLE
+cost = pages × IO_COST_PER_PAGE + tuples × CPU_COST_PER_TUPLE
+     = (totalNodes / 1024) × 1.0 + totalNodes × 0.01
 ```
+Why is this relatively cheap? SirixDB's keyed trie stores data in document order, so sequential reads benefit from OS prefetching (io_uring). Reading 1000 consecutive pages is much faster than reading 1000 random pages.
 
-**Index scan** (HOT trie with SIMD partial-key search):
+**Index scan** — looking up records via a HOT (Height Optimized Trie) index:
 ```
-cost = 3.0 + trieDepth × 0.2 × 4.0 + leafPages × 4.0 + pathCard × 0.01
-     = INDEX_SETUP + traversalIO + dataIO + cpuCost
+cost = SETUP + TRAVERSAL_IO + DATA_IO + CPU
+     = 3.0 + log16(pathCard) × 0.2 × 4.0 + ceil(pathCard/512) × 4.0 + pathCard × 0.01
 ```
-Where `trieDepth = log16(pathCardinality)` (HOT effective fanout ~16).
+Why the 3.0 setup cost? Opening an index requires reading the root page and initializing the iterator. Why `log16`? HOT tries have a fanout of ~16 (each internal node has ~16 children), so the tree height is `log16(n)`. The `0.2` factor means only 20% of trie levels cause actual I/O — upper levels are typically cached in the buffer pool.
 
-**Selective index scan** (with predicate):
-```
-effectiveCard = pathCardinality × selectivity
-cost = 3.0 + traversalIO(full) + ceil(effectiveCard/512) × 4.0 + effectiveCard × 0.01
-```
+**When does the index win?** For a 10-million-row document where only 10 rows match:
+- Sequential scan: `10000 × 1.0 + 10M × 0.01 = 110,000`
+- Index scan: `3.0 + 5.2 × 0.8 + 0.02 × 4.0 + 10 × 0.01 = 7.34`
 
-### Selectivity Estimator (`SelectivityEstimator.java`)
+The index is 15,000x cheaper. But for a query matching 90% of rows:
+- Sequential scan: same 110,000
+- Index scan: `3.0 + 5.2 × 0.8 + 17578 × 4.0 + 9M × 0.01 = 160,319`
 
-| Predicate Type | Default | With Histogram |
-|---------------|---------|---------------|
-| Equality (`=`) | 1% | MCV exact frequency, or (1-mcvFrac)/(NDV-mcvCount) |
-| Range (`<`, `>`) | 33% | Bucket overlap fraction + MCV contribution |
-| LIKE | 25% | — |
-| AND | SQL Server exponential backoff: `s0 × s1^(1/2) × s2^(1/3) × ...` | Same formula, per-predicate histogram |
-| OR | Inclusion-exclusion: `P(A∪B) = P(A) + P(B) - P(A)·P(B)` | Same |
-| NOT | `1 - selectivity(child)` | Same |
+Here the sequential scan wins because the index reads almost as many pages but adds traversal overhead.
 
-### Cardinality Estimator (`CardinalityEstimator.java`)
+### Selectivity Estimation (`SelectivityEstimator.java`, 302 lines)
 
-Walks the FLWOR pipeline and annotates each node:
+**Selectivity** is the fraction of rows that pass a predicate. If `price > 50` matches 30% of products, the selectivity is 0.30. This is crucial because it determines how many rows an index scan actually reads.
 
-| Node Type | Formula |
-|-----------|---------|
-| ForBind | `inputCard × bindingCard` |
-| LetBind | `inputCard` (preserves) |
-| Selection | `inputCard × selectivity(predicate)` |
-| GroupBy | `distinctCount` (from histogram) or `inputCard / 100` |
-| OrderBy | `inputCard` (preserves) |
-| Join | `leftCard × rightCard × 0.1` |
+**Default estimates** (when no histogram exists):
+| Predicate | Default Selectivity | Reasoning |
+|-----------|-------------------|-----------|
+| `x = 42` | 1% (0.01) | Equality is usually very selective |
+| `x > 50` | 33% (0.33) | Range typically selects a third |
+| `x LIKE '%foo%'` | 25% (0.25) | Pattern match is moderately selective |
+| Unknown | 50% (0.5) | Conservative default |
 
-### Auto-Collection on Cache Miss
+**With histograms** (data-driven estimates):
+When a histogram is available for the field, the estimator uses the actual value distribution instead of defaults. For example, if a histogram shows that 90% of prices are between 0-100 and `price > 9990` matches only 0.1% of data, the selectivity is 0.001 — much more accurate than the default 33%.
 
-When `StatisticsCatalog` has no histogram for a queried field, `CostBasedStage` records the field in `pendingCollections`. After optimization completes, `SirixOptimizer` (or callers via `SirixCompileChain.collectPendingHistograms()`) can trigger deferred collection via `HistogramCollector`. This separation avoids deadlocks from opening resource sessions during an active write transaction.
+**Compound predicates** — the tricky part:
+- **AND**: `price > 50 AND category = 'books'` — are these independent? Naive multiplication (0.33 × 0.01 = 0.0033) often **underestimates** because predicates may be correlated (expensive products are often in specific categories). We use **SQL Server's exponential backoff**: sort selectivities ascending, then `s[0] × s[1]^(1/2) × s[2]^(1/3) × ...`. This dampens the effect of additional predicates.
+- **OR**: `price < 10 OR price > 9990` — uses **inclusion-exclusion**: `P(A∪B) = P(A) + P(B) - P(A)×P(B)`. This prevents overestimation from naive addition.
+
+### Cardinality Estimation (`CardinalityEstimator.java`, 191 lines)
+
+**Cardinality** = the number of rows a pipeline stage produces. The estimator walks the FLWOR expression tree and calculates how many rows each node outputs:
+
+| FLWOR Node | Formula | Intuition |
+|------------|---------|-----------|
+| ForBind | `inputCard × bindingCard` | Each input row generates `bindingCard` rows from the binding expression |
+| LetBind | `inputCard` | Let bindings don't change the number of rows |
+| Selection (WHERE) | `inputCard × selectivity` | The predicate filters out rows |
+| GroupBy | `distinctCount` or `inputCard / 100` | Grouping reduces rows to the number of distinct groups |
+| OrderBy | `inputCard` | Sorting doesn't change the count |
+| Join | `leftCard × rightCard × 0.1` | Default assumption: 10% of cross-product rows match |
+
+These estimates feed into join reordering (Stage 3), where the optimizer needs to know how many rows each side of a join produces to pick the cheapest join order.
 
 ---
 
 ## 6. Stage 3: Join Reordering
 
-**`JoinReorderStage`** (`JoinReorderStage.java:40`) delegates to `CostBasedJoinReorder` which:
+### Why Join Order Matters
 
-1. **Extracts join groups** from fused join annotations (Rule 1)
-2. **Builds a `JoinGraph`** with base relation cardinalities and join edges
-3. **Runs the adaptive algorithm** (`AdaptiveJoinOrderOptimizer.java`):
-   - **DPhyp** for ≤20 relations: O(n·3^n) optimal enumeration of connected subgraph complement pairs, memoized in `DpTable` (bitmask → best plan)
-   - **GOO** for >20 relations: O(n^3) Greedy Operator Ordering fallback
-4. **Restructures the AST**: swaps join children to match the optimal order, annotates with `JOIN_REORDERED=true`
+Consider joining three tables A (1000 rows), B (10 rows), C (100 rows):
 
-### DPhyp Algorithm (`AdaptiveJoinOrderOptimizer.java`)
+- **Order A-B-C**: Join A×B = 1000×10 comparisons, then result×C = 100×100 comparisons. Total: 20,000.
+- **Order B-A-C**: Join B×A = 10×1000 comparisons, then result×C = 100×100 comparisons. Total: 20,000.
+- **Order B-C-A**: Join B×C = 10×100 comparisons, then result×A = 10×1000 comparisons. Total: 11,000.
 
-Phase 1: Initialize base plans (one per relation) with cardinality and cost.
+The third order is almost 2x cheaper! With 10 tables, there are 10! = 3.6 million possible orderings. Brute-force enumeration is impossible for large joins.
 
-Phase 2: For each relation (high bitmask to low):
-  - Enumerate connected subgraphs S1 containing this relation
-  - For each S1, find complement pairs S2 such that S1∪S2 is connected
-  - Compute join cost for (S1, S2), update DP table if cheaper
+### The DPhyp Algorithm (`AdaptiveJoinOrderOptimizer.java`, 300 lines)
 
-The `DpTable` (`DpTable.java`) uses open-addressing with Fibonacci hashing for cache-friendly lookups on bitmask keys.
+We use **DPhyp** (Dynamic Programming via Hypergraph Partitioning), the same algorithm used in HyPer and Umbra — two of the fastest analytical databases in existence.
+
+**How it works** (simplified):
+
+1. Represent the join as a **graph**: each table is a node, each join condition is an edge.
+2. Use **dynamic programming** to find the cheapest way to join subsets of tables.
+3. The key insight: you don't need to enumerate all orderings. DPhyp only considers **connected subgraph complement pairs** — subsets where removing one subset leaves the other connected. This dramatically prunes the search space.
+4. Results are memoized in a `DpTable` — a hash table mapping **bitmasks** (which tables are included) to the best plan for that subset.
+
+**Complexity**: O(n·3^n) for n relations. This is fast for up to ~20 relations. For the example above (3 tables, bitmasks 001, 010, 100):
+- Base plans: {A}=001, {B}=010, {C}=100
+- Try pairs: {A}+{B}=011 (cost?), {A}+{C}=101 (cost?), {B}+{C}=110 (cost?)
+- Try triples: {A,B}+{C}=111 (cost?), {A,C}+{B}=111 (cost?), {B,C}+{A}=111 (cost?)
+- Pick cheapest 111 plan.
+
+### GOO Fallback for Large Joins
+
+For queries with >20 relations (e.g., auto-generated BI queries), DPhyp's 3^n becomes impractical. We fall back to **GOO** (Greedy Operator Ordering):
+
+1. Start with one plan per relation.
+2. Find the cheapest connected pair to merge.
+3. Replace the pair with a single joined plan.
+4. Repeat until one plan remains.
+
+GOO is O(n^3) — always fast, but not guaranteed optimal. In practice, the difference from DPhyp is small for most query shapes.
+
+### The DpTable (`DpTable.java`, 127 lines)
+
+The DP memoization table uses **open-addressing with Fibonacci hashing** — a hash table where collisions are resolved by probing subsequent slots. Fibonacci hashing (`key × 0x9E3779B97F4A7C15L >>> shift`) provides excellent distribution for bitmask keys, minimizing cache misses.
 
 ---
 
 ## 7. Stages 4-5: Mesh Population & Selection
 
-### Stage 4: MeshPopulationStage (`MeshPopulationStage.java`)
+### What Is the Mesh?
 
-The **Mesh** (Graefe/DeWitt Exodus) groups semantically equivalent plans into `EquivalenceClass` instances:
+The **Mesh** (named after Graefe & DeWitt's Exodus optimizer framework) is a data structure that records **all the alternative plans** the optimizer has considered. Think of it as a "decision log" — for each point in the query where a choice exists (index scan vs. sequential scan, join order A vs. B), the Mesh records both alternatives with their costs.
 
-For each ForBind/LetBind with cost annotations:
-- Creates equivalence class with **seq scan** as first alternative (cost: `SEQ_SCAN_COST`)
-- Adds **index scan** alternative if available (cost: `INDEX_SCAN_COST`)
-- Tags AST node with `MESH_CLASS_ID`
+This serves two purposes:
+1. **Plan selection**: Pick the cheapest alternative at each decision point.
+2. **EXPLAIN output**: Show the user what alternatives were considered (via `sdb:explain($query, 'candidates')`).
 
-For each Join with cost annotations:
-- Creates equivalence class with current order
-- Adds swapped-order alternative if NLJ cost differs
-- Links child classes via virtual edges (`setChildClasses()`)
+### How It's Organized
 
-### Stage 5: MeshSelectionStage (`MeshSelectionStage.java`)
+The Mesh groups alternatives into **equivalence classes**. An equivalence class contains plans that produce the same result but differ in execution strategy:
 
-**Post-order walk** (bottom-up): resolves children before parents so child costs inform parent decisions.
+```
+EquivalenceClass #0: "How to access products"
+  ├── Alternative A: Sequential scan      (cost: 110,000)
+  └── Alternative B: CAS index on price   (cost: 7.34)     ← winner
 
-For each node with `MESH_CLASS_ID`:
-1. Retrieves best plan from Mesh
-2. Copies decision properties (`PREFER_INDEX`, `INDEX_ID`, costs)
-3. For joins: if best plan is an alternative, **swaps children** to match preferred order
-4. Propagates child costs to parent join cost
+EquivalenceClass #1: "How to join products × orders"
+  ├── Alternative A: Products first, then orders  (cost: 5,000)
+  └── Alternative B: Orders first, then products  (cost: 3,200)  ← winner
+```
+
+### Stage 4: MeshPopulationStage (`MeshPopulationStage.java`, 179 lines)
+
+Walks the AST and creates equivalence classes:
+- For each ForBind with `PREFER_INDEX` annotations: creates class with seq scan + index scan alternatives
+- For each Join with cost annotations: creates class with current order + swapped order alternatives
+- Tags each AST node with its `MESH_CLASS_ID` for Stage 5 to find
+
+### Stage 5: MeshSelectionStage (`MeshSelectionStage.java`, 145 lines)
+
+Walks the AST **bottom-up** (children before parents) and applies the best plan from each equivalence class:
+
+**Why bottom-up?** Because a parent's cost depends on its children's costs. If child node "access products" switches from sequential scan (cost 110,000) to index scan (cost 7.34), the parent join's total cost changes dramatically. By resolving children first, parent decisions see accurate child costs.
+
+For joins, if the best plan has a different ordering than the current AST, Stage 5 **physically swaps the join children** — this is one of the few places where the optimizer actually restructures the AST rather than just annotating it.
 
 ---
 
-## 8. Stage 6: Index Decomposition
+## 8. Stage 6: Index Decomposition (Rules 5-6)
 
-**`IndexDecompositionStage`** (`IndexDecompositionStage.java:23`) runs a two-phase process:
+### The Problem
 
-**Phase 1**: `JoinDecompositionWalker` annotates joins with decomposition metadata:
-- **Rule 5**: One join side has an index, the other doesn't → `DECOMPOSITION_TYPE=RULE_5`
-- **Rule 6**: Both sides have different indexes → `DECOMPOSITION_TYPE=RULE_6`, `DECOMPOSITION_INTERSECT=true`
+Sometimes a join has one side that can use an index and another side that can't. Or both sides can use *different* indexes. These situations require restructuring the join to exploit the index boundaries.
 
-**Phase 2**: Post-order AST restructuring reads annotations and mutates:
-- **Rule 5** (`applyRule5`, line 90): Swaps join children so the indexed side is child 0 (driving side). Propagates `PREFER_INDEX=true`.
-- **Rule 6** (`applyRule6`, line 125): Marks as `INTERSECTION_JOIN=true`, ensures both sides have `PREFER_INDEX=true`.
+### Rule 5: Indexed Side Drives the Join
 
-Idempotency guard: `DECOMPOSITION_RESTRUCTURED=true` prevents double-processing.
+**Scenario**: `products JOIN reviews` where `products` has a CAS index on `price` but `reviews` has no useful index.
+
+**Optimization**: Swap the join inputs so the indexed side (`products`) is the **driving side** (child 0). In a nested-loop or hash join, the driving side is scanned first, and its results probe the other side. When the driving side is small (thanks to the index filter), fewer probes are needed.
+
+**Implementation** (`IndexDecompositionStage.applyRule5()`):
+```java
+if (!leftHasIndex) {
+    // Index is on the right — swap so indexed side drives
+    final AST leftInput = join.getChild(0);
+    final AST rightInput = join.getChild(1);
+    join.replaceChild(0, rightInput);
+    join.replaceChild(1, leftInput);
+}
+```
+
+### Rule 6: Intersection Join
+
+**Scenario**: `products JOIN products` (self-join) where both sides of the join use *different* indexes — e.g., one side has a CAS index on `price` and the other has a PATH index on `category`.
+
+**Optimization**: Both sides become index scans, and the join becomes an **intersection** of two index result sets. Both results are already filtered by their respective indexes, so the join only processes the intersection.
+
+**Implementation** (`IndexDecompositionStage.applyRule6()`):
+```java
+join.setProperty(CostProperties.INTERSECTION_JOIN, true);
+propagatePreferIndex(join.getChild(0), MAX_SEARCH_DEPTH);
+propagatePreferIndex(join.getChild(1), MAX_SEARCH_DEPTH);
+```
+
+### Two-Phase Design
+
+The stage uses a two-phase approach:
+1. **Phase 1** (Walker): Annotates joins with decomposition metadata (`DECOMPOSITION_TYPE`, `DECOMPOSITION_INDEX_ID`, etc.). This is a read-only analysis pass.
+2. **Phase 2** (Restructuring): Reads the annotations and mutates the AST (swaps children, sets flags). This is a separate post-order walk.
+
+Why two phases? Because the Walker base class traverses the tree top-down and may re-visit mutated children unpredictably. Separating analysis from mutation avoids these issues.
 
 ---
 
 ## 9. Stage 7: Cost-Driven Routing
 
-**`CostDrivenRoutingStage`** (`CostDrivenRoutingStage.java:28`) translates high-level cost decisions into gate signals for index matching:
+### The Gate Metaphor
 
-When a ForBind's binding has `PREFER_INDEX=false` (sequential scan is cheaper), propagates `INDEX_GATE_CLOSED=true` to all descendants. Index matching walkers in Stage 10 check this gate before applying rewrites.
+**`CostDrivenRoutingStage`** (`CostDrivenRoutingStage.java`, 72 lines) translates the cost model's recommendations into **gate signals** that control index matching in Stage 10.
+
+Think of it like traffic lights at an intersection:
+- **Green light** (`PREFER_INDEX=true`): "Go ahead and use the index."
+- **Red light** (`INDEX_GATE_CLOSED=true`): "Don't use the index — sequential scan is cheaper."
+
+When Stage 2 annotates a ForBind with `PREFER_INDEX=false`, Stage 7 propagates `INDEX_GATE_CLOSED=true` to **all descendant nodes**. When Stage 10's index matching walkers visit those nodes, they check the gate and skip the rewrite.
+
+Without this stage, the index matching walkers would blindly rewrite every eligible node to use an index, even when the cost model determined it would be slower.
 
 ---
 
 ## 10. Stages 8-9: Vectorized Execution
 
+### What Is Vectorized Execution?
+
+Traditional query execution processes one row at a time: read a row, check the predicate, output if it matches, repeat. **Vectorized execution** processes rows in **batches** (e.g., 1024 at a time) using CPU SIMD instructions that operate on multiple data elements simultaneously.
+
+For simple scan-filter-project queries (no joins, no grouping), vectorized execution can be 5-10x faster because:
+- Fewer function calls (one per batch instead of one per row)
+- Better CPU cache utilization (batch fits in L1/L2)
+- SIMD instructions process 4-16 comparisons in a single CPU cycle
+
 ### Stage 8: VectorizedDetectionStage
 
-Detects scan-filter-project pipelines eligible for SIMD execution: ForBind over `jn:doc()` with simple predicates and field projections.
+Identifies scan-filter-project pipelines eligible for SIMD: a ForBind over `jn:doc()` with simple equality/range predicates and field projections. Complex queries (joins, grouping, subqueries) aren't eligible.
 
-### Stage 9: VectorizedRoutingStage (`VectorizedRoutingStage.java`)
+### Stage 9: VectorizedRoutingStage (`VectorizedRoutingStage.java`, 458 lines)
 
-The largest single stage (458 lines). Routes detected pipelines to columnar execution:
-- Creates `VectorizedPipelineExpr` AST nodes replacing the FLWOR subpipeline
-- Configures batch size, filter types (string equality via FSST, range predicates)
-- Falls back to tuple-at-a-time when SIMD isn't beneficial
+Replaces eligible pipeline subtrees with `VectorizedPipelineExpr` AST nodes. These nodes bypass the normal tuple-at-a-time execution and use columnar batch processing with FSST-aware string comparison (FSST = Fast Static Symbol Table, a string compression scheme).
 
 ---
 
-## 11. Stage 10: Index Matching
+## 11. Stage 10: Index Matching (Physical Rewrite)
 
-**`IndexMatching`** (inner class in `SirixOptimizer.java:252`) runs three walkers in priority order:
+### What Happens Here
 
-1. **`JsonCASStep`** (327 lines): Matches CAS (Content And Structure) B+-tree indexes. Extracts comparison predicates, maps to `SearchMode` (EQUAL, GREATER, LOWER, etc.), creates `IndexExpr` AST nodes.
+This is where the optimizer **physically rewrites the AST** to use specific indexes. All previous stages only annotated the AST with metadata; Stage 10 actually replaces AST subtrees with `IndexExpr` nodes.
 
-2. **`JsonPathStep`** (75 lines): Matches PATH indexes for field access patterns.
+**`IndexMatching`** (inner class in `SirixOptimizer.java`) runs three walkers in priority order:
 
-3. **`JsonObjectKeyNameStep`** (76 lines): Matches NAME indexes on object keys.
+1. **`JsonCASStep`** (327 lines): Matches CAS (Content And Structure) indexes. These indexes store `(value, path)` pairs in a B+-tree, enabling efficient value-based lookups. Example: A CAS index on `/[]/price` of type `xs:integer` can serve `$x.price > 50`.
 
-All three extend `AbstractJsonPathWalker` (544 lines) which handles:
-- Path extraction from deref chains
-- PathSummary validation (does the path exist?)
-- Cost gate checking (`CostProperties.isIndexGateClosed()`)
-- Index definition lookup via `IndexController`
+2. **`JsonPathStep`** (75 lines): Matches PATH indexes. These indexes map paths to node keys, enabling efficient path-based access without scanning the entire document. Example: A PATH index on `/[]/item/name` can serve `$x.item.name` field access.
 
-When a match is found, the walker replaces the original AST subtree with an `IndexExpr` node containing the index definition, database/resource metadata, and filter parameters.
+3. **`JsonObjectKeyNameStep`** (76 lines): Matches NAME indexes on object keys. These enable efficient `$x.fieldName` access when many objects have different key sets.
+
+### The Rewrite
+
+When a walker finds a match, it:
+1. Creates an `IndexExpr` AST node with the index definition, database/resource metadata, and filter parameters
+2. Replaces the original AST subtree with the `IndexExpr` node
+3. At runtime, `IndexExpr` opens the index directly instead of scanning the document
+
+### The Cost Gate Check
+
+Before applying any rewrite, every walker checks:
+```java
+if (CostProperties.isIndexGateClosed(astNode)) {
+    return astNode;  // Skip — cost model says sequential scan is cheaper
+}
+```
+
+This is how Stages 2-7 communicate their cost decisions to Stage 10.
 
 ---
 
 ## 12. Statistics Infrastructure
 
-### Histogram (`Histogram.java`)
+### Why Statistics Matter
 
-Dual-mode histogram with MCV tracking:
+Without statistics, the optimizer uses **default estimates** (1% for equality, 33% for range). These are often wildly wrong:
+- A status field with 90% of rows having `status='active'` → equality selectivity is 90%, not 1%
+- A price field where 99% of values are between 0-100 → `price > 99.5` matches 0.5%, not 33%
 
-**Equi-width** (default): Fixed-width buckets, O(1) bucket lookup via arithmetic. Good for uniform distributions.
+Bad estimates lead to bad plans. Statistics fix this.
 
-**Equi-depth**: Equal-count buckets, O(log B) lookup via binary search on `bucketBoundaries[]`. Better for skewed distributions — provides uniform estimation error across the value range.
+### Histograms (`Histogram.java`, 504 lines)
 
-**MCV (Most-Common-Values)**: Top-K most frequent values (default K=10) stored separately with exact frequencies. Bucket counts are reduced by MCV frequencies during construction to prevent double-counting. For equality predicates, MCVs provide exact selectivity; for non-MCVs, the remaining fraction is distributed across remaining distinct values.
+A **histogram** summarizes the distribution of values in a field. SirixDB supports two types:
 
-### StatisticsCatalog (`StatisticsCatalog.java`)
+**Equi-width histogram** (default): Divides the value range into N buckets of equal width and counts how many values fall in each bucket. Fast O(1) lookup but can waste resolution on sparse regions.
 
-Singleton LRU cache mapping `(database, resource, path, revision)` to histograms:
-- **Historical revisions** (revision > 0): Never expire via TTL — immutable data means histograms are forever valid.
-- **Latest revision** (revision = -1): Subject to 1-hour TTL and write-triggered invalidation.
-- Max 4096 entries with LRU eviction.
+```
+Example: 1000 prices in [0, 100], 10 buckets
+Bucket [0,10): 450 values  ← most products are cheap
+Bucket [10,20): 200 values
+Bucket [20,30): 100 values
+...
+Bucket [90,100): 5 values  ← few expensive products
+```
 
-### HistogramCollector (`HistogramCollector.java`)
+**Equi-depth histogram**: Each bucket has approximately the same number of values but variable width. Better for skewed data because the dense region gets narrow buckets (more resolution) and the sparse region gets wide buckets.
 
-Analogous to SQL's ANALYZE command:
-1. Queries PathSummary for path existence
-2. Opens read-only transaction
-3. Stride-based sampling: `stride = totalNodes / (sampleSize × 2)`
-4. Collects numeric values, tracks distinct count
-5. Builds histogram via `Histogram.Builder`
+```
+Same data, equi-depth with 4 buckets:
+Bucket [0, 3.2): 250 values    ← narrow: dense region, high resolution
+Bucket [3.2, 8.5): 250 values  ← narrow
+Bucket [8.5, 35): 250 values   ← wider
+Bucket [35, 100): 250 values   ← very wide: sparse region
+```
+
+**Most-Common-Values (MCV)**: The top-K (default 10) most frequent values are tracked separately with exact frequencies. This handles the common case where a few values dominate:
+
+```
+MCVs for status field:
+  'active': 9000/10000 = 90%
+  'inactive': 800/10000 = 8%
+  'pending': 150/10000 = 1.5%
+
+For query "WHERE status = 'active'":
+  Without MCV: selectivity = 1/NDV = 1/3 = 33%  (WRONG!)
+  With MCV: selectivity = 90%  (CORRECT!)
+```
+
+MCVs are subtracted from bucket counts during histogram construction, so the bucket counts only represent the non-MCV distribution. This prevents double-counting when estimating range queries.
+
+### StatisticsCatalog (`StatisticsCatalog.java`, 188 lines)
+
+A singleton LRU cache that maps `(database, resource, field, revision)` to histograms.
+
+**Revision-awareness** — unique to SirixDB's bitemporal architecture:
+- **Historical revisions** (revision > 0): The data at revision 5 is immutable — it can never change. So a histogram collected for revision 5 is **forever valid**. No TTL, no invalidation needed.
+- **Latest revision** (revision = -1): The "current" data changes with writes. These histograms have a 1-hour TTL and are invalidated after commits.
+
+This is a significant optimization: in a database with 1000 revisions, only the latest revision's histograms ever go stale.
+
+### Automatic Collection
+
+When the optimizer encounters a field with no histogram in the catalog, it records the field for **deferred collection**. After optimization completes, `SirixOptimizer` exposes `collectPendingHistograms()` which callers can invoke to collect histograms asynchronously. The next query against the same field will benefit from the collected histogram.
+
+The collection itself is done by `HistogramCollector` (`HistogramCollector.java`, 300 lines), which:
+1. Opens a read-only transaction
+2. Walks the document using stride-based sampling (to avoid reading every single value)
+3. Builds a histogram from the sampled values
+4. Registers it in the `StatisticsCatalog`
+
+This is analogous to PostgreSQL's `ANALYZE` command, but triggered automatically on cache miss.
 
 ### Post-Commit Invalidation
 
-`SirixQueryContext.invalidateStatisticsForResource()` fires after each commit:
-- Invalidates `StatisticsCatalog` entries for the modified resource (latest revision only)
-- Signals `PlanCache` schema change to invalidate all cached plans
+After a write transaction commits, `SirixQueryContext.invalidateStatisticsForResource()` fires:
+- Invalidates the latest-revision histograms for the modified resource
+- Signals `PlanCache.signalIndexSchemaChange()` to invalidate all cached plans
+
+This ensures that the next query after a data modification gets fresh statistics instead of stale ones from before the write.
 
 ---
 
 ## 13. Adaptive Re-Optimization
 
-**`CardinalityTracker`** (`CardinalityTracker.java`) implements dampened drift detection:
+### The Problem
 
-- Records `(cacheKey, estimatedCardinality, actualCardinality)` per query execution
-- Computes ratio: `max(estimated/actual, actual/estimated)`
-- **Threshold**: 10x mismatch
-- **Damping**: 3 consecutive mismatched executions required before invalidation
-- On trigger: surgical plan cache invalidation (specific query, not global)
-- Accurate estimates reset the consecutive counter — a single outlier doesn't overreact
+Even with good statistics, cardinality estimates can be wrong. The optimizer might estimate that `price > 9990` matches 10 rows, but at runtime it matches 10,000. If this happens repeatedly, the cached plan is suboptimal.
+
+### The Solution: CardinalityTracker (`CardinalityTracker.java`, 113 lines)
+
+After query execution, callers can report the actual result count. The `CardinalityTracker` compares it to the optimizer's estimate and detects **persistent drift**:
+
+- **Threshold**: 10x mismatch between estimated and actual cardinality
+- **Damping**: Must happen 3 consecutive times before acting (a single outlier doesn't trigger invalidation)
+- **Action**: Surgical plan cache invalidation — only the specific query's plan is evicted
+
+**Why damping?** Imagine a query that usually returns 100 rows but occasionally returns 10,000 during a batch import. Without damping, the first anomalous execution would evict a good plan. With 3-consecutive damping, transient spikes are ignored.
+
+```java
+// Example: CardinalityTracker in action
+tracker.record("query@v0", 100, 95, planCache);    // ratio 1.05 — accurate, resets counter
+tracker.record("query@v0", 100, 5000, planCache);   // ratio 50 — mismatch #1
+tracker.record("query@v0", 100, 4800, planCache);   // ratio 48 — mismatch #2
+tracker.record("query@v0", 100, 5200, planCache);   // ratio 52 — mismatch #3 → INVALIDATE!
+```
 
 ---
 
 ## 14. Plan Cache
 
-**`PlanCache`** (`PlanCache.java`) — LRU cache for optimized ASTs:
+### Why Cache Plans?
 
-- **Cache key**: `queryText + "@v" + indexSchemaVersion`
-- **Version-aware**: When indexes are created/dropped, `signalIndexSchemaChange()` increments a global `AtomicLong`, making all previously cached plans stale
-- **Deep copy safety**: `get()` returns `copyTree()` to prevent downstream mutation; `put()` stores a deep copy
+Optimization is relatively fast (typically <5ms), but some applications execute the same query thousands of times per second (dashboards, monitoring, APIs). Caching the optimized AST eliminates redundant optimization work.
+
+**`PlanCache`** (`PlanCache.java`, 162 lines) is a simple LRU cache:
+
+- **Key**: `queryText + "@v" + indexSchemaVersion` — the version suffix ensures plans are invalidated when indexes are created or dropped
 - **Capacity**: 128 plans (LRU eviction)
-- **Metrics**: hit/miss counters, hit ratio
+- **Deep copy safety**: Both `get()` and `put()` use `AST.copyTree()` to prevent downstream code from accidentally mutating cached plans
+
+### Schema Version
+
+The `indexSchemaVersion` is a global `AtomicLong` that's incremented whenever indexes change. This makes the cache key version-aware:
+
+```
+Before index creation:  "for $x in ..." + "@v0"  → plan without index
+After index creation:   "for $x in ..." + "@v1"  → cache miss → re-optimize with index
+```
 
 ---
 
 ## 15. EXPLAIN Function & QueryPlan API
 
-### sdb:explain() Function (`Explain.java`)
+### For Users: sdb:explain()
 
-Three signatures:
 ```xquery
-sdb:explain($query)                    -- optimized plan JSON
-sdb:explain($query, true())            -- parsed + optimized
-sdb:explain($query, 'candidates')      -- optimized + Mesh alternatives
+(: Show the optimized plan :)
+sdb:explain('for $x in jn:doc("db","res")[] where $x.price > 50 return $x')
+
+(: Show both parsed and optimized plans :)
+sdb:explain('for $x in jn:doc("db","res")[] where $x.price > 50 return $x', true())
+
+(: Show all candidate plans from the Mesh :)
+sdb:explain('for $x in jn:doc("db","res")[] where $x.price > 50 return $x', 'candidates')
 ```
 
-### QueryPlan Record (`QueryPlan.java`)
+### For Developers: QueryPlan API (`QueryPlan.java`, 233 lines)
 
-Programmatic API for plan inspection:
 ```java
 QueryPlan plan = QueryPlan.explain(query, jsonStore, xmlStore);
-plan.usesIndex()                  // IndexExpr present (actual rewrite)
-plan.prefersIndex()               // PREFER_INDEX=true (cost model hint)
-plan.indexType()                  // "CAS", "PATH", "NAME", or null
-plan.estimatedCardinality()       // from ESTIMATED_CARDINALITY
-plan.isIntersectionJoin()         // Rule 6 intersection
-plan.isDecompositionRestructured() // Rules 5-6 restructuring
-plan.isJoinReordered()            // DPhyp/GOO applied
-plan.hasClosedGate()              // INDEX_GATE_CLOSED
-plan.vectorizedRoute()            // "columnar" or null
-plan.toJSON()                     // pretty-printed plan
-plan.toCandidatesJSON()           // plan + Mesh alternatives
+
+// Inspection methods:
+plan.usesIndex()                   // Was an IndexExpr actually created? (ground truth)
+plan.prefersIndex()                // Did the cost model recommend an index? (recommendation)
+plan.indexType()                   // "CAS", "PATH", "NAME", or null
+plan.estimatedCardinality()        // How many rows does the optimizer expect?
+plan.isIntersectionJoin()          // Was Rule 6 applied?
+plan.isDecompositionRestructured() // Were Rules 5 or 6 applied?
+plan.isJoinReordered()             // Was DPhyp/GOO join reordering applied?
+plan.hasClosedGate()               // Did the cost model close the index gate?
+plan.vectorizedRoute()             // "columnar" if SIMD routing applied
+
+// Serialization:
+plan.toJSON()                      // Human-readable optimized plan
+plan.toVerboseJSON()               // Both parsed and optimized
+plan.toCandidatesJSON()            // Plan + all Mesh alternatives
 ```
 
-### QueryPlanSerializer (`QueryPlanSerializer.java`)
-
-Converts AST to human-readable JSON with operator names, property annotations, and tree structure. Handles all XQ.* node types with meaningful labels.
+**Note**: `usesIndex()` and `prefersIndex()` can differ! The cost model might prefer an index (`PREFER_INDEX=true`), but no matching CAS/PATH/NAME index exists for the specific predicate pattern, so `IndexMatching` (Stage 10) doesn't create an `IndexExpr`. `prefersIndex()` reflects the recommendation; `usesIndex()` reflects reality.
 
 ---
 
 ## 16. Runtime Integration
 
-### SirixPipelineStrategy (`SirixPipelineStrategy.java`)
+### SirixPipelineStrategy (`SirixPipelineStrategy.java`, 42 lines)
 
-Extends Brackit's `SequentialPipelineStrategy` to support optimizer annotations at the physical operator level:
+Extends Brackit's join compilation to support optimizer annotations:
 
-When `INTERSECTION_JOIN=true` is detected on a Join node, forces `skipSort=true` on the `TableJoin` operator. This skips the O(n log n) post-probe sort+dedup — correct for intersection joins since index results are already unique by nodeKey.
+When `INTERSECTION_JOIN=true` is detected on a Join node, forces `skipSort=true` on the hash join operator. This skips the O(n log n) post-probe sort and deduplication — correct for intersection joins because index results are already unique by nodeKey.
 
-### IndexExpr (`IndexExpr.java`)
+### Physical Operators
 
-Physical operator for index-based execution. Evaluates by:
-1. Opening resource session and transaction
-2. Dispatching on index type (PATH, CAS, NAME)
-3. Opening the appropriate index via `IndexController`
-4. Filtering and materializing results into `ItemSequence`
+**`IndexExpr`** (`IndexExpr.java`, 406 lines): Replaces sequential scans with direct index lookups. Dispatches on index type (PATH, CAS, NAME), opens the appropriate index via `IndexController`, and materializes results into an `ItemSequence`.
 
-### VectorizedPipelineExpr (`VectorizedPipelineExpr.java`)
-
-Physical operator for columnar SIMD execution:
-1. Opens columnar scan (batch-oriented)
-2. Applies SIMD string filters (FSST-aware)
-3. Applies range predicates
-4. Materializes surviving rows
+**`VectorizedPipelineExpr`** (`VectorizedPipelineExpr.java`, 343 lines): Replaces simple scan-filter-project pipelines with batch-oriented columnar execution using SIMD instructions.
 
 ---
 
 ## 17. Testing Strategy
 
-**33 test files, ~8,300 lines** organized in four tiers:
+### Four-Tier Approach
 
-### Tier 1: Unit Tests (per-component)
-- `HistogramTest.java` (601 lines) — equi-width, equi-depth, MCV, edge cases
-- `SelectivityEstimatorTest.java` — AND/OR/NOT formulas
-- `CardinalityEstimatorTest.java` — FLWOR pipeline propagation
-- `JsonCostModelTest.java` — cost comparison correctness
-- `DPhypJoinOrdererTest.java` (433 lines) — DPhyp + GOO algorithms
-- `DpTableTest.java` — hash table correctness
-- `MeshTest.java` — equivalence class operations
-- `CardinalityTrackerTest.java` — drift detection and damping
+**33 test files, ~8,300 lines** organized by scope:
 
-### Tier 2: Stage Integration Tests
-- `CostBasedStageTest.java` — annotation correctness
-- `MeshPopulationStageTest.java` — alternative creation
-- `MeshSelectionStageTest.java` (401 lines) — bottom-up selection, join swap
-- `IndexDecompositionStageTest.java` (379 lines) — Rules 5-6 restructuring
-- `CostDrivenRoutingTest.java` — gate propagation
-- `VectorizedRoutingStageTest.java` (364 lines) — SIMD pipeline routing
+| Tier | What It Tests | Example | Count |
+|------|--------------|---------|-------|
+| 1. Unit | Individual components in isolation | `HistogramTest`: Does equi-depth partitioning produce equal-count buckets? | 8 files |
+| 2. Stage | One optimizer stage with mock ASTs | `MeshSelectionStageTest`: Does bottom-up selection swap join children correctly? | 6 files |
+| 3. Walker | Individual rewrite walkers | `JoinFusionWalkerTest`: Does Rule 1 detect adjacent fusable joins? | 5 files |
+| 4. E2E | Full pipeline with real databases | `OptimizerBehavioralE2ETest`: Store 10K rows, create CAS index, verify plan uses it AND results are correct | 4 files |
 
-### Tier 3: Walker Tests
-- `JoinFusionWalkerTest.java` — Rule 1 annotation
-- `SelectAccessFusionWalkerTest.java` — Rule 3 predicate pushdown
-- `SelectJoinFusionWalkerTest.java` — Rule 2 annotation
-- `JoinCommutativityWalkerTest.java` — Rule 4 swap
-- `JoinDecompositionWalkerTest.java` — Rules 5-6 annotation
+### The E2E Tests Verify TWO Things
 
-### Tier 4: End-to-End Tests
-- `OptimizerBehavioralE2ETest.java` (793 lines) — **21 tests** storing real data, creating indexes, verifying both plan decisions AND exact query results
-- `ExplainIntegrationTest.java` — sdb:explain() through full pipeline
-- `OptimizerProductionReadinessTest.java` (603 lines) — timeouts, GOO fallback, cycle detection, statistics lifecycle, plan cache invalidation
+Each E2E test verifies both the **plan** and the **results**:
+
+```java
+// 1. Verify the optimizer makes the right decision
+QueryPlan plan = QueryPlan.explain(query, store, null);
+assertTrue(plan.usesIndex(), "CAS index should be used for 10K rows");
+assertEquals("CAS", plan.indexType());
+
+// 2. Verify the query returns correct results
+assertEquals("9991 9992 9993 9994 9995 9996 9997 9998 9999 10000",
+    executeQuery("... where $x.price gt 9990 order by $x.price return $x.price"));
+```
+
+This catches a class of bugs where the optimizer makes a correct decision but the execution produces wrong results (or vice versa).
 
 ---
 
-## 18. References
+## 18. Glossary
+
+| Term | Definition |
+|------|-----------|
+| **AST** | Abstract Syntax Tree — tree representation of a parsed query |
+| **Cardinality** | Number of rows a query operation produces |
+| **CAS Index** | Content And Structure — B+-tree index on `(value, path)` pairs |
+| **Circuit Breaker** | Timeout that aborts optimization if it takes too long |
+| **DPhyp** | Dynamic Programming via Hypergraph Partitioning — optimal join ordering algorithm |
+| **Equi-depth** | Histogram where each bucket has the same number of values |
+| **Equi-width** | Histogram where each bucket spans the same value range |
+| **FLWOR** | For-Let-Where-OrderBy-Return — the XQuery/JSONiq loop construct |
+| **GOO** | Greedy Operator Ordering — fast fallback for large join graphs |
+| **HOT** | Height Optimized Trie — SirixDB's index structure with SIMD search |
+| **Index Gate** | Flag that prevents index matching when the cost model prefers sequential scan |
+| **JQGM** | JSON Query Graph Model — adaptation of Weiner's XQGM for JSON |
+| **MCV** | Most-Common Values — exact frequencies for the K most frequent values |
+| **Mesh** | Search space structure grouping equivalent plans into equivalence classes |
+| **NDV** | Number of Distinct Values — used for equality selectivity estimation |
+| **PATH Index** | Index mapping JSON paths to node keys |
+| **PathSummary** | SirixDB structure summarizing all paths in a document with cardinalities |
+| **Plan Cache** | LRU cache storing optimized ASTs to avoid redundant optimization |
+| **Selectivity** | Fraction of rows passing a predicate (0.0 = matches nothing, 1.0 = matches everything) |
+| **SIMD** | Single Instruction Multiple Data — CPU instructions processing multiple values at once |
+
+---
+
+## 19. References
 
 1. **Weiner et al.** "Cost-Based Optimization of Integration Flows" (TU Kaiserslautern, CEUR-WS 2008) — XQGM architecture, 6 rewrite rules, Mesh search space
 2. **Moerkotte & Neumann** "Analysis of Two Existing and One New Dynamic Programming Algorithm for the Generation of Optimal Bushy Join Trees without Cross Products" (VLDB 2006) — DPhyp algorithm
@@ -479,69 +790,80 @@ Physical operator for columnar SIMD execution:
 
 ---
 
-## Code Tour: File Map
+## 20. Code Tour: File Map
 
 ```
 bundles/sirix-query/src/main/java/io/sirix/query/
-├── SirixCompileChain.java              ← Entry point: compile chain
-├── SirixQueryContext.java              ← Post-commit invalidation
+├── SirixCompileChain.java              ← Entry point: creates optimizer + translator
+├── SirixQueryContext.java              ← Post-commit statistics invalidation
 ├── compiler/
-│   ├── XQExt.java                      ← Extension AST node types
+│   ├── XQExt.java                      ← Extension AST node types (IndexExpr, VectorizedPipelineExpr)
 │   ├── translator/
-│   │   ├── SirixTranslator.java        ← AST → physical operators
-│   │   └── SirixPipelineStrategy.java  ← Intersection join support
+│   │   ├── SirixTranslator.java        ← Converts optimized AST → physical operators
+│   │   └── SirixPipelineStrategy.java  ← Intersection join: forces hash mode on TableJoin
 │   ├── expression/
-│   │   ├── IndexExpr.java              ← Index scan physical operator
-│   │   └── VectorizedPipelineExpr.java ← SIMD pipeline operator
+│   │   ├── IndexExpr.java              ← Physical operator: reads from CAS/PATH/NAME index
+│   │   └── VectorizedPipelineExpr.java ← Physical operator: SIMD batch scan-filter-project
 │   └── optimizer/
-│       ├── SirixOptimizer.java         ← 10-stage pipeline orchestrator
-│       ├── PlanCache.java              ← LRU plan cache
-│       ├── CardinalityTracker.java     ← Adaptive re-optimization
-│       ├── JqgmRewriteStage.java       ← Stage 1: Rules 1-3
-│       ├── CostBasedStage.java         ← Stage 2: Cost analysis
-│       ├── JoinReorderStage.java       ← Stage 3: DPhyp
-│       ├── MeshPopulationStage.java    ← Stage 4: Build search space
-│       ├── MeshSelectionStage.java     ← Stage 5: Select best plan
-│       ├── IndexDecompositionStage.java ← Stage 6: Rules 5-6
-│       ├── CostDrivenRoutingStage.java ← Stage 7: Gate signals
-│       ├── VectorizedDetectionStage.java ← Stage 8: SIMD detection
-│       ├── VectorizedRoutingStage.java ← Stage 9: SIMD routing
+│       ├── SirixOptimizer.java         ← Orchestrates 10-stage pipeline with 50ms circuit breaker
+│       ├── PlanCache.java              ← LRU cache: queryText+schemaVersion → optimized AST
+│       ├── CardinalityTracker.java     ← Detects estimate-vs-actual drift, invalidates stale plans
+│       │
+│       │  ── Stages ──
+│       ├── JqgmRewriteStage.java       ← Stage 1: Logical rewrites (Rules 1-3)
+│       ├── CostBasedStage.java         ← Stage 2: Cost analysis + histogram auto-collection
+│       ├── JoinReorderStage.java       ← Stage 3: DPhyp/GOO join ordering
+│       ├── MeshPopulationStage.java    ← Stage 4: Record plan alternatives in Mesh
+│       ├── MeshSelectionStage.java     ← Stage 5: Pick best plan per equivalence class
+│       ├── IndexDecompositionStage.java ← Stage 6: Rules 5-6 (join restructuring at index boundaries)
+│       ├── CostDrivenRoutingStage.java ← Stage 7: Propagate INDEX_GATE_CLOSED flags
+│       ├── VectorizedDetectionStage.java ← Stage 8: Detect SIMD-eligible pipelines
+│       ├── VectorizedRoutingStage.java ← Stage 9: Replace with VectorizedPipelineExpr
+│       │
+│       │  ── Join Ordering ──
 │       ├── join/
-│       │   ├── AdaptiveJoinOrderOptimizer.java ← DPhyp + GOO
-│       │   ├── JoinGraph.java          ← Dense join graph
-│       │   ├── JoinPlan.java           ← Plan tree node
-│       │   ├── JoinEdge.java           ← Graph edge
-│       │   └── DpTable.java            ← DP memoization
+│       │   ├── AdaptiveJoinOrderOptimizer.java ← DPhyp (≤20 rels) + GOO (>20 rels)
+│       │   ├── JoinGraph.java          ← Relations + join predicates as a graph
+│       │   ├── JoinPlan.java           ← Node in the join plan tree
+│       │   ├── JoinEdge.java           ← Edge connecting two relations
+│       │   └── DpTable.java            ← Bitmask → best plan (Fibonacci hashing)
+│       │
+│       │  ── Search Space ──
 │       ├── mesh/
-│       │   ├── Mesh.java               ← Exodus search space
-│       │   ├── EquivalenceClass.java   ← Plan group
-│       │   └── PlanAlternative.java    ← Single alternative
+│       │   ├── Mesh.java               ← Groups equivalent plans into classes
+│       │   ├── EquivalenceClass.java   ← Set of alternative plans with best-cost tracking
+│       │   └── PlanAlternative.java    ← Single (plan, cost) pair
+│       │
+│       │  ── Statistics & Cost Model ──
 │       ├── stats/
-│       │   ├── CostProperties.java     ← 40+ property key constants
-│       │   ├── JsonCostModel.java      ← I/O + CPU cost model
-│       │   ├── SelectivityEstimator.java ← Predicate selectivity
-│       │   ├── CardinalityEstimator.java ← Pipeline cardinality
-│       │   ├── Histogram.java          ← Equi-width/depth + MCV
-│       │   ├── HistogramCollector.java ← ANALYZE command
-│       │   ├── StatisticsCatalog.java  ← Revision-aware histogram cache
-│       │   ├── SirixStatisticsProvider.java ← PathSummary-backed stats
-│       │   ├── StatisticsProvider.java ← Interface
-│       │   ├── IndexInfo.java          ← Index metadata
-│       │   └── BaseProfile.java        ← Physical profile
+│       │   ├── CostProperties.java     ← All 40+ AST property key constants
+│       │   ├── JsonCostModel.java      ← Sequential scan vs. index scan cost formulas
+│       │   ├── SelectivityEstimator.java ← Predicate selectivity (defaults + histogram + MCV)
+│       │   ├── CardinalityEstimator.java ← FLWOR pipeline cardinality propagation
+│       │   ├── Histogram.java          ← Equi-width + equi-depth + MCV tracking
+│       │   ├── HistogramCollector.java  ← Samples data and builds histograms (like ANALYZE)
+│       │   ├── StatisticsCatalog.java  ← Revision-aware histogram LRU cache
+│       │   ├── SirixStatisticsProvider.java ← PathSummary-backed cardinality + index lookup
+│       │   ├── StatisticsProvider.java ← Interface for statistics providers
+│       │   ├── IndexInfo.java          ← Metadata about available indexes
+│       │   └── BaseProfile.java        ← Physical statistics profile per JSON path
+│       │
+│       │  ── Rewrite Walkers ──
 │       └── walker/
 │           └── json/
-│               ├── JoinFusionWalker.java      ← Rule 1
-│               ├── SelectJoinFusionWalker.java ← Rule 2
-│               ├── SelectAccessFusionWalker.java ← Rule 3
-│               ├── JoinCommutativityWalker.java  ← Rule 4
-│               ├── JoinDecompositionWalker.java  ← Rules 5-6 (annotation)
-│               ├── CostBasedJoinReorder.java     ← Join group extraction
-│               ├── AbstractJsonPathWalker.java   ← Index matching base
-│               ├── JsonCASStep.java              ← CAS index matching
-│               ├── JsonPathStep.java             ← PATH index matching
-│               └── JsonObjectKeyNameStep.java    ← NAME index matching
+│               ├── JoinFusionWalker.java         ← Rule 1: Fuse adjacent binary joins
+│               ├── SelectJoinFusionWalker.java    ← Rule 2: Push predicates into joins
+│               ├── SelectAccessFusionWalker.java  ← Rule 3: Push predicates into access ops
+│               ├── JoinCommutativityWalker.java   ← Rule 4: Swap join sides by cost
+│               ├── JoinDecompositionWalker.java   ← Rules 5-6: Annotate index decomposition
+│               ├── CostBasedJoinReorder.java      ← Extract join groups for DPhyp
+│               ├── AbstractJsonPathWalker.java    ← Base class for index matching
+│               ├── JsonCASStep.java               ← Match CAS indexes to predicates
+│               ├── JsonPathStep.java              ← Match PATH indexes to field access
+│               └── JsonObjectKeyNameStep.java     ← Match NAME indexes to object keys
+│
 └── function/sdb/explain/
-    ├── Explain.java                    ← sdb:explain() function
-    ├── QueryPlan.java                  ← Plan inspection API
-    └── QueryPlanSerializer.java        ← AST → JSON serialization
+    ├── Explain.java                    ← sdb:explain() XQuery function
+    ├── QueryPlan.java                  ← Programmatic plan inspection API
+    └── QueryPlanSerializer.java        ← Converts AST → human-readable JSON
 ```
