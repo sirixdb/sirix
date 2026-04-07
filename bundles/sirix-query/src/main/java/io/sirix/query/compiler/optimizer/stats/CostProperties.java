@@ -23,6 +23,9 @@ public final class CostProperties {
   // --- CardinalityEstimator annotations (Milestone 2) ---
   public static final String ESTIMATED_CARDINALITY = "costBased.estimatedCardinality";
 
+  // --- Adaptive re-optimization ---
+  public static final String ACTUAL_CARDINALITY = "costBased.actualCardinality";
+
   // --- SelectAccessFusionWalker annotations (Milestone 2, Rule 3) ---
   public static final String FUSED_COUNT = "fusedPredicate.count";
   public static final String FUSED_OPERATOR = "fusedPredicate.operator";

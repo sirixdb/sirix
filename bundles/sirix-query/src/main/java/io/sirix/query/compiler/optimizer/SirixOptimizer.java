@@ -36,6 +36,7 @@ public class SirixOptimizer extends TopDownOptimizer {
   private final PlanCache planCache;
   private final Set<Class<? extends Stage>> disabledStages = new HashSet<>(4);
   private final Mesh mesh;
+  private final CostBasedStage costBasedStage;
 
   public SirixOptimizer(final Map<QNm, Str> options, final XmlDBStore nodeStore, final JsonDBStore jsonItemStore) {
     this(options, nodeStore, jsonItemStore, new PlanCache());
@@ -50,7 +51,8 @@ public class SirixOptimizer extends TopDownOptimizer {
     // 1. JQGM rewrite rules (Rules 1-4) — predicate pushdown and join fusion before cost analysis.
     getStages().add(new JqgmRewriteStage());
     // 2. Cost-based optimization: annotate AST with index preference hints and cardinality estimates.
-    getStages().add(new CostBasedStage(jsonItemStore));
+    this.costBasedStage = new CostBasedStage(jsonItemStore);
+    getStages().add(costBasedStage);
     // 3. DPhyp-based join reordering — uses cardinality estimates to find optimal join orders.
     getStages().add(new JoinReorderStage());
     // 4. Populate Mesh search space with plan alternatives from cost annotations.
@@ -111,6 +113,7 @@ public class SirixOptimizer extends TopDownOptimizer {
     if (cacheKey != null) {
       planCache.put(cacheKey, optimized.copyTree());
     }
+
     return optimized;
   }
 
@@ -130,6 +133,14 @@ public class SirixOptimizer extends TopDownOptimizer {
    */
   public Mesh getMesh() {
     return mesh;
+  }
+
+  /**
+   * Collect histograms for fields that had cache misses during the last optimization.
+   * Call this after query execution completes and all resource sessions are closed.
+   */
+  public void collectPendingHistograms() {
+    costBasedStage.collectPendingHistograms();
   }
 
   /**

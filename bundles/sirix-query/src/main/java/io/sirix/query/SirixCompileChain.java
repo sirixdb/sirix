@@ -4,6 +4,7 @@ import java.util.Map;
 
 import io.sirix.query.compiler.optimizer.SirixOptimizer;
 import io.sirix.query.compiler.optimizer.mesh.Mesh;
+import io.sirix.query.compiler.translator.SirixPipelineStrategy;
 import io.sirix.query.compiler.translator.SirixTranslator;
 import io.sirix.query.function.jn.JNFun;
 import io.sirix.query.function.sdb.SDBFun;
@@ -139,7 +140,7 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
       strategy.setOrdered(ordered);
       return new SirixTranslator(options, strategy);
     }
-    return new SirixTranslator(options);
+    return new SirixTranslator(options, new SirixPipelineStrategy());
   }
 
   @Override
@@ -158,6 +159,18 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
    */
   public Mesh getMesh() {
     return lastOptimizer != null ? lastOptimizer.getMesh() : null;
+  }
+
+  /**
+   * Collect histograms for fields that had cache misses during the last optimization.
+   * Call this after query execution completes and all resource sessions are closed.
+   * The collected histograms are stored in {@link io.sirix.query.compiler.optimizer.stats.StatisticsCatalog}
+   * and benefit subsequent queries.
+   */
+  public void collectPendingHistograms() {
+    if (lastOptimizer != null) {
+      lastOptimizer.collectPendingHistograms();
+    }
   }
 
   @Override

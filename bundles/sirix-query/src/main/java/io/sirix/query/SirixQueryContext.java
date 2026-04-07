@@ -20,6 +20,9 @@ import io.brackit.query.update.UpdateList;
 import io.brackit.query.update.op.UpdateOp;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.xml.XmlNodeTrx;
+import io.sirix.api.NodeTrx;
+import io.sirix.query.compiler.optimizer.PlanCache;
+import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.query.json.BasicJsonDBStore;
 import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.json.JsonDBStore;
@@ -28,6 +31,8 @@ import io.sirix.query.node.XmlDBNode;
 import io.sirix.query.node.XmlDBStore;
 import it.unimi.dsi.fastutil.ints.IntArraySet;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.Collections;
@@ -43,6 +48,8 @@ import static java.util.Objects.requireNonNull;
  * @author Johannes
  */
 public final class SirixQueryContext implements QueryContext, AutoCloseable {
+
+  private static final Logger LOG = LoggerFactory.getLogger(SirixQueryContext.class);
 
   /**
    * Commit strategies.
@@ -190,6 +197,7 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
               .filter(trx -> trxIDs.add(trx.getId()))
               .forEach(trx -> {
                 trx.commit(commitMessage, commitTimestamp);
+                invalidateStatisticsForResource(trx);
                 trx.close();
               });
   }
@@ -211,8 +219,27 @@ public final class SirixQueryContext implements QueryContext, AutoCloseable {
               .filter(trx -> trxIDs.add(trx.getId()))
               .forEach(trx -> {
                 trx.commit(commitMessage, commitTimestamp);
+                invalidateStatisticsForResource(trx);
                 trx.close();
               });
+  }
+
+  /**
+   * Invalidate stale statistics and cached plans after a commit.
+   * Must never throw — statistics cleanup must not fail the commit.
+   */
+  private static void invalidateStatisticsForResource(NodeTrx trx) {
+    try {
+      final var resourceConfig = trx.getResourceSession().getResourceConfig();
+      final String resourceName = resourceConfig.getName();
+      // Database name is the parent of the 'resources' directory in the resource path
+      final var resourcePath = resourceConfig.getResource();
+      final String databaseName = resourcePath.getParent().getParent().getFileName().toString();
+      StatisticsCatalog.getInstance().invalidate(databaseName, resourceName);
+      PlanCache.signalIndexSchemaChange();
+    } catch (Exception e) {
+      LOG.debug("Statistics invalidation after commit failed: {}", e.getMessage());
+    }
   }
 
   @Override

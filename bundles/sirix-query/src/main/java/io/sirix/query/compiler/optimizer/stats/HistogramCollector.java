@@ -265,12 +265,34 @@ public final class HistogramCollector {
   }
 
   /**
-   * Convenience: collect with default sample size and register in the catalog.
+   * Convenience: collect with default sample size and register in the catalog
+   * for the latest revision.
    */
   public boolean collectAndRegister(String databaseName, String resourceName, String fieldPath) {
-    final Histogram hist = collect(databaseName, resourceName, fieldPath, DEFAULT_SAMPLE_SIZE);
+    return collectAndRegister(databaseName, resourceName, fieldPath,
+        StatisticsCatalog.LATEST_REVISION);
+  }
+
+  /**
+   * Collect and register a histogram for a specific revision.
+   *
+   * <p>For historical revisions (revision > 0), the histogram is cached
+   * permanently (no TTL) since the data is immutable. For the latest
+   * revision ({@link StatisticsCatalog#LATEST_REVISION}), the histogram
+   * is subject to TTL and write-triggered invalidation.</p>
+   *
+   * @param databaseName the database name
+   * @param resourceName the resource name
+   * @param fieldPath    the JSON field name
+   * @param revision     the revision to collect from, or -1 for latest
+   * @return true if histogram was collected and registered
+   */
+  public boolean collectAndRegister(String databaseName, String resourceName,
+                                     String fieldPath, int revision) {
+    final Histogram hist = collect(databaseName, resourceName, fieldPath,
+        DEFAULT_SAMPLE_SIZE, DEFAULT_BUCKET_COUNT, revision);
     if (hist != null) {
-      StatisticsCatalog.getInstance().put(databaseName, resourceName, fieldPath, hist);
+      StatisticsCatalog.getInstance().put(databaseName, resourceName, fieldPath, revision, hist);
       return true;
     }
     return false;

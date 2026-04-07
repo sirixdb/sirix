@@ -477,6 +477,102 @@ final class HistogramTest {
         "SelectivityEstimator should use MCV data for frequent value, got " + sel);
   }
 
+  // --- Equi-depth tests ---
+
+  @Test
+  void equiDepthUniformDistribution() {
+    final var builder = new Histogram.Builder(4);
+    builder.setHistogramType(Histogram.HistogramType.EQUI_DEPTH);
+    // 100 values: 0, 1, 2, ..., 99
+    for (int i = 0; i < 100; i++) {
+      builder.addValue(i);
+    }
+    builder.setDistinctCount(100);
+    final Histogram hist = builder.build();
+
+    assertEquals(Histogram.HistogramType.EQUI_DEPTH, hist.histogramType());
+    // Each bucket should have approximately 25 values
+    for (int i = 0; i < hist.bucketCount(); i++) {
+      // Allow some slack for MCV extraction and ties
+      assertTrue(hist.bucketCountAt(i) >= 15 && hist.bucketCountAt(i) <= 35,
+          "Bucket " + i + " has " + hist.bucketCountAt(i) + " values, expected ~25");
+    }
+  }
+
+  @Test
+  void equiDepthSkewedDistribution() {
+    final var builder = new Histogram.Builder(4);
+    builder.setHistogramType(Histogram.HistogramType.EQUI_DEPTH);
+    builder.setMcvCapacity(0); // disable MCVs for this test
+    // 90 values at 1.0, 10 values at 100.0
+    for (int i = 0; i < 90; i++) builder.addValue(1.0);
+    for (int i = 0; i < 10; i++) builder.addValue(100.0);
+    builder.setDistinctCount(2);
+    final Histogram hist = builder.build();
+
+    assertEquals(Histogram.HistogramType.EQUI_DEPTH, hist.histogramType());
+    assertTrue(hist.bucketBoundaries().length > 0,
+        "Equi-depth should have bucket boundaries");
+  }
+
+  @Test
+  void equiDepthRangeSelectivity() {
+    final var builder = new Histogram.Builder(10);
+    builder.setHistogramType(Histogram.HistogramType.EQUI_DEPTH);
+    builder.setMcvCapacity(0);
+    // 1000 values uniform in [0, 100)
+    for (int i = 0; i < 1000; i++) {
+      builder.addValue(i * 0.1);
+    }
+    final Histogram hist = builder.build();
+
+    // Range [25, 75] = ~50% of data
+    final double sel = hist.estimateRangeSelectivity(25.0, 75.0);
+    assertTrue(sel > 0.35 && sel < 0.65,
+        "Equi-depth range [25,75] of [0,100) should be ~50%, got " + sel);
+  }
+
+  @Test
+  void equiDepthWithMcvInteraction() {
+    final var builder = new Histogram.Builder(4);
+    builder.setHistogramType(Histogram.HistogramType.EQUI_DEPTH);
+    // 500 values at 42.0, 500 values uniform in [0, 100)
+    for (int i = 0; i < 500; i++) builder.addValue(42.0);
+    for (int i = 0; i < 500; i++) builder.addValue(i * 0.2);
+    builder.setDistinctCount(501);
+    final Histogram hist = builder.build();
+
+    // MCV should capture 42.0
+    assertTrue(hist.mcvCount() > 0, "Should have MCVs");
+    final double selFor42 = hist.estimateEqualitySelectivity(42.0);
+    assertTrue(selFor42 > 0.3,
+        "MCV selectivity for 42 should be high, got " + selFor42);
+  }
+
+  @Test
+  void equiDepthSingleValue() {
+    final var builder = new Histogram.Builder(4);
+    builder.setHistogramType(Histogram.HistogramType.EQUI_DEPTH);
+    for (int i = 0; i < 100; i++) builder.addValue(7.0);
+    builder.setDistinctCount(1);
+    final Histogram hist = builder.build();
+
+    assertEquals(1.0, hist.estimateEqualitySelectivity(7.0), 0.001,
+        "Single value: equality selectivity should be 1.0");
+  }
+
+  @Test
+  void equiDepthTypeAccessor() {
+    final var eqWidth = new Histogram.Builder(4).build();
+    assertEquals(Histogram.HistogramType.EQUI_WIDTH, eqWidth.histogramType(),
+        "Default should be EQUI_WIDTH");
+
+    final var eqDepth = new Histogram.Builder(4)
+        .setHistogramType(Histogram.HistogramType.EQUI_DEPTH).build();
+    assertEquals(Histogram.HistogramType.EQUI_DEPTH, eqDepth.histogramType(),
+        "Should be EQUI_DEPTH when configured");
+  }
+
   // --- Helpers ---
 
   private static io.brackit.query.compiler.AST makeEqComparison() {

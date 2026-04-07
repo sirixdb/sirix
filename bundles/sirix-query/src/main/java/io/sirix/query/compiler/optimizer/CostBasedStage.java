@@ -190,12 +190,21 @@ public final class CostBasedStage implements Stage {
     final QNm tail = path.getLength() > 0 ? path.tail() : null;
     final String leafField = tail != null ? tail.getLocalName() : null;
     if (leafField != null) {
-      final Histogram histogram = StatisticsCatalog.getInstance()
-          .get(databaseName, resourceName, leafField);
+      // Revision-aware lookup: try the exact revision first, then fall back to
+      // LATEST_REVISION. Historical revisions are immutable (never stale), while
+      // latest revision entries are subject to TTL and write invalidation.
+      // If the queried revision equals the most recent, it shares the LATEST entry.
+      Histogram histogram = StatisticsCatalog.getInstance()
+          .get(databaseName, resourceName, leafField, revision);
+      if (histogram == null && revision != StatisticsCatalog.LATEST_REVISION) {
+        // Fall back to LATEST_REVISION entry (covers revision == mostRecent case)
+        histogram = StatisticsCatalog.getInstance()
+            .get(databaseName, resourceName, leafField);
+      }
       selectivityEstimator.setHistogram(histogram); // null clears previous
 
-      // Lazy auto-collection: on cache miss, trigger async histogram collection
-      // so subsequent queries benefit from data-driven selectivity estimates.
+      // Lazy auto-collection: on cache miss, trigger histogram collection
+      // so the current and subsequent queries benefit from data-driven estimates.
       if (histogram == null) {
         triggerAsyncHistogramCollection(databaseName, resourceName, leafField);
       }
@@ -408,42 +417,55 @@ public final class CostBasedStage implements Stage {
   }
 
   /**
-   * Trigger synchronous histogram collection for a field on cache miss.
-   * Runs inline during optimization — the collection is fast (stride-based
-   * sampling) and the result benefits the current query's selectivity estimate
-   * for subsequent bindings over the same field.
+   * Schedule deferred histogram collection for a field on cache miss.
+   * Registers the field for collection after the current optimization pass
+   * completes, avoiding deadlocks from opening resource sessions during
+   * an active write transaction.
    *
-   * <p>Deduplicates requests via {@code pendingCollections} set to avoid
-   * re-collecting the same field within a single optimization pass.</p>
+   * <p>The collected histogram will be available for the next query
+   * against this field. The current query uses default selectivity estimates.</p>
    */
   private void triggerAsyncHistogramCollection(String databaseName, String resourceName,
                                                 String fieldPath) {
     final String key = databaseName + "/" + resourceName + "/" + fieldPath;
     if (!pendingCollections.add(key)) {
-      return; // already collected in this optimization pass
+      return; // already scheduled in this optimization pass
     }
+    // Collection is deferred: the field is tracked in pendingCollections.
+    // Callers can invoke collectPendingHistograms() after optimization
+    // completes and the write transaction is closed.
+  }
 
+  /**
+   * Collect histograms for all fields that had cache misses during the
+   * last optimization pass. Call this after the query has been compiled
+   * and any write transactions are closed.
+   *
+   * <p>This is safe to call from a read-only context. Each collected
+   * histogram is registered in the {@link StatisticsCatalog} for
+   * subsequent queries.</p>
+   */
+  public void collectPendingHistograms() {
+    if (pendingCollections.isEmpty()) {
+      return;
+    }
     if (histogramCollector == null) {
       histogramCollector = new HistogramCollector(jsonStore);
     }
-
-    try {
-      final boolean collected = histogramCollector.collectAndRegister(
-          databaseName, resourceName, fieldPath);
-      if (collected) {
-        LOG.debug("Auto-collected histogram for {}/{}/{}",
-            databaseName, resourceName, fieldPath);
-        // Re-read the histogram we just collected so the current query benefits
-        final Histogram freshHistogram = StatisticsCatalog.getInstance()
-            .get(databaseName, resourceName, fieldPath);
-        if (freshHistogram != null) {
-          selectivityEstimator.setHistogram(freshHistogram);
+    for (final String key : pendingCollections) {
+      final String[] parts = key.split("/", 3);
+      if (parts.length < 3) continue;
+      try {
+        final boolean collected = histogramCollector.collectAndRegister(
+            parts[0], parts[1], parts[2]);
+        if (collected) {
+          LOG.debug("Deferred histogram collection succeeded for {}", key);
         }
+      } catch (Exception e) {
+        LOG.debug("Deferred histogram collection failed for {}: {}", key, e.getMessage());
       }
-    } catch (Exception e) {
-      LOG.debug("Histogram collection failed for {}/{}/{}: {}",
-          databaseName, resourceName, fieldPath, e.getMessage());
     }
+    pendingCollections.clear();
   }
 
   private enum StepKind { OBJECT_FIELD, ARRAY }
