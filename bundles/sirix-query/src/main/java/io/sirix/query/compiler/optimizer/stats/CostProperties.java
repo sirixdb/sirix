@@ -66,6 +66,8 @@ public final class CostProperties {
   public static final String DECOMPOSITION_INDEX_ID_RIGHT = "joinDecomposition.indexId.right";
   public static final String DECOMPOSITION_INDEX_TYPE_RIGHT = "joinDecomposition.indexType.right";
   public static final String DECOMPOSITION_INTERSECT = "joinDecomposition.intersect";
+  public static final String DECOMPOSITION_RESTRUCTURED = "joinDecomposition.restructured";
+  public static final String INTERSECTION_JOIN = "joinDecomposition.intersectionJoin";
 
   /**
    * Check if an AST node represents a left outer join.

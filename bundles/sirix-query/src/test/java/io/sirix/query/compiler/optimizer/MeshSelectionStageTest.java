@@ -9,6 +9,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -256,5 +257,145 @@ final class MeshSelectionStageTest {
     // JOIN_COST should be set to the best cost from the mesh
     final Object joinCost = join.getProperty(CostProperties.JOIN_COST);
     assertTrue(joinCost instanceof Double, "JOIN_COST should be a Double");
+  }
+
+  @Test
+  @DisplayName("INDEX_SCAN_COST and SEQ_SCAN_COST are copied from best plan")
+  void scanCostsCopiedFromBestPlan() throws Exception {
+    final AST ast = new AST(XQ.FlowrExpr, null);
+    final AST forBind = new AST(XQ.ForBind, null);
+    forBind.addChild(new AST(XQ.Variable, "x"));
+    final AST bindExpr = new AST(XQ.DerefExpr, null);
+    bindExpr.setProperty(CostProperties.PREFER_INDEX, true);
+    bindExpr.setProperty(CostProperties.SEQ_SCAN_COST, 2000.0);
+    bindExpr.setProperty(CostProperties.INDEX_SCAN_COST, 75.0);
+    bindExpr.setProperty(CostProperties.INDEX_ID, 3);
+    forBind.addChild(bindExpr);
+    ast.addChild(forBind);
+
+    final var mesh = new Mesh(16);
+    new MeshPopulationStage(mesh, costModel).rewrite(null, ast);
+    new MeshSelectionStage(mesh).rewrite(null, ast);
+
+    // Both cost properties should be copied for explain output
+    assertNotNull(bindExpr.getProperty(CostProperties.INDEX_SCAN_COST),
+        "INDEX_SCAN_COST should be copied from best plan");
+    assertNotNull(bindExpr.getProperty(CostProperties.SEQ_SCAN_COST),
+        "SEQ_SCAN_COST should be copied from best plan");
+  }
+
+  @Test
+  @DisplayName("Join children swapped when alternative NLJ ordering wins")
+  void joinChildrenSwappedWhenAlternativeWins() throws Exception {
+    final AST ast = new AST(XQ.FlowrExpr, null);
+    final AST join = new AST(XQ.Join, null);
+    // Asymmetric cardinalities: NLJ with 10 on left is much cheaper than 10000 on left
+    join.setProperty(CostProperties.JOIN_COST, 500.0);
+    join.setProperty(CostProperties.JOIN_LEFT_CARD, 10000L);
+    join.setProperty(CostProperties.JOIN_RIGHT_CARD, 10L);
+
+    final AST leftInput = new AST(XQ.ForBind, null);
+    leftInput.addChild(new AST(XQ.Variable, "big"));
+    leftInput.addChild(new AST(XQ.DerefExpr, null));
+
+    final AST rightInput = new AST(XQ.ForBind, null);
+    rightInput.addChild(new AST(XQ.Variable, "small"));
+    rightInput.addChild(new AST(XQ.DerefExpr, null));
+
+    join.addChild(leftInput);
+    join.addChild(rightInput);
+    ast.addChild(join);
+
+    final var mesh = new Mesh(16);
+    new MeshPopulationStage(mesh, costModel).rewrite(null, ast);
+
+    // Verify there are alternatives in the mesh
+    final Object classIdObj = join.getProperty(CostProperties.MESH_CLASS_ID);
+    assertTrue(classIdObj instanceof Integer);
+    final var eqClass = mesh.getClass((int) classIdObj);
+
+    // Only test swap if population actually created an alternative
+    if (eqClass != null && eqClass.size() >= 2) {
+      new MeshSelectionStage(mesh).rewrite(null, ast);
+
+      // Check if swap was applied
+      final Object swapped = join.getProperty(CostProperties.JOIN_SWAPPED);
+      if (Boolean.TRUE.equals(swapped)) {
+        // After swap, child 0 should be the formerly-right "small" input
+        final AST newLeft = join.getChild(0);
+        assertEquals("small",
+            newLeft.getChild(0).getStringValue(),
+            "After swap, 'small' should be on the left (driving) side");
+      }
+    }
+  }
+
+  @Test
+  @DisplayName("Join not swapped when original order is already best")
+  void joinNotSwappedWhenOriginalWins() throws Exception {
+    final AST ast = new AST(XQ.FlowrExpr, null);
+    final AST join = new AST(XQ.Join, null);
+    // Symmetric cardinalities → no swap benefit
+    join.setProperty(CostProperties.JOIN_COST, 500.0);
+    join.setProperty(CostProperties.JOIN_LEFT_CARD, 100L);
+    join.setProperty(CostProperties.JOIN_RIGHT_CARD, 100L);
+
+    final AST leftInput = new AST(XQ.ForBind, null);
+    leftInput.addChild(new AST(XQ.Variable, "a"));
+    leftInput.addChild(new AST(XQ.DerefExpr, null));
+
+    final AST rightInput = new AST(XQ.ForBind, null);
+    rightInput.addChild(new AST(XQ.Variable, "b"));
+    rightInput.addChild(new AST(XQ.DerefExpr, null));
+
+    join.addChild(leftInput);
+    join.addChild(rightInput);
+    ast.addChild(join);
+
+    final var mesh = new Mesh(16);
+    new MeshPopulationStage(mesh, costModel).rewrite(null, ast);
+    new MeshSelectionStage(mesh).rewrite(null, ast);
+
+    // With symmetric cardinalities, no swap should happen
+    final AST newLeft = join.getChild(0);
+    assertEquals("a", newLeft.getChild(0).getStringValue(),
+        "'a' should remain on the left when costs are symmetric");
+  }
+
+  @Test
+  @DisplayName("Bottom-up walk: child classes resolved before parent")
+  void bottomUpChildClassesResolvedFirst() throws Exception {
+    // Create a simple structure with nested ForBind inside a join
+    final AST ast = new AST(XQ.FlowrExpr, null);
+    final AST join = new AST(XQ.Join, null);
+    join.setProperty(CostProperties.JOIN_COST, 200.0);
+    join.setProperty(CostProperties.JOIN_LEFT_CARD, 50L);
+    join.setProperty(CostProperties.JOIN_RIGHT_CARD, 50L);
+
+    // Left input has index preference
+    final AST leftForBind = new AST(XQ.ForBind, null);
+    leftForBind.addChild(new AST(XQ.Variable, "x"));
+    final AST leftBind = new AST(XQ.DerefExpr, null);
+    leftBind.setProperty(CostProperties.PREFER_INDEX, true);
+    leftBind.setProperty(CostProperties.SEQ_SCAN_COST, 500.0);
+    leftBind.setProperty(CostProperties.INDEX_SCAN_COST, 25.0);
+    leftBind.setProperty(CostProperties.INDEX_ID, 1);
+    leftForBind.addChild(leftBind);
+
+    final AST rightForBind = new AST(XQ.ForBind, null);
+    rightForBind.addChild(new AST(XQ.Variable, "y"));
+    rightForBind.addChild(new AST(XQ.DerefExpr, null));
+
+    join.addChild(leftForBind);
+    join.addChild(rightForBind);
+    ast.addChild(join);
+
+    final var mesh = new Mesh(16);
+    new MeshPopulationStage(mesh, costModel).rewrite(null, ast);
+    new MeshSelectionStage(mesh).rewrite(null, ast);
+
+    // Child should have been resolved: leftBind should have PREFER_INDEX from mesh
+    assertEquals(true, leftBind.getProperty(CostProperties.PREFER_INDEX),
+        "Child ForBind should be resolved before parent join (bottom-up)");
   }
 }

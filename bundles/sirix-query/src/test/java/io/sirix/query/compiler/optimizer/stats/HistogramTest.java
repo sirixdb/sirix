@@ -316,6 +316,167 @@ final class HistogramTest {
     assertEquals(0.01, sel, 0.001, "1/NDV = 1/100 = 0.01");
   }
 
+  // --- MCV tests ---
+
+  @Test
+  void mcvEqualitySelectivityForFrequentValue() {
+    // 900 values at 42.0, 100 values spread across 1-10
+    final var builder = new Histogram.Builder(10);
+    for (int i = 0; i < 900; i++) {
+      builder.addValue(42.0);
+    }
+    for (int i = 1; i <= 10; i++) {
+      for (int j = 0; j < 10; j++) {
+        builder.addValue(i);
+      }
+    }
+    builder.setDistinctCount(11);
+    final Histogram hist = builder.build();
+
+    // Value 42 is the dominant MCV: selectivity = 900/1000 = 0.9
+    final double sel = hist.estimateEqualitySelectivity(42.0);
+    assertEquals(0.9, sel, 0.001, "MCV equality selectivity should use exact frequency");
+  }
+
+  @Test
+  void mcvEqualitySelectivityForNonMcvValue() {
+    // 900 values at 42.0, 100 values spread across 1-100 (1 each)
+    final var builder = new Histogram.Builder(10);
+    for (int i = 0; i < 900; i++) {
+      builder.addValue(42.0);
+    }
+    for (int i = 1; i <= 100; i++) {
+      builder.addValue(i);
+    }
+    builder.setDistinctCount(101);
+    final Histogram hist = builder.build();
+
+    // Value 99 is not an MCV: selectivity = (1 - 0.9) / (101 - mcvCount)
+    // mcvCount depends on how many have freq > 1: only 42.0 has freq 901,
+    // values 1-42 have freq 1 (except value 42 which is part of the 900).
+    // Actually value 42 appears 900+1=901 times. All others appear 1 time.
+    // So mcvCount=1 (only 42.0). nonMcvDistinct = 101 - 1 = 100.
+    // sel = (1 - 901/1000) / 100 = 0.099/100 ≈ 0.001
+    final double sel = hist.estimateEqualitySelectivity(99.0);
+    assertTrue(sel < 0.01, "Non-MCV value should have low selectivity, got " + sel);
+    assertTrue(sel > SelectivityEstimator.MIN_SELECTIVITY,
+        "Non-MCV value should be above MIN_SELECTIVITY");
+  }
+
+  @Test
+  void mcvRangeSelectivityIncludesMcvContribution() {
+    // 500 values at 10.0, 500 values uniformly in [0, 100)
+    final var builder = new Histogram.Builder(10);
+    for (int i = 0; i < 500; i++) {
+      builder.addValue(10.0);
+    }
+    for (int i = 0; i < 500; i++) {
+      builder.addValue(i * 0.2); // 0.0, 0.2, ..., 99.8
+    }
+    builder.setDistinctCount(501);
+    final Histogram hist = builder.build();
+
+    // Range [5, 15] covers the MCV at 10.0 (freq 500+~25 from uniform)
+    // plus a fraction of the non-MCV bucket data
+    final double selWithMcv = hist.estimateRangeSelectivity(5.0, 15.0);
+    // Range [80, 90] does NOT cover any MCV
+    final double selWithoutMcv = hist.estimateRangeSelectivity(80.0, 90.0);
+
+    assertTrue(selWithMcv > selWithoutMcv,
+        "Range covering MCV (" + selWithMcv + ") should have higher selectivity "
+            + "than range without MCV (" + selWithoutMcv + ")");
+  }
+
+  @Test
+  void mcvAccessors() {
+    // 3 distinct values with different frequencies
+    final var builder = new Histogram.Builder(4);
+    for (int i = 0; i < 100; i++) builder.addValue(1.0);
+    for (int i = 0; i < 50; i++) builder.addValue(2.0);
+    for (int i = 0; i < 10; i++) builder.addValue(3.0);
+    builder.setDistinctCount(3);
+    final Histogram hist = builder.build();
+
+    assertTrue(hist.mcvCount() > 0, "Should have MCVs");
+    assertTrue(hist.mcvCount() <= 3, "Should not exceed distinct values");
+    assertEquals(hist.mcvValues().length, hist.mcvFrequencies().length,
+        "MCV values and frequencies arrays must have same length");
+    assertTrue(hist.mcvTotalCount() > 0, "MCV total count should be positive");
+    assertTrue(hist.mcvTotalCount() <= hist.totalCount(),
+        "MCV total should not exceed total count");
+
+    // First MCV should be the most frequent (value 1.0, freq 100)
+    final double[] vals = hist.mcvValues();
+    final long[] freqs = hist.mcvFrequencies();
+    assertEquals(1.0, vals[0], 0.001, "Most frequent MCV should be 1.0");
+    assertEquals(100, freqs[0], "Most frequent MCV should have freq 100");
+  }
+
+  @Test
+  void mcvCapacityZeroDisablesMcv() {
+    final var builder = new Histogram.Builder(10);
+    builder.setMcvCapacity(0);
+    for (int i = 0; i < 900; i++) {
+      builder.addValue(42.0);
+    }
+    for (int i = 0; i < 100; i++) {
+      builder.addValue(i);
+    }
+    builder.setDistinctCount(101);
+    final Histogram hist = builder.build();
+
+    assertEquals(0, hist.mcvCount(), "MCV should be disabled with capacity 0");
+    assertEquals(0, hist.mcvTotalCount());
+    assertEquals(0, hist.mcvValues().length);
+    assertEquals(0, hist.mcvFrequencies().length);
+
+    // Equality should fall back to 1/NDV
+    final double sel = hist.estimateEqualitySelectivity(42.0);
+    assertEquals(1.0 / 101.0, sel, 0.001, "Should use 1/NDV without MCVs");
+  }
+
+  @Test
+  void mcvSubtractedFromBuckets() {
+    // All 1000 values at 5.0 in a [0, 10) range with 2 buckets
+    // MCV should absorb all of them, leaving bucket empty
+    final var builder = new Histogram.Builder(2);
+    for (int i = 0; i < 1000; i++) {
+      builder.addValue(5.0);
+    }
+    // Add edge values to create a proper range
+    builder.addValue(0.0);
+    builder.addValue(10.0);
+    builder.setDistinctCount(3);
+    final Histogram hist = builder.build();
+
+    // The MCV (5.0) should be subtracted from its bucket
+    // So bucket counts should be much less than 1002
+    long totalBucketCount = 0;
+    for (int i = 0; i < hist.bucketCount(); i++) {
+      totalBucketCount += hist.bucketCountAt(i);
+    }
+    assertTrue(totalBucketCount < 100,
+        "Bucket counts should be reduced by MCV subtraction, got " + totalBucketCount);
+  }
+
+  @Test
+  void mcvSelectivityEstimatorIntegration() {
+    // Build histogram with dominant value 42
+    final var builder = new Histogram.Builder(10);
+    for (int i = 0; i < 800; i++) builder.addValue(42.0);
+    for (int i = 0; i < 200; i++) builder.addValue(i % 50);
+    builder.setDistinctCount(51);
+    final Histogram hist = builder.build();
+
+    final var estimator = new SelectivityEstimator();
+    estimator.setHistogram(hist);
+
+    // MCV-based: 42 has freq ~800+4=804 out of 1000 → sel ≈ 0.804
+    final double sel = estimator.estimateSelectivity(makeEqComparison());
+    assertTrue(sel > 0.5,
+        "SelectivityEstimator should use MCV data for frequent value, got " + sel);
+  }
+
   // --- Helpers ---
 
   private static io.brackit.query.compiler.AST makeEqComparison() {

@@ -148,6 +148,23 @@ public record QueryPlan(AST optimizedAST, AST parsedAST, Mesh mesh) {
     return searchProperty(optimizedAST, CostProperties.JOIN_REORDERED, Boolean.TRUE, 20);
   }
 
+  /**
+   * Check if the plan contains an intersection join (Rule 6 decomposition).
+   *
+   * <p>An intersection join is created when both sides of a join have different
+   * indexes. Both sides become index scans and the join intersects their results.</p>
+   */
+  public boolean isIntersectionJoin() {
+    return searchProperty(optimizedAST, CostProperties.INTERSECTION_JOIN, Boolean.TRUE, 20);
+  }
+
+  /**
+   * Check if any join decomposition restructuring was applied (Rules 5 or 6).
+   */
+  public boolean isDecompositionRestructured() {
+    return searchProperty(optimizedAST, CostProperties.DECOMPOSITION_RESTRUCTURED, Boolean.TRUE, 20);
+  }
+
   private static boolean searchProperty(AST node, String key, Object expectedValue, int maxDepth) {
     if (node == null || maxDepth <= 0) {
       return false;

@@ -17,7 +17,10 @@ import io.sirix.query.compiler.optimizer.stats.SelectivityEstimator;
 import io.sirix.query.compiler.optimizer.stats.SirixStatisticsProvider;
 import io.sirix.query.compiler.optimizer.stats.StatisticsCatalog;
 import io.sirix.query.compiler.optimizer.stats.StatisticsProvider;
+import io.sirix.query.compiler.optimizer.stats.HistogramCollector;
 import io.sirix.query.json.JsonDBStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -42,11 +45,23 @@ import java.util.Set;
  */
 public final class CostBasedStage implements Stage {
 
+  private static final Logger LOG = LoggerFactory.getLogger(CostBasedStage.class);
+
   private final JsonDBStore jsonStore;
   private final JsonCostModel costModel;
   private final SelectivityEstimator selectivityEstimator;
   private final CardinalityEstimator cardinalityEstimator;
   private SirixStatisticsProvider statsProvider;
+
+  /**
+   * Tracks which fields have already been collected in this optimization pass
+   * to avoid re-collecting the same field multiple times.
+   * Key format: "databaseName/resourceName/fieldPath". Cleared in {@link #rewrite}.
+   */
+  private final Set<String> pendingCollections = new HashSet<>(8);
+
+  /** Lazy-initialized histogram collector for auto-collection on cache miss. */
+  private HistogramCollector histogramCollector;
 
   /**
    * Tracks variable bindings for resolving VariableRef nodes.
@@ -89,6 +104,7 @@ public final class CostBasedStage implements Stage {
     // Clear stale histogram from previous query to ensure fresh selectivity estimation
     selectivityEstimator.setHistogram(null);
     variableBindings.clear();
+    pendingCollections.clear();
 
     try {
       annotateSubtree(ast);
@@ -177,6 +193,12 @@ public final class CostBasedStage implements Stage {
       final Histogram histogram = StatisticsCatalog.getInstance()
           .get(databaseName, resourceName, leafField);
       selectivityEstimator.setHistogram(histogram); // null clears previous
+
+      // Lazy auto-collection: on cache miss, trigger async histogram collection
+      // so subsequent queries benefit from data-driven selectivity estimates.
+      if (histogram == null) {
+        triggerAsyncHistogramCollection(databaseName, resourceName, leafField);
+      }
     } else {
       selectivityEstimator.setHistogram(null);
     }
@@ -383,6 +405,45 @@ public final class CostBasedStage implements Stage {
           && ("doc".equals(qnm.getLocalName()) || "open".equals(qnm.getLocalName())));
     }
     return false;
+  }
+
+  /**
+   * Trigger synchronous histogram collection for a field on cache miss.
+   * Runs inline during optimization — the collection is fast (stride-based
+   * sampling) and the result benefits the current query's selectivity estimate
+   * for subsequent bindings over the same field.
+   *
+   * <p>Deduplicates requests via {@code pendingCollections} set to avoid
+   * re-collecting the same field within a single optimization pass.</p>
+   */
+  private void triggerAsyncHistogramCollection(String databaseName, String resourceName,
+                                                String fieldPath) {
+    final String key = databaseName + "/" + resourceName + "/" + fieldPath;
+    if (!pendingCollections.add(key)) {
+      return; // already collected in this optimization pass
+    }
+
+    if (histogramCollector == null) {
+      histogramCollector = new HistogramCollector(jsonStore);
+    }
+
+    try {
+      final boolean collected = histogramCollector.collectAndRegister(
+          databaseName, resourceName, fieldPath);
+      if (collected) {
+        LOG.debug("Auto-collected histogram for {}/{}/{}",
+            databaseName, resourceName, fieldPath);
+        // Re-read the histogram we just collected so the current query benefits
+        final Histogram freshHistogram = StatisticsCatalog.getInstance()
+            .get(databaseName, resourceName, fieldPath);
+        if (freshHistogram != null) {
+          selectivityEstimator.setHistogram(freshHistogram);
+        }
+      }
+    } catch (Exception e) {
+      LOG.debug("Histogram collection failed for {}/{}/{}: {}",
+          databaseName, resourceName, fieldPath, e.getMessage());
+    }
   }
 
   private enum StepKind { OBJECT_FIELD, ARRAY }

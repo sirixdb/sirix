@@ -1,15 +1,19 @@
 package io.sirix.query.compiler.optimizer.stats;
 
+import java.util.Arrays;
+
 /**
- * Equi-width histogram for value distribution estimation.
+ * Equi-width histogram with Most-Common-Values (MCV) tracking.
  *
- * <p>Stores frequency counts for equi-width buckets over a value range.
+ * <p>Stores frequency counts for equi-width buckets over a value range,
+ * plus exact frequencies for the top-K most common values (MCVs).
  * Used by {@link SelectivityEstimator} to provide data-driven selectivity
  * estimates instead of hardcoded defaults.</p>
  *
- * <p>Design follows PostgreSQL's approach: equi-width buckets with separate
- * tracking of most-common values (MCVs). For simplicity, this first version
- * only implements equi-width buckets without MCV tracking.</p>
+ * <p>Design follows PostgreSQL's approach: equi-width buckets for the
+ * general distribution, with separate MCV tracking for skewed values.
+ * Bucket counts represent only the non-MCV portion of the data, so
+ * MCV and bucket estimates are additive without double-counting.</p>
  *
  * <p>The histogram is immutable after construction via the {@link Builder}.</p>
  */
@@ -18,6 +22,9 @@ public final class Histogram {
   /** Default number of buckets. */
   public static final int DEFAULT_BUCKET_COUNT = 64;
 
+  /** Default number of most-common values to track. */
+  public static final int DEFAULT_MCV_CAPACITY = 10;
+
   private final double minValue;
   private final double maxValue;
   private final double bucketWidth;
@@ -25,8 +32,15 @@ public final class Histogram {
   private final long totalCount;
   private final long distinctCount;
 
+  // Most-Common-Values: sorted by frequency descending
+  private final double[] mcvValues;
+  private final long[] mcvFrequencies;
+  private final int mcvCount;
+  private final long mcvTotalCount;
+
   private Histogram(double minValue, double maxValue, long[] bucketCounts,
-                    long totalCount, long distinctCount) {
+                    long totalCount, long distinctCount,
+                    double[] mcvValues, long[] mcvFrequencies, long mcvTotalCount) {
     this.minValue = minValue;
     this.maxValue = maxValue;
     this.bucketCounts = bucketCounts;
@@ -35,13 +49,19 @@ public final class Histogram {
         : 0.0;
     this.totalCount = totalCount;
     this.distinctCount = distinctCount;
+    this.mcvValues = mcvValues;
+    this.mcvFrequencies = mcvFrequencies;
+    this.mcvCount = mcvValues != null ? mcvValues.length : 0;
+    this.mcvTotalCount = mcvTotalCount;
   }
 
   /**
    * Estimate the selectivity of an equality predicate: value = constant.
    *
-   * <p>Uses 1/NDV (number of distinct values) when distinctCount is known,
-   * falling back to uniform distribution within the matching bucket.</p>
+   * <p>When MCVs are available, checks them first for exact frequency.
+   * For non-MCV values, estimates using the remaining (non-MCV) fraction
+   * distributed across the remaining distinct values. Falls back to
+   * 1/NDV or uniform bucket distribution when no MCVs exist.</p>
    *
    * @param value the constant value to match
    * @return estimated selectivity in (0, 1]
@@ -53,11 +73,28 @@ public final class Histogram {
     if (value < minValue || value > maxValue) {
       return SelectivityEstimator.MIN_SELECTIVITY;
     }
+
+    // Check MCVs first (linear scan — mcvCount is small, typically <=10)
+    if (mcvCount > 0) {
+      for (int i = 0; i < mcvCount; i++) {
+        if (Double.compare(mcvValues[i], value) == 0) {
+          return Math.max(SelectivityEstimator.MIN_SELECTIVITY,
+              (double) mcvFrequencies[i] / totalCount);
+        }
+      }
+      // Value is not an MCV — estimate among remaining non-MCV values
+      final double mcvFraction = (double) mcvTotalCount / totalCount;
+      final long nonMcvDistinct = Math.max(1L, distinctCount - mcvCount);
+      return Math.max(SelectivityEstimator.MIN_SELECTIVITY,
+          (1.0 - mcvFraction) / nonMcvDistinct);
+    }
+
+    // No MCVs — fallback to 1/NDV
     if (distinctCount > 0) {
       return Math.max(SelectivityEstimator.MIN_SELECTIVITY,
           1.0 / distinctCount);
     }
-    // Fallback: uniform distribution within the bucket
+    // Last resort: uniform distribution within the bucket
     final int bucket = bucketIndex(value);
     if (bucketCounts[bucket] == 0) {
       return SelectivityEstimator.MIN_SELECTIVITY;
@@ -70,7 +107,10 @@ public final class Histogram {
    * Estimate the selectivity of a range predicate: value IN [low, high].
    *
    * <p>Sums the fraction of each overlapping bucket that falls within
-   * the range, assuming uniform distribution within each bucket.</p>
+   * the range (representing non-MCV data), plus exact frequencies of
+   * any MCVs that fall within the range. Bucket counts are already
+   * reduced by MCV frequencies during construction, so the two
+   * contributions are additive without double-counting.</p>
    *
    * @param low  the lower bound (inclusive)
    * @param high the upper bound (inclusive)
@@ -105,7 +145,16 @@ public final class Histogram {
       }
     }
 
-    final double selectivity = matchingCount / totalCount;
+    // Add MCV contribution: sum frequencies of MCVs within the range
+    long mcvRangeCount = 0;
+    for (int i = 0; i < mcvCount; i++) {
+      if (mcvValues[i] >= clampedLow && mcvValues[i] <= clampedHigh) {
+        mcvRangeCount += mcvFrequencies[i];
+      }
+    }
+
+    final double totalMatching = mcvRangeCount + matchingCount;
+    final double selectivity = totalMatching / totalCount;
     return Math.max(SelectivityEstimator.MIN_SELECTIVITY,
         Math.min(1.0, selectivity));
   }
@@ -190,6 +239,34 @@ public final class Histogram {
     return bucketCounts[index];
   }
 
+  /**
+   * @return defensive copy of MCV values (sorted by frequency descending), empty if no MCVs
+   */
+  public double[] mcvValues() {
+    return mcvCount > 0 ? mcvValues.clone() : new double[0];
+  }
+
+  /**
+   * @return defensive copy of MCV frequencies (parallel to {@link #mcvValues()}), empty if no MCVs
+   */
+  public long[] mcvFrequencies() {
+    return mcvCount > 0 ? mcvFrequencies.clone() : new long[0];
+  }
+
+  /**
+   * @return the number of tracked MCVs
+   */
+  public int mcvCount() {
+    return mcvCount;
+  }
+
+  /**
+   * @return sum of all MCV frequencies
+   */
+  public long mcvTotalCount() {
+    return mcvTotalCount;
+  }
+
   private int bucketIndex(double value) {
     if (bucketWidth <= 0) {
       return 0;
@@ -207,6 +284,7 @@ public final class Histogram {
     private double minValue = Double.MAX_VALUE;
     private double maxValue = -Double.MAX_VALUE;
     private long distinctCount;
+    private int mcvCapacity = DEFAULT_MCV_CAPACITY;
     // Accumulate raw values for bucket assignment
     private double[] values;
     private int valueCount;
@@ -266,22 +344,120 @@ public final class Histogram {
     }
 
     /**
+     * Set the maximum number of most-common values to track.
+     * Set to 0 to disable MCV tracking entirely.
+     *
+     * @param capacity MCV capacity (must be >= 0)
+     * @return this builder
+     */
+    public Builder setMcvCapacity(int capacity) {
+      if (capacity < 0) {
+        throw new IllegalArgumentException("mcvCapacity must be >= 0: " + capacity);
+      }
+      this.mcvCapacity = capacity;
+      return this;
+    }
+
+    /**
      * Build the histogram from accumulated values.
+     *
+     * <p>Sorts the internal value array to count frequencies, extracts
+     * top-K MCVs, builds equi-width buckets from all values, then
+     * subtracts MCV frequencies from bucket counts so that buckets
+     * represent only the non-MCV distribution.</p>
+     *
+     * <p>Note: this method sorts the internal array and should only
+     * be called once per builder instance.</p>
      *
      * @return an immutable Histogram
      */
     public Histogram build() {
       if (valueCount == 0) {
-        return new Histogram(0, 0, new long[numBuckets], 0, 0);
+        return new Histogram(0, 0, new long[numBuckets], 0, 0, null, null, 0);
       }
 
       // Handle single-value case
       if (minValue == maxValue) {
         final long[] buckets = new long[numBuckets];
         buckets[0] = valueCount;
-        return new Histogram(minValue, maxValue + 1.0, buckets, valueCount, distinctCount);
+        double[] mcvVals = null;
+        long[] mcvFreqs = null;
+        long mcvTotal = 0;
+        if (mcvCapacity > 0) {
+          mcvVals = new double[]{minValue};
+          mcvFreqs = new long[]{valueCount};
+          mcvTotal = valueCount;
+          buckets[0] = 0; // all values are in the MCV
+        }
+        return new Histogram(minValue, maxValue + 1.0, buckets, valueCount, distinctCount,
+            mcvVals, mcvFreqs, mcvTotal);
       }
 
+      // Sort for frequency counting
+      Arrays.sort(values, 0, valueCount);
+
+      // Count frequencies of each distinct value (consecutive equal groups)
+      final int maxDistinct = (int) Math.min(valueCount,
+          distinctCount > 0 ? distinctCount : valueCount);
+      final double[] freqValues = new double[maxDistinct];
+      final long[] freqCounts = new long[maxDistinct];
+      int freqSize = 0;
+
+      int runStart = 0;
+      while (runStart < valueCount) {
+        final double currentVal = values[runStart];
+        int runEnd = runStart + 1;
+        while (runEnd < valueCount && Double.compare(values[runEnd], currentVal) == 0) {
+          runEnd++;
+        }
+        if (freqSize < maxDistinct) {
+          freqValues[freqSize] = currentVal;
+          freqCounts[freqSize] = runEnd - runStart;
+          freqSize++;
+        }
+        runStart = runEnd;
+      }
+
+      // Extract top-K MCVs by frequency (simple selection for small K)
+      final int effectiveMcvCount = Math.min(mcvCapacity, freqSize);
+      double[] mcvVals = null;
+      long[] mcvFreqs = null;
+      long mcvTotal = 0;
+
+      if (effectiveMcvCount > 0) {
+        final int[] topIndices = new int[effectiveMcvCount];
+        final boolean[] taken = new boolean[freqSize];
+        int found = 0;
+
+        for (int k = 0; k < effectiveMcvCount; k++) {
+          long maxFreq = -1;
+          int maxIdx = -1;
+          for (int j = 0; j < freqSize; j++) {
+            if (!taken[j] && freqCounts[j] > maxFreq) {
+              maxFreq = freqCounts[j];
+              maxIdx = j;
+            }
+          }
+          if (maxIdx < 0 || maxFreq <= 1) {
+            break; // no more values with frequency > 1 worth tracking
+          }
+          topIndices[found] = maxIdx;
+          taken[maxIdx] = true;
+          mcvTotal += freqCounts[maxIdx];
+          found++;
+        }
+
+        if (found > 0) {
+          mcvVals = new double[found];
+          mcvFreqs = new long[found];
+          for (int k = 0; k < found; k++) {
+            mcvVals[k] = freqValues[topIndices[k]];
+            mcvFreqs[k] = freqCounts[topIndices[k]];
+          }
+        }
+      }
+
+      // Build equi-width buckets from all values
       final double range = maxValue - minValue;
       final double width = range / numBuckets;
       final long[] buckets = new long[numBuckets];
@@ -292,7 +468,17 @@ public final class Histogram {
         buckets[idx]++;
       }
 
-      return new Histogram(minValue, maxValue, buckets, valueCount, distinctCount);
+      // Subtract MCV values from bucket counts so buckets represent non-MCV distribution
+      if (mcvVals != null) {
+        for (int k = 0; k < mcvVals.length; k++) {
+          int idx = (int) ((mcvVals[k] - minValue) / width);
+          idx = Math.max(0, Math.min(idx, numBuckets - 1));
+          buckets[idx] = Math.max(0, buckets[idx] - mcvFreqs[k]);
+        }
+      }
+
+      return new Histogram(minValue, maxValue, buckets, valueCount, distinctCount,
+          mcvVals, mcvFreqs, mcvTotal);
     }
   }
 }
