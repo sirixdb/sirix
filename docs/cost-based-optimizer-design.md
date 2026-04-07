@@ -31,7 +31,7 @@ SirixDB's cost-based query optimizer transforms JSONiq/XQuery queries into effic
 - **Property-based AST annotation**: Optimization decisions are recorded as properties on Brackit AST nodes, not as separate plan trees. This avoids maintaining two representations and makes the optimizer non-invasive.
 - **Stage-based pipeline**: 10 independent stages run sequentially, each reading/writing AST properties. Stages can be disabled, reordered, or extended without changing others.
 - **Revision-aware statistics**: Since SirixDB stores every revision immutably, histogram statistics for historical revisions never go stale. Only the latest revision's statistics require TTL-based expiry.
-- **Circuit breaker**: A 500ms timeout prevents optimization from blocking query execution.
+- **Circuit breaker**: A 50ms timeout prevents optimization from blocking query execution.
 
 **Scale**: ~8,900 lines of optimizer code, ~8,300 lines of tests, across 91 files.
 
@@ -52,7 +52,7 @@ SirixDB's cost-based query optimizer transforms JSONiq/XQuery queries into effic
                                |
               +----------------+----------------+
               |        SirixOptimizer           |
-              |   (10-stage pipeline, 500ms CB) |
+              |   (10-stage pipeline, 50ms CB) |
               +----------------+----------------+
                                |
                        Optimized AST
@@ -110,7 +110,7 @@ All optimization metadata is stored as string-keyed properties on Brackit `AST` 
   10    IndexMatching              Final index rewrite (CAS/PATH/NAME)
 ```
 
-The pipeline runs inline in `optimize()` (line 94-108) with a circuit breaker: if total time exceeds 500ms, the partially-optimized AST is returned.
+The pipeline runs inline in `optimize()` (line 94-108) with a circuit breaker: if total time exceeds 50ms, the partially-optimized AST is returned.
 
 ---
 

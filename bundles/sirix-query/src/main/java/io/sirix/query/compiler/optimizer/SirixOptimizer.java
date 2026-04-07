@@ -26,7 +26,7 @@ public class SirixOptimizer extends TopDownOptimizer {
   private static final Logger LOG = LoggerFactory.getLogger(SirixOptimizer.class);
 
   /** Maximum time allowed for the full optimization pipeline before circuit-breaking. */
-  private static final long OPTIMIZATION_TIMEOUT_MS = 500L;
+  private static final long OPTIMIZATION_TIMEOUT_MS = 50L;
 
   /** Pre-computed timeout in nanoseconds to avoid repeated conversion. */
   private static final long OPTIMIZATION_TIMEOUT_NS = TimeUnit.MILLISECONDS.toNanos(OPTIMIZATION_TIMEOUT_MS);
