@@ -384,10 +384,10 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public R beginNodeReadOnlyTrx(final int revision) {
+  public synchronized R beginNodeReadOnlyTrx(final int revision) {
     assertAccess(revision);
 
-    final StorageEngineReader storageEngineReader = beginStorageEngineReader(revision);
+    final StorageEngineReader storageEngineReader = createStorageEngineReader(revision);
 
     final Node documentNode = getDocumentNode(storageEngineReader);
 
@@ -782,19 +782,19 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
 
       if (borrowed.isClosed() || borrowed.getRevisionNumber() != revision) {
         currentPool.returnObject(borrowed);
-        storageEngineReader = beginStorageEngineReader(revision);
+        storageEngineReader = createStorageEngineReader(revision);
       } else {
         storageEngineReader = borrowed;
       }
     } else {
-      storageEngineReader = beginStorageEngineReader(revision);
+      storageEngineReader = createStorageEngineReader(revision);
     }
 
     return PathSummaryReader.getInstance(storageEngineReader, this);
   }
 
   @Override
-  public StorageEngineReader beginStorageEngineReader(final int revision) {
+  public StorageEngineReader createStorageEngineReader(final int revision) {
     assertAccess(revision);
 
     final int currentStorageEngineID = storageEngineIDCounter.incrementAndGet();
@@ -810,7 +810,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized StorageEngineWriter beginStorageEngineWriter(final int revision) {
+  public synchronized StorageEngineWriter createStorageEngineWriter(final int revision) {
     assertAccess(revision);
 
     // Make sure not to exceed available number of write transactions.
@@ -822,7 +822,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
       throw new SirixThreadedException(e);
     }
 
-    LOGGER.debug("Lock: lock acquired (beginStorageEngineWriter)");
+    LOGGER.debug("Lock: lock acquired (createStorageEngineWriter)");
 
     boolean success = false;
     try {
@@ -840,7 +840,7 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
     } finally {
       if (!success) {
         writeLock.release();
-        LOGGER.debug("Lock: lock released (beginStorageEngineWriter failed)");
+        LOGGER.debug("Lock: lock released (createStorageEngineWriter failed)");
       }
     }
   }

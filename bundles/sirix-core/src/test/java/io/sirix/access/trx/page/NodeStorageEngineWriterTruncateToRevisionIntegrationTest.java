@@ -65,7 +65,7 @@ public final class NodeStorageEngineWriterTruncateToRevisionIntegrationTest {
 
   @Test
   public void test_when_sirix_is_setup_with_3_revisions_truncate_to_first_revision() throws IOException {
-    try (final var storageEngineWriter = resourceSession.beginStorageEngineWriter()) {
+    try (final var storageEngineWriter = resourceSession.createStorageEngineWriter()) {
       storageEngineWriter.truncateTo(1);
     }
 

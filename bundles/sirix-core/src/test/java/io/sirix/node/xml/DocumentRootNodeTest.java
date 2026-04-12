@@ -62,7 +62,7 @@ public class DocumentRootNodeTest {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     mHolder = Holder.generateDeweyIDResourceSession();
-    storageEngineReader = mHolder.getResourceSession().beginStorageEngineReader();
+    storageEngineReader = mHolder.getResourceSession().createStorageEngineReader();
   }
 
   @After

@@ -58,7 +58,7 @@ public class ObjectNodeTest {
     JsonTestHelper.deleteEverything();
     database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     assert database != null;
-    storageEngineWriter = database.beginResourceSession(JsonTestHelper.RESOURCE).beginStorageEngineWriter();
+    storageEngineWriter = database.beginResourceSession(JsonTestHelper.RESOURCE).createStorageEngineWriter();
   }
 
   @After

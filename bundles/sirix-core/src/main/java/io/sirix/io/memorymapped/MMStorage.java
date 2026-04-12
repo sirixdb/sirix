@@ -79,9 +79,7 @@ public final class MMStorage implements IOStorage {
    */
   private final ByteHandlerPipeline byteHandlerPipeline;
 
-  // Allow concurrent reader creation — the remapLock provides mutual exclusion for
-  // generation updates; the semaphore only bounds total concurrent I/O channel opens.
-  final Semaphore semaphore = new Semaphore(Runtime.getRuntime().availableProcessors());
+  final Semaphore semaphore = new Semaphore(1);
 
   /**
    * Revision file data cache.

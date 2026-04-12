@@ -23,7 +23,7 @@ public final class RevisionReferencesNodeTest {
   public void setUp() {
     JsonTestHelper.deleteEverything();
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
-    storageEngineWriter = database.beginResourceSession(JsonTestHelper.RESOURCE).beginStorageEngineWriter();
+    storageEngineWriter = database.beginResourceSession(JsonTestHelper.RESOURCE).createStorageEngineWriter();
   }
 
   @After

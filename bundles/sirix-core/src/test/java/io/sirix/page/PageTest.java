@@ -55,7 +55,7 @@ public class PageTest {
     XmlTestHelper.deleteEverything();
     XmlTestHelper.createTestDocument();
     holder = Holder.generateDeweyIDResourceSession();
-    storageEngineReader = holder.getResourceSession().beginStorageEngineReader();
+    storageEngineReader = holder.getResourceSession().createStorageEngineReader();
   }
 
   @AfterClass

@@ -233,6 +233,18 @@ public final class JsonNodeReadOnlyTrxImpl extends
   }
 
   @Override
+  public byte[] getValueBytes() {
+    assertNotClosed();
+    return switch (getKind()) {
+      case OBJECT_STRING_VALUE, STRING_VALUE -> ((ValueNode) getStructuralNode()).getRawValue();
+      default -> {
+        String v = getValue();
+        yield v != null ? v.getBytes(java.nio.charset.StandardCharsets.UTF_8) : null;
+      }
+    };
+  }
+
+  @Override
   public boolean getBooleanValue() {
     assertNotClosed();
 

@@ -24,7 +24,7 @@ public final class StorageEngineReaderFactory implements Supplier<StorageEngineR
   /** Creates a new {@link StorageEngineReader} at the most recent revision. */
   @Override
   public StorageEngineReader get() {
-    return resourceSession.beginStorageEngineReader();
+    return resourceSession.createStorageEngineReader();
   }
 
   /** Destroys a pooled {@link StorageEngineReader} by closing it. */

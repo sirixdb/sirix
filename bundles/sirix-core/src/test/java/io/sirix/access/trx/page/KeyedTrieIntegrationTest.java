@@ -72,7 +72,7 @@ final class KeyedTrieIntegrationTest {
 
       // Read back through the StorageEngineReader, which delegates trie navigation
       // to KeyedTrieReader.
-      try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader()) {
+      try (final StorageEngineReader reader = resourceSession.createStorageEngineReader()) {
         final var concreteReader = (NodeStorageEngineReader) reader;
         final RevisionRootPage revisionRootPage = reader.getActualRevisionRootPage();
         assertNotNull(revisionRootPage, "Revision root page must exist after commit");
@@ -96,7 +96,7 @@ final class KeyedTrieIntegrationTest {
         wtx.commit();
       }
 
-      try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader()) {
+      try (final StorageEngineReader reader = resourceSession.createStorageEngineReader()) {
         // Node key 1 is the root object node created by JsonDocumentCreator.
         final DataRecord record = reader.getRecord(1, IndexType.DOCUMENT, -1);
         assertNotNull(record, "Record with key 1 must be retrievable through trie traversal");
@@ -112,7 +112,7 @@ final class KeyedTrieIntegrationTest {
         wtx.commit();
       }
 
-      try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader()) {
+      try (final StorageEngineReader reader = resourceSession.createStorageEngineReader()) {
         final var concreteReader = (NodeStorageEngineReader) reader;
         final RevisionRootPage revisionRootPage = reader.getActualRevisionRootPage();
         final PageReference rootRef = concreteReader.getPageReference(revisionRootPage, IndexType.DOCUMENT, -1);
@@ -145,14 +145,14 @@ final class KeyedTrieIntegrationTest {
       }
 
       // Read revision 1 — should see original data without revision 2's changes.
-      try (final StorageEngineReader readerRev1 = resourceSession.beginStorageEngineReader(1)) {
+      try (final StorageEngineReader readerRev1 = resourceSession.createStorageEngineReader(1)) {
         final DataRecord recordRev1 = readerRev1.getRecord(1, IndexType.DOCUMENT, -1);
         assertNotNull(recordRev1, "Record from revision 1 must still be readable");
         assertEquals(1, recordRev1.getNodeKey());
       }
 
       // Read revision 2 — should see modified data.
-      try (final StorageEngineReader readerRev2 = resourceSession.beginStorageEngineReader(2)) {
+      try (final StorageEngineReader readerRev2 = resourceSession.createStorageEngineReader(2)) {
         final DataRecord recordRev2 = readerRev2.getRecord(1, IndexType.DOCUMENT, -1);
         assertNotNull(recordRev2, "Record from revision 2 must be readable");
       }
@@ -173,7 +173,7 @@ final class KeyedTrieIntegrationTest {
 
       // Verify records created by the write transaction (which uses KeyedTrieWriter
       // internally via prepareLeafOfTree) are readable.
-      try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader()) {
+      try (final StorageEngineReader reader = resourceSession.createStorageEngineReader()) {
         // Document root is node key 0, root object is key 1,
         // first object record "foo" is key 2.
         for (long nodeKey = 0; nodeKey <= 2; nodeKey++) {
@@ -194,7 +194,7 @@ final class KeyedTrieIntegrationTest {
       }
 
       final long maxNodeKeyRev1;
-      try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader(1)) {
+      try (final StorageEngineReader reader = resourceSession.createStorageEngineReader(1)) {
         final RevisionRootPage revRoot = reader.getActualRevisionRootPage();
         maxNodeKeyRev1 = revRoot.getMaxNodeKeyInDocumentIndex();
       }
@@ -216,7 +216,7 @@ final class KeyedTrieIntegrationTest {
       }
 
       // Verify max node key increased.
-      try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader(3)) {
+      try (final StorageEngineReader reader = resourceSession.createStorageEngineReader(3)) {
         final RevisionRootPage revRoot = reader.getActualRevisionRootPage();
         final long maxNodeKeyRev3 = revRoot.getMaxNodeKeyInDocumentIndex();
         assert maxNodeKeyRev3 > maxNodeKeyRev1 :
@@ -224,13 +224,13 @@ final class KeyedTrieIntegrationTest {
       }
 
       // Verify revision 1 data is still intact (CoW isolation).
-      try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader(1)) {
+      try (final StorageEngineReader reader = resourceSession.createStorageEngineReader(1)) {
         final DataRecord record = reader.getRecord(1, IndexType.DOCUMENT, -1);
         assertNotNull(record, "Revision 1 record must still be readable after later commits");
       }
 
       // Verify all records from revision 3 are readable.
-      try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader(3)) {
+      try (final StorageEngineReader reader = resourceSession.createStorageEngineReader(3)) {
         for (long key = 0; key <= 5; key++) {
           final DataRecord record = reader.getRecord(key, IndexType.DOCUMENT, -1);
           assertNotNull(record, "Record with key " + key + " must exist in revision 3");
@@ -246,7 +246,7 @@ final class KeyedTrieIntegrationTest {
         wtx.commit();
       }
 
-      try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader()) {
+      try (final StorageEngineReader reader = resourceSession.createStorageEngineReader()) {
         final var concreteReader = (NodeStorageEngineReader) reader;
         final RevisionRootPage revRoot = reader.getActualRevisionRootPage();
 
@@ -282,7 +282,7 @@ final class KeyedTrieIntegrationTest {
         wtx.commit();
       }
 
-      try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader()) {
+      try (final StorageEngineReader reader = resourceSession.createStorageEngineReader()) {
         final RevisionRootPage revRoot = reader.getActualRevisionRootPage();
 
         // Verify trie height has grown (should be > 1 with 2000+ records).
@@ -318,7 +318,7 @@ final class KeyedTrieIntegrationTest {
 
       // Count records in revision 1.
       final long maxKeyRev1;
-      try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader(1)) {
+      try (final StorageEngineReader reader = resourceSession.createStorageEngineReader(1)) {
         maxKeyRev1 = reader.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex();
       }
 
@@ -337,14 +337,14 @@ final class KeyedTrieIntegrationTest {
       }
 
       // Revision 1 should still have same max key.
-      try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader(1)) {
+      try (final StorageEngineReader reader = resourceSession.createStorageEngineReader(1)) {
         final long maxKeyRev1Check = reader.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex();
         assertEquals(maxKeyRev1, maxKeyRev1Check,
             "Revision 1 max node key must be unchanged after new commits");
       }
 
       // Revision 2 should have more records.
-      try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader(2)) {
+      try (final StorageEngineReader reader = resourceSession.createStorageEngineReader(2)) {
         final long maxKeyRev2 = reader.getActualRevisionRootPage().getMaxNodeKeyInDocumentIndex();
         assert maxKeyRev2 > maxKeyRev1 :
             "Revision 2 must have higher max node key than revision 1";
@@ -376,7 +376,7 @@ final class KeyedTrieIntegrationTest {
 
       // Verify each revision is independently readable.
       for (int rev = 1; rev <= numRevisions + 1; rev++) {
-        try (final StorageEngineReader reader = resourceSession.beginStorageEngineReader(rev)) {
+        try (final StorageEngineReader reader = resourceSession.createStorageEngineReader(rev)) {
           final DataRecord record = reader.getRecord(1, IndexType.DOCUMENT, -1);
           assertNotNull(record,
               "Record with key 1 must be readable in revision " + rev);

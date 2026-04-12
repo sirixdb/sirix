@@ -60,7 +60,7 @@ public class CacheTestHelper {
    */
   public static void setUp(final Cache<Long, PageContainer> cache) throws SirixException {
     arena = Arena.ofConfined();
-    STORAGE_ENGINE_READER = Holder.openResourceSession().getResourceSession().beginStorageEngineReader();
+    STORAGE_ENGINE_READER = Holder.openResourceSession().getResourceSession().createStorageEngineReader();
     PAGES = new KeyValueLeafPage[LRUCache.CACHE_CAPACITY + 1][VERSIONSTORESTORE + 1];
     for (int i = 0; i < PAGES.length; i++) {
       final KeyValueLeafPage page =

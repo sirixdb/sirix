@@ -174,6 +174,18 @@ public interface NodeReadOnlyTrx extends AutoCloseable {
   String getValue();
 
   /**
+   * Get the raw value bytes of the current node without creating a String.
+   * HFT-grade: zero allocation for repeated aggregation over the same values.
+   * Returns null if the node has no value.
+   *
+   * @return the raw UTF-8 bytes of the value, or null
+   */
+  default byte[] getValueBytes() {
+    String value = getValue();
+    return value != null ? value.getBytes(java.nio.charset.StandardCharsets.UTF_8) : null;
+  }
+
+  /**
    * Get the user who committed the revision, if available.
    *
    * @return the user who committed the revision, if available

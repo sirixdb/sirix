@@ -137,11 +137,7 @@ public final class FileChannelReader extends AbstractReader {
         // Read page length header (4 bytes)
         ByteBuffer buffer = READ_BUFFERS[stripe];
         buffer.clear().limit(4);
-        final int bytesRead = dataFileChannel.read(buffer, position);
-        if (bytesRead < 4) {
-          throw new SirixIOException("Failed to read page header at position " + position
-              + " (read " + bytesRead + " bytes, expected 4). File may be truncated or empty.");
-        }
+        dataFileChannel.read(buffer, position);
         buffer.flip();
         final int dataLength = buffer.getInt();
 

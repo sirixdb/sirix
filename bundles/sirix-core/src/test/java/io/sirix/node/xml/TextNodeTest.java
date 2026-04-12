@@ -66,7 +66,7 @@ public class TextNodeTest {
     XmlTestHelper.closeEverything();
     XmlTestHelper.deleteEverything();
     holder = Holder.generateDeweyIDResourceSession();
-    storageEngineReader = holder.getResourceSession().beginStorageEngineReader();
+    storageEngineReader = holder.getResourceSession().createStorageEngineReader();
   }
 
   @After
