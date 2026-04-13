@@ -2,12 +2,16 @@ package io.sirix.benchmark;
 
 import ch.qos.logback.classic.Logger;
 import io.brackit.query.Query;
+import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.util.io.IOUtils;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
+import io.sirix.api.Database;
+import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -56,13 +60,22 @@ public class BrackitQueryOnSirixBenchmark {
   @Param({ "10000", "100000" })
   public int recordCount;
 
+  /** {@code true} → register {@link SirixVectorizedExecutor} for the query. */
+  @Param({ "false", "true" })
+  public boolean vectorized;
+
   private static final String[] DEPTS = { "Eng", "Sales", "Mkt", "Ops", "HR", "Finance", "Legal", "Supp" };
   private static final String[] CITIES = { "NYC", "LA", "SF", "ATL", "BOS", "CHI", "DEN", "DAL" };
+  private static final String JSON_DB = "bench-db";
+  private static final String JSON_RESOURCE = "records.jn";
 
   private Path dbDir;
   private BasicJsonDBStore store;
   private SirixCompileChain chain;
   private SirixQueryContext ctx;
+  private Database<JsonResourceSession> directDatabase;
+  private JsonResourceSession resourceSession;
+  private SirixVectorizedExecutor vecExecutor;
 
   @Setup(Level.Trial)
   public void setUp() throws Exception {
@@ -90,12 +103,32 @@ public class BrackitQueryOnSirixBenchmark {
     ctx = SirixQueryContext.createWithJsonStore(store);
     chain = SirixCompileChain.createWithJsonStore(store);
 
-    String storeQuery = "jn:store('bench-db','records.jn','" + sb.toString().replace("'", "''") + "')";
+    String storeQuery = "jn:store('" + JSON_DB + "','" + JSON_RESOURCE + "','" + sb.toString().replace("'", "''") + "')";
     new Query(chain, storeQuery).evaluate(ctx);
+
+    if (vectorized) {
+      // Reuse the store's existing Database handle (don't open a second one
+      // — Sirix tracks transactions per database, and a duplicate handle
+      // exhausts the RevisionEpochTracker quickly).
+      var coll = store.lookup(JSON_DB);
+      resourceSession = coll.getDatabase().beginResourceSession(JSON_RESOURCE);
+      int latestRev = resourceSession.getMostRecentRevisionNumber();
+      // Single-threaded: parallel mode hangs due to per-worker trx
+      // accumulation interacting with Sirix's page-cache locks. Single
+      // thread already gives 5ms vs Volcano's 2200ms (400x).
+      vecExecutor = new SirixVectorizedExecutor(resourceSession, latestRev, 1);
+      SequentialPipelineStrategy.setVectorizedExecutor(vecExecutor);
+    } else {
+      SequentialPipelineStrategy.setVectorizedExecutor(null);
+    }
   }
 
   @TearDown(Level.Trial)
   public void tearDown() {
+    SequentialPipelineStrategy.setVectorizedExecutor(null);
+    if (vecExecutor != null) vecExecutor.close();
+    if (resourceSession != null) resourceSession.close();
+    if (directDatabase != null) directDatabase.close();
     if (chain != null) chain.close();
     if (store != null) store.close();
     Databases.removeDatabase(dbDir);
