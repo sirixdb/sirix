@@ -5,6 +5,8 @@ plugins {
 dependencies {
     // JMH dependencies
     jmhImplementation project(':sirix-core')
+    jmhImplementation project(':sirix-query')
+    jmhImplementation implLibraries.brackit
     jmhImplementation implLibraries.logbackClassic
     jmhImplementation 'org.openjdk.jmh:jmh-core:1.37'
     jmhAnnotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess:1.37'
