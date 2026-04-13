@@ -64,10 +64,16 @@ public class SirixOptimizer extends TopDownOptimizer {
     getStages().add(new IndexDecompositionStage());
     // 7. Cost-driven execution routing — propagate PREFER_INDEX to downstream index matching.
     getStages().add(new CostDrivenRoutingStage());
-    // 8. Detect vectorizable scan-filter-project pipelines.
-    getStages().add(new VectorizedDetectionStage());
-    // 9. Route vectorizable pipelines to columnar/SIMD execution.
-    getStages().add(new VectorizedRoutingStage());
+    // 8. + 9. Vectorized detection/routing — DISABLED. Brackit's optimizer
+    // already runs VectorizedGroupByDetection (parent constructor adds it),
+    // and SirixVectorizedExecutor implements Brackit's VectorizedExecutor SPI.
+    // The two pipelines competed: Sirix's routing replaced the PipeExpr AST
+    // before Brackit's dispatch ran, so the Brackit-side executor was never
+    // called. Falling back to Brackit's SPI lets a registered
+    // SirixVectorizedExecutor handle group-by/aggregate/filter-count, while
+    // unregistered queries still go through Volcano (the original behavior).
+    // getStages().add(new VectorizedDetectionStage());
+    // getStages().add(new VectorizedRoutingStage());
     // 10. Perform index matching as last step.
     getStages().add(new IndexMatching(nodeStore, jsonItemStore));
   }
