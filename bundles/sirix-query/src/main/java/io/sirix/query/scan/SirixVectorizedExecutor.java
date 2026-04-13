@@ -6,12 +6,18 @@
  */
 package io.sirix.query.scan;
 
+import io.brackit.query.ErrorCode;
 import io.brackit.query.QueryContext;
 import io.brackit.query.QueryException;
 import io.brackit.query.atomic.Dbl;
 import io.brackit.query.atomic.Int64;
+import io.brackit.query.atomic.QNm;
+import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.optimizer.VectorizedExecutor;
+import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jsonitem.array.DArray;
+import io.brackit.query.jsonitem.object.ArrayObject;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.IndexLogKey;
@@ -19,6 +25,10 @@ import io.sirix.index.IndexType;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.settings.Constants;
 
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -53,7 +63,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private volatile long cachedMaxNodeKey = -1;
   private final ExecutorService workerPool;
   /** Cached field-name → int nameKey resolution. Keyed once per executor lifetime. */
-  private final java.util.concurrent.ConcurrentHashMap<String, Integer> fieldKeyCache = new java.util.concurrent.ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, Integer> fieldKeyCache = new ConcurrentHashMap<>();
 
   public SirixVectorizedExecutor(JsonResourceSession session, int revision) {
     this(session, revision, Runtime.getRuntime().availableProcessors());
@@ -95,8 +105,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   @Override
   public Sequence executeGroupByCount(QueryContext ctx, String groupField) throws QueryException {
-    // Not yet implemented in this phase — fall back to Volcano.
-    return null;
+    try {
+      return parallelGroupByCount(groupField);
+    } catch (Exception e) {
+      throw new QueryException(e,
+                               ErrorCode.BIT_DYN_INT_ERROR,
+                               "Sirix vectorized group-by-count failed: %s",
+                               e.getMessage());
+    }
   }
 
   @Override
@@ -107,7 +123,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       return new Int64(count);
     } catch (Exception e) {
       throw new QueryException(e,
-                               io.brackit.query.ErrorCode.BIT_DYN_INT_ERROR,
+                               ErrorCode.BIT_DYN_INT_ERROR,
                                "Sirix vectorized filter-count failed: %s",
                                e.getMessage());
     }
@@ -128,7 +144,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       };
     } catch (Exception e) {
       throw new QueryException(e,
-                               io.brackit.query.ErrorCode.BIT_DYN_INT_ERROR,
+                               ErrorCode.BIT_DYN_INT_ERROR,
                                "Sirix vectorized aggregate failed: %s",
                                e.getMessage());
     }
@@ -299,6 +315,66 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     long total = 0;
     for (long c : perThread) total += c;
     return total;
+  }
+
+  /**
+   * Parallel group-by-count: walks all leaf pages, finds OBJECT_KEY slots whose
+   * nameKey matches the pre-resolved key, descends to value, accumulates counts
+   * per unique value into a 1BRC-style open-addressing byte-key hash map
+   * (per-thread, then merged). Returns a Brackit array of
+   * {@code {"groupField": value, "count": N}} objects.
+   */
+  private Sequence parallelGroupByCount(String groupField) throws Exception {
+    final int fieldKey = resolveFieldKey(groupField);
+    if (fieldKey < 0) return new DArray(List.of());
+
+    long maxNodeKey = getMaxNodeKey();
+    long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+    int eff = (int) Math.min(threads, Math.max(1, totalPages));
+    long ppt = (totalPages + eff - 1) / eff;
+
+    final ScanResult.GroupByResult[] perThread = new ScanResult.GroupByResult[eff];
+    for (int i = 0; i < eff; i++) perThread[i] = new ScanResult.GroupByResult();
+
+    parallel(eff, i -> {
+      ScanResult.GroupByResult acc = perThread[i];
+      long s = (long) i * ppt;
+      long e = Math.min(s + ppt, totalPages);
+      JsonNodeReadOnlyTrx rtx = workerTrx();
+      var reader = rtx.getStorageEngineReader();
+      for (long pk = s; pk < e; pk++) {
+        var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+        kv.forEachPopulatedSlot(slot -> {
+          if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
+          if (!rtx.moveTo(base + slot)) return true;
+          if (rtx.getNameKey() != fieldKey) return true;
+          if (!rtx.moveToFirstChild()) return true;
+          // getValueBytes returns UTF-8 bytes of the value (string/number/etc)
+          byte[] valueBytes = rtx.getValueBytes();
+          if (valueBytes != null && valueBytes.length > 0) {
+            acc.add(valueBytes, 0, valueBytes.length);
+          }
+          return true;
+        });
+      }
+    });
+
+    // Merge per-thread maps into one
+    ScanResult.GroupByResult merged = perThread[0];
+    for (int i = 1; i < eff; i++) merged.merge(perThread[i]);
+
+    // Build Brackit result: array of {groupField: value, "count": N}
+    List<Item> items = new ArrayList<>(merged.size());
+    final QNm groupFieldQNm = new QNm(groupField);
+    final QNm countQNm = new QNm("count");
+    merged.forEach((key, count) -> {
+      QNm[] fields = { groupFieldQNm, countQNm };
+      Sequence[] values = { new Str(new String(key, StandardCharsets.UTF_8)), new Int64(count) };
+      items.add(new ArrayObject(fields, values));
+    });
+    return new DArray(items);
   }
 
   // Filter operator encoding — int compare in hot loop, decoded once.
