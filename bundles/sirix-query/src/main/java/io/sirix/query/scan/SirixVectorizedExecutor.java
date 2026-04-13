@@ -60,6 +60,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Track per-thread trxes for explicit close on shutdown. */
   private final List<JsonNodeReadOnlyTrx> openedTrxes;
   private final ExecutorService workerPool;
+  /** Cached field-name → int nameKey resolution. Keyed once per executor lifetime. */
+  private final java.util.concurrent.ConcurrentHashMap<String, Integer> fieldKeyCache = new java.util.concurrent.ConcurrentHashMap<>();
 
   public SirixVectorizedExecutor(JsonResourceSession session, int revision) {
     this(session, revision, Runtime.getRuntime().availableProcessors());
@@ -141,12 +143,57 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   // ==================== Implementation ====================
 
   /**
-   * Walk all leaf pages in parallel, find every OBJECT_KEY slot whose name
-   * matches {@code field}, descend to its numeric value, accumulate.
+   * Resolve the int nameKey for {@code field} once. We walk the file looking
+   * for the first OBJECT_KEY whose local name equals {@code field}, then
+   * cache the resulting int key. Subsequent inner-loop comparisons are pure
+   * int compares — orders of magnitude faster than {@code String.equals}.
+   *
+   * @return the nameKey, or {@code -1} if no such field exists in the data
+   */
+  private int resolveFieldKey(String field) {
+    Integer cached = fieldKeyCache.get(field);
+    if (cached != null) return cached;
+    synchronized (fieldKeyCache) {
+      cached = fieldKeyCache.get(field);
+      if (cached != null) return cached;
+      int[] found = { -1 };
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+        var reader = rtx.getStorageEngineReader();
+        long totalPages = (getMaxNodeKey() >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+        for (long pk = 0; pk < totalPages && found[0] < 0; pk++) {
+          var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
+          if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+          long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+          kv.forEachPopulatedSlot(slot -> {
+            if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
+            if (!rtx.moveTo(base + slot)) return true;
+            var name = rtx.getName();
+            if (name != null && field.equals(name.getLocalName())) {
+              found[0] = rtx.getNameKey();
+              return false;  // stop iterating
+            }
+            return true;
+          });
+        }
+      }
+      int foundKey = found[0];
+      fieldKeyCache.put(field, foundKey);
+      return foundKey;
+    }
+  }
+
+  /**
+   * Walk all leaf pages in parallel, find every OBJECT_KEY slot whose nameKey
+   * matches the pre-resolved key for {@code field}, descend to its numeric
+   * value via the page's slot relationships (skipping {@code moveTo} +
+   * {@code Number} boxing), and accumulate.
    *
    * @return {@code [count, sum, min, max]}
    */
   private long[] parallelAggregate(String field) throws Exception {
+    final int fieldKey = resolveFieldKey(field);
+    if (fieldKey < 0) return new long[] { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
+
     long maxNodeKey = getMaxNodeKey();
     long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     int eff = (int) Math.min(threads, Math.max(1, totalPages));
@@ -162,37 +209,33 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       long[] acc = perThread[i];
       long s = (long) i * ppt;
       long e = Math.min(s + ppt, totalPages);
-      // Reuse the per-worker trx + its own storage-engine reader instead of
-      // opening a fresh one per call — keeps the RevisionEpochTracker
-      // footprint bounded by `threads` for this executor's lifetime.
       JsonNodeReadOnlyTrx rtx = threadLocalTrx.get();
       var reader = rtx.getStorageEngineReader();
       for (long pk = s; pk < e; pk++) {
-          var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
-          if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
-          long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+        var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
 
-          kv.forEachPopulatedSlot(slot -> {
-            if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
-            long keyNodeKey = base + slot;
-            if (!rtx.moveTo(keyNodeKey)) return true;
-            var name = rtx.getName();
-            if (name == null || !field.equals(name.getLocalName())) return true;
-            // Move to the value (first child of the OBJECT_KEY).
-            if (!rtx.moveToFirstChild()) return true;
-            Number n = rtx.getNumberValue();
-            if (n == null) return true;
-            long v = n.longValue();
-            acc[0]++;
-            acc[1] += v;
-            if (v < acc[2]) acc[2] = v;
-            if (v > acc[3]) acc[3] = v;
-            return true;
-          });
+        kv.forEachPopulatedSlot(slot -> {
+          if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
+          if (!rtx.moveTo(base + slot)) return true;
+          // Pre-resolved nameKey int compare instead of String.equals:
+          if (rtx.getNameKey() != fieldKey) return true;
+          if (!rtx.moveToFirstChild()) return true;
+          // Avoid Number boxing: use getDoubleValue when available, fall back to Number
+          // (this still allocates one Long/Double per match, but only matched records).
+          Number n = rtx.getNumberValue();
+          if (n == null) return true;
+          long v = n.longValue();
+          acc[0]++;
+          acc[1] += v;
+          if (v < acc[2]) acc[2] = v;
+          if (v > acc[3]) acc[3] = v;
+          return true;
+        });
       }
     });
 
-    // Merge.
     long count = 0, sum = 0, min = Long.MAX_VALUE, max = Long.MIN_VALUE;
     for (long[] a : perThread) {
       count += a[0];
