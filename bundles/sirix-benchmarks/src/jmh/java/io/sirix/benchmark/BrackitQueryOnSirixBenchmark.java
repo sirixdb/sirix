@@ -113,10 +113,9 @@ public class BrackitQueryOnSirixBenchmark {
       var coll = store.lookup(JSON_DB);
       resourceSession = coll.getDatabase().beginResourceSession(JSON_RESOURCE);
       int latestRev = resourceSession.getMostRecentRevisionNumber();
-      // Single-threaded: parallel mode hangs due to per-worker trx
-      // accumulation interacting with Sirix's page-cache locks. Single
-      // thread already gives 5ms vs Volcano's 2200ms (400x).
-      vecExecutor = new SirixVectorizedExecutor(resourceSession, latestRev, 1);
+      // Parallel: ThreadLocal per-worker trx, opened lazily inside worker
+      // threads to avoid cross-thread session affinity issues.
+      vecExecutor = new SirixVectorizedExecutor(resourceSession, latestRev);
       SequentialPipelineStrategy.setVectorizedExecutor(vecExecutor);
     } else {
       SequentialPipelineStrategy.setVectorizedExecutor(null);
