@@ -19,8 +19,6 @@ import io.sirix.index.IndexType;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.settings.Constants;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -53,12 +51,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private final int threads;
   /** Cached max node key — Sirix-internal, fixed for a given revision. */
   private volatile long cachedMaxNodeKey = -1;
-  /** Per-worker-thread trx, opened lazily inside the worker thread on first use.
-   *  Sirix transactions are not safely usable across thread boundaries, so each
-   *  worker thread owns its own trx for the executor's lifetime. */
-  private final ThreadLocal<JsonNodeReadOnlyTrx> threadLocalTrx;
-  /** Track per-thread trxes for explicit close on shutdown. */
-  private final List<JsonNodeReadOnlyTrx> openedTrxes;
   private final ExecutorService workerPool;
   /** Cached field-name → int nameKey resolution. Keyed once per executor lifetime. */
   private final java.util.concurrent.ConcurrentHashMap<String, Integer> fieldKeyCache = new java.util.concurrent.ConcurrentHashMap<>();
@@ -71,14 +63,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     this.session = session;
     this.revision = revision;
     this.threads = threads;
-    this.openedTrxes = new ArrayList<>(threads);
-    this.threadLocalTrx = ThreadLocal.withInitial(() -> {
-      JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision);
-      synchronized (openedTrxes) {
-        openedTrxes.add(rtx);
-      }
-      return rtx;
-    });
     final ThreadFactory tf = r -> {
       Thread t = new Thread(r, "sirix-vec-exec");
       t.setDaemon(true);
@@ -87,18 +71,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     this.workerPool = Executors.newFixedThreadPool(threads, tf);
   }
 
-  /** Release per-thread transactions and shut down the worker pool. */
+  /** Release per-thread shared trxes and shut down the worker pool. */
   public void close() {
-    synchronized (openedTrxes) {
-      for (JsonNodeReadOnlyTrx t : openedTrxes) {
-        try {
-          t.close();
-        } catch (Exception ignored) {
-        }
-      }
-      openedTrxes.clear();
+    // Sirix's session manages the per-thread shared trx pool via
+    // getOrCreateSharedReadOnlyTrx; closeSharedReadOnlyTrxs releases all
+    // entries for our revision. Bounded count = workerThreads + 1.
+    try {
+      session.closeSharedReadOnlyTrxs(revision);
+    } catch (Exception ignored) {
     }
     workerPool.shutdown();
+  }
+
+  /** Borrow this thread's shared read-only trx — reused across calls, no per-call alloc. */
+  private JsonNodeReadOnlyTrx workerTrx() {
+    return session.getOrCreateSharedReadOnlyTrx(revision);
   }
 
   @Override
@@ -115,8 +102,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   @Override
   public Sequence executeFilterCount(QueryContext ctx, String filterField, String filterOp, long filterValue)
       throws QueryException {
-    // Not yet implemented in this phase — fall back to Volcano.
-    return null;
+    try {
+      long count = parallelFilterCount(filterField, filterOp, filterValue);
+      return new Int64(count);
+    } catch (Exception e) {
+      throw new QueryException(e,
+                               io.brackit.query.ErrorCode.BIT_DYN_INT_ERROR,
+                               "Sirix vectorized filter-count failed: %s",
+                               e.getMessage());
+    }
   }
 
   @Override
@@ -209,7 +203,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       long[] acc = perThread[i];
       long s = (long) i * ppt;
       long e = Math.min(s + ppt, totalPages);
-      JsonNodeReadOnlyTrx rtx = threadLocalTrx.get();
+      JsonNodeReadOnlyTrx rtx = workerTrx();
       var reader = rtx.getStorageEngineReader();
       for (long pk = s; pk < e; pk++) {
         var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
@@ -246,6 +240,84 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     return new long[] { count, sum, min, max };
+  }
+
+  /**
+   * Parallel filter-count: walks all leaf pages, finds OBJECT_KEY slots whose
+   * nameKey matches the pre-resolved key, descends to numeric value, and
+   * counts those satisfying {@code value OP threshold}.
+   */
+  private long parallelFilterCount(String filterField, String filterOp, long threshold) throws Exception {
+    final int fieldKey = resolveFieldKey(filterField);
+    if (fieldKey < 0) return 0;
+
+    long maxNodeKey = getMaxNodeKey();
+    long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+    int eff = (int) Math.min(threads, Math.max(1, totalPages));
+    long ppt = (totalPages + eff - 1) / eff;
+    long[] perThread = new long[eff];
+
+    // Encode op once as int — int compare in hot loop instead of String.equals.
+    final int op = encodeOp(filterOp);
+
+    parallel(eff, i -> {
+      long[] acc = perThread;
+      long s = (long) i * ppt;
+      long e = Math.min(s + ppt, totalPages);
+      JsonNodeReadOnlyTrx rtx = workerTrx();
+      var reader = rtx.getStorageEngineReader();
+      long localCount = 0;
+      for (long pk = s; pk < e; pk++) {
+        var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+        long[] localTotal = { 0 };
+        kv.forEachPopulatedSlot(slot -> {
+          if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
+          if (!rtx.moveTo(base + slot)) return true;
+          if (rtx.getNameKey() != fieldKey) return true;
+          if (!rtx.moveToFirstChild()) return true;
+          Number n = rtx.getNumberValue();
+          if (n == null) return true;
+          long v = n.longValue();
+          boolean pass = switch (op) {
+            case OP_GT -> v > threshold;
+            case OP_LT -> v < threshold;
+            case OP_GE -> v >= threshold;
+            case OP_LE -> v <= threshold;
+            case OP_EQ -> v == threshold;
+            default -> true;
+          };
+          if (pass) localTotal[0]++;
+          return true;
+        });
+        localCount += localTotal[0];
+      }
+      acc[i] = localCount;
+    });
+
+    long total = 0;
+    for (long c : perThread) total += c;
+    return total;
+  }
+
+  // Filter operator encoding — int compare in hot loop, decoded once.
+  private static final int OP_GT = 1;
+  private static final int OP_LT = 2;
+  private static final int OP_GE = 3;
+  private static final int OP_LE = 4;
+  private static final int OP_EQ = 5;
+
+  private static int encodeOp(String op) {
+    if (op == null) return 0;
+    return switch (op) {
+      case "gt" -> OP_GT;
+      case "lt" -> OP_LT;
+      case "ge" -> OP_GE;
+      case "le" -> OP_LE;
+      case "eq" -> OP_EQ;
+      default -> 0;
+    };
   }
 
   private long getMaxNodeKey() {
