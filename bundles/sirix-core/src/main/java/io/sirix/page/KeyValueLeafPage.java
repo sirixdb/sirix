@@ -1272,6 +1272,32 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Read an ObjectKeyNode's nameKey directly from the slot bytes without binding
+   * a flyweight singleton or moving a transaction cursor. Callers MUST verify
+   * the slot is populated and holds an OBJECT_KEY (kind id 26) before calling —
+   * the method does no validation for the vectorized scan hot path.
+   *
+   * <p>Used by SirixVectorizedExecutor to filter/count on {@code nameKey} without
+   * paying the per-slot {@code moveTo → bind singleton} cost; non-matching slots
+   * (~4/5 of OBJECT_KEY slots in a typical JSON record) short-circuit before the
+   * cursor move.
+   *
+   * @param slotNumber the slot index (assumed populated + OBJECT_KEY kind)
+   * @return the signed nameKey from the slot
+   */
+  public int getObjectKeyNameKeyFromSlot(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    // ObjectKeyNode layout: [kind byte][10 field-offset bytes][data region]
+    // NAME_KEY is field index 4 — one byte at recordBase+1+4 points into data.
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJKEY_NAME_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+    return DeltaVarIntCodec.decodeSignedFromSegment(sp, dataStart + fieldOff);
+  }
+
+  /**
    * Set slot data by copying directly from a source MemorySegment.
    * Zero-copy path for page deserialization.
    *

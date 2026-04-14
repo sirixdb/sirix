@@ -228,9 +228,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
         kv.forEachPopulatedSlot(slot -> {
           if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
+          // Fast-path nameKey check — read directly from slot bytes and bail
+          // before the expensive moveTo + singleton bind for non-matching slots.
+          // In a flat JSON-array workload only 1/N fields matches per record,
+          // so this skips ~(N-1)/N of the per-slot cursor work.
+          if (kv.getObjectKeyNameKeyFromSlot(slot) != fieldKey) return true;
           if (!rtx.moveTo(base + slot)) return true;
-          // Pre-resolved nameKey int compare instead of String.equals:
-          if (rtx.getNameKey() != fieldKey) return true;
           if (!rtx.moveToFirstChild()) return true;
           // Avoid Number boxing: use getDoubleValue when available, fall back to Number
           // (this still allocates one Long/Double per match, but only matched records).
@@ -290,8 +293,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         long[] localTotal = { 0 };
         kv.forEachPopulatedSlot(slot -> {
           if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
+          if (kv.getObjectKeyNameKeyFromSlot(slot) != fieldKey) return true;
           if (!rtx.moveTo(base + slot)) return true;
-          if (rtx.getNameKey() != fieldKey) return true;
           if (!rtx.moveToFirstChild()) return true;
           Number n = rtx.getNumberValue();
           if (n == null) return true;
@@ -348,8 +351,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
         kv.forEachPopulatedSlot(slot -> {
           if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
+          if (kv.getObjectKeyNameKeyFromSlot(slot) != fieldKey) return true;
           if (!rtx.moveTo(base + slot)) return true;
-          if (rtx.getNameKey() != fieldKey) return true;
           if (!rtx.moveToFirstChild()) return true;
           // getValueBytes returns UTF-8 bytes of the value (string/number/etc)
           byte[] valueBytes = rtx.getValueBytes();
