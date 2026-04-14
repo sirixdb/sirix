@@ -436,8 +436,14 @@ public final class BasicJsonDBStore implements JsonDBStore {
         return collection;
       }
 
+      // Pass numberOfNodesBeforeAutoCommit so the shred commits incrementally.
+      // Without this, large imports hold every distinct offheap segment they
+      // ever touch inside a single transaction — the allocator's physical
+      // memory counter is monotonic within a trx (only decrements on commit
+      // via page release), and a multi-GB shred exhausts the budget long
+      // before the single final commit fires.
       try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-          final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
+          final JsonNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       }
