@@ -126,8 +126,15 @@ public final class BrackitQueryOnSirixScaleMain {
     if (vectorized) {
       JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);
       session = coll.getDatabase().beginResourceSession(JSON_RESOURCE);
-      vec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber());
+      // Default = all cores. Overridable via -Dsirix.vec.threads=N — useful
+      // when a concurrency bug in Sirix's JVMCI-compiled allocator / page
+      // combiner path triggers at high fan-out.
+      int vecThreads = Integer.parseInt(
+          System.getProperty("sirix.vec.threads",
+              String.valueOf(Runtime.getRuntime().availableProcessors())));
+      vec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), vecThreads);
       SequentialPipelineStrategy.setVectorizedExecutor(vec);
+      System.out.printf("# Vec threads: %d%n", vecThreads);
     }
 
     JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);
@@ -147,10 +154,14 @@ public final class BrackitQueryOnSirixScaleMain {
     if (session != null) session.close();
     chain.close();
     store.close();
-    // Only remove the DB we freshly shredded. When reusing an existing DB,
-    // leave it in place so the next invocation can skip shred again.
-    if (shredNeeded) {
+    // Default: keep the DB around for re-use via -Dsirix.db=<path>. Set
+    // -Dsirix.db.cleanup=true to delete the freshly shredded DB at the end
+    // (useful for CI where disk space is scarce).
+    boolean cleanup = Boolean.parseBoolean(System.getProperty("sirix.db.cleanup", "false"));
+    if (shredNeeded && cleanup) {
       Databases.removeDatabase(dbDir);
+    } else if (shredNeeded) {
+      System.out.printf("# DB preserved at %s (set -Dsirix.db.cleanup=true to delete)%n", dbDir);
     }
   }
 
