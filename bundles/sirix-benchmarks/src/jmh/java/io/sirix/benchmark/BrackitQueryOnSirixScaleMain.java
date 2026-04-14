@@ -82,9 +82,14 @@ public final class BrackitQueryOnSirixScaleMain {
     System.out.printf("# After init: maxBufferSize = %d MB (initialized=%s)%n",
                       alloc.getMaxBufferSize() / (1L << 20), alloc.isInitialized());
 
-    Path dbDir = Files.createTempDirectory("sirix-scale-bench");
-    System.out.printf("# Records: %,d   Vectorized: %s   Iters: %d   DB: %s   Offheap: %d MB%n",
-                      recordCount, vectorized, iters, dbDir, offheap / (1L << 20));
+    // Re-use an existing shredded database when -Dsirix.db=/path is supplied —
+    // shredding 100 M records takes ~7 minutes, and we want to iterate on
+    // query-side optimizations without paying that cost each time.
+    String reuseDb = System.getProperty("sirix.db");
+    final boolean shredNeeded = reuseDb == null;
+    Path dbDir = reuseDb != null ? Path.of(reuseDb) : Files.createTempDirectory("sirix-scale-bench");
+    System.out.printf("# Records: %,d   Vectorized: %s   Iters: %d   DB: %s   Offheap: %d MB   Reuse: %s%n",
+                      recordCount, vectorized, iters, dbDir, offheap / (1L << 20), !shredNeeded);
 
     // Smaller auto-commit window keeps offheap segments getting recycled
     // during the shred phase. Default is 1 M nodes — too coarse for 100 M+ records.
@@ -103,14 +108,18 @@ public final class BrackitQueryOnSirixScaleMain {
     SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
     SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
 
-    long shredStart = System.nanoTime();
-    try (Reader src = new GeneratedRecordsReader(recordCount);
-         JsonReader jr = new JsonReader(src)) {
-      store.create(JSON_DB, JSON_RESOURCE, jr);
+    if (shredNeeded) {
+      long shredStart = System.nanoTime();
+      try (Reader src = new GeneratedRecordsReader(recordCount);
+           JsonReader jr = new JsonReader(src)) {
+        store.create(JSON_DB, JSON_RESOURCE, jr);
+      }
+      long shredMs = (System.nanoTime() - shredStart) / 1_000_000L;
+      System.out.printf("# Shred: %,d ms (%.0f records/sec)%n",
+                        shredMs, recordCount * 1000.0 / Math.max(1, shredMs));
+    } else {
+      System.out.println("# Shred: skipped (re-using existing DB)");
     }
-    long shredMs = (System.nanoTime() - shredStart) / 1_000_000L;
-    System.out.printf("# Shred: %,d ms (%.0f records/sec)%n",
-                      shredMs, recordCount * 1000.0 / Math.max(1, shredMs));
 
     JsonResourceSession session = null;
     SirixVectorizedExecutor vec = null;
@@ -138,7 +147,11 @@ public final class BrackitQueryOnSirixScaleMain {
     if (session != null) session.close();
     chain.close();
     store.close();
-    Databases.removeDatabase(dbDir);
+    // Only remove the DB we freshly shredded. When reusing an existing DB,
+    // leave it in place so the next invocation can skip shred again.
+    if (shredNeeded) {
+      Databases.removeDatabase(dbDir);
+    }
   }
 
   private static void runQueryRepeated(SirixCompileChain chain, SirixQueryContext ctx,
