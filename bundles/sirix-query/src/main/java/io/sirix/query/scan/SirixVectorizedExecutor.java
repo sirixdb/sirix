@@ -221,31 +221,48 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       long e = Math.min(s + ppt, totalPages);
       JsonNodeReadOnlyTrx rtx = workerTrx();
       var reader = rtx.getStorageEngineReader();
+      final int numValKindId = KeyValueLeafPage.objectNumberValueKindId();
       for (long pk = s; pk < e; pk++) {
         var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
 
-        kv.forEachPopulatedSlot(slot -> {
-          if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
-          // Fast-path nameKey check — read directly from slot bytes and bail
-          // before the expensive moveTo + singleton bind for non-matching slots.
-          // In a flat JSON-array workload only 1/N fields matches per record,
-          // so this skips ~(N-1)/N of the per-slot cursor work.
-          if (kv.getObjectKeyNameKeyFromSlot(slot) != fieldKey) return true;
-          if (!rtx.moveTo(base + slot)) return true;
-          if (!rtx.moveToFirstChild()) return true;
-          // Avoid Number boxing: use getDoubleValue when available, fall back to Number
-          // (this still allocates one Long/Double per match, but only matched records).
-          Number n = rtx.getNumberValue();
-          if (n == null) return true;
-          long v = n.longValue();
+        // Columnar-style: fetch the cached list of OBJECT_KEY slots whose
+        // nameKey matches the target field (cached per page per nameKey).
+        final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
+        for (final int slot : matches) {
+          final long objectKeyNodeKey = base + slot;
+          // Direct slot path: read firstChild's nodeKey straight off the page
+          // (no cursor), then read the numeric value straight off the firstChild
+          // slot. Skips moveTo + singleton bind + Number boxing per match.
+          // Only works when firstChild is on the same page (common case for
+          // flat JSON-array records where key + value land side-by-side).
+          final long fcKey = kv.getObjectKeyFirstChildKeyFromSlot(slot, objectKeyNodeKey);
+          final long fcPk = fcKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
+          long v;
+          if (fcPk == pk) {
+            final int fcSlot = (int) (fcKey - base);
+            if (kv.getSlotNodeKindId(fcSlot) != numValKindId) continue;
+            v = kv.getNumberValueLongFromSlot(fcSlot);
+            if (v == Long.MIN_VALUE) {
+              // Payload is float/double/BigDecimal — fall back to full path.
+              if (!rtx.moveTo(fcKey)) continue;
+              final Number n = rtx.getNumberValue();
+              if (n == null) continue;
+              v = n.longValue();
+            }
+          } else {
+            // Cross-page first child — fall back to full cursor path.
+            if (!rtx.moveTo(fcKey)) continue;
+            final Number n = rtx.getNumberValue();
+            if (n == null) continue;
+            v = n.longValue();
+          }
           acc[0]++;
           acc[1] += v;
           if (v < acc[2]) acc[2] = v;
           if (v > acc[3]) acc[3] = v;
-          return true;
-        });
+        }
       }
     });
 
@@ -291,13 +308,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
         long[] localTotal = { 0 };
-        kv.forEachPopulatedSlot(slot -> {
-          if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
-          if (kv.getObjectKeyNameKeyFromSlot(slot) != fieldKey) return true;
-          if (!rtx.moveTo(base + slot)) return true;
-          if (!rtx.moveToFirstChild()) return true;
+        final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
+        for (final int slot : matches) {
+          if (!rtx.moveTo(base + slot)) continue;
+          if (!rtx.moveToFirstChild()) continue;
           Number n = rtx.getNumberValue();
-          if (n == null) return true;
+          if (n == null) continue;
           long v = n.longValue();
           boolean pass = switch (op) {
             case OP_GT -> v > threshold;
@@ -308,8 +324,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             default -> true;
           };
           if (pass) localTotal[0]++;
-          return true;
-        });
+        }
         localCount += localTotal[0];
       }
       acc[i] = localCount;
@@ -349,18 +364,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
-        kv.forEachPopulatedSlot(slot -> {
-          if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
-          if (kv.getObjectKeyNameKeyFromSlot(slot) != fieldKey) return true;
-          if (!rtx.moveTo(base + slot)) return true;
-          if (!rtx.moveToFirstChild()) return true;
+        final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
+        for (final int slot : matches) {
+          if (!rtx.moveTo(base + slot)) continue;
+          if (!rtx.moveToFirstChild()) continue;
           // getValueBytes returns UTF-8 bytes of the value (string/number/etc)
           byte[] valueBytes = rtx.getValueBytes();
           if (valueBytes != null && valueBytes.length > 0) {
             acc.add(valueBytes, 0, valueBytes.length);
           }
-          return true;
-        });
+        }
       }
     });
 

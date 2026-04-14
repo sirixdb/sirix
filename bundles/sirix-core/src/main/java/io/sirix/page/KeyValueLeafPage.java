@@ -9,6 +9,8 @@ import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.DeltaVarIntCodec;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import java.util.Arrays;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
@@ -1295,6 +1297,133 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJKEY_NAME_KEY) & 0xFF;
     final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
     return DeltaVarIntCodec.decodeSignedFromSegment(sp, dataStart + fieldOff);
+  }
+
+  /** OBJECT_NUMBER_VALUE payload type code for Integer (varint). See NodeKind.serializeNumber. */
+  private static final byte NUMBER_TYPE_INTEGER = 2;
+  private static final byte NUMBER_TYPE_LONG = 3;
+  private static final int OBJECT_NUMBER_VALUE_KIND_ID = 42;
+
+  /**
+   * Read the delta-encoded firstChildKey from an OBJECT_KEY slot without
+   * moving any cursor or binding a singleton. Returns the raw nodeKey.
+   *
+   * <p>Caller must verify the slot holds an OBJECT_KEY (kind id 26) first.
+   */
+  public long getObjectKeyFirstChildKeyFromSlot(final int slotNumber, final long objectKeyNodeKey) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJKEY_FIRST_CHILD_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, objectKeyNodeKey);
+  }
+
+  /**
+   * Decode a numeric value from an OBJECT_NUMBER_VALUE slot directly off the
+   * slotted page — no moveTo, no singleton binding, no Number boxing. Returns
+   * {@code Long.MIN_VALUE} if the payload's number type isn't Integer or Long
+   * (i.e. float/double/BigDecimal — caller should fall back to the full
+   * cursor path).
+   *
+   * <p>Caller must verify the slot holds an OBJECT_NUMBER_VALUE (kind id 42).
+   */
+  public long getNumberValueLongFromSlot(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNUMVAL_PAYLOAD) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_NUMBER_VALUE_FIELD_COUNT;
+    final long payloadStart = dataStart + fieldOff;
+    final byte numberType = sp.get(ValueLayout.JAVA_BYTE, payloadStart);
+    if (numberType == NUMBER_TYPE_INTEGER) {
+      return DeltaVarIntCodec.decodeSignedFromSegment(sp, payloadStart + 1);
+    }
+    if (numberType == NUMBER_TYPE_LONG) {
+      return DeltaVarIntCodec.decodeSignedLongFromSegment(sp, payloadStart + 1);
+    }
+    return Long.MIN_VALUE; // Sentinel: caller falls back to full path
+  }
+
+  /** Node kind id for OBJECT_NUMBER_VALUE. */
+  public static int objectNumberValueKindId() {
+    return OBJECT_NUMBER_VALUE_KIND_ID;
+  }
+
+  /**
+   * Cache of matching-slot arrays keyed by nameKey (primitive int → int[], no
+   * Integer boxing). Built lazily the first time a vectorized scan asks for a
+   * given field, reused by every subsequent query on the same page. Memory:
+   * one int[] per distinct queried nameKey; for a JSON-array workload that's
+   * typically ~5 arrays of ~150 entries each.
+   *
+   * <p>Immutable once built. For a read-only resource session the page's
+   * content doesn't change, so invalidation isn't needed.
+   */
+  private volatile Int2ObjectOpenHashMap<int[]> objectKeySlotsByName;
+  private static final int[] EMPTY_INT_ARRAY = new int[0];
+  private static final int OBJECT_KEY_KIND_ID = 26;
+
+  /**
+   * Return the slot indices whose OBJECT_KEY has the given nameKey. Single-pass
+   * bitmap walk the first time; array reuse thereafter. Borrowed from DuckDB /
+   * ClickHouse column pre-scan: pay the per-slot decode cost once, amortize
+   * across the many scans any realistic analytical query does.
+   *
+   * <p>Zero-allocation on the hot path once built — all subsequent calls just
+   * return the cached int[].
+   */
+  public int[] getObjectKeySlotsForNameKey(final int fieldKey) {
+    Int2ObjectOpenHashMap<int[]> cache = objectKeySlotsByName;
+    if (cache == null) {
+      synchronized (this) {
+        cache = objectKeySlotsByName;
+        if (cache == null) {
+          cache = new Int2ObjectOpenHashMap<>(8);
+          objectKeySlotsByName = cache;
+        }
+      }
+    }
+    final int[] cached = cache.get(fieldKey);
+    if (cached != null) return cached;
+    return buildObjectKeySlotsForNameKey(cache, fieldKey);
+  }
+
+  private int[] buildObjectKeySlotsForNameKey(final Int2ObjectOpenHashMap<int[]> cache,
+      final int fieldKey) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) return EMPTY_INT_ARRAY;
+    // Walk populated-slot bitmap in-line (avoid forEachPopulatedSlot's lambda —
+    // megamorphic hot path, direct bit scan inlines cleanly).
+    int[] buf = new int[32];
+    int count = 0;
+    for (int wordIndex = 0; wordIndex < PageLayout.BITMAP_WORDS; wordIndex++) {
+      long word = PageLayout.getBitmapWord(sp, wordIndex);
+      final int baseSlot = wordIndex << 6;
+      while (word != 0) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        final int slot = baseSlot + bit;
+        if (PageLayout.getDirNodeKindId(sp, slot) == OBJECT_KEY_KIND_ID
+            && getObjectKeyNameKeyFromSlot(slot) == fieldKey) {
+          if (count == buf.length) {
+            final int[] grown = new int[buf.length << 1];
+            System.arraycopy(buf, 0, grown, 0, count);
+            buf = grown;
+          }
+          buf[count++] = slot;
+        }
+        word &= word - 1;
+      }
+    }
+    final int[] result = (count == buf.length) ? buf : Arrays.copyOf(buf, count);
+    synchronized (cache) {
+      final int[] existing = cache.get(fieldKey);
+      if (existing != null) return existing;
+      cache.put(fieldKey, result);
+    }
+    return result;
   }
 
   /**
