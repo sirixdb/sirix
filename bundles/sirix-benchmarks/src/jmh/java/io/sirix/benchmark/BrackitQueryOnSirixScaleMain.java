@@ -11,6 +11,7 @@ import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.access.trx.node.HashType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -88,9 +89,16 @@ public final class BrackitQueryOnSirixScaleMain {
     // Smaller auto-commit window keeps offheap segments getting recycled
     // during the shred phase. Default is 1 M nodes — too coarse for 100 M+ records.
     int autoCommit = Integer.parseInt(System.getProperty("sirix.autoCommit.nodes", "131072"));
+    // Fast-shred defaults: path summary + rolling hash add ~40% CPU during
+    // shred and are not needed for analytical queries. Override via
+    // -DbuildPathSummary=true / -DhashType=ROLLING if needed.
+    boolean pathSummary = Boolean.parseBoolean(System.getProperty("buildPathSummary", "false"));
+    HashType hash = HashType.fromString(System.getProperty("hashType", "NONE"));
     BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
         .location(dbDir)
         .numberOfNodesBeforeAutoCommit(autoCommit)
+        .buildPathSummary(pathSummary)
+        .hashType(hash)
         .build();
     SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
     SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
