@@ -650,6 +650,20 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     LOGGER.debug("====================================================\n");
   }
 
+  /**
+   * Per-size-class locks — serialize fresh-index bump, pool poll, physical-memory
+   * counter update, and borrowedSegments bookkeeping for one size class at a
+   * time. Coarser than fully-lock-free, but eliminates the TOCTOU race between
+   * the physical-memory budget check and the actual counter update that let
+   * concurrent allocate() callers both pass the check, both bump the counter
+   * past the cap, and then leave bookkeeping in a state that SIGSEGV'd under
+   * JIT-compiled concurrent scans at 100 M records.
+   */
+  private final Object[] sizeClassLocks = new Object[SEGMENT_SIZES.length];
+  {
+    for (int i = 0; i < sizeClassLocks.length; i++) sizeClassLocks[i] = new Object();
+  }
+
   @Override
   public MemorySegment allocate(long size) {
     // Auto-initialize if not yet initialized (with default 16GB budget)
@@ -664,7 +678,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
     allocateCallCount.incrementAndGet();
 
-    int index = SegmentAllocators.getIndexForSize(size);
+    final int index = SegmentAllocators.getIndexForSize(size);
 
     if (index < 0 || index >= segmentPools.length) {
       throw new IllegalArgumentException("Unsupported size: " + size);
@@ -672,72 +686,75 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
     // CRITICAL: Use the actual segment size from the pool, NOT the requested size!
     // The pool returns segments of SEGMENT_SIZES[index], which may be larger than requested.
-    long actualSegmentSize = SEGMENT_SIZES[index];
+    final long actualSegmentSize = SEGMENT_SIZES[index];
 
-    // Check physical memory limit before allocation using actual segment size
-    long currentPhysical = physicalMemoryBytes.get();
-    if (currentPhysical + actualSegmentSize > maxBufferSize.get()) {
-      LOGGER.warn("Physical memory limit approaching: {} / {} MB (requested {} bytes, actual segment {} bytes)",
-          currentPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024), size, actualSegmentSize);
+    // Per-size-class lock — see sizeClassLocks javadoc. Serializes budget check,
+    // pool poll, fresh-index bump, physical counter update, borrowedSegments add.
+    synchronized (sizeClassLocks[index]) {
+      // Check physical memory limit before allocation using actual segment size
+      final long currentPhysical = physicalMemoryBytes.get();
+      if (currentPhysical + actualSegmentSize > maxBufferSize.get()) {
+        LOGGER.warn("Physical memory limit approaching: {} / {} MB (requested {} bytes, actual segment {} bytes)",
+            currentPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024), size, actualSegmentSize);
 
-      // Memory limit reached - throw exception rather than blocking
-      // Future enhancement: implement backpressure with waiting mechanism
-      throw new OutOfMemoryError(String.format(
-          "Cannot allocate %d bytes (actual segment: %d bytes). Physical memory: %d/%d MB, would exceed limit", size,
-          actualSegmentSize, currentPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024)));
-    }
+        // Memory limit reached - throw exception rather than blocking
+        // Future enhancement: implement backpressure with waiting mechanism
+        throw new OutOfMemoryError(String.format(
+            "Cannot allocate %d bytes (actual segment: %d bytes). Physical memory: %d/%d MB, would exceed limit", size,
+            actualSegmentSize, currentPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024)));
+      }
 
-    Deque<MemorySegment> pool = segmentPools[index];
-    MemorySegment segment = pool.poll();
+      final Deque<MemorySegment> pool = segmentPools[index];
+      MemorySegment segment = pool.poll();
 
-    if (segment == null) {
-      final long freshIndex = nextFreshSegmentIndex[index].getAndIncrement();
-      final long totalSegments = segmentCapacity[index];
-      if (freshIndex < totalSegments) {
-        final MemorySegment region = virtualRegions[index];
-        segment = region.asSlice(freshIndex * actualSegmentSize, actualSegmentSize);
-      } else {
-        // A segment might have been returned concurrently while we were checking fresh capacity.
-        segment = pool.poll();
-        if (segment == null) {
-          LOGGER.error(
-              "Pool {} exhausted! requestedSize={}, segmentSize={}, available={}, freshUsed={}, totalSegments={}",
-              index, size, actualSegmentSize, poolSizes[index].get(), freshIndex, totalSegments);
-          throw new OutOfMemoryError("Memory pool exhausted for size class " + size);
+      if (segment == null) {
+        final long freshIndex = nextFreshSegmentIndex[index].getAndIncrement();
+        final long totalSegments = segmentCapacity[index];
+        if (freshIndex < totalSegments) {
+          final MemorySegment region = virtualRegions[index];
+          segment = region.asSlice(freshIndex * actualSegmentSize, actualSegmentSize);
+        } else {
+          // A segment might have been returned concurrently while we were checking fresh capacity.
+          segment = pool.poll();
+          if (segment == null) {
+            LOGGER.error(
+                "Pool {} exhausted! requestedSize={}, segmentSize={}, available={}, freshUsed={}, totalSegments={}",
+                index, size, actualSegmentSize, poolSizes[index].get(), freshIndex, totalSegments);
+            throw new OutOfMemoryError("Memory pool exhausted for size class " + size);
+          }
         }
       }
-    }
 
-    // Track if this is the first time we're borrowing this segment
-    long address = segment.address();
-    boolean isFirstBorrow = borrowedSegments.add(address);
+      // Track if this is the first time we're borrowing this segment
+      final long address = segment.address();
+      final boolean isFirstBorrow = borrowedSegments.add(address);
 
-    // SIMPLIFIED: Always increment physical memory on first borrow
-    // Note: actualSegmentSize is already defined above (uses SEGMENT_SIZES[index])
-    // release() uses segment.byteSize() which is the actual size, so we must match here.
-    // Don't track "re-borrow" cases - too complex with async operations
-    if (isFirstBorrow) {
-      long newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
+      // Always increment physical memory on first borrow (re-borrows were
+      // already counted when the segment was first handed out and haven't
+      // been refunded — release() only decrements on successful madvise).
+      if (isFirstBorrow) {
+        final long newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
 
-      if (newPhysical > maxBufferSize.get() * 0.9) {
-        double percentUsed = (newPhysical * 100.0) / maxBufferSize.get();
-        LOGGER.warn("Physical memory at {:.1f}% of limit ({} MB / {} MB)", percentUsed, newPhysical / (1024 * 1024),
-            maxBufferSize.get() / (1024 * 1024));
+        if (newPhysical > maxBufferSize.get() * 0.9) {
+          final double percentUsed = (newPhysical * 100.0) / maxBufferSize.get();
+          LOGGER.warn("Physical memory at {:.1f}% of limit ({} MB / {} MB)", percentUsed, newPhysical / (1024 * 1024),
+              maxBufferSize.get() / (1024 * 1024));
+        }
       }
+
+      // Decrement pool counter + track utilization
+      poolSizes[index].decrementAndGet();
+      totalBorrows[index].incrementAndGet();
+
+      // NOTE: we no longer proactively touch the first byte. Under the old
+      // lock-free allocate, that byte write triggered SIGSEGV in JIT-compiled
+      // code at high parallelism — the Java foreign-memory bounds/scope checks
+      // raced with concurrent allocate/release. With per-size-class locking
+      // the segment handoff is atomic, but we still leave the first-touch to
+      // the caller (MADV_DONTNEED pages zero-fault on read anyway).
+
+      return segment;
     }
-    // Note: If !isFirstBorrow (re-borrow), don't increment - already counted
-
-    // Decrement pool counter
-    poolSizes[index].decrementAndGet();
-
-    // Track utilization
-    totalBorrows[index].incrementAndGet();
-
-    // Touch first byte to ensure pages are faulted in after madvise(MADV_DONTNEED).
-    // This prevents SIGSEGV when native code (like LZ4) accesses the memory.
-    segment.set(JAVA_BYTE, 0, (byte) 0);
-
-    return segment;
   }
 
   /**
@@ -827,15 +844,21 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           java.util.Arrays.toString(getPoolSizes()));
     }
 
-    long size = segment.byteSize();
-    int index = SegmentAllocators.getIndexForSize(size);
+    final long size = segment.byteSize();
+    final int index = SegmentAllocators.getIndexForSize(size);
 
     if (index < 0 || index >= segmentPools.length) {
       LOGGER.error("CANNOT RETURN SEGMENT! Invalid size: {}", size);
       throw new IllegalArgumentException("Segment size not supported for reuse: " + size);
     }
 
-    long address = segment.address();
+    // Serialize with allocate() for this size class — see sizeClassLocks javadoc.
+    // The madvise + counter decrement + pool offer must be atomic with respect to
+    // the allocate-side budget check, or a concurrent allocate can observe a stale
+    // counter, get handed a segment that's still being recycled, and SIGSEGV.
+    synchronized (sizeClassLocks[index]) {
+
+    final long address = segment.address();
 
     // CRITICAL: Atomically check-and-remove to prevent TOCTOU race
     // Multiple threads can call release() simultaneously on same segment address
@@ -932,6 +955,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     // (correct).
     segmentPools[index].offer(segment);
     poolSizes[index].incrementAndGet();
+    } // end synchronized (sizeClassLocks[index])
   }
 
   @Override
