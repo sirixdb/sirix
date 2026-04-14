@@ -686,31 +686,38 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     // in follow-up threads that dereference now-broken references; waiting
     // for the cache to free up is almost always what we want, and the
     // bounded retry still fails fast if eviction genuinely can't keep up.
+    // Atomic lock-free budget reserve with adaptive back-off. The ClockSweeper
+    // runs on a separate scheduled thread and frees space continuously; on
+    // over-budget we park briefly and retry instead of bubbling OOM, because
+    // a mid-query OOM cascades to SIGSEGV in the caller's partially-built
+    // page state (seen in KeyValueLeafPage.setSlottedPage, LZ4_decompress_safe
+    // writing to an invalid slice, etc.). Park intervals grow linearly so a
+    // pathological workload fails in bounded time (~10 s) with a clean OOM
+    // instead of hanging forever.
     long newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
     if (newPhysical > maxBufferSize.get()) {
       physicalMemoryBytes.addAndGet(-actualSegmentSize);
-      // Give the clock sweeper a few windows to evict pages. The sweeper runs
-      // on a timer + is triggered by evictIfOverBudget on every cache put.
-      for (int retry = 0; retry < 8; retry++) {
-        try {
-          Thread.sleep(5); // 5ms × 8 = 40ms worst case
-        } catch (InterruptedException ie) {
-          Thread.currentThread().interrupt();
-          break;
-        }
+      boolean reserved = false;
+      long parkNanos = 50_000L; // 50 µs initial park — tiny, in case the sweeper already freed something.
+      long totalWaitedNanos = 0L;
+      final long maxWaitNanos = 10_000_000_000L; // 10 s absolute ceiling.
+      while (totalWaitedNanos < maxWaitNanos) {
+        java.util.concurrent.locks.LockSupport.parkNanos(parkNanos);
+        totalWaitedNanos += parkNanos;
+        parkNanos = Math.min(parkNanos * 2, 5_000_000L); // grow to 5 ms, cap there.
         newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
-        if (newPhysical <= maxBufferSize.get()) break;
+        if (newPhysical <= maxBufferSize.get()) { reserved = true; break; }
         physicalMemoryBytes.addAndGet(-actualSegmentSize);
       }
-      if (newPhysical > maxBufferSize.get()) {
-        LOGGER.warn("Physical memory limit approaching after retry: {} / {} MB (requested {} bytes)",
-            (newPhysical - actualSegmentSize) / (1024 * 1024), maxBufferSize.get() / (1024 * 1024),
-            size);
+      if (!reserved) {
+        LOGGER.warn("Physical memory limit saturated for {} ms; giving up: {} / {} MB (requested {} bytes)",
+            totalWaitedNanos / 1_000_000L,
+            (newPhysical - actualSegmentSize) / (1024 * 1024), maxBufferSize.get() / (1024 * 1024), size);
         throw new OutOfMemoryError(String.format(
-            "Cannot allocate %d bytes (actual segment: %d bytes). Physical memory: %d/%d MB, would exceed limit "
-                + "(sweeper did not free enough after 40ms)",
+            "Cannot allocate %d bytes (actual segment: %d bytes). Physical memory: %d/%d MB, sweeper did not "
+                + "free enough in %d ms",
             size, actualSegmentSize, (newPhysical - actualSegmentSize) / (1024 * 1024),
-            maxBufferSize.get() / (1024 * 1024)));
+            maxBufferSize.get() / (1024 * 1024), totalWaitedNanos / 1_000_000L));
       }
     }
     if (newPhysical > maxBufferSize.get() * 0.9) {
