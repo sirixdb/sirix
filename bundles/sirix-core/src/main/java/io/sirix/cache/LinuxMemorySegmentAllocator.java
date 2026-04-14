@@ -47,6 +47,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private static final int MAP_ANONYMOUS = 0x20; // Anonymous mapping
   private static final int MAP_NORESERVE = 0x4000; // Don't reserve swap space
   private static final int MADV_DONTNEED = 4; // Linux: release physical memory, keep virtual
+  private static final int MADV_POPULATE_WRITE = 23; // Linux 5.14+: pre-fault + zero pages writable
 
   // sysconf constants for page size detection
   private static final int _SC_PAGESIZE = 30; // Get system page size
@@ -650,20 +651,6 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     LOGGER.debug("====================================================\n");
   }
 
-  /**
-   * Per-size-class locks — serialize fresh-index bump, pool poll, physical-memory
-   * counter update, and borrowedSegments bookkeeping for one size class at a
-   * time. Coarser than fully-lock-free, but eliminates the TOCTOU race between
-   * the physical-memory budget check and the actual counter update that let
-   * concurrent allocate() callers both pass the check, both bump the counter
-   * past the cap, and then leave bookkeeping in a state that SIGSEGV'd under
-   * JIT-compiled concurrent scans at 100 M records.
-   */
-  private final Object[] sizeClassLocks = new Object[SEGMENT_SIZES.length];
-  {
-    for (int i = 0; i < sizeClassLocks.length; i++) sizeClassLocks[i] = new Object();
-  }
-
   @Override
   public MemorySegment allocate(long size) {
     // Auto-initialize if not yet initialized (with default 16GB budget)
@@ -688,73 +675,98 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     // The pool returns segments of SEGMENT_SIZES[index], which may be larger than requested.
     final long actualSegmentSize = SEGMENT_SIZES[index];
 
-    // Per-size-class lock — see sizeClassLocks javadoc. Serializes budget check,
-    // pool poll, fresh-index bump, physical counter update, borrowedSegments add.
-    synchronized (sizeClassLocks[index]) {
-      // Check physical memory limit before allocation using actual segment size
-      final long currentPhysical = physicalMemoryBytes.get();
-      if (currentPhysical + actualSegmentSize > maxBufferSize.get()) {
-        LOGGER.warn("Physical memory limit approaching: {} / {} MB (requested {} bytes, actual segment {} bytes)",
-            currentPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024), size, actualSegmentSize);
-
-        // Memory limit reached - throw exception rather than blocking
-        // Future enhancement: implement backpressure with waiting mechanism
+    // Atomic budget reserve: bump first, roll back on failure. Eliminates
+    // the TOCTOU race between check and update without taking a lock — the
+    // old check-then-bump let two concurrent allocators both observe the
+    // pre-bump value, both proceed, and both push the counter past the cap.
+    //
+    // On budget-exceeded we spin-wait briefly for the ClockSweeper to evict
+    // some pages back to the pool instead of throwing straight away. An OOM
+    // mid-query corrupts partially-constructed pages and surfaces as SIGSEGV
+    // in follow-up threads that dereference now-broken references; waiting
+    // for the cache to free up is almost always what we want, and the
+    // bounded retry still fails fast if eviction genuinely can't keep up.
+    long newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
+    if (newPhysical > maxBufferSize.get()) {
+      physicalMemoryBytes.addAndGet(-actualSegmentSize);
+      // Give the clock sweeper a few windows to evict pages. The sweeper runs
+      // on a timer + is triggered by evictIfOverBudget on every cache put.
+      for (int retry = 0; retry < 8; retry++) {
+        try {
+          Thread.sleep(5); // 5ms × 8 = 40ms worst case
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          break;
+        }
+        newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
+        if (newPhysical <= maxBufferSize.get()) break;
+        physicalMemoryBytes.addAndGet(-actualSegmentSize);
+      }
+      if (newPhysical > maxBufferSize.get()) {
+        LOGGER.warn("Physical memory limit approaching after retry: {} / {} MB (requested {} bytes)",
+            (newPhysical - actualSegmentSize) / (1024 * 1024), maxBufferSize.get() / (1024 * 1024),
+            size);
         throw new OutOfMemoryError(String.format(
-            "Cannot allocate %d bytes (actual segment: %d bytes). Physical memory: %d/%d MB, would exceed limit", size,
-            actualSegmentSize, currentPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024)));
+            "Cannot allocate %d bytes (actual segment: %d bytes). Physical memory: %d/%d MB, would exceed limit "
+                + "(sweeper did not free enough after 40ms)",
+            size, actualSegmentSize, (newPhysical - actualSegmentSize) / (1024 * 1024),
+            maxBufferSize.get() / (1024 * 1024)));
       }
-
-      final Deque<MemorySegment> pool = segmentPools[index];
-      MemorySegment segment = pool.poll();
-
-      if (segment == null) {
-        final long freshIndex = nextFreshSegmentIndex[index].getAndIncrement();
-        final long totalSegments = segmentCapacity[index];
-        if (freshIndex < totalSegments) {
-          final MemorySegment region = virtualRegions[index];
-          segment = region.asSlice(freshIndex * actualSegmentSize, actualSegmentSize);
-        } else {
-          // A segment might have been returned concurrently while we were checking fresh capacity.
-          segment = pool.poll();
-          if (segment == null) {
-            LOGGER.error(
-                "Pool {} exhausted! requestedSize={}, segmentSize={}, available={}, freshUsed={}, totalSegments={}",
-                index, size, actualSegmentSize, poolSizes[index].get(), freshIndex, totalSegments);
-            throw new OutOfMemoryError("Memory pool exhausted for size class " + size);
-          }
-        }
-      }
-
-      // Track if this is the first time we're borrowing this segment
-      final long address = segment.address();
-      final boolean isFirstBorrow = borrowedSegments.add(address);
-
-      // Always increment physical memory on first borrow (re-borrows were
-      // already counted when the segment was first handed out and haven't
-      // been refunded — release() only decrements on successful madvise).
-      if (isFirstBorrow) {
-        final long newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
-
-        if (newPhysical > maxBufferSize.get() * 0.9) {
-          final double percentUsed = (newPhysical * 100.0) / maxBufferSize.get();
-          LOGGER.warn("Physical memory at {:.1f}% of limit ({} MB / {} MB)", percentUsed, newPhysical / (1024 * 1024),
-              maxBufferSize.get() / (1024 * 1024));
-        }
-      }
-
-      // Decrement pool counter + track utilization
-      poolSizes[index].decrementAndGet();
-      totalBorrows[index].incrementAndGet();
-
-      // NOTE: we no longer proactively touch the first byte. Under the old
-      // lock-free allocate, that byte write triggered SIGSEGV in JIT-compiled
-      // code at high parallelism — the Java foreign-memory bounds/scope checks
-      // raced with concurrent allocate/release. With per-size-class locking
-      // the segment handoff is atomic, but we still leave the first-touch to
-      // the caller (MADV_DONTNEED pages zero-fault on read anyway).
-
-      return segment;
     }
+    if (newPhysical > maxBufferSize.get() * 0.9) {
+      final double percentUsed = (newPhysical * 100.0) / maxBufferSize.get();
+      LOGGER.warn("Physical memory at {:.1f}% of limit ({} MB / {} MB)", percentUsed,
+          newPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024));
+    }
+
+    final Deque<MemorySegment> pool = segmentPools[index];
+    MemorySegment segment = pool.poll();
+
+    if (segment == null) {
+      final long freshIndex = nextFreshSegmentIndex[index].getAndIncrement();
+      final long totalSegments = segmentCapacity[index];
+      if (freshIndex < totalSegments) {
+        final MemorySegment region = virtualRegions[index];
+        segment = region.asSlice(freshIndex * actualSegmentSize, actualSegmentSize);
+      } else {
+        // Concurrent release may have returned a segment while we were checking fresh capacity.
+        segment = pool.poll();
+        if (segment == null) {
+          physicalMemoryBytes.addAndGet(-actualSegmentSize); // Roll back the reserve.
+          LOGGER.error("Pool {} exhausted! requestedSize={}, segmentSize={}, available={}, freshUsed={}, totalSegments={}",
+              index, size, actualSegmentSize, poolSizes[index].get(), freshIndex, totalSegments);
+          throw new OutOfMemoryError("Memory pool exhausted for size class " + size);
+        }
+      }
+    }
+
+    // Track first-borrow for the virtual address. Re-borrows (same address,
+    // released back to pool and re-handed-out) don't count against budget —
+    // subtract our speculative reservation since the segment's physical
+    // pages are already accounted for.
+    final long address = segment.address();
+    final boolean isFirstBorrow = borrowedSegments.add(address);
+    if (!isFirstBorrow) {
+      physicalMemoryBytes.addAndGet(-actualSegmentSize); // Already counted when first handed out.
+    }
+
+    poolSizes[index].decrementAndGet();
+    totalBorrows[index].incrementAndGet();
+
+    // Pre-commit physical pages with MADV_POPULATE_WRITE so that subsequent
+    // writes from native code (LZ4 decompressor, bulk MemorySegment.fill, etc.)
+    // don't hit lazy-commit failures on a MAP_NORESERVE region under tight
+    // physical memory — those surface as SIGSEGV/SIGBUS from native stubs
+    // instead of a clean OOM. Swallow errors: older kernels lack this flag
+    // (EINVAL); we just fall back to lazy-commit, which only misbehaves when
+    // RAM is truly exhausted.
+    try {
+      MADVISE.invokeExact(segment, actualSegmentSize, MADV_POPULATE_WRITE);
+    } catch (Throwable ignored) {
+      // best-effort; worst case caller hits the lazy-commit path
+    }
+
+    return segment;
   }
 
   /**
@@ -851,12 +863,6 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       LOGGER.error("CANNOT RETURN SEGMENT! Invalid size: {}", size);
       throw new IllegalArgumentException("Segment size not supported for reuse: " + size);
     }
-
-    // Serialize with allocate() for this size class — see sizeClassLocks javadoc.
-    // The madvise + counter decrement + pool offer must be atomic with respect to
-    // the allocate-side budget check, or a concurrent allocate can observe a stale
-    // counter, get handed a segment that's still being recycled, and SIGSEGV.
-    synchronized (sizeClassLocks[index]) {
 
     final long address = segment.address();
 
@@ -955,7 +961,6 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     // (correct).
     segmentPools[index].offer(segment);
     poolSizes[index].incrementAndGet();
-    } // end synchronized (sizeClassLocks[index])
   }
 
   @Override
