@@ -186,6 +186,14 @@ final class JsonNodeTrxImpl extends
   private static final Str STR_FALSE = new Str("false");
 
   /**
+   * Interning cache for object-key names encountered during inserts. Typical JSON schemas
+   * repeat a small set of field names across millions of records; allocating a fresh QNm
+   * for every insert wastes tens of millions of objects and gave path summary lookup a
+   * measurable QNm-construction overhead on the shred hot path.
+   */
+  private final java.util.HashMap<String, QNm> nameToQNm = new java.util.HashMap<>();
+
+  /**
    * Constructor.
    *
    * @param databaseName The database name where the transaction operates.
@@ -979,7 +987,14 @@ final class JsonNodeTrxImpl extends
    * @return the path node key, or 0 if path summary is not built
    */
   private long getPathNodeKey(final long restoreNodeKey, final String name, final NodeKind kind) {
-    return getPathNodeKey(restoreNodeKey, new QNm(name), kind);
+    // Intern QNm per unique String name — hot during shred, cache keeps the
+    // per-insert allocation out of the fast path.
+    QNm qnm = nameToQNm.get(name);
+    if (qnm == null) {
+      qnm = new QNm(name);
+      nameToQNm.put(name, qnm);
+    }
+    return getPathNodeKey(restoreNodeKey, qnm, kind);
   }
 
   private long getPathNodeKey(final long restoreNodeKey, final QNm name, final NodeKind kind) {
