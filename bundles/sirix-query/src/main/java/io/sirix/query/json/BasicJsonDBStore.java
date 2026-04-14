@@ -112,6 +112,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final int numberOfNodesBeforeAutoCommit;
 
   /**
+   * Whether the record-to-revisions index should be maintained. Off by default
+   * on this builder — it writes one index entry per insert and is only needed
+   * for cross-revision record history lookups.
+   */
+  private final boolean storeNodeHistory;
+
+  /**
    * Get a new builder instance.
    */
   public static Builder newBuilder() {
@@ -173,6 +180,26 @@ public final class BasicJsonDBStore implements JsonDBStore {
     private int numberOfNodesBeforeAutoCommit = System.getProperty("numberOfNodesBeforeAutoCommit") != null
         ? Integer.parseInt(System.getProperty("numberOfNodesBeforeAutoCommit"))
         : 262_144 << 2;
+
+    /**
+     * Whether the record-to-revisions index is maintained on insert. Default
+     * matches ResourceConfiguration's default ({@code true}) but is overridable
+     * via {@code -DstoreNodeHistory=false} for write-heavy, single-revision
+     * workloads that don't need cross-revision record history lookups.
+     */
+    private boolean storeNodeHistory = System.getProperty("storeNodeHistory") == null
+        || Boolean.parseBoolean(System.getProperty("storeNodeHistory"));
+
+    /**
+     * Toggle the record-to-revisions index. Default true.
+     *
+     * @param storeNodeHistory {@code true} to enable, {@code false} to skip the per-insert index entry
+     * @return this builder instance
+     */
+    public Builder storeNodeHistory(final boolean storeNodeHistory) {
+      this.storeNodeHistory = storeNodeHistory;
+      return this;
+    }
 
     /**
      * Set the storage type (default: file backend).
@@ -280,6 +307,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
     hashType = builder.hashType;
     versioningType = builder.versioningType;
     numberOfNodesBeforeAutoCommit = builder.numberOfNodesBeforeAutoCommit;
+    storeNodeHistory = builder.storeNodeHistory;
   }
 
   /**
@@ -465,6 +493,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                  .useDeweyIDs(resourceOptions.useDeweyIDs())
                                                  .hashKind(resourceOptions.hashType())
                                                  .versioningApproach(versioningType)
+                                                 .storeNodeHistory(storeNodeHistory)
                                                  .build());
     return resourceOptions;
   }
@@ -585,6 +614,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                          .buildPathSummary(buildPathSummary)
                                                          .hashKind(hashType)
                                                          .versioningApproach(versioningType)
+                                                         .storeNodeHistory(storeNodeHistory)
                                                          .build());
             try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
                 final JsonNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {

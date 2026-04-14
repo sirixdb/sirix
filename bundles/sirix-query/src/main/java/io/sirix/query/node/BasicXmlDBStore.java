@@ -100,6 +100,12 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private final int numberOfNodesBeforeAutoCommit;
 
   /**
+   * Whether the record-to-revisions index should be maintained on insert.
+   * Off by default only matters for write-heavy, single-revision workloads.
+   */
+  private final boolean storeNodeHistory;
+
+  /**
    * Determines the versioning type.
    */
   private final VersioningType versioningType;
@@ -167,6 +173,24 @@ public final class BasicXmlDBStore implements XmlDBStore {
     private int numberOfNodesBeforeAutoCommit = System.getProperty("numberOfNodesBeforeAutoCommit") != null
         ? Integer.parseInt(System.getProperty("numberOfNodesBeforeAutoCommit"))
         : 262_144 << 2;
+
+    /**
+     * Whether to maintain the per-insert record-to-revisions index.
+     * Overridable via {@code -DstoreNodeHistory=false}.
+     */
+    private boolean storeNodeHistory = System.getProperty("storeNodeHistory") == null
+        || Boolean.parseBoolean(System.getProperty("storeNodeHistory"));
+
+    /**
+     * Toggle the record-to-revisions index.
+     *
+     * @param storeNodeHistory {@code true} to enable, {@code false} to skip the per-insert index entry
+     * @return this builder instance
+     */
+    public Builder storeNodeHistory(final boolean storeNodeHistory) {
+      this.storeNodeHistory = storeNodeHistory;
+      return this;
+    }
 
     /**
      * Determines if DeweyIDs should be stored or not.
@@ -269,6 +293,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
     hashType = builder.hashType;
     storeDeweyIds = builder.storeDeweyIds;
     numberOfNodesBeforeAutoCommit = builder.numberOfNodesBeforeAutoCommit;
+    storeNodeHistory = builder.storeNodeHistory;
     versioningType = builder.versioningType;
   }
 
@@ -368,6 +393,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
                                                    .customCommitTimestamps(commitTimestamp != null)
                                                    .hashKind(hashType)
                                                    .versioningApproach(versioningType)
+                                                   .storeNodeHistory(storeNodeHistory)
                                                    .build());
       final XmlDBCollection collection = new XmlDBCollection(collName, database);
       collections.put(database, collection);
@@ -407,6 +433,7 @@ public final class BasicXmlDBStore implements XmlDBStore {
                                                            .storageType(storageType)
                                                            .hashKind(hashType)
                                                            .versioningApproach(versioningType)
+                                                           .storeNodeHistory(storeNodeHistory)
                                                            .build());
               try (final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
                   final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
