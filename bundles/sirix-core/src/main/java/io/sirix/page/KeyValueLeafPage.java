@@ -1683,6 +1683,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public byte[] getDeweyIdAsByteArray(int slotNumber) {
+    // Fast path: skip segment lookup + flag read if DeweyIDs aren't stored
+    // for this resource. Hot during shred — called on every bindWriteSingleton.
+    if (!areDeweyIDsStored) {
+      return null;
+    }
     var memorySegment = getDeweyId(slotNumber);
 
     if (memorySegment == null) {
