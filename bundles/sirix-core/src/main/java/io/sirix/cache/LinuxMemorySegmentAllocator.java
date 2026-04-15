@@ -199,6 +199,193 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private final AtomicLong[] totalBorrows = new AtomicLong[SEGMENT_SIZES.length];
   private final AtomicLong[] totalReturns = new AtomicLong[SEGMENT_SIZES.length];
 
+  // =====================================================================
+  // Diagnostic tracing: records allocate/release events per virtual address
+  // so a stale release (second release of an address by a caller holding a
+  // dangling reference) can be identified before MADV_DONTNEED tears the
+  // PTE of pages that another thread has just re-borrowed. Zero cost when
+  // -Dsirix.allocator.trace=false (default): one boolean check that JIT
+  // dead-code-eliminates the rest. When enabled, each event costs one
+  // CHM.computeIfAbsent (only the first event per address allocates an
+  // AddressTrace) and four primitive-array stores — NO per-event object
+  // allocation, NO stack capture. Stacks are captured lazily at detection
+  // time (the current caller's stack, which is free — we're already
+  // paying the cost of handling the detection). Historical callers are
+  // identified by thread id + nanotime.
+  // =====================================================================
+
+  private static final boolean TRACE_ENABLED = Boolean.getBoolean("sirix.allocator.trace");
+
+  /** If true, a detected stale release throws instead of only logging. */
+  private static final boolean FAIL_ON_STALE_RELEASE =
+      Boolean.getBoolean("sirix.allocator.trace.fail_on_stale");
+
+  /** Window within which an ALLOC on a different thread makes a subsequent RELEASE suspicious. */
+  private static final long STALE_WINDOW_NANOS = 1_000_000_000L; // 1 s
+
+  /** Power-of-two ring size per address — we only need the last few events. */
+  private static final int TRACE_RING_SIZE = 8;
+  private static final int TRACE_RING_MASK = TRACE_RING_SIZE - 1;
+
+  // Compact op codes for the primitive-array ring. Epoch 0 means "unused slot".
+  private static final byte OP_ALLOC_FRESH    = 1;
+  private static final byte OP_ALLOC_REBORROW = 2;
+  private static final byte OP_RELEASE_OK     = 3;
+  private static final byte OP_RELEASE_DOUBLE = 4;
+  private static final byte OP_RELEASE_STALE  = 5;
+
+  private static final ConcurrentHashMap<Long, AddressTrace> addressTraces =
+      TRACE_ENABLED ? new ConcurrentHashMap<>() : null;
+
+  private static final AtomicLong traceEpoch = new AtomicLong();
+  private static final AtomicLong staleReleaseCount = new AtomicLong();
+
+  /** Primitive-array ring — zero per-event allocation after the AddressTrace itself is created. */
+  private static final class AddressTrace {
+    final long[] epochs    = new long[TRACE_RING_SIZE];
+    final byte[] ops       = new byte[TRACE_RING_SIZE];
+    final long[] threadIds = new long[TRACE_RING_SIZE];
+    final long[] nanoTimes = new long[TRACE_RING_SIZE];
+    final AtomicInteger cursor = new AtomicInteger();
+
+    void record(long epoch, byte op, long threadId, long nanoTime) {
+      int idx = cursor.getAndIncrement() & TRACE_RING_MASK;
+      // Write epoch LAST so readers that see a non-zero epoch also see the
+      // rest of the fields (plain long writes are atomic on 64-bit; ordering
+      // is best-effort — acceptable for diagnostic torn reads).
+      ops[idx]       = op;
+      threadIds[idx] = threadId;
+      nanoTimes[idx] = nanoTime;
+      epochs[idx]    = epoch;
+    }
+
+    /** Return ring index of the highest-epoch event matching any of the given op codes, or -1. */
+    int mostRecent(byte op1, byte op2) {
+      int bestIdx = -1;
+      long bestEpoch = 0L;
+      for (int i = 0; i < TRACE_RING_SIZE; i++) {
+        long epoch = epochs[i];
+        if (epoch == 0L) continue;
+        byte op = ops[i];
+        if ((op == op1 || op == op2) && epoch > bestEpoch) {
+          bestEpoch = epoch;
+          bestIdx = i;
+        }
+      }
+      return bestIdx;
+    }
+
+    int mostRecent(byte op) {
+      int bestIdx = -1;
+      long bestEpoch = 0L;
+      for (int i = 0; i < TRACE_RING_SIZE; i++) {
+        long epoch = epochs[i];
+        if (epoch == 0L) continue;
+        if (ops[i] == op && epoch > bestEpoch) {
+          bestEpoch = epoch;
+          bestIdx = i;
+        }
+      }
+      return bestIdx;
+    }
+  }
+
+  private static String opName(byte op) {
+    return switch (op) {
+      case OP_ALLOC_FRESH    -> "ALLOC_FRESH";
+      case OP_ALLOC_REBORROW -> "ALLOC_REBORROW";
+      case OP_RELEASE_OK     -> "RELEASE_OK";
+      case OP_RELEASE_DOUBLE -> "RELEASE_DOUBLE";
+      case OP_RELEASE_STALE  -> "RELEASE_STALE";
+      default                -> "OP_" + op;
+    };
+  }
+
+  private static void trace(long address, byte op) {
+    if (!TRACE_ENABLED) return;
+    AddressTrace at = addressTraces.computeIfAbsent(address, _ -> new AddressTrace());
+    at.record(traceEpoch.incrementAndGet(), op,
+              Thread.currentThread().threadId(), System.nanoTime());
+  }
+
+  /**
+   * Detect whether the current release() call is stale — i.e. another thread
+   * has just allocated this virtual address and is presumably still using it.
+   * Signature: the most recent ALLOC on this address is from a different
+   * thread, within STALE_WINDOW_NANOS, and no successful RELEASE has happened
+   * since that ALLOC. If true, calling MADV_DONTNEED here would tear pages
+   * the other thread is writing — the exact pattern seen in the LZ4
+   * decompress crashes (hs_err: SEGV_MAPERR in LZ4_decompress_safe).
+   */
+  private static boolean detectStaleRelease(long address) {
+    if (!TRACE_ENABLED) return false;
+    AddressTrace at = addressTraces.get(address);
+    if (at == null) return false;
+    int allocIdx = at.mostRecent(OP_ALLOC_FRESH, OP_ALLOC_REBORROW);
+    if (allocIdx < 0) return false;
+    long nowNanos = System.nanoTime();
+    if (nowNanos - at.nanoTimes[allocIdx] > STALE_WINDOW_NANOS) return false;
+    if (at.threadIds[allocIdx] == Thread.currentThread().threadId()) return false;
+    int releaseIdx = at.mostRecent(OP_RELEASE_OK);
+    return releaseIdx < 0 || at.epochs[releaseIdx] < at.epochs[allocIdx];
+  }
+
+  /** Dump the per-address ring to stderr + log. Also logs the CURRENT caller's stack. */
+  public static void dumpAddressTrace(long address) {
+    if (!TRACE_ENABLED) {
+      LOGGER.warn("Allocator trace not enabled (set -Dsirix.allocator.trace=true)");
+      return;
+    }
+    AddressTrace at = addressTraces.get(address);
+    if (at == null) {
+      LOGGER.info("No trace recorded for address 0x{}", Long.toHexString(address));
+      return;
+    }
+
+    // Collect non-empty slots and sort by epoch (insertion sort on n<=8).
+    int[] order = new int[TRACE_RING_SIZE];
+    int n = 0;
+    for (int i = 0; i < TRACE_RING_SIZE; i++) {
+      if (at.epochs[i] != 0L) order[n++] = i;
+    }
+    for (int i = 1; i < n; i++) {
+      int key = order[i];
+      long keyEpoch = at.epochs[key];
+      int j = i - 1;
+      while (j >= 0 && at.epochs[order[j]] > keyEpoch) {
+        order[j + 1] = order[j];
+        j--;
+      }
+      order[j + 1] = key;
+    }
+
+    StringBuilder sb = new StringBuilder(2048);
+    sb.append("\n=== Allocator event trace for address 0x")
+      .append(Long.toHexString(address)).append(" ===\n");
+    for (int i = 0; i < n; i++) {
+      int s = order[i];
+      sb.append(String.format("  #%-6d %-16s tid=%-4d @%d ns%n",
+          at.epochs[s], opName(at.ops[s]), at.threadIds[s], at.nanoTimes[s]));
+    }
+    sb.append("  (stale releases detected so far: ").append(staleReleaseCount.get()).append(")\n");
+    sb.append("  --- Current caller stack (captured at detection time) ---\n");
+    StackTraceElement[] frames = Thread.currentThread().getStackTrace();
+    // Skip getStackTrace() and dumpAddressTrace() itself.
+    int start = Math.min(2, frames.length);
+    int end = Math.min(frames.length, start + 18);
+    for (int i = start; i < end; i++) {
+      sb.append("    at ").append(frames[i]).append('\n');
+    }
+    sb.append("================================================\n");
+    LOGGER.error(sb.toString());
+    System.err.println(sb);
+    System.err.flush();
+  }
+
+  public static long getStaleReleaseCount() {
+    return staleReleaseCount.get();
+  }
+
   /**
    * Private constructor to enforce singleton pattern.
    */
@@ -760,6 +947,26 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     poolSizes[index].decrementAndGet();
     totalBorrows[index].incrementAndGet();
 
+    if (TRACE_ENABLED) {
+      trace(address, isFirstBorrow ? OP_ALLOC_FRESH : OP_ALLOC_REBORROW);
+      // isFirstBorrow == false is the REAL anomaly: the address was still
+      // tracked as borrowed when the pool handed it back out. In a healthy
+      // allocator this never happens — release() removes the address before
+      // pool.offer(), so subsequent allocate()s see it unborrowed. If we see
+      // this, one of three things is broken:
+      //   1. release() re-added the address after a madvise error (EFAULT
+      //      branch at ~line 1094 — legitimate; we skip pool.offer there).
+      //   2. Two allocate()s raced for the same address from the pool
+      //      (shouldn't happen — ConcurrentLinkedDeque.poll is atomic).
+      //   3. The address was already handed to a live owner and is being
+      //      handed out AGAIN — the real double-allocation bug.
+      // Log with full stack so we can tell the three apart.
+      if (!isFirstBorrow) {
+        staleReleaseCount.incrementAndGet(); // reusing counter for any allocator anomaly
+        dumpAddressTrace(address);
+      }
+    }
+
     // Pre-commit physical pages with MADV_POPULATE_WRITE so that subsequent
     // writes from native code (LZ4 decompressor, bulk MemorySegment.fill, etc.)
     // don't hit lazy-commit failures on a MAP_NORESERVE region under tight
@@ -880,6 +1087,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     if (!wasRemoved) {
       // Segment was never borrowed OR already released by another thread
       doubleReleaseCount.incrementAndGet();
+      if (TRACE_ENABLED) trace(address, OP_RELEASE_DOUBLE);
       if (callNum % 100 == 0) {
         LOGGER.warn(
             "Attempting to release segment that was never borrowed or already released: address={}, size={} (call #{})",
@@ -887,6 +1095,13 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       }
       return; // Prevent double-release
     }
+
+    // Stale-release detection is DISABLED in release() because the naive
+    // "released by different thread than allocated" heuristic fires on every
+    // normal cache eviction (ClockSweeper / cross-worker eviction is the
+    // design). The real bug signature lives in allocate()'s isFirstBorrow
+    // path — see trace there. We still record the event for post-hoc
+    // analysis but do not interfere with the release.
 
     // Track utilization
     totalReturns[index].incrementAndGet();
@@ -968,6 +1183,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     // (correct).
     segmentPools[index].offer(segment);
     poolSizes[index].incrementAndGet();
+
+    if (TRACE_ENABLED) trace(address, OP_RELEASE_OK);
   }
 
   @Override
