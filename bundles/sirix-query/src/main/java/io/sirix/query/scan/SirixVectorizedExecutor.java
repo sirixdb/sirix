@@ -22,6 +22,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
+import io.sirix.index.path.summary.HyperLogLogSketch;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.page.KeyValueLeafPage;
@@ -132,6 +133,44 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       throw new QueryException(e,
                                ErrorCode.BIT_DYN_INT_ERROR,
                                "Sirix vectorized filter-count failed: %s",
+                               e.getMessage());
+    }
+  }
+
+  @Override
+  public Sequence executeCountDistinct(QueryContext ctx, String field) throws QueryException {
+    try {
+      // Only honour the short-circuit when the resource maintains an HLL per path.
+      if (!session.getResourceConfig().withPathStatistics) {
+        return null;
+      }
+      try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
+        final var summary = rtx.getResourceSession().openPathSummary(revision);
+        try {
+          final var paths = summary.findPathsByLocalName(field);
+          if (paths.isEmpty()) {
+            return null;
+          }
+          HyperLogLogSketch union = null;
+          for (final var p : paths) {
+            final var hll = p.getHllSketch();
+            if (hll == null) {
+              continue;
+            }
+            if (union == null) {
+              union = new HyperLogLogSketch();
+            }
+            union.union(hll);
+          }
+          return new Int64(union == null ? 0L : union.estimate());
+        } finally {
+          summary.close();
+        }
+      }
+    } catch (Exception e) {
+      throw new QueryException(e,
+                               ErrorCode.BIT_DYN_INT_ERROR,
+                               "Sirix vectorized count-distinct failed: %s",
                                e.getMessage());
     }
   }
