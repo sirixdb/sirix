@@ -49,6 +49,8 @@ import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.page.delegates.FullReferencesPage;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
+import io.sirix.page.pax.NumberRegion;
+import io.sirix.page.pax.RegionTable;
 import io.sirix.settings.Constants;
 import io.sirix.utils.OS;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
@@ -87,9 +89,7 @@ public enum PageKind {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       switch (binaryVersion) {
-        case V0 -> {
-          return deserializeSlottedPage(resourceConfig, source);
-        }
+        case V0 -> { return deserializeSlottedPage(resourceConfig, source); }
         default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
       }
     }
@@ -175,6 +175,10 @@ public enum PageKind {
       final boolean areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
       final RecordSerializer recordPersister = resourceConfig.recordPersister;
 
+      // PAX region table appended after the heap. Empty on writes produced by
+      // the Phase-1 scaffold (4 bytes: int regionCount=0); later tasks populate it.
+      final RegionTable regionTable = RegionTable.read(source);
+
       // Read overlong entries
       final var overlongEntriesBitmap = SerializationType.deserializeBitSet(source);
       final int overlongEntrySize = source.readInt();
@@ -208,6 +212,10 @@ public enum PageKind {
 
       if (fsstSymbolTable != null) {
         page.setFsstSymbolTable(fsstSymbolTable);
+      }
+
+      if (regionTable != null) {
+        page.setRegionTable(regionTable);
       }
 
       return page;
@@ -294,6 +302,18 @@ public enum PageKind {
         sink.writeSegment(slottedPage, PageLayout.HEAP_START + scratch[i], scratch[i + 1]);
       }
 
+      // PAX region table after the heap. Writer populates the number region
+      // (OBJECT_NUMBER_VALUE slot values + parent OBJECT_KEY nameKeys) so the
+      // vectorized scan path can filter by logical field in a tight loop,
+      // skipping both moveTo and varint decode.
+      final RegionTable regionTable = buildRegionTable(keyValueLeafPage, slottedPage);
+      if (regionTable == null) {
+        sink.writeInt(0);
+      } else {
+        keyValueLeafPage.setRegionTable(regionTable);
+        regionTable.write(sink);
+      }
+
       // Write overlong entries
       writeOverlongEntries(sink, references);
 
@@ -321,6 +341,68 @@ public enum PageKind {
       for (final var entry : overlongEntriesSortedByKey) {
         sink.writeLong(entry.getValue().getKey());
       }
+    }
+
+    /**
+     * Build the PAX {@link RegionTable} for {@code page} by walking the
+     * populated-slot bitmap once, collecting each OBJECT_NUMBER_VALUE slot's
+     * value (long) and its parent OBJECT_KEY's nameKey, and encoding them via
+     * {@link NumberRegion}.
+     *
+     * <p>Values whose payload type is not int/long (BigDecimal, double, float)
+     * are skipped — the slow-path {@code getNumberValueLongFromSlot} returns
+     * {@link Long#MIN_VALUE} as a sentinel, and the caller still sees the
+     * correct answer via the inline-slot fallback path.
+     *
+     * <p>Values whose parent OBJECT_KEY is not on the same page are tagged
+     * with {@code -1} — the scan operator's fallback branch handles them.
+     *
+     * <p>Returns {@code null} when the page has no numeric values (common for
+     * path-summary and index pages).
+     */
+    private static RegionTable buildRegionTable(final KeyValueLeafPage page,
+        final MemorySegment slottedPage) {
+      final long[] valBuf = NUMBER_VALUE_SCRATCH.get();
+      final int[] parBuf = NUMBER_PARENT_SCRATCH.get();
+      int count = 0;
+      final int numberKindId = KeyValueLeafPage.objectNumberValueKindId();
+      final int objectKeyKindId = KeyValueLeafPage.objectKeyKindId();
+      final long pageKeyBase = page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT;
+
+      for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+        long word = PageLayout.getBitmapWord(slottedPage, w);
+        final int baseSlot = w << 6;
+        while (word != 0) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          final int slot = baseSlot + bit;
+          if (PageLayout.getDirNodeKindId(slottedPage, slot) == numberKindId) {
+            final long value = page.getNumberValueLongFromSlot(slot);
+            if (value != Long.MIN_VALUE) {
+              final long valueNodeKey = pageKeyBase + slot;
+              final long parentKey = page.getObjectNumberValueParentKeyFromSlot(slot, valueNodeKey);
+              int parentNameKey = -1;
+              if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == page.getPageKey()) {
+                final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
+                if (PageLayout.getDirNodeKindId(slottedPage, parentSlot) == objectKeyKindId) {
+                  parentNameKey = page.getObjectKeyNameKeyFromSlot(parentSlot);
+                }
+              }
+              valBuf[count] = value;
+              parBuf[count] = parentNameKey;
+              count++;
+            }
+          }
+          word &= word - 1;
+        }
+      }
+
+      if (count == 0) {
+        return null;
+      }
+      final byte[] payload = NumberRegion.encode(valBuf, parBuf, count);
+      final RegionTable table = new RegionTable();
+      table.set(RegionTable.KIND_NUMBER, payload);
+      return table;
     }
 
     private static void writeFsstSymbolTable(final BytesOut<?> sink, final KeyValueLeafPage page) {
@@ -1252,6 +1334,14 @@ public enum PageKind {
    */
   private static final ThreadLocal<int[]> SERIALIZE_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT * 2]);
+
+  /** Per-thread reusable buffer for number-region value collection at seal time. */
+  private static final ThreadLocal<long[]> NUMBER_VALUE_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
+
+  /** Per-thread reusable buffer for number-region parent-nameKey collection at seal time. */
+  private static final ThreadLocal<int[]> NUMBER_PARENT_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
 
   static {
     for (final PageKind page : values()) {

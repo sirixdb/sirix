@@ -418,9 +418,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (hdr != null) {
             final int tag = NumberRegion.lookupTag(hdr, fieldKey);
             if (tag >= 0) {
+              final int tagN = hdr.tagCount[tag];
+              // Zone-map pre-check: skip or shortcut the whole tag range if the
+              // predicate is unsatisfiable / always-satisfied against [min,max].
+              final long tagMin = hdr.tagMinOrGlobal(tag);
+              final long tagMax = hdr.tagMaxOrGlobal(tag);
+              final int outcome = zoneMapOutcome(op, threshold, tagMin, tagMax);
+              if (outcome == ZONE_NONE) {
+                continue; // no value in the tag can satisfy the predicate
+              }
+              if (outcome == ZONE_ALL) {
+                localCount += tagN; // every value satisfies; no iteration
+                continue;
+              }
               final byte[] payload = kv.getNumberRegionPayload();
               final int start = hdr.tagStart[tag];
-              final int end = start + hdr.tagCount[tag];
+              final int end = start + tagN;
               for (int idx = start; idx < end; idx++) {
                 final long v = NumberRegion.decodeValueAt(payload, hdr, idx);
                 final boolean pass = switch (op) {
@@ -530,6 +543,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final int OP_GE = 3;
   private static final int OP_LE = 4;
   private static final int OP_EQ = 5;
+
+  // Zone-map pre-check outcomes — lets the scan skip a tag range or shortcut
+  // the count without iterating values.
+  private static final int ZONE_NONE    = 0; // predicate can never match any value in [min,max]
+  private static final int ZONE_SOME    = 1; // predicate might match; need to iterate
+  private static final int ZONE_ALL     = 2; // predicate matches every value in [min,max]
+
+  /**
+   * Evaluate whether the predicate {@code v OP threshold} can be decided against the
+   * [min,max] range of a zone map without iterating the values.
+   * Branchless-friendly: six int comparisons, one small switch.
+   */
+  private static int zoneMapOutcome(final int op, final long threshold, final long min, final long max) {
+    return switch (op) {
+      case OP_GT -> max <= threshold ? ZONE_NONE : (min > threshold ? ZONE_ALL : ZONE_SOME);
+      case OP_LT -> min >= threshold ? ZONE_NONE : (max < threshold ? ZONE_ALL : ZONE_SOME);
+      case OP_GE -> max <  threshold ? ZONE_NONE : (min >= threshold ? ZONE_ALL : ZONE_SOME);
+      case OP_LE -> min >  threshold ? ZONE_NONE : (max <= threshold ? ZONE_ALL : ZONE_SOME);
+      case OP_EQ -> (threshold < min || threshold > max)
+          ? ZONE_NONE
+          : (min == threshold && max == threshold ? ZONE_ALL : ZONE_SOME);
+      default    -> ZONE_SOME;
+    };
+  }
 
   private static int encodeOp(String op) {
     if (op == null) return 0;

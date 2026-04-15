@@ -19,6 +19,8 @@ import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.page.interfaces.KeyValuePage;
+import io.sirix.page.pax.NumberRegion;
+import io.sirix.page.pax.RegionTable;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.StringCompressionType;
@@ -222,6 +224,15 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * Null if FSST compression is not used.
    */
   private byte[] fsstSymbolTable;
+
+  /**
+   * PAX region table appended in {@link io.sirix.BinaryEncodingVersion#V1}. Null
+   * when the page was written in V0 format or when no regions have been populated.
+   * Later tasks populate this with number / string / struct / DeweyID regions;
+   * scan operators read contiguous payload buffers from it instead of decoding
+   * varints per slot.
+   */
+  private io.sirix.page.pax.RegionTable regionTable;
 
   /** Reusable flyweight for FSST compression of StringNode slots on slotted page. */
   private final StringNode fsstStringFlyweight = new StringNode(0, null);
@@ -1352,6 +1363,28 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return OBJECT_NUMBER_VALUE_KIND_ID;
   }
 
+  /** Node kind id for OBJECT_KEY. */
+  public static int objectKeyKindId() {
+    return OBJECT_KEY_KIND_ID;
+  }
+
+  /**
+   * Read the delta-encoded parent nodeKey from an OBJECT_NUMBER_VALUE slot
+   * directly off the slotted page. Used by the writer to tag each numeric
+   * region entry with its parent OBJECT_KEY's nameKey.
+   *
+   * <p>Caller must verify the slot holds an OBJECT_NUMBER_VALUE (kind id 42).
+   */
+  public long getObjectNumberValueParentKeyFromSlot(final int slotNumber, final long valueNodeKey) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNUMVAL_PARENT_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_NUMBER_VALUE_FIELD_COUNT;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, valueNodeKey);
+  }
+
   /**
    * Cache of matching-slot arrays keyed by nameKey (primitive int → int[], no
    * Integer boxing). Built lazily the first time a vectorized scan asks for a
@@ -2060,11 +2093,173 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   /**
    * Set the FSST symbol table for string compression.
-   * 
+   *
    * @param symbolTable the symbol table bytes
    */
   public void setFsstSymbolTable(byte[] symbolTable) {
     this.fsstSymbolTable = symbolTable;
+  }
+
+  /**
+   * Returns the PAX region table. {@code null} indicates V0 format or that no
+   * regions have been attached. Callers on the hot path should prefer
+   * {@link #regionPayload(byte)} to avoid a nullcheck at each slot read.
+   */
+  public RegionTable getRegionTable() {
+    return regionTable;
+  }
+
+  public void setRegionTable(final RegionTable table) {
+    this.regionTable = table;
+  }
+
+  /**
+   * Direct payload lookup for a region kind. Returns {@code null} when no table
+   * is present or the region is absent. Inlineable one-branch hot-path shim.
+   */
+  public byte[] regionPayload(final byte kind) {
+    final RegionTable t = regionTable;
+    return t == null ? null : t.payload(kind);
+  }
+
+  /**
+   * Lazily parsed number-region header. {@code null} if the page has no number
+   * region (e.g. path-summary pages, index pages, pages with no numeric values).
+   * Cached after first parse — zero allocation on subsequent calls.
+   */
+  private volatile NumberRegion.Header cachedNumberHeader;
+
+  public NumberRegion.Header getNumberRegionHeader() {
+    NumberRegion.Header h = cachedNumberHeader;
+    if (h != null) {
+      return h;
+    }
+    byte[] payload = regionPayload(RegionTable.KIND_NUMBER);
+    if (payload == null) {
+      // VersioningType.combineRecordPages produces a fresh KVLP whose slotted
+      // page is reconstructed from multiple fragments — no region travels with
+      // it. Build the region lazily from the combined slots. Idempotent: the
+      // payload is cached via setRegionTable so subsequent queries skip this.
+      payload = tryBuildNumberRegionFromSlottedPage();
+      if (payload == null) {
+        return null;
+      }
+    }
+    synchronized (this) {
+      h = cachedNumberHeader;
+      if (h == null) {
+        h = new NumberRegion.Header().parseInto(payload);
+        cachedNumberHeader = h;
+      }
+    }
+    return h;
+  }
+
+  /**
+   * Ensure the number region is attached. Called from the versioning layer's
+   * {@code combineRecordPages} after a new KVLP has been reconstructed from
+   * one or more incremental fragments. The argument carries the donor page's
+   * region (typically the first fragment, whose slots dominate the result in
+   * the single-fragment read-only case common for analytical workloads).
+   *
+   * <p>When {@code donor} holds a non-empty number region and the combined
+   * page has at least as many populated slots, copy the donor region directly
+   * — zero slot walks, no re-encoding. This is the fast path for read-only
+   * resources where each combine takes a single fragment.
+   *
+   * <p>When the donor has no region (e.g. modification path, old pages from
+   * before PAX), fall back to building from the combined slots.
+   */
+  public void ensureNumberRegion(final KeyValueLeafPage donor) {
+    if (regionTable != null && regionTable.payload(RegionTable.KIND_NUMBER) != null) {
+      return;
+    }
+    if (donor != null) {
+      final RegionTable donorTable = donor.regionTable;
+      if (donorTable != null && donorTable.payload(RegionTable.KIND_NUMBER) != null) {
+        // Share the donor's RegionTable reference — it's effectively immutable
+        // after construction (writer seals once, later mutations go through
+        // a fresh RegionTable). Zero allocation, one pointer assignment.
+        this.regionTable = donorTable;
+        return;
+      }
+    }
+    tryBuildNumberRegionFromSlottedPage();
+  }
+
+  /** Backward-compat overload that builds from the slotted page only. */
+  public void ensureNumberRegion() {
+    ensureNumberRegion(null);
+  }
+
+  /**
+   * Walk the slotted page, collect each OBJECT_NUMBER_VALUE slot's value + its
+   * parent OBJECT_KEY's nameKey, encode into a NumberRegion payload. Returns
+   * {@code null} when the page has no numeric values or no slotted page yet.
+   *
+   * <p>Side-effect: on success, attaches the region to the page so subsequent
+   * lookups skip this build.
+   */
+  private byte[] tryBuildNumberRegionFromSlottedPage() {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      return null;
+    }
+    final int numberKindId = OBJECT_NUMBER_VALUE_KIND_ID;
+    final long pageKeyBase = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
+    long[] valBuf = new long[64];
+    int[] parBuf = new int[64];
+    int count = 0;
+    for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+      long word = PageLayout.getBitmapWord(sp, w);
+      final int baseSlot = w << 6;
+      while (word != 0) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        final int slot = baseSlot + bit;
+        if (PageLayout.getDirNodeKindId(sp, slot) == numberKindId) {
+          final long value = getNumberValueLongFromSlot(slot);
+          if (value != Long.MIN_VALUE) {
+            final long valueNodeKey = pageKeyBase + slot;
+            final long parentKey = getObjectNumberValueParentKeyFromSlot(slot, valueNodeKey);
+            int parentNameKey = -1;
+            if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == recordPageKey) {
+              final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
+              if (PageLayout.getDirNodeKindId(sp, parentSlot) == OBJECT_KEY_KIND_ID) {
+                parentNameKey = getObjectKeyNameKeyFromSlot(parentSlot);
+              }
+            }
+            if (count == valBuf.length) {
+              final long[] grownV = new long[valBuf.length << 1];
+              System.arraycopy(valBuf, 0, grownV, 0, count);
+              valBuf = grownV;
+              final int[] grownP = new int[parBuf.length << 1];
+              System.arraycopy(parBuf, 0, grownP, 0, count);
+              parBuf = grownP;
+            }
+            valBuf[count] = value;
+            parBuf[count] = parentNameKey;
+            count++;
+          }
+        }
+        word &= word - 1;
+      }
+    }
+    if (count == 0) {
+      return null;
+    }
+    final byte[] payload = NumberRegion.encode(valBuf, parBuf, count);
+    final RegionTable table = new RegionTable();
+    table.set(RegionTable.KIND_NUMBER, payload);
+    this.regionTable = table;
+    return payload;
+  }
+
+  /**
+   * Returns the raw number-region payload bytes or {@code null}. Paired with
+   * {@link #getNumberRegionHeader()} for scan operators that decode inline.
+   */
+  public byte[] getNumberRegionPayload() {
+    return regionPayload(RegionTable.KIND_NUMBER);
   }
 
   @Override

@@ -82,6 +82,11 @@ public enum VersioningType {
       // Propagate FSST symbol table for string compression
       propagateFsstSymbolTable(firstPage, completePage);
 
+      // Propagate PAX number region from the donor (first) fragment — for
+      // read-only resources this is an O(1) copy. Multi-fragment merges fall
+      // back to a slotted-page walk inside ensureNumberRegion.
+      ((KeyValueLeafPage) completePage).ensureNumberRegion((KeyValueLeafPage) firstPage);
+
       return completePage;
     }
 
@@ -205,6 +210,11 @@ public enum VersioningType {
 
       // Propagate FSST symbol table for string compression
       propagateFsstSymbolTable(firstPage, pageToReturn);
+
+      // Propagate PAX number region from the donor (first) fragment — O(1)
+      // copy for single-fragment reads. Multi-fragment merges fall back to a
+      // slotted-page walk inside ensureNumberRegion.
+      ((KeyValueLeafPage) pageToReturn).ensureNumberRegion((KeyValueLeafPage) firstPage);
 
       return pageToReturn;
     }
@@ -396,6 +406,10 @@ public enum VersioningType {
 
       // Propagate FSST symbol table for string compression
       propagateFsstSymbolTable(firstPage, pageToReturn);
+
+      // Eagerly build PAX number region from the combined slots so the scan
+      // fast path doesn't pay the build cost on its first visit.
+      returnPage.ensureNumberRegion();
 
       return pageToReturn;
     }
@@ -592,6 +606,11 @@ public enum VersioningType {
 
       // Propagate FSST symbol table for string compression
       propagateFsstSymbolTable(firstPage, returnVal);
+
+      // Propagate PAX number region from the donor (first) fragment — O(1)
+      // copy for single-fragment reads. Multi-fragment merges fall back to a
+      // slotted-page walk inside ensureNumberRegion.
+      ((KeyValueLeafPage) returnVal).ensureNumberRegion((KeyValueLeafPage) firstPage);
 
       return returnVal;
     }
