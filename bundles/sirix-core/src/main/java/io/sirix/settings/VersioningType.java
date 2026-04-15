@@ -836,11 +836,26 @@ public enum VersioningType {
    */
   protected static <V extends DataRecord, T extends KeyValuePage<V>> void propagateFsstSymbolTable(
       final T sourcePage, final T targetPage) {
-    if (sourcePage instanceof KeyValueLeafPage sourceKvp 
+    if (sourcePage instanceof KeyValueLeafPage sourceKvp
         && targetPage instanceof KeyValueLeafPage targetKvp) {
       byte[] fsstSymbolTable = sourceKvp.getFsstSymbolTable();
       if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
-        targetKvp.setFsstSymbolTable(fsstSymbolTable);
+        // The FSST symbol table is the *only* decompression key for every
+        // compressed string slot on a page — each StringNode.getFsstSymbolTable()
+        // is populated from page.getFsstSymbolTable() at read time. Copying
+        // sourcePage's table to a target whose slotted heap mixes values from
+        // multiple fragments would silently decompress B-fragment strings with
+        // A-fragment's table → corrupted values.
+        //
+        // Safe shortcut: only propagate when the target's slot count equals
+        // the source's (single-fragment case, the analytical-load common case).
+        // Mismatch means the target was merged from multiple fragments — leave
+        // its FSST table null so reads fail loudly (rather than corrupt) when
+        // FSST is in use. The proper multi-fragment fix requires per-slot
+        // table provenance and is deferred.
+        if (sourceKvp.getCachedPopulatedCount() == targetKvp.getCachedPopulatedCount()) {
+          targetKvp.setFsstSymbolTable(fsstSymbolTable);
+        }
       }
     }
   }

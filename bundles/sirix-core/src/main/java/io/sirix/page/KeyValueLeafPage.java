@@ -966,7 +966,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return cachedHeapUsed;
   }
 
-  int getCachedPopulatedCount() {
+  public int getCachedPopulatedCount() {
     return cachedPopulatedCount;
   }
 
@@ -2158,17 +2158,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Ensure the number region is attached. Called from the versioning layer's
    * {@code combineRecordPages} after a new KVLP has been reconstructed from
-   * one or more incremental fragments. The argument carries the donor page's
-   * region (typically the first fragment, whose slots dominate the result in
-   * the single-fragment read-only case common for analytical workloads).
+   * one or more fragments. The argument carries the donor page's region
+   * (typically the first fragment).
    *
-   * <p>When {@code donor} holds a non-empty number region and the combined
-   * page has at least as many populated slots, copy the donor region directly
-   * — zero slot walks, no re-encoding. This is the fast path for read-only
-   * resources where each combine takes a single fragment.
+   * <p>The donor shortcut — copying {@code donor.regionTable} by reference — is
+   * only correct when the donor's slot count equals the combined page's slot
+   * count. In single-fragment reads (FULL versioning, or any read-only
+   * analytical load with no accumulated deltas) this holds trivially. For
+   * multi-fragment reads under DIFFERENTIAL / SLIDING_SNAPSHOT, the donor's
+   * region reflects only that fragment's values; copying it would silently
+   * omit values contributed by other fragments. In those cases we fall
+   * through to {@link #tryBuildNumberRegionFromSlottedPage()} which walks the
+   * combined slotted heap and produces a region matching the actual merged
+   * state.
    *
-   * <p>When the donor has no region (e.g. modification path, old pages from
-   * before PAX), fall back to building from the combined slots.
+   * <p>The slot-count equality guard is cheap (one int compare) and fail-safe:
+   * a mismatch forces a correct rebuild; a match is observationally indistinguishable
+   * from the donor's region.
    */
   public void ensureNumberRegion(final KeyValueLeafPage donor) {
     if (regionTable != null && regionTable.payload(RegionTable.KIND_NUMBER) != null) {
@@ -2176,10 +2182,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
     if (donor != null) {
       final RegionTable donorTable = donor.regionTable;
-      if (donorTable != null && donorTable.payload(RegionTable.KIND_NUMBER) != null) {
-        // Share the donor's RegionTable reference — it's effectively immutable
-        // after construction (writer seals once, later mutations go through
-        // a fresh RegionTable). Zero allocation, one pointer assignment.
+      if (donorTable != null
+          && donorTable.payload(RegionTable.KIND_NUMBER) != null
+          && donor.getCachedPopulatedCount() == this.getCachedPopulatedCount()) {
+        // Safe shortcut — donor's region covers exactly the same slots as ours.
+        // Zero allocation, one pointer assignment.
         this.regionTable = donorTable;
         return;
       }
