@@ -35,6 +35,7 @@ import io.brackit.query.module.Namespaces;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.index.AtomicUtil;
+import io.sirix.index.path.summary.HyperLogLogSketch;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.redblacktree.RBNodeKey;
 import io.sirix.index.redblacktree.RBNodeValue;
@@ -625,7 +626,33 @@ public enum NodeKind implements DeweyIdSerializer {
 
       final NodeKind kind = NodeKind.getKind(source.readByte());
 
-      return new PathNode(null, nodeDel, structDel, nameDel, kind, source.readInt(), source.readInt());
+      final PathNode pathNode =
+          new PathNode(null, nodeDel, structDel, nameDel, kind, source.readInt(), source.readInt());
+
+      // Optional per-path statistics trailer — present iff the resource was configured
+      // with withPathStatistics=true. Older resources / disabled configs pay zero bytes.
+      if (resourceConfiguration.withPathStatistics) {
+        final long statsCount = source.readLong();
+        final long statsNullCount = source.readLong();
+        final long statsSum = source.readLong();
+        final long statsMin = source.readLong();
+        final long statsMax = source.readLong();
+        final byte[] statsMinBytes = readOptionalBytes(source);
+        final byte[] statsMaxBytes = readOptionalBytes(source);
+        final int hllLen = source.readInt();
+        HyperLogLogSketch hll = null;
+        if (hllLen >= 0) {
+          final byte[] hllBytes = new byte[hllLen];
+          source.read(hllBytes, 0, hllLen);
+          hll = HyperLogLogSketch.deserialize(hllBytes);
+        }
+        final boolean statsMinDirty = source.readBoolean();
+        final boolean statsMaxDirty = source.readBoolean();
+        pathNode.setStatsState(statsCount, statsNullCount, statsSum, statsMin, statsMax,
+            statsMinBytes, statsMaxBytes, hll, statsMinDirty, statsMaxDirty);
+      }
+
+      return pathNode;
     }
 
     @Override
@@ -638,6 +665,28 @@ public enum NodeKind implements DeweyIdSerializer {
       sink.writeByte(node.getPathKind().getId());
       sink.writeInt(node.getReferences());
       sink.writeInt(node.getLevel());
+
+      // Optional per-path statistics trailer — mirrors the deserialize path. Writes
+      // zero extra bytes when withPathStatistics is false (backward compatible).
+      if (resourceConfiguration.withPathStatistics) {
+        sink.writeLong(node.getStatsValueCount());
+        sink.writeLong(node.getStatsNullCount());
+        sink.writeLong(node.getStatsSum());
+        sink.writeLong(node.getStatsMin());
+        sink.writeLong(node.getStatsMax());
+        writeOptionalBytes(sink, node.getStatsMinBytes());
+        writeOptionalBytes(sink, node.getStatsMaxBytes());
+        final HyperLogLogSketch hll = node.getHllSketch();
+        if (hll == null) {
+          sink.writeInt(-1);
+        } else {
+          final byte[] hllBytes = hll.serialize();
+          sink.writeInt(hllBytes.length);
+          sink.write(hllBytes);
+        }
+        sink.writeBoolean(node.isStatsMinDirty());
+        sink.writeBoolean(node.isStatsMaxDirty());
+      }
     }
 
     @Override
@@ -1797,6 +1846,36 @@ public enum NodeKind implements DeweyIdSerializer {
       throw new RuntimeException(e);
     }
     return nodeKeys;
+  }
+
+  /**
+   * Write a possibly-null byte array with a length prefix ({@code -1} marks null).
+   */
+  private static void writeOptionalBytes(BytesOut<?> sink, byte[] bytes) {
+    if (bytes == null) {
+      sink.writeInt(-1);
+    } else {
+      sink.writeInt(bytes.length);
+      if (bytes.length > 0) {
+        sink.write(bytes);
+      }
+    }
+  }
+
+  /**
+   * Read the byte array written by {@link #writeOptionalBytes}. Returns {@code null}
+   * if the length prefix is {@code -1}.
+   */
+  private static byte[] readOptionalBytes(BytesIn<?> source) {
+    final int length = source.readInt();
+    if (length < 0) {
+      return null;
+    }
+    final byte[] bytes = new byte[length];
+    if (length > 0) {
+      source.read(bytes, 0, length);
+    }
+    return bytes;
   }
 
   /**

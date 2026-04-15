@@ -98,13 +98,24 @@ public final class BrackitQueryOnSirixScaleMain {
     // shred and are not needed for analytical queries. Override via
     // -DbuildPathSummary=true / -DhashType=ROLLING if needed.
     boolean pathSummary = Boolean.parseBoolean(System.getProperty("buildPathSummary", "false"));
+    // PathStatistics enables the aggregate short-circuit. Requires pathSummary=true.
+    // Default off; opt-in via -DbuildPathStatistics=true. Target win:
+    // sumAge/avgAge/minMaxAge drop from seconds to microseconds on large datasets.
+    boolean pathStatistics = Boolean.parseBoolean(System.getProperty("buildPathStatistics", "false"));
+    if (pathStatistics && !pathSummary) {
+      // Force pathSummary on if stats requested, otherwise the store builder throws.
+      pathSummary = true;
+      System.out.println("# buildPathStatistics=true implies buildPathSummary=true");
+    }
     HashType hash = HashType.fromString(System.getProperty("hashType", "NONE"));
     BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
         .location(dbDir)
         .numberOfNodesBeforeAutoCommit(autoCommit)
         .buildPathSummary(pathSummary)
+        .buildPathStatistics(pathStatistics)
         .hashType(hash)
         .build();
+    System.out.printf("# pathSummary=%s  pathStatistics=%s%n", pathSummary, pathStatistics);
     SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
     SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
 

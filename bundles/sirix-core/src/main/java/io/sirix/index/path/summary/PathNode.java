@@ -1,6 +1,7 @@
 package io.sirix.index.path.summary;
 
 import io.sirix.utils.ToStringHelper;
+import java.util.Arrays;
 import java.util.Objects;
 import io.sirix.node.NodeKind;
 import io.sirix.node.delegates.NameNodeDelegate;
@@ -68,6 +69,38 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   private PathNode rightSibling;
 
   private Path<QNm> path;
+
+  // =====================================================================
+  // Per-path value statistics — populated only when the owning resource has
+  // ResourceConfiguration.withPathStatistics == true. Maintained at commit
+  // time via recordValue / removeValue hooks in PathSummaryWriter; read at
+  // query time for the aggregate-short-circuit path in the vectorized
+  // executor.
+  //
+  // Sentinel values for the "empty" state:
+  //   statsMin = Long.MAX_VALUE, statsMax = Long.MIN_VALUE
+  //   statsMinBytes = null,      statsMaxBytes = null
+  //   hll = null (lazily created on first value)
+  // =====================================================================
+
+  private long statsCount;
+  private long statsNullCount;
+  private long statsSum;
+  private long statsMin = Long.MAX_VALUE;
+  private long statsMax = Long.MIN_VALUE;
+  private byte @Nullable [] statsMinBytes;
+  private byte @Nullable [] statsMaxBytes;
+  private @Nullable HyperLogLogSketch hll;
+  /**
+   * Set when a remove saw a value equal to {@link #statsMin} — the stored min may now be
+   * too low. Reader rebounds on demand.
+   */
+  private boolean statsMinDirty;
+  /**
+   * Set when a remove saw a value equal to {@link #statsMax} — the stored max may now be
+   * too high. Reader rebounds on demand.
+   */
+  private boolean statsMaxDirty;
 
   /**
    * Constructor.
@@ -303,5 +336,191 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   public void setName(QNm qNm) {
     name = qNm;
+  }
+
+  // =====================================================================
+  // Statistics maintenance (package-private — called by PathSummaryWriter).
+  // =====================================================================
+
+  /** Record a long value observation (numeric path). */
+  void recordLongValue(final long value) {
+    statsCount++;
+    statsSum += value;
+    if (value < statsMin) {
+      statsMin = value;
+    }
+    if (value > statsMax) {
+      statsMax = value;
+    }
+    if (hll == null) {
+      hll = new HyperLogLogSketch();
+    }
+    hll.add(value);
+  }
+
+  /**
+   * Record a byte-sequence value observation (string path). The caller's array is
+   * cloned on min/max update so later mutations don't corrupt the bound.
+   */
+  void recordBytesValue(final byte[] value) {
+    statsCount++;
+    if (statsMinBytes == null || Arrays.compareUnsigned(value, statsMinBytes) < 0) {
+      statsMinBytes = value.clone();
+    }
+    if (statsMaxBytes == null || Arrays.compareUnsigned(value, statsMaxBytes) > 0) {
+      statsMaxBytes = value.clone();
+    }
+    if (hll == null) {
+      hll = new HyperLogLogSketch();
+    }
+    hll.add(value);
+  }
+
+  /** Record a boolean value (treated as 0/1 in numeric aggregates). */
+  void recordBooleanValue(final boolean value) {
+    recordLongValue(value ? 1L : 0L);
+  }
+
+  /** Record a null value observation. */
+  void recordNullValue() {
+    statsNullCount++;
+  }
+
+  /**
+   * Decrement value-count / sum on delete. If the deleted value matches the current
+   * min or max bound, mark it dirty — the bound is possibly loose, reader rebounds on
+   * demand. HLL is never decremented; estimate drifts upward on heavy deletion until a
+   * rebuild runs.
+   */
+  void removeLongValue(final long value) {
+    if (statsCount > 0) {
+      statsCount--;
+    }
+    statsSum -= value;
+    if (value == statsMin) {
+      statsMinDirty = true;
+    }
+    if (value == statsMax) {
+      statsMaxDirty = true;
+    }
+  }
+
+  void removeBytesValue(final byte[] value) {
+    if (statsCount > 0) {
+      statsCount--;
+    }
+    if (statsMinBytes != null && Arrays.equals(value, statsMinBytes)) {
+      statsMinDirty = true;
+    }
+    if (statsMaxBytes != null && Arrays.equals(value, statsMaxBytes)) {
+      statsMaxDirty = true;
+    }
+  }
+
+  void removeBooleanValue(final boolean value) {
+    removeLongValue(value ? 1L : 0L);
+  }
+
+  void removeNullValue() {
+    if (statsNullCount > 0) {
+      statsNullCount--;
+    }
+  }
+
+  /**
+   * Bulk setter — used by the PATH-node deserializer (in {@code io.sirix.node}, a
+   * different package, so this must be public) and by the reader after a dirty-bound
+   * rebound. Not part of the user-facing API; callers other than the serializer and
+   * rebound path should use the {@code recordValue}/{@code removeValue} mutators.
+   */
+  public void setStatsState(final long count, final long nullCount, final long sum,
+      final long min, final long max,
+      final byte @Nullable [] minBytes, final byte @Nullable [] maxBytes,
+      final @Nullable HyperLogLogSketch hll,
+      final boolean minDirty, final boolean maxDirty) {
+    this.statsCount = count;
+    this.statsNullCount = nullCount;
+    this.statsSum = sum;
+    this.statsMin = min;
+    this.statsMax = max;
+    this.statsMinBytes = minBytes;
+    this.statsMaxBytes = maxBytes;
+    this.hll = hll;
+    this.statsMinDirty = minDirty;
+    this.statsMaxDirty = maxDirty;
+  }
+
+  /** Replace the tracked minimum after a rebound and clear the dirty flag. */
+  void clearMinDirty(final long newMin) {
+    this.statsMin = newMin;
+    this.statsMinDirty = false;
+  }
+
+  /** Replace the tracked maximum after a rebound and clear the dirty flag. */
+  void clearMaxDirty(final long newMax) {
+    this.statsMax = newMax;
+    this.statsMaxDirty = false;
+  }
+
+  // =====================================================================
+  // Statistics accessors (public — used by query-time short-circuit).
+  // =====================================================================
+
+  public long getStatsValueCount() {
+    return statsCount;
+  }
+
+  public long getStatsNullCount() {
+    return statsNullCount;
+  }
+
+  public long getStatsSum() {
+    return statsSum;
+  }
+
+  /**
+   * @return the tracked minimum long value, or {@link Long#MAX_VALUE} if no numeric
+   *         values have been recorded.
+   */
+  public long getStatsMin() {
+    return statsMin;
+  }
+
+  /**
+   * @return the tracked maximum long value, or {@link Long#MIN_VALUE} if no numeric
+   *         values have been recorded.
+   */
+  public long getStatsMax() {
+    return statsMax;
+  }
+
+  public byte @Nullable [] getStatsMinBytes() {
+    return statsMinBytes;
+  }
+
+  public byte @Nullable [] getStatsMaxBytes() {
+    return statsMaxBytes;
+  }
+
+  public @Nullable HyperLogLogSketch getHllSketch() {
+    return hll;
+  }
+
+  public boolean isStatsMinDirty() {
+    return statsMinDirty;
+  }
+
+  public boolean isStatsMaxDirty() {
+    return statsMaxDirty;
+  }
+
+  /** True if any numeric value has been recorded (i.e. min/max are real bounds). */
+  public boolean hasNumericStats() {
+    return statsMin != Long.MAX_VALUE;
+  }
+
+  /** True if any byte/string value has been recorded. */
+  public boolean hasBytesStats() {
+    return statsMinBytes != null;
   }
 }

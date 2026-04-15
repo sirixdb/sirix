@@ -47,11 +47,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -406,6 +408,33 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     }
 
     return Optional.empty();
+  }
+
+  /**
+   * Find every PathNode whose local name equals {@code localName}, regardless of
+   * namespace URI or path depth. Used by the query-time PathStatistics short-circuit
+   * in {@code SirixVectorizedExecutor} — for a query like {@code sum($doc[].age)} the
+   * caller passes {@code "age"} and unions the stats across all matching paths.
+   *
+   * <p>Scan is O(#distinct-paths) — PathSummary is small (typically &lt; 100 paths),
+   * so a linear walk over {@link #qnmMapping} is faster than maintaining a second
+   * index. Returns an empty list if no path matches.
+   */
+  public List<PathNode> findPathsByLocalName(final String localName) {
+    assertNotClosed();
+    if (localName == null) {
+      return List.of();
+    }
+    List<PathNode> result = null;
+    for (final Map.Entry<QNm, Set<PathNode>> entry : qnmMapping.entrySet()) {
+      if (localName.equals(entry.getKey().getLocalName())) {
+        if (result == null) {
+          result = new ArrayList<>(entry.getValue().size());
+        }
+        result.addAll(entry.getValue());
+      }
+    }
+    return result == null ? List.of() : result;
   }
 
   /**

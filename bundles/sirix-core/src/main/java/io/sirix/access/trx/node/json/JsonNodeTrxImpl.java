@@ -1538,6 +1538,42 @@ final class JsonNodeTrxImpl extends
   }
 
   /**
+   * Record a primitive value observation in the PathSummary statistics for the path
+   * identified by {@code pathNodeKey}. No-op when stats are disabled, the path node
+   * key is non-positive, or the PathSummaryWriter is null (resource without summary).
+   *
+   * <p>For STRING values, avoids an extra {@code byte[]} allocation when the offset
+   * is 0 and the length matches the full array (the common case).
+   */
+  private void recordPrimitiveStat(final long pathNodeKey, final PrimitiveNodeType type,
+      final byte[] stringValue, final int stringOff, final int stringLen,
+      final Number numberValue, final boolean booleanValue) {
+    if (pathSummaryWriter == null || pathNodeKey <= 0) {
+      return;
+    }
+    switch (type) {
+      case STRING -> {
+        if (stringValue == null) {
+          return;
+        }
+        if (stringOff == 0 && stringLen == stringValue.length) {
+          pathSummaryWriter.recordValue(pathNodeKey, stringValue);
+        } else {
+          pathSummaryWriter.recordValue(pathNodeKey,
+              java.util.Arrays.copyOfRange(stringValue, stringOff, stringOff + stringLen));
+        }
+      }
+      case NUMBER -> {
+        if (numberValue != null) {
+          pathSummaryWriter.recordValue(pathNodeKey, numberValue.longValue());
+        }
+      }
+      case BOOLEAN -> pathSummaryWriter.recordBooleanValue(pathNodeKey, booleanValue);
+      case NULL -> pathSummaryWriter.recordNullValue(pathNodeKey);
+    }
+  }
+
+  /**
    * Create an object-key child node (direct child of ObjectKeyNode) based on primitive type.
    * For STRING type, uses (stringValue, stringOff, stringLen); other types ignore off/len.
    */
@@ -1598,7 +1634,9 @@ final class JsonNodeTrxImpl extends
       }
 
       final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
-      final long pathNodeKey = (notifyIndex && indexController.hasAnyPrimitiveIndex())
+      final boolean pathStatsEnabled =
+          pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
+      final long pathNodeKey = (notifyIndex && indexController.hasAnyPrimitiveIndex()) || pathStatsEnabled
           ? getPathNodeKey(structNode)
           : 0;
       final long parentKey = structNode.getNodeKey();
@@ -1635,6 +1673,10 @@ final class JsonNodeTrxImpl extends
       if (notifyIndex && indexController.hasAnyPrimitiveIndex()) {
         notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
             (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
+
+      if (pathStatsEnabled) {
+        recordPrimitiveStat(pathNodeKey, type, stringValue, stringOff, stringLen, numberValue, booleanValue);
       }
 
       if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
@@ -1695,6 +1737,16 @@ final class JsonNodeTrxImpl extends
       final long nodeKey = node.getNodeKey();
 
       insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey, true);
+
+      if (pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled()) {
+        // Stats live on the parent container's path node (OBJECT_KEY / ARRAY); fetch
+        // via a short cursor walk so we don't need to teach StructNode about paths.
+        nodeReadOnlyTrx.moveTo(parentKey);
+        final long parentPathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
+        nodeReadOnlyTrx.moveTo(nodeKey);
+        recordPrimitiveStat(parentPathNodeKey, type, stringValue, stringOff, stringLen,
+            numberValue, booleanValue);
+      }
 
       if (!nodeHashing.isBulkInsert()) {
         adaptUpdateOperationsForInsert(id, nodeKey);
@@ -2379,6 +2431,38 @@ final class JsonNodeTrxImpl extends
       moveTo(nodeKey);
       // Pass the VALUE node, not the parent node - CAS index needs the value to extract.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) currentValueNode, pathNodeKey);
+
+      // Stats-decrement (best-effort; dirty flag on PathNode triggers rebound at read time).
+      if (pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled() && pathNodeKey > 0) {
+        switch (nodeKind) {
+          case STRING_VALUE, OBJECT_STRING_VALUE -> {
+            if (currentValueNode instanceof ValueNode vn) {
+              pathSummaryWriter.removeValue(pathNodeKey, vn.getRawValue());
+            }
+          }
+          case NUMBER_VALUE -> {
+            if (currentValueNode instanceof NumberNode n && n.getValue() != null) {
+              pathSummaryWriter.removeValue(pathNodeKey, n.getValue().longValue());
+            }
+          }
+          case OBJECT_NUMBER_VALUE -> {
+            if (currentValueNode instanceof ObjectNumberNode n && n.getValue() != null) {
+              pathSummaryWriter.removeValue(pathNodeKey, n.getValue().longValue());
+            }
+          }
+          case BOOLEAN_VALUE -> {
+            if (currentValueNode instanceof BooleanNode b) {
+              pathSummaryWriter.removeBooleanValue(pathNodeKey, b.getValue());
+            }
+          }
+          case OBJECT_BOOLEAN_VALUE -> {
+            if (currentValueNode instanceof ObjectBooleanNode b) {
+              pathSummaryWriter.removeBooleanValue(pathNodeKey, b.getValue());
+            }
+          }
+          default -> { /* no stats for other kinds */ }
+        }
+      }
     }
   }
 
@@ -2514,6 +2598,9 @@ final class JsonNodeTrxImpl extends
       moveTo(nodeKey);
 
       final ValueNode node = (ValueNode) nodeReadOnlyTrx.getStructuralNode();
+      final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
+      // Capture old bytes before mutation so stats can rebound on value change.
+      final byte[] oldBytes = statsOn ? node.getRawValue().clone() : null;
       // Remove old value from indexes before mutating the node.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
       final long oldHash = node.computeHash(bytes);
@@ -2528,6 +2615,10 @@ final class JsonNodeTrxImpl extends
 
       // Index new value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
+      if (statsOn) {
+        pathSummaryWriter.removeValue(pathNodeKey, oldBytes);
+        pathSummaryWriter.recordValue(pathNodeKey, byteVal);
+      }
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 
@@ -2562,6 +2653,8 @@ final class JsonNodeTrxImpl extends
       moveTo(nodeKey);
 
       final BooleanValueNode node = (BooleanValueNode) nodeReadOnlyTrx.getStructuralNode();
+      final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
+      final boolean oldValue = statsOn && node.getValue();
       // Remove old value from indexes before mutating the node.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
       final long oldHash = node.computeHash(bytes);
@@ -2575,6 +2668,10 @@ final class JsonNodeTrxImpl extends
 
       // Index new value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
+      if (statsOn) {
+        pathSummaryWriter.removeBooleanValue(pathNodeKey, oldValue);
+        pathSummaryWriter.recordBooleanValue(pathNodeKey, value);
+      }
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 
@@ -2610,6 +2707,8 @@ final class JsonNodeTrxImpl extends
       moveTo(nodeKey);
 
       final NumericValueNode node = (NumericValueNode) nodeReadOnlyTrx.getStructuralNode();
+      final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
+      final long oldValueAsLong = statsOn && node.getValue() != null ? node.getValue().longValue() : 0L;
       // Remove old value from indexes before mutating the node.
       notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
       final long oldHash = node.computeHash(bytes);
@@ -2623,6 +2722,10 @@ final class JsonNodeTrxImpl extends
 
       // Index new value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
+      if (statsOn) {
+        pathSummaryWriter.removeValue(pathNodeKey, oldValueAsLong);
+        pathSummaryWriter.recordValue(pathNodeKey, value.longValue());
+      }
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
 

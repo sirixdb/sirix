@@ -22,7 +22,10 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
+import io.sirix.index.path.summary.PathNode;
+import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.page.KeyValueLeafPage;
+import io.sirix.page.pax.NumberRegion;
 import io.sirix.settings.Constants;
 
 import java.nio.charset.StandardCharsets;
@@ -59,6 +62,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private final JsonResourceSession session;
   private final int revision;
   private final int threads;
+
+  /** Kill switch to bypass the PAX fast path for regression bisection. */
+  private static final boolean PAX_FAST_PATH_ENABLED =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.pax.scan", "true"));
   /** Cached max node key — Sirix-internal, fixed for a given revision. */
   private volatile long cachedMaxNodeKey = -1;
   private final ExecutorService workerPool;
@@ -132,6 +139,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   @Override
   public Sequence executeAggregate(QueryContext ctx, String func, String field) throws QueryException {
     try {
+      // PathStatistics short-circuit: when the resource maintains per-path stats, an
+      // unfiltered aggregate over a single field resolves directly from the PathSummary
+      // — microseconds instead of a parallel scan of every data page.
+      final Sequence fast = tryPathSummaryStats(field, func);
+      if (fast != null) {
+        return fast;
+      }
       long[] stats = parallelAggregate(field);
       long count = stats[0], sum = stats[1], min = stats[2], max = stats[3];
       return switch (func) {
@@ -147,6 +161,70 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                ErrorCode.BIT_DYN_INT_ERROR,
                                "Sirix vectorized aggregate failed: %s",
                                e.getMessage());
+    }
+  }
+
+  /**
+   * Try to answer an unfiltered aggregate ({@code sum | avg | min | max | count}) over
+   * a single field via the PathSummary's per-path statistics. Returns {@code null} to
+   * signal the caller should fall back to a full parallel scan when:
+   * <ul>
+   *   <li>the resource doesn't maintain path statistics,</li>
+   *   <li>no PathNode matches the requested field's local name,</li>
+   *   <li>the requested min/max bound is marked dirty (a prior delete may have
+   *       tightened it — a rescan is correct, skip the fast path), or</li>
+   *   <li>the function is not one of the supported aggregates.</li>
+   * </ul>
+   */
+  private Sequence tryPathSummaryStats(final String field, final String func) {
+    if (!session.getResourceConfig().withPathStatistics) {
+      return null;
+    }
+    switch (func) {
+      case "count", "sum", "avg", "min", "max" -> { /* supported */ }
+      default -> { return null; }
+    }
+
+    try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
+      final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
+      try {
+        final List<PathNode> paths = summary.findPathsByLocalName(field);
+        if (paths.isEmpty()) {
+          return null;
+        }
+        long totalCount = 0L;
+        long totalSum = 0L;
+        long totalMin = Long.MAX_VALUE;
+        long totalMax = Long.MIN_VALUE;
+        for (final PathNode p : paths) {
+          if (("min".equals(func) || "avg".equals(func)) && p.isStatsMinDirty()) {
+            return null;
+          }
+          if ("max".equals(func) && p.isStatsMaxDirty()) {
+            return null;
+          }
+          totalCount += p.getStatsValueCount();
+          totalSum += p.getStatsSum();
+          if (p.hasNumericStats()) {
+            if (p.getStatsMin() < totalMin) {
+              totalMin = p.getStatsMin();
+            }
+            if (p.getStatsMax() > totalMax) {
+              totalMax = p.getStatsMax();
+            }
+          }
+        }
+        return switch (func) {
+          case "count" -> new Int64(totalCount);
+          case "sum"   -> new Int64(totalSum);
+          case "avg"   -> totalCount == 0 ? new Int64(0) : new Dbl((double) totalSum / (double) totalCount);
+          case "min"   -> totalCount == 0 ? new Int64(0) : new Int64(totalMin);
+          case "max"   -> totalCount == 0 ? new Int64(0) : new Int64(totalMax);
+          default      -> null;
+        };
+      } finally {
+        summary.close();
+      }
     }
   }
 
@@ -227,8 +305,33 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
 
-        // Columnar-style: fetch the cached list of OBJECT_KEY slots whose
-        // nameKey matches the target field (cached per page per nameKey).
+        // PAX fast path: jump straight to the target field's value range via
+        // per-tag directory. Tight loop over count[tag] decodes — no per-entry
+        // tag check, no slot walk, no moveTo, no varint.
+        if (PAX_FAST_PATH_ENABLED) {
+          final NumberRegion.Header hdr = kv.getNumberRegionHeader();
+          if (hdr != null) {
+            final int tag = NumberRegion.lookupTag(hdr, fieldKey);
+            if (tag >= 0) {
+              final byte[] payload = kv.getNumberRegionPayload();
+              final int start = hdr.tagStart[tag];
+              final int end = start + hdr.tagCount[tag];
+              for (int idx = start; idx < end; idx++) {
+                final long v = NumberRegion.decodeValueAt(payload, hdr, idx);
+                acc[0]++;
+                acc[1] += v;
+                if (v < acc[2]) acc[2] = v;
+                if (v > acc[3]) acc[3] = v;
+              }
+              continue;
+            }
+          }
+        }
+
+        // Slow path: walk OBJECT_KEY slots matching the nameKey, descend to
+        // firstChild. Used when the page has no number region (e.g. first-time
+        // commit before Phase-1 writer landed) or the target field isn't in
+        // the region's parent-nameKey dictionary.
         final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
         for (final int slot : matches) {
           final long objectKeyNodeKey = base + slot;
@@ -307,7 +410,35 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
-        long[] localTotal = { 0 };
+        long localTotal = 0;
+
+        // PAX fast path: iterate only the target field's range.
+        if (PAX_FAST_PATH_ENABLED) {
+          final NumberRegion.Header hdr = kv.getNumberRegionHeader();
+          if (hdr != null) {
+            final int tag = NumberRegion.lookupTag(hdr, fieldKey);
+            if (tag >= 0) {
+              final byte[] payload = kv.getNumberRegionPayload();
+              final int start = hdr.tagStart[tag];
+              final int end = start + hdr.tagCount[tag];
+              for (int idx = start; idx < end; idx++) {
+                final long v = NumberRegion.decodeValueAt(payload, hdr, idx);
+                final boolean pass = switch (op) {
+                  case OP_GT -> v > threshold;
+                  case OP_LT -> v < threshold;
+                  case OP_GE -> v >= threshold;
+                  case OP_LE -> v <= threshold;
+                  case OP_EQ -> v == threshold;
+                  default -> true;
+                };
+                if (pass) localTotal++;
+              }
+              localCount += localTotal;
+              continue;
+            }
+          }
+        }
+
         final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
         for (final int slot : matches) {
           if (!rtx.moveTo(base + slot)) continue;
@@ -323,9 +454,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             case OP_EQ -> v == threshold;
             default -> true;
           };
-          if (pass) localTotal[0]++;
+          if (pass) localTotal++;
         }
-        localCount += localTotal[0];
+        localCount += localTotal;
       }
       acc[i] = localCount;
     });

@@ -108,6 +108,14 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   private final boolean storeChildCount;
 
   /**
+   * Determines if per-path value statistics (count, nullCount, sum, min, max, HLL) are
+   * maintained on PathSummary nodes. Gated once at construction to make the
+   * {@code recordValue}/{@code removeValue} hot path branch-free (JIT dead-code-eliminates
+   * the body when the flag is false).
+   */
+  private final boolean withPathStatistics;
+
+  /**
    * Constructor.
    *
    * @param storageEngineWriter Sirix {@link StorageEngineWriter}
@@ -122,6 +130,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     nodeRtx = requireNonNull(rtx);
     this.nodeFactory = requireNonNull(nodeFactory);
     storeChildCount = resMgr.getResourceConfig().storeChildCount();
+    withPathStatistics = resMgr.getResourceConfig().withPathStatistics;
   }
 
   /**
@@ -756,6 +765,118 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   private void persistPathSummaryRecord(final DataRecord record) {
     // No-op: records are mutated in-place via prepareRecordForModification()
     // and serialized at commit time via processEntries(). No slot sync needed.
+  }
+
+  // =====================================================================
+  // PathStatistics maintenance — see ResourceConfiguration.withPathStatistics
+  // and PathNode's record/remove mutators. Each method short-circuits when
+  // stats are disabled so callers don't need a guard.
+  // =====================================================================
+
+  /**
+   * Record a numeric value observation for the path identified by {@code pathNodeKey}.
+   * No-op if path statistics are disabled or the key is negative (no path node).
+   */
+  public void recordValue(final long pathNodeKey, final long numericValue) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
+        pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    pathNode.recordLongValue(numericValue);
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+  }
+
+  /**
+   * Record a byte-sequence value observation (string / utf-8). No-op if stats disabled.
+   */
+  public void recordValue(final long pathNodeKey, final byte[] bytesValue) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
+        pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    pathNode.recordBytesValue(bytesValue);
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+  }
+
+  /** Record a boolean value observation. No-op if stats disabled. */
+  public void recordBooleanValue(final long pathNodeKey, final boolean value) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
+        pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    pathNode.recordBooleanValue(value);
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+  }
+
+  /** Record a null value observation. No-op if stats disabled. */
+  public void recordNullValue(final long pathNodeKey) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
+        pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    pathNode.recordNullValue();
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+  }
+
+  /**
+   * Decrement stats on delete. If the removed value equals the tracked min or max the
+   * bound is marked dirty — a later read reconciles. No-op if stats disabled.
+   */
+  public void removeValue(final long pathNodeKey, final long numericValue) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
+        pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    pathNode.removeLongValue(numericValue);
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+  }
+
+  public void removeValue(final long pathNodeKey, final byte[] bytesValue) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
+        pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    pathNode.removeBytesValue(bytesValue);
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+  }
+
+  public void removeBooleanValue(final long pathNodeKey, final boolean value) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
+        pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    pathNode.removeBooleanValue(value);
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+  }
+
+  public void removeNullValue(final long pathNodeKey) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
+        pathNodeKey, IndexType.PATH_SUMMARY, 0);
+    pathNode.removeNullValue();
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+  }
+
+  /** For callers that want to avoid redundant work when stats are off. */
+  public boolean isPathStatisticsEnabled() {
+    return withPathStatistics;
   }
 
   @Override

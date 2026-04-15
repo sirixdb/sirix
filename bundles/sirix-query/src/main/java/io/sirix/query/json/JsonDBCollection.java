@@ -260,6 +260,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
                                                    .useDeweyIDs(resourceOptions.useDeweyIDs())
                                                    .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
                                                    .buildPathSummary(resourceOptions.buildPathSummary())
+                                                   .buildPathStatistics(resourceOptions.buildPathStatistics())
                                                    .hashKind(resourceOptions.hashType())
                                                    .build());
       final JsonResourceSession resourceSession = database.beginResourceSession(resName);
@@ -364,6 +365,7 @@ public final class JsonDBCollection extends AbstractJsonItemCollection<JsonDBIte
                                                    .useDeweyIDs(resourceOptions.useDeweyIDs())
                                                    .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
                                                    .buildPathSummary(resourceOptions.buildPathSummary())
+                                                   .buildPathStatistics(resourceOptions.buildPathStatistics())
                                                    .hashKind(resourceOptions.hashType())
                                                    .build());
       final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
