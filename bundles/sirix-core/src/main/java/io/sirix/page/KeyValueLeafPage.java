@@ -921,6 +921,56 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Bulk-copy the slotted-page state from {@code src} into a buffer owned by
+   * this page. Used by the single-fragment combine fast path to avoid the
+   * per-slot {@code setSlotWithNodeKind} loop; one MemorySegment.copy
+   * replaces ~1024 small copies + directory writes + bitmap updates.
+   *
+   * <p>If {@code this} already has a slotted page (via eager
+   * {@code ensureSlottedPage} in the constructor), it is released first —
+   * the constructor's allocation is wasted for the combine path, but
+   * reusing it in place requires handling size-class mismatches that rarely
+   * hit. Net: trade one 64 KiB release for a 1024× loop skip.
+   *
+   * <p>Overwrites the header's revision field after the copy so downstream
+   * readers observe this page's target revision (not the donor fragment's).
+   */
+  public void copySlottedPageFrom(final KeyValueLeafPage src) {
+    final MemorySegment srcSp = src.slottedPage;
+    if (srcSp == null) {
+      return;
+    }
+    final int srcCap = src.slottedPageCapacity;
+    final MemorySegment dst;
+    // Reuse the constructor's eagerly-allocated slotted page when capacity
+    // matches — saves a release+reallocate round-trip through the frame
+    // allocator. Capacities almost always match (both sides default to
+    // INITIAL_PAGE_SIZE = 64 KiB) so this is the hot path.
+    if (slottedPage != null && slottedPageCapacity == srcCap) {
+      dst = slottedPage.reinterpret(srcCap);
+    } else {
+      if (slottedPage != null) {
+        try {
+          segmentAllocator.release(slottedPage.reinterpret(slottedPageCapacity));
+        } catch (final Throwable e) {
+          LOGGER.debug("Release of pre-existing slottedPage before copy failed: {}", e.getMessage());
+        }
+        slottedPage = null;
+      }
+      dst = segmentAllocator.allocate(srcCap);
+      slottedPageCapacity = (int) dst.byteSize();
+      slottedPage = dst.reinterpret(Long.MAX_VALUE);
+    }
+    MemorySegment.copy(srcSp, 0, dst, 0, srcCap);
+    cachedHeapEnd = src.cachedHeapEnd;
+    cachedHeapUsed = src.cachedHeapUsed;
+    cachedPopulatedCount = src.cachedPopulatedCount;
+    lastSlotIndex = src.lastSlotIndex;
+    // src's header carries src's revision — overwrite with target revision.
+    PageLayout.setRevision(dst, revision);
+  }
+
+  /**
    * Grow the slotted page by doubling its size.
    * Copies all existing data (header + bitmap + directory + heap) to the new segment.
    */
@@ -1311,6 +1361,52 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private static final byte NUMBER_TYPE_INTEGER = 2;
   private static final byte NUMBER_TYPE_LONG = 3;
   private static final int OBJECT_NUMBER_VALUE_KIND_ID = 42;
+
+  /**
+   * Read the UTF-8 value bytes of an OBJECT_STRING_VALUE slot directly off the
+   * slotted page — no moveTo, no singleton binding, no
+   * {@code ObjectStringNode.toSnapshot}, no per-record byte[] allocation if the
+   * caller provides {@code scratch}. Returns -1 if the value is FSST-compressed
+   * (caller must handle via the slow path) or if the slot is not populated.
+   *
+   * <p>Caller must verify the slot holds an OBJECT_STRING_VALUE (kind id 40)
+   * before invoking. Hot path for analytical group-by over string fields.
+   *
+   * @param slotNumber slot index on this page
+   * @param scratch    caller-owned byte[] to write into; sized ≥ max expected
+   *                   value length. Returns the number of bytes written; caller
+   *                   reads {@code scratch[0..n)}.
+   * @return bytes written, or -1 if compressed / unavailable.
+   */
+  public int readObjectStringValueBytesFromSlot(final int slotNumber, final byte[] scratch) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) {
+      return -1;
+    }
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    // ObjectStringNode layout: [kind byte][4 field-offset bytes][data region]
+    // PAYLOAD is field index 3 — its byte at recordBase+1+3 points into data.
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJSTRVAL_PAYLOAD) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_STRING_VALUE_FIELD_COUNT;
+    final long payloadStart = dataStart + fieldOff;
+
+    // Payload: [isCompressed:1][length:varint][value bytes]
+    final boolean compressed = sp.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
+    if (compressed) {
+      return -1;
+    }
+    final long lenOff = payloadStart + 1;
+    final int length = DeltaVarIntCodec.decodeSignedFromSegment(sp, lenOff);
+    if (length <= 0 || length > scratch.length) {
+      return -1;
+    }
+    final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(sp, lenOff);
+    final long dataOff = lenOff + lenBytes;
+    MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, dataOff, scratch, 0, length);
+    return length;
+  }
 
   /**
    * Read the delta-encoded firstChildKey from an OBJECT_KEY slot without

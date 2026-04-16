@@ -432,6 +432,7 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
         final int classIdx = indexForSize(size);
         LOGGER.warn("FrameSlotAllocator class {} saturated for {} ms (size {}): sweeper unable to free slots",
             classIdx, totalWaitedNanos / 1_000_000L, size);
+        dumpStateForOOM(classIdx, size, totalWaitedNanos);
         throw new OutOfMemoryError("FrameSlotAllocator: size class "
             + classIdx + " exhausted for " + size + " bytes after "
             + (totalWaitedNanos / 1_000_000L) + " ms of retry");
@@ -488,6 +489,32 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * region via {@link SizeClass#nextFreshIndex}. Returns {@code -1} when both
    * sources are exhausted.
    */
+  /**
+   * Dumps per-class allocator state when an allocation saturates — live slot
+   * count, total lifetime allocates/releases, slots still in {@code liveByAddress},
+   * and physical-byte accounting. Emitted to stderr so it lands even when
+   * logback config swallows WARN. Diagnostic tool for cases where the pool
+   * appears exhausted but the cache should have evicted.
+   */
+  private void dumpStateForOOM(final int failedClass, final long failedSize, final long waitedNanos) {
+    final StringBuilder sb = new StringBuilder();
+    sb.append("\n=== FrameSlotAllocator state at OOM ===\n");
+    sb.append(String.format("  failed: class=%d size=%d bytes after=%d ms%n",
+        failedClass, failedSize, waitedNanos / 1_000_000L));
+    sb.append(String.format("  physicalBytes=%d / budget=%d (%.1f%%)%n",
+        physicalBytes.get(), budgetBytes, 100.0 * physicalBytes.get() / budgetBytes));
+    sb.append(String.format("  liveByAddress entries=%d%n", liveByAddress.size()));
+    for (int i = 0; i < classes.length; i++) {
+      final SizeClass c = classes[i];
+      sb.append(String.format("  class[%d] slotSize=%d  slots=%d  live=%d  alloc=%d  release=%d  freeStack=%d  freshIdx=%d%n",
+          i, c.slotSize, c.slotCount, c.liveCount.get(), c.allocCount.get(),
+          c.releaseCount.get(), c.freeSlots.size(), c.nextFreshIndex.get()));
+    }
+    sb.append("=== end FrameSlotAllocator state ===\n");
+    System.err.print(sb);
+    System.err.flush();
+  }
+
   private static void firePressure() {
     final PressureListener l = pressureListener;
     if (l != null) {
