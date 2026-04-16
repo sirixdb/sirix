@@ -1380,13 +1380,24 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return result;
   }
 
+  /**
+   * Thread-local scratch PageReference used as a cache-lookup key on the fast
+   * path. ConcurrentHashMap.get only needs an object with matching hashCode/
+   * equals — it never stores the passed-in key. Allocating a fresh
+   * PageReference per cache hit was 21% of all allocations (async-profiler
+   * alloc mode). On cache miss we still allocate a fresh PageReference for
+   * insertion so each cache entry owns a stable key.
+   */
+  private static final ThreadLocal<PageReference> LOOKUP_REF = ThreadLocal.withInitial(PageReference::new);
+
   @SuppressWarnings("unchecked")
   private CompletableFuture<KeyValuePage<DataRecord>> readPage(final PageFragmentKey pageFragmentKey) {
-    final var pageReference =
-        new PageReference().setKey(pageFragmentKey.key()).setDatabaseId(databaseId).setResourceId(resourceId);
+    final long key = pageFragmentKey.key();
+    final PageReference lookup = LOOKUP_REF.get();
+    lookup.setKey(key).setDatabaseId(databaseId).setResourceId(resourceId);
 
-    // Try to get from cache with guard
-    KeyValueLeafPage pageFromCache = resourceBufferManager.getRecordPageFragmentCache().getAndGuard(pageReference);
+    // Try to get from cache with guard using the thread-local lookup key.
+    KeyValueLeafPage pageFromCache = resourceBufferManager.getRecordPageFragmentCache().getAndGuard(lookup);
 
     if (pageFromCache != null) {
       assert pageFragmentKey.revision() == pageFromCache.getRevision() :
@@ -1394,7 +1405,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return CompletableFuture.completedFuture(pageFromCache);
     }
 
-    // Cache miss - load async, then cache with atomic guard acquisition
+    // Cache miss — allocate a proper PageReference for insertion as the map key.
+    final var pageReference =
+        new PageReference().setKey(key).setDatabaseId(databaseId).setResourceId(resourceId);
     final var reader = resourceSession.createReader();
     return reader.readAsync(pageReference, resourceSession.getResourceConfig())
                  .thenApply(loadedPage -> {
@@ -1402,9 +1415,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                    assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) loadedPage).getRevision() :
                        "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + ((KeyValuePage<DataRecord>) loadedPage).getRevision();
 
-                   // Atomic cache-or-store with guard (handles race with other threads)
-                   // If another thread cached the page first, returns that cached page with guard.
-                   // Otherwise caches our loaded page with guard.
+                   // Atomic cache-or-store with guard (handles race with other threads).
                    KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageFragmentCache()
                        .getOrLoadAndGuard(pageReference, _ -> (KeyValueLeafPage) loadedPage);
 

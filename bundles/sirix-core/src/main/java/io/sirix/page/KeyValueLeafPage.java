@@ -232,11 +232,33 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private io.sirix.page.pax.RegionTable regionTable;
 
-  /** Reusable flyweight for FSST compression of StringNode slots on slotted page. */
-  private final StringNode fsstStringFlyweight = new StringNode(0, null);
+  /**
+   * FSST-compression flyweights (StringNode / ObjectStringNode), lazy-init
+   * only on the write-path where FSST compression actually runs. For
+   * analytical scan workloads these objects were the top non-page allocator —
+   * 7.6% of samples (async-profiler alloc mode) at 2× per KVLP constructor.
+   * Using a shared sentinel so the null-check in the read path is elided.
+   */
+  private StringNode fsstStringFlyweight;
+  private ObjectStringNode fsstObjStringFlyweight;
 
-  /** Reusable flyweight for FSST compression of ObjectStringNode slots on slotted page. */
-  private final ObjectStringNode fsstObjStringFlyweight = new ObjectStringNode(0, null);
+  private StringNode fsstStringFlyweight() {
+    StringNode f = fsstStringFlyweight;
+    if (f == null) {
+      f = new StringNode(0, null);
+      fsstStringFlyweight = f;
+    }
+    return f;
+  }
+
+  private ObjectStringNode fsstObjStringFlyweight() {
+    ObjectStringNode f = fsstObjStringFlyweight;
+    if (f == null) {
+      f = new ObjectStringNode(0, null);
+      fsstObjStringFlyweight = f;
+    }
+    return f;
+  }
 
 
 
@@ -2769,20 +2791,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
           final long recordBase = PageLayout.heapAbsoluteOffset(heapOff);
           final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + i;
           if (nodeKindId == stringValueId) {
-            fsstStringFlyweight.bind(slottedPage, recordBase, nodeKey, i);
+            fsstStringFlyweight().bind(slottedPage, recordBase, nodeKey, i);
             try {
-              byte[] value = fsstStringFlyweight.getRawValueWithoutDecompression();
+              byte[] value = fsstStringFlyweight().getRawValueWithoutDecompression();
               if (value != null && value.length > 0) stringSamples.add(value);
             } finally {
-              fsstStringFlyweight.clearBinding();
+              fsstStringFlyweight().clearBinding();
             }
           } else {
-            fsstObjStringFlyweight.bind(slottedPage, recordBase, nodeKey, i);
+            fsstObjStringFlyweight().bind(slottedPage, recordBase, nodeKey, i);
             try {
-              byte[] value = fsstObjStringFlyweight.getRawValueWithoutDecompression();
+              byte[] value = fsstObjStringFlyweight().getRawValueWithoutDecompression();
               if (value != null && value.length > 0) stringSamples.add(value);
             } finally {
-              fsstObjStringFlyweight.clearBinding();
+              fsstObjStringFlyweight().clearBinding();
             }
           }
         }
@@ -2861,34 +2883,34 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + i;
 
         if (nodeKindId == stringValueId) {
-          fsstStringFlyweight.bind(slottedPage, recordBase, nodeKey, i);
-          fsstStringFlyweight.setOwnerPage(this); // Enable write-through
+          fsstStringFlyweight().bind(slottedPage, recordBase, nodeKey, i);
+          fsstStringFlyweight().setOwnerPage(this); // Enable write-through
           try {
-            byte[] originalValue = fsstStringFlyweight.getRawValueWithoutDecompression();
-            if (originalValue != null && originalValue.length > 0 && !fsstStringFlyweight.isCompressed()) {
+            byte[] originalValue = fsstStringFlyweight().getRawValueWithoutDecompression();
+            if (originalValue != null && originalValue.length > 0 && !fsstStringFlyweight().isCompressed()) {
               byte[] compressed = FSSTCompressor.encode(originalValue, fsstSymbolTable);
               if (compressed.length < originalValue.length) {
-                fsstStringFlyweight.setRawValue(compressed, true, fsstSymbolTable);
+                fsstStringFlyweight().setRawValue(compressed, true, fsstSymbolTable);
               }
             }
           } finally {
-            fsstStringFlyweight.setOwnerPage(null);
-            fsstStringFlyweight.clearBinding();
+            fsstStringFlyweight().setOwnerPage(null);
+            fsstStringFlyweight().clearBinding();
           }
         } else {
-          fsstObjStringFlyweight.bind(slottedPage, recordBase, nodeKey, i);
-          fsstObjStringFlyweight.setOwnerPage(this); // Enable write-through
+          fsstObjStringFlyweight().bind(slottedPage, recordBase, nodeKey, i);
+          fsstObjStringFlyweight().setOwnerPage(this); // Enable write-through
           try {
-            byte[] originalValue = fsstObjStringFlyweight.getRawValueWithoutDecompression();
-            if (originalValue != null && originalValue.length > 0 && !fsstObjStringFlyweight.isCompressed()) {
+            byte[] originalValue = fsstObjStringFlyweight().getRawValueWithoutDecompression();
+            if (originalValue != null && originalValue.length > 0 && !fsstObjStringFlyweight().isCompressed()) {
               byte[] compressed = FSSTCompressor.encode(originalValue, fsstSymbolTable);
               if (compressed.length < originalValue.length) {
-                fsstObjStringFlyweight.setRawValue(compressed, true, fsstSymbolTable);
+                fsstObjStringFlyweight().setRawValue(compressed, true, fsstSymbolTable);
               }
             }
           } finally {
-            fsstObjStringFlyweight.setOwnerPage(null);
-            fsstObjStringFlyweight.clearBinding();
+            fsstObjStringFlyweight().setOwnerPage(null);
+            fsstObjStringFlyweight().clearBinding();
           }
         }
       }

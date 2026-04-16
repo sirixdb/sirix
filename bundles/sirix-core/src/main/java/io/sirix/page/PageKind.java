@@ -81,6 +81,16 @@ public enum PageKind {
    * {@link KeyValueLeafPage}.
    */
   KEYVALUELEAFPAGE((byte) 1, KeyValueLeafPage.class) {
+    /**
+     * Thread-local scratch for the compact directory read during slotted-page
+     * deserialization. Allocating a fresh int[populatedCount] per page at
+     * ~1M pages per scan × 20 threads showed up as 30% of all allocation
+     * samples (async-profiler alloc mode). Capacity is NDP_NODE_COUNT so
+     * it covers the worst case and never needs to grow.
+     */
+    private final ThreadLocal<int[]> compactDirScratch =
+        ThreadLocal.withInitial(() -> new int[Constants.NDP_NODE_COUNT]);
+
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
@@ -105,8 +115,9 @@ public enum PageKind {
       final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
       final int populatedCount = PageLayout.getPopulatedCount(headerBitmapSeg);
 
-      // 2. Read compact dir entries: populatedCount × 4 bytes
-      final int[] compactDir = new int[populatedCount];
+      // 2. Read compact dir entries into thread-local scratch (reused across
+      // pages to avoid the per-page int[populatedCount] allocation).
+      final int[] compactDir = compactDirScratch.get();
       for (int i = 0; i < populatedCount; i++) {
         compactDir[i] = source.readInt();
       }
@@ -151,10 +162,10 @@ public enum PageKind {
         while (word != 0) {
           final int bit = Long.numberOfTrailingZeros(word);
           final int slot = (w << 6) | bit;
-          if (entryIdx >= compactDir.length) {
+          if (entryIdx >= populatedCount) {
             throw new SirixIOException(
                 "Bitmap has more set bits than compact directory entries: entryIdx="
-                    + entryIdx + ", compactDir.length=" + compactDir.length);
+                    + entryIdx + ", populatedCount=" + populatedCount);
           }
           final int packed = compactDir[entryIdx++];
           final int dataLength = packed >>> 8;
