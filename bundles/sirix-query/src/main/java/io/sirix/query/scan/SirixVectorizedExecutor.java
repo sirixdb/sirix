@@ -671,8 +671,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       var reader = rtx.getStorageEngineReader();
       final ScanDiagnostics diag = DIAGNOSTICS_ENABLED ? new ScanDiagnostics() : null;
       if (DIAGNOSTICS_ENABLED) perThreadDiag[i] = diag;
-      // Per-thread scratch for direct-slot value reads. Sized for typical
-      // string values; larger values fall through to the rtx.moveTo path.
+      // Per-thread scratch for direct-slot value reads. Handles FSST-compressed
+      // values inline; cross-page children / oversized values fall back to rtx.
       final byte[] scratch = new byte[256];
       final int SLOT_MASK = Constants.NDP_NODE_COUNT - 1;
       for (long pk = s; pk < e; pk++) {
@@ -687,11 +687,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         for (final int slot : matches) {
           if (DIAGNOSTICS_ENABLED) diag.recordsSlowPath++;
 
-          // Fast path: read value bytes directly from the page slot, skipping
-          // rtx.moveTo + moveToFirstChild + ObjectStringNode.toSnapshot +
-          // per-record byte[] allocation. Works when the first-child value
-          // node is (a) on the same page, (b) OBJECT_STRING_VALUE, (c) not
-          // FSST-compressed, (d) fits in scratch.
           final long firstChildKey = kv.getObjectKeyFirstChildKeyFromSlot(slot, base + slot);
           final long childPk = firstChildKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
           if (childPk == pk) {
@@ -704,7 +699,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             }
           }
 
-          // Slow fallback: cross-page child, compressed value, or oversized.
           if (!rtx.moveTo(base + slot)) continue;
           if (!rtx.moveToFirstChild()) continue;
           byte[] valueBytes = rtx.getValueBytes();

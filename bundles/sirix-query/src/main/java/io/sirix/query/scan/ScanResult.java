@@ -94,6 +94,33 @@ public final class ScanResult {
       add(key, 0, key.length);
     }
 
+    /**
+     * Insert {@code count} occurrences of a key at once — avoids {@code count}
+     * separate hash+probe cycles when the caller has already aggregated a run
+     * (e.g. per-page group-by flushing). Zero-alloc on an existing entry;
+     * one copy on a fresh entry.
+     */
+    public void addN(byte[] value, int off, int len, long count) {
+      int hash = longHash(value, off, len);
+      int idx = hash & MASK;
+      while (true) {
+        byte[] existing = keys[idx];
+        if (existing == null) {
+          byte[] copy = new byte[len];
+          System.arraycopy(value, off, copy, 0, len);
+          keys[idx] = copy;
+          counts[idx] = count;
+          size++;
+          return;
+        }
+        if (existing.length == len && bytesEqual(existing, 0, value, off, len)) {
+          counts[idx] += count;
+          return;
+        }
+        idx = (idx + 31) & MASK;
+      }
+    }
+
     /** Merge another result into this one. */
     public void merge(GroupByResult other) {
       for (int i = 0; i < CAPACITY; i++) {
@@ -187,7 +214,7 @@ public final class ScanResult {
       return (long) LONG_LE.get(buf, off);
     }
 
-    static boolean bytesEqual(byte[] a, int aOff, byte[] b, int bOff, int len) {
+    public static boolean bytesEqual(byte[] a, int aOff, byte[] b, int bOff, int len) {
       int i = 0;
       for (; i + 8 <= len; i += 8) {
         if ((long) LONG_LE.get(a, aOff + i) != (long) LONG_LE.get(b, bOff + i)) return false;

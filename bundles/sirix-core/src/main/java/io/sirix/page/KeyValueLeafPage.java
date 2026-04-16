@@ -1385,20 +1385,43 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private static final int OBJECT_NUMBER_VALUE_KIND_ID = 42;
 
   /**
+   * Lazy pre-parsed FSST symbol table, built once per page on first access.
+   * {@code FSSTCompressor.parseSymbolTable} walks the serialized symbol
+   * table bytes into a {@code byte[][]} suitable for {@code decodeRaw}.
+   */
+  private volatile byte[][] parsedFsstSymbols;
+  private static final byte[][] EMPTY_FSST_SYMBOLS = new byte[0][];
+
+  private byte[][] fsstSymbols() {
+    byte[][] s = parsedFsstSymbols;
+    if (s != null) {
+      return s;
+    }
+    final byte[] tbl = fsstSymbolTable;
+    if (tbl == null || tbl.length == 0) {
+      s = EMPTY_FSST_SYMBOLS;
+    } else {
+      s = io.sirix.utils.FSSTCompressor.parseSymbolTable(tbl);
+    }
+    parsedFsstSymbols = s;
+    return s;
+  }
+
+  /**
    * Read the UTF-8 value bytes of an OBJECT_STRING_VALUE slot directly off the
    * slotted page — no moveTo, no singleton binding, no
    * {@code ObjectStringNode.toSnapshot}, no per-record byte[] allocation if the
-   * caller provides {@code scratch}. Returns -1 if the value is FSST-compressed
-   * (caller must handle via the slow path) or if the slot is not populated.
+   * caller provides {@code scratch}. Handles FSST-compressed values inline
+   * using the page's pre-parsed symbol table.
    *
    * <p>Caller must verify the slot holds an OBJECT_STRING_VALUE (kind id 40)
    * before invoking. Hot path for analytical group-by over string fields.
    *
    * @param slotNumber slot index on this page
    * @param scratch    caller-owned byte[] to write into; sized ≥ max expected
-   *                   value length. Returns the number of bytes written; caller
-   *                   reads {@code scratch[0..n)}.
-   * @return bytes written, or -1 if compressed / unavailable.
+   *                   value length (decompressed for FSST values). Returns the
+   *                   number of bytes written; caller reads {@code scratch[0..n)}.
+   * @return bytes written, or -1 if the slot is unavailable / oversized.
    */
   public int readObjectStringValueBytesFromSlot(final int slotNumber, final byte[] scratch) {
     final MemorySegment sp = slottedPage;
@@ -1408,7 +1431,6 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     // ObjectStringNode layout: [kind byte][4 field-offset bytes][data region]
-    // PAYLOAD is field index 3 — its byte at recordBase+1+3 points into data.
     final int fieldOff =
         sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJSTRVAL_PAYLOAD) & 0xFF;
     final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_STRING_VALUE_FIELD_COUNT;
@@ -1416,18 +1438,147 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Payload: [isCompressed:1][length:varint][value bytes]
     final boolean compressed = sp.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
-    if (compressed) {
+    final long lenOff = payloadStart + 1;
+    final int length = DeltaVarIntCodec.decodeSignedFromSegment(sp, lenOff);
+    if (length <= 0) {
       return -1;
     }
+    final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(sp, lenOff);
+    final long dataOff = lenOff + lenBytes;
+
+    if (!compressed) {
+      if (length > scratch.length) {
+        return -1;
+      }
+      MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, dataOff, scratch, 0, length);
+      return length;
+    }
+
+    // FSST-compressed: inline decode into scratch using the page's pre-parsed
+    // symbol table. Saves the moveTo / toSnapshot / byte[] allocation pipeline
+    // that the rtx slow path would trigger.
+    final byte[][] symbols = fsstSymbols();
+    if (symbols.length == 0) {
+      return -1;
+    }
+    return decodeFsstInto(sp, dataOff, length, symbols, scratch);
+  }
+
+  /**
+   * Read the RAW stored value bytes of an OBJECT_STRING_VALUE slot into the
+   * caller's scratch — does NOT decompress. Callers that do intra-page run
+   * aggregation can compare raw compressed bytes directly (same page →
+   * same FSST table → byte-identical encoding for equal values) and
+   * decompress only at flush time via {@link #decodeRawIfCompressed}.
+   * Returns bytes written or -1 on unavailable/oversized.
+   */
+  public int readObjectStringValueRawBytesFromSlot(final int slotNumber, final byte[] scratch) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) {
+      return -1;
+    }
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJSTRVAL_PAYLOAD) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_STRING_VALUE_FIELD_COUNT;
+    final long payloadStart = dataStart + fieldOff;
+    // Skip isCompressed byte — caller infers from page's fsstSymbolTable().
     final long lenOff = payloadStart + 1;
     final int length = DeltaVarIntCodec.decodeSignedFromSegment(sp, lenOff);
     if (length <= 0 || length > scratch.length) {
       return -1;
     }
     final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(sp, lenOff);
-    final long dataOff = lenOff + lenBytes;
-    MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, dataOff, scratch, 0, length);
+    MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, lenOff + lenBytes, scratch, 0, length);
     return length;
+  }
+
+  /**
+   * Decode raw bytes if this page's values are FSST-compressed; otherwise
+   * copy verbatim. {@code in[0..inLen)} is the raw bytes; decoded output
+   * goes to {@code out[outOff..)}. Returns decoded length or -1 on failure.
+   * Fixed-in-place decode: safe when {@code in == out && outOff == 0} for
+   * non-compressed passthrough (we write the same bytes). For compressed
+   * input, caller should pass distinct buffers or accept in-place overwrite
+   * since FSST expands (decoded ≥ encoded).
+   */
+  public int decodeRawIfCompressed(final byte[] in, final int inLen,
+      final byte[] out, final int outOff) {
+    if (fsstSymbolTable == null) {
+      if (in != out || outOff != 0) {
+        System.arraycopy(in, 0, out, outOff, inLen);
+      }
+      return inLen;
+    }
+    final byte[][] symbols = fsstSymbols();
+    if (symbols.length == 0) {
+      if (in != out || outOff != 0) {
+        System.arraycopy(in, 0, out, outOff, inLen);
+      }
+      return inLen;
+    }
+    // Decode into a temp: FSST expands, so writing into `in` in-place risks
+    // overwriting unread bytes. Small (<=256) so stack-ish.
+    final byte[] tmp = in == out ? new byte[inLen * 3 + 8] : null;
+    final byte[] dst = tmp != null ? tmp : out;
+    final int dstOff = tmp != null ? 0 : outOff;
+    int outPos = dstOff;
+    for (int pos = 0; pos < inLen; ) {
+      final int b = in[pos++] & 0xFF;
+      if (b == 0xFF) {
+        if (pos >= inLen || outPos >= dst.length) return -1;
+        dst[outPos++] = in[pos++];
+      } else if (b < symbols.length) {
+        final byte[] sym = symbols[b];
+        final int sl = sym.length;
+        if (outPos + sl > dst.length) return -1;
+        System.arraycopy(sym, 0, dst, outPos, sl);
+        outPos += sl;
+      } else {
+        return -1;
+      }
+    }
+    final int decLen = outPos - dstOff;
+    if (tmp != null) {
+      if (decLen > out.length - outOff) return -1;
+      System.arraycopy(tmp, 0, out, outOff, decLen);
+    }
+    return decLen;
+  }
+
+  /**
+   * Decode {@code length} FSST-compressed bytes starting at {@code dataOff}
+   * of {@code sp} into {@code scratch}. Mirrors
+   * {@code FSSTCompressor.decodeRawCompressed} but reads from a
+   * MemorySegment and writes into a caller-provided buffer — no allocation.
+   * Returns decoded byte count, or -1 if output overflows.
+   */
+  private static int decodeFsstInto(final MemorySegment sp, final long dataOff,
+      final int length, final byte[][] symbols, final byte[] scratch) {
+    int outPos = 0;
+    final int scratchLen = scratch.length;
+    final long end = dataOff + length;
+    for (long pos = dataOff; pos < end; ) {
+      final int b = sp.get(ValueLayout.JAVA_BYTE, pos++) & 0xFF;
+      if (b == 0xFF) {
+        if (pos >= end || outPos >= scratchLen) {
+          return -1;
+        }
+        scratch[outPos++] = sp.get(ValueLayout.JAVA_BYTE, pos++);
+      } else if (b < symbols.length) {
+        final byte[] symbol = symbols[b];
+        final int sl = symbol.length;
+        if (outPos + sl > scratchLen) {
+          return -1;
+        }
+        System.arraycopy(symbol, 0, scratch, outPos, sl);
+        outPos += sl;
+      } else {
+        return -1; // corrupted FSST data
+      }
+    }
+    return outPos;
   }
 
   /**
