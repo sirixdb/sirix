@@ -157,11 +157,14 @@ public enum PageKind {
         MemorySegment.copy(heapData, 0, slottedPage, ValueLayout.JAVA_BYTE, PageLayout.HEAP_START, heapData.length);
       }
 
-      // 9. Zero-fill remainder of allocated page
-      final long usedEnd = PageLayout.HEAP_START + heapSize;
-      if (allocSize > usedEnd) {
-        slottedPage.asSlice(usedEnd, allocSize - usedEnd).fill((byte) 0);
-      }
+      // 9. No tail zero-fill: bytes past heapEnd are never read. Slot access
+      // is bounded by the directory (heap offsets < heapSize); header and
+      // bitmap live at fixed addresses in [0, HEAP_START). Skipping the
+      // fill saves ~60 KiB memset per page (large scans: 1M pages × ~60 KiB
+      // = 60 GB of memset per iteration, ~4% of CPU in unsafe_setmemory).
+      // If the page later grows via growSlottedPage, the new allocation is
+      // copied in full and subsequent writes go through bump-allocation
+      // from heapEnd, overwriting stale bytes before any read sees them.
 
       // 10. Rebuild full directory via prefix sums from compact dir entries
       int entryIdx = 0;
