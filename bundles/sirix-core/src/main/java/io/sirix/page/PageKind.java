@@ -91,6 +91,15 @@ public enum PageKind {
     private final ThreadLocal<int[]> compactDirScratch =
         ThreadLocal.withInitial(() -> new int[Constants.NDP_NODE_COUNT]);
 
+    /**
+     * Thread-local 160-byte scratch for reading the on-disk header + bitmap
+     * section. Avoids a fresh new byte[160] on every page deserialize; at
+     * 1M pages × 20 threads × N iters that was ~10% of byte[] allocation
+     * samples.
+     */
+    private final ThreadLocal<byte[]> headerBitmapScratch =
+        ThreadLocal.withInitial(() -> new byte[PageLayout.DISK_HEADER_BITMAP_SIZE]);
+
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
@@ -110,7 +119,7 @@ public enum PageKind {
       final MemorySegmentAllocator memorySegmentAllocator = Allocators.getInstance();
 
       // 1. Read header (32B) + bitmap (128B) — 160 bytes (on-disk format, never changes)
-      final byte[] headerBitmapBytes = new byte[PageLayout.DISK_HEADER_BITMAP_SIZE];
+      final byte[] headerBitmapBytes = headerBitmapScratch.get();
       source.read(headerBitmapBytes);
       final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
       final int populatedCount = PageLayout.getPopulatedCount(headerBitmapSeg);

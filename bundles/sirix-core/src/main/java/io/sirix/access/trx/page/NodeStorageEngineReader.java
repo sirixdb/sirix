@@ -1099,9 +1099,17 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     final ResourceConfiguration config = resourceSession.getResourceConfig();
 
-    // FULL versioning fast path: Page on disk IS complete - load directly without combining
-    // This saves 100% of the allocation and copy overhead for reads
-    if (config.versioningType == VersioningType.FULL) {
+    // Fast path 1 — FULL versioning always stores a complete page (no
+    // fragments). Fast path 2 — SLIDING_SNAPSHOT / INCREMENTAL /
+    // DIFFERENTIAL with no historic fragments (typical for reads on the
+    // most recent revision, which is the analytical-scan common case).
+    // In both cases skip the RecordPageFragmentCache + combineRecordPages
+    // round-trip and load straight into RecordPageCache. Profile showed
+    // combineRecordPages at ~50% inclusive CPU before this change.
+    final boolean singleFragmentFastPath =
+        config.versioningType == VersioningType.FULL
+            || pageReferenceToRecordPage.getPageFragments().isEmpty();
+    if (singleFragmentFastPath) {
       KeyValueLeafPage page = resourceBufferManager.getRecordPageCache()
           .getOrLoadAndGuard(pageReferenceToRecordPage,
               ref -> (KeyValueLeafPage) pageReader.read(ref, config));
@@ -1114,7 +1122,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return page;
     }
 
-    // Other versioning types: load fragments → combine → cache
+    // Other versioning types with fragment history: load fragments → combine → cache
     KeyValueLeafPage page = resourceBufferManager.getRecordPageCache()
         .getOrLoadAndGuard(pageReferenceToRecordPage,
             ref -> (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(ref));
