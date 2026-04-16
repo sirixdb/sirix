@@ -10,7 +10,7 @@ import io.brackit.query.util.io.IOUtils;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -77,7 +77,7 @@ public final class BrackitQueryOnSirixScaleMain {
     // pressure during shred otherwise tips over. Cap to host RAM minus heap.
     long offheap = Long.parseLong(System.getProperty("sirix.offheap.bytes",
                                                        String.valueOf(24L << 30)));
-    var alloc = LinuxMemorySegmentAllocator.getInstance();
+    var alloc = Allocators.getInstance();
     alloc.init(offheap);
     System.out.printf("# After init: maxBufferSize = %d MB (initialized=%s)%n",
                       alloc.getMaxBufferSize() / (1L << 20), alloc.isInitialized());

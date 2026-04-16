@@ -2,11 +2,9 @@ package io.sirix.page;
 
 import io.sirix.access.DatabaseType;
 import io.sirix.access.ResourceConfiguration;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.TransactionIntentLog;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
-import io.sirix.utils.OS;
 import io.sirix.index.IndexType;
 import io.sirix.node.SirixDeweyID;
 import io.sirix.page.delegates.BitmapReferencesPage;
@@ -74,9 +72,7 @@ public final class PageUtils {
     final ResourceConfiguration resourceConfiguration = storageEngineReader.getResourceSession().getResourceConfig();
 
     // Direct allocation (no pool)
-    final MemorySegmentAllocator allocator = OS.isWindows()
-        ? WindowsMemorySegmentAllocator.getInstance()
-        : LinuxMemorySegmentAllocator.getInstance();
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
 
     final KeyValueLeafPage recordPage =
         new KeyValueLeafPage(Fixed.ROOT_PAGE_KEY.getStandardProperty(), indexType, resourceConfiguration,

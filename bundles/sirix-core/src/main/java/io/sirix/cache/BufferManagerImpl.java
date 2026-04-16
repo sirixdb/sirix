@@ -82,6 +82,17 @@ public final class BufferManagerImpl implements BufferManager {
     recordPageCache = new ShardedPageCache(maxRecordPageCacheWeight);
     recordPageFragmentCache = new ShardedPageCache(maxRecordPageFragmentCacheWeight);
 
+    // Register a pressure listener that evicts both the record-page caches on
+    // allocator exhaustion. Synchronous eviction avoids the 500 ms ClockSweeper
+    // cadence under hot-scan pressure that otherwise surfaces as OutOfMemoryError
+    // in MemorySegmentAllocator.allocate.
+    final FrameSlotAllocator.PressureListener pressureListener = () -> {
+      recordPageCache.evictUnderPressure();
+      recordPageFragmentCache.evictUnderPressure();
+    };
+    FrameSlotAllocator.setPressureListener(pressureListener);
+    LinuxMemorySegmentAllocator.setPressureListener(pressureListener);
+
     // PageCache uses Caffeine which internally uses long for weights
     pageCache = new PageCache(maxPageCacheWeight);
 

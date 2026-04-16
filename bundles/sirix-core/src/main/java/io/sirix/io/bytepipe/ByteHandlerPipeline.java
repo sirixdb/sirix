@@ -1,9 +1,7 @@
 package io.sirix.io.bytepipe;
 
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
-import io.sirix.utils.OS;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -151,9 +149,7 @@ public final class ByteHandlerPipeline implements ByteHandler {
       int size = (int) compressed.byteSize();
 
       // Try to use pooled allocator if available, otherwise fall back to heap
-      MemorySegmentAllocator allocator = OS.isWindows()
-          ? WindowsMemorySegmentAllocator.getInstance()
-          : LinuxMemorySegmentAllocator.getInstance();
+      MemorySegmentAllocator allocator = Allocators.getInstance();
 
       if (allocator.isInitialized()) {
         // Use pooled buffer - optimal path

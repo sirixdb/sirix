@@ -29,16 +29,14 @@
 package io.sirix.page;
 
 import io.sirix.api.StorageEngineReader;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.DiagnosticSettings;
-import io.sirix.utils.OS;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.ShortVector;
@@ -207,9 +205,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     this.indexType = Objects.requireNonNull(indexType);
 
     // Allocate off-heap memory
-    MemorySegmentAllocator allocator = OS.isWindows()
-        ? WindowsMemorySegmentAllocator.getInstance()
-        : LinuxMemorySegmentAllocator.getInstance();
+    MemorySegmentAllocator allocator = Allocators.getInstance();
     this.slotMemory = allocator.allocate(DEFAULT_SIZE);
     // Capture by local variable to avoid releasing wrong memory if slotMemory field is later changed
     final MemorySegment segmentToRelease = this.slotMemory;
@@ -1055,9 +1051,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     if (slotMemory.byteSize() >= DEFAULT_SIZE) {
       return;
     }
-    final MemorySegmentAllocator allocator = OS.isWindows()
-        ? WindowsMemorySegmentAllocator.getInstance()
-        : LinuxMemorySegmentAllocator.getInstance();
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
     final MemorySegment newMemory = allocator.allocate(DEFAULT_SIZE);
     MemorySegment.copy(slotMemory, 0, newMemory, 0, usedSlotMemorySize);
     // Capture old releaser BEFORE reassigning — release old memory AFTER assigning new
@@ -1323,9 +1317,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    */
   public HOTLeafPage copy() {
     // Allocate new off-heap memory
-    final MemorySegmentAllocator allocator = OS.isWindows()
-        ? WindowsMemorySegmentAllocator.getInstance()
-        : LinuxMemorySegmentAllocator.getInstance();
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
     final MemorySegment newSlotMemory = allocator.allocate(DEFAULT_SIZE);
     final Runnable newReleaser = () -> allocator.release(newSlotMemory);
 

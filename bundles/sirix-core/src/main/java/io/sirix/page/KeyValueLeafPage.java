@@ -4,9 +4,8 @@ import io.sirix.utils.ToStringHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.DeltaVarIntCodec;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -26,7 +25,6 @@ import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.utils.ArrayIterator;
-import io.sirix.utils.OS;
 import io.sirix.node.BytesOut;
 import io.sirix.node.MemorySegmentBytesOut;
 import org.jspecify.annotations.Nullable;
@@ -286,8 +284,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private final boolean externallyAllocatedMemory;
 
-  private MemorySegmentAllocator segmentAllocator =
-      OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
+  private MemorySegmentAllocator segmentAllocator = Allocators.getInstance();
 
   /**
    * Backing buffer from decompression (for zero-copy deserialization).
@@ -2158,23 +2155,17 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Ensure the number region is attached. Called from the versioning layer's
    * {@code combineRecordPages} after a new KVLP has been reconstructed from
-   * one or more fragments. The argument carries the donor page's region
-   * (typically the first fragment).
+   * one or more fragments. The argument carries the donor page's region —
+   * typically the first (or only) fragment.
    *
-   * <p>The donor shortcut — copying {@code donor.regionTable} by reference — is
-   * only correct when the donor's slot count equals the combined page's slot
-   * count. In single-fragment reads (FULL versioning, or any read-only
-   * analytical load with no accumulated deltas) this holds trivially. For
-   * multi-fragment reads under DIFFERENTIAL / SLIDING_SNAPSHOT, the donor's
-   * region reflects only that fragment's values; copying it would silently
-   * omit values contributed by other fragments. In those cases we fall
-   * through to {@link #tryBuildNumberRegionFromSlottedPage()} which walks the
-   * combined slotted heap and produces a region matching the actual merged
-   * state.
-   *
-   * <p>The slot-count equality guard is cheap (one int compare) and fail-safe:
-   * a mismatch forces a correct rebuild; a match is observationally indistinguishable
-   * from the donor's region.
+   * <p><b>Caller contract.</b> The donor shortcut — copying
+   * {@code donor.regionTable} by reference — is only correct when the target
+   * is a byte-identical copy of the donor (i.e. single-fragment combine). For
+   * multi-fragment combines the caller <b>must</b> pass {@code null} (or use
+   * {@link #ensureNumberRegion()}) so the region is rebuilt from the combined
+   * slotted heap. Passing a donor in a multi-fragment context silently
+   * corrupts aggregates that lean on the PAX number region (zone maps, sum,
+   * min/max), so a fail-fast assertion guards the invariant in debug builds.
    */
   public void ensureNumberRegion(final KeyValueLeafPage donor) {
     if (regionTable != null && regionTable.payload(RegionTable.KIND_NUMBER) != null) {
@@ -2182,11 +2173,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     }
     if (donor != null) {
       final RegionTable donorTable = donor.regionTable;
-      if (donorTable != null
-          && donorTable.payload(RegionTable.KIND_NUMBER) != null
-          && donor.getCachedPopulatedCount() == this.getCachedPopulatedCount()) {
-        // Safe shortcut — donor's region covers exactly the same slots as ours.
-        // Zero allocation, one pointer assignment.
+      if (donorTable != null && donorTable.payload(RegionTable.KIND_NUMBER) != null) {
+        assert donor.getCachedPopulatedCount() == this.getCachedPopulatedCount()
+            : "ensureNumberRegion(donor) called with a multi-fragment target: donor slots="
+                + donor.getCachedPopulatedCount() + ", target slots=" + this.getCachedPopulatedCount()
+                + ". Caller must pass null in multi-fragment combines.";
         this.regionTable = donorTable;
         return;
       }

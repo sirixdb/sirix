@@ -27,7 +27,12 @@ import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.pax.NumberRegion;
+import io.sirix.page.pax.NumberRegionSimd;
 import io.sirix.settings.Constants;
+
+import jdk.incubator.vector.VectorOperators;
+
+import java.lang.foreign.MemorySegment;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -67,6 +72,64 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Kill switch to bypass the PAX fast path for regression bisection. */
   private static final boolean PAX_FAST_PATH_ENABLED =
       !"false".equalsIgnoreCase(System.getProperty("sirix.pax.scan", "true"));
+
+  /**
+   * Lightweight scan-path diagnostics. Toggled via {@code -Dsirix.scan.diag=true}.
+   * When {@code false}, all counter increments are dead-code-eliminated by the
+   * JIT because this field is {@code static final} and read as a compile-time
+   * constant at class-init time. Zero steady-state overhead when disabled.
+   */
+  static final boolean DIAGNOSTICS_ENABLED = Boolean.getBoolean("sirix.scan.diag");
+
+  /**
+   * Per-query scan counters — attributes where the hot loop spent its pages and
+   * records. Only populated when {@link #DIAGNOSTICS_ENABLED} is {@code true}.
+   * Per-thread slots are contiguous in a single array; no contention, no
+   * false-sharing mitigation (one int per thread at 64-byte stride would be the
+   * next step if this becomes hot, but counter increments in-lambda are
+   * register-resident for the JIT's duration).
+   */
+  static final class ScanDiagnostics {
+    // Page-level outcomes (one increment per leaf page visited).
+    long pagesVisited;         // every getRecordPage result that yielded a KeyValueLeafPage
+    long pagesNullHeader;      // PAX NumberRegion header absent — slow path
+    long pagesTagMissing;      // header present, but lookupTag(fieldKey) returned -1
+    long pagesZoneSkippedAll;  // zone-map ruled out every row in the tag range
+    long pagesZoneAllPass;     // zone-map proved every row passes → no decode needed
+    long pagesDecoded;         // PAX fast-path decode loop actually ran
+    long pagesSlowPath;        // fell through to moveTo + getNumberValue path
+
+    // Record-level outcomes (sum across decoded pages).
+    long recordsFastPath;      // records processed inside the PAX decode loop
+    long recordsSlowPath;      // records processed via rtx.moveTo + firstChild
+    long recordsMatched;       // records that passed the predicate
+
+    /** Merge {@code other} into this accumulator. Called during per-thread fan-in. */
+    void mergeFrom(final ScanDiagnostics other) {
+      this.pagesVisited += other.pagesVisited;
+      this.pagesNullHeader += other.pagesNullHeader;
+      this.pagesTagMissing += other.pagesTagMissing;
+      this.pagesZoneSkippedAll += other.pagesZoneSkippedAll;
+      this.pagesZoneAllPass += other.pagesZoneAllPass;
+      this.pagesDecoded += other.pagesDecoded;
+      this.pagesSlowPath += other.pagesSlowPath;
+      this.recordsFastPath += other.recordsFastPath;
+      this.recordsSlowPath += other.recordsSlowPath;
+      this.recordsMatched += other.recordsMatched;
+    }
+
+    void print(final String label) {
+      final long totalPagesWithHeader = pagesDecoded + pagesZoneSkippedAll + pagesZoneAllPass;
+      final long totalRecords = recordsFastPath + recordsSlowPath;
+      System.err.printf("[scan-diag %s] pages visited=%,d  [fast-path: header-null=%,d, tag-missing=%,d, "
+              + "zone-skip=%,d, zone-all=%,d, decoded=%,d] slow-path=%,d%n",
+          label, pagesVisited, pagesNullHeader, pagesTagMissing, pagesZoneSkippedAll, pagesZoneAllPass,
+          pagesDecoded, pagesSlowPath);
+      System.err.printf("[scan-diag %s] records: fast-path=%,d (decoded %,d pages), slow-path=%,d "
+              + "(via moveTo), matched=%,d, total=%,d%n",
+          label, recordsFastPath, totalPagesWithHeader, recordsSlowPath, recordsMatched, totalRecords);
+    }
+  }
   /** Cached max node key — Sirix-internal, fixed for a given revision. */
   private volatile long cachedMaxNodeKey = -1;
   private final ExecutorService workerPool;
@@ -74,7 +137,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private final ConcurrentHashMap<String, Integer> fieldKeyCache = new ConcurrentHashMap<>();
 
   public SirixVectorizedExecutor(JsonResourceSession session, int revision) {
-    this(session, revision, Runtime.getRuntime().availableProcessors());
+    this(session, revision, defaultThreadCount());
+  }
+
+  /**
+   * Default worker-thread count, resolved from {@code -Dsirix.vec.threads=N}
+   * or the number of available CPUs. Lower thread counts reduce concurrent
+   * page-load pressure on the page-cache evictor, which matters when the
+   * working set approaches the buffer budget and the ClockSweeper struggles
+   * to keep up with allocations.
+   */
+  private static int defaultThreadCount() {
+    final String prop = System.getProperty("sirix.vec.threads");
+    if (prop != null && !prop.isEmpty()) {
+      try {
+        final int n = Integer.parseInt(prop.trim());
+        if (n > 0) return n;
+      } catch (NumberFormatException ignored) {
+      }
+    }
+    return Runtime.getRuntime().availableProcessors();
   }
 
   public SirixVectorizedExecutor(JsonResourceSession session, int revision, int threads) {
@@ -438,6 +520,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Encode op once as int — int compare in hot loop instead of String.equals.
     final int op = encodeOp(filterOp);
 
+    final ScanDiagnostics[] perThreadDiag = DIAGNOSTICS_ENABLED ? new ScanDiagnostics[eff] : null;
+
     parallel(eff, i -> {
       long[] acc = perThread;
       long s = (long) i * ppt;
@@ -445,9 +529,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       JsonNodeReadOnlyTrx rtx = workerTrx();
       var reader = rtx.getStorageEngineReader();
       long localCount = 0;
+      final ScanDiagnostics diag = DIAGNOSTICS_ENABLED ? new ScanDiagnostics() : null;
+      if (DIAGNOSTICS_ENABLED) perThreadDiag[i] = diag;
       for (long pk = s; pk < e; pk++) {
         var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        if (DIAGNOSTICS_ENABLED) diag.pagesVisited++;
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
         long localTotal = 0;
 
@@ -464,35 +551,65 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               final long tagMax = hdr.tagMaxOrGlobal(tag);
               final int outcome = zoneMapOutcome(op, threshold, tagMin, tagMax);
               if (outcome == ZONE_NONE) {
-                continue; // no value in the tag can satisfy the predicate
+                if (DIAGNOSTICS_ENABLED) diag.pagesZoneSkippedAll++;
+                continue;
               }
               if (outcome == ZONE_ALL) {
-                localCount += tagN; // every value satisfies; no iteration
+                localCount += tagN;
+                if (DIAGNOSTICS_ENABLED) {
+                  diag.pagesZoneAllPass++;
+                  diag.recordsMatched += tagN;
+                }
                 continue;
               }
               final byte[] payload = kv.getNumberRegionPayload();
               final int start = hdr.tagStart[tag];
               final int end = start + tagN;
-              for (int idx = start; idx < end; idx++) {
-                final long v = NumberRegion.decodeValueAt(payload, hdr, idx);
-                final boolean pass = switch (op) {
-                  case OP_GT -> v > threshold;
-                  case OP_LT -> v < threshold;
-                  case OP_GE -> v >= threshold;
-                  case OP_LE -> v <= threshold;
-                  case OP_EQ -> v == threshold;
-                  default -> true;
-                };
-                if (pass) localTotal++;
+
+              // SIMD path: try to vectorize the decode + compare loop.
+              // Falls back to scalar if the encoding/bit-width isn't supported
+              // (NumberRegionSimd.countMatching returns -1 in that case).
+              final VectorOperators.Comparison vecOp = vectorOp(op);
+              long matched = -1L;
+              if (vecOp != null) {
+                matched = NumberRegionSimd.countMatching(
+                    MemorySegment.ofArray(payload), hdr, start, end, vecOp, threshold);
+              }
+              if (matched < 0L) {
+                // Scalar fallback — preserved verbatim.
+                for (int idx = start; idx < end; idx++) {
+                  final long v = NumberRegion.decodeValueAt(payload, hdr, idx);
+                  final boolean pass = switch (op) {
+                    case OP_GT -> v > threshold;
+                    case OP_LT -> v < threshold;
+                    case OP_GE -> v >= threshold;
+                    case OP_LE -> v <= threshold;
+                    case OP_EQ -> v == threshold;
+                    default -> true;
+                  };
+                  if (pass) localTotal++;
+                }
+              } else {
+                localTotal += matched;
               }
               localCount += localTotal;
+              if (DIAGNOSTICS_ENABLED) {
+                diag.pagesDecoded++;
+                diag.recordsFastPath += tagN;
+                diag.recordsMatched += localTotal;
+              }
               continue;
             }
+            if (DIAGNOSTICS_ENABLED) diag.pagesTagMissing++;
+          } else {
+            if (DIAGNOSTICS_ENABLED) diag.pagesNullHeader++;
           }
         }
 
+        if (DIAGNOSTICS_ENABLED) diag.pagesSlowPath++;
         final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
         for (final int slot : matches) {
+          if (DIAGNOSTICS_ENABLED) diag.recordsSlowPath++;
           if (!rtx.moveTo(base + slot)) continue;
           if (!rtx.moveToFirstChild()) continue;
           Number n = rtx.getNumberValue();
@@ -509,12 +626,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (pass) localTotal++;
         }
         localCount += localTotal;
+        if (DIAGNOSTICS_ENABLED) diag.recordsMatched += localTotal;
       }
       acc[i] = localCount;
     });
 
     long total = 0;
     for (long c : perThread) total += c;
+
+    if (DIAGNOSTICS_ENABLED && perThreadDiag != null) {
+      final ScanDiagnostics merged = new ScanDiagnostics();
+      for (final ScanDiagnostics d : perThreadDiag) if (d != null) merged.mergeFrom(d);
+      merged.print("filterCount(" + filterField + " " + filterOp + " " + threshold + ")");
+    }
+
     return total;
   }
 
@@ -536,6 +661,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     final ScanResult.GroupByResult[] perThread = new ScanResult.GroupByResult[eff];
     for (int i = 0; i < eff; i++) perThread[i] = new ScanResult.GroupByResult();
+    final ScanDiagnostics[] perThreadDiag = DIAGNOSTICS_ENABLED ? new ScanDiagnostics[eff] : null;
 
     parallel(eff, i -> {
       ScanResult.GroupByResult acc = perThread[i];
@@ -543,18 +669,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       long e = Math.min(s + ppt, totalPages);
       JsonNodeReadOnlyTrx rtx = workerTrx();
       var reader = rtx.getStorageEngineReader();
+      final ScanDiagnostics diag = DIAGNOSTICS_ENABLED ? new ScanDiagnostics() : null;
+      if (DIAGNOSTICS_ENABLED) perThreadDiag[i] = diag;
       for (long pk = s; pk < e; pk++) {
         var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        if (DIAGNOSTICS_ENABLED) {
+          diag.pagesVisited++;
+          diag.pagesSlowPath++;
+        }
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
         final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
         for (final int slot : matches) {
+          if (DIAGNOSTICS_ENABLED) diag.recordsSlowPath++;
           if (!rtx.moveTo(base + slot)) continue;
           if (!rtx.moveToFirstChild()) continue;
           // getValueBytes returns UTF-8 bytes of the value (string/number/etc)
           byte[] valueBytes = rtx.getValueBytes();
           if (valueBytes != null && valueBytes.length > 0) {
             acc.add(valueBytes, 0, valueBytes.length);
+            if (DIAGNOSTICS_ENABLED) diag.recordsMatched++;
           }
         }
       }
@@ -563,6 +697,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Merge per-thread maps into one
     ScanResult.GroupByResult merged = perThread[0];
     for (int i = 1; i < eff; i++) merged.merge(perThread[i]);
+
+    if (DIAGNOSTICS_ENABLED && perThreadDiag != null) {
+      final ScanDiagnostics mergedDiag = new ScanDiagnostics();
+      for (final ScanDiagnostics d : perThreadDiag) if (d != null) mergedDiag.mergeFrom(d);
+      mergedDiag.print("groupByCount(" + groupField + ")");
+    }
 
     // Build Brackit result: array of {groupField: value, "count": N}
     List<Item> items = new ArrayList<>(merged.size());
@@ -616,6 +756,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case "le" -> OP_LE;
       case "eq" -> OP_EQ;
       default -> 0;
+    };
+  }
+
+  /**
+   * Map our internal int-coded op to the Vector API's comparison constant.
+   * Returns {@code null} for unsupported ops (caller falls back to scalar).
+   */
+  private static VectorOperators.Comparison vectorOp(final int op) {
+    return switch (op) {
+      case OP_GT -> VectorOperators.GT;
+      case OP_LT -> VectorOperators.LT;
+      case OP_GE -> VectorOperators.GE;
+      case OP_LE -> VectorOperators.LE;
+      case OP_EQ -> VectorOperators.EQ;
+      default -> null;
     };
   }
 

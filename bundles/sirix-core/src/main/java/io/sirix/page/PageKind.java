@@ -32,9 +32,8 @@ import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.api.StorageEngineReader;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -52,7 +51,6 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.RegionTable;
 import io.sirix.settings.Constants;
-import io.sirix.utils.OS;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
@@ -99,8 +97,7 @@ public enum PageKind {
       final int revision = source.readInt();
       final IndexType indexType = IndexType.getType(source.readByte());
 
-      final MemorySegmentAllocator memorySegmentAllocator =
-          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
+      final MemorySegmentAllocator memorySegmentAllocator = Allocators.getInstance();
 
       // 1. Read header (32B) + bitmap (128B) — 160 bytes (on-disk format, never changes)
       final byte[] headerBitmapBytes = new byte[PageLayout.DISK_HEADER_BITMAP_SIZE];
@@ -928,9 +925,7 @@ public enum PageKind {
       }
 
       // Read slot memory (zero-copy when possible)
-      MemorySegmentAllocator allocator = OS.isWindows()
-          ? WindowsMemorySegmentAllocator.getInstance()
-          : LinuxMemorySegmentAllocator.getInstance();
+      MemorySegmentAllocator allocator = Allocators.getInstance();
 
       final MemorySegment slotMemory;
       final Runnable releaser;

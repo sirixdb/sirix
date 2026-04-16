@@ -1,10 +1,8 @@
 package io.sirix.io;
 
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.node.PooledGrowingSegment;
-import io.sirix.utils.OS;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,9 +48,7 @@ public final class SerializationBufferPool {
   private final Object[] stripeLocks;
 
   // Use page allocator for underlying segments
-  private static final MemorySegmentAllocator ALLOCATOR = OS.isWindows()
-      ? WindowsMemorySegmentAllocator.getInstance()
-      : LinuxMemorySegmentAllocator.getInstance();
+  private static final MemorySegmentAllocator ALLOCATOR = Allocators.getInstance();
 
   private final int bufferSize;
 

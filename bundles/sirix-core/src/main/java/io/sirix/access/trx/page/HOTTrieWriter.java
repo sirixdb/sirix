@@ -30,11 +30,10 @@ package io.sirix.access.trx.page;
 
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.NodeUpgradeManager;
@@ -45,7 +44,6 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
-import io.sirix.utils.OS;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;
@@ -167,9 +165,7 @@ public final class HOTTrieWriter {
    * @param pageKeyAllocator supplier of persistent page keys
    */
   public HOTTrieWriter(final LongSupplier pageKeyAllocator) {
-    this.allocator = OS.isWindows()
-        ? WindowsMemorySegmentAllocator.getInstance()
-        : LinuxMemorySegmentAllocator.getInstance();
+    this.allocator = Allocators.getInstance();
     this.pageKeyAllocator = Objects.requireNonNull(pageKeyAllocator);
   }
 
@@ -180,9 +176,7 @@ public final class HOTTrieWriter {
    */
   @Deprecated
   public HOTTrieWriter() {
-    this.allocator = OS.isWindows()
-        ? WindowsMemorySegmentAllocator.getInstance()
-        : LinuxMemorySegmentAllocator.getInstance();
+    this.allocator = Allocators.getInstance();
     final long[] counter = {1_000_000L};
     this.pageKeyAllocator = () -> counter[0]++;
   }
