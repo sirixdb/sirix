@@ -1107,8 +1107,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     // round-trip and load straight into RecordPageCache. Profile showed
     // combineRecordPages at ~50% inclusive CPU before this change.
     final boolean singleFragmentFastPath =
-        config.versioningType == VersioningType.FULL
-            || pageReferenceToRecordPage.getPageFragments().isEmpty();
+        pageReferenceToRecordPage.getKey() != Constants.NULL_ID_LONG
+            && (config.versioningType == VersioningType.FULL
+                || pageReferenceToRecordPage.getPageFragments().isEmpty());
     if (singleFragmentFastPath) {
       KeyValueLeafPage page = resourceBufferManager.getRecordPageCache()
           .getOrLoadAndGuard(pageReferenceToRecordPage,
