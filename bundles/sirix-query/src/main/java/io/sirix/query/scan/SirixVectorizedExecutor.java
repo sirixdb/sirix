@@ -28,6 +28,7 @@ import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.NumberRegionSimd;
+import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 
 import jdk.incubator.vector.VectorOperators;
@@ -824,6 +825,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // values inline; cross-page children / oversized values fall back to rtx.
       final byte[] scratch = new byte[256];
       final int SLOT_MASK = Constants.NDP_NODE_COUNT - 1;
+      // Per-page scratch for the StringRegion fast path: counts per local
+      // dict-id (≤ 256 supported by 8-bit lane width). Reset per page.
+      final long[] localDictCounts = new long[256];
       for (long pk = s; pk < e; pk++) {
         var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
@@ -832,6 +836,41 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           diag.pagesSlowPath++;
         }
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+
+        // Fast path: if the page exposes a StringRegion, count locally per
+        // dict-id (8-entry bump per page) then emit one aggregated add per
+        // local dict id (8 hash inserts/page instead of 90). Saves the per-
+        // record byte-hash + insert that the slot-walk path pays.
+        final StringRegion.Header sh = kv.getStringRegionHeader();
+        if (sh != null) {
+          final int tag = StringRegion.lookupTag(sh, fieldKey);
+          if (tag >= 0) {
+            final byte[] payload = kv.getStringRegionPayload();
+            final int dictSize = sh.tagStringDictSize[tag];
+            if (dictSize <= localDictCounts.length) {
+              // Reset only what we'll touch.
+              for (int d = 0; d < dictSize; d++) localDictCounts[d] = 0;
+              final int start = sh.tagStart[tag];
+              final int n = sh.tagCount[tag];
+              for (int idx = 0; idx < n; idx++) {
+                final int dictId =
+                    StringRegion.decodeDictIdAt(payload, sh, start + idx);
+                localDictCounts[dictId]++;
+              }
+              for (int d = 0; d < dictSize; d++) {
+                final long c = localDictCounts[d];
+                if (c == 0) continue;
+                final int off = StringRegion.decodeStringOffset(payload, sh, tag, d);
+                final int len = StringRegion.decodeStringLength(payload, sh, tag, d);
+                acc.addN(payload, off, len, c);
+                if (DIAGNOSTICS_ENABLED) diag.recordsMatched += c;
+              }
+              continue;
+            }
+          }
+        }
+
+        // Slow path: walk OBJECT_KEY slots, descend to value, hash-insert.
         final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
         for (final int slot : matches) {
           if (DIAGNOSTICS_ENABLED) diag.recordsSlowPath++;
