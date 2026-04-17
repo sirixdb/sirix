@@ -111,6 +111,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     long groupByDirectNeg;      // direct read returned <= 0 (FSST/oversize/etc.)
     long groupByRtxFallback;    // rtx.moveTo path actually ran
 
+    // GroupBy StringRegion fast-path stats.
+    long stringRegionHits;          // pages where the BtrBlocks/Umbra-style StringRegion fast-path ran
+    long stringRegionMissesNoHeader; // header was null (region absent — page hadn't built one)
+    long stringRegionMissesNoTag;    // header present but no tag for this fieldKey
+    long stringRegionMissesDictBig;  // local dict > 256 entries — exceeds scratch
+
     /** Merge {@code other} into this accumulator. Called during per-thread fan-in. */
     void mergeFrom(final ScanDiagnostics other) {
       this.pagesVisited += other.pagesVisited;
@@ -127,6 +133,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       this.groupByCrossPage += other.groupByCrossPage;
       this.groupByDirectNeg += other.groupByDirectNeg;
       this.groupByRtxFallback += other.groupByRtxFallback;
+      this.stringRegionHits += other.stringRegionHits;
+      this.stringRegionMissesNoHeader += other.stringRegionMissesNoHeader;
+      this.stringRegionMissesNoTag += other.stringRegionMissesNoTag;
+      this.stringRegionMissesDictBig += other.stringRegionMissesDictBig;
     }
 
     void print(final String label) {
@@ -143,6 +153,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         System.err.printf("[scan-diag %s] groupBy paths: direct-success=%,d, cross-page=%,d, "
                 + "direct-returned-neg=%,d, rtx-fallback=%,d%n",
             label, groupByDirectSuccess, groupByCrossPage, groupByDirectNeg, groupByRtxFallback);
+      }
+      if (stringRegionHits + stringRegionMissesNoHeader + stringRegionMissesNoTag + stringRegionMissesDictBig > 0) {
+        System.err.printf("[scan-diag %s] StringRegion: hits=%,d, miss-no-header=%,d, "
+                + "miss-no-tag=%,d, miss-dict-too-big=%,d%n",
+            label, stringRegionHits, stringRegionMissesNoHeader, stringRegionMissesNoTag,
+            stringRegionMissesDictBig);
       }
     }
   }
@@ -842,12 +858,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // local dict id (8 hash inserts/page instead of 90). Saves the per-
         // record byte-hash + insert that the slot-walk path pays.
         final StringRegion.Header sh = kv.getStringRegionHeader();
-        if (sh != null) {
+        if (sh == null) {
+          if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesNoHeader++;
+        } else {
           final int tag = StringRegion.lookupTag(sh, fieldKey);
-          if (tag >= 0) {
+          if (tag < 0) {
+            if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesNoTag++;
+          } else {
             final byte[] payload = kv.getStringRegionPayload();
             final int dictSize = sh.tagStringDictSize[tag];
-            if (dictSize <= localDictCounts.length) {
+            if (dictSize > localDictCounts.length) {
+              if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesDictBig++;
+            } else {
+              if (DIAGNOSTICS_ENABLED) diag.stringRegionHits++;
               // Reset only what we'll touch.
               for (int d = 0; d < dictSize; d++) localDictCounts[d] = 0;
               final int start = sh.tagStart[tag];

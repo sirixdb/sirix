@@ -79,7 +79,8 @@ public final class BrackitQueryOnSirixScaleMain {
                                                        String.valueOf(24L << 30)));
     var alloc = Allocators.getInstance();
     alloc.init(offheap);
-    System.out.printf("# After init: maxBufferSize = %d MB (initialized=%s)%n",
+    System.out.printf("# Allocator: %s   maxBufferSize = %d MB (initialized=%s)%n",
+                      alloc.getClass().getSimpleName(),
                       alloc.getMaxBufferSize() / (1L << 20), alloc.isInitialized());
 
     // Re-use an existing shredded database when -Dsirix.db=/path is supplied —
