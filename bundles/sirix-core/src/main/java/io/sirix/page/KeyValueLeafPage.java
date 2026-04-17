@@ -20,6 +20,7 @@ import io.sirix.node.json.StringNode;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.RegionTable;
+import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.StringCompressionType;
@@ -559,6 +560,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // cached PAX number region is about to become stale (replacement, deletion via
     // DeletedNode, etc.). Fast-path no-op when no region is currently cached.
     maybeInvalidateNumberRegionForExistingSlot(offset);
+    maybeInvalidateStringRegionForExistingSlot(offset);
 
     if (record instanceof FlyweightNode fn) {
       if (fn.isWriteSingleton()) {
@@ -605,8 +607,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     bytes = null;
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
-    // Defensive: a non-flyweight record may overwrite a number-typed slot.
+    // Defensive: a non-flyweight record may overwrite a number- or string-typed slot.
     maybeInvalidateNumberRegionForExistingSlot(offset);
+    maybeInvalidateStringRegionForExistingSlot(offset);
     ensureRecords();
     records[offset] = record;
   }
@@ -675,9 +678,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       lastSlotIndex = offset;
     }
 
-    // Number write: drop the cached PAX number region so the next reader rebuilds.
+    // Number/string write: drop the cached PAX region so the next reader rebuilds.
     if (isNumberValueKindId(nodeKindId)) {
       invalidateNumberRegion();
+    } else if (isStringValueKindId(nodeKindId)) {
+      invalidateStringRegion();
     }
 
     // Bind flyweight — all subsequent mutations go directly to page memory
@@ -755,9 +760,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       lastSlotIndex = slotOffset;
     }
 
-    // Number write: drop the cached PAX number region so the next reader rebuilds.
+    // Number/string write: drop the cached PAX region so the next reader rebuilds.
     if (isNumberValueKindId(nodeKindId)) {
       invalidateNumberRegion();
+    } else if (isStringValueKindId(nodeKindId)) {
+      invalidateStringRegion();
     }
 
     // NOTE: Caller is responsible for binding the flyweight and setting ownerPage.
@@ -878,9 +885,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     fn.bind(slottedPage, newRecordBase, nodeKey, slotIndex);
     fn.setOwnerPage(this);
 
-    // Number write: in-place field rewrite changed a value the cached region snapshotted.
+    // Number/string write: in-place field rewrite changed a value the cached region snapshotted.
     if (isNumberValueKindId(nodeKindId)) {
       invalidateNumberRegion();
+    } else if (isStringValueKindId(nodeKindId)) {
+      invalidateStringRegion();
     }
   }
 
@@ -933,10 +942,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     bytes = null;
     addedReferences = false;
 
-    // Number copy: a new number lands in this page's heap. The source's region is not
-    // carried, and any region cached for THIS page is now incomplete.
+    // Number/string copy: a new value lands in this page's heap. The source's region is
+    // not carried, and any region cached for THIS page is now incomplete.
     if (isNumberValueKindId(srcNodeKindId)) {
       invalidateNumberRegion();
+    } else if (isStringValueKindId(srcNodeKindId)) {
+      invalidateStringRegion();
     }
   }
 
@@ -1427,6 +1438,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private static final byte NUMBER_TYPE_LONG = 3;
   private static final int OBJECT_NUMBER_VALUE_KIND_ID = 42;
   private static final int NUMBER_VALUE_KIND_ID = 28;
+  private static final int OBJECT_STRING_VALUE_KIND_ID = 40;
+  private static final int STRING_VALUE_KIND_ID = 30;
 
   /**
    * True when {@code kindId} identifies a record whose value participates in the PAX
@@ -1435,6 +1448,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   static boolean isNumberValueKindId(final int kindId) {
     return kindId == OBJECT_NUMBER_VALUE_KIND_ID || kindId == NUMBER_VALUE_KIND_ID;
+  }
+
+  /**
+   * True when {@code kindId} identifies a record whose value participates in the PAX
+   * {@link RegionTable#KIND_STRING} region.
+   */
+  static boolean isStringValueKindId(final int kindId) {
+    return kindId == OBJECT_STRING_VALUE_KIND_ID || kindId == STRING_VALUE_KIND_ID;
   }
 
   /**
@@ -1701,6 +1722,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final int fieldOff =
         sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNUMVAL_PARENT_KEY) & 0xFF;
     final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_NUMBER_VALUE_FIELD_COUNT;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, valueNodeKey);
+  }
+
+  /**
+   * Read the delta-encoded parent nodeKey from an OBJECT_STRING_VALUE slot. Used by
+   * {@link #tryBuildStringRegionFromSlottedPage} to group each string under its parent
+   * OBJECT_KEY's nameKey (the {@code StringRegion} tag).
+   *
+   * <p>Caller must verify the slot holds an OBJECT_STRING_VALUE (kind id 40).
+   */
+  public long getObjectStringValueParentKeyFromSlot(final int slotNumber, final long valueNodeKey) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJSTRVAL_PARENT_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_STRING_VALUE_FIELD_COUNT;
     return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, valueNodeKey);
   }
 
@@ -2685,6 +2723,185 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   public byte[] getNumberRegionPayload() {
     return regionPayload(RegionTable.KIND_NUMBER);
+  }
+
+  // ============================================================
+  // KIND_STRING region — dictionary-encoded OBJECT_STRING_VALUE column.
+  // ============================================================
+
+  /**
+   * Lazily parsed {@link StringRegion.Header} for the page's
+   * dictionary-encoded string column. {@code null} if the page has no
+   * OBJECT_STRING_VALUE records or the region hasn't been built yet.
+   */
+  private volatile StringRegion.Header cachedStringHeader;
+
+  /** Cached {@link MemorySegment} view over the {@link RegionTable#KIND_STRING} payload. */
+  private volatile MemorySegment cachedStringPayloadSegment;
+
+  /**
+   * Drop the cached string-region parsed header + payload-segment view so the next
+   * reader rebuilds. Called from every mutation path that adds, modifies, or removes
+   * an OBJECT_STRING_VALUE / STRING_VALUE record.
+   */
+  void invalidateStringRegion() {
+    if (cachedStringHeader == null && cachedStringPayloadSegment == null) {
+      return;
+    }
+    cachedStringHeader = null;
+    cachedStringPayloadSegment = null;
+    final RegionTable rt = regionTable;
+    if (rt != null) {
+      rt.set(RegionTable.KIND_STRING, null);
+    }
+  }
+
+  /**
+   * Invalidate the cached string region iff the slot at {@code slotOffset} currently
+   * holds a string-typed record (same pattern as number variant).
+   */
+  private void maybeInvalidateStringRegionForExistingSlot(final int slotOffset) {
+    if (cachedStringHeader == null) {
+      return;
+    }
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotOffset)) {
+      return;
+    }
+    if (isStringValueKindId(PageLayout.getDirNodeKindId(sp, slotOffset))) {
+      invalidateStringRegion();
+    }
+  }
+
+  /**
+   * Thread-local scratch for {@link #readObjectStringValueBytesForRegionBuild}.
+   * One array per worker thread, reused for every value read during a region build.
+   * 1 KiB matches typical OBJECT_STRING_VALUE max length on JSON-like workloads;
+   * grows on first oversize.
+   */
+  private static final ThreadLocal<byte[]> STRING_REGION_BUILD_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[1024]);
+
+  /**
+   * Read the OBJECT_STRING_VALUE payload at {@code slotNumber} as raw UTF-8 bytes,
+   * decompressing the FSST-encoded form when the value is compressed.
+   *
+   * <p>Used only by {@link #tryBuildStringRegionFromSlottedPage} (called once per
+   * page-cache miss). Allocates a fresh trimmed {@code byte[]} for the value
+   * because the {@code StringRegion.Encoder} retains references to keep them
+   * stable through {@code finish()}; the returned array's lifetime matches the
+   * region payload's lifetime.
+   */
+  private byte[] readObjectStringValueBytesForRegionBuild(final int slotNumber) {
+    byte[] scratch = STRING_REGION_BUILD_SCRATCH.get();
+    int n = readObjectStringValueBytesFromSlot(slotNumber, scratch);
+    if (n == -1) {
+      // Returned -1 means scratch too small or other read failure — try once with
+      // a larger scratch (grow + retry) before giving up.
+      if (scratch.length < (64 * 1024)) {
+        scratch = new byte[scratch.length * 4];
+        STRING_REGION_BUILD_SCRATCH.set(scratch);
+        n = readObjectStringValueBytesFromSlot(slotNumber, scratch);
+      }
+    }
+    if (n <= 0) return null;
+    // Trimmed copy is required: the encoder keeps the reference until finish().
+    final byte[] out = new byte[n];
+    System.arraycopy(scratch, 0, out, 0, n);
+    return out;
+  }
+
+  /**
+   * Walk the slotted page, collect each OBJECT_STRING_VALUE slot's value + its
+   * parent OBJECT_KEY's nameKey, encode into a StringRegion payload.
+   *
+   * <p>Returns {@code null} when the page has no string values or no slotted page yet.
+   * Side-effect: on success, attaches the region to the page so subsequent lookups
+   * skip this build.
+   */
+  private byte[] tryBuildStringRegionFromSlottedPage() {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      return null;
+    }
+    final long pageKeyBase = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
+    final StringRegion.Encoder enc =
+        new StringRegion.Encoder();
+    int count = 0;
+    for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+      long word = PageLayout.getBitmapWord(sp, w);
+      final int baseSlot = w << 6;
+      while (word != 0) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        final int slot = baseSlot + bit;
+        word &= word - 1;
+        if (PageLayout.getDirNodeKindId(sp, slot) != OBJECT_STRING_VALUE_KIND_ID) {
+          continue;
+        }
+        final byte[] value = readObjectStringValueBytesForRegionBuild(slot);
+        if (value == null) continue;
+        final long valueNodeKey = pageKeyBase + slot;
+        final long parentKey = getObjectStringValueParentKeyFromSlot(slot, valueNodeKey);
+        int parentNameKey = -1;
+        if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == recordPageKey) {
+          final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
+          if (isObjectKeyKindId(PageLayout.getDirNodeKindId(sp, parentSlot))) {
+            parentNameKey = getObjectKeyNameKeyFromSlot(parentSlot);
+          }
+        }
+        enc.addValue(parentNameKey, value);
+        count++;
+      }
+    }
+    if (count == 0) {
+      return null;
+    }
+    final byte[] payload = enc.finish();
+    RegionTable table = this.regionTable;
+    if (table == null) {
+      table = new RegionTable();
+      this.regionTable = table;
+    }
+    table.set(RegionTable.KIND_STRING, payload);
+    return payload;
+  }
+
+  public StringRegion.Header getStringRegionHeader() {
+    StringRegion.Header h = cachedStringHeader;
+    if (h != null) {
+      return h;
+    }
+    byte[] payload = regionPayload(RegionTable.KIND_STRING);
+    if (payload == null) {
+      payload = tryBuildStringRegionFromSlottedPage();
+      if (payload == null) {
+        return null;
+      }
+    }
+    synchronized (this) {
+      h = cachedStringHeader;
+      if (h == null) {
+        h = new StringRegion.Header().parseInto(payload);
+        cachedStringHeader = h;
+      }
+    }
+    return h;
+  }
+
+  /** Raw string-region payload bytes, or {@code null}. */
+  public byte[] getStringRegionPayload() {
+    return regionPayload(RegionTable.KIND_STRING);
+  }
+
+  /** Cached {@link MemorySegment} view over the string-region payload. */
+  public MemorySegment getStringRegionPayloadSegment() {
+    MemorySegment seg = cachedStringPayloadSegment;
+    if (seg != null) return seg;
+    final byte[] payload = regionPayload(RegionTable.KIND_STRING);
+    if (payload == null) return null;
+    seg = MemorySegment.ofArray(payload);
+    cachedStringPayloadSegment = seg;
+    return seg;
   }
 
   /**
