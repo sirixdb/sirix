@@ -157,9 +157,17 @@ public final class BrackitQueryOnSirixScaleMain {
     System.out.printf("%-26s + %10s + %10s + %10s + %10s%n", "--------------------------",
                       "----------", "----------", "----------", "------------");
 
+    long hitsBefore = io.sirix.cache.ShardedPageCache.getCacheHits();
+    long missesBefore = io.sirix.cache.ShardedPageCache.getCacheMisses();
     for (Map.Entry<String, String> e : QUERIES.entrySet()) {
       runQueryRepeated(chain, ctx, e.getKey(), e.getValue(), iters);
     }
+    long hits = io.sirix.cache.ShardedPageCache.getCacheHits() - hitsBefore;
+    long misses = io.sirix.cache.ShardedPageCache.getCacheMisses() - missesBefore;
+    long total = hits + misses;
+    double hitPct = total == 0 ? 0.0 : 100.0 * hits / total;
+    System.out.printf("# RecordPageCache during queries: hits=%,d misses=%,d (hit-rate=%.2f%%)%n",
+                      hits, misses, hitPct);
 
     SequentialPipelineStrategy.setVectorizedExecutor(null);
     if (vec != null) vec.close();
@@ -185,19 +193,29 @@ public final class BrackitQueryOnSirixScaleMain {
     // For very large datasets each call is expensive, so cap warmup time.
     int warmupCount = Math.max(3, Math.min(20, iters));
     long warmDeadline = System.nanoTime() + 5_000_000_000L; // 5s budget
-    for (int i = 0; i < warmupCount && System.nanoTime() < warmDeadline; i++) {
-      runOnce(chain, ctx, wrapped);
+    try {
+      for (int i = 0; i < warmupCount && System.nanoTime() < warmDeadline; i++) {
+        runOnce(chain, ctx, wrapped);
+      }
+    } catch (RuntimeException re) {
+      System.out.printf("%-26s | (skipped: %s)%n", name, re.getMessage());
+      return;
     }
 
     long min = Long.MAX_VALUE, max = 0, sum = 0;
     int bytes = 0;
-    for (int i = 0; i < iters; i++) {
-      long t0 = System.nanoTime();
-      bytes = runOnce(chain, ctx, wrapped);
-      long elapsed = System.nanoTime() - t0;
-      sum += elapsed;
-      if (elapsed < min) min = elapsed;
-      if (elapsed > max) max = elapsed;
+    try {
+      for (int i = 0; i < iters; i++) {
+        long t0 = System.nanoTime();
+        bytes = runOnce(chain, ctx, wrapped);
+        long elapsed = System.nanoTime() - t0;
+        sum += elapsed;
+        if (elapsed < min) min = elapsed;
+        if (elapsed > max) max = elapsed;
+      }
+    } catch (RuntimeException re) {
+      System.out.printf("%-26s | (aborted iter: %s)%n", name, re.getMessage());
+      return;
     }
     double minMs = min / 1e6;
     double maxMs = max / 1e6;
