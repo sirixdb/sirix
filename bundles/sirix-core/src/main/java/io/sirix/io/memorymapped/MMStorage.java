@@ -152,10 +152,28 @@ public final class MMStorage implements IOStorage {
     boolean decrementRefCount() {
       int newCount = refCount.decrementAndGet();
       if (newCount == 0 && isOldGeneration) {
-        arena.close();
+        closeArenaOrSkip(arena);
         return true;
       }
       return false;
+    }
+
+    /**
+     * Closing a shared {@link Arena} native-image-builds to
+     * {@code ScopedMemoryAccess.closeScope0Unsupported} unless the image was
+     * built with {@code -H:+SharedArenaSupport}, which itself is incompatible
+     * with {@code jdk.incubator.vector} in GraalVM 25 (aborts with an internal
+     * GraalError during build). On a one-shot native-image run this close is
+     * not needed — process exit reclaims the mapping. {@code
+     * -Dsirix.mmstorage.skipArenaClose=true} skips the close call so the
+     * native-image bench can run against today's builder.
+     */
+    private static final boolean SKIP_ARENA_CLOSE =
+        Boolean.getBoolean("sirix.mmstorage.skipArenaClose");
+
+    private static void closeArenaOrSkip(final Arena arena) {
+      if (SKIP_ARENA_CLOSE) return;
+      arena.close();
     }
 
     /**
@@ -179,7 +197,7 @@ public final class MMStorage implements IOStorage {
     }
 
     void close() {
-      arena.close();
+      closeArenaOrSkip(arena);
     }
   }
 
