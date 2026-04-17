@@ -127,11 +127,12 @@ public enum PageKind {
       final int populatedCount = PageLayout.getPopulatedCount(headerBitmapSeg);
 
       // 2. Read compact dir entries into thread-local scratch (reused across
-      // pages to avoid the per-page int[populatedCount] allocation).
+      // pages to avoid the per-page int[populatedCount] allocation). Bulk
+      // readInts collapses populatedCount separate VarHandle-dispatched
+      // readInt calls into a single native MemorySegment.copy when the source
+      // is segment-backed (the common path at cold-cache scan time).
       final int[] compactDir = compactDirScratch.get();
-      for (int i = 0; i < populatedCount; i++) {
-        compactDir[i] = source.readInt();
-      }
+      source.readInts(compactDir, 0, populatedCount);
 
       // 3. Read heap size
       final int heapSize = source.readInt();
