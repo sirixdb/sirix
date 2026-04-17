@@ -820,7 +820,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     long maxNodeKey = getMaxNodeKey();
     long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
-    int eff = (int) Math.min(threads, Math.max(1, totalPages));
+    // Per-page work on the StringRegion fast path is tiny (one 64-bit unaligned
+    // load + shift + mask + array store per record). At 20 threads on a 10K-page
+    // scan the per-thread workload is ~550 pages ≈ 50 µs — which is comparable
+    // to Executor.submit + Future.get + FutureTask allocation on the submit
+    // fan-out. Bench: 20 threads → min 35.8 ms / 4 threads → min 6.3 ms at 1 M
+    // records (6× win). Floor the split at ~2.5 K pages/thread so small scans
+    // don't pay for fan-out they can't amortize; large scans still reach the
+    // configured thread count once they have enough work to justify it.
+    final int MIN_PAGES_PER_THREAD = 2500;
+    final long maxEffByWork = Math.max(1L, (totalPages + MIN_PAGES_PER_THREAD - 1) / MIN_PAGES_PER_THREAD);
+    int eff = (int) Math.min(Math.min(threads, Math.max(1, totalPages)), maxEffByWork);
     long ppt = (totalPages + eff - 1) / eff;
 
     final ScanResult.GroupByResult[] perThread = new ScanResult.GroupByResult[eff];
