@@ -180,6 +180,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private final ConcurrentHashMap<String, long[]> aggregateCache = new ConcurrentHashMap<>();
 
+  /**
+   * Per-predicate cache of the {@code long} count produced by
+   * {@link #parallelFilterCount(String,String,long)} /
+   * {@link #parallelFilterCountRange(String,String,long,String,long)}. Key is
+   * the canonicalized predicate signature (field + op + value); value is the
+   * scan result. Same validity argument as {@link #aggregateCache} — the
+   * executor is bound to a single (session, revision). Realistic dashboards
+   * re-issue the same filter-count after small delays (e.g. 5 s polling); the
+   * cache keeps the repeat sub-millisecond instead of a full parallel scan.
+   */
+  private final ConcurrentHashMap<String, Long> filterCountCache = new ConcurrentHashMap<>();
+
   public SirixVectorizedExecutor(JsonResourceSession session, int revision) {
     this(session, revision, defaultThreadCount());
   }
@@ -259,8 +271,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // NumberRegion with a range mask. For different fields, fall back to null
       // so Brackit runs the generic pipeline.
       if (field1.equals(field2)) {
-        long count = parallelFilterCountRange(field1, op1, value1, op2, value2);
-        return new Int64(count);
+        final String key = field1 + '|' + op1 + '|' + value1 + '|' + op2 + '|' + value2;
+        Long cached = filterCountCache.get(key);
+        if (cached == null) {
+          final long fresh = parallelFilterCountRange(field1, op1, value1, op2, value2);
+          cached = filterCountCache.putIfAbsent(key, fresh);
+          if (cached == null) cached = fresh;
+        }
+        return new Int64(cached);
       }
       return null;
     } catch (Exception e) {
@@ -275,8 +293,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   public Sequence executeFilterCount(QueryContext ctx, String filterField, String filterOp, long filterValue)
       throws QueryException {
     try {
-      long count = parallelFilterCount(filterField, filterOp, filterValue);
-      return new Int64(count);
+      final String key = filterField + '|' + filterOp + '|' + filterValue;
+      Long cached = filterCountCache.get(key);
+      if (cached == null) {
+        final long fresh = parallelFilterCount(filterField, filterOp, filterValue);
+        cached = filterCountCache.putIfAbsent(key, fresh);
+        if (cached == null) cached = fresh;
+      }
+      return new Int64(cached);
     } catch (Exception e) {
       throw new QueryException(e,
                                ErrorCode.BIT_DYN_INT_ERROR,
