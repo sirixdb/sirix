@@ -51,6 +51,7 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.ObjectKeyNameKeyRegion;
 import io.sirix.page.pax.RegionTable;
+import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
@@ -406,7 +407,15 @@ public enum PageKind {
       int count = 0;
       int okCount = 0;
       final int numberKindId = KeyValueLeafPage.objectNumberValueKindId();
+      final int stringKindId = KeyValueLeafPage.objectStringValueKindId();
       final long pageKeyBase = page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT;
+
+      // Reuse a per-thread StringRegion.Encoder so the common path (every
+      // KVL page in a large ingest) allocates nothing for the encoder itself.
+      // It's reset() lazily — only if we actually encounter a string slot,
+      // keeping pages without OBJECT_STRING_VALUE slots at zero touch.
+      StringRegion.Encoder stringEnc = null;
+      int stringCount = 0;
 
       for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
         long word = PageLayout.getBitmapWord(slottedPage, w);
@@ -435,12 +444,31 @@ public enum PageKind {
               parBuf[count] = parentNameKey;
               count++;
             }
+          } else if (kindId == stringKindId) {
+            final byte[] value = page.readObjectStringValueBytesForRegionBuildPkg(slot);
+            if (value != null) {
+              final long valueNodeKey = pageKeyBase + slot;
+              final long parentKey = page.getObjectStringValueParentKeyFromSlot(slot, valueNodeKey);
+              int parentNameKey = -1;
+              if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == page.getPageKey()) {
+                final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
+                if (KeyValueLeafPage.isObjectKeyKindId(PageLayout.getDirNodeKindId(slottedPage, parentSlot))) {
+                  parentNameKey = page.getObjectKeyNameKeyFromSlot(parentSlot);
+                }
+              }
+              if (stringEnc == null) {
+                stringEnc = STRING_REGION_ENCODER.get();
+                stringEnc.reset();
+              }
+              stringEnc.addValue(parentNameKey, value);
+              stringCount++;
+            }
           }
           word &= word - 1;
         }
       }
 
-      if (count == 0 && okCount == 0) {
+      if (count == 0 && okCount == 0 && stringCount == 0) {
         return null;
       }
       final RegionTable table = new RegionTable();
@@ -452,6 +480,12 @@ public enum PageKind {
         final byte[] nameKeyPayload = ObjectKeyNameKeyRegion.encode(okNameKeys, okSlots, okCount);
         if (nameKeyPayload != null) {
           table.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, nameKeyPayload);
+        }
+      }
+      if (stringCount > 0) {
+        final byte[] stringPayload = stringEnc.finish();
+        if (stringPayload != null && stringPayload.length > 0) {
+          table.set(RegionTable.KIND_STRING, stringPayload);
         }
       }
       return table.isEmpty() ? null : table;
@@ -1400,6 +1434,16 @@ public enum PageKind {
   /** Per-thread reusable buffer for OBJECT_KEY slot indices at seal time. */
   private static final ThreadLocal<int[]> OBJECT_KEY_SLOT_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /**
+   * Per-thread reusable {@link StringRegion.Encoder}. The encoder's internal
+   * fastutil maps and per-tag arrays are retained across pages; only per-page
+   * counts and value-byte references are cleared via {@link
+   * StringRegion.Encoder#reset()}. Writer threads therefore pay at most one
+   * encoder allocation in their lifetime instead of one per committed page.
+   */
+  private static final ThreadLocal<StringRegion.Encoder> STRING_REGION_ENCODER =
+      ThreadLocal.withInitial(StringRegion.Encoder::new);
 
   static {
     for (final PageKind page : values()) {

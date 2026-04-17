@@ -1708,6 +1708,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return OBJECT_KEY_KIND_ID;
   }
 
+  /** Node kind id for OBJECT_STRING_VALUE. */
+  public static int objectStringValueKindId() {
+    return OBJECT_STRING_VALUE_KIND_ID;
+  }
+
+  /**
+   * Package-private view of {@link #readObjectStringValueBytesForRegionBuild} exposed
+   * so {@code PageKind}'s slotted-page writer can pre-encode the StringRegion at
+   * commit time (moving the cost off the scan hot path).
+   */
+  byte[] readObjectStringValueBytesForRegionBuildPkg(final int slotNumber) {
+    return readObjectStringValueBytesForRegionBuild(slotNumber);
+  }
+
   /**
    * Read the delta-encoded parent nodeKey from an OBJECT_NUMBER_VALUE slot
    * directly off the slotted page. Used by the writer to tag each numeric

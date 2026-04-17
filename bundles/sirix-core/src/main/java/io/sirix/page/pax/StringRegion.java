@@ -199,6 +199,29 @@ public final class StringRegion {
       tagIndex.defaultReturnValue(-1);
     }
 
+    /**
+     * Reset for reuse across pages. All internal arrays are retained at their
+     * current capacity; only per-tag counts and dict byte references are cleared
+     * so previously-captured value byte arrays become GC-eligible and the next
+     * page's adds start from an empty dictionary per tag. Zero allocations.
+     */
+    public void reset() {
+      final int prevTags = tagOrder.size();
+      for (int t = 0; t < prevTags; t++) {
+        final IntArrayList ids = tagDictIds[t];
+        if (ids != null) ids.clear();
+        final byte[][] bytes = tagBytes[t];
+        if (bytes != null) {
+          final int sz = tagDictSize[t];
+          for (int i = 0; i < sz; i++) bytes[i] = null;
+        }
+        tagDictSize[t] = 0;
+      }
+      tagIndex.clear();
+      tagIndex.defaultReturnValue(-1);
+      tagOrder.clear();
+    }
+
     public void addValue(final int parentNameKey, final byte[] value) {
       int tag = tagIndex.get(parentNameKey);
       if (tag < 0) {
@@ -206,9 +229,11 @@ public final class StringRegion {
         tagIndex.put(parentNameKey, tag);
         tagOrder.add(parentNameKey);
         ensureTagSlot(tag);
-        tagDictIds[tag] = new IntArrayList(16);
-        tagHashes[tag] = new long[8];
-        tagBytes[tag] = new byte[8][];
+        if (tagDictIds[tag] == null) {
+          tagDictIds[tag] = new IntArrayList(16);
+          tagHashes[tag] = new long[8];
+          tagBytes[tag] = new byte[8][];
+        }
         tagDictSize[tag] = 0;
       }
       // Dedup by 64-bit FNV-1a hash (stable across JVM runs; good distribution for
