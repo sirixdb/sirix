@@ -191,7 +191,11 @@ public final class BrackitQueryOnSirixScaleMain {
 
     // Warm up: enough invocations to let HotSpot tier-up the query path.
     // For very large datasets each call is expensive, so cap warmup time.
-    int warmupCount = Math.max(3, Math.min(20, iters));
+    // -Dsirix.noWarmup=true disables warmup so the first measurement iter is
+    // a true cold scan — useful for comparing the executor's single-shot
+    // latency rather than the repeated-query cache-hit latency.
+    final boolean noWarmup = Boolean.getBoolean("sirix.noWarmup");
+    int warmupCount = noWarmup ? 0 : Math.max(3, Math.min(20, iters));
     long warmDeadline = System.nanoTime() + 5_000_000_000L; // 5s budget
     try {
       for (int i = 0; i < warmupCount && System.nanoTime() < warmDeadline; i++) {
