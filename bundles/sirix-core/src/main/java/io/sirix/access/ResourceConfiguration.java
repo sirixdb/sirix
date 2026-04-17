@@ -992,10 +992,25 @@ public final class ResourceConfiguration {
     }
 
     private ByteHandlerPipeline selectDefaultByteHandler() {
-      if (!FFILz4Compressor.isNativeAvailable()) {
-        throw new IllegalStateException("Native LZ4 library not available — install liblz4");
+      // -Dsirix.compression={none|lz4}. Default is now "none" — the per-region
+      // PAX columns (NumberRegion, StringRegion) carry their own lightweight
+      // dict + bit-pack encoding (BtrBlocks/Umbra style). LZ4 over an already
+      // dict-compressed page mostly wastes CPU and gives <2x extra savings.
+      // Set -Dsirix.compression=lz4 to re-enable the legacy LZ4 wrapper.
+      final String choice = System.getProperty("sirix.compression", "none").toLowerCase();
+      switch (choice) {
+        case "none":
+          return new ByteHandlerPipeline();
+        case "lz4":
+          if (!FFILz4Compressor.isNativeAvailable()) {
+            throw new IllegalStateException(
+                "Native LZ4 library not available — install liblz4 or set -Dsirix.compression=none");
+          }
+          return new ByteHandlerPipeline(new FFILz4Compressor());
+        default:
+          throw new IllegalArgumentException(
+              "Unknown sirix.compression value: '" + choice + "' (expected: none, lz4)");
       }
-      return new ByteHandlerPipeline(new FFILz4Compressor());
     }
 
     /**
