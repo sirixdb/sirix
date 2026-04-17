@@ -349,6 +349,18 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
    * Returns {@code null} if the class has no free slots.
    */
   public FrameSlot allocateSlot(final long requestedBytes) {
+    // Defensive lazy-init: production code path always calls
+    // Databases.initAllocator first, but unit tests that exercise KVL pages
+    // directly skip that step. Match LinuxMemorySegmentAllocator's behavior
+    // and auto-init with a 16 GiB default budget rather than NPE'ing.
+    if (classes == null) {
+      synchronized (this) {
+        if (classes == null) {
+          LOGGER.warn("FrameSlotAllocator not initialized — auto-initializing with default 16 GiB budget");
+          init(16L * 1024 * 1024 * 1024);
+        }
+      }
+    }
     final int classIdx = indexForSize(requestedBytes);
     if (classIdx < 0) {
       throw new IllegalArgumentException("requested size " + requestedBytes + " exceeds largest class");

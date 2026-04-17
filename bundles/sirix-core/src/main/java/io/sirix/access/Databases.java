@@ -11,7 +11,6 @@ import io.sirix.api.xml.XmlResourceSession;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.BufferManagerImpl;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;

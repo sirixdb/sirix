@@ -15,13 +15,13 @@ import io.sirix.utils.OS;
  *
  * <ul>
  *   <li><b>Windows</b>: always {@link WindowsMemorySegmentAllocator}.</li>
- *   <li><b>Linux with {@code -Dsirix.allocator=frame}</b>:
- *       {@link FrameSlotAllocator} — Umbra-style fixed-address frame slots
- *       with optimistic versioned reads. Closes the cross-thread recycling
- *       race surfaced under 20-thread parallel scans.</li>
- *   <li><b>Linux default</b>: {@link LinuxMemorySegmentAllocator} — the
- *       legacy pool-based allocator. Retained for rollback while the
- *       frame-slot path bakes in.</li>
+ *   <li><b>Linux default</b>: {@link FrameSlotAllocator} — Umbra/LeanStore-style
+ *       fixed-address frame slots with optimistic versioned reads. Stable slot
+ *       addresses for the lifetime of the process eliminate the cross-thread
+ *       recycling race that surfaces under 20-thread parallel scans.</li>
+ *   <li><b>Linux with {@code -Dsirix.allocator=pool}</b>:
+ *       {@link LinuxMemorySegmentAllocator} — the legacy pool-based allocator.
+ *       Retained for emergency rollback only.</li>
  * </ul>
  *
  * <p>The returned allocator is a process-wide singleton per implementation.
@@ -41,11 +41,11 @@ public final class Allocators {
     if (OS.isWindows()) {
       return WindowsMemorySegmentAllocator.getInstance();
     }
-    final String choice = System.getProperty("sirix.allocator", "pool");
-    if ("frame".equalsIgnoreCase(choice)) {
-      return FrameSlotAllocator.getInstance();
+    final String choice = System.getProperty("sirix.allocator", "frame");
+    if ("pool".equalsIgnoreCase(choice)) {
+      return LinuxMemorySegmentAllocator.getInstance();
     }
-    return LinuxMemorySegmentAllocator.getInstance();
+    return FrameSlotAllocator.getInstance();
   }
 
   /**
