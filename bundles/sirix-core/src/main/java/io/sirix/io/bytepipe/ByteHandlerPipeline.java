@@ -102,9 +102,19 @@ public final class ByteHandlerPipeline implements ByteHandler {
 
   @Override
   public MemorySegment compress(MemorySegment source) {
-    // Empty pipeline = identity (Umbra-style: no transformation needed)
+    // Empty pipeline = identity, but we MUST return an owned copy. Callers
+    // (e.g. KeyValueLeafPage.setCompressedSegment) retain the returned
+    // segment beyond the current serialization, while `source` is typically
+    // a slice into the serializer's reused output buffer. Aliasing that
+    // buffer lets the next page's serialization overwrite the bytes the
+    // previous page's compressedSegment claims to hold — a silent data
+    // corruption that LZ4 accidentally hid by always returning a fresh
+    // allocation.
     if (byteHandlers.isEmpty()) {
-      return source;
+      final int size = (int) source.byteSize();
+      final byte[] copy = new byte[size];
+      MemorySegment.copy(source, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, copy, 0, size);
+      return MemorySegment.ofArray(copy);
     }
 
     if (!memorySegmentSupport) {
