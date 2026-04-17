@@ -49,6 +49,7 @@ import io.sirix.page.delegates.FullReferencesPage;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.pax.NumberRegion;
+import io.sirix.page.pax.ObjectKeyNameKeyRegion;
 import io.sirix.page.pax.RegionTable;
 import io.sirix.settings.Constants;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
@@ -384,9 +385,11 @@ public enum PageKind {
         final MemorySegment slottedPage) {
       final long[] valBuf = NUMBER_VALUE_SCRATCH.get();
       final int[] parBuf = NUMBER_PARENT_SCRATCH.get();
+      final int[] okNameKeys = OBJECT_KEY_NAMEKEY_SCRATCH.get();
+      final int[] okSlots = OBJECT_KEY_SLOT_SCRATCH.get();
       int count = 0;
+      int okCount = 0;
       final int numberKindId = KeyValueLeafPage.objectNumberValueKindId();
-      final int objectKeyKindId = KeyValueLeafPage.objectKeyKindId();
       final long pageKeyBase = page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT;
 
       for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
@@ -395,7 +398,12 @@ public enum PageKind {
         while (word != 0) {
           final int bit = Long.numberOfTrailingZeros(word);
           final int slot = baseSlot + bit;
-          if (PageLayout.getDirNodeKindId(slottedPage, slot) == numberKindId) {
+          final int kindId = PageLayout.getDirNodeKindId(slottedPage, slot);
+          if (KeyValueLeafPage.isObjectKeyKindId(kindId)) {
+            okNameKeys[okCount] = page.getObjectKeyNameKeyFromSlot(slot);
+            okSlots[okCount] = slot;
+            okCount++;
+          } else if (kindId == numberKindId) {
             final long value = page.getNumberValueLongFromSlot(slot);
             if (value != Long.MIN_VALUE) {
               final long valueNodeKey = pageKeyBase + slot;
@@ -403,7 +411,7 @@ public enum PageKind {
               int parentNameKey = -1;
               if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == page.getPageKey()) {
                 final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
-                if (PageLayout.getDirNodeKindId(slottedPage, parentSlot) == objectKeyKindId) {
+                if (KeyValueLeafPage.isObjectKeyKindId(PageLayout.getDirNodeKindId(slottedPage, parentSlot))) {
                   parentNameKey = page.getObjectKeyNameKeyFromSlot(parentSlot);
                 }
               }
@@ -416,13 +424,21 @@ public enum PageKind {
         }
       }
 
-      if (count == 0) {
+      if (count == 0 && okCount == 0) {
         return null;
       }
-      final byte[] payload = NumberRegion.encode(valBuf, parBuf, count);
       final RegionTable table = new RegionTable();
-      table.set(RegionTable.KIND_NUMBER, payload);
-      return table;
+      if (count > 0) {
+        final byte[] payload = NumberRegion.encode(valBuf, parBuf, count);
+        table.set(RegionTable.KIND_NUMBER, payload);
+      }
+      if (okCount > 0) {
+        final byte[] nameKeyPayload = ObjectKeyNameKeyRegion.encode(okNameKeys, okSlots, okCount);
+        if (nameKeyPayload != null) {
+          table.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, nameKeyPayload);
+        }
+      }
+      return table.isEmpty() ? null : table;
     }
 
     private static void writeFsstSymbolTable(final BytesOut<?> sink, final KeyValueLeafPage page) {
@@ -1359,6 +1375,14 @@ public enum PageKind {
 
   /** Per-thread reusable buffer for number-region parent-nameKey collection at seal time. */
   private static final ThreadLocal<int[]> NUMBER_PARENT_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /** Per-thread reusable buffer for OBJECT_KEY nameKey values at seal time. */
+  private static final ThreadLocal<int[]> OBJECT_KEY_NAMEKEY_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /** Per-thread reusable buffer for OBJECT_KEY slot indices at seal time. */
+  private static final ThreadLocal<int[]> OBJECT_KEY_SLOT_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
 
   static {

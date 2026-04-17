@@ -104,6 +104,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     long recordsSlowPath;      // records processed via rtx.moveTo + firstChild
     long recordsMatched;       // records that passed the predicate
 
+    // GroupBy-specific: which path the value-read took.
+    long groupByDirectSuccess;  // childPk == pk AND readObjectStringValueBytesFromSlot returned > 0
+    long groupByCrossPage;      // childPk != pk (value lives on a different page)
+    long groupByDirectNeg;      // direct read returned <= 0 (FSST/oversize/etc.)
+    long groupByRtxFallback;    // rtx.moveTo path actually ran
+
     /** Merge {@code other} into this accumulator. Called during per-thread fan-in. */
     void mergeFrom(final ScanDiagnostics other) {
       this.pagesVisited += other.pagesVisited;
@@ -116,6 +122,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       this.recordsFastPath += other.recordsFastPath;
       this.recordsSlowPath += other.recordsSlowPath;
       this.recordsMatched += other.recordsMatched;
+      this.groupByDirectSuccess += other.groupByDirectSuccess;
+      this.groupByCrossPage += other.groupByCrossPage;
+      this.groupByDirectNeg += other.groupByDirectNeg;
+      this.groupByRtxFallback += other.groupByRtxFallback;
     }
 
     void print(final String label) {
@@ -128,6 +138,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       System.err.printf("[scan-diag %s] records: fast-path=%,d (decoded %,d pages), slow-path=%,d "
               + "(via moveTo), matched=%,d, total=%,d%n",
           label, recordsFastPath, totalPagesWithHeader, recordsSlowPath, recordsMatched, totalRecords);
+      if (groupByDirectSuccess + groupByCrossPage + groupByDirectNeg + groupByRtxFallback > 0) {
+        System.err.printf("[scan-diag %s] groupBy paths: direct-success=%,d, cross-page=%,d, "
+                + "direct-returned-neg=%,d, rtx-fallback=%,d%n",
+            label, groupByDirectSuccess, groupByCrossPage, groupByDirectNeg, groupByRtxFallback);
+      }
     }
   }
   /** Cached max node key — Sirix-internal, fixed for a given revision. */
@@ -416,27 +431,44 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     parallel(eff, i -> {
       long[] acc = perThread[i];
+      // Per-worker scratch for the SIMD aggregate kernel — out[0]=sum, out[1]=min, out[2]=max.
+      // One allocation per worker, reused across every page.
+      final long[] simdAggOut = new long[3];
+      // Reuse one IndexLogKey across all pages for this worker — eliminates the per-page
+      // allocation in the hot loop. Safe because getRecordPage() only reads the fields
+      // and does not retain a reference to the key object.
+      final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       long s = (long) i * ppt;
       long e = Math.min(s + ppt, totalPages);
       JsonNodeReadOnlyTrx rtx = workerTrx();
       var reader = rtx.getStorageEngineReader();
       final int numValKindId = KeyValueLeafPage.objectNumberValueKindId();
       for (long pk = s; pk < e; pk++) {
-        var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
+        var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
 
         // PAX fast path: jump straight to the target field's value range via
-        // per-tag directory. Tight loop over count[tag] decodes — no per-entry
-        // tag check, no slot walk, no moveTo, no varint.
+        // per-tag directory. SIMD aggregate kernel computes sum/min/max in one
+        // vector pass — single memory sweep, hardware-pipelined reductions.
         if (PAX_FAST_PATH_ENABLED) {
           final NumberRegion.Header hdr = kv.getNumberRegionHeader();
           if (hdr != null) {
             final int tag = NumberRegion.lookupTag(hdr, fieldKey);
             if (tag >= 0) {
-              final byte[] payload = kv.getNumberRegionPayload();
               final int start = hdr.tagStart[tag];
-              final int end = start + hdr.tagCount[tag];
+              final int tagN = hdr.tagCount[tag];
+              final int end = start + tagN;
+              final MemorySegment payloadSeg = kv.getNumberRegionPayloadSegment();
+              if (NumberRegionSimd.aggregateRange(payloadSeg, hdr, start, end, simdAggOut)) {
+                acc[0] += tagN;
+                acc[1] += simdAggOut[0];
+                if (simdAggOut[1] < acc[2]) acc[2] = simdAggOut[1];
+                if (simdAggOut[2] > acc[3]) acc[3] = simdAggOut[2];
+                continue;
+              }
+              // SIMD fallback: bit-width > 56 or other unsupported encoding.
+              final byte[] payload = kv.getNumberRegionPayload();
               for (int idx = start; idx < end; idx++) {
                 final long v = NumberRegion.decodeValueAt(payload, hdr, idx);
                 acc[0]++;
@@ -524,6 +556,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     parallel(eff, i -> {
       long[] acc = perThread;
+      // Reuse one IndexLogKey across all pages for this worker (zero per-page alloc).
+      final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       long s = (long) i * ppt;
       long e = Math.min(s + ppt, totalPages);
       JsonNodeReadOnlyTrx rtx = workerTrx();
@@ -532,7 +566,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final ScanDiagnostics diag = DIAGNOSTICS_ENABLED ? new ScanDiagnostics() : null;
       if (DIAGNOSTICS_ENABLED) perThreadDiag[i] = diag;
       for (long pk = s; pk < e; pk++) {
-        var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
+        var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
         if (DIAGNOSTICS_ENABLED) diag.pagesVisited++;
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
@@ -572,8 +606,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               final VectorOperators.Comparison vecOp = vectorOp(op);
               long matched = -1L;
               if (vecOp != null) {
+                // Use the cached MemorySegment view rather than ofArray(payload) — same bytes,
+                // zero per-page wrapper allocation.
+                final MemorySegment payloadSeg = kv.getNumberRegionPayloadSegment();
                 matched = NumberRegionSimd.countMatching(
-                    MemorySegment.ofArray(payload), hdr, start, end, vecOp, threshold);
+                    payloadSeg, hdr, start, end, vecOp, threshold);
               }
               if (matched < 0L) {
                 // Scalar fallback — preserved verbatim.
@@ -665,6 +702,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
     parallel(eff, i -> {
       ScanResult.GroupByResult acc = perThread[i];
+      // Reuse one IndexLogKey across all pages for this worker (zero per-page alloc).
+      final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       long s = (long) i * ppt;
       long e = Math.min(s + ppt, totalPages);
       JsonNodeReadOnlyTrx rtx = workerTrx();
@@ -676,7 +715,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final byte[] scratch = new byte[256];
       final int SLOT_MASK = Constants.NDP_NODE_COUNT - 1;
       for (long pk = s; pk < e; pk++) {
-        var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
+        var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
         if (DIAGNOSTICS_ENABLED) {
           diag.pagesVisited++;
@@ -694,11 +733,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             final int n = kv.readObjectStringValueBytesFromSlot(valueSlot, scratch);
             if (n > 0) {
               acc.add(scratch, 0, n);
-              if (DIAGNOSTICS_ENABLED) diag.recordsMatched++;
+              if (DIAGNOSTICS_ENABLED) {
+                diag.groupByDirectSuccess++;
+                diag.recordsMatched++;
+              }
               continue;
             }
+            if (DIAGNOSTICS_ENABLED) diag.groupByDirectNeg++;
+          } else {
+            if (DIAGNOSTICS_ENABLED) diag.groupByCrossPage++;
           }
 
+          if (DIAGNOSTICS_ENABLED) diag.groupByRtxFallback++;
           if (!rtx.moveTo(base + slot)) continue;
           if (!rtx.moveToFirstChild()) continue;
           byte[] valueBytes = rtx.getValueBytes();

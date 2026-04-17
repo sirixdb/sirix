@@ -555,6 +555,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
 
+    // Writer-side query insurance: if a number record currently lives in this slot, the
+    // cached PAX number region is about to become stale (replacement, deletion via
+    // DeletedNode, etc.). Fast-path no-op when no region is currently cached.
+    maybeInvalidateNumberRegionForExistingSlot(offset);
+
     if (record instanceof FlyweightNode fn) {
       if (fn.isWriteSingleton()) {
         // Write singleton: serialize to heap, never store in records[] (aliasing risk).
@@ -600,6 +605,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     bytes = null;
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+    // Defensive: a non-flyweight record may overwrite a number-typed slot.
+    maybeInvalidateNumberRegionForExistingSlot(offset);
     ensureRecords();
     records[offset] = record;
   }
@@ -658,14 +665,19 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     updateHeapUsed(cachedHeapUsed + totalBytes);
 
     // Update directory entry: [heapOffset][dataLength | nodeKindId]
-    PageLayout.setDirEntry(slottedPage, offset, heapEnd, totalBytes,
-        ((NodeKind) fn.getKind()).getId());
+    final int nodeKindId = ((NodeKind) fn.getKind()).getId();
+    PageLayout.setDirEntry(slottedPage, offset, heapEnd, totalBytes, nodeKindId);
 
     // Mark slot populated in bitmap and track last slot index (new slots only)
     if (!PageLayout.isSlotPopulated(slottedPage, offset)) {
       PageLayout.markSlotPopulated(slottedPage, offset);
       updatePopulatedCount(cachedPopulatedCount + 1);
       lastSlotIndex = offset;
+    }
+
+    // Number write: drop the cached PAX number region so the next reader rebuilds.
+    if (isNumberValueKindId(nodeKindId)) {
+      invalidateNumberRegion();
     }
 
     // Bind flyweight — all subsequent mutations go directly to page memory
@@ -742,6 +754,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       updatePopulatedCount(cachedPopulatedCount + 1);
       lastSlotIndex = slotOffset;
     }
+
+    // Number write: drop the cached PAX number region so the next reader rebuilds.
+    if (isNumberValueKindId(nodeKindId)) {
+      invalidateNumberRegion();
+    }
+
     // NOTE: Caller is responsible for binding the flyweight and setting ownerPage.
     // This eliminates interface dispatch (itable stubs) by letting the caller call
     // bind()/setOwnerPage() on the concrete type directly.
@@ -859,6 +877,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // --- Re-bind flyweight to new location ---
     fn.bind(slottedPage, newRecordBase, nodeKey, slotIndex);
     fn.setOwnerPage(this);
+
+    // Number write: in-place field rewrite changed a value the cached region snapshotted.
+    if (isNumberValueKindId(nodeKindId)) {
+      invalidateNumberRegion();
+    }
   }
 
   /**
@@ -909,6 +932,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     compressedSegment = null;
     bytes = null;
     addedReferences = false;
+
+    // Number copy: a new number lands in this page's heap. The source's region is not
+    // carried, and any region cached for THIS page is now incomplete.
+    if (isNumberValueKindId(srcNodeKindId)) {
+      invalidateNumberRegion();
+    }
   }
 
   /**
@@ -1356,7 +1385,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /**
    * Read an ObjectKeyNode's nameKey directly from the slot bytes without binding
    * a flyweight singleton or moving a transaction cursor. Callers MUST verify
-   * the slot is populated and holds an OBJECT_KEY (kind id 26) before calling —
+   * the slot is populated and holds an OBJECT_KEY (kind id 26 or 126) before calling —
    * the method does no validation for the vectorized scan hot path.
    *
    * <p>Used by SirixVectorizedExecutor to filter/count on {@code nameKey} without
@@ -1368,21 +1397,45 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * @return the signed nameKey from the slot
    */
   public int getObjectKeyNameKeyFromSlot(final int slotNumber) {
+    final byte[] nameKeyPayload = regionPayload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+    if (nameKeyPayload != null) {
+      return io.sirix.page.pax.ObjectKeyNameKeyRegion.nameKeyForSlot(nameKeyPayload, slotNumber);
+    }
     final MemorySegment sp = slottedPage;
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
-    // ObjectKeyNode layout: [kind byte][10 field-offset bytes][data region]
-    // NAME_KEY is field index 4 — one byte at recordBase+1+4 points into data.
+    final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+    if (kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID) {
+      return -1;
+    }
     final int fieldOff =
         sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJKEY_NAME_KEY) & 0xFF;
     final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
     return DeltaVarIntCodec.decodeSignedFromSegment(sp, dataStart + fieldOff);
   }
 
+  public int getObjectKeyNameKeyFromRegion(final int slotIndex) {
+    final byte[] payload = regionPayload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+    if (payload != null) {
+      return io.sirix.page.pax.ObjectKeyNameKeyRegion.nameKeyForSlot(payload, slotIndex);
+    }
+    return getObjectKeyNameKeyFromSlot(slotIndex);
+  }
+
   /** OBJECT_NUMBER_VALUE payload type code for Integer (varint). See NodeKind.serializeNumber. */
   private static final byte NUMBER_TYPE_INTEGER = 2;
   private static final byte NUMBER_TYPE_LONG = 3;
   private static final int OBJECT_NUMBER_VALUE_KIND_ID = 42;
+  private static final int NUMBER_VALUE_KIND_ID = 28;
+
+  /**
+   * True when {@code kindId} identifies a record whose value participates in the PAX
+   * {@link RegionTable#KIND_NUMBER} region. Used by mutation paths to gate cache
+   * invalidation: only number-affecting writes pay the (already-cheap) invalidation cost.
+   */
+  static boolean isNumberValueKindId(final int kindId) {
+    return kindId == OBJECT_NUMBER_VALUE_KIND_ID || kindId == NUMBER_VALUE_KIND_ID;
+  }
 
   /**
    * Lazy pre-parsed FSST symbol table, built once per page on first access.
@@ -1665,6 +1718,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private static final int[] EMPTY_INT_ARRAY = new int[0];
   private static final int OBJECT_KEY_KIND_ID = 26;
 
+  static boolean isObjectKeyKindId(final int kindId) {
+    return kindId == OBJECT_KEY_KIND_ID || kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID;
+  }
+
   /**
    * Return the slot indices whose OBJECT_KEY has the given nameKey. Single-pass
    * bitmap walk the first time; array reuse thereafter. Borrowed from DuckDB /
@@ -1704,7 +1761,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       while (word != 0) {
         final int bit = Long.numberOfTrailingZeros(word);
         final int slot = baseSlot + bit;
-        if (PageLayout.getDirNodeKindId(sp, slot) == OBJECT_KEY_KIND_ID
+        if (isObjectKeyKindId(PageLayout.getDirNodeKindId(sp, slot))
             && getObjectKeyNameKeyFromSlot(slot) == fieldKey) {
           if (count == buf.length) {
             final int[] grown = new int[buf.length << 1];
@@ -2395,6 +2452,66 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private volatile NumberRegion.Header cachedNumberHeader;
 
+  /**
+   * Cached {@link MemorySegment} view over the {@link RegionTable#KIND_NUMBER} payload.
+   * Wrapping a {@code byte[]} via {@code MemorySegment.ofArray} allocates a small
+   * {@code HeapMemorySegmentImpl} instance per call (~24 B). On the SIMD scan hot path
+   * that fires once per page per query, which compounds into real GC pressure on
+   * 100M-record workloads. Caching the view alongside the parsed header collapses the
+   * per-page cost to one volatile read.
+   *
+   * <p>Lifecycle: populated by {@link #getNumberRegionPayloadSegment()} on first call,
+   * cleared by {@link #invalidateNumberRegion()} together with the parsed header.
+   */
+  private volatile MemorySegment cachedNumberPayloadSegment;
+
+  /**
+   * Drop the cached {@link NumberRegion.Header} and the {@link RegionTable#KIND_NUMBER}
+   * payload so the next reader rebuilds from the slotted page. Called from every mutation
+   * path that adds, modifies, or removes an OBJECT_NUMBER_VALUE / NUMBER_VALUE record.
+   *
+   * <h2>HFT cost model</h2>
+   * Steady-state cost when no region is currently cached: one volatile read + one branch.
+   * On the first invalidation per page after a region was built: one volatile write +
+   * one {@code byte[][]} slot store. After that, calls collapse to the fast-path until
+   * the next reader rebuilds.
+   *
+   * <p>Package-private so unit tests can verify the contract without reflection.
+   */
+  void invalidateNumberRegion() {
+    if (cachedNumberHeader == null && cachedNumberPayloadSegment == null) {
+      return;
+    }
+    cachedNumberHeader = null;
+    cachedNumberPayloadSegment = null;
+    final RegionTable rt = regionTable;
+    if (rt != null) {
+      rt.set(RegionTable.KIND_NUMBER, null);
+    }
+  }
+
+  /**
+   * Invalidate the cached number region iff the slot at {@code slotOffset} currently
+   * holds a number-typed record. Called from {@link #setRecord} and {@link #setNewRecord}
+   * before mutation, so deletion or replacement of an existing number record is detected
+   * even when the new record kind is something else (e.g. {@code DeletedNode}).
+   *
+   * <p>The "new record IS a number" case is handled separately by {@link #serializeToHeap}
+   * and {@link #completeDirectWrite} which already know the kind id being written.
+   */
+  private void maybeInvalidateNumberRegionForExistingSlot(final int slotOffset) {
+    if (cachedNumberHeader == null) {
+      return;
+    }
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotOffset)) {
+      return;
+    }
+    if (isNumberValueKindId(PageLayout.getDirNodeKindId(sp, slotOffset))) {
+      invalidateNumberRegion();
+    }
+  }
+
   public NumberRegion.Header getNumberRegionHeader() {
     NumberRegion.Header h = cachedNumberHeader;
     if (h != null) {
@@ -2491,7 +2608,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
             int parentNameKey = -1;
             if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == recordPageKey) {
               final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
-              if (PageLayout.getDirNodeKindId(sp, parentSlot) == OBJECT_KEY_KIND_ID) {
+              if (isObjectKeyKindId(PageLayout.getDirNodeKindId(sp, parentSlot))) {
                 parentNameKey = getObjectKeyNameKeyFromSlot(parentSlot);
               }
             }
@@ -2515,9 +2632,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       return null;
     }
     final byte[] payload = NumberRegion.encode(valBuf, parBuf, count);
-    final RegionTable table = new RegionTable();
+    // Preserve any existing regionTable (e.g. KIND_OBJECT_KEY_NAMEKEY) — overwriting
+    // with a fresh RegionTable would silently drop other regions on this page.
+    RegionTable table = this.regionTable;
+    if (table == null) {
+      table = new RegionTable();
+      this.regionTable = table;
+    }
     table.set(RegionTable.KIND_NUMBER, payload);
-    this.regionTable = table;
     return payload;
   }
 
@@ -2527,6 +2649,33 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   public byte[] getNumberRegionPayload() {
     return regionPayload(RegionTable.KIND_NUMBER);
+  }
+
+  /**
+   * Returns a cached {@link MemorySegment} view over the number-region payload, or
+   * {@code null} when the page has no number region. The view is built once per page
+   * (on first call after the region is materialised) and reused across every scan.
+   *
+   * <p>HFT motivation: {@code MemorySegment.ofArray(byte[])} allocates a fresh
+   * {@code HeapMemorySegmentImpl} wrapper on every call. On a 100M-record scan that
+   * touches ~6K pages, paying that allocation per query is GC pressure we don't need.
+   * Caching collapses it to one read of a volatile reference.
+   */
+  public MemorySegment getNumberRegionPayloadSegment() {
+    MemorySegment seg = cachedNumberPayloadSegment;
+    if (seg != null) {
+      return seg;
+    }
+    final byte[] payload = regionPayload(RegionTable.KIND_NUMBER);
+    if (payload == null) {
+      return null;
+    }
+    // Benign race: parallel callers may build duplicate views, but the resulting
+    // segment is identical and the last write wins. Avoids synchronised block on
+    // the hot read path.
+    seg = MemorySegment.ofArray(payload);
+    cachedNumberPayloadSegment = seg;
+    return seg;
   }
 
   @Override

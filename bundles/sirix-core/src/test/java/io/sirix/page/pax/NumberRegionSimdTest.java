@@ -114,6 +114,104 @@ class NumberRegionSimdTest {
   }
 
   @Test
+  void aggregateRangePlainLongMatchesScalar() {
+    final int count = 1_000;
+    final long[] values = new long[count];
+    final Random rng = new Random(7);
+    for (int i = 0; i < count; i++) {
+      values[i] = rng.nextLong() & 0x0F_FF_FF_FF_FF_FF_FF_FFL; // keep zone-map sane (positive)
+    }
+    // PLAIN_LONG region encoded by NumberRegion.encode is automatically chosen when
+    // spread doesn't fit in 48 bits. For deterministic encoding, build a synthetic
+    // header that points into a hand-rolled little-endian payload.
+    final byte[] payload = new byte[count * 8];
+    for (int i = 0; i < count; i++) {
+      writeLittleEndianLong(payload, i * 8, values[i]);
+    }
+    final NumberRegion.Header h = new NumberRegion.Header();
+    h.encodingKind = NumberRegion.ENC_PLAIN_LONG;
+    h.valueBytesOffset = 0;
+
+    long expectedSum = 0, expectedMin = Long.MAX_VALUE, expectedMax = Long.MIN_VALUE;
+    for (final long v : values) {
+      expectedSum += v;
+      if (v < expectedMin) expectedMin = v;
+      if (v > expectedMax) expectedMax = v;
+    }
+
+    final long[] out = new long[3];
+    final boolean ok = NumberRegionSimd.aggregateRange(
+        MemorySegment.ofArray(payload), h, 0, count, out);
+    assertEquals(true, ok);
+    assertEquals(expectedSum, out[0], "sum mismatch");
+    assertEquals(expectedMin, out[1], "min mismatch");
+    assertEquals(expectedMax, out[2], "max mismatch");
+  }
+
+  @Test
+  void aggregateRangeBitPackedMatchesScalar() {
+    for (int bitWidth : new int[] { 1, 7, 13, 31, 56 }) {
+      final int count = 257; // odd to exercise the scalar tail
+      final long mask = bitWidth == 64 ? ~0L : (1L << bitWidth) - 1L;
+      final long base = 12345L;
+      final Random rng = new Random(bitWidth * 31L);
+      final long[] unpacked = new long[count];
+      for (int i = 0; i < count; i++) {
+        unpacked[i] = rng.nextLong() & mask;
+      }
+      final byte[] payload = packBitsTight(unpacked, bitWidth);
+      final NumberRegion.Header h = new NumberRegion.Header();
+      h.encodingKind = NumberRegion.ENC_BIT_PACKED;
+      h.valueBytesOffset = 0;
+      h.valueBase = base;
+      h.valueBitWidth = (byte) bitWidth;
+
+      long expectedSum = 0, expectedMin = Long.MAX_VALUE, expectedMax = Long.MIN_VALUE;
+      for (final long u : unpacked) {
+        final long v = base + u;
+        expectedSum += v;
+        if (v < expectedMin) expectedMin = v;
+        if (v > expectedMax) expectedMax = v;
+      }
+
+      final long[] out = new long[3];
+      final boolean ok = NumberRegionSimd.aggregateRange(
+          MemorySegment.ofArray(payload), h, 0, count, out);
+      assertEquals(true, ok, "aggregateRange returned false at width=" + bitWidth);
+      assertEquals(expectedSum, out[0], "sum mismatch at width=" + bitWidth);
+      assertEquals(expectedMin, out[1], "min mismatch at width=" + bitWidth);
+      assertEquals(expectedMax, out[2], "max mismatch at width=" + bitWidth);
+    }
+  }
+
+  @Test
+  void aggregateRangeRejectsUnsupportedBitWidth() {
+    final NumberRegion.Header h = new NumberRegion.Header();
+    h.encodingKind = NumberRegion.ENC_BIT_PACKED;
+    h.valueBytesOffset = 0;
+    h.valueBase = 0L;
+    h.valueBitWidth = (byte) 57; // unsupported
+    final long[] out = new long[3];
+    final boolean ok = NumberRegionSimd.aggregateRange(
+        MemorySegment.ofArray(new byte[64]), h, 0, 8, out);
+    assertEquals(false, ok, "width 57 should signal scalar fallback");
+  }
+
+  @Test
+  void aggregateRangeEmptyReturnsIdentity() {
+    final NumberRegion.Header h = new NumberRegion.Header();
+    h.encodingKind = NumberRegion.ENC_PLAIN_LONG;
+    h.valueBytesOffset = 0;
+    final long[] out = new long[] { -1, -2, -3 }; // poison
+    final boolean ok = NumberRegionSimd.aggregateRange(
+        MemorySegment.ofArray(new byte[0]), h, 5, 5, out);
+    assertEquals(true, ok);
+    assertEquals(0L, out[0], "empty sum must be 0");
+    assertEquals(Long.MAX_VALUE, out[1], "empty min must be Long.MAX_VALUE");
+    assertEquals(Long.MIN_VALUE, out[2], "empty max must be Long.MIN_VALUE");
+  }
+
+  @Test
   void plainLongHandlesTailSmallerThanVector() {
     // count < SIMD lanes — exercises scalar-only tail path.
     final int count = 3;

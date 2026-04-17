@@ -194,6 +194,123 @@ public final class NumberRegionSimd {
     return countPlainLong(payload, h.valueBytesOffset, start, end, op, threshold);
   }
 
+  // ─────────────────────────────────────────────────────── aggregate kernels
+
+  /**
+   * SIMD aggregation kernel: computes {@code sum}, {@code min}, {@code max} over
+   * {@code payload[start..end)} in a single pass using {@link LongVector} reductions.
+   * Replaces the scalar {@link NumberRegion#decodeValueAt} loop in
+   * {@code SirixVectorizedExecutor.parallelAggregate}.
+   *
+   * <p><b>Output contract</b>: writes {@code out[0]=sum, out[1]=min, out[2]=max}.
+   * If {@code start >= end}, writes {@code 0/Long.MAX_VALUE/Long.MIN_VALUE} so the
+   * caller's identity-element fold is respected. Returns {@code true} on success,
+   * {@code false} when the bit-packed width exceeds the SIMD-supported range — the
+   * caller falls back to scalar in that case.
+   *
+   * <h2>Why one kernel, three results</h2>
+   * Aggregates over the same range share the same memory bandwidth, so doing
+   * sum/min/max in a single tight loop is purely additive in arithmetic but free in
+   * memory traffic. AVX-512 has dedicated {@code vpaddq} / {@code vpminsq} /
+   * {@code vpmaxsq} instructions that retire in one cycle each.
+   *
+   * @return {@code true} if aggregation completed; {@code false} if caller must fall back
+   */
+  public static boolean aggregateRange(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int end, final long[] out) {
+    if (start >= end) {
+      out[0] = 0L;
+      out[1] = Long.MAX_VALUE;
+      out[2] = Long.MIN_VALUE;
+      return true;
+    }
+    if (NumberRegion.isBitPacked(h.encodingKind)) {
+      return aggregateBitPacked(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth,
+          start, end, out);
+    }
+    aggregatePlainLong(payload, h.valueBytesOffset, start, end, out);
+    return true;
+  }
+
+  /** Vectorized sum/min/max over PLAIN_LONG values. Memory-bandwidth bound on AVX-512. */
+  private static void aggregatePlainLong(final MemorySegment payload, final int valueBytesOffset,
+      final int start, final int end, final long[] out) {
+    LongVector sumV = LongVector.zero(LONG_SPECIES);
+    LongVector minV = LongVector.broadcast(LONG_SPECIES, Long.MAX_VALUE);
+    LongVector maxV = LongVector.broadcast(LONG_SPECIES, Long.MIN_VALUE);
+    int i = start;
+    final long baseOff = (long) valueBytesOffset + (long) start * 8L;
+    for (; i <= end - LANES; i += LANES) {
+      final long off = baseOff + (long) (i - start) * 8L;
+      final LongVector v =
+          LongVector.fromMemorySegment(LONG_SPECIES, payload, off, ByteOrder.LITTLE_ENDIAN);
+      sumV = sumV.add(v);
+      minV = minV.min(v);
+      maxV = maxV.max(v);
+    }
+    long sum = sumV.reduceLanes(VectorOperators.ADD);
+    long min = minV.reduceLanes(VectorOperators.MIN);
+    long max = maxV.reduceLanes(VectorOperators.MAX);
+    // Scalar tail.
+    for (; i < end; i++) {
+      final long v = payload.get(ValueLayout.JAVA_LONG_UNALIGNED,
+          (long) valueBytesOffset + (long) i * 8L);
+      sum += v;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    out[0] = sum;
+    out[1] = min;
+    out[2] = max;
+  }
+
+  /** Vectorized sum/min/max over BIT_PACKED values. Returns false for widths {@code > 56}. */
+  private static boolean aggregateBitPacked(final MemorySegment payload, final int valueBytesOffset,
+      final long valueBase, final int bitWidth, final int start, final int end, final long[] out) {
+    if (bitWidth < 1 || bitWidth > 56) {
+      return false;
+    }
+    final long mask = bitWidth == 64 ? ~0L : (1L << bitWidth) - 1L;
+    final long[] unpacked = new long[LANES];
+    final LongVector baseV = LongVector.broadcast(LONG_SPECIES, valueBase);
+    final long payloadSize = payload.byteSize();
+    LongVector sumV = LongVector.zero(LONG_SPECIES);
+    LongVector minV = LongVector.broadcast(LONG_SPECIES, Long.MAX_VALUE);
+    LongVector maxV = LongVector.broadcast(LONG_SPECIES, Long.MIN_VALUE);
+    int i = start;
+    for (; i <= end - LANES; i += LANES) {
+      for (int lane = 0; lane < LANES; lane++) {
+        final long bitOff = (long) (i + lane) * (long) bitWidth;
+        final long byteOff = valueBytesOffset + (bitOff >>> 3);
+        final int shift = (int) (bitOff & 7L);
+        final long word = readWordSafe(payload, payloadSize, byteOff);
+        unpacked[lane] = (word >>> shift) & mask;
+      }
+      final LongVector v = LongVector.fromArray(LONG_SPECIES, unpacked, 0).add(baseV);
+      sumV = sumV.add(v);
+      minV = minV.min(v);
+      maxV = maxV.max(v);
+    }
+    long sum = sumV.reduceLanes(VectorOperators.ADD);
+    long min = minV.reduceLanes(VectorOperators.MIN);
+    long max = maxV.reduceLanes(VectorOperators.MAX);
+    // Scalar tail.
+    for (; i < end; i++) {
+      final long bitOff = (long) i * (long) bitWidth;
+      final long byteOff = valueBytesOffset + (bitOff >>> 3);
+      final int shift = (int) (bitOff & 7L);
+      final long word = readWordSafe(payload, payloadSize, byteOff);
+      final long v = valueBase + ((word >>> shift) & mask);
+      sum += v;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    out[0] = sum;
+    out[1] = min;
+    out[2] = max;
+    return true;
+  }
+
   private static boolean eval(final long v, final VectorOperators.Comparison op, final long t) {
     if (op == VectorOperators.GT) return v > t;
     if (op == VectorOperators.LT) return v < t;

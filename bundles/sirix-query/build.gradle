@@ -147,8 +147,8 @@ graalvmNative {
             jvmArgs.add('-XX:MaxRAMPercentage=80')
         }
         main {
-            imageName = 'sirix-shell'
-            mainClass = 'io.sirix.query.Main'
+            imageName = 'sirix-bench'
+            mainClass = 'io.sirix.query.bench.ScaleBenchMain'
             sharedLibrary = false
             // Preview features and vector API
             buildArgs.add('--enable-preview')
@@ -192,6 +192,9 @@ graalvmNative {
             buildArgs.add('--gc=G1')
             // Set max heap for the native image runtime
             buildArgs.add('-R:MaxHeapSize=4g')
+            // Optimization level 3 + native-CPU codegen so AVX-512 / AVX2 intrinsics fire
+            buildArgs.add('-O3')
+            buildArgs.add('-march=native')
 
             // Profile-Guided Optimization (PGO) support
             // Step 1: Build instrumented binary: ./gradlew :sirix-query:nativeCompile -Ppgo-instrument

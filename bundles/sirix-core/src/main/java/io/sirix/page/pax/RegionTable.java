@@ -35,9 +35,10 @@ public final class RegionTable {
   public static final byte KIND_STRING = 1;
   public static final byte KIND_STRUCT = 2;
   public static final byte KIND_DEWEYID = 3;
+  public static final byte KIND_OBJECT_KEY_NAMEKEY = 4;
 
   /** Size of the fixed-slot storage. Bump when a new region kind is introduced. */
-  public static final int KIND_COUNT = 4;
+  public static final int KIND_COUNT = 5;
 
   /** Sentinel empty payload used in place of {@code null} to avoid a per-slot nullcheck on the hot read path. */
   private static final byte[] EMPTY = new byte[0];
