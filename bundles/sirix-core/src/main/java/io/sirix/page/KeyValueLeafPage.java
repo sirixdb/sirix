@@ -1751,8 +1751,27 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       final int fieldKey) {
     final MemorySegment sp = slottedPage;
     if (sp == null) return EMPTY_INT_ARRAY;
-    // Walk populated-slot bitmap in-line (avoid forEachPopulatedSlot's lambda —
-    // megamorphic hot path, direct bit scan inlines cleanly).
+
+    // Fast path: ObjectKeyNameKeyRegion lets us SIMD-scan the dict-encoded nameKey
+    // column instead of walking every populated slot, decoding kind-id, and decoding
+    // the per-record nameKey via varint. Profile (Temurin 25, 100M records) showed
+    // ObjectKeyNameKeyRegion.nameKeyForSlot at ~8% CPU on the slot-walk path; the
+    // findMatchingSlots SIMD scan replaces all of that with one tight ByteVector loop.
+    final byte[] nameKeyPayload = regionPayload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+    if (nameKeyPayload != null) {
+      final int upperBound = io.sirix.page.pax.ObjectKeyNameKeyRegion.count(nameKeyPayload);
+      if (upperBound == 0) {
+        return cachePut(cache, fieldKey, EMPTY_INT_ARRAY);
+      }
+      final int[] tmp = new int[upperBound];
+      final int matched = io.sirix.page.pax.ObjectKeyNameKeyRegion.findMatchingSlots(
+          nameKeyPayload, fieldKey, tmp);
+      final int[] result = (matched == tmp.length) ? tmp : Arrays.copyOf(tmp, matched);
+      return cachePut(cache, fieldKey, result);
+    }
+
+    // Slow path (region absent): walk populated-slot bitmap in-line. Avoids
+    // forEachPopulatedSlot's lambda — direct bit scan inlines cleanly.
     int[] buf = new int[32];
     int count = 0;
     for (int wordIndex = 0; wordIndex < PageLayout.BITMAP_WORDS; wordIndex++) {
@@ -1774,6 +1793,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
     }
     final int[] result = (count == buf.length) ? buf : Arrays.copyOf(buf, count);
+    return cachePut(cache, fieldKey, result);
+  }
+
+  private static int[] cachePut(final Int2ObjectOpenHashMap<int[]> cache, final int fieldKey,
+      final int[] result) {
     synchronized (cache) {
       final int[] existing = cache.get(fieldKey);
       if (existing != null) return existing;

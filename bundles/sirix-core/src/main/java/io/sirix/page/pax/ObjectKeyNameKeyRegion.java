@@ -10,6 +10,9 @@ import jdk.incubator.vector.VectorSpecies;
 
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.nio.ByteOrder;
 
 /**
  * Dict-encoded PAX region for OBJECT_KEY nameKey values. Stores the nameKey
@@ -35,6 +38,28 @@ public final class ObjectKeyNameKeyRegion {
 
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_PREFERRED;
   private static final int LANES = BYTE_SPECIES.length();
+
+  // Direct byte[] VarHandles — bypass MemorySegment.ofArray allocation on every
+  // hot read. JIT elides the bounds check when the offset is trivially in range
+  // (loop-invariant hoisting), which MemorySegment.ofArray pays for explicitly.
+  private static final VarHandle LONG_LE =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+  private static final VarHandle INT_LE =
+      MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
+  private static final VarHandle SHORT_LE =
+      MethodHandles.byteArrayViewVarHandle(short[].class, ByteOrder.LITTLE_ENDIAN);
+
+  private static long getLong(final byte[] buf, final int off) {
+    return (long) LONG_LE.get(buf, off);
+  }
+
+  private static int getInt(final byte[] buf, final int off) {
+    return (int) INT_LE.get(buf, off);
+  }
+
+  private static int getShortU(final byte[] buf, final int off) {
+    return ((short) SHORT_LE.get(buf, off)) & 0xFFFF;
+  }
 
   private ObjectKeyNameKeyRegion() {
   }
@@ -90,11 +115,10 @@ public final class ObjectKeyNameKeyRegion {
 
   public static int count(final byte[] payload) {
     if (payload == null || payload.length < 3) return 0;
-    final MemorySegment seg = MemorySegment.ofArray(payload);
-    final int numUnique = seg.get(ValueLayout.JAVA_BYTE, 0L) & 0xFF;
-    final long countOff = 1L + (long) numUnique * 4;
+    final int numUnique = payload[0] & 0xFF;
+    final int countOff = 1 + numUnique * 4;
     if (payload.length < countOff + 2) return 0;
-    return seg.get(ValueLayout.JAVA_SHORT_UNALIGNED, countOff) & 0xFFFF;
+    return getShortU(payload, countOff);
   }
 
   /**
@@ -103,39 +127,49 @@ public final class ObjectKeyNameKeyRegion {
    */
   public static int nameKeyAt(final byte[] payload, final int bitmapIndex) {
     if (payload == null) return -1;
-    final MemorySegment seg = MemorySegment.ofArray(payload);
-    final int numUnique = seg.get(ValueLayout.JAVA_BYTE, 0L) & 0xFF;
-    final long countOff = 1L + (long) numUnique * 4;
-    final int okCount = seg.get(ValueLayout.JAVA_SHORT_UNALIGNED, countOff) & 0xFFFF;
+    final int numUnique = payload[0] & 0xFF;
+    final int countOff = 1 + numUnique * 4;
+    final int okCount = getShortU(payload, countOff);
     if (bitmapIndex < 0 || bitmapIndex >= okCount) return -1;
-    final long dictIdsOff = countOff + 2 + 128;
-    final int dictId = seg.get(ValueLayout.JAVA_BYTE, dictIdsOff + bitmapIndex) & 0xFF;
+    final int dictIdsOff = countOff + 2 + 128;
+    final int dictId = payload[dictIdsOff + bitmapIndex] & 0xFF;
     if (dictId >= numUnique) return -1;
-    return seg.get(ValueLayout.JAVA_INT_UNALIGNED, 1L + (long) dictId * 4);
+    return getInt(payload, 1 + dictId * 4);
   }
 
   /**
    * Look up nameKey for a given slot index (0-1023). Converts slot to
    * bitmap-order index, then reads from dictIds. Returns -1 if the slot
    * is not an OBJECT_KEY on this page.
+   *
+   * <p>HFT hot path: called once per OBJECT_KEY slot during
+   * {@code buildObjectKeySlotsForNameKey}. Uses direct {@code byte[]} VarHandle
+   * reads — no {@code MemorySegment.ofArray} allocation.
    */
   public static int nameKeyForSlot(final byte[] payload, final int slotIndex) {
     if (payload == null || slotIndex < 0 || slotIndex > 1023) return -1;
-    final MemorySegment seg = MemorySegment.ofArray(payload);
-    final int numUnique = seg.get(ValueLayout.JAVA_BYTE, 0L) & 0xFF;
-    final long bitmapOff = 1L + (long) numUnique * 4 + 2;
+    final int numUnique = payload[0] & 0xFF;
+    final int bitmapOff = 1 + numUnique * 4 + 2;
     // Check if this slot is set in the OBJECT_KEY bitmap.
     final int wordIdx = slotIndex >>> 6;
     final long bit = 1L << (slotIndex & 63);
-    final long word = seg.get(ValueLayout.JAVA_LONG_UNALIGNED, bitmapOff + (long) wordIdx * 8);
+    final long word = getLong(payload, bitmapOff + wordIdx * 8);
     if ((word & bit) == 0) return -1;
     // Count set bits before this slot to find the bitmap-order index.
     int bitmapIndex = 0;
     for (int w = 0; w < wordIdx; w++) {
-      bitmapIndex += Long.bitCount(seg.get(ValueLayout.JAVA_LONG_UNALIGNED, bitmapOff + (long) w * 8));
+      bitmapIndex += Long.bitCount(getLong(payload, bitmapOff + w * 8));
     }
     bitmapIndex += Long.bitCount(word & (bit - 1));
-    return nameKeyAt(payload, bitmapIndex);
+    // Inlined nameKeyAt body — avoids the redundant numUnique/countOff re-read
+    // and the nested array-bounds check the JIT occasionally leaves un-hoisted.
+    final int countOff = 1 + numUnique * 4;
+    final int okCount = getShortU(payload, countOff);
+    if (bitmapIndex >= okCount) return -1;
+    final int dictIdsOff = countOff + 2 + 128;
+    final int dictId = payload[dictIdsOff + bitmapIndex] & 0xFF;
+    if (dictId >= numUnique) return -1;
+    return getInt(payload, 1 + dictId * 4);
   }
 
   /**
@@ -144,12 +178,11 @@ public final class ObjectKeyNameKeyRegion {
    */
   public static int slotForBitmapIndex(final byte[] payload, final int bitmapIndex) {
     if (payload == null) return -1;
-    final MemorySegment seg = MemorySegment.ofArray(payload);
-    final int numUnique = seg.get(ValueLayout.JAVA_BYTE, 0L) & 0xFF;
-    final long bitmapOff = 1L + (long) numUnique * 4 + 2;
+    final int numUnique = payload[0] & 0xFF;
+    final int bitmapOff = 1 + numUnique * 4 + 2;
     int remaining = bitmapIndex;
     for (int w = 0; w < 16; w++) {
-      long word = seg.get(ValueLayout.JAVA_LONG_UNALIGNED, bitmapOff + (long) w * 8);
+      long word = getLong(payload, bitmapOff + w * 8);
       final int bits = Long.bitCount(word);
       if (remaining < bits) {
         while (remaining > 0) {
