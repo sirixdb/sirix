@@ -1718,6 +1718,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private static final int[] EMPTY_INT_ARRAY = new int[0];
   private static final int OBJECT_KEY_KIND_ID = 26;
 
+  /** Thread-local scratch for SIMD findMatchingSlots output. Avoids per-page int[] alloc. */
+  private static final ThreadLocal<int[]> MATCHING_SLOTS_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[256]);
+
   static boolean isObjectKeyKindId(final int kindId) {
     return kindId == OBJECT_KEY_KIND_ID || kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID;
   }
@@ -1763,10 +1767,18 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       if (upperBound == 0) {
         return cachePut(cache, fieldKey, EMPTY_INT_ARRAY);
       }
-      final int[] tmp = new int[upperBound];
+      // Thread-local scratch — avoids per-page int[] alloc during cache rebuild.
+      // Alloc-profile at 100M records showed ~76K samples from this site before
+      // the scratch was introduced.
+      int[] tmp = MATCHING_SLOTS_SCRATCH.get();
+      if (tmp.length < upperBound) {
+        tmp = new int[Math.max(upperBound, tmp.length * 2)];
+        MATCHING_SLOTS_SCRATCH.set(tmp);
+      }
       final int matched = io.sirix.page.pax.ObjectKeyNameKeyRegion.findMatchingSlots(
           nameKeyPayload, fieldKey, tmp);
-      final int[] result = (matched == tmp.length) ? tmp : Arrays.copyOf(tmp, matched);
+      if (matched == 0) return cachePut(cache, fieldKey, EMPTY_INT_ARRAY);
+      final int[] result = Arrays.copyOf(tmp, matched);
       return cachePut(cache, fieldKey, result);
     }
 

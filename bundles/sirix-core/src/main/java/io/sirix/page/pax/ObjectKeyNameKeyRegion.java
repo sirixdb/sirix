@@ -197,41 +197,51 @@ public final class ObjectKeyNameKeyRegion {
   }
 
   /**
+   * Thread-local scratch for {@link #findMatchingSlots}'s bitmap-order mapping.
+   * The array is grown to fit the largest {@code okCount} any caller has seen
+   * and reused across every subsequent call on the same thread. Reduces per-page
+   * GC pressure — alloc-profile at 100M records showed 76K samples worth of
+   * {@code findMatchingSlots;int[]} before this optimisation.
+   */
+  private static final ThreadLocal<int[]> BITMAP_SLOTS_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[256]);
+
+  /**
    * SIMD filter: find OBJECT_KEY slots where nameKey == fieldKey.
    * Writes matching slot indices into out[]. Returns match count.
    */
   public static int findMatchingSlots(final byte[] payload, final int fieldKey, final int[] out) {
     if (payload == null || payload.length < 3) return 0;
-    final MemorySegment seg = MemorySegment.ofArray(payload);
-    final int numUnique = seg.get(ValueLayout.JAVA_BYTE, 0L) & 0xFF;
+    final int numUnique = payload[0] & 0xFF;
     if (numUnique == 0) return 0;
 
-    // Dict lookup.
-    long off = 1;
+    // Dict lookup — byte[] VarHandle read, no MemorySegment wrapper.
     int targetId = -1;
     for (int i = 0; i < numUnique; i++) {
-      if (seg.get(ValueLayout.JAVA_INT_UNALIGNED, off) == fieldKey) {
+      if (getInt(payload, 1 + i * 4) == fieldKey) {
         targetId = i;
         break;
       }
-      off += 4;
     }
     if (targetId < 0) return 0;
 
-    final long countOff = 1L + (long) numUnique * 4;
-    final int okCount = seg.get(ValueLayout.JAVA_SHORT_UNALIGNED, countOff) & 0xFFFF;
+    final int countOff = 1 + numUnique * 4;
+    final int okCount = getShortU(payload, countOff);
     if (okCount == 0) return 0;
-    final long bitmapOff = countOff + 2;
-    final long dictIdsOff = bitmapOff + 128;
+    final int bitmapOff = countOff + 2;
+    final int dictIdsOff = bitmapOff + 128;
 
-    // SIMD scan of dictIds.
+    // SIMD scan of dictIds — build bitmap slot mapping into thread-local scratch.
     final byte needle = (byte) targetId;
     final ByteVector bNeedle = ByteVector.broadcast(BYTE_SPECIES, needle);
-    // Pre-scan bitmap to build slot-index mapping.
-    final int[] bitmapSlots = new int[okCount];
+    int[] bitmapSlots = BITMAP_SLOTS_SCRATCH.get();
+    if (bitmapSlots.length < okCount) {
+      bitmapSlots = new int[Math.max(okCount, bitmapSlots.length * 2)];
+      BITMAP_SLOTS_SCRATCH.set(bitmapSlots);
+    }
     int idx = 0;
     for (int w = 0; w < 16; w++) {
-      long word = seg.get(ValueLayout.JAVA_LONG_UNALIGNED, bitmapOff + (long) w * 8);
+      long word = getLong(payload, bitmapOff + w * 8);
       final int base = w << 6;
       while (word != 0) {
         bitmapSlots[idx++] = base + Long.numberOfTrailingZeros(word);
@@ -242,8 +252,8 @@ public final class ObjectKeyNameKeyRegion {
     int written = 0;
     int i = 0;
     for (; i <= okCount - LANES; i += LANES) {
-      final ByteVector v = ByteVector.fromMemorySegment(BYTE_SPECIES, seg,
-          dictIdsOff + i, java.nio.ByteOrder.LITTLE_ENDIAN);
+      // SIMD load from byte[] directly — ByteVector.fromArray, no MemorySegment wrapper.
+      final ByteVector v = ByteVector.fromArray(BYTE_SPECIES, payload, dictIdsOff + i);
       final VectorMask<Byte> mask = v.compare(VectorOperators.EQ, bNeedle);
       if (!mask.anyTrue()) continue;
       for (int lane = 0; lane < LANES; lane++) {
@@ -253,7 +263,7 @@ public final class ObjectKeyNameKeyRegion {
       }
     }
     for (; i < okCount; i++) {
-      if ((seg.get(ValueLayout.JAVA_BYTE, dictIdsOff + i) & 0xFF) == targetId) {
+      if ((payload[dictIdsOff + i] & 0xFF) == targetId) {
         out[written++] = bitmapSlots[i];
       }
     }
