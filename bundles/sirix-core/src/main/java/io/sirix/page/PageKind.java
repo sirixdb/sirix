@@ -142,11 +142,18 @@ public enum PageKind {
       // 5. Copy header + bitmap into page (first 160 bytes)
       MemorySegment.copy(headerBitmapSeg, 0, slottedPage, 0, PageLayout.DISK_HEADER_BITMAP_SIZE);
 
-      // 6. Zero-fill preservation bitmap region (runtime-only, never on disk)
+      // 6. Zero-fill preservation bitmap region (runtime-only, never on disk).
+      // Kept — isSlotPreserved() reads this region by slot index regardless of
+      // whether the bit is set, so stale bytes would read as true.
       slottedPage.asSlice(PageLayout.PRESERVATION_BITMAP_OFF, PageLayout.PRESERVATION_BITMAP_SIZE).fill((byte) 0);
 
-      // 7. Zero-fill directory region (will be rebuilt from compact dir)
-      slottedPage.asSlice(PageLayout.DIR_OFF, PageLayout.DIR_SIZE).fill((byte) 0);
+      // 7. Directory region: skip zero-fill. Every populated slot gets its
+      // dir entry written in step 10 below (packed setDirEntry). Non-populated
+      // slots' dir entries are never read — all readers gate on
+      // isSlotPopulated (bitmap check) before touching the directory.
+      // Saves ~8 KB memset per cache-miss page; at 30% miss × 1M pages × 27
+      // query runs that's ~65 GB of memset eliminated.
+      // (unsafe_setmemory was ~1.7% CPU before this.)
 
       // 8. Read heap data into page at HEAP_START
       if (source instanceof MemorySegmentBytesIn msSource) {
