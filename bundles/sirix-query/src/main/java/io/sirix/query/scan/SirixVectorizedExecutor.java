@@ -192,6 +192,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private final ConcurrentHashMap<String, Long> filterCountCache = new ConcurrentHashMap<>();
 
+  /**
+   * Per-field cache of the Brackit {@link Sequence} produced by
+   * {@link #parallelGroupByCount(String)}. The Sequence is a {@code DArray} of
+   * immutable {@code ArrayObject}s — safe to share across callers. Same
+   * validity argument as the aggregate/filter caches: the executor is bound
+   * to one (session, revision).
+   */
+  private final ConcurrentHashMap<String, Sequence> groupByCountCache = new ConcurrentHashMap<>();
+
   public SirixVectorizedExecutor(JsonResourceSession session, int revision) {
     this(session, revision, defaultThreadCount());
   }
@@ -252,7 +261,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   @Override
   public Sequence executeGroupByCount(QueryContext ctx, String groupField) throws QueryException {
     try {
-      return parallelGroupByCount(groupField);
+      Sequence cached = groupByCountCache.get(groupField);
+      if (cached == null) {
+        final Sequence fresh = parallelGroupByCount(groupField);
+        cached = groupByCountCache.putIfAbsent(groupField, fresh);
+        if (cached == null) cached = fresh;
+      }
+      return cached;
     } catch (Exception e) {
       throw new QueryException(e,
                                ErrorCode.BIT_DYN_INT_ERROR,
