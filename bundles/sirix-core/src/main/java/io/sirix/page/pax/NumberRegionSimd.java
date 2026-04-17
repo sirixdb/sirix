@@ -194,6 +194,95 @@ public final class NumberRegionSimd {
     return countPlainLong(payload, h.valueBytesOffset, start, end, op, threshold);
   }
 
+  /**
+   * Two-predicate AND range kernel: counts values satisfying
+   * {@code (value OP1 threshold1) AND (value OP2 threshold2)} in one SIMD pass.
+   * Used by the vectorized executor's {@code executeFilterCount2} entry point to
+   * fuse same-field range queries like {@code age > 30 AND age < 50} into a single
+   * scan, eliminating Brackit's post-filter over the first predicate's match set.
+   *
+   * <p>Returns {@code -1L} if the bit-packed width exceeds SIMD support (caller
+   * falls back to scalar via {@link NumberRegion#decodeValueAt}).
+   */
+  public static long countMatchingRange(final MemorySegment payload, final NumberRegion.Header h,
+      final int start, final int end,
+      final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2) {
+    if (NumberRegion.isBitPacked(h.encodingKind)) {
+      return countBitPackedRange(payload, h.valueBytesOffset, h.valueBase, h.valueBitWidth,
+          start, end, op1, threshold1, op2, threshold2);
+    }
+    return countPlainLongRange(payload, h.valueBytesOffset, start, end, op1, threshold1, op2, threshold2);
+  }
+
+  /** Two-predicate AND over PLAIN_LONG values. Single SIMD pass, masks AND'd, popcount. */
+  public static long countPlainLongRange(final MemorySegment payload, final int valueBytesOffset,
+      final int start, final int end,
+      final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2) {
+    final LongVector thr1 = LongVector.broadcast(LONG_SPECIES, threshold1);
+    final LongVector thr2 = LongVector.broadcast(LONG_SPECIES, threshold2);
+    long count = 0;
+    int i = start;
+    final long baseOff = (long) valueBytesOffset + (long) start * 8L;
+    for (; i <= end - LANES; i += LANES) {
+      final long off = baseOff + (long) (i - start) * 8L;
+      final LongVector v =
+          LongVector.fromMemorySegment(LONG_SPECIES, payload, off, ByteOrder.LITTLE_ENDIAN);
+      final VectorMask<Long> m1 = v.compare(op1, thr1);
+      final VectorMask<Long> m2 = v.compare(op2, thr2);
+      count += m1.and(m2).trueCount();
+    }
+    for (; i < end; i++) {
+      final long v = payload.get(ValueLayout.JAVA_LONG_UNALIGNED,
+          (long) valueBytesOffset + (long) i * 8L);
+      if (eval(v, op1, threshold1) && eval(v, op2, threshold2)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /** Two-predicate AND over BIT_PACKED values. Returns -1 for widths beyond 56. */
+  public static long countBitPackedRange(final MemorySegment payload, final int valueBytesOffset,
+      final long valueBase, final int bitWidth, final int start, final int end,
+      final VectorOperators.Comparison op1, final long threshold1,
+      final VectorOperators.Comparison op2, final long threshold2) {
+    if (bitWidth < 1 || bitWidth > 56) {
+      return -1L;
+    }
+    final long mask = bitWidth == 64 ? ~0L : (1L << bitWidth) - 1L;
+    final long[] unpacked = new long[LANES];
+    final LongVector thr1 = LongVector.broadcast(LONG_SPECIES, threshold1);
+    final LongVector thr2 = LongVector.broadcast(LONG_SPECIES, threshold2);
+    final LongVector baseV = LongVector.broadcast(LONG_SPECIES, valueBase);
+    final long payloadSize = payload.byteSize();
+    long count = 0;
+    int i = start;
+    for (; i <= end - LANES; i += LANES) {
+      for (int lane = 0; lane < LANES; lane++) {
+        final long bitOff = (long) (i + lane) * (long) bitWidth;
+        final long byteOff = valueBytesOffset + (bitOff >>> 3);
+        final int shift = (int) (bitOff & 7L);
+        final long word = readWordSafe(payload, payloadSize, byteOff);
+        unpacked[lane] = (word >>> shift) & mask;
+      }
+      final LongVector v = LongVector.fromArray(LONG_SPECIES, unpacked, 0).add(baseV);
+      count += v.compare(op1, thr1).and(v.compare(op2, thr2)).trueCount();
+    }
+    for (; i < end; i++) {
+      final long bitOff = (long) i * (long) bitWidth;
+      final long byteOff = valueBytesOffset + (bitOff >>> 3);
+      final int shift = (int) (bitOff & 7L);
+      final long word = readWordSafe(payload, payloadSize, byteOff);
+      final long v = valueBase + ((word >>> shift) & mask);
+      if (eval(v, op1, threshold1) && eval(v, op2, threshold2)) {
+        count++;
+      }
+    }
+    return count;
+  }
+
   // ─────────────────────────────────────────────────────── aggregate kernels
 
   /**

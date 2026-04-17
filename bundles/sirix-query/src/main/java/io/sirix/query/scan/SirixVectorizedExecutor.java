@@ -221,6 +221,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   @Override
+  public Sequence executeFilterCount2(QueryContext ctx,
+      String field1, String op1, long value1,
+      String field2, String op2, long value2) throws QueryException {
+    try {
+      // Same-field range fusion: two predicates on the same numeric field with
+      // complementary comparators collapse to a single SIMD pass over the
+      // NumberRegion with a range mask. For different fields, fall back to null
+      // so Brackit runs the generic pipeline.
+      if (field1.equals(field2)) {
+        long count = parallelFilterCountRange(field1, op1, value1, op2, value2);
+        return new Int64(count);
+      }
+      return null;
+    } catch (Exception e) {
+      throw new QueryException(e,
+                               ErrorCode.BIT_DYN_INT_ERROR,
+                               "Sirix vectorized 2-predicate filter-count failed: %s",
+                               e.getMessage());
+    }
+  }
+
+  @Override
   public Sequence executeFilterCount(QueryContext ctx, String filterField, String filterOp, long filterValue)
       throws QueryException {
     try {
@@ -532,6 +554,94 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
     }
     return new long[] { count, sum, min, max };
+  }
+
+  /**
+   * Parallel filter-count with two AND-conjoined predicates on the same field.
+   * Uses {@link NumberRegionSimd#countMatchingRange} to apply both predicates in
+   * a single SIMD pass per tag range, eliminating the Brackit post-filter that a
+   * serial two-step filter would pay (scan with predicate 1, then iterate matches
+   * applying predicate 2).
+   *
+   * <p>Typical use: {@code count(... where age > 30 and age < 50 ...)} — two
+   * comparators on the same field, yielding a range filter.
+   */
+  private long parallelFilterCountRange(String field, String op1str, long val1, String op2str, long val2)
+      throws Exception {
+    final int fieldKey = resolveFieldKey(field);
+    if (fieldKey < 0) return 0;
+    final int op1 = encodeOp(op1str);
+    final int op2 = encodeOp(op2str);
+    final VectorOperators.Comparison vop1 = vectorOp(op1);
+    final VectorOperators.Comparison vop2 = vectorOp(op2);
+    if (vop1 == null || vop2 == null) return 0; // unsupported op → caller falls back
+
+    long maxNodeKey = getMaxNodeKey();
+    long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+    int eff = (int) Math.min(threads, Math.max(1, totalPages));
+    long ppt = (totalPages + eff - 1) / eff;
+    long[] perThread = new long[eff];
+
+    parallel(eff, i -> {
+      long[] acc = perThread;
+      final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
+      long s = (long) i * ppt;
+      long e = Math.min(s + ppt, totalPages);
+      JsonNodeReadOnlyTrx rtx = workerTrx();
+      var reader = rtx.getStorageEngineReader();
+      long localCount = 0;
+      for (long pk = s; pk < e; pk++) {
+        var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        if (!PAX_FAST_PATH_ENABLED) continue;
+        final NumberRegion.Header hdr = kv.getNumberRegionHeader();
+        if (hdr == null) continue;
+        final int tag = NumberRegion.lookupTag(hdr, fieldKey);
+        if (tag < 0) continue;
+        final int start = hdr.tagStart[tag];
+        final int tagN = hdr.tagCount[tag];
+        if (tagN == 0) continue;
+        final long tagMin = hdr.tagMinOrGlobal(tag);
+        final long tagMax = hdr.tagMaxOrGlobal(tag);
+        // Zone-map: both predicates must admit at least one value.
+        final int o1 = zoneMapOutcome(op1, val1, tagMin, tagMax);
+        final int o2 = zoneMapOutcome(op2, val2, tagMin, tagMax);
+        if (o1 == ZONE_NONE || o2 == ZONE_NONE) continue;
+        if (o1 == ZONE_ALL && o2 == ZONE_ALL) {
+          localCount += tagN;
+          continue;
+        }
+        final MemorySegment payloadSeg = kv.getNumberRegionPayloadSegment();
+        final long matched = NumberRegionSimd.countMatchingRange(
+            payloadSeg, hdr, start, start + tagN, vop1, val1, vop2, val2);
+        if (matched >= 0) {
+          localCount += matched;
+        } else {
+          // SIMD fallback — scalar.
+          final byte[] payload = kv.getNumberRegionPayload();
+          for (int idx = start; idx < start + tagN; idx++) {
+            final long v = NumberRegion.decodeValueAt(payload, hdr, idx);
+            if (scalarEval(v, op1, val1) && scalarEval(v, op2, val2)) localCount++;
+          }
+        }
+      }
+      acc[i] = localCount;
+    });
+
+    long total = 0;
+    for (long c : perThread) total += c;
+    return total;
+  }
+
+  private static boolean scalarEval(final long v, final int op, final long t) {
+    return switch (op) {
+      case OP_GT -> v > t;
+      case OP_LT -> v < t;
+      case OP_GE -> v >= t;
+      case OP_LE -> v <= t;
+      case OP_EQ -> v == t;
+      default -> true;
+    };
   }
 
   /**
