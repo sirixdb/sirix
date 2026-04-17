@@ -156,6 +156,13 @@ graalvmNative {
             buildArgs.add('--add-modules=jdk.incubator.vector')
             buildArgs.add('-H:+ForeignAPISupport')
             buildArgs.add('-H:+UnlockExperimentalVMOptions')
+            // NB: MMStorage currently uses Arena.ofShared which the native-image
+            // runtime rejects without -H:+SharedArenaSupport, but that flag is
+            // internally incompatible with jdk.incubator.vector in GraalVM 25 —
+            // combining them triggers GraalError in
+            // SubstrateOptimizeSharedArenaAccessPhase.cleanupClusterNodes. To
+            // produce a runnable native sirix-bench, MMStorage has to switch to
+            // Arena.global() or Arena.ofConfined() (see NATIVE_IMAGE.md).
             buildArgs.add('--no-fallback')
             // Module exports for JNA/JNR/JNI
             buildArgs.add('--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED')
@@ -209,9 +216,13 @@ graalvmNative {
 
             // Enable verbose output for debugging
             verbose = true
-            quickBuild = false
-            // Allocate more memory to the native-image compiler (use 80% of available RAM)
-            jvmArgs.add('-XX:MaxRAMPercentage=80')
+            // quickBuild bypasses the full -O3 graph optimization stack and
+            // builds in ~1-2 min vs ~15 min for a full build. Opt out via
+            // -Pquick-build=false when you want the final PGO-tuned image.
+            quickBuild = !"false".equalsIgnoreCase((String) project.findProperty('quick-build'))
+            // Allocate more memory to the native-image compiler. 65% so a fresh
+            // Gradle daemon + a live Sirix JVM can coexist on a 31 GB host.
+            jvmArgs.add('-XX:MaxRAMPercentage=65')
         }
     }
     toolchainDetection = false
