@@ -105,3 +105,22 @@ native-image doesn't support async-profiler's JVMTI path, so this needs `perf`):
 **Pragmatic workaround**: use JVM for ingest, native for queries. Both can share
 the on-disk format. The JVM-shredded DB queried in native-image hits the same
 sub-50μs warm numbers and 0.22 ms cold iter-1 as a native-shredded DB.
+
+`perf stat` on a 200 K-record native ingest (branch `perf/umbra-ballpark-iter-2`):
+
+```
+  task-clock              14141 ms
+  CPUs utilized           1.72  (of 20 available)
+  IPC (cpu_core)          3.74
+  cache-miss rate         28.58%
+  branch-miss rate        0.07%
+  wall                    8.23 s  → 25 K rec/s
+```
+
+IPC 3.74 is already excellent — the hot path is NOT compute-bound. The kill is
+`CPUs utilized = 1.72` — the Gson `JsonReader` parse loop is effectively
+single-threaded, and native-image's per-thread throughput on that tokenizer
+is roughly 10× below what HotSpot tiered compilation achieves on the same
+code. Two orthogonal levers for future work: (1) a faster JSON parser that's
+AOT-friendly (fastjson2, a hand-rolled record-shape-specific parser, simdjson);
+(2) parallel shred partitioning so the 20 cores actually get used.
