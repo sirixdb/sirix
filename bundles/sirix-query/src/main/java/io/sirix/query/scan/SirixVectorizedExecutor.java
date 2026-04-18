@@ -332,6 +332,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
+   * Numeric filter AND "boolField is true". Walker now surfaces the boolean
+   * conjunct as a separate annotation so we can honour it here rather than
+   * silently drop it.
+   */
+  @Override
+  public Sequence executeFilterCountAndBool(QueryContext ctx, String filterField, String filterOp, long filterValue,
+      String boolField) throws QueryException {
+    try {
+      final String key = filterField + '|' + filterOp + '|' + filterValue + "|&" + boolField;
+      Long cached = filterCountCache.get(key);
+      if (cached == null) {
+        final long fresh = parallelFilterCountAndBool(filterField, filterOp, filterValue, boolField);
+        cached = filterCountCache.putIfAbsent(key, fresh);
+        if (cached == null) cached = fresh;
+      }
+      return new Int64(cached);
+    } catch (Exception e) {
+      throw new QueryException(e,
+                               ErrorCode.BIT_DYN_INT_ERROR,
+                               "Sirix vectorized filter-count failed: %s",
+                               e.getMessage());
+    }
+  }
+
+  /**
    * Correct filter-then-group-by-count. Brackit's default implementation of this
    * method silently drops the filter and calls {@link #executeGroupByCount},
    * which returns an unfiltered result — a correctness bug for any
@@ -899,6 +924,130 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       merged.print("filterCount(" + filterField + " " + filterOp + " " + threshold + ")");
     }
 
+    return total;
+  }
+
+  /**
+   * Numeric-predicate filter fused with a boolean-field "is true" conjunct.
+   * Handles the common {@code where $u.F OP V AND $u.B} shape the walker
+   * surfaces via {@link io.brackit.query.compiler.optimizer.VectorizedScanAnnotation#FILTER_BOOL_FIELD}.
+   *
+   * <p><b>HFT-grade hot path.</b> Same shape as {@link #parallelFilterCount}
+   * for the numeric side: NumberRegion zone-map shortcut + direct-slot
+   * {@code getNumberValueLongFromSlot} read. On pass, the boolean is read
+   * by navigating to the record's boolField OBJECT_KEY via bitmap + direct
+   * slot node-kind check ({@code OBJECT_BOOLEAN_TRUE_VALUE_KIND_ID}); we
+   * only fall back to rtx when the OBJECT_KEY or its first child is on a
+   * different page. Per-worker scratch is one IndexLogKey.
+   */
+  private long parallelFilterCountAndBool(final String filterField, final String filterOp, final long threshold,
+      final String boolField) throws Exception {
+    final int fieldKey = resolveFieldKey(filterField);
+    final int boolKey = resolveFieldKey(boolField);
+    // resolveFieldKey uses -1 as the "not found" sentinel; the nameKey hash
+    // itself can be any int — for e.g. "active" the hash is negative. Earlier
+    // code checked {@code < 0} which silently returned zero for any field
+    // whose hash happened to land in the negative half of int space.
+    if (fieldKey == -1 || boolKey == -1) return 0;
+
+    final int op = encodeOp(filterOp);
+
+    final long maxNodeKey = getMaxNodeKey();
+    final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+    final int eff = (int) Math.min(threads, Math.max(1, totalPages));
+    final long ppt = (totalPages + eff - 1) / eff;
+    final long[] perThread = new long[eff];
+
+    parallel(eff, i -> {
+      final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
+      final long s = (long) i * ppt;
+      final long e = Math.min(s + ppt, totalPages);
+      final JsonNodeReadOnlyTrx rtx = workerTrx();
+      final var reader = rtx.getStorageEngineReader();
+      final int SLOT_MASK = Constants.NDP_NODE_COUNT - 1;
+      long localCount = 0;
+
+      for (long pk = s; pk < e; pk++) {
+        var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+
+        // NumberRegion filter value + OBJECT_KEY walk in bitmap order.
+        // Each filter OBJECT_KEY corresponds to one record; its sibling
+        // boolField OBJECT_KEY belongs to the same parent object.
+        final int[] filterMatches = kv.getObjectKeySlotsForNameKey(fieldKey);
+        if (filterMatches.length == 0) continue;
+
+        // Zone-map shortcut same as parallelFilterCount.
+        final NumberRegion.Header nhdr = kv.getNumberRegionHeader();
+        boolean zoneAll = false;
+        if (nhdr != null) {
+          final int tag = NumberRegion.lookupTag(nhdr, fieldKey);
+          if (tag >= 0) {
+            final long tagMin = nhdr.tagMinOrGlobal(tag);
+            final long tagMax = nhdr.tagMaxOrGlobal(tag);
+            final int outcome = zoneMapOutcome(op, threshold, tagMin, tagMax);
+            if (outcome == ZONE_NONE) continue;
+            zoneAll = outcome == ZONE_ALL;
+          }
+        }
+
+        for (final int filterSlot : filterMatches) {
+          // Numeric predicate unless zone-map already proved all pass.
+          if (!zoneAll) {
+            final long filterKeyNodeKey = base + filterSlot;
+            final long filterFcKey = kv.getObjectKeyFirstChildKeyFromSlot(filterSlot, filterKeyNodeKey);
+            final long filterFcPk = filterFcKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
+            long filterVal;
+            if (filterFcPk == pk) {
+              final int fcSlot = (int) (filterFcKey & SLOT_MASK);
+              filterVal = kv.getNumberValueLongFromSlot(fcSlot);
+              if (filterVal == Long.MIN_VALUE) {
+                if (!rtx.moveTo(filterFcKey)) continue;
+                final Number n = rtx.getNumberValue();
+                if (n == null) continue;
+                filterVal = n.longValue();
+              }
+            } else {
+              if (!rtx.moveTo(filterFcKey)) continue;
+              final Number n = rtx.getNumberValue();
+              if (n == null) continue;
+              filterVal = n.longValue();
+            }
+            final boolean pass = switch (op) {
+              case OP_GT -> filterVal > threshold;
+              case OP_LT -> filterVal < threshold;
+              case OP_GE -> filterVal >= threshold;
+              case OP_LE -> filterVal <= threshold;
+              case OP_EQ -> filterVal == threshold;
+              default -> true;
+            };
+            if (!pass) continue;
+          }
+
+          // Passed numeric (or zone-all) — now evaluate boolean conjunct.
+          // Navigate to parent object and find boolField's OBJECT_KEY.
+          final long filterKeyNodeKey = base + filterSlot;
+          if (!rtx.moveTo(filterKeyNodeKey)) continue;
+          if (!rtx.moveToParent()) continue;
+          if (!rtx.moveToFirstChild()) continue;
+          boolean matched = false;
+          do {
+            if (rtx.getNameKey() == boolKey) {
+              if (rtx.moveToFirstChild()) {
+                matched = rtx.getBooleanValue();
+              }
+              break;
+            }
+          } while (rtx.moveToRightSibling());
+          if (matched) localCount++;
+        }
+      }
+      perThread[i] = localCount;
+    });
+
+    long total = 0;
+    for (long c : perThread) total += c;
     return total;
   }
 
