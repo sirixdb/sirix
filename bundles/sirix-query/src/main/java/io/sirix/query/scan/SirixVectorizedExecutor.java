@@ -1106,6 +1106,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final ScanResult.GroupByResult acc = perThread[i];
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final byte[] gScratch = new byte[256];
+      // Per-tag dict-id count buffer reused across all pages. 8-bit wide is
+      // plenty for benchmark group-field dictionaries (8 depts, 8 cities, etc.);
+      // tag-dict-size bigger than this falls through to the rtx path.
+      final long[] localDictCounts = new long[256];
       final long s = (long) i * ppt;
       final long e = Math.min(s + ppt, totalPages);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
@@ -1116,14 +1120,75 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
         final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
 
-        // Walk the filter field's OBJECT_KEY slots — one per record with that field.
+        // PAX fast path: NumberRegion filter tag + StringRegion group tag are both
+        // grouped by record-order per tag. When their tag counts match we can
+        // correlate by index — record i's filter value is at (nTagStart+i) and its
+        // group dict-id is at (sTagStart+i). Per-page cost then collapses to an
+        // index-aligned decode+predicate+dict-bump loop, no cursor navigation.
+        final NumberRegion.Header nhdr = kv.getNumberRegionHeader();
+        final StringRegion.Header shdr = kv.getStringRegionHeader();
+        if (nhdr != null && shdr != null) {
+          final int nTag = NumberRegion.lookupTag(nhdr, filterKey);
+          final int sTag = StringRegion.lookupTag(shdr, groupKey);
+          if (nTag >= 0 && sTag >= 0) {
+            final int nTagN = nhdr.tagCount[nTag];
+            final int sTagN = shdr.tagCount[sTag];
+            final int sDictSize = shdr.tagStringDictSize[sTag];
+            if (nTagN == sTagN && sDictSize <= localDictCounts.length) {
+              for (int d = 0; d < sDictSize; d++) localDictCounts[d] = 0;
+
+              final byte[] numPayload = kv.getNumberRegionPayload();
+              final byte[] strPayload = kv.getStringRegionPayload();
+              final int nStart = nhdr.tagStart[nTag];
+              final int sStart = shdr.tagStart[sTag];
+
+              final long tagMin = nhdr.tagMinOrGlobal(nTag);
+              final long tagMax = nhdr.tagMaxOrGlobal(nTag);
+              final int outcome = zoneMapOutcome(op, filterValue, tagMin, tagMax);
+              if (outcome == ZONE_ALL) {
+                // Every record on this page passes — bump every dict-id at its position.
+                for (int idx = 0; idx < nTagN; idx++) {
+                  final int dictId = StringRegion.decodeDictIdAt(strPayload, shdr, sStart + idx);
+                  localDictCounts[dictId]++;
+                }
+              } else if (outcome != ZONE_NONE) {
+                // Per-record: decode filter value, evaluate predicate, bump group dict on pass.
+                for (int idx = 0; idx < nTagN; idx++) {
+                  final long v = NumberRegion.decodeValueAt(numPayload, nhdr, nStart + idx);
+                  final boolean pass = switch (op) {
+                    case OP_GT -> v > filterValue;
+                    case OP_LT -> v < filterValue;
+                    case OP_GE -> v >= filterValue;
+                    case OP_LE -> v <= filterValue;
+                    case OP_EQ -> v == filterValue;
+                    default -> true;
+                  };
+                  if (pass) {
+                    final int dictId = StringRegion.decodeDictIdAt(strPayload, shdr, sStart + idx);
+                    localDictCounts[dictId]++;
+                  }
+                }
+              }
+              // ZONE_NONE: nothing to count, localDictCounts stays zero, emit skipped.
+
+              // Emit the page's per-dict-id aggregate.
+              for (int d = 0; d < sDictSize; d++) {
+                final long c = localDictCounts[d];
+                if (c == 0) continue;
+                final int off = StringRegion.decodeStringOffset(strPayload, shdr, sTag, d);
+                final int len = StringRegion.decodeStringLength(strPayload, shdr, sTag, d);
+                acc.addN(strPayload, off, len, c);
+              }
+              continue;
+            }
+          }
+        }
+
+        // Slow fallback: walk the filter field's OBJECT_KEY slots — one per record.
         final int[] filterMatches = kv.getObjectKeySlotsForNameKey(filterKey);
         if (filterMatches.length == 0) continue;
 
-        // Zone-map pre-check via NumberRegion: skip/shortcut the whole tag range if
-        // the predicate is unsatisfiable / always-true against [min,max]. Saves
-        // all the per-record cursor work on pages where the filter can't match.
-        final NumberRegion.Header nhdr = kv.getNumberRegionHeader();
+        // Same zone-map shortcut as above but for the rtx path.
         if (nhdr != null) {
           final int tag = NumberRegion.lookupTag(nhdr, filterKey);
           if (tag >= 0) {
@@ -1131,8 +1196,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             final long tagMax = nhdr.tagMaxOrGlobal(tag);
             final int outcome = zoneMapOutcome(op, filterValue, tagMin, tagMax);
             if (outcome == ZONE_NONE) continue;
-            // ZONE_ALL: every record on this page passes the filter — still
-            // need to walk to find each record's group value. Fall through.
+            // ZONE_ALL falls through: still need per-record group lookup.
           }
         }
 
