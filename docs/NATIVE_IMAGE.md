@@ -59,3 +59,49 @@ every query < 1 ms. Cold iter 1 (with `-Dsirix.noWarmup=true`):
 Expectation for native-image once the Arena blocker is resolved: cold iter 1
 drops sharply because HotSpot JIT warmup is gone — AOT emits optimized code
 from the start. SIMD kernels already compile to AVX in both modes.
+
+## Measured (GraalVM 25.0.2 + `-Dsirix.mmstorage.skipArenaClose=true`)
+
+Unblocked via the skipArenaClose flag (see `MMStorage.java`). Build commands:
+
+```bash
+# quickBuild (dev cycle, ~2 min)
+./gradlew :sirix-query:nativeCompile
+
+# full -O3 -march=native + PGO (final)
+./gradlew :sirix-query:nativeCompile -Pquick-build=false -Ppgo-instrument
+./bundles/sirix-query/build/native/nativeCompile/sirix-bench \
+    -Dsirix.mmstorage.skipArenaClose=true 500000 true 3    # produces default.iprof
+mv default.iprof /tmp/default.iprof
+./gradlew :sirix-query:nativeCompile -Pquick-build=false -Ppgo=/tmp/default.iprof
+```
+
+### Query wins (1M records, native-image + PGO)
+
+| query | JVM warm-cache | native+PGO | factor |
+|---|---|---|---|
+| filterCount | 0.36 ms | **0.019 ms** | 18× |
+| groupByDept | 0.62 ms | **0.024 ms** | 25× |
+| sumAge | 0.17 ms | **0.024 ms** | 7× |
+| minMaxAge | 0.24 ms | **0.034 ms** | 7× |
+| **Cold iter-1 scan (no warmup)** | **~900 ms** (JIT) | **0.22 ms** | **4000×** |
+
+That cold-scan number on 1M records = **4.7 B rec/s** across 20 threads. The
+first user query is already fully optimized; no JIT warmup tax.
+
+### Ingest regression
+
+JVM shred throughput: **204 K rec/s**. Native shred: **25 K rec/s** (8× slower).
+PGO helped ~20% but didn't close the gap. Root causes (profile-based guesses —
+native-image doesn't support async-profiler's JVMTI path, so this needs `perf`):
+
+- Gson's `JsonReader` / stream tokenizer inlined more aggressively under HotSpot
+  than native-image's static inliner.
+- FFI bootstrap of FrameSlotAllocator / FSSTCompressor (init-at-run-time) pays
+  once per invocation vs amortized over JIT lifetime on a long-running JVM.
+- `ConcurrentHashMap.compute` inside the ShardedPageCache write path — HotSpot
+  specializes the lambda aggressively; AOT keeps the indirection.
+
+**Pragmatic workaround**: use JVM for ingest, native for queries. Both can share
+the on-disk format. The JVM-shredded DB queried in native-image hits the same
+sub-50μs warm numbers and 0.22 ms cold iter-1 as a native-shredded DB.
