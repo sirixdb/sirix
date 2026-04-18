@@ -1698,6 +1698,25 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return Long.MIN_VALUE; // Sentinel: caller falls back to full path
   }
 
+  /**
+   * Read the boolean payload of an OBJECT_BOOLEAN_VALUE slot directly off the
+   * slotted page without going through rtx / node materialisation. Two byte
+   * reads: the offset-table entry for the value field, then the value byte
+   * itself. Caller is responsible for verifying the slot holds an
+   * OBJECT_BOOLEAN_VALUE (e.g. via {@link #getSlotNodeKindId}); this method
+   * does not double-check to keep the hot path branchless.
+   */
+  public boolean getObjectBooleanValueFromSlot(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    // Offset table lives at recordBase+1..recordBase+FIELD_COUNT, one byte per field.
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJBOOLVAL_VALUE) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_BOOLEAN_VALUE_FIELD_COUNT;
+    return sp.get(ValueLayout.JAVA_BYTE, dataStart + fieldOff) != 0;
+  }
+
   /** Node kind id for OBJECT_NUMBER_VALUE. */
   public static int objectNumberValueKindId() {
     return OBJECT_NUMBER_VALUE_KIND_ID;

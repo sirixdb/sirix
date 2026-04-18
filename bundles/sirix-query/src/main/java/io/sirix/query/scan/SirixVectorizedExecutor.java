@@ -1033,11 +1033,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           // Numeric predicate passed — evaluate boolean conjunct.
           boolean boolVal;
           if (aligned) {
-            // Direct by-index lookup — one moveTo, no sibling walk.
+            // Direct by-index + direct-slot lookup — no rtx navigation.
+            // getObjectBooleanValueFromSlot reads the value byte straight off
+            // the slotted page (two memory loads). Falls back to rtx only
+            // when the boolean value lives on a different page (rare for
+            // flat-JSON datasets where key+value are adjacent slots).
             final int boolSlot = boolMatches[m];
             final long boolFcKey = kv.getObjectKeyFirstChildKeyFromSlot(boolSlot, base + boolSlot);
-            if (!rtx.moveTo(boolFcKey)) continue;
-            boolVal = rtx.getBooleanValue();
+            final long boolFcPk = boolFcKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
+            if (boolFcPk == pk) {
+              final int fcSlot = (int) (boolFcKey & SLOT_MASK);
+              boolVal = kv.getObjectBooleanValueFromSlot(fcSlot);
+            } else {
+              if (!rtx.moveTo(boolFcKey)) continue;
+              boolVal = rtx.getBooleanValue();
+            }
           } else {
             // Fallback: walk parent object's children for boolField.
             final long filterKeyNodeKey = base + filterSlot;
