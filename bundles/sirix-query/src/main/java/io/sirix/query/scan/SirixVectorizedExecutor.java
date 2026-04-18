@@ -972,11 +972,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
         final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
 
-        // NumberRegion filter value + OBJECT_KEY walk in bitmap order.
-        // Each filter OBJECT_KEY corresponds to one record; its sibling
-        // boolField OBJECT_KEY belongs to the same parent object.
         final int[] filterMatches = kv.getObjectKeySlotsForNameKey(fieldKey);
         if (filterMatches.length == 0) continue;
+        final int[] boolMatches = kv.getObjectKeySlotsForNameKey(boolKey);
 
         // Zone-map shortcut same as parallelFilterCount.
         final NumberRegion.Header nhdr = kv.getNumberRegionHeader();
@@ -992,7 +990,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
 
-        for (final int filterSlot : filterMatches) {
+        // Fast path: bitmap-order OBJECT_KEY slots for filter and bool
+        // fields correspond to the same record at the same index when every
+        // record on the page has both fields. Avoids the rtx moveToParent +
+        // moveToFirstChild + walk-siblings dance per passing record.
+        final boolean aligned = boolMatches.length == filterMatches.length;
+
+        for (int m = 0; m < filterMatches.length; m++) {
+          final int filterSlot = filterMatches[m];
           // Numeric predicate unless zone-map already proved all pass.
           if (!zoneAll) {
             final long filterKeyNodeKey = base + filterSlot;
@@ -1025,22 +1030,30 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             if (!pass) continue;
           }
 
-          // Passed numeric (or zone-all) — now evaluate boolean conjunct.
-          // Navigate to parent object and find boolField's OBJECT_KEY.
-          final long filterKeyNodeKey = base + filterSlot;
-          if (!rtx.moveTo(filterKeyNodeKey)) continue;
-          if (!rtx.moveToParent()) continue;
-          if (!rtx.moveToFirstChild()) continue;
-          boolean matched = false;
-          do {
-            if (rtx.getNameKey() == boolKey) {
-              if (rtx.moveToFirstChild()) {
-                matched = rtx.getBooleanValue();
+          // Numeric predicate passed — evaluate boolean conjunct.
+          boolean boolVal;
+          if (aligned) {
+            // Direct by-index lookup — one moveTo, no sibling walk.
+            final int boolSlot = boolMatches[m];
+            final long boolFcKey = kv.getObjectKeyFirstChildKeyFromSlot(boolSlot, base + boolSlot);
+            if (!rtx.moveTo(boolFcKey)) continue;
+            boolVal = rtx.getBooleanValue();
+          } else {
+            // Fallback: walk parent object's children for boolField.
+            final long filterKeyNodeKey = base + filterSlot;
+            if (!rtx.moveTo(filterKeyNodeKey)) continue;
+            if (!rtx.moveToParent()) continue;
+            if (!rtx.moveToFirstChild()) continue;
+            boolean matched = false;
+            do {
+              if (rtx.getNameKey() == boolKey) {
+                if (rtx.moveToFirstChild()) matched = rtx.getBooleanValue();
+                break;
               }
-              break;
-            }
-          } while (rtx.moveToRightSibling());
-          if (matched) localCount++;
+            } while (rtx.moveToRightSibling());
+            boolVal = matched;
+          }
+          if (boolVal) localCount++;
         }
       }
       perThread[i] = localCount;
