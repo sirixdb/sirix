@@ -311,6 +311,32 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
+  /**
+   * Same-field range AND boolean-field conjunct — shape
+   * {@code count(where $u.F OP1 V1 and $u.F OP2 V2 and $u.B)}. Reuses
+   * parallelFilterCountAndBool for the boolean part; here we make both
+   * numeric predicates AND-conjoin inside the scan.
+   */
+  @Override
+  public Sequence executeFilterCount2AndBool(QueryContext ctx, String field, String op1, long value1, String op2,
+      long value2, String boolField) throws QueryException {
+    try {
+      final String key = field + '|' + op1 + '|' + value1 + '|' + op2 + '|' + value2 + "|&" + boolField;
+      Long cached = filterCountCache.get(key);
+      if (cached == null) {
+        final long fresh = parallelFilterCountRangeAndBool(field, op1, value1, op2, value2, boolField);
+        cached = filterCountCache.putIfAbsent(key, fresh);
+        if (cached == null) cached = fresh;
+      }
+      return new Int64(cached);
+    } catch (Exception e) {
+      throw new QueryException(e,
+                               ErrorCode.BIT_DYN_INT_ERROR,
+                               "Sirix vectorized 2-pred filter-count with bool failed: %s",
+                               e.getMessage());
+    }
+  }
+
   @Override
   public Sequence executeFilterCount(QueryContext ctx, String filterField, String filterOp, long filterValue)
       throws QueryException {
@@ -1051,6 +1077,107 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           } else {
             // Fallback: walk parent object's children for boolField.
             final long filterKeyNodeKey = base + filterSlot;
+            if (!rtx.moveTo(filterKeyNodeKey)) continue;
+            if (!rtx.moveToParent()) continue;
+            if (!rtx.moveToFirstChild()) continue;
+            boolean matched = false;
+            do {
+              if (rtx.getNameKey() == boolKey) {
+                if (rtx.moveToFirstChild()) matched = rtx.getBooleanValue();
+                break;
+              }
+            } while (rtx.moveToRightSibling());
+            boolVal = matched;
+          }
+          if (boolVal) localCount++;
+        }
+      }
+      perThread[i] = localCount;
+    });
+
+    long total = 0;
+    for (long c : perThread) total += c;
+    return total;
+  }
+
+  /**
+   * Same-field two-predicate numeric range AND a boolean-field "is true"
+   * conjunct. Mirrors {@link #parallelFilterCountAndBool} but applies both
+   * op1/value1 and op2/value2 scalar tests before the boolean navigation
+   * (boolean read uses the direct-slot accessor; rtx fallback for cross-page).
+   */
+  private long parallelFilterCountRangeAndBool(final String field, final String op1str, final long v1,
+      final String op2str, final long v2, final String boolField) throws Exception {
+    final int fieldKey = resolveFieldKey(field);
+    final int boolKey = resolveFieldKey(boolField);
+    if (fieldKey == -1 || boolKey == -1) return 0;
+
+    final int op1 = encodeOp(op1str);
+    final int op2 = encodeOp(op2str);
+
+    final long maxNodeKey = getMaxNodeKey();
+    final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+    final int eff = (int) Math.min(threads, Math.max(1, totalPages));
+    final long ppt = (totalPages + eff - 1) / eff;
+    final long[] perThread = new long[eff];
+
+    parallel(eff, i -> {
+      final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
+      final long s = (long) i * ppt;
+      final long e = Math.min(s + ppt, totalPages);
+      final JsonNodeReadOnlyTrx rtx = workerTrx();
+      final var reader = rtx.getStorageEngineReader();
+      final int SLOT_MASK = Constants.NDP_NODE_COUNT - 1;
+      long localCount = 0;
+
+      for (long pk = s; pk < e; pk++) {
+        var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+
+        final int[] filterMatches = kv.getObjectKeySlotsForNameKey(fieldKey);
+        if (filterMatches.length == 0) continue;
+        final int[] boolMatches = kv.getObjectKeySlotsForNameKey(boolKey);
+        final boolean aligned = boolMatches.length == filterMatches.length;
+
+        for (int m = 0; m < filterMatches.length; m++) {
+          final int filterSlot = filterMatches[m];
+          // Two-predicate numeric check.
+          final long filterKeyNodeKey = base + filterSlot;
+          final long filterFcKey = kv.getObjectKeyFirstChildKeyFromSlot(filterSlot, filterKeyNodeKey);
+          final long filterFcPk = filterFcKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
+          long v;
+          if (filterFcPk == pk) {
+            final int fcSlot = (int) (filterFcKey & SLOT_MASK);
+            v = kv.getNumberValueLongFromSlot(fcSlot);
+            if (v == Long.MIN_VALUE) {
+              if (!rtx.moveTo(filterFcKey)) continue;
+              final Number n = rtx.getNumberValue();
+              if (n == null) continue;
+              v = n.longValue();
+            }
+          } else {
+            if (!rtx.moveTo(filterFcKey)) continue;
+            final Number n = rtx.getNumberValue();
+            if (n == null) continue;
+            v = n.longValue();
+          }
+          if (!scalarEval(v, op1, v1) || !scalarEval(v, op2, v2)) continue;
+
+          // Boolean conjunct — direct-slot read on same-page, rtx fallback otherwise.
+          boolean boolVal;
+          if (aligned) {
+            final int boolSlot = boolMatches[m];
+            final long boolFcKey = kv.getObjectKeyFirstChildKeyFromSlot(boolSlot, base + boolSlot);
+            final long boolFcPk = boolFcKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
+            if (boolFcPk == pk) {
+              final int fcSlot = (int) (boolFcKey & SLOT_MASK);
+              boolVal = kv.getObjectBooleanValueFromSlot(fcSlot);
+            } else {
+              if (!rtx.moveTo(boolFcKey)) continue;
+              boolVal = rtx.getBooleanValue();
+            }
+          } else {
             if (!rtx.moveTo(filterKeyNodeKey)) continue;
             if (!rtx.moveToParent()) continue;
             if (!rtx.moveToFirstChild()) continue;
