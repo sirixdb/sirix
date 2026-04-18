@@ -59,6 +59,10 @@ public final class BrackitQueryOnSirixScaleMain {
     QUERIES.put("filterGroupBy",          "for $u in $doc[] where $u.active let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
     QUERIES.put("countDistinct",          "count(for $u in $doc[] let $d := $u.dept group by $d return $d)");
     QUERIES.put("compoundAndFilterCount", "count(for $u in $doc[] where $u.age > 30 and $u.age < 50 and $u.active return $u)");
+    // Numeric-predicate variant that Brackit routes to executeFilteredGroupByCount.
+    // The default impl silently drops the filter; our override implements a real
+    // filter-then-group scan. Kept here as a ground-truth correctness check.
+    QUERIES.put("filterGroupByAge",       "for $u in $doc[] where $u.age > 40 let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
   }
 
   public static void main(String[] args) throws Exception {

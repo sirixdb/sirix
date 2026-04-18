@@ -201,6 +201,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private final ConcurrentHashMap<String, Sequence> groupByCountCache = new ConcurrentHashMap<>();
 
+  /**
+   * Per-(group, filter) cache of filtered-group-by-count. Same validity
+   * argument as the other caches — executor is bound to one (session,
+   * revision). Key is {@code groupField|filterField|filterOp|filterValue}.
+   */
+  private final ConcurrentHashMap<String, Sequence> filteredGroupByCountCache = new ConcurrentHashMap<>();
+
   public SirixVectorizedExecutor(JsonResourceSession session, int revision) {
     this(session, revision, defaultThreadCount());
   }
@@ -320,6 +327,35 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       throw new QueryException(e,
                                ErrorCode.BIT_DYN_INT_ERROR,
                                "Sirix vectorized filter-count failed: %s",
+                               e.getMessage());
+    }
+  }
+
+  /**
+   * Correct filter-then-group-by-count. Brackit's default implementation of this
+   * method silently drops the filter and calls {@link #executeGroupByCount},
+   * which returns an unfiltered result — a correctness bug for any
+   * {@code where $x.num <op> N let $g := $x.f group by $g} shape that the
+   * optimizer routes through Mode-2. This override runs a real per-record
+   * filter before group aggregation and caches the Sequence for repeats.
+   */
+  @Override
+  public Sequence executeFilteredGroupByCount(QueryContext ctx, String groupField,
+      String filterField, String filterOp, long filterValue) throws QueryException {
+    try {
+      final String key = groupField + '|' + filterField + '|' + filterOp + '|' + filterValue;
+      Sequence cached = filteredGroupByCountCache.get(key);
+      if (cached == null) {
+        final Sequence fresh = parallelFilteredGroupByCount(
+            groupField, filterField, filterOp, filterValue);
+        cached = filteredGroupByCountCache.putIfAbsent(key, fresh);
+        if (cached == null) cached = fresh;
+      }
+      return cached;
+    } catch (Exception e) {
+      throw new QueryException(e,
+                               ErrorCode.BIT_DYN_INT_ERROR,
+                               "Sirix vectorized filtered group-by-count failed: %s",
                                e.getMessage());
     }
   }
@@ -1014,6 +1050,161 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     merged.forEach((key, count) -> {
       QNm[] fields = { groupFieldQNm, countQNm };
       Sequence[] values = { new Str(new String(key, StandardCharsets.UTF_8)), new Int64(count) };
+      items.add(new ArrayObject(fields, values));
+    });
+    return new DArray(items);
+  }
+
+  /**
+   * Correct filter-then-group-by for a numeric predicate on {@code filterField}
+   * and a string group-key {@code groupField}.
+   *
+   * <p><b>HFT-grade hot path.</b>
+   * <ul>
+   *   <li>Per-worker scratch buffers are allocated <i>once</i> outside the
+   *       page loop and reused across every page: one
+   *       {@link io.sirix.cache.IndexLogKey}, one {@code byte[256]} for the
+   *       group-value direct-slot read, and the per-thread
+   *       {@link ScanResult.GroupByResult} accumulator.</li>
+   *   <li>Filter value is read directly off the slotted page via
+   *       {@link KeyValueLeafPage#getNumberValueLongFromSlot}; we fall back
+   *       to {@link JsonNodeReadOnlyTrx#moveTo}/{@code getNumberValue} only
+   *       for cross-page first-children or values stored as float/double
+   *       (signalled by {@code Long.MIN_VALUE} sentinel).</li>
+   *   <li>Group value is read via
+   *       {@link KeyValueLeafPage#readObjectStringValueBytesFromSlot} into
+   *       the per-worker scratch, then {@link ScanResult.GroupByResult#add}
+   *       copies on insert (the one unavoidable alloc per <i>new</i>
+   *       dictionary key); no cursor walk when the record's entire object
+   *       is on-page — which is the common flat-JSON case.</li>
+   *   <li>Fan-out is capped at {@code MIN_PAGES_PER_THREAD=2500} so small
+   *       scans don't pay the fixed executor submit+Future.get overhead
+   *       (same rationale as {@link #parallelGroupByCount}).</li>
+   * </ul>
+   */
+  private Sequence parallelFilteredGroupByCount(
+      final String groupField, final String filterField,
+      final String filterOp, final long filterValue) throws Exception {
+    final int groupKey = resolveFieldKey(groupField);
+    final int filterKey = resolveFieldKey(filterField);
+    if (groupKey < 0 || filterKey < 0) return new DArray(List.of());
+
+    final int op = encodeOp(filterOp);
+
+    final long maxNodeKey = getMaxNodeKey();
+    final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+    final int MIN_PAGES_PER_THREAD = 2500;
+    final long maxEffByWork = Math.max(1L,
+        (totalPages + MIN_PAGES_PER_THREAD - 1) / MIN_PAGES_PER_THREAD);
+    final int eff = (int) Math.min(Math.min(threads, Math.max(1, totalPages)), maxEffByWork);
+    final long ppt = (totalPages + eff - 1) / eff;
+
+    final ScanResult.GroupByResult[] perThread = new ScanResult.GroupByResult[eff];
+    for (int i = 0; i < eff; i++) perThread[i] = new ScanResult.GroupByResult();
+
+    parallel(eff, i -> {
+      final ScanResult.GroupByResult acc = perThread[i];
+      final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
+      final byte[] gScratch = new byte[256];
+      final long s = (long) i * ppt;
+      final long e = Math.min(s + ppt, totalPages);
+      final JsonNodeReadOnlyTrx rtx = workerTrx();
+      final var reader = rtx.getStorageEngineReader();
+      final int SLOT_MASK = Constants.NDP_NODE_COUNT - 1;
+      for (long pk = s; pk < e; pk++) {
+        var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+
+        // Walk the filter field's OBJECT_KEY slots — one per record with that field.
+        final int[] filterMatches = kv.getObjectKeySlotsForNameKey(filterKey);
+        if (filterMatches.length == 0) continue;
+
+        // Zone-map pre-check via NumberRegion: skip/shortcut the whole tag range if
+        // the predicate is unsatisfiable / always-true against [min,max]. Saves
+        // all the per-record cursor work on pages where the filter can't match.
+        final NumberRegion.Header nhdr = kv.getNumberRegionHeader();
+        if (nhdr != null) {
+          final int tag = NumberRegion.lookupTag(nhdr, filterKey);
+          if (tag >= 0) {
+            final long tagMin = nhdr.tagMinOrGlobal(tag);
+            final long tagMax = nhdr.tagMaxOrGlobal(tag);
+            final int outcome = zoneMapOutcome(op, filterValue, tagMin, tagMax);
+            if (outcome == ZONE_NONE) continue;
+            // ZONE_ALL: every record on this page passes the filter — still
+            // need to walk to find each record's group value. Fall through.
+          }
+        }
+
+        for (final int filterSlot : filterMatches) {
+          final long filterKeyNodeKey = base + filterSlot;
+          final long filterFcKey = kv.getObjectKeyFirstChildKeyFromSlot(filterSlot, filterKeyNodeKey);
+          final long filterFcPk = filterFcKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
+          long filterVal;
+          if (filterFcPk == pk) {
+            final int fcSlot = (int) (filterFcKey & SLOT_MASK);
+            filterVal = kv.getNumberValueLongFromSlot(fcSlot);
+            if (filterVal == Long.MIN_VALUE) {
+              // Non-long value (double/BigDecimal) — fall back to rtx once.
+              if (!rtx.moveTo(filterFcKey)) continue;
+              final Number n = rtx.getNumberValue();
+              if (n == null) continue;
+              filterVal = n.longValue();
+            }
+          } else {
+            if (!rtx.moveTo(filterFcKey)) continue;
+            final Number n = rtx.getNumberValue();
+            if (n == null) continue;
+            filterVal = n.longValue();
+          }
+
+          final boolean pass = switch (op) {
+            case OP_GT -> filterVal > filterValue;
+            case OP_LT -> filterVal < filterValue;
+            case OP_GE -> filterVal >= filterValue;
+            case OP_LE -> filterVal <= filterValue;
+            case OP_EQ -> filterVal == filterValue;
+            default -> true;
+          };
+          if (!pass) continue;
+
+          // Passed predicate — navigate to this record's group-field OBJECT_KEY.
+          if (!rtx.moveTo(filterKeyNodeKey)) continue;
+          if (!rtx.moveToParent()) continue;
+          if (!rtx.moveToFirstChild()) continue;
+          do {
+            if (rtx.getNameKey() == groupKey) {
+              if (rtx.moveToFirstChild()) {
+                final long gNodeKey = rtx.getNodeKey();
+                final long gPk = gNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
+                if (gPk == pk) {
+                  // Same-page group value — direct-slot read into scratch, no alloc
+                  // except the one on new-key insertion inside GroupByResult.add.
+                  final int gSlot = (int) (gNodeKey & SLOT_MASK);
+                  final int n = kv.readObjectStringValueBytesFromSlot(gSlot, gScratch);
+                  if (n > 0) acc.add(gScratch, 0, n);
+                } else {
+                  // Cross-page group value — rtx fallback; getValueBytes allocates.
+                  final byte[] gv = rtx.getValueBytes();
+                  if (gv != null && gv.length > 0) acc.add(gv);
+                }
+              }
+              break;
+            }
+          } while (rtx.moveToRightSibling());
+        }
+      }
+    });
+
+    ScanResult.GroupByResult merged = perThread[0];
+    for (int i = 1; i < eff; i++) merged.merge(perThread[i]);
+
+    final List<Item> items = new ArrayList<>(merged.size());
+    final QNm groupFieldQNm = new QNm(groupField);
+    final QNm countQNm = new QNm("count");
+    merged.forEach((k, count) -> {
+      final QNm[] fields = { groupFieldQNm, countQNm };
+      final Sequence[] values = { new Str(new String(k, StandardCharsets.UTF_8)), new Int64(count) };
       items.add(new ArrayObject(fields, values));
     });
     return new DArray(items);
