@@ -288,134 +288,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     }
   }
 
-  @Override
-  public Sequence executeFilterCount2(QueryContext ctx,
-      String field1, String op1, long value1,
-      String field2, String op2, long value2) throws QueryException {
-    try {
-      // Same-field range fusion: two predicates on the same numeric field with
-      // complementary comparators collapse to a single SIMD pass over the
-      // NumberRegion with a range mask. For different fields, fall back to null
-      // so Brackit runs the generic pipeline.
-      if (field1.equals(field2)) {
-        final String key = field1 + '|' + op1 + '|' + value1 + '|' + op2 + '|' + value2;
-        Long cached = filterCountCache.get(key);
-        if (cached == null) {
-          final long fresh = parallelFilterCountRange(field1, op1, value1, op2, value2);
-          cached = filterCountCache.putIfAbsent(key, fresh);
-          if (cached == null) cached = fresh;
-        }
-        return new Int64(cached);
-      }
-      return null;
-    } catch (Exception e) {
-      throw new QueryException(e,
-                               ErrorCode.BIT_DYN_INT_ERROR,
-                               "Sirix vectorized 2-predicate filter-count failed: %s",
-                               e.getMessage());
-    }
-  }
-
-  /**
-   * Same-field range AND boolean-field conjunct — shape
-   * {@code count(where $u.F OP1 V1 and $u.F OP2 V2 and $u.B)}. Reuses
-   * parallelFilterCountAndBool for the boolean part; here we make both
-   * numeric predicates AND-conjoin inside the scan.
-   */
-  @Override
-  public Sequence executeFilterCount2AndBool(QueryContext ctx, String field, String op1, long value1, String op2,
-      long value2, String boolField) throws QueryException {
-    try {
-      final String key = field + '|' + op1 + '|' + value1 + '|' + op2 + '|' + value2 + "|&" + boolField;
-      Long cached = filterCountCache.get(key);
-      if (cached == null) {
-        final long fresh = parallelFilterCountRangeAndBool(field, op1, value1, op2, value2, boolField);
-        cached = filterCountCache.putIfAbsent(key, fresh);
-        if (cached == null) cached = fresh;
-      }
-      return new Int64(cached);
-    } catch (Exception e) {
-      throw new QueryException(e,
-                               ErrorCode.BIT_DYN_INT_ERROR,
-                               "Sirix vectorized 2-pred filter-count with bool failed: %s",
-                               e.getMessage());
-    }
-  }
-
-  @Override
-  public Sequence executeFilterCount(QueryContext ctx, String filterField, String filterOp, long filterValue)
-      throws QueryException {
-    try {
-      final String key = filterField + '|' + filterOp + '|' + filterValue;
-      Long cached = filterCountCache.get(key);
-      if (cached == null) {
-        final long fresh = parallelFilterCount(filterField, filterOp, filterValue);
-        cached = filterCountCache.putIfAbsent(key, fresh);
-        if (cached == null) cached = fresh;
-      }
-      return new Int64(cached);
-    } catch (Exception e) {
-      throw new QueryException(e,
-                               ErrorCode.BIT_DYN_INT_ERROR,
-                               "Sirix vectorized filter-count failed: %s",
-                               e.getMessage());
-    }
-  }
-
-  /**
-   * Numeric filter AND "boolField is true". Walker now surfaces the boolean
-   * conjunct as a separate annotation so we can honour it here rather than
-   * silently drop it.
-   */
-  @Override
-  public Sequence executeFilterCountAndBool(QueryContext ctx, String filterField, String filterOp, long filterValue,
-      String boolField) throws QueryException {
-    try {
-      final String key = filterField + '|' + filterOp + '|' + filterValue + "|&" + boolField;
-      Long cached = filterCountCache.get(key);
-      if (cached == null) {
-        final long fresh = parallelFilterCountAndBool(filterField, filterOp, filterValue, boolField);
-        cached = filterCountCache.putIfAbsent(key, fresh);
-        if (cached == null) cached = fresh;
-      }
-      return new Int64(cached);
-    } catch (Exception e) {
-      throw new QueryException(e,
-                               ErrorCode.BIT_DYN_INT_ERROR,
-                               "Sirix vectorized filter-count failed: %s",
-                               e.getMessage());
-    }
-  }
-
-  /**
-   * Correct filter-then-group-by-count. Brackit's default implementation of this
-   * method silently drops the filter and calls {@link #executeGroupByCount},
-   * which returns an unfiltered result — a correctness bug for any
-   * {@code where $x.num <op> N let $g := $x.f group by $g} shape that the
-   * optimizer routes through Mode-2. This override runs a real per-record
-   * filter before group aggregation and caches the Sequence for repeats.
-   */
-  @Override
-  public Sequence executeFilteredGroupByCount(QueryContext ctx, String groupField,
-      String filterField, String filterOp, long filterValue) throws QueryException {
-    try {
-      final String key = groupField + '|' + filterField + '|' + filterOp + '|' + filterValue;
-      Sequence cached = filteredGroupByCountCache.get(key);
-      if (cached == null) {
-        final Sequence fresh = parallelFilteredGroupByCount(
-            groupField, filterField, filterOp, filterValue);
-        cached = filteredGroupByCountCache.putIfAbsent(key, fresh);
-        if (cached == null) cached = fresh;
-      }
-      return cached;
-    } catch (Exception e) {
-      throw new QueryException(e,
-                               ErrorCode.BIT_DYN_INT_ERROR,
-                               "Sirix vectorized filtered group-by-count failed: %s",
-                               e.getMessage());
-    }
-  }
-
   /**
    * Generic predicate-tree count, Umbra/DuckDB/ClickHouse-style. The tree is
    * compiled once to a flat {@link CompiledPredicate} form and the hot-loop
@@ -434,7 +306,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (predicate instanceof PredicateNode.AlwaysTrue) {
         final Sequence fast = tryPathSummaryStats(null, "count");
         if (fast != null) return fast;
-        return null;  // no field to anchor on; let Brackit's generic count handle it
+        return null;
       }
       final String cacheKey = predicateCacheKey(predicate);
       Long cached = filterCountCache.get(cacheKey);
@@ -450,6 +322,146 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                "Sirix vectorized predicate-count failed: %s",
                                e.getMessage());
     }
+  }
+
+  /**
+   * Generic predicate-tree group-by-count. Applies {@code predicate} to every
+   * record; for those that pass, reads the {@code groupField} string value and
+   * increments the count for that group. Returns a {@link Sequence} of
+   * {@code {"groupField": value, "count": n}} objects — same shape as
+   * {@link #executeGroupByCount}.
+   */
+  @Override
+  public Sequence executePredicateGroupByCount(QueryContext ctx, PredicateNode predicate, String groupField)
+      throws QueryException {
+    if (predicate == null || groupField == null) return null;
+    try {
+      if (predicate instanceof PredicateNode.AlwaysFalse) {
+        return new DArray(new ArrayList<>());
+      }
+      final String cacheKey = "gb:" + groupField + "#" + predicateCacheKey(predicate);
+      Sequence cached = filteredGroupByCountCache.get(cacheKey);
+      if (cached != null) return cached;
+      final Sequence fresh = parallelGenericPredicateGroupByCount(predicate, groupField);
+      cached = filteredGroupByCountCache.putIfAbsent(cacheKey, fresh);
+      return cached == null ? fresh : cached;
+    } catch (Exception e) {
+      throw new QueryException(e,
+                               ErrorCode.BIT_DYN_INT_ERROR,
+                               "Sirix vectorized predicate-group-by-count failed: %s",
+                               e.getMessage());
+    }
+  }
+
+  /**
+   * Walk every leaf page in parallel; per-record evaluate the compiled
+   * predicate; on match, bump the per-group counter. The group field is
+   * compiled into the same {@link CompiledPredicate} via an extra field slot
+   * so the per-record load pass covers both predicate fields and the group
+   * field in one sweep.
+   */
+  private Sequence parallelGenericPredicateGroupByCount(final PredicateNode predicate, final String groupField)
+      throws Exception {
+    // Augment the predicate's field set with the group field so `loadFields`
+    // picks it up in the same sweep over the record's children.
+    final CompiledPredicate cp = compileWithExtraField(predicate, groupField);
+    // The anchor is still the predicate's first field — the group field is
+    // not necessarily selective, so we don't drive from it.
+    final int anchorNameKey = cp.fieldNameKeys[0];
+    if (anchorNameKey == -1) return new DArray(new ArrayList<>());
+    final int groupFieldIdx = indexOfStr(cp.fieldNames, groupField);
+    if (groupFieldIdx < 0 || cp.fieldNameKeys[groupFieldIdx] == -1) {
+      return new DArray(new ArrayList<>());
+    }
+
+    final long maxNodeKey = getMaxNodeKey();
+    final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+    final int eff = (int) Math.min(threads, Math.max(1, totalPages));
+    final long ppt = (totalPages + eff - 1) / eff;
+    @SuppressWarnings("unchecked")
+    final Map<String, long[]>[] perThread = new Map[eff];
+
+    parallel(eff, idx -> {
+      final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
+      final long s = (long) idx * ppt;
+      final long e = Math.min(s + ppt, totalPages);
+      final JsonNodeReadOnlyTrx rtx = workerTrx();
+      final var reader = rtx.getStorageEngineReader();
+      final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
+      final HashMap<String, long[]> local = new HashMap<>();
+      for (long pk = s; pk < e; pk++) {
+        final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+        final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
+        for (final int slot : matches) {
+          final long anchorObjectKey = base + slot;
+          if (!rtx.moveTo(anchorObjectKey)) continue;
+          if (!rtx.moveToParent()) continue;
+          loadFields(rtx, cp, scratch);
+          if (!evalCompiled(cp, 0, scratch)) continue;
+          // Read the group field's value from the same scratch.
+          if (scratch.fieldKind[groupFieldIdx] != 3) continue;  // require string group
+          final String gv = scratch.strVals[groupFieldIdx];
+          if (gv == null) continue;
+          long[] counter = local.get(gv);
+          if (counter == null) {
+            counter = new long[] { 0L };
+            local.put(gv, counter);
+          }
+          counter[0]++;
+        }
+      }
+      perThread[idx] = local;
+    });
+
+    // Merge per-thread maps.
+    final HashMap<String, Long> merged = new HashMap<>();
+    for (final Map<String, long[]> m : perThread) {
+      if (m == null) continue;
+      for (final Map.Entry<String, long[]> e : m.entrySet()) {
+        merged.merge(e.getKey(), e.getValue()[0], Long::sum);
+      }
+    }
+
+    // Build Brackit output: array of {"groupField": key, "count": n}.
+    final ArrayList<Item> out = new ArrayList<>(merged.size());
+    final QNm keyQnm = new QNm(groupField);
+    final QNm cntQnm = new QNm("count");
+    for (final Map.Entry<String, Long> e : merged.entrySet()) {
+      final QNm[] keys = { keyQnm, cntQnm };
+      final Sequence[] vals = { new Str(e.getKey()), new Int64(e.getValue()) };
+      out.add(new ArrayObject(keys, vals));
+    }
+    return new DArray(out);
+  }
+
+  /**
+   * Compile a predicate tree with an extra {@code groupField} appended to its
+   * field set. This ensures {@code loadFields} also reads the group field in
+   * the same per-record sweep, so we don't need a second pass.
+   */
+  private CompiledPredicate compileWithExtraField(final PredicateNode root, final String extraField) {
+    final CompiledPredicate base = compile(root);
+    // Already present? Then just return as-is.
+    for (int i = 0; i < base.fieldNames.length; i++) {
+      if (base.fieldNames[i].equals(extraField)) return base;
+    }
+    final int n = base.fieldNames.length + 1;
+    final String[] newNames = new String[n];
+    final int[] newKeys = new int[n];
+    System.arraycopy(base.fieldNames, 0, newNames, 0, base.fieldNames.length);
+    System.arraycopy(base.fieldNameKeys, 0, newKeys, 0, base.fieldNameKeys.length);
+    newNames[n - 1] = extraField;
+    newKeys[n - 1] = resolveFieldKey(extraField);
+    base.fieldNames = newNames;
+    base.fieldNameKeys = newKeys;
+    return base;
+  }
+
+  private static int indexOfStr(final String[] arr, final String s) {
+    for (int i = 0; i < arr.length; i++) if (arr[i].equals(s)) return i;
+    return -1;
   }
 
   /**

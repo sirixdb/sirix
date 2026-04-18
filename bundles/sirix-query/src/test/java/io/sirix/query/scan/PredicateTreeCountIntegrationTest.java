@@ -3,6 +3,9 @@ package io.sirix.query.scan;
 import io.brackit.query.Query;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
+import io.brackit.query.jdm.Sequence;
+import io.brackit.query.jdm.Item;
+import io.brackit.query.jdm.Iter;
 import io.sirix.access.Databases;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
@@ -115,6 +118,54 @@ public final class PredicateTreeCountIntegrationTest {
     long actual = runFilterCount("count(for $u in jn:doc('" + DB + "','" + RES + "')[] "
         + "where $u.age gt 35 and $u.dept eq \"Eng\" return $u)");
     assertEquals(expected, actual, "NumCmp AND StrEq count mismatch");
+  }
+
+  @Test
+  void filteredGroupBy_age_gt_40_by_dept() throws Exception {
+    java.util.Map<String, Long> expected = new java.util.HashMap<>();
+    for (int i = 0; i < N; i++) {
+      if (ages[i] > 40) expected.merge(dept[i], 1L, Long::sum);
+    }
+    java.util.Map<String, Long> actual = runFilteredGroupByCount(
+        "for $u in jn:doc('" + DB + "','" + RES + "')[] where $u.age gt 40 let $d := $u.dept group by $d return { \"dept\": $d, \"count\": count($u) }",
+        "dept");
+    assertEquals(expected, actual, "filtered group-by count mismatch");
+  }
+
+  private java.util.Map<String, Long> runFilteredGroupByCount(final String query, final String keyField)
+      throws Exception {
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
+         var ctx = SirixQueryContext.createWithJsonStore(store);
+         var chain = SirixCompileChain.createWithJsonStore(store)) {
+      var coll = store.lookup(DB);
+      var resourceSession = coll.getDatabase().beginResourceSession(RES);
+      final int rev = resourceSession.getMostRecentRevisionNumber();
+      try {
+        var exec = new SirixVectorizedExecutor(resourceSession, rev);
+        SequentialPipelineStrategy.setVectorizedExecutor(exec);
+        try {
+          Sequence res = new Query(chain, query).evaluate(ctx);
+          java.util.Map<String, Long> out = new java.util.HashMap<>();
+          Iter it = res.iterate();
+          try {
+            Item item;
+            while ((item = it.next()) != null) {
+              if (item instanceof io.brackit.query.jsonitem.object.ArrayObject ao) {
+                String k = ao.get(new io.brackit.query.atomic.QNm(keyField)).toString();
+                long c = ((Int64) ao.get(new io.brackit.query.atomic.QNm("count"))).longValue();
+                out.put(k, c);
+              }
+            }
+          } finally { it.close(); }
+          return out;
+        } finally {
+          exec.close();
+          SequentialPipelineStrategy.setVectorizedExecutor(null);
+        }
+      } finally {
+        resourceSession.close();
+      }
+    }
   }
 
   @Test
