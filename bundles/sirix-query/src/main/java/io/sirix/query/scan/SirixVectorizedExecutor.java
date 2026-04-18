@@ -13,6 +13,7 @@ import io.brackit.query.atomic.Dbl;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
+import io.brackit.query.compiler.optimizer.PredicateNode;
 import io.brackit.query.compiler.optimizer.VectorizedExecutor;
 import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
@@ -25,6 +26,7 @@ import io.sirix.index.IndexType;
 import io.sirix.index.path.summary.HyperLogLogSketch;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
+import io.sirix.node.NodeKind;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.NumberRegionSimd;
@@ -37,7 +39,10 @@ import java.lang.foreign.MemorySegment;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -408,6 +413,457 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                ErrorCode.BIT_DYN_INT_ERROR,
                                "Sirix vectorized filtered group-by-count failed: %s",
                                e.getMessage());
+    }
+  }
+
+  /**
+   * Generic predicate-tree count, Umbra/DuckDB/ClickHouse-style. The tree is
+   * compiled once to a flat {@link CompiledPredicate} form and the hot-loop
+   * walks it record-by-record, evaluating leaves via primitive scratch arrays.
+   *
+   * <p>This is the single entry point for all filter-count queries; the
+   * legacy shape-specific kernels (executeFilterCount, executeFilterCount2,
+   * executeFilterCountAndBool, executeFilterCount2AndBool) are kept only for
+   * backward compatibility with executors that haven't migrated.
+   */
+  @Override
+  public Sequence executePredicateCount(QueryContext ctx, PredicateNode predicate) throws QueryException {
+    if (predicate == null) return null;
+    try {
+      if (predicate instanceof PredicateNode.AlwaysFalse) return new Int64(0L);
+      if (predicate instanceof PredicateNode.AlwaysTrue) {
+        final Sequence fast = tryPathSummaryStats(null, "count");
+        if (fast != null) return fast;
+        return null;  // no field to anchor on; let Brackit's generic count handle it
+      }
+      final String cacheKey = predicateCacheKey(predicate);
+      Long cached = filterCountCache.get(cacheKey);
+      if (cached == null) {
+        final long fresh = parallelGenericPredicateCount(predicate);
+        cached = filterCountCache.putIfAbsent(cacheKey, fresh);
+        if (cached == null) cached = fresh;
+      }
+      return new Int64(cached);
+    } catch (Exception e) {
+      throw new QueryException(e,
+                               ErrorCode.BIT_DYN_INT_ERROR,
+                               "Sirix vectorized predicate-count failed: %s",
+                               e.getMessage());
+    }
+  }
+
+  /**
+   * Structural, allocation-light cache key for a {@link PredicateNode} tree.
+   * Equal trees produce equal keys. Uses a StringBuilder so the same field
+   * names / literals don't each create a new interned string — matters for
+   * dashboards that re-issue the same predicate.
+   */
+  private static String predicateCacheKey(final PredicateNode p) {
+    final StringBuilder sb = new StringBuilder(64);
+    appendKey(sb, p);
+    return sb.toString();
+  }
+
+  private static void appendKey(final StringBuilder sb, final PredicateNode p) {
+    switch (p) {
+      case PredicateNode.NumCmp nc -> sb.append('N').append(nc.field()).append(':').append(nc.op()).append(':')
+                                        .append(nc.value()).append(';');
+      case PredicateNode.StrEq se -> sb.append('S').append(se.field()).append(':').append(se.value()).append(';');
+      case PredicateNode.BoolRef br -> sb.append('B').append(br.field()).append(';');
+      case PredicateNode.Not n -> { sb.append("!("); appendKey(sb, n.child()); sb.append(");"); }
+      case PredicateNode.And a -> {
+        sb.append("&(");
+        for (PredicateNode c : a.children()) appendKey(sb, c);
+        sb.append(");");
+      }
+      case PredicateNode.Or o -> {
+        sb.append("|(");
+        for (PredicateNode c : o.children()) appendKey(sb, c);
+        sb.append(");");
+      }
+      case PredicateNode.AlwaysTrue t -> sb.append('T').append(';');
+      case PredicateNode.AlwaysFalse f -> sb.append('F').append(';');
+    }
+  }
+
+  /**
+   * Compiled form of a {@link PredicateNode} tree: operator opcodes as a byte
+   * array, ancillary operands in parallel arrays. Interpreting this in the
+   * hot loop is branch-predictable int-dispatch, no Object allocation, no
+   * String comparison, no Integer/Long/Boolean boxing.
+   *
+   * <p>Encoding (one entry per tree node, stored post-order / bottom-up is
+   * not used — we recurse via child indices):
+   * <pre>
+   *   opcode        payload
+   *   ───────────────────────────────────────────
+   *   OP_ALWAYS_T   -
+   *   OP_ALWAYS_F   -
+   *   OP_NOT        childIdx[0]
+   *   OP_AND        childCount, childIdx[0..n-1]
+   *   OP_OR         same as AND
+   *   OP_NUM_CMP    fieldIdx, cmpOp, longVal
+   *   OP_STR_EQ     fieldIdx, strIdx (index into strLiterals)
+   *   OP_BOOL_REF   fieldIdx
+   * </pre>
+   * The flat array layout was chosen because JIT-inlining of the hot predicate
+   * evaluator requires a small, type-stable representation; record-dispatch
+   * over {@link PredicateNode} reuses the switch but pays one indirection +
+   * a virtual call per node.
+   */
+  private static final class CompiledPredicate {
+    static final byte OP_ALWAYS_T = 0;
+    static final byte OP_ALWAYS_F = 1;
+    static final byte OP_NOT = 2;
+    static final byte OP_AND = 3;
+    static final byte OP_OR = 4;
+    static final byte OP_NUM_CMP = 5;
+    static final byte OP_STR_EQ = 6;
+    static final byte OP_BOOL_REF = 7;
+
+    /** Per-node opcode. Index 0 is the root. */
+    byte[] ops;
+    /** Child indices for AND/OR/NOT; -1 terminator. Packed contiguously. */
+    int[] children;
+    /** Per-node start index into {@link #children}. */
+    int[] childStart;
+    /** Per-node length in {@link #children}. */
+    int[] childCount;
+    /** Per-node fieldIdx (into {@link #fieldNameKeys}), -1 if N/A. */
+    int[] fieldIdx;
+    /** Per-node cmpOp (see OP_EQ/OP_GT/...), 0 if N/A. */
+    int[] cmpOp;
+    /** Per-node long literal (for NumCmp), 0 if N/A. */
+    long[] longLit;
+    /** Per-node string literal index (for StrEq), -1 if N/A. */
+    int[] strIdx;
+
+    /** Distinct field names referenced by the predicate, in first-seen order. */
+    String[] fieldNames;
+    /** Resolved nameKeys in the same order as {@link #fieldNames}; -1 = not found in document. */
+    int[] fieldNameKeys;
+    /** String literals used by StrEq leaves, de-duplicated by reference equality pre-intern. */
+    String[] strLiterals;
+    /** Bytes of each string literal in UTF-8 (for fast MemorySegment compare later). */
+    byte[][] strLiteralBytes;
+  }
+
+  /**
+   * Compile a {@link PredicateNode} tree to the flat {@link CompiledPredicate}
+   * form. Called once per query; the compiled form is then consumed by the
+   * hot loop below without any allocation.
+   */
+  private CompiledPredicate compile(final PredicateNode root) {
+    // First pass: collect unique fields and string literals in deterministic order.
+    final LinkedHashSet<String> fieldSet = new LinkedHashSet<>();
+    final LinkedHashSet<String> strSet = new LinkedHashSet<>();
+    collectLiterals(root, fieldSet, strSet);
+
+    final CompiledPredicate cp = new CompiledPredicate();
+    cp.fieldNames = fieldSet.toArray(new String[0]);
+    cp.fieldNameKeys = new int[cp.fieldNames.length];
+    for (int i = 0; i < cp.fieldNames.length; i++) {
+      cp.fieldNameKeys[i] = resolveFieldKey(cp.fieldNames[i]);
+    }
+    cp.strLiterals = strSet.toArray(new String[0]);
+    cp.strLiteralBytes = new byte[cp.strLiterals.length][];
+    for (int i = 0; i < cp.strLiterals.length; i++) {
+      cp.strLiteralBytes[i] = cp.strLiterals[i].getBytes(StandardCharsets.UTF_8);
+    }
+
+    // Second pass: flatten the tree into the parallel arrays.
+    final ArrayList<Byte> ops = new ArrayList<>();
+    final ArrayList<Integer> children = new ArrayList<>();
+    final ArrayList<Integer> childStart = new ArrayList<>();
+    final ArrayList<Integer> childCount = new ArrayList<>();
+    final ArrayList<Integer> fieldIdx = new ArrayList<>();
+    final ArrayList<Integer> cmpOp = new ArrayList<>();
+    final ArrayList<Long> longLit = new ArrayList<>();
+    final ArrayList<Integer> strIdx = new ArrayList<>();
+    flatten(root, cp.fieldNames, cp.strLiterals, ops, children, childStart, childCount, fieldIdx, cmpOp, longLit,
+            strIdx);
+
+    cp.ops = new byte[ops.size()];
+    for (int i = 0; i < ops.size(); i++) cp.ops[i] = ops.get(i);
+    cp.children = new int[children.size()];
+    for (int i = 0; i < children.size(); i++) cp.children[i] = children.get(i);
+    cp.childStart = new int[childStart.size()];
+    for (int i = 0; i < childStart.size(); i++) cp.childStart[i] = childStart.get(i);
+    cp.childCount = new int[childCount.size()];
+    for (int i = 0; i < childCount.size(); i++) cp.childCount[i] = childCount.get(i);
+    cp.fieldIdx = new int[fieldIdx.size()];
+    for (int i = 0; i < fieldIdx.size(); i++) cp.fieldIdx[i] = fieldIdx.get(i);
+    cp.cmpOp = new int[cmpOp.size()];
+    for (int i = 0; i < cmpOp.size(); i++) cp.cmpOp[i] = cmpOp.get(i);
+    cp.longLit = new long[longLit.size()];
+    for (int i = 0; i < longLit.size(); i++) cp.longLit[i] = longLit.get(i);
+    cp.strIdx = new int[strIdx.size()];
+    for (int i = 0; i < strIdx.size(); i++) cp.strIdx[i] = strIdx.get(i);
+    return cp;
+  }
+
+  private static void collectLiterals(final PredicateNode n, final LinkedHashSet<String> fields,
+      final LinkedHashSet<String> strs) {
+    switch (n) {
+      case PredicateNode.NumCmp nc -> fields.add(nc.field());
+      case PredicateNode.StrEq se -> { fields.add(se.field()); strs.add(se.value()); }
+      case PredicateNode.BoolRef br -> fields.add(br.field());
+      case PredicateNode.Not nt -> collectLiterals(nt.child(), fields, strs);
+      case PredicateNode.And a -> { for (PredicateNode c : a.children()) collectLiterals(c, fields, strs); }
+      case PredicateNode.Or o -> { for (PredicateNode c : o.children()) collectLiterals(c, fields, strs); }
+      case PredicateNode.AlwaysTrue t -> { }
+      case PredicateNode.AlwaysFalse f -> { }
+    }
+  }
+
+  /** Returns index of the appended node in {@code ops}. */
+  private static int flatten(final PredicateNode n, final String[] fieldNames, final String[] strLits,
+      final ArrayList<Byte> ops, final ArrayList<Integer> children, final ArrayList<Integer> childStart,
+      final ArrayList<Integer> childCount, final ArrayList<Integer> fieldIdx, final ArrayList<Integer> cmpOp,
+      final ArrayList<Long> longLit, final ArrayList<Integer> strIdx) {
+    final int myIdx = ops.size();
+    // Reserve slot.
+    ops.add((byte) 0);
+    childStart.add(0);
+    childCount.add(0);
+    fieldIdx.add(-1);
+    cmpOp.add(0);
+    longLit.add(0L);
+    strIdx.add(-1);
+
+    switch (n) {
+      case PredicateNode.AlwaysTrue t -> ops.set(myIdx, CompiledPredicate.OP_ALWAYS_T);
+      case PredicateNode.AlwaysFalse f -> ops.set(myIdx, CompiledPredicate.OP_ALWAYS_F);
+      case PredicateNode.NumCmp nc -> {
+        ops.set(myIdx, CompiledPredicate.OP_NUM_CMP);
+        fieldIdx.set(myIdx, indexOf(fieldNames, nc.field()));
+        cmpOp.set(myIdx, encodeOp(nc.op()));
+        longLit.set(myIdx, nc.value());
+      }
+      case PredicateNode.StrEq se -> {
+        ops.set(myIdx, CompiledPredicate.OP_STR_EQ);
+        fieldIdx.set(myIdx, indexOf(fieldNames, se.field()));
+        strIdx.set(myIdx, indexOf(strLits, se.value()));
+      }
+      case PredicateNode.BoolRef br -> {
+        ops.set(myIdx, CompiledPredicate.OP_BOOL_REF);
+        fieldIdx.set(myIdx, indexOf(fieldNames, br.field()));
+      }
+      case PredicateNode.Not nt -> {
+        ops.set(myIdx, CompiledPredicate.OP_NOT);
+        final int childIdx = flatten(nt.child(), fieldNames, strLits, ops, children, childStart, childCount, fieldIdx,
+                                     cmpOp, longLit, strIdx);
+        childStart.set(myIdx, children.size());
+        children.add(childIdx);
+        childCount.set(myIdx, 1);
+      }
+      case PredicateNode.And a -> {
+        ops.set(myIdx, CompiledPredicate.OP_AND);
+        final int start = children.size();
+        // Reserve placeholder slots so child-indexing isn't re-entrant with `children`.
+        for (int i = 0; i < a.children().size(); i++) children.add(-1);
+        for (int i = 0; i < a.children().size(); i++) {
+          children.set(start + i, flatten(a.children().get(i), fieldNames, strLits, ops, children, childStart,
+                                          childCount, fieldIdx, cmpOp, longLit, strIdx));
+        }
+        childStart.set(myIdx, start);
+        childCount.set(myIdx, a.children().size());
+      }
+      case PredicateNode.Or o -> {
+        ops.set(myIdx, CompiledPredicate.OP_OR);
+        final int start = children.size();
+        for (int i = 0; i < o.children().size(); i++) children.add(-1);
+        for (int i = 0; i < o.children().size(); i++) {
+          children.set(start + i, flatten(o.children().get(i), fieldNames, strLits, ops, children, childStart,
+                                          childCount, fieldIdx, cmpOp, longLit, strIdx));
+        }
+        childStart.set(myIdx, start);
+        childCount.set(myIdx, o.children().size());
+      }
+    }
+    return myIdx;
+  }
+
+  private static int indexOf(final String[] arr, final String s) {
+    for (int i = 0; i < arr.length; i++) if (arr[i].equals(s)) return i;
+    return -1;
+  }
+
+  /**
+   * Scratch space consumed by the hot evaluator — pre-allocated per worker,
+   * reused across every record. All arrays are indexed by fieldIdx.
+   *
+   * <p>{@code longVals} / {@code boolVals} / {@code strVals} hold the per-record
+   * decoded value; {@code present} marks whether the field exists on the
+   * record. The loader fills them by a single pass over the object's child
+   * OBJECT_KEY slots, so we avoid one rtx.moveTo per field (N fields ⇒ 1 pass).
+   */
+  private static final class EvalScratch {
+    long[] longVals;
+    boolean[] boolVals;
+    String[] strVals;
+    byte[] fieldKind;  // 0 = missing, 1 = num, 2 = bool, 3 = str
+    /** Work stack for iterative AND/OR short-circuit evaluation. */
+    int[] stackNode;
+    boolean[] stackRes;
+
+    EvalScratch(final int nFields, final int nNodes) {
+      longVals = new long[nFields];
+      boolVals = new boolean[nFields];
+      strVals = new String[nFields];
+      fieldKind = new byte[nFields];
+      stackNode = new int[Math.max(16, nNodes)];
+      stackRes = new boolean[Math.max(16, nNodes)];
+    }
+  }
+
+  /**
+   * Generic per-record predicate evaluator. Walks every leaf page in parallel;
+   * for each record it descends to each referenced field via the rtx cursor
+   * and evaluates the {@link PredicateNode} tree recursively. Much slower than
+   * the specialized PAX kernels but handles arbitrary shapes (OR, NOT,
+   * 3+ conjuncts, StrEq, cross-field ANDs).
+   *
+   * <p>Hot-loop design:
+   * <ul>
+   *   <li>Compile the predicate once into {@link CompiledPredicate} — flat
+   *       arrays, no allocations per record.</li>
+   *   <li>Pre-resolve nameKeys once at compile time.</li>
+   *   <li>Anchor on the first referenced field; iterate its OBJECT_KEY slots
+   *       via {@code getObjectKeySlotsForNameKey}.</li>
+   *   <li>Per record: single pass over child OBJECT_KEYs loads all needed
+   *       field values into primitive scratch arrays. Then the evaluator
+   *       walks the compiled predicate using an iterative stack — zero
+   *       allocation, no boxing.</li>
+   * </ul>
+   */
+  private long parallelGenericPredicateCount(final PredicateNode predicate) throws Exception {
+    final CompiledPredicate cp = compile(predicate);
+    if (cp.fieldNames.length == 0) return 0L;
+    // Anchor on the first field — its nameKey drives slot iteration.
+    final int anchorNameKey = cp.fieldNameKeys[0];
+    if (anchorNameKey == -1) return 0L;
+
+    final long maxNodeKey = getMaxNodeKey();
+    final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+    final int eff = (int) Math.min(threads, Math.max(1, totalPages));
+    final long ppt = (totalPages + eff - 1) / eff;
+    final long[] perThread = new long[eff];
+
+    parallel(eff, idx -> {
+      final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
+      final long s = (long) idx * ppt;
+      final long e = Math.min(s + ppt, totalPages);
+      final JsonNodeReadOnlyTrx rtx = workerTrx();
+      final var reader = rtx.getStorageEngineReader();
+      final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
+      long localCount = 0;
+      for (long pk = s; pk < e; pk++) {
+        final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+        final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
+        for (final int slot : matches) {
+          final long anchorObjectKey = base + slot;
+          if (!rtx.moveTo(anchorObjectKey)) continue;
+          if (!rtx.moveToParent()) continue;  // enclosing object
+          loadFields(rtx, cp, scratch);
+          if (evalCompiled(cp, 0, scratch)) localCount++;
+        }
+      }
+      perThread[idx] = localCount;
+    });
+    long total = 0;
+    for (final long c : perThread) total += c;
+    return total;
+  }
+
+  /**
+   * Single pass over the current object's child OBJECT_KEYs; for each nameKey
+   * we recognize, load its value into {@code scratch} as the appropriate
+   * primitive. Missing fields stay {@code fieldKind=0}.
+   *
+   * <p>Assumes rtx is positioned on the enclosing OBJECT node.
+   */
+  private static void loadFields(final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp,
+      final EvalScratch scratch) {
+    for (int i = 0; i < scratch.fieldKind.length; i++) scratch.fieldKind[i] = 0;
+    if (!rtx.moveToFirstChild()) return;
+    final int[] wantKeys = cp.fieldNameKeys;
+    do {
+      final int nk = rtx.getNameKey();
+      int fi = -1;
+      for (int i = 0; i < wantKeys.length; i++) if (wantKeys[i] == nk) { fi = i; break; }
+      if (fi < 0) continue;
+      if (!rtx.moveToFirstChild()) { rtx.moveToParent(); continue; }
+      final NodeKind kind = rtx.getKind();
+      switch (kind) {
+        case OBJECT_NUMBER_VALUE, NUMBER_VALUE -> {
+          final Number n = rtx.getNumberValue();
+          if (n != null) {
+            scratch.longVals[fi] = n.longValue();
+            scratch.fieldKind[fi] = 1;
+          }
+        }
+        case OBJECT_BOOLEAN_VALUE, BOOLEAN_VALUE -> {
+          scratch.boolVals[fi] = rtx.getBooleanValue();
+          scratch.fieldKind[fi] = 2;
+        }
+        case OBJECT_STRING_VALUE, STRING_VALUE -> {
+          scratch.strVals[fi] = rtx.getValue();
+          scratch.fieldKind[fi] = 3;
+        }
+        default -> { /* unsupported field type — leave kind=0 (missing) */ }
+      }
+      rtx.moveToParent();
+    } while (rtx.moveToRightSibling());
+  }
+
+  /**
+   * Recursive evaluator over the compiled predicate. Tail-recursive in the
+   * AND/OR cases; the JIT inlines this heavily because it's shape-monomorphic
+   * per query.
+   */
+  private static boolean evalCompiled(final CompiledPredicate cp, final int nodeIdx, final EvalScratch scratch) {
+    final byte op = cp.ops[nodeIdx];
+    switch (op) {
+      case CompiledPredicate.OP_ALWAYS_T: return true;
+      case CompiledPredicate.OP_ALWAYS_F: return false;
+      case CompiledPredicate.OP_NOT:
+        return !evalCompiled(cp, cp.children[cp.childStart[nodeIdx]], scratch);
+      case CompiledPredicate.OP_AND: {
+        final int start = cp.childStart[nodeIdx];
+        final int n = cp.childCount[nodeIdx];
+        for (int i = 0; i < n; i++) {
+          if (!evalCompiled(cp, cp.children[start + i], scratch)) return false;
+        }
+        return true;
+      }
+      case CompiledPredicate.OP_OR: {
+        final int start = cp.childStart[nodeIdx];
+        final int n = cp.childCount[nodeIdx];
+        for (int i = 0; i < n; i++) {
+          if (evalCompiled(cp, cp.children[start + i], scratch)) return true;
+        }
+        return false;
+      }
+      case CompiledPredicate.OP_NUM_CMP: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        if (scratch.fieldKind[fi] != 1) return false;
+        return scalarEval(scratch.longVals[fi], cp.cmpOp[nodeIdx], cp.longLit[nodeIdx]);
+      }
+      case CompiledPredicate.OP_STR_EQ: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        if (scratch.fieldKind[fi] != 3) return false;
+        return cp.strLiterals[cp.strIdx[nodeIdx]].equals(scratch.strVals[fi]);
+      }
+      case CompiledPredicate.OP_BOOL_REF: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        if (scratch.fieldKind[fi] != 2) return false;
+        return scratch.boolVals[fi];
+      }
+      default:
+        throw new IllegalStateException("bad opcode " + op);
     }
   }
 
