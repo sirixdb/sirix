@@ -95,9 +95,37 @@ import java.nio.charset.StandardCharsets;
  *       slot — same effect as a dedicated chunk page, no new code.</li>
  * </ul>
  *
- * <p>Row-level sharing within a single 1024-row leaf (a random row
- * update still rewrites the whole 20 KB slot) is a separate future
- * refinement — gated on observing real-world waste. See task #57.
+ * <p><b>Known architectural debt — to be addressed before general
+ * availability.</b> Storing a 20 KB serialised leaf as a single HOT
+ * entry value breaks Sirix's documented
+ * {@linkplain io.sirix.settings.VersioningType#SLIDING_SNAPSHOT}
+ * contract (see {@code docs/ARCHITECTURE.md} §"Problem 9" and §1097):
+ * the framework guarantees <em>O(1) writes per record</em>, but our
+ * natural "record" is a single projection row (~32 bytes), not the
+ * 1024-row leaf. On update-heavy workloads a one-row change re-emits
+ * the full ~20 KB slot — ~1000× the share-ratio the README promises.
+ *
+ * <p>Unlike CAS/NAME/PATH indexes (whose Roaring-bitmap values are
+ * naturally KB-sized per record and thus align with slot granularity),
+ * projection leaves pack many records per slot and will need
+ * sub-slot sharing before production use:
+ *
+ * <ul>
+ *   <li>Per-row slots (1024 slots/leaf, one per row) — exact match
+ *       for the SLIDING_SNAPSHOT contract but loses columnar layout.</li>
+ *   <li>Per-column slots (3 slots/leaf, one per column) — row update
+ *       re-emits the touched column(s) (~8 KB) not the full leaf;
+ *       columnar scan still works.</li>
+ *   <li>Reuse the half-built {@code BitmapChunkPage} /
+ *       {@code ChunkDirectory} machinery in
+ *       {@code io.sirix.index.hot}; currently unused by the CAS path
+ *       but wired through {@link io.sirix.page.PageKind} and
+ *       {@link io.sirix.settings.VersioningType#combineBitmapChunks}.</li>
+ * </ul>
+ *
+ * <p>Tracked in task #57. Today's opaque-byte[]-per-slot layout is
+ * explicitly an interim shipping configuration; do not publish a
+ * projection-index public API commitment until sub-slot sharing is in.
  */
 public final class ProjectionIndexLeafPage {
 
