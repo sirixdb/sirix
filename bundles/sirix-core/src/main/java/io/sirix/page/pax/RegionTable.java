@@ -36,9 +36,16 @@ public final class RegionTable {
   public static final byte KIND_STRUCT = 2;
   public static final byte KIND_DEWEYID = 3;
   public static final byte KIND_OBJECT_KEY_NAMEKEY = 4;
+  /**
+   * BooleanRegion — packed-bit column for OBJECT_BOOLEAN_VALUE slots, tag-grouped
+   * by parent OBJECT_KEY nameKey / pathNodeKey. Enables the columnar filter path
+   * for predicates like {@code $u.active} that currently drop back to OBJECT_KEY
+   * slot traversal (see task #48 ColumnarScanExecutor).
+   */
+  public static final byte KIND_BOOLEAN = 5;
 
   /** Size of the fixed-slot storage. Bump when a new region kind is introduced. */
-  public static final int KIND_COUNT = 5;
+  public static final int KIND_COUNT = 6;
 
   /** Sentinel empty payload used in place of {@code null} to avoid a per-slot nullcheck on the hot read path. */
   private static final byte[] EMPTY = new byte[0];
