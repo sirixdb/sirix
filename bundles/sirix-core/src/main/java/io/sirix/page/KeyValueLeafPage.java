@@ -1622,24 +1622,47 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Thread-local staging buffer for FSST-compressed source bytes — one
+   * bulk copy from the MemorySegment into this scratch avoids N byte-
+   * sized {@code sp.get} calls inside {@link #decodeFsstInto}, which
+   * profile-dominated via MemorySegment safety-check overhead
+   * (isAlignedForElement / checkValidStateRaw / VarHandle dispatch).
+   */
+  private static final ThreadLocal<byte[]> FSST_SRC_BUF =
+      ThreadLocal.withInitial(() -> new byte[512]);
+
+  /**
    * Decode {@code length} FSST-compressed bytes starting at {@code dataOff}
    * of {@code sp} into {@code scratch}. Mirrors
    * {@code FSSTCompressor.decodeRawCompressed} but reads from a
    * MemorySegment and writes into a caller-provided buffer — no allocation.
    * Returns decoded byte count, or -1 if output overflows.
+   *
+   * <p>Copies the compressed source into a thread-local byte[] via one
+   * {@link MemorySegment#copy} up front so the symbol-dispatch loop reads
+   * plain array bytes instead of paying per-byte MemorySegment safety
+   * checks (alignment/session/bounds). For short FSST payloads — typical
+   * of JSON string columns — the bulk copy is essentially free and the
+   * tight array loop JITs cleanly.
    */
   private static int decodeFsstInto(final MemorySegment sp, final long dataOff,
       final int length, final byte[][] symbols, final byte[] scratch) {
+    byte[] src = FSST_SRC_BUF.get();
+    if (src.length < length) {
+      src = new byte[Math.max(length, src.length * 2)];
+      FSST_SRC_BUF.set(src);
+    }
+    MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, dataOff, src, 0, length);
     int outPos = 0;
     final int scratchLen = scratch.length;
-    final long end = dataOff + length;
-    for (long pos = dataOff; pos < end; ) {
-      final int b = sp.get(ValueLayout.JAVA_BYTE, pos++) & 0xFF;
+    int pos = 0;
+    while (pos < length) {
+      final int b = src[pos++] & 0xFF;
       if (b == 0xFF) {
-        if (pos >= end || outPos >= scratchLen) {
+        if (pos >= length || outPos >= scratchLen) {
           return -1;
         }
-        scratch[outPos++] = sp.get(ValueLayout.JAVA_BYTE, pos++);
+        scratch[outPos++] = src[pos++];
       } else if (b < symbols.length) {
         final byte[] symbol = symbols[b];
         final int sl = symbol.length;
