@@ -98,6 +98,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private final int revision;
   private final int threads;
 
+  /**
+   * Cached resource-identifier string used as the
+   * {@link ProjectionIndexRegistry} lookup key. Computed once at
+   * construction to keep the per-query fast-path check branch-free and
+   * allocation-free. {@code null} on any resolution failure — disables
+   * the fast path for this executor.
+   */
+  private final String projectionRegistryKey;
+
   /** Kill switch to bypass the PAX fast path for regression bisection. */
   private static final boolean PAX_FAST_PATH_ENABLED =
       !"false".equalsIgnoreCase(System.getProperty("sirix.pax.scan", "true"));
@@ -356,12 +365,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     this.session = session;
     this.revision = revision;
     this.threads = threads;
+    this.projectionRegistryKey = computeProjectionRegistryKey(session);
     final ThreadFactory tf = r -> {
       Thread t = new Thread(r, "sirix-vec-exec");
       t.setDaemon(true);
       return t;
     };
     this.workerPool = Executors.newFixedThreadPool(threads, tf);
+  }
+
+  private static String computeProjectionRegistryKey(final JsonResourceSession session) {
+    try {
+      return session.getResourceConfig().getResource().toString();
+    } catch (final Exception e) {
+      return null;
+    }
   }
 
   /** Release per-thread shared trxes and shut down the worker pool. */
@@ -1207,7 +1225,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * than silently mis-evaluate.
    */
   private Long tryProjectionIndexFastPath(final String[] sourcePath, final CompiledPredicate cp) {
-    final String resourceKey = projectionResourceKey();
+    // Registry key is resolved once at executor construction — no
+    // per-query toString() or try/catch on the hot path.
+    final String resourceKey = projectionRegistryKey;
     if (resourceKey == null) return null;
     final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
     if (handle == null) return null;
@@ -1223,49 +1243,55 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * {@link ProjectionIndexScan.ColumnPredicate}{@code []} if the tree is a
    * pure conjunction of supported leaves. {@code null} signals "unsupported
    * shape; fall back to the generic path".
+   *
+   * <p>HFT-grade: the only allocation is the output array whose length
+   * equals the number of conjuncts (always small, typically 1–3). Walks
+   * {@code cp.children} in place — no intermediate leaf-index array, no
+   * boxing.
    */
   private static ProjectionIndexScan.ColumnPredicate[] extractConjunctivePredicates(
       final CompiledPredicate cp, final ProjectionIndexRegistry.Handle handle) {
     final byte rootOp = cp.ops[0];
-    final int[] leafNodeIdx;
+    final int childCount;
+    final int childStart;
     if (rootOp == CompiledPredicate.OP_AND) {
-      leafNodeIdx = new int[cp.childCount[0]];
-      for (int i = 0; i < leafNodeIdx.length; i++) {
-        leafNodeIdx[i] = cp.children[cp.childStart[0] + i];
-      }
+      childCount = cp.childCount[0];
+      childStart = cp.childStart[0];
     } else if (rootOp == CompiledPredicate.OP_NUM_CMP
         || rootOp == CompiledPredicate.OP_STR_EQ
         || rootOp == CompiledPredicate.OP_BOOL_REF) {
-      leafNodeIdx = new int[] {0};
+      childCount = 1;
+      childStart = -1; // sentinel: root itself is the leaf (handled below)
     } else {
       return null; // OR / NOT / ALWAYS_* / nested — fall back.
     }
 
-    final ProjectionIndexScan.ColumnPredicate[] out = new ProjectionIndexScan.ColumnPredicate[leafNodeIdx.length];
-    for (int i = 0; i < leafNodeIdx.length; i++) {
-      final int n = leafNodeIdx[i];
+    final ProjectionIndexScan.ColumnPredicate[] out = new ProjectionIndexScan.ColumnPredicate[childCount];
+    for (int i = 0; i < childCount; i++) {
+      final int n = (childStart < 0) ? 0 : cp.children[childStart + i];
       final byte op = cp.ops[n];
       final int column = handle.columnOf(cp.fieldNames[cp.fieldIdx[n]]);
       if (column < 0) return null; // field not in index — should have been filtered by covers()
+      final ProjectionIndexScan.ColumnPredicate pred;
       switch (op) {
         case CompiledPredicate.OP_NUM_CMP -> {
           final ProjectionIndexScan.Op translated = translateCmpOp(cp.cmpOp[n]);
           if (translated == null) return null;
-          out[i] = ProjectionIndexScan.ColumnPredicate.numeric(column, translated, cp.longLit[n]);
+          pred = ProjectionIndexScan.ColumnPredicate.numeric(column, translated, cp.longLit[n]);
         }
         case CompiledPredicate.OP_STR_EQ -> {
-          final byte[] lit = cp.strLiteralBytes[cp.strIdx[n]];
-          out[i] = ProjectionIndexScan.ColumnPredicate.stringEq(column, lit);
+          pred = ProjectionIndexScan.ColumnPredicate.stringEq(column, cp.strLiteralBytes[cp.strIdx[n]]);
         }
         case CompiledPredicate.OP_BOOL_REF -> {
           // BOOL_REF means "field value is true" (a standalone truthy
           // field reference compiles here). Represent as booleanEq(true).
-          out[i] = ProjectionIndexScan.ColumnPredicate.booleanEq(column, true);
+          pred = ProjectionIndexScan.ColumnPredicate.booleanEq(column, true);
         }
         default -> {
           return null; // unsupported leaf — fall back
         }
       }
+      out[i] = pred;
     }
     return out;
   }
@@ -1284,19 +1310,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_EQ -> ProjectionIndexScan.Op.EQ;
       default -> null;
     };
-  }
-
-  /**
-   * Stable identifier used as the registry key for this executor's
-   * resource. {@code null} when no resource path is available (no
-   * projection-index fast-path applies).
-   */
-  private String projectionResourceKey() {
-    try {
-      return session.getResourceConfig().getResource().toString();
-    } catch (final Exception e) {
-      return null;
-    }
   }
 
   private long parallelGenericPredicateCount(final String[] sourcePath, final PredicateNode predicate)

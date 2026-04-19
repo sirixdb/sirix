@@ -12,12 +12,6 @@ import io.sirix.access.Databases;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.Allocators;
 import io.sirix.access.trx.node.HashType;
-import io.sirix.index.IndexDef;
-import io.sirix.index.IndexDefs;
-import io.sirix.index.projection.ProjectionIndexBuilder;
-import io.sirix.index.projection.ProjectionIndexRegistry;
-import io.brackit.query.jdm.Type;
-import io.brackit.query.util.path.PathParser;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
@@ -167,9 +161,11 @@ public final class BrackitQueryOnSirixScaleMain {
     // NUM_CMP/STR_EQ/BOOL_REF tree falls back to the generic path.
     if (Boolean.getBoolean("projection") && session != null) {
       final long tBuild = System.nanoTime();
-      installProjectionIndex(session);
+      final ProjectionIndexBenchSetup.BuildResult result =
+          ProjectionIndexBenchSetup.installWildcard(session);
       final long buildMs = (System.nanoTime() - tBuild) / 1_000_000L;
-      System.out.printf("# Projection index: installed on (age, active, dept) in %,d ms%n", buildMs);
+      System.out.printf("# Projection index: %,d leaves, %,d rows, built in %,d ms%n",
+          result.leafCount(), result.totalRows(), buildMs);
     }
 
     JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);
@@ -278,46 +274,6 @@ public final class BrackitQueryOnSirixScaleMain {
       ser.serialize(new Query(chain, wrapped).execute(ctx));
     }
     return buf.toString().length();
-  }
-
-  /**
-   * Build a projection index over (age, active, dept) for the current
-   * revision of {@code session}'s resource and publish it wildcard-keyed
-   * in {@link ProjectionIndexRegistry}. The executor's
-   * {@code tryProjectionIndexFastPath} picks it up on subsequent
-   * filterCount / compoundAndFilterCount queries.
-   *
-   * <p>This is the analog of what an {@code IndexController.createIndexes}
-   * call would do in production. Interim until the full index-lifecycle
-   * wiring for IndexType.PROJECTION lands (task #57).
-   */
-  private static void installProjectionIndex(final JsonResourceSession session) {
-    final io.brackit.query.util.path.Path<QNm> rootPath =
-        io.brackit.query.util.path.Path.parse("/[]", PathParser.Type.JSON);
-    final io.brackit.query.util.path.Path<QNm> agePath =
-        io.brackit.query.util.path.Path.parse("/[]/age", PathParser.Type.JSON);
-    final io.brackit.query.util.path.Path<QNm> activePath =
-        io.brackit.query.util.path.Path.parse("/[]/active", PathParser.Type.JSON);
-    final io.brackit.query.util.path.Path<QNm> deptPath =
-        io.brackit.query.util.path.Path.parse("/[]/dept", PathParser.Type.JSON);
-    final IndexDef def = IndexDefs.createProjectionIdxDef(
-        rootPath,
-        java.util.List.of(agePath, activePath, deptPath),
-        java.util.List.of(Type.LON, Type.BOOL, Type.STR),
-        0, IndexDef.DbType.JSON);
-    final java.util.List<byte[]> leaves = new java.util.ArrayList<>();
-    final int revision = session.getMostRecentRevisionNumber();
-    try (var rtx = session.beginNodeReadOnlyTrx(revision);
-         var pathSummary = session.openPathSummary(revision)) {
-      new ProjectionIndexBuilder(def, pathSummary, leaves::add).build(rtx);
-    }
-    final String resourceKey = session.getResourceConfig().getResource().toString();
-    ProjectionIndexRegistry.installWildcard(resourceKey,
-        new String[] {"age", "active", "dept"}, leaves);
-    System.out.printf("# Projection index: %,d leaves, %,d rows total%n",
-        leaves.size(),
-        leaves.stream().mapToLong(p -> java.nio.ByteBuffer.wrap(p, 0, 4)
-            .order(java.nio.ByteOrder.LITTLE_ENDIAN).getInt()).sum());
   }
 
   /**
