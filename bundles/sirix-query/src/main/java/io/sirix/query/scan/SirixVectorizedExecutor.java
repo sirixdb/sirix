@@ -212,6 +212,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private final ConcurrentHashMap<String, Sequence> filteredGroupByCountCache = new ConcurrentHashMap<>();
 
+  /**
+   * Per-(sourcePath, field) cache of the resolved {@code pathNodeKey} for the
+   * fully-qualified query path. Hot queries (dashboards that re-issue the
+   * same aggregate/filter) pay the path-summary walk once; subsequent lookups
+   * are a {@link ConcurrentHashMap} probe. Value {@code -1L} records the
+   * "no such path" decision so we don't re-attempt resolution.
+   *
+   * <p>Safe for the executor's (session, revision) lifetime because the path
+   * summary is immutable for a read-only revision.
+   */
+  private final ConcurrentHashMap<String, Long> pathNodeKeyCache = new ConcurrentHashMap<>();
+
+  /** Cache of aggregated scans keyed by predicate + field + func (for predicate aggregate). */
+  private final ConcurrentHashMap<String, Sequence> predicateAggregateCache = new ConcurrentHashMap<>();
+
   public SirixVectorizedExecutor(JsonResourceSession session, int revision) {
     this(session, revision, defaultThreadCount());
   }
@@ -270,12 +285,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   @Override
-  public Sequence executeGroupByCount(QueryContext ctx, String groupField) throws QueryException {
+  public Sequence executeGroupByCount(QueryContext ctx, String[] sourcePath, String groupField) throws QueryException {
     try {
-      Sequence cached = groupByCountCache.get(groupField);
+      final String cacheKey = pathCacheKey(sourcePath, groupField);
+      Sequence cached = groupByCountCache.get(cacheKey);
       if (cached == null) {
-        final Sequence fresh = parallelGroupByCount(groupField);
-        cached = groupByCountCache.putIfAbsent(groupField, fresh);
+        final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, groupField);
+        final Sequence fresh = parallelGroupByCount(groupField, targetPathNodeKey);
+        cached = groupByCountCache.putIfAbsent(cacheKey, fresh);
         if (cached == null) cached = fresh;
       }
       return cached;
@@ -298,19 +315,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * backward compatibility with executors that haven't migrated.
    */
   @Override
-  public Sequence executePredicateCount(QueryContext ctx, PredicateNode predicate) throws QueryException {
+  public Sequence executePredicateCount(QueryContext ctx, String[] sourcePath, PredicateNode predicate)
+      throws QueryException {
     if (predicate == null) return null;
     try {
       if (predicate instanceof PredicateNode.AlwaysFalse) return new Int64(0L);
       if (predicate instanceof PredicateNode.AlwaysTrue) {
-        final Sequence fast = tryPathSummaryStats(null, "count");
-        if (fast != null) return fast;
+        // count(*) requires a known field to anchor the PathSummary lookup; without one
+        // we fall through to the generic pipeline (caller handles this).
         return null;
       }
-      final String cacheKey = predicateCacheKey(predicate);
+      final String cacheKey = pathCacheKey(sourcePath, null) + "@@" + predicateCacheKey(predicate);
       Long cached = filterCountCache.get(cacheKey);
       if (cached == null) {
-        final long fresh = parallelGenericPredicateCount(predicate);
+        final long fresh = parallelGenericPredicateCount(sourcePath, predicate);
         cached = filterCountCache.putIfAbsent(cacheKey, fresh);
         if (cached == null) cached = fresh;
       }
@@ -331,17 +349,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * {@link #executeGroupByCount}.
    */
   @Override
-  public Sequence executePredicateGroupByCount(QueryContext ctx, PredicateNode predicate, String groupField)
-      throws QueryException {
+  public Sequence executePredicateGroupByCount(QueryContext ctx, String[] sourcePath, PredicateNode predicate,
+      String groupField) throws QueryException {
     if (predicate == null || groupField == null) return null;
     try {
       if (predicate instanceof PredicateNode.AlwaysFalse) {
         return new DArray(new ArrayList<>());
       }
-      final String cacheKey = "gb:" + groupField + "#" + predicateCacheKey(predicate);
+      final String cacheKey =
+          "gb:" + pathCacheKey(sourcePath, groupField) + "#" + predicateCacheKey(predicate);
       Sequence cached = filteredGroupByCountCache.get(cacheKey);
       if (cached != null) return cached;
-      final Sequence fresh = parallelGenericPredicateGroupByCount(predicate, groupField);
+      final Sequence fresh = parallelGenericPredicateGroupByCount(sourcePath, predicate, groupField);
       cached = filteredGroupByCountCache.putIfAbsent(cacheKey, fresh);
       return cached == null ? fresh : cached;
     } catch (Exception e) {
@@ -359,8 +378,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * so the per-record load pass covers both predicate fields and the group
    * field in one sweep.
    */
-  private Sequence parallelGenericPredicateGroupByCount(final PredicateNode predicate, final String groupField)
-      throws Exception {
+  private Sequence parallelGenericPredicateGroupByCount(final String[] sourcePath, final PredicateNode predicate,
+      final String groupField) throws Exception {
     // Augment the predicate's field set with the group field so `loadFields`
     // picks it up in the same sweep over the record's children.
     final CompiledPredicate cp = compileWithExtraField(predicate, groupField);
@@ -372,6 +391,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (groupFieldIdx < 0 || cp.fieldNameKeys[groupFieldIdx] == -1) {
       return new DArray(new ArrayList<>());
     }
+    // Resolve the anchor field's fully-qualified pathNodeKey once. -1L ⇒
+    // PathSummary unavailable or path not found; fall back to name-only match
+    // (legacy behaviour — correct for flat schemas, may over-count nested
+    // same-name fields, but preserves existing semantics).
+    final long anchorPathNodeKey = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[0]);
 
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
@@ -395,6 +419,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
         for (final int slot : matches) {
           final long anchorObjectKey = base + slot;
+          // Path-scope filter: reject anchor slots whose pathNodeKey is not
+          // the one the query targets. Cheap (one varint decode off the page)
+          // and branch-predictable because anchorPathNodeKey is loop-invariant.
+          if (anchorPathNodeKey != -1L
+              && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
+            continue;
+          }
           if (!rtx.moveTo(anchorObjectKey)) continue;
           if (!rtx.moveToParent()) continue;
           loadFields(rtx, cp, scratch);
@@ -433,6 +464,256 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       out.add(new ArrayObject(keys, vals));
     }
     return new DArray(out);
+  }
+
+  /**
+   * Generic predicate-tree aggregate: walks every record with the compiled
+   * predicate + an extra aggregate field; on match, accumulates sum/count/
+   * min/max over the aggregate field. Replaces the filter-then-aggregate
+   * Volcano pipeline with a single parallel scan.
+   */
+  @Override
+  public Sequence executePredicateAggregate(QueryContext ctx, String[] sourcePath, PredicateNode predicate,
+      String func, String field) throws QueryException {
+    if (predicate == null || func == null) return null;
+    try {
+      if (predicate instanceof PredicateNode.AlwaysFalse) {
+        return switch (func) {
+          case "count", "sum" -> new Int64(0L);
+          case "avg", "min", "max" -> new Int64(0L);
+          default -> null;
+        };
+      }
+      // "count" doesn't require a field — fall through to generic handling,
+      // but a null `field` for any other func means we can't run the scan.
+      if (!"count".equals(func) && field == null) return null;
+      final String cacheKey = "pa:" + func + "#" + pathCacheKey(sourcePath, field) + "@@"
+          + predicateCacheKey(predicate);
+      Sequence cached = predicateAggregateCache.get(cacheKey);
+      if (cached != null) return cached;
+      final Sequence fresh = parallelGenericPredicateAggregate(sourcePath, predicate, func, field);
+      if (fresh == null) return null;
+      cached = predicateAggregateCache.putIfAbsent(cacheKey, fresh);
+      return cached == null ? fresh : cached;
+    } catch (Exception e) {
+      throw new QueryException(e,
+                               ErrorCode.BIT_DYN_INT_ERROR,
+                               "Sirix vectorized predicate-aggregate failed: %s",
+                               e.getMessage());
+    }
+  }
+
+  /**
+   * Walk every leaf page in parallel; per-record evaluate the compiled
+   * predicate; on match, read the aggregate {@code field}'s value from the
+   * shared scratch and fold it into the per-thread accumulator. The aggregate
+   * field is compiled into the predicate's field set via
+   * {@link #compileWithExtraField} so a single {@code loadFields} sweep covers
+   * every value we need for this record.
+   */
+  private Sequence parallelGenericPredicateAggregate(final String[] sourcePath, final PredicateNode predicate,
+      final String func, final String aggField) throws Exception {
+    final boolean isCount = "count".equals(func);
+    final CompiledPredicate cp = isCount ? compile(predicate) : compileWithExtraField(predicate, aggField);
+    if (cp.fieldNames.length == 0) return null;
+    final int anchorNameKey = cp.fieldNameKeys[0];
+    if (anchorNameKey == -1) {
+      return switch (func) {
+        case "count", "sum" -> new Int64(0L);
+        case "avg", "min", "max" -> new Int64(0L);
+        default -> null;
+      };
+    }
+    final int aggFieldIdx = isCount ? -1 : indexOfStr(cp.fieldNames, aggField);
+    if (!isCount && (aggFieldIdx < 0 || cp.fieldNameKeys[aggFieldIdx] == -1)) {
+      // Aggregate field not in this document — zero rows would contribute.
+      return switch (func) {
+        case "sum" -> new Int64(0L);
+        case "avg", "min", "max" -> new Int64(0L);
+        default -> null;
+      };
+    }
+    // Resolve the fully-qualified path for the anchor field. See parallelAggregate.
+    final long anchorPathNodeKey = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[0]);
+
+    final long maxNodeKey = getMaxNodeKey();
+    final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+    final int eff = (int) Math.min(threads, Math.max(1, totalPages));
+    final long ppt = (totalPages + eff - 1) / eff;
+    // [count, sum, min, max] per thread.
+    final long[][] perThread = new long[eff][4];
+    for (int i = 0; i < eff; i++) {
+      perThread[i][2] = Long.MAX_VALUE;
+      perThread[i][3] = Long.MIN_VALUE;
+    }
+
+    parallel(eff, idx -> {
+      final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
+      final long s = (long) idx * ppt;
+      final long e = Math.min(s + ppt, totalPages);
+      final JsonNodeReadOnlyTrx rtx = workerTrx();
+      final var reader = rtx.getStorageEngineReader();
+      final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
+      final long[] acc = perThread[idx];
+      for (long pk = s; pk < e; pk++) {
+        final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+        final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
+        for (final int slot : matches) {
+          final long anchorObjectKey = base + slot;
+          if (anchorPathNodeKey != -1L
+              && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
+            continue;
+          }
+          if (!rtx.moveTo(anchorObjectKey)) continue;
+          if (!rtx.moveToParent()) continue;
+          loadFields(rtx, cp, scratch);
+          if (!evalCompiled(cp, 0, scratch)) continue;
+          if (isCount) {
+            acc[0]++;
+            continue;
+          }
+          // Numeric aggregate — require the agg field to be a number on this row.
+          if (scratch.fieldKind[aggFieldIdx] != 1) continue;
+          final long v = scratch.longVals[aggFieldIdx];
+          acc[0]++;
+          acc[1] += v;
+          if (v < acc[2]) acc[2] = v;
+          if (v > acc[3]) acc[3] = v;
+        }
+      }
+    });
+
+    long count = 0L;
+    long sum = 0L;
+    long min = Long.MAX_VALUE;
+    long max = Long.MIN_VALUE;
+    for (final long[] a : perThread) {
+      count += a[0];
+      sum += a[1];
+      if (a[0] > 0) {
+        if (a[2] < min) min = a[2];
+        if (a[3] > max) max = a[3];
+      }
+    }
+    return switch (func) {
+      case "count" -> new Int64(count);
+      case "sum"   -> new Int64(sum);
+      case "avg"   -> count == 0 ? new Int64(0L) : new Dbl((double) sum / (double) count);
+      case "min"   -> count == 0 ? new Int64(0L) : new Int64(min);
+      case "max"   -> count == 0 ? new Int64(0L) : new Int64(max);
+      default      -> null;
+    };
+  }
+
+  /**
+   * Cache key combining the query's sourcePath with a local field name.
+   * Null and empty sourcePaths produce a fixed prefix so the legacy
+   * "no path context" code path still caches deterministically.
+   */
+  private static String pathCacheKey(final String[] sourcePath, final String field) {
+    final StringBuilder sb = new StringBuilder(32);
+    if (sourcePath != null) {
+      for (final String seg : sourcePath) {
+        sb.append(seg == null ? "" : seg).append('/');
+      }
+    }
+    sb.append('|');
+    if (field != null) sb.append(field);
+    return sb.toString();
+  }
+
+  /**
+   * Resolve the unique pathNodeKey matching the fully-qualified query path
+   * formed by {@code sourcePath + field}. The PathSummary only creates
+   * PathNodes for ELEMENT and OBJECT_KEY, so {@code "[]"} entries in the
+   * source path (array descent) don't correspond to PathNode ancestors —
+   * they're filtered out before matching. Returns {@code -1L} when:
+   * <ul>
+   *   <li>the resource has no path summary,</li>
+   *   <li>no PathNode's ancestor chain matches the expected named prefix, or</li>
+   *   <li>more than one PathNode matches (shouldn't happen with a consistent
+   *       summary, but we fail closed).</li>
+   * </ul>
+   *
+   * <p>Result is cached per (sourcePath, field) — hot queries pay the walk
+   * once, subsequent resolutions are a {@link ConcurrentHashMap} probe.
+   */
+  private long resolveTargetPathNodeKey(final String[] sourcePath, final String field) {
+    if (field == null) return -1L;
+    // Path resolution needs only the path summary structure — statistics are
+    // a separate opt-in. Conflating the two was the cause of path scoping
+    // silently falling back to name-only whenever stats were disabled.
+    if (!session.getResourceConfig().withPathSummary) return -1L;
+    final String cacheKey = pathCacheKey(sourcePath, field);
+    final Long cached = pathNodeKeyCache.get(cacheKey);
+    if (cached != null) return cached.longValue();
+    final long resolved = computeTargetPathNodeKey(sourcePath, field);
+    pathNodeKeyCache.putIfAbsent(cacheKey, Long.valueOf(resolved));
+    return resolved;
+  }
+
+  private long computeTargetPathNodeKey(final String[] sourcePath, final String field) {
+    // Build the expected named-ancestor chain: sourcePath with "[]" entries
+    // stripped (array-descent nodes aren't materialised in the PathSummary),
+    // reversed so walking up getParent() from a candidate yields it in order.
+    final int srcLen = sourcePath == null ? 0 : sourcePath.length;
+    int namedCount = 0;
+    for (int i = 0; i < srcLen; i++) {
+      final String seg = sourcePath[i];
+      if (seg != null && !"[]".equals(seg)) namedCount++;
+    }
+    final String[] expectedAncestors = new String[namedCount];
+    int w = 0;
+    for (int i = 0; i < srcLen; i++) {
+      final String seg = sourcePath[i];
+      if (seg != null && !"[]".equals(seg)) expectedAncestors[w++] = seg;
+    }
+    // Ancestor chain is walked from deepest (closest to the candidate) upward;
+    // compare against `expectedAncestors` in reverse order (last source-path
+    // segment = closest ancestor).
+    try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
+      final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
+      try {
+        final List<PathNode> candidates = summary.findPathsByLocalName(field);
+        if (candidates.isEmpty()) return -1L;
+        long onlyMatch = -1L;
+        for (final PathNode candidate : candidates) {
+          PathNode cursor = candidate.getParent();
+          boolean ok = true;
+          for (int i = expectedAncestors.length - 1; i >= 0; i--) {
+            // Skip anonymous ancestors (no name, or non-ELEMENT/OBJECT_KEY roots).
+            while (cursor != null && cursor.getName() == null) {
+              cursor = cursor.getParent();
+            }
+            if (cursor == null) { ok = false; break; }
+            final String name = cursor.getName().getLocalName();
+            if (!expectedAncestors[i].equals(name)) { ok = false; break; }
+            cursor = cursor.getParent();
+          }
+          if (!ok) continue;
+          // Post-condition: after consuming expectedAncestors, the remaining
+          // ancestor chain must contain NO more named ancestors (otherwise the
+          // candidate lives deeper than the query path — e.g. pet.dept when
+          // the query is $u.dept). Without this check, an empty
+          // expectedAncestors matches every candidate regardless of depth.
+          while (cursor != null && cursor.getName() == null) {
+            cursor = cursor.getParent();
+          }
+          if (cursor != null) continue;  // extra named ancestor — too deep
+          if (onlyMatch != -1L) {
+            // Ambiguous — two PathNodes share the same qualified prefix.
+            // Can't happen with a consistent summary; fail closed.
+            return -1L;
+          }
+          onlyMatch = candidate.getNodeKey();
+        }
+        return onlyMatch;
+      } finally {
+        summary.close();
+      }
+    }
   }
 
   /**
@@ -748,12 +1029,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *       allocation, no boxing.</li>
    * </ul>
    */
-  private long parallelGenericPredicateCount(final PredicateNode predicate) throws Exception {
+  private long parallelGenericPredicateCount(final String[] sourcePath, final PredicateNode predicate)
+      throws Exception {
     final CompiledPredicate cp = compile(predicate);
     if (cp.fieldNames.length == 0) return 0L;
     // Anchor on the first field — its nameKey drives slot iteration.
     final int anchorNameKey = cp.fieldNameKeys[0];
     if (anchorNameKey == -1) return 0L;
+    // Resolve the fully-qualified pathNodeKey for the anchor. -1L ⇒ unresolvable;
+    // fall back to name-only matching (legacy behaviour).
+    final long anchorPathNodeKey = resolveTargetPathNodeKey(sourcePath, cp.fieldNames[0]);
 
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
@@ -776,6 +1061,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
         for (final int slot : matches) {
           final long anchorObjectKey = base + slot;
+          if (anchorPathNodeKey != -1L
+              && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
+            continue;
+          }
           if (!rtx.moveTo(anchorObjectKey)) continue;
           if (!rtx.moveToParent()) continue;  // enclosing object
           loadFields(rtx, cp, scratch);
@@ -879,22 +1168,33 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   @Override
-  public Sequence executeCountDistinct(QueryContext ctx, String field) throws QueryException {
+  public Sequence executeCountDistinct(QueryContext ctx, String[] sourcePath, String field) throws QueryException {
     try {
       // Only honour the short-circuit when the resource maintains an HLL per path.
       if (!session.getResourceConfig().withPathStatistics) {
         return null;
       }
+      final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
       try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
-        final var summary = rtx.getResourceSession().openPathSummary(revision);
+        final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
         try {
-          final var paths = summary.findPathsByLocalName(field);
+          if (targetPathNodeKey != -1L) {
+            // Path-scoped fast path: read the single PathNode's HLL — no union needed.
+            final PathNode target = summary.getPathNodeForPathNodeKey(targetPathNodeKey);
+            if (target == null) return null;
+            final HyperLogLogSketch hll = target.getHllSketch();
+            return new Int64(hll == null ? 0L : hll.estimate());
+          }
+          // Fallback: union across every PathNode with this local name. Matches
+          // the pre-refactor behaviour for documents without PathSummary or
+          // whose sourcePath can't be disambiguated.
+          final List<PathNode> paths = summary.findPathsByLocalName(field);
           if (paths.isEmpty()) {
             return null;
           }
           HyperLogLogSketch union = null;
-          for (final var p : paths) {
-            final var hll = p.getHllSketch();
+          for (final PathNode p : paths) {
+            final HyperLogLogSketch hll = p.getHllSketch();
             if (hll == null) {
               continue;
             }
@@ -917,25 +1217,31 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   @Override
-  public Sequence executeAggregate(QueryContext ctx, String func, String field) throws QueryException {
+  public Sequence executeAggregate(QueryContext ctx, String[] sourcePath, String func, String field)
+      throws QueryException {
     try {
       // PathStatistics short-circuit: when the resource maintains per-path stats, an
       // unfiltered aggregate over a single field resolves directly from the PathSummary
       // — microseconds instead of a parallel scan of every data page.
-      final Sequence fast = tryPathSummaryStats(field, func);
+      final Sequence fast = tryPathSummaryStats(sourcePath, field, func);
       if (fast != null) {
         return fast;
       }
       // The executor is bound to a single (session, revision) — any aggregate we
       // computed earlier for this field is still valid. ComputeIfAbsent keeps
       // the scan exactly-once even under concurrent callers.
-      long[] stats = aggregateCache.get(field);
+      final String cacheKey = pathCacheKey(sourcePath, field);
+      long[] stats = aggregateCache.get(cacheKey);
       if (stats == null) {
-        final long[] fresh = parallelAggregate(field);
-        stats = aggregateCache.putIfAbsent(field, fresh);
+        final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
+        final long[] fresh = parallelAggregate(field, targetPathNodeKey);
+        stats = aggregateCache.putIfAbsent(cacheKey, fresh);
         if (stats == null) stats = fresh;
       }
-      long count = stats[0], sum = stats[1], min = stats[2], max = stats[3];
+      final long count = stats[0];
+      final long sum = stats[1];
+      final long min = stats[2];
+      final long max = stats[3];
       return switch (func) {
         case "count" -> new Int64(count);
         case "sum" -> new Int64(sum);
@@ -964,7 +1270,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *   <li>the function is not one of the supported aggregates.</li>
    * </ul>
    */
-  private Sequence tryPathSummaryStats(final String field, final String func) {
+  private Sequence tryPathSummaryStats(final String[] sourcePath, final String field, final String func) {
     if (!session.getResourceConfig().withPathStatistics) {
       return null;
     }
@@ -972,42 +1278,41 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case "count", "sum", "avg", "min", "max" -> { /* supported */ }
       default -> { return null; }
     }
+    if (field == null) {
+      return null;
+    }
+    // Resolve the exact PathNode for sourcePath + field. Ambiguous / unresolved
+    // paths return -1L — we fall back to the full scan rather than produce a
+    // potentially wrong cross-path sum.
+    final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
+    if (targetPathNodeKey == -1L) {
+      return null;
+    }
 
     try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
       final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
       try {
-        final List<PathNode> paths = summary.findPathsByLocalName(field);
-        if (paths.isEmpty()) {
+        final PathNode p = summary.getPathNodeForPathNodeKey(targetPathNodeKey);
+        if (p == null) {
           return null;
         }
-        long totalCount = 0L;
-        long totalSum = 0L;
-        long totalMin = Long.MAX_VALUE;
-        long totalMax = Long.MIN_VALUE;
-        for (final PathNode p : paths) {
-          if (("min".equals(func) || "avg".equals(func)) && p.isStatsMinDirty()) {
-            return null;
-          }
-          if ("max".equals(func) && p.isStatsMaxDirty()) {
-            return null;
-          }
-          totalCount += p.getStatsValueCount();
-          totalSum += p.getStatsSum();
-          if (p.hasNumericStats()) {
-            if (p.getStatsMin() < totalMin) {
-              totalMin = p.getStatsMin();
-            }
-            if (p.getStatsMax() > totalMax) {
-              totalMax = p.getStatsMax();
-            }
-          }
+        if (("min".equals(func) || "avg".equals(func)) && p.isStatsMinDirty()) {
+          return null;
         }
+        if ("max".equals(func) && p.isStatsMaxDirty()) {
+          return null;
+        }
+        final long count = p.getStatsValueCount();
+        final long sum = p.getStatsSum();
+        final boolean numeric = p.hasNumericStats();
+        final long pMin = numeric ? p.getStatsMin() : Long.MAX_VALUE;
+        final long pMax = numeric ? p.getStatsMax() : Long.MIN_VALUE;
         return switch (func) {
-          case "count" -> new Int64(totalCount);
-          case "sum"   -> new Int64(totalSum);
-          case "avg"   -> totalCount == 0 ? new Int64(0) : new Dbl((double) totalSum / (double) totalCount);
-          case "min"   -> totalCount == 0 ? new Int64(0) : new Int64(totalMin);
-          case "max"   -> totalCount == 0 ? new Int64(0) : new Int64(totalMax);
+          case "count" -> new Int64(count);
+          case "sum"   -> new Int64(sum);
+          case "avg"   -> count == 0 ? new Int64(0) : new Dbl((double) sum / (double) count);
+          case "min"   -> count == 0 || !numeric ? new Int64(0) : new Int64(pMin);
+          case "max"   -> count == 0 || !numeric ? new Int64(0) : new Int64(pMax);
           default      -> null;
         };
       } finally {
@@ -1066,11 +1371,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *
    * @return {@code [count, sum, min, max]}
    */
-  private long[] parallelAggregate(String field) throws Exception {
+  private long[] parallelAggregate(final String field, final long targetPathNodeKey) throws Exception {
     final int fieldKey = resolveFieldKey(field);
     if (fieldKey < 0) return new long[] { 0, 0, Long.MAX_VALUE, Long.MIN_VALUE };
 
-    long maxNodeKey = getMaxNodeKey();
+    final long maxNodeKey = getMaxNodeKey();
     long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     int eff = (int) Math.min(threads, Math.max(1, totalPages));
     long ppt = (totalPages + eff - 1) / eff;
@@ -1103,7 +1408,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // PAX fast path: jump straight to the target field's value range via
         // per-tag directory. SIMD aggregate kernel computes sum/min/max in one
         // vector pass — single memory sweep, hardware-pipelined reductions.
-        if (PAX_FAST_PATH_ENABLED) {
+        //
+        // Disabled when a path-scope is active: the NumberRegion's tag range
+        // groups values by nameKey only, so if the page carries values for
+        // the same field name under different pathNodeKeys the SIMD kernel
+        // would over-count. Fall through to the slot-walk path, which can
+        // filter per-slot by pathNodeKey.
+        if (PAX_FAST_PATH_ENABLED && targetPathNodeKey == -1L) {
           final NumberRegion.Header hdr = kv.getNumberRegionHeader();
           if (hdr != null) {
             final int tag = NumberRegion.lookupTag(hdr, fieldKey);
@@ -1140,6 +1451,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
         for (final int slot : matches) {
           final long objectKeyNodeKey = base + slot;
+          // Path-scope filter: drop matches that share the field name but sit
+          // at a different tree depth (e.g. $doc.items[].age vs $doc.age).
+          if (targetPathNodeKey != -1L
+              && kv.getObjectKeyPathNodeKeyFromSlot(slot, objectKeyNodeKey) != targetPathNodeKey) {
+            continue;
+          }
           // Direct slot path: read firstChild's nodeKey straight off the page
           // (no cursor), then read the numeric value straight off the firstChild
           // slot. Skips moveTo + singleton bind + Number boxing per match.
@@ -1204,11 +1521,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * (per-thread, then merged). Returns a Brackit array of
    * {@code {"groupField": value, "count": N}} objects.
    */
-  private Sequence parallelGroupByCount(String groupField) throws Exception {
+  private Sequence parallelGroupByCount(final String groupField, final long targetPathNodeKey) throws Exception {
     final int fieldKey = resolveFieldKey(groupField);
     if (fieldKey < 0) return new DArray(List.of());
 
-    long maxNodeKey = getMaxNodeKey();
+    final long maxNodeKey = getMaxNodeKey();
     long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     // Per-page work on the StringRegion fast path is tiny (one 64-bit unaligned
     // load + shift + mask + array store per record). At 20 threads on a 10K-page
@@ -1257,7 +1574,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // dict-id (8-entry bump per page) then emit one aggregated add per
         // local dict id (8 hash inserts/page instead of 90). Saves the per-
         // record byte-hash + insert that the slot-walk path pays.
-        final StringRegion.Header sh = kv.getStringRegionHeader();
+        //
+        // Disabled when a path-scope is active: the StringRegion tag range
+        // groups values by nameKey only; a page that holds the same field
+        // name under two different pathNodeKeys would double-count. The
+        // slot-walk path below applies the per-slot pathNodeKey filter.
+        final StringRegion.Header sh = targetPathNodeKey == -1L ? kv.getStringRegionHeader() : null;
         if (sh == null) {
           if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesNoHeader++;
         } else {
@@ -1298,7 +1620,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         for (final int slot : matches) {
           if (DIAGNOSTICS_ENABLED) diag.recordsSlowPath++;
 
-          final long firstChildKey = kv.getObjectKeyFirstChildKeyFromSlot(slot, base + slot);
+          final long objectKeyNodeKey = base + slot;
+          // Path-scope filter: reject same-name slots at a different tree
+          // depth. No-op when targetPathNodeKey is -1 (unresolvable path).
+          if (targetPathNodeKey != -1L
+              && kv.getObjectKeyPathNodeKeyFromSlot(slot, objectKeyNodeKey) != targetPathNodeKey) {
+            continue;
+          }
+          final long firstChildKey = kv.getObjectKeyFirstChildKeyFromSlot(slot, objectKeyNodeKey);
           final long childPk = firstChildKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
           if (childPk == pk) {
             final int valueSlot = (int) (firstChildKey & SLOT_MASK);

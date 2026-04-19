@@ -1672,6 +1672,46 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Read the pathNodeKey stored on an OBJECT_KEY slot — the fully-qualified
+   * path identifier pointing into the PathSummary. Decoded directly off the
+   * slotted page without cursor movement or singleton binding, so the
+   * vectorized scan can filter matched slots by scope in O(1) per slot.
+   *
+   * <p>Handles both the dense OBJECT_KEY encoding (kind 26, field index
+   * {@link NodeFieldLayout#OBJKEY_PATH_NODE_KEY}) and the PAX-mode variant
+   * (kind 126, field index {@link NodeFieldLayout#OBJKEY_PAX_PATH_NODE_KEY})
+   * where the nameKey column has been hoisted into an external region.
+   *
+   * <p>Caller must verify the slot holds an OBJECT_KEY (kind 26 or 126); no
+   * validation is performed to keep the per-slot cost down to a single byte
+   * read for the offset and a varint decode for the value.
+   *
+   * @param slotNumber       the slot index (assumed populated + OBJECT_KEY kind)
+   * @param objectKeyNodeKey the slot's nodeKey (base + slotNumber) — the
+   *                         delta-decoder reconstructs pathNodeKey against it
+   * @return the pathNodeKey; {@code 0L} if the slot has no path statistics
+   *         (resource opened without path summary)
+   */
+  public long getObjectKeyPathNodeKeyFromSlot(final int slotNumber, final long objectKeyNodeKey) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+    final int fieldIdx;
+    final int fieldCount;
+    if (kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID) {
+      fieldIdx = NodeFieldLayout.OBJKEY_PAX_PATH_NODE_KEY;
+      fieldCount = NodeFieldLayout.OBJECT_KEY_PAX_FIELD_COUNT;
+    } else {
+      fieldIdx = NodeFieldLayout.OBJKEY_PATH_NODE_KEY;
+      fieldCount = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+    }
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIdx) & 0xFF;
+    final long dataStart = recordBase + 1 + fieldCount;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, objectKeyNodeKey);
+  }
+
+  /**
    * Decode a numeric value from an OBJECT_NUMBER_VALUE slot directly off the
    * slotted page — no moveTo, no singleton binding, no Number boxing. Returns
    * {@code Long.MIN_VALUE} if the payload's number type isn't Integer or Long
