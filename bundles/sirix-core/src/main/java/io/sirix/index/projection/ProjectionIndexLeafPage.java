@@ -71,36 +71,33 @@ import java.nio.charset.StandardCharsets;
  *
  * <h2>Versioning &amp; storage placement</h2>
  *
- * Follows the same pattern Sirix uses for large CAS bitmap values: this
- * class is promoted to a first-class Sirix {@link io.sirix.page.interfaces.Page},
- * and a projection index's HOT entry value is a
- * {@link io.sirix.index.hot.ChunkDirectory} whose sorted
- * {@link io.sirix.page.PageReference}s point to one such chunk per
- * 1024-row range.
+ * Each serialised leaf byte[] is stored as one entry in a
+ * {@link io.sirix.page.HOTLeafPage} of the projection index's HOT tree,
+ * keyed by a synthetic chunk-id. {@code HOTLeafPage} is already a
+ * versioned {@code KeyValuePage} — Sirix's
+ * {@link io.sirix.settings.VersioningType#combineRecordPages} merge
+ * writes only the <strong>modified slots</strong> of a given
+ * HOTLeafPage per revision; untouched slots alias the prior revision's
+ * bytes via the standard chain walk. No new {@code PageKind}, no
+ * {@link io.sirix.index.hot.ChunkDirectory} indirection — the HOT leaf
+ * <em>is</em> the directory.
  *
- * <p>Sub-entry versioning follows from the standard page-reference CoW
- * scheme: a commit that modifies rows in chunk <em>N</em> writes a new
- * {@code ProjectionIndexLeafPage} page at a fresh offset, its
- * {@code PageReference} replaces slot <em>N</em> in the
- * {@code ChunkDirectory}, and every other chunk's reference stays
- * verbatim — those pages are <strong>aliased on disk</strong>, zero
- * duplicate bytes for untouched chunks.
+ * <p>Concrete on-disk cost per commit:
  *
- * <p>Per-commit storage cost therefore scales with the number of
- * chunks actually touched, not with total index size. Append-only
- * workloads pay one new chunk page per flush of the tail leaf; a full
- * rewrite of a random row in a frozen chunk costs exactly one chunk
- * page plus the small directory update. No projection-relevant change
- * in a commit → zero bytes emitted.
+ * <ul>
+ *   <li>No projection-relevant rows changed → zero bytes.</li>
+ *   <li>Rows in chunk <em>N</em> changed → only slot <em>N</em> of that
+ *       HOTLeafPage gets re-serialised; slots of untouched chunks alias
+ *       the previous revision.</li>
+ *   <li>Large leaf values (~20 KB) that exceed the inline-slot
+ *       threshold transparently spill to Sirix's overflow-record
+ *       mechanism: a separate CoW-versioned page referenced from the
+ *       slot — same effect as a dedicated chunk page, no new code.</li>
+ * </ul>
  *
- * <p>See {@link io.sirix.index.hot.ChunkDirectory} and
- * {@link io.sirix.page.BitmapChunkPage} for the analogous mechanism
- * used by CAS indexes.
- *
- * <p><b>Status</b>: the first-class Page + ChunkDirectory wiring lands
- * in task #57. Until then, leaves are produced as opaque byte[]s by
- * {@link #serialize} and consumed by the byte-scan directly — no
- * inter-revision sharing yet.
+ * <p>Row-level sharing within a single 1024-row leaf (a random row
+ * update still rewrites the whole 20 KB slot) is a separate future
+ * refinement — gated on observing real-world waste. See task #57.
  */
 public final class ProjectionIndexLeafPage {
 
