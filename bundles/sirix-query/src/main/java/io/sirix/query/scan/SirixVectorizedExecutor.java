@@ -1843,7 +1843,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       for (Future<?> f : futures) f.get();
     } catch (Exception e) {
-      throw new RuntimeException("Parallel scan failed", e);
+      // Surface the root cause's message in the RuntimeException so call-site
+      // logs ({@code QueryException.getMessage()}) show what actually failed
+      // instead of the generic "Parallel scan failed" wrapper. The original
+      // exception stays as cause so full stack traces are preserved.
+      Throwable cause = e.getCause() != null ? e.getCause() : e;
+      while (cause.getCause() != null && cause.getCause() != cause) {
+        cause = cause.getCause();
+      }
+      final String msg = cause.getClass().getSimpleName() + ": " + cause.getMessage();
+      throw new RuntimeException("Parallel scan failed — " + msg, e);
     }
   }
 }
