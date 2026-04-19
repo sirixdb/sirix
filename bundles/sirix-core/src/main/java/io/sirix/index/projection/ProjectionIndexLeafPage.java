@@ -3,6 +3,11 @@
  */
 package io.sirix.index.projection;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
+
 /**
  * Primitive-column leaf page for a projection index. Each page holds up to
  * {@link #MAX_ROWS} contiguous record projections under a single declared
@@ -220,4 +225,219 @@ public final class ProjectionIndexLeafPage {
   public byte[][] stringDictionary(final int column) {
     return stringDicts[column];
   }
+
+  /** Ensure the per-column primitive arrays are materialised. Idempotent. */
+  private void ensureCapacity() {
+    if (recordKeys == null) {
+      recordKeys = new long[MAX_ROWS];
+      for (int c = 0; c < columnCount; c++) {
+        switch (columnKinds[c]) {
+          case COLUMN_KIND_NUMERIC_LONG -> numericCols[c] = new long[MAX_ROWS];
+          case COLUMN_KIND_BOOLEAN -> booleanCols[c] = new long[(MAX_ROWS + 63) >>> 6];
+          case COLUMN_KIND_STRING_DICT -> {
+            stringDictIdCols[c] = new int[MAX_ROWS];
+            stringDicts[c] = new byte[16][];  // grow on demand in appendString
+          }
+          default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
+        }
+      }
+    }
+  }
+
+  /**
+   * Append one record projection. The three varargs-shaped arrays are
+   * index-aligned with the page's column kinds: {@code longValues[c]}
+   * populated iff kind is NUMERIC_LONG, {@code boolValues[c]} iff BOOLEAN,
+   * {@code stringValues[c]} iff STRING_DICT. Mismatches throw — the
+   * builder is trusted to extract per the IndexDef's declared types.
+   *
+   * @return {@code true} if the row was appended, {@code false} if the
+   *         page is already at {@link #MAX_ROWS} capacity (caller opens a
+   *         fresh leaf and retries).
+   */
+  public boolean appendRow(final long recordKey,
+      final long[] longValues, final boolean[] boolValues, final String[] stringValues) {
+    if (rowCount == MAX_ROWS) return false;
+    ensureCapacity();
+    final int row = rowCount;
+    recordKeys[row] = recordKey;
+    if (recordKey < firstRecordKey) firstRecordKey = recordKey;
+    if (recordKey > lastRecordKey) lastRecordKey = recordKey;
+    for (int c = 0; c < columnCount; c++) {
+      switch (columnKinds[c]) {
+        case COLUMN_KIND_NUMERIC_LONG -> {
+          final long v = longValues[c];
+          numericCols[c][row] = v;
+          if (v < columnMin[c]) columnMin[c] = v;
+          if (v > columnMax[c]) columnMax[c] = v;
+        }
+        case COLUMN_KIND_BOOLEAN -> {
+          if (boolValues[c]) {
+            booleanCols[c][row >>> 6] |= 1L << (row & 63);
+          }
+        }
+        case COLUMN_KIND_STRING_DICT -> stringDictIdCols[c][row] = appendString(c, stringValues[c]);
+        default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
+      }
+    }
+    rowCount++;
+    return true;
+  }
+
+  /**
+   * Intern {@code value} into column {@code c}'s per-leaf dictionary and
+   * return its dict-id. Dictionary is append-only within one leaf; grown
+   * amortised. Dict-id fits in the {@code dictIdBitWidth} computed at
+   * serialize time.
+   */
+  private int appendString(final int c, final String value) {
+    final byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+    final byte[][] dict = stringDicts[c];
+    // Linear probe for small dictionaries is cheaper than HashMap bookkeeping;
+    // at the typical analytical-column cardinality (8-50) this is 1-2 cache lines.
+    int size = 0;
+    for (int i = 0; i < dict.length; i++) {
+      if (dict[i] == null) { size = i; break; }
+      size = i + 1;
+      if (bytesEqual(dict[i], bytes)) return i;
+    }
+    if (size == dict.length) {
+      final byte[][] grown = new byte[dict.length << 1][];
+      System.arraycopy(dict, 0, grown, 0, dict.length);
+      stringDicts[c] = grown;
+    }
+    stringDicts[c][size] = bytes;
+    if (size < columnMin[c]) columnMin[c] = size;
+    if (size > columnMax[c]) columnMax[c] = size;
+    return size;
+  }
+
+  private static boolean bytesEqual(final byte[] a, final byte[] b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) if (a[i] != b[i]) return false;
+    return true;
+  }
+
+  /**
+   * Parse a serialised leaf byte[] back into a live
+   * {@link ProjectionIndexLeafPage}. Inverse of {@link #serialize}.
+   */
+  public static ProjectionIndexLeafPage deserialize(final byte[] payload) {
+    final ByteBuffer bb = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
+    final int rowCount = bb.getInt();
+    final int columnCount = bb.getInt();
+    final long firstRecordKey = bb.getLong();
+    final long lastRecordKey = bb.getLong();
+    final byte[] kinds = new byte[columnCount];
+    bb.get(kinds);
+    final ProjectionIndexLeafPage page = new ProjectionIndexLeafPage(kinds);
+    page.rowCount = rowCount;
+    page.firstRecordKey = firstRecordKey;
+    page.lastRecordKey = lastRecordKey;
+    if (rowCount == 0) return page;
+    page.ensureCapacity();
+    for (int i = 0; i < rowCount; i++) page.recordKeys[i] = bb.getLong();
+    for (int c = 0; c < columnCount; c++) {
+      page.columnMin[c] = bb.getLong();
+      page.columnMax[c] = bb.getLong();
+      switch (kinds[c]) {
+        case COLUMN_KIND_NUMERIC_LONG -> {
+          final long[] col = page.numericCols[c];
+          for (int i = 0; i < rowCount; i++) col[i] = bb.getLong();
+        }
+        case COLUMN_KIND_BOOLEAN -> {
+          final int wordCount = (rowCount + 63) >>> 6;
+          final long[] bits = page.booleanCols[c];
+          for (int i = 0; i < wordCount; i++) bits[i] = bb.getLong();
+        }
+        case COLUMN_KIND_STRING_DICT -> {
+          final int dictSize = bb.getInt();
+          final int[] lengths = new int[dictSize];
+          for (int i = 0; i < dictSize; i++) lengths[i] = bb.getInt();
+          final byte[][] dict = new byte[Math.max(16, dictSize)][];
+          for (int i = 0; i < dictSize; i++) {
+            dict[i] = new byte[lengths[i]];
+            bb.get(dict[i]);
+          }
+          page.stringDicts[c] = dict;
+          final int[] ids = page.stringDictIdCols[c];
+          for (int i = 0; i < rowCount; i++) ids[i] = bb.getInt();
+        }
+        default -> throw new IllegalStateException("Unknown column kind " + kinds[c]);
+      }
+    }
+    return page;
+  }
+
+  /**
+   * Serialise the current page state to a byte[] matching the on-disk
+   * shape documented in the class javadoc. Zero-allocation on the hot
+   * scan path is preserved by the reader — ser is a cold path used only
+   * during commit.
+   */
+  public byte[] serialize() {
+    final ByteArrayOutputStream baos = new ByteArrayOutputStream(4096);
+    final ByteBuffer header = ByteBuffer.allocate(8 + 16 + columnCount).order(ByteOrder.LITTLE_ENDIAN);
+    header.putInt(rowCount);
+    header.putInt(columnCount);
+    header.putLong(firstRecordKey);
+    header.putLong(lastRecordKey);
+    for (int c = 0; c < columnCount; c++) header.put(columnKinds[c]);
+    baos.write(header.array(), 0, header.position());
+    if (rowCount == 0) {
+      // Empty page — no row or column data to append.
+      return baos.toByteArray();
+    }
+    // recordKeys
+    final ByteBuffer recBuf = ByteBuffer.allocate(rowCount * 8).order(ByteOrder.LITTLE_ENDIAN);
+    for (int i = 0; i < rowCount; i++) recBuf.putLong(recordKeys[i]);
+    baos.write(recBuf.array(), 0, recBuf.position());
+    // per-column
+    for (int c = 0; c < columnCount; c++) {
+      final ByteBuffer colHdr = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
+      colHdr.putLong(columnMin[c]);
+      colHdr.putLong(columnMax[c]);
+      baos.write(colHdr.array(), 0, colHdr.position());
+      switch (columnKinds[c]) {
+        case COLUMN_KIND_NUMERIC_LONG -> {
+          final ByteBuffer b = ByteBuffer.allocate(rowCount * 8).order(ByteOrder.LITTLE_ENDIAN);
+          final long[] col = numericCols[c];
+          for (int i = 0; i < rowCount; i++) b.putLong(col[i]);
+          baos.write(b.array(), 0, b.position());
+        }
+        case COLUMN_KIND_BOOLEAN -> {
+          final int wordCount = (rowCount + 63) >>> 6;
+          final ByteBuffer b = ByteBuffer.allocate(wordCount * 8).order(ByteOrder.LITTLE_ENDIAN);
+          final long[] bits = booleanCols[c];
+          for (int i = 0; i < wordCount; i++) b.putLong(bits[i]);
+          baos.write(b.array(), 0, b.position());
+        }
+        case COLUMN_KIND_STRING_DICT -> {
+          final byte[][] dict = stringDicts[c];
+          int dictSize = 0;
+          while (dictSize < dict.length && dict[dictSize] != null) dictSize++;
+          final ByteBuffer dh = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(dictSize);
+          baos.write(dh.array(), 0, dh.position());
+          final ByteBuffer dl = ByteBuffer.allocate(dictSize * 4).order(ByteOrder.LITTLE_ENDIAN);
+          int totalBytes = 0;
+          for (int i = 0; i < dictSize; i++) {
+            dl.putInt(dict[i].length);
+            totalBytes += dict[i].length;
+          }
+          baos.write(dl.array(), 0, dl.position());
+          for (int i = 0; i < dictSize; i++) {
+            baos.write(dict[i], 0, dict[i].length);
+          }
+          // dict-ids — packed 32-bit per entry for now; bit-packing is a later codec refinement.
+          final ByteBuffer idBuf = ByteBuffer.allocate(rowCount * 4).order(ByteOrder.LITTLE_ENDIAN);
+          final int[] ids = stringDictIdCols[c];
+          for (int i = 0; i < rowCount; i++) idBuf.putInt(ids[i]);
+          baos.write(idBuf.array(), 0, idBuf.position());
+        }
+        default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
+      }
+    }
+    return baos.toByteArray();
+  }
+
 }
