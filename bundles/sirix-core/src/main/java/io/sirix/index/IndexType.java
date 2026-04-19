@@ -54,7 +54,20 @@ public enum IndexType {
   /**
    * Vector index for nearest-neighbor search on embeddings.
    */
-  VECTOR((byte) 9);
+  VECTOR((byte) 9),
+
+  /**
+   * Projection index — user-declared covering index over a declared root path
+   * and a list of sub-field paths. Stored as a HOT sub-tree whose leaf pages
+   * are column-chunked: each leaf holds N contiguous record projections as
+   * parallel arrays (one per declared field plus a {@code recordKey} column),
+   * enabling SIMD-friendly multi-field filter scans without the OBJECT_KEY
+   * indirection that the generic predicate-count path pays. Created / dropped
+   * at any revision via the same index-lifecycle machinery used by CAS,
+   * PATH, and NAME indexes; participates in the standard CoW-versioned HOT
+   * chain so old revisions remain readable.
+   */
+  PROJECTION((byte) 10);
 
   /**
    * Unique ID.

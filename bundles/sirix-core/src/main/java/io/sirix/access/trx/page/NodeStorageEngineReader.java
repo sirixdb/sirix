@@ -1540,6 +1540,8 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case PATH_SUMMARY -> getPathSummaryPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
       case DEWEYID_TO_RECORDID -> getDeweyIDPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages();
       case VECTOR -> getVectorPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
+      case PROJECTION -> throw new UnsupportedOperationException(
+          "PROJECTION index max-level lookup not yet implemented (task #23)");
     };
 
     return maxLevel;
