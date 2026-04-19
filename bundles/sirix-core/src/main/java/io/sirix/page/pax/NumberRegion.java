@@ -15,6 +15,8 @@ import java.nio.ByteOrder;
  * <pre>
  * byte   encodingKind         // 0 = PLAIN_LONG, 1 = BIT_PACKED  (legacy, no per-tag zone maps)
  *                             // 2 = PLAIN_LONG_ZM, 3 = BIT_PACKED_ZM (with per-tag zone maps)
+ * byte   tagKind              // 0 = nameKey-tagged (compression-only)
+ *                             // 1 = pathNodeKey-tagged (SIMD-safe for path-scoped scans)
  * int    count                // total values across all tags
  * long   valueMin             // zone-map lower bound (across all tags)
  * long   valueMax             // zone-map upper bound
@@ -48,6 +50,23 @@ public final class NumberRegion {
   /** BIT_PACKED with per-tag zone maps appended (tagMin[], tagMax[]). */
   public static final byte ENC_BIT_PACKED_ZM = 3;
 
+  /**
+   * {@code tagKind} classifier for the region's tag dictionary. Determines the
+   * semantic interpretation of {@link Header#dict}:
+   *
+   * <ul>
+   *   <li>{@link #TAG_KIND_NAME} — tags are parent OBJECT_KEY nameKeys
+   *       (compression-only; not SIMD-safe when the same nameKey sits under
+   *       multiple pathNodeKeys on one page).</li>
+   *   <li>{@link #TAG_KIND_PATH_NODE} — tags are parent OBJECT_KEY pathNodeKeys
+   *       truncated to int. SIMD-safe for path-scoped scans: a successful
+   *       {@link #lookupTag(Header, int)} implies every value in the tag's
+   *       range belongs to the exact requested pathNodeKey.</li>
+   * </ul>
+   */
+  public static final byte TAG_KIND_NAME = 0;
+  public static final byte TAG_KIND_PATH_NODE = 1;
+
   /** @return true if the encoding kind includes per-tag zone-map arrays. */
   public static boolean hasZoneMap(final byte encodingKind) {
     return encodingKind >= ENC_PLAIN_LONG_ZM;
@@ -65,6 +84,8 @@ public final class NumberRegion {
   /** Parsed header. Reused across calls to avoid allocation. */
   public static final class Header {
     public byte encodingKind;
+    /** Tag dictionary classification; see {@link #TAG_KIND_NAME}/{@link #TAG_KIND_PATH_NODE}. */
+    public byte tagKind;
     public int count;
     public long valueMin;
     public long valueMax;
@@ -84,6 +105,7 @@ public final class NumberRegion {
     public Header parseInto(final byte[] payload) {
       final ByteBuffer bb = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
       encodingKind = bb.get();
+      tagKind = bb.get();
       count = bb.getInt();
       valueMin = bb.getLong();
       valueMax = bb.getLong();
@@ -124,17 +146,31 @@ public final class NumberRegion {
   // ───────────────────────────────────────────────────────────── encoding
 
   /**
-   * Encode parallel arrays {@code values[i]} and {@code parentNameKeys[i]} into
-   * a tag-sorted payload. The arrays may be longer than {@code count}; only the
-   * prefix is consumed.
+   * Legacy 3-arg entry point. Encodes with {@link #TAG_KIND_NAME}: dict holds
+   * parent OBJECT_KEY nameKeys. Kept for test and callers that don't have
+   * pathNodeKey information.
    */
-  public static byte[] encode(final long[] values, final int[] parentNameKeys, final int count) {
-    // Build parent-nameKey dictionary (in-place, grow if needed)
+  public static byte[] encode(final long[] values, final int[] parentTags, final int count) {
+    return encode(values, parentTags, count, TAG_KIND_NAME);
+  }
+
+  /**
+   * Encode parallel arrays {@code values[i]} and {@code parentTags[i]} into a
+   * tag-sorted payload. {@code tagKind} declares the semantic interpretation
+   * of {@code parentTags} so downstream scan operators can decide whether a
+   * tag match is safe for path-scoped queries.
+   *
+   * <p>The arrays may be longer than {@code count}; only the prefix is
+   * consumed.
+   */
+  public static byte[] encode(final long[] values, final int[] parentTags, final int count,
+      final byte tagKind) {
+    // Build parent-tag dictionary (in-place, grow if needed)
     int[] dict = new int[count == 0 ? 1 : Math.min(count, 16)];
     int dictSize = 0;
     final int[] localIds = count == 0 ? new int[0] : new int[count];
     for (int i = 0; i < count; i++) {
-      final int nk = parentNameKeys[i];
+      final int nk = parentTags[i];
       int found = -1;
       for (int j = 0; j < dictSize; j++) {
         if (dict[j] == nk) { found = j; break; }
@@ -203,7 +239,7 @@ public final class NumberRegion {
         ? (byte) Math.max(1, 64 - Long.numberOfLeadingZeros(spread))
         : (byte) 64;
 
-    final int headerBytes = 1 + 4 + 8 + 8 + 8 + 1 + 4
+    final int headerBytes = 1 + 1 + 4 + 8 + 8 + 8 + 1 + 4
         + (4 * dictSize)   // dict
         + (4 * dictSize)   // tagStart
         + (4 * dictSize)   // tagCount
@@ -213,6 +249,7 @@ public final class NumberRegion {
     final byte[] out = new byte[headerBytes + valueBytes];
     final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
     bb.put(encodingKind);
+    bb.put(tagKind);
     bb.putInt(count);
     bb.putLong(min);
     bb.putLong(max);
@@ -247,13 +284,16 @@ public final class NumberRegion {
   }
 
   /**
-   * Local tag id for a parent nameKey, or {@code -1} when absent. O(dictSize).
+   * Local tag id for a parent tag value, or {@code -1} when absent. O(dictSize).
+   * The tag value is interpreted according to {@link Header#tagKind}: nameKey
+   * for {@link #TAG_KIND_NAME}, pathNodeKey (int-truncated) for
+   * {@link #TAG_KIND_PATH_NODE}.
    */
-  public static int lookupTag(final Header h, final int nameKey) {
+  public static int lookupTag(final Header h, final int tag) {
     final int[] dict = h.dict;
     if (dict == null) return -1;
     for (int i = 0; i < h.dictSize; i++) {
-      if (dict[i] == nameKey) return i;
+      if (dict[i] == tag) return i;
     }
     return -1;
   }

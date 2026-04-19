@@ -2739,8 +2739,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final int numberKindId = OBJECT_NUMBER_VALUE_KIND_ID;
     final long pageKeyBase = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
     long[] valBuf = new long[64];
-    int[] parBuf = new int[64];
+    int[] nameBuf = new int[64];
+    int[] pathBuf = new int[64];
     int count = 0;
+    boolean allPathNodeKeysValid = resourceConfig != null && resourceConfig.withPathSummary;
     for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
       long word = PageLayout.getBitmapWord(sp, w);
       final int baseSlot = w << 6;
@@ -2753,22 +2755,39 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
             final long valueNodeKey = pageKeyBase + slot;
             final long parentKey = getObjectNumberValueParentKeyFromSlot(slot, valueNodeKey);
             int parentNameKey = -1;
+            int parentPathNodeKeyInt = -1;
             if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == recordPageKey) {
               final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
               if (isObjectKeyKindId(PageLayout.getDirNodeKindId(sp, parentSlot))) {
                 parentNameKey = getObjectKeyNameKeyFromSlot(parentSlot);
+                if (allPathNodeKeysValid) {
+                  final long pnk = getObjectKeyPathNodeKeyFromSlot(parentSlot, parentKey);
+                  if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                    parentPathNodeKeyInt = (int) pnk;
+                  } else {
+                    allPathNodeKeysValid = false;
+                  }
+                }
+              } else {
+                allPathNodeKeysValid = false;
               }
+            } else {
+              allPathNodeKeysValid = false;
             }
             if (count == valBuf.length) {
               final long[] grownV = new long[valBuf.length << 1];
               System.arraycopy(valBuf, 0, grownV, 0, count);
               valBuf = grownV;
-              final int[] grownP = new int[parBuf.length << 1];
-              System.arraycopy(parBuf, 0, grownP, 0, count);
-              parBuf = grownP;
+              final int[] grownN = new int[nameBuf.length << 1];
+              System.arraycopy(nameBuf, 0, grownN, 0, count);
+              nameBuf = grownN;
+              final int[] grownPath = new int[pathBuf.length << 1];
+              System.arraycopy(pathBuf, 0, grownPath, 0, count);
+              pathBuf = grownPath;
             }
             valBuf[count] = value;
-            parBuf[count] = parentNameKey;
+            nameBuf[count] = parentNameKey;
+            pathBuf[count] = parentPathNodeKeyInt;
             count++;
           }
         }
@@ -2778,7 +2797,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     if (count == 0) {
       return null;
     }
-    final byte[] payload = NumberRegion.encode(valBuf, parBuf, count);
+    final byte tagKind = allPathNodeKeysValid ? NumberRegion.TAG_KIND_PATH_NODE : NumberRegion.TAG_KIND_NAME;
+    final int[] tagBuf = allPathNodeKeysValid ? pathBuf : nameBuf;
+    final byte[] payload = NumberRegion.encode(valBuf, tagBuf, count, tagKind);
     // Preserve any existing regionTable (e.g. KIND_OBJECT_KEY_NAMEKEY) — overwriting
     // with a fresh RegionTable would silently drop other regions on this page.
     RegionTable table = this.regionTable;
@@ -2898,8 +2919,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       return null;
     }
     final long pageKeyBase = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
-    final StringRegion.Encoder enc =
-        new StringRegion.Encoder();
+    final boolean withPathSummary = resourceConfig != null && resourceConfig.withPathSummary;
+    // Build two encoders in parallel so the final tagKind decision is a pure
+    // pick — avoids a second pass. Path-tagged encoder only gets populated
+    // while {@code allPathNodeKeysValid} holds.
+    final StringRegion.Encoder nameEnc = new StringRegion.Encoder();
+    final StringRegion.Encoder pathEnc = withPathSummary ? new StringRegion.Encoder() : null;
+    boolean allPathNodeKeysValid = withPathSummary;
     int count = 0;
     for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
       long word = PageLayout.getBitmapWord(sp, w);
@@ -2916,20 +2942,41 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         final long valueNodeKey = pageKeyBase + slot;
         final long parentKey = getObjectStringValueParentKeyFromSlot(slot, valueNodeKey);
         int parentNameKey = -1;
+        int parentPathNodeKeyInt = -1;
         if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == recordPageKey) {
           final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
           if (isObjectKeyKindId(PageLayout.getDirNodeKindId(sp, parentSlot))) {
             parentNameKey = getObjectKeyNameKeyFromSlot(parentSlot);
+            if (allPathNodeKeysValid) {
+              final long pnk = getObjectKeyPathNodeKeyFromSlot(parentSlot, parentKey);
+              if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                parentPathNodeKeyInt = (int) pnk;
+              } else {
+                allPathNodeKeysValid = false;
+              }
+            }
+          } else {
+            allPathNodeKeysValid = false;
           }
+        } else {
+          allPathNodeKeysValid = false;
         }
-        enc.addValue(parentNameKey, value);
+        nameEnc.addValue(parentNameKey, value);
+        if (pathEnc != null && allPathNodeKeysValid) {
+          pathEnc.addValue(parentPathNodeKeyInt, value);
+        }
         count++;
       }
     }
     if (count == 0) {
       return null;
     }
-    final byte[] payload = enc.finish();
+    final byte[] payload;
+    if (allPathNodeKeysValid && pathEnc != null) {
+      payload = pathEnc.finish(StringRegion.TAG_KIND_PATH_NODE);
+    } else {
+      payload = nameEnc.finish(StringRegion.TAG_KIND_NAME);
+    }
     RegionTable table = this.regionTable;
     if (table == null) {
       table = new RegionTable();

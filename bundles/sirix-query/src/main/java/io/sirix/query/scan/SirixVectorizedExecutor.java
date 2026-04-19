@@ -1409,15 +1409,29 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // per-tag directory. SIMD aggregate kernel computes sum/min/max in one
         // vector pass — single memory sweep, hardware-pipelined reductions.
         //
-        // Disabled when a path-scope is active: the NumberRegion's tag range
-        // groups values by nameKey only, so if the page carries values for
-        // the same field name under different pathNodeKeys the SIMD kernel
-        // would over-count. Fall through to the slot-walk path, which can
-        // filter per-slot by pathNodeKey.
-        if (PAX_FAST_PATH_ENABLED && targetPathNodeKey == -1L) {
+        // Two dispatches:
+        //   * No path-scope (targetPathNodeKey == -1)  — lookup by nameKey.
+        //   * Path-scope + region is pathNodeKey-tagged — lookup by pathNodeKey
+        //     (correctness-safe: a tag hit implies every value in range belongs
+        //     to the requested pathNodeKey, so the SIMD kernel cannot over-count).
+        //   * Path-scope + region is nameKey-tagged — skip the SIMD path, fall
+        //     through to the slot-walk which filters per-slot by pathNodeKey.
+        if (PAX_FAST_PATH_ENABLED) {
           final NumberRegion.Header hdr = kv.getNumberRegionHeader();
           if (hdr != null) {
-            final int tag = NumberRegion.lookupTag(hdr, fieldKey);
+            final int simdLookupTag;
+            if (targetPathNodeKey == -1L) {
+              simdLookupTag = fieldKey;
+            } else if (hdr.tagKind == NumberRegion.TAG_KIND_PATH_NODE
+                && targetPathNodeKey > 0L
+                && targetPathNodeKey <= (long) Integer.MAX_VALUE) {
+              simdLookupTag = (int) targetPathNodeKey;
+            } else {
+              simdLookupTag = Integer.MIN_VALUE; // sentinel — no tag will match
+            }
+            final int tag = simdLookupTag == Integer.MIN_VALUE
+                ? -1
+                : NumberRegion.lookupTag(hdr, simdLookupTag);
             if (tag >= 0) {
               final int start = hdr.tagStart[tag];
               final int tagN = hdr.tagCount[tag];

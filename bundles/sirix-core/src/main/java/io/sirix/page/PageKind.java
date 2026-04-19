@@ -345,7 +345,7 @@ public enum PageKind {
       // (OBJECT_NUMBER_VALUE slot values + parent OBJECT_KEY nameKeys) so the
       // vectorized scan path can filter by logical field in a tight loop,
       // skipping both moveTo and varint decode.
-      final RegionTable regionTable = buildRegionTable(keyValueLeafPage, slottedPage);
+      final RegionTable regionTable = buildRegionTable(keyValueLeafPage, slottedPage, resourceConfig);
       if (regionTable == null) {
         sink.writeInt(0);
       } else {
@@ -400,9 +400,10 @@ public enum PageKind {
      * path-summary and index pages).
      */
     private static RegionTable buildRegionTable(final KeyValueLeafPage page,
-        final MemorySegment slottedPage) {
+        final MemorySegment slottedPage, final ResourceConfiguration resourceConfig) {
       final long[] valBuf = NUMBER_VALUE_SCRATCH.get();
       final int[] parBuf = NUMBER_PARENT_SCRATCH.get();
+      final int[] numberPathBuf = NUMBER_PATH_SCRATCH.get();
       final int[] okNameKeys = OBJECT_KEY_NAMEKEY_SCRATCH.get();
       final int[] okSlots = OBJECT_KEY_SLOT_SCRATCH.get();
       int count = 0;
@@ -411,11 +412,28 @@ public enum PageKind {
       final int stringKindId = KeyValueLeafPage.objectStringValueKindId();
       final long pageKeyBase = page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT;
 
+      // Path-tagged region emission is gated by the resource config's path-summary
+      // flag — without it the pathNodeKey column is absent, so nameKey is the
+      // only tag we can derive.
+      final boolean withPathSummary = resourceConfig != null && resourceConfig.withPathSummary;
+      // Both flags flip to false permanently on the first parent-outside-page /
+      // missing-pathNodeKey observation, forcing fallback to TAG_KIND_NAME.
+      boolean numberAllPathNodeKeysValid = withPathSummary;
+      boolean stringAllPathNodeKeysValid = withPathSummary;
+
       // Reuse a per-thread StringRegion.Encoder so the common path (every
       // KVL page in a large ingest) allocates nothing for the encoder itself.
       // It's reset() lazily — only if we actually encounter a string slot,
       // keeping pages without OBJECT_STRING_VALUE slots at zero touch.
-      StringRegion.Encoder stringEnc = null;
+      //
+      // We may need TWO encoders: {@code stringEncName} for the legacy
+      // nameKey-tagged fallback, and {@code stringEncPath} for the SIMD-safe
+      // pathNodeKey-tagged variant. We populate both in lockstep until we
+      // observe the first invalid pathNodeKey on the page; after that
+      // {@code stringEncPath} is no longer touched and we keep going with
+      // nameKey only. The final pick is a single-if branch.
+      StringRegion.Encoder stringEncName = null;
+      StringRegion.Encoder stringEncPath = null;
       int stringCount = 0;
 
       for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
@@ -435,14 +453,28 @@ public enum PageKind {
               final long valueNodeKey = pageKeyBase + slot;
               final long parentKey = page.getObjectNumberValueParentKeyFromSlot(slot, valueNodeKey);
               int parentNameKey = -1;
+              int parentPathNodeKeyInt = -1;
               if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == page.getPageKey()) {
                 final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
                 if (KeyValueLeafPage.isObjectKeyKindId(PageLayout.getDirNodeKindId(slottedPage, parentSlot))) {
                   parentNameKey = page.getObjectKeyNameKeyFromSlot(parentSlot);
+                  if (numberAllPathNodeKeysValid) {
+                    final long pnk = page.getObjectKeyPathNodeKeyFromSlot(parentSlot, parentKey);
+                    if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                      parentPathNodeKeyInt = (int) pnk;
+                    } else {
+                      numberAllPathNodeKeysValid = false;
+                    }
+                  }
+                } else {
+                  numberAllPathNodeKeysValid = false;
                 }
+              } else {
+                numberAllPathNodeKeysValid = false;
               }
               valBuf[count] = value;
               parBuf[count] = parentNameKey;
+              numberPathBuf[count] = parentPathNodeKeyInt;
               count++;
             }
           } else if (kindId == stringKindId) {
@@ -451,17 +483,37 @@ public enum PageKind {
               final long valueNodeKey = pageKeyBase + slot;
               final long parentKey = page.getObjectStringValueParentKeyFromSlot(slot, valueNodeKey);
               int parentNameKey = -1;
+              int parentPathNodeKeyInt = -1;
               if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == page.getPageKey()) {
                 final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
                 if (KeyValueLeafPage.isObjectKeyKindId(PageLayout.getDirNodeKindId(slottedPage, parentSlot))) {
                   parentNameKey = page.getObjectKeyNameKeyFromSlot(parentSlot);
+                  if (stringAllPathNodeKeysValid) {
+                    final long pnk = page.getObjectKeyPathNodeKeyFromSlot(parentSlot, parentKey);
+                    if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                      parentPathNodeKeyInt = (int) pnk;
+                    } else {
+                      stringAllPathNodeKeysValid = false;
+                    }
+                  }
+                } else {
+                  stringAllPathNodeKeysValid = false;
+                }
+              } else {
+                stringAllPathNodeKeysValid = false;
+              }
+              if (stringEncName == null) {
+                stringEncName = STRING_REGION_ENCODER.get();
+                stringEncName.reset();
+                if (withPathSummary) {
+                  stringEncPath = STRING_REGION_ENCODER_PATH.get();
+                  stringEncPath.reset();
                 }
               }
-              if (stringEnc == null) {
-                stringEnc = STRING_REGION_ENCODER.get();
-                stringEnc.reset();
+              stringEncName.addValue(parentNameKey, value);
+              if (stringEncPath != null && stringAllPathNodeKeysValid) {
+                stringEncPath.addValue(parentPathNodeKeyInt, value);
               }
-              stringEnc.addValue(parentNameKey, value);
               stringCount++;
             }
           }
@@ -474,7 +526,11 @@ public enum PageKind {
       }
       final RegionTable table = new RegionTable();
       if (count > 0) {
-        final byte[] payload = NumberRegion.encode(valBuf, parBuf, count);
+        final byte numberTagKind = numberAllPathNodeKeysValid
+            ? NumberRegion.TAG_KIND_PATH_NODE
+            : NumberRegion.TAG_KIND_NAME;
+        final int[] numberTagBuf = numberAllPathNodeKeysValid ? numberPathBuf : parBuf;
+        final byte[] payload = NumberRegion.encode(valBuf, numberTagBuf, count, numberTagKind);
         table.set(RegionTable.KIND_NUMBER, payload);
       }
       if (okCount > 0) {
@@ -484,7 +540,12 @@ public enum PageKind {
         }
       }
       if (stringCount > 0) {
-        final byte[] stringPayload = stringEnc.finish();
+        final byte[] stringPayload;
+        if (stringAllPathNodeKeysValid && stringEncPath != null) {
+          stringPayload = stringEncPath.finish(StringRegion.TAG_KIND_PATH_NODE);
+        } else {
+          stringPayload = stringEncName.finish(StringRegion.TAG_KIND_NAME);
+        }
         if (stringPayload != null && stringPayload.length > 0) {
           table.set(RegionTable.KIND_STRING, stringPayload);
         }
@@ -1428,6 +1489,14 @@ public enum PageKind {
   private static final ThreadLocal<int[]> NUMBER_PARENT_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
 
+  /**
+   * Per-thread reusable buffer for number-region parent-pathNodeKey (int-truncated)
+   * collection at seal time. Populated in parallel with {@link #NUMBER_PARENT_SCRATCH};
+   * the final encoder call picks one buffer based on the resolved tagKind.
+   */
+  private static final ThreadLocal<int[]> NUMBER_PATH_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
   /** Per-thread reusable buffer for OBJECT_KEY nameKey values at seal time. */
   private static final ThreadLocal<int[]> OBJECT_KEY_NAMEKEY_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
@@ -1444,6 +1513,16 @@ public enum PageKind {
    * encoder allocation in their lifetime instead of one per committed page.
    */
   private static final ThreadLocal<StringRegion.Encoder> STRING_REGION_ENCODER =
+      ThreadLocal.withInitial(StringRegion.Encoder::new);
+
+  /**
+   * Second per-thread {@link StringRegion.Encoder} used for the path-tagged
+   * variant when the resource runs with path-summary enabled. Populated in
+   * lockstep with {@link #STRING_REGION_ENCODER} until an invalid pathNodeKey
+   * is observed; the final {@code finish()} chooses between the two based on
+   * the resolved tagKind.
+   */
+  private static final ThreadLocal<StringRegion.Encoder> STRING_REGION_ENCODER_PATH =
       ThreadLocal.withInitial(StringRegion.Encoder::new);
 
   static {

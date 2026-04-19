@@ -31,6 +31,8 @@ import java.util.Arrays;
  *
  * <pre>
  *   byte          encodingKind           // 0 = DICT_BITPACKED_ZM (only variant so far)
+ *   byte          tagKind                // 0 = nameKey-tagged (compression-only)
+ *                                        //   1 = pathNodeKey-tagged (SIMD-safe for path scans)
  *   int           count                  // total OBJECT_STRING_VALUE entries on page
  *   byte          valueBitWidth          // 1..32 — bits per per-record dict index
  *                                        //   (sized to max local dict size)
@@ -70,6 +72,16 @@ public final class StringRegion {
   /** DICT + bit-packed value IDs + per-tag local string dicts, with zone maps. */
   public static final byte ENC_DICT_BITPACKED_ZM = 0;
 
+  /**
+   * Tag dictionary classification; see {@link Header#tagKind}. Same semantics as
+   * {@link NumberRegion#TAG_KIND_NAME}/{@link NumberRegion#TAG_KIND_PATH_NODE}:
+   * {@link #TAG_KIND_NAME} tags are nameKeys (compression-safe only),
+   * {@link #TAG_KIND_PATH_NODE} tags are pathNodeKeys truncated to int
+   * (SIMD-safe for path-scoped scans).
+   */
+  public static final byte TAG_KIND_NAME = 0;
+  public static final byte TAG_KIND_PATH_NODE = 1;
+
   private StringRegion() {
   }
 
@@ -78,6 +90,8 @@ public final class StringRegion {
   /** Parsed header, reused across calls to avoid allocation on the scan hot path. */
   public static final class Header {
     public byte encodingKind;
+    /** Tag dictionary classification; see {@link #TAG_KIND_NAME}/{@link #TAG_KIND_PATH_NODE}. */
+    public byte tagKind;
     public int count;
     public byte valueBitWidth;
     public int parentDictSize;
@@ -95,6 +109,7 @@ public final class StringRegion {
     public Header parseInto(final byte[] payload) {
       int pos = 0;
       encodingKind = payload[pos++];
+      tagKind = payload[pos++];
       count = getInt(payload, pos); pos += 4;
       valueBitWidth = payload[pos++];
       parentDictSize = getInt(payload, pos); pos += 4;
@@ -125,10 +140,15 @@ public final class StringRegion {
 
   // ──────────────────────────────────────────────────────────── decoding
 
-  /** Local tag id for a parent nameKey, or {@code -1} when absent. O(dictSize). */
-  public static int lookupTag(final Header h, final int parentNameKey) {
+  /**
+   * Local tag id for a parent tag value, or {@code -1} when absent. O(dictSize).
+   * The tag value is interpreted according to {@link Header#tagKind}: nameKey
+   * for {@link #TAG_KIND_NAME}, pathNodeKey (int-truncated) for
+   * {@link #TAG_KIND_PATH_NODE}.
+   */
+  public static int lookupTag(final Header h, final int tag) {
     for (int i = 0; i < h.parentDictSize; i++) {
-      if (h.parentDict[i] == parentNameKey) return i;
+      if (h.parentDict[i] == tag) return i;
     }
     return -1;
   }
@@ -271,8 +291,17 @@ public final class StringRegion {
       tagDictSize = Arrays.copyOf(tagDictSize, grown);
     }
 
-    /** Serialize to wire format. */
+    /** Serialize to wire format, defaulting tagKind to {@link #TAG_KIND_NAME}. */
     public byte[] finish() {
+      return finish(TAG_KIND_NAME);
+    }
+
+    /**
+     * Serialize to wire format with an explicit {@code tagKind} header byte.
+     * Tags themselves are not transformed — the caller is responsible for
+     * passing the correct semantic values via {@link #addValue(int, byte[])}.
+     */
+    public byte[] finish(final byte tagKind) {
       final int ps = tagOrder.size();
       if (ps == 0) {
         return new byte[0];
@@ -284,7 +313,8 @@ public final class StringRegion {
         if (tagDictSize[t] > maxLocalDict) maxLocalDict = tagDictSize[t];
       }
       final int bitWidth = Math.max(1, 32 - Integer.numberOfLeadingZeros(Math.max(1, maxLocalDict - 1)));
-      int headerSize = 1 + 4 + 1 + 4 + ps * 4 * 4;
+      // +1 byte for tagKind prefix.
+      int headerSize = 1 + 1 + 4 + 1 + 4 + ps * 4 * 4;
       int dictBytesSize = 0;
       for (int t = 0; t < ps; t++) {
         final int sz = tagDictSize[t];
@@ -295,6 +325,7 @@ public final class StringRegion {
       final byte[] out = new byte[headerSize + dictBytesSize + valueDictIdBytes];
       int pos = 0;
       out[pos++] = ENC_DICT_BITPACKED_ZM;
+      out[pos++] = tagKind;
       putInt(out, pos, count); pos += 4;
       out[pos++] = (byte) bitWidth;
       putInt(out, pos, ps); pos += 4;
