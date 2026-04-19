@@ -167,6 +167,47 @@ public final class StringRegion {
   }
 
   /**
+   * Bulk-count occurrences of each dict-id over {@code n} consecutive values
+   * starting at absolute index {@code start}, accumulating into
+   * {@code counts[dictId]}. Amortises the 64-bit payload read across
+   * consecutive dict-ids that share an 8-byte window — for typical bit
+   * widths (3-8) this cuts the number of {@code readUpToLongLE} calls by
+   * {@code 8/bw}, which directly hits the iter-5 profile's
+   * {@code decodeDictIdAt} ~4% self-time.
+   *
+   * <p>Caller must ensure {@code counts} is sized to at least
+   * {@code 1 << bw} entries; the method never bounds-checks that array.
+   */
+  public static void countDictIds(final byte[] payload, final Header h, final int start, final int n,
+      final long[] counts) {
+    if (n <= 0) return;
+    final int bw = h.valueBitWidthEff;
+    if (bw == 0) {
+      counts[0] += n;
+      return;
+    }
+    final long mask = bw == 32 ? 0xFFFFFFFFL : ((1L << bw) - 1L);
+    final int base = h.valueDictIdsOffset;
+    long bitOff = (long) start * bw;
+    long cachedWord = 0L;
+    int cachedByteOff = -1;
+    for (int i = 0; i < n; i++) {
+      final int byteOff = base + (int) (bitOff >>> 3);
+      final int shift = (int) (bitOff & 7L);
+      final long word;
+      if (byteOff == cachedByteOff) {
+        word = cachedWord;
+      } else {
+        word = readUpToLongLE(payload, byteOff);
+        cachedWord = word;
+        cachedByteOff = byteOff;
+      }
+      counts[(int) ((word >>> shift) & mask)]++;
+      bitOff += bw;
+    }
+  }
+
+  /**
    * Decode the string bytes for the given dict-id within a tag. Returns offset
    * and length in the payload's per-tag local dictionary, avoiding a copy on
    * the group-by hot path.

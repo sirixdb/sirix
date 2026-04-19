@@ -2514,11 +2514,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               for (int d = 0; d < dictSize; d++) localDictCounts[d] = 0;
               final int start = sh.tagStart[tag];
               final int n = sh.tagCount[tag];
-              for (int idx = 0; idx < n; idx++) {
-                final int dictId =
-                    StringRegion.decodeDictIdAt(payload, sh, start + idx);
-                localDictCounts[dictId]++;
-              }
+              // Bulk-count with one-entry word cache inside StringRegion —
+              // amortises the 64-bit payload read across consecutive dict-ids
+              // that share an 8-byte window (at bw=3 for 8-value dept fields
+              // each word covers ~21 dict-ids, so one read serves 21 counts).
+              StringRegion.countDictIds(payload, sh, start, n, localDictCounts);
               for (int d = 0; d < dictSize; d++) {
                 final long c = localDictCounts[d];
                 if (c == 0) continue;
