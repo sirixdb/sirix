@@ -1694,6 +1694,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   public long getObjectKeyPathNodeKeyFromSlot(final int slotNumber, final long objectKeyNodeKey) {
     final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      // Page was evicted from the cache while a scan was holding a reference.
+      // Signal unresolvable; callers either skip the slot or retry the page.
+      // At high memory pressure (e.g. 100M-record workloads with a cache
+      // hit-rate near 10%) this can race with concurrent scans; without the
+      // guard we NPE inside PageLayout.getDirHeapOffset.
+      return -1L;
+    }
     final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
