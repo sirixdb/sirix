@@ -1239,38 +1239,52 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Walk the flat {@link CompiledPredicate} tree and build a
+   * Walk the {@link CompiledPredicate} tree and build a
    * {@link ProjectionIndexScan.ColumnPredicate}{@code []} if the tree is a
-   * pure conjunction of supported leaves. {@code null} signals "unsupported
+   * pure conjunction of supported leaves. Brackit's binary-AND folding
+   * produces nested trees like {@code AND(AND(a>30, a<50), active)} for a
+   * 3-way conjunction — we flatten those in place via a small array
+   * stack, no recursion, no boxing. {@code null} signals "unsupported
    * shape; fall back to the generic path".
-   *
-   * <p>HFT-grade: the only allocation is the output array whose length
-   * equals the number of conjuncts (always small, typically 1–3). Walks
-   * {@code cp.children} in place — no intermediate leaf-index array, no
-   * boxing.
    */
   private static ProjectionIndexScan.ColumnPredicate[] extractConjunctivePredicates(
       final CompiledPredicate cp, final ProjectionIndexRegistry.Handle handle) {
-    final byte rootOp = cp.ops[0];
-    final int childCount;
-    final int childStart;
-    if (rootOp == CompiledPredicate.OP_AND) {
-      childCount = cp.childCount[0];
-      childStart = cp.childStart[0];
-    } else if (rootOp == CompiledPredicate.OP_NUM_CMP
-        || rootOp == CompiledPredicate.OP_STR_EQ
-        || rootOp == CompiledPredicate.OP_BOOL_REF) {
-      childCount = 1;
-      childStart = -1; // sentinel: root itself is the leaf (handled below)
-    } else {
-      return null; // OR / NOT / ALWAYS_* / nested — fall back.
-    }
-
-    final ProjectionIndexScan.ColumnPredicate[] out = new ProjectionIndexScan.ColumnPredicate[childCount];
-    for (int i = 0; i < childCount; i++) {
-      final int n = (childStart < 0) ? 0 : cp.children[childStart + i];
+    // Collect leaf node indices via a flat conjunction walk. Stack + out
+    // arrays are sized to the full node count — bounded by the predicate's
+    // tree size, which is small (tens of nodes max). One allocation per
+    // query, no per-leaf churn.
+    final int nodes = cp.ops.length;
+    final int[] stack = new int[nodes];
+    final int[] leaves = new int[nodes];
+    int stackTop = 0;
+    int leafCount = 0;
+    stack[stackTop++] = 0;
+    while (stackTop > 0) {
+      final int n = stack[--stackTop];
       final byte op = cp.ops[n];
-      final int column = handle.columnOf(cp.fieldNames[cp.fieldIdx[n]]);
+      if (op == CompiledPredicate.OP_AND) {
+        final int cs = cp.childStart[n];
+        final int cc = cp.childCount[n];
+        for (int i = 0; i < cc; i++) stack[stackTop++] = cp.children[cs + i];
+      } else if (op == CompiledPredicate.OP_NUM_CMP
+          || op == CompiledPredicate.OP_STR_EQ
+          || op == CompiledPredicate.OP_BOOL_REF) {
+        leaves[leafCount++] = n;
+      } else {
+        // OR / NOT / ALWAYS_* / anything else — can't represent as a
+        // conjunction. Fall back to the generic predicate path.
+        return null;
+      }
+    }
+    if (leafCount == 0) return null;
+
+    final ProjectionIndexScan.ColumnPredicate[] out = new ProjectionIndexScan.ColumnPredicate[leafCount];
+    for (int i = 0; i < leafCount; i++) {
+      final int n = leaves[i];
+      final byte op = cp.ops[n];
+      final int fi = cp.fieldIdx[n];
+      if (fi < 0 || fi >= cp.fieldNames.length) return null;
+      final int column = handle.columnOf(cp.fieldNames[fi]);
       if (column < 0) return null; // field not in index — should have been filtered by covers()
       final ProjectionIndexScan.ColumnPredicate pred;
       switch (op) {
