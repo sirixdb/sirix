@@ -3,10 +3,16 @@
  */
 package io.sirix.index.projection;
 
+import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+
+import jdk.incubator.vector.LongVector;
+import jdk.incubator.vector.VectorMask;
+import jdk.incubator.vector.VectorOperators;
+import jdk.incubator.vector.VectorSpecies;
 
 /**
  * Zero-copy scan over serialised {@link ProjectionIndexLeafPage} byte[]s.
@@ -49,6 +55,13 @@ public final class ProjectionIndexByteScan {
       MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
   private static final VarHandle LONG_LE =
       MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+
+  /**
+   * SIMD species for the numeric-compare fast path. {@code SPECIES_PREFERRED}
+   * adapts to the runtime CPU: 8 lanes on AVX-512, 4 on AVX2, 2 on SSE.
+   */
+  private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_PREFERRED;
+  private static final int LANES = LONG_SPECIES.length();
 
   private ProjectionIndexByteScan() {
   }
@@ -101,6 +114,7 @@ public final class ProjectionIndexByteScan {
     final int columnCount = (int) INT_LE.get(payload, 4);
     final int kindsOff = 24;
     final int recordKeysOff = kindsOff + columnCount;
+    final MemorySegment segment = MemorySegment.ofArray(payload);
 
     // Compute column offsets in one pass. Each column starts with
     // (min, max) 16 bytes, then its kind-specific data.
@@ -146,7 +160,7 @@ public final class ProjectionIndexByteScan {
       final byte kind = payload[kindsOff + p.column];
       switch (kind) {
         case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> evalNumericBytes(
-            payload, columnDataOff[p.column], rowCount, p.op, p.longLit, colMask);
+            payload, segment, columnDataOff[p.column], rowCount, p.op, p.longLit, colMask);
         case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> evalBooleanBytes(
             payload, columnDataOff[p.column], rowCount, p.boolLit, colMask);
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> evalStringEqBytes(
@@ -171,35 +185,51 @@ public final class ProjectionIndexByteScan {
     };
   }
 
-  private static void evalNumericBytes(final byte[] payload, final int baseOff,
-      final int rowCount, final ProjectionIndexScan.Op op, final long lit,
-      final long[] out) {
-    switch (op) {
-      case GT -> {
-        for (int i = 0; i < rowCount; i++) {
-          if ((long) LONG_LE.get(payload, baseOff + i * 8) > lit) out[i >>> 6] |= 1L << (i & 63);
-        }
+  /**
+   * SIMD-accelerated numeric compare — loads {@link #LANES} longs at a
+   * time via {@link LongVector#fromMemorySegment}, runs the compare
+   * against a broadcast literal, packs the mask via
+   * {@link VectorMask#toLong()}, and OR's the bits into the output
+   * packed-bit mask at the correct position.
+   */
+  private static void evalNumericBytes(final byte[] payload, final MemorySegment segment,
+      final int baseOff, final int rowCount, final ProjectionIndexScan.Op op,
+      final long lit, final long[] out) {
+    final VectorOperators.Comparison cmp = switch (op) {
+      case GT -> VectorOperators.GT;
+      case LT -> VectorOperators.LT;
+      case GE -> VectorOperators.GE;
+      case LE -> VectorOperators.LE;
+      case EQ -> VectorOperators.EQ;
+    };
+    // SIMD tail-friendly: process LANES values per vector op, one output
+    // bit per lane, shift into the correct 64-bit output word.
+    int i = 0;
+    final int simdEnd = rowCount - (rowCount % LANES);
+    for (; i < simdEnd; i += LANES) {
+      final LongVector v = LongVector.fromMemorySegment(
+          LONG_SPECIES, segment, (long) baseOff + (long) i * 8L, ByteOrder.LITTLE_ENDIAN);
+      final VectorMask<Long> m = v.compare(cmp, lit);
+      final long bits = m.toLong();
+      if (bits != 0L) {
+        final int wordIdx = i >>> 6;
+        final int bitOffset = i & 63;
+        // Because LANES divides 64 (2, 4, or 8 lanes), bits never straddle
+        // two output words — one shift + OR is sufficient.
+        out[wordIdx] |= bits << bitOffset;
       }
-      case LT -> {
-        for (int i = 0; i < rowCount; i++) {
-          if ((long) LONG_LE.get(payload, baseOff + i * 8) < lit) out[i >>> 6] |= 1L << (i & 63);
-        }
-      }
-      case GE -> {
-        for (int i = 0; i < rowCount; i++) {
-          if ((long) LONG_LE.get(payload, baseOff + i * 8) >= lit) out[i >>> 6] |= 1L << (i & 63);
-        }
-      }
-      case LE -> {
-        for (int i = 0; i < rowCount; i++) {
-          if ((long) LONG_LE.get(payload, baseOff + i * 8) <= lit) out[i >>> 6] |= 1L << (i & 63);
-        }
-      }
-      case EQ -> {
-        for (int i = 0; i < rowCount; i++) {
-          if ((long) LONG_LE.get(payload, baseOff + i * 8) == lit) out[i >>> 6] |= 1L << (i & 63);
-        }
-      }
+    }
+    // Scalar tail — 0..LANES-1 values remain.
+    for (; i < rowCount; i++) {
+      final long v = (long) LONG_LE.get(payload, baseOff + i * 8);
+      final boolean match = switch (op) {
+        case GT -> v > lit;
+        case LT -> v < lit;
+        case GE -> v >= lit;
+        case LE -> v <= lit;
+        case EQ -> v == lit;
+      };
+      if (match) out[i >>> 6] |= 1L << (i & 63);
     }
   }
 
