@@ -36,6 +36,9 @@ import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
+import it.unimi.dsi.fastutil.objects.ObjectIterator;
+import it.unimi.dsi.fastutil.objects.Object2LongMap;
 
 import jdk.incubator.vector.VectorOperators;
 
@@ -496,7 +499,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     final int eff = (int) Math.min(threads, Math.max(1, totalPages));
     @SuppressWarnings("unchecked")
-    final Map<String, long[]>[] perThread = new Map[eff];
+    final Object2LongOpenHashMap<String>[] perThread = new Object2LongOpenHashMap[eff];
 
     final boolean useBatch = BATCH_GENERIC_EVAL_ENABLED;
     // Compile once, share across workers. Key disambiguates by field layout.
@@ -510,7 +513,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
-      final HashMap<String, long[]> local = new HashMap<>();
+      // Primitive-long accumulator — avoids the per-group `long[] { 0L }`
+      // box-on-insert that the previous HashMap<String, long[]> carried, and
+      // uses addTo() so the hot loop does one hashmap op per match instead
+      // of the get + (optional put) pair.
+      final Object2LongOpenHashMap<String> local = new Object2LongOpenHashMap<>();
+      local.defaultReturnValue(0L);
       if (useBatch) {
         final EvalBatch batch = new EvalBatch(cp.fieldNames.length, cp.ops.length, Constants.INP_REFERENCE_COUNT);
         final long[] rootOut = new long[batch.bitmapStride];
@@ -546,12 +554,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                 if (gpk[rowIdx] == 3) {
                   final String gv = gvs[rowIdx];
                   if (gv != null) {
-                    long[] counter = local.get(gv);
-                    if (counter == null) {
-                      counter = new long[] { 0L };
-                      local.put(gv, counter);
-                    }
-                    counter[0]++;
+                    local.addTo(gv, 1L);
                   }
                 }
                 word &= word - 1L;
@@ -587,12 +590,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             if (scratch.fieldKind[groupFieldIdx] != 3) continue;  // require string group
             final String gv = scratch.strVals[groupFieldIdx];
             if (gv == null) continue;
-            long[] counter = local.get(gv);
-            if (counter == null) {
-              counter = new long[] { 0L };
-              local.put(gv, counter);
-            }
-            counter[0]++;
+            local.addTo(gv, 1L);
           }
           }
         }
@@ -600,12 +598,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       perThread[idx] = local;
     });
 
-    // Merge per-thread maps.
-    final HashMap<String, Long> merged = new HashMap<>();
-    for (final Map<String, long[]> m : perThread) {
+    // Merge per-thread maps into a primitive-long accumulator (no boxing).
+    final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
+    merged.defaultReturnValue(0L);
+    for (final Object2LongOpenHashMap<String> m : perThread) {
       if (m == null) continue;
-      for (final Map.Entry<String, long[]> e : m.entrySet()) {
-        merged.merge(e.getKey(), e.getValue()[0], Long::sum);
+      final ObjectIterator<Object2LongMap.Entry<String>> it = m.object2LongEntrySet().fastIterator();
+      while (it.hasNext()) {
+        final Object2LongMap.Entry<String> e = it.next();
+        merged.addTo(e.getKey(), e.getLongValue());
       }
     }
 
@@ -613,9 +614,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ArrayList<Item> out = new ArrayList<>(merged.size());
     final QNm keyQnm = new QNm(groupField);
     final QNm cntQnm = new QNm("count");
-    for (final Map.Entry<String, Long> e : merged.entrySet()) {
+    final ObjectIterator<Object2LongMap.Entry<String>> mergedIt =
+        merged.object2LongEntrySet().fastIterator();
+    while (mergedIt.hasNext()) {
+      final Object2LongMap.Entry<String> e = mergedIt.next();
       final QNm[] keys = { keyQnm, cntQnm };
-      final Sequence[] vals = { new Str(e.getKey()), new Int64(e.getValue()) };
+      final Sequence[] vals = { new Str(e.getKey()), new Int64(e.getLongValue()) };
       out.add(new ArrayObject(keys, vals));
     }
     return new DArray(out);
