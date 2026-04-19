@@ -1637,15 +1637,32 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         // local dict id (8 hash inserts/page instead of 90). Saves the per-
         // record byte-hash + insert that the slot-walk path pays.
         //
-        // Disabled when a path-scope is active: the StringRegion tag range
-        // groups values by nameKey only; a page that holds the same field
-        // name under two different pathNodeKeys would double-count. The
-        // slot-walk path below applies the per-slot pathNodeKey filter.
-        final StringRegion.Header sh = targetPathNodeKey == -1L ? kv.getStringRegionHeader() : null;
+        // Two dispatches:
+        //   * No path-scope (targetPathNodeKey == -1): lookup by nameKey. Safe
+        //     only when the document has no nested same-name fields — callers
+        //     that don't need path scoping accept this.
+        //   * Path-scope AND region is path-tagged: lookup by (int)pathNodeKey.
+        //     Correctness-safe because the region's tag now encodes the full
+        //     tree path, not just the local name.
+        //   * Path-scope AND region is name-tagged: skip the SIMD path and fall
+        //     through to the slot-walk, which filters per-slot by pathNodeKey.
+        final StringRegion.Header sh = kv.getStringRegionHeader();
+        final int fastLookupTag;
         if (sh == null) {
-          if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesNoHeader++;
+          fastLookupTag = Integer.MIN_VALUE;
+        } else if (targetPathNodeKey == -1L) {
+          fastLookupTag = fieldKey;
+        } else if (sh.tagKind == StringRegion.TAG_KIND_PATH_NODE
+            && targetPathNodeKey > 0L
+            && targetPathNodeKey <= (long) Integer.MAX_VALUE) {
+          fastLookupTag = (int) targetPathNodeKey;
         } else {
-          final int tag = StringRegion.lookupTag(sh, fieldKey);
+          fastLookupTag = Integer.MIN_VALUE;  // region name-tagged + path-scoped → fall through
+        }
+        if (sh == null || fastLookupTag == Integer.MIN_VALUE) {
+          if (sh == null && DIAGNOSTICS_ENABLED) diag.stringRegionMissesNoHeader++;
+        } else {
+          final int tag = StringRegion.lookupTag(sh, fastLookupTag);
           if (tag < 0) {
             if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesNoTag++;
           } else {
