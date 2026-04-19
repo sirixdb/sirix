@@ -2021,6 +2021,23 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Read the delta-encoded parent nodeKey from an OBJECT_BOOLEAN_VALUE slot. Used by
+   * {@link #tryBuildBooleanRegionFromSlottedPage} to group each boolean under its
+   * parent OBJECT_KEY's nameKey (or pathNodeKey), enabling the columnar filter path.
+   *
+   * <p>Caller must verify the slot holds an OBJECT_BOOLEAN_VALUE (kind id 41).
+   */
+  public long getObjectBooleanValueParentKeyFromSlot(final int slotNumber, final long valueNodeKey) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJBOOLVAL_PARENT_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_BOOLEAN_VALUE_FIELD_COUNT;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, valueNodeKey);
+  }
+
+  /**
    * Cache of matching-slot arrays keyed by nameKey (primitive int → int[], no
    * Integer boxing). Built lazily the first time a vectorized scan asks for a
    * given field, reused by every subsequent query on the same page. Memory:
@@ -3216,6 +3233,118 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   /** Raw string-region payload bytes, or {@code null}. */
   public byte[] getStringRegionPayload() {
     return regionPayload(RegionTable.KIND_STRING);
+  }
+
+  /**
+   * Build (and cache) the page's BooleanRegion by walking all populated
+   * OBJECT_BOOLEAN_VALUE slots and collecting each slot's value + parent
+   * OBJECT_KEY tag. Returns {@code null} when the page has no booleans.
+   * See {@link #tryBuildNumberRegionFromSlottedPage} for the template —
+   * this method mirrors it for the boolean column.
+   */
+  private byte[] tryBuildBooleanRegionFromSlottedPage() {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      return null;
+    }
+    final int boolKindId = 41;  // OBJECT_BOOLEAN_VALUE — see NodeKind.OBJECT_BOOLEAN_VALUE
+    final long pageKeyBase = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
+    boolean[] valBuf = new boolean[64];
+    int[] nameBuf = new int[64];
+    int[] pathBuf = new int[64];
+    int count = 0;
+    boolean allPathNodeKeysValid = resourceConfig != null && resourceConfig.withPathSummary;
+    for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+      long word = PageLayout.getBitmapWord(sp, w);
+      final int baseSlot = w << 6;
+      while (word != 0) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        final int slot = baseSlot + bit;
+        if (PageLayout.getDirNodeKindId(sp, slot) == boolKindId) {
+          final boolean value = getObjectBooleanValueFromSlot(slot);
+          final long valueNodeKey = pageKeyBase + slot;
+          final long parentKey = getObjectBooleanValueParentKeyFromSlot(slot, valueNodeKey);
+          int parentNameKey = -1;
+          int parentPathNodeKeyInt = -1;
+          if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == recordPageKey) {
+            final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
+            if (isObjectKeyKindId(PageLayout.getDirNodeKindId(sp, parentSlot))) {
+              parentNameKey = getObjectKeyNameKeyFromSlot(parentSlot);
+              if (allPathNodeKeysValid) {
+                final long pnk = getObjectKeyPathNodeKeyFromSlot(parentSlot, parentKey);
+                if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                  parentPathNodeKeyInt = (int) pnk;
+                } else {
+                  allPathNodeKeysValid = false;
+                }
+              }
+            } else {
+              allPathNodeKeysValid = false;
+            }
+          } else {
+            allPathNodeKeysValid = false;
+          }
+          if (count == valBuf.length) {
+            final boolean[] grownV = new boolean[valBuf.length << 1];
+            System.arraycopy(valBuf, 0, grownV, 0, count);
+            valBuf = grownV;
+            final int[] grownN = new int[nameBuf.length << 1];
+            System.arraycopy(nameBuf, 0, grownN, 0, count);
+            nameBuf = grownN;
+            final int[] grownPath = new int[pathBuf.length << 1];
+            System.arraycopy(pathBuf, 0, grownPath, 0, count);
+            pathBuf = grownPath;
+          }
+          valBuf[count] = value;
+          nameBuf[count] = parentNameKey;
+          pathBuf[count] = parentPathNodeKeyInt;
+          count++;
+        }
+        word &= word - 1;
+      }
+    }
+    if (count == 0) {
+      return null;
+    }
+    final byte tagKind = allPathNodeKeysValid
+        ? io.sirix.page.pax.BooleanRegion.TAG_KIND_PATH_NODE
+        : io.sirix.page.pax.BooleanRegion.TAG_KIND_NAME;
+    final int[] tagBuf = allPathNodeKeysValid ? pathBuf : nameBuf;
+    final byte[] payload = io.sirix.page.pax.BooleanRegion.encode(valBuf, tagBuf, count, tagKind);
+    if (payload == null) {
+      return null;  // BooleanRegion.encode returns null when dictionary overflows 256
+    }
+    RegionTable table = this.regionTable;
+    if (table == null) {
+      table = new RegionTable();
+      this.regionTable = table;
+    }
+    table.set(RegionTable.KIND_BOOLEAN, payload);
+    return payload;
+  }
+
+  /**
+   * Parsed header for the page's BooleanRegion, building and caching on
+   * first call. Returns {@code null} when the page has no booleans.
+   */
+  public io.sirix.page.pax.BooleanRegion.Header getBooleanRegionHeader() {
+    byte[] payload = regionPayload(RegionTable.KIND_BOOLEAN);
+    if (payload == null) {
+      payload = tryBuildBooleanRegionFromSlottedPage();
+      if (payload == null) {
+        return null;
+      }
+    }
+    return new io.sirix.page.pax.BooleanRegion.Header().parseInto(payload);
+  }
+
+  /** Raw boolean-region payload bytes, or {@code null}. */
+  public byte[] getBooleanRegionPayload() {
+    byte[] payload = regionPayload(RegionTable.KIND_BOOLEAN);
+    if (payload == null) {
+      payload = tryBuildBooleanRegionFromSlottedPage();
+    }
+    return payload;
   }
 
   /** Cached {@link MemorySegment} view over the string-region payload. */
