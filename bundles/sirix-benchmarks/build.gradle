@@ -79,6 +79,27 @@ jmh {
     }
 }
 
+// Convenience task: export the synthesised scale-bench dataset to CSV so the
+// same workload can be loaded into DuckDB / CedarDB / Umbra for a baseline
+// columnar-engine comparison. Uses Random(42), 18+rng.nextInt(48) ages, and
+// the same DEPTS/CITIES arrays as BrackitQueryOnSirixScaleMain so aggregates
+// match bit-for-bit across engines.
+// Usage:
+//   ./gradlew :sirix-benchmarks:exportScaleCsv -PcsvArgs="10000000 /tmp/records-10m.csv"
+tasks.register('exportScaleCsv', JavaExec) {
+    group = 'benchmark'
+    description = 'Export scale-bench dataset as CSV for cross-engine comparison.'
+    classpath = sourceSets.jmh.runtimeClasspath
+    mainClass = 'io.sirix.benchmark.ExportScaleBenchCsv'
+    def argsStr = (findProperty('csvArgs') ?: '1000000 /tmp/records-1m.csv').toString()
+    args = argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    jvmArgs = [
+        '--enable-preview',
+        '-Xms512m',
+        '-Xmx2g'
+    ]
+}
+
 // Convenience task: run BrackitQueryOnSirixScaleMain directly (not via JMH).
 // Usage:
 //   ./gradlew :sirix-benchmarks:runScale -Pscale.args="1000000 true 3"
