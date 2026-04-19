@@ -427,6 +427,64 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     }
   }
 
+  // =====================================================================
+  // Bulk-merge mutators — used by PathSummaryWriter.flushPendingStats to
+  // splice a batched-up set of deferred observations into this node in
+  // a single prepareRecordForModification call. Package-private; callers
+  // must hold the write-side PathNode reference (not a reader snapshot).
+  // =====================================================================
+
+  /**
+   * Merge a precomputed long-value aggregate. Equivalent to calling
+   * {@link #recordLongValue(long)} {@code count} times with values whose
+   * sum is {@code sum} and whose extremes are {@code min}/{@code max}.
+   * HLL is merged via {@link #unionHll(HyperLogLogSketch)} separately by
+   * the caller so the batch's HLL can be union'd in one pass.
+   */
+  void mergeLongStats(final long count, final long sum, final long min, final long max) {
+    statsCount += count;
+    statsSum += sum;
+    if (min < statsMin) {
+      statsMin = min;
+    }
+    if (max > statsMax) {
+      statsMax = max;
+    }
+  }
+
+  /**
+   * Merge a precomputed bytes-value aggregate. Caller owns the passed
+   * arrays; we clone on min/max update so later mutation doesn't corrupt
+   * the stored bound.
+   */
+  void mergeBytesStats(final long count, final byte @Nullable [] minBytes, final byte @Nullable [] maxBytes) {
+    statsCount += count;
+    if (minBytes != null
+        && (statsMinBytes == null || Arrays.compareUnsigned(minBytes, statsMinBytes) < 0)) {
+      statsMinBytes = minBytes.clone();
+    }
+    if (maxBytes != null
+        && (statsMaxBytes == null || Arrays.compareUnsigned(maxBytes, statsMaxBytes) > 0)) {
+      statsMaxBytes = maxBytes.clone();
+    }
+  }
+
+  /** Add {@code delta} to the null-value counter. Bulk equivalent of N {@link #recordNullValue()} calls. */
+  void incrementNullCount(final long delta) {
+    statsNullCount += delta;
+  }
+
+  /** Union {@code other} into this node's HLL sketch, creating one if absent. No-op if {@code other} is null. */
+  void unionHll(final HyperLogLogSketch other) {
+    if (other == null) {
+      return;
+    }
+    if (hll == null) {
+      hll = new HyperLogLogSketch();
+    }
+    hll.union(other);
+  }
+
   /**
    * Bulk setter — used by the PATH-node deserializer (in {@code io.sirix.node}, a
    * different package, so this must be public) and by the reader after a dirty-bound

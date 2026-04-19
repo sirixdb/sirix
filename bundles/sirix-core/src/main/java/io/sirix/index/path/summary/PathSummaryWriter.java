@@ -32,8 +32,11 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.ObjectKeyNode;
 import io.sirix.settings.Fixed;
 import io.brackit.query.atomic.QNm;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 import javax.xml.namespace.QName;
+import java.util.ArrayDeque;
+import java.util.Arrays;
 
 import static java.util.Objects.requireNonNull;
 
@@ -116,6 +119,105 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   private final boolean withPathStatistics;
 
   /**
+   * Deferred per-path statistics accumulator. The naive path calls
+   * {@link StorageEngineWriter#prepareRecordForModification} — a COW op — once
+   * per value insert, on top of the stats-update itself. On a 100M-record
+   * shred that's hundreds of millions of COWs just to maintain per-path
+   * aggregates. Here we keep the pending deltas in a primitive-keyed map
+   * and flush them to the underlying PathNodes in one pass at commit (or
+   * when the map exceeds a sanity threshold). Distinct-path cardinality in
+   * real JSON schemas is O(10-100), so the map is tiny in practice.
+   *
+   * <p>Semantics: values deferred here are NOT yet visible to readers of
+   * the PathSummary. Queries that need live stats must call
+   * {@link #flushPendingStats()} before opening a reader. The standard
+   * commit path does so via the pre-commit hook in
+   * {@link io.sirix.access.trx.node.AbstractNodeTrxImpl}.
+   */
+  private final Long2ObjectOpenHashMap<DeferredStats> pendingStats;
+
+  /** Hard cap on deferred entries — forces a flush when exceeded to bound memory. */
+  private static final int MAX_PENDING_PATH_ENTRIES = 4096;
+
+  /**
+   * Per-path insert-side delta carried by {@link #pendingStats}. Remove
+   * paths flush synchronously so we don't carry remove deltas here. Fields
+   * track only the state needed to merge into a PathNode's stats in one
+   * pass: count / sum / min / max / null-count for numeric; bytes min/max
+   * for strings; HLL batched into a local sketch that's unioned on flush.
+   * Kind is recorded so mixed-type updates (rare but defensible) keep the
+   * right lane.
+   *
+   * <p>Objects are recycled: on flush we don't allocate a fresh
+   * {@code DeferredStats} per path; we clear in place via {@link #reset()}
+   * so the map is zero-alloc after the warm-up phase.
+   */
+  private static final class DeferredStats {
+    /** Kind marker: 0 = none, 1 = long, 2 = bytes. */
+    byte kind;
+    long count;
+    long nullCount;
+    long sum;
+    long min;
+    long max;
+    byte[] minBytes;
+    byte[] maxBytes;
+    HyperLogLogSketch hll;
+
+    DeferredStats() {
+      reset();
+    }
+
+    void reset() {
+      kind = 0;
+      count = 0L;
+      nullCount = 0L;
+      sum = 0L;
+      min = Long.MAX_VALUE;
+      max = Long.MIN_VALUE;
+      minBytes = null;
+      maxBytes = null;
+      hll = null;
+    }
+
+    void addLong(final long v) {
+      kind = 1;
+      count++;
+      sum += v;
+      if (v < min) min = v;
+      if (v > max) max = v;
+      if (hll == null) hll = new HyperLogLogSketch();
+      hll.add(v);
+    }
+
+    void addBytes(final byte[] v) {
+      kind = 2;
+      count++;
+      if (minBytes == null || Arrays.compareUnsigned(v, minBytes) < 0) minBytes = v.clone();
+      if (maxBytes == null || Arrays.compareUnsigned(v, maxBytes) > 0) maxBytes = v.clone();
+      if (hll == null) hll = new HyperLogLogSketch();
+      hll.add(v);
+    }
+
+    void addNull() {
+      nullCount++;
+    }
+  }
+
+  /** Pool of recycled {@link DeferredStats}; avoids GC pressure across flushes. */
+  private final ArrayDeque<DeferredStats> deferredStatsPool = new ArrayDeque<>();
+
+  private DeferredStats acquireDeferredStats() {
+    final DeferredStats d = deferredStatsPool.pollFirst();
+    return d != null ? d : new DeferredStats();
+  }
+
+  private void releaseDeferredStats(final DeferredStats d) {
+    d.reset();
+    deferredStatsPool.addLast(d);
+  }
+
+  /**
    * Constructor.
    *
    * @param storageEngineWriter Sirix {@link StorageEngineWriter}
@@ -131,6 +233,8 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     this.nodeFactory = requireNonNull(nodeFactory);
     storeChildCount = resMgr.getResourceConfig().storeChildCount();
     withPathStatistics = resMgr.getResourceConfig().withPathStatistics;
+    // Tiny initial capacity — real JSON schemas see O(10-100) distinct paths.
+    pendingStats = withPathStatistics ? new Long2ObjectOpenHashMap<>(32) : null;
   }
 
   /**
@@ -776,30 +880,37 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   /**
    * Record a numeric value observation for the path identified by {@code pathNodeKey}.
    * No-op if path statistics are disabled or the key is negative (no path node).
+   *
+   * <p>Update is deferred into {@link #pendingStats}; the actual PathNode
+   * COW happens at flush time (commit or size-threshold). This turns N
+   * value inserts per path into 1 COW per path per commit, a ~4-5 order
+   * magnitude reduction for analytical shreds.
    */
   public void recordValue(final long pathNodeKey, final long numericValue) {
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
-    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
-        pathNodeKey, IndexType.PATH_SUMMARY, 0);
-    pathNode.recordLongValue(numericValue);
-    persistPathSummaryRecord(pathNode);
-    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+    DeferredStats d = pendingStats.get(pathNodeKey);
+    if (d == null) {
+      d = acquireDeferredStats();
+      pendingStats.put(pathNodeKey, d);
+    }
+    d.addLong(numericValue);
+    maybeFlushIfOverflow();
   }
 
-  /**
-   * Record a byte-sequence value observation (string / utf-8). No-op if stats disabled.
-   */
+  /** Record a byte-sequence value observation (string / utf-8). No-op if stats disabled. */
   public void recordValue(final long pathNodeKey, final byte[] bytesValue) {
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
-    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
-        pathNodeKey, IndexType.PATH_SUMMARY, 0);
-    pathNode.recordBytesValue(bytesValue);
-    persistPathSummaryRecord(pathNode);
-    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+    DeferredStats d = pendingStats.get(pathNodeKey);
+    if (d == null) {
+      d = acquireDeferredStats();
+      pendingStats.put(pathNodeKey, d);
+    }
+    d.addBytes(bytesValue);
+    maybeFlushIfOverflow();
   }
 
   /** Record a boolean value observation. No-op if stats disabled. */
@@ -807,11 +918,13 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
-    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
-        pathNodeKey, IndexType.PATH_SUMMARY, 0);
-    pathNode.recordBooleanValue(value);
-    persistPathSummaryRecord(pathNode);
-    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+    DeferredStats d = pendingStats.get(pathNodeKey);
+    if (d == null) {
+      d = acquireDeferredStats();
+      pendingStats.put(pathNodeKey, d);
+    }
+    d.addLong(value ? 1L : 0L);
+    maybeFlushIfOverflow();
   }
 
   /** Record a null value observation. No-op if stats disabled. */
@@ -819,21 +932,86 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
-    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
-        pathNodeKey, IndexType.PATH_SUMMARY, 0);
-    pathNode.recordNullValue();
-    persistPathSummaryRecord(pathNode);
-    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+    DeferredStats d = pendingStats.get(pathNodeKey);
+    if (d == null) {
+      d = acquireDeferredStats();
+      pendingStats.put(pathNodeKey, d);
+    }
+    d.addNull();
+    maybeFlushIfOverflow();
+  }
+
+  /** Bound the deferred buffer; distinct-path cardinality should be small in practice. */
+  private void maybeFlushIfOverflow() {
+    if (pendingStats.size() >= MAX_PENDING_PATH_ENTRIES) {
+      flushPendingStats();
+    }
   }
 
   /**
-   * Decrement stats on delete. If the removed value equals the tracked min or max the
-   * bound is marked dirty — a later read reconciles. No-op if stats disabled.
+   * Apply every deferred stats delta to its PathNode via a single
+   * {@link StorageEngineWriter#prepareRecordForModification} per path, then
+   * clear the map. Called by {@link io.sirix.access.trx.node.AbstractNodeTrxImpl}
+   * as the first pre-commit step AND by readers that need live stats.
+   *
+   * <p>Safe to call when {@code withPathStatistics == false} (no-op) or when
+   * the pending map is empty. Idempotent; back-to-back calls are cheap.
+   */
+  public void flushPendingStats() {
+    if (!withPathStatistics || pendingStats == null || pendingStats.isEmpty()) {
+      return;
+    }
+    final var it = pendingStats.long2ObjectEntrySet().fastIterator();
+    while (it.hasNext()) {
+      final var entry = it.next();
+      final long pathNodeKey = entry.getLongKey();
+      final DeferredStats d = entry.getValue();
+      if (d.count == 0 && d.nullCount == 0) {
+        releaseDeferredStats(d);
+        continue;
+      }
+      final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
+          pathNodeKey, IndexType.PATH_SUMMARY, 0);
+      applyDeferredStats(pathNode, d);
+      persistPathSummaryRecord(pathNode);
+      pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+      releaseDeferredStats(d);
+    }
+    pendingStats.clear();
+  }
+
+  /**
+   * Merge one {@link DeferredStats} into a PathNode in a single update.
+   * Splice the precomputed aggregates directly; HLL is union-merged with
+   * the node's existing sketch. Remove paths don't flow through here —
+   * they flush-then-synchronously-apply.
+   */
+  private static void applyDeferredStats(final PathNode pn, final DeferredStats d) {
+    if (d.kind == 1 && d.count > 0) {
+      pn.mergeLongStats(d.count, d.sum, d.min, d.max);
+    } else if (d.kind == 2 && d.count > 0) {
+      pn.mergeBytesStats(d.count, d.minBytes, d.maxBytes);
+    }
+    if (d.nullCount > 0) {
+      pn.incrementNullCount(d.nullCount);
+    }
+    if (d.hll != null) {
+      pn.unionHll(d.hll);
+    }
+  }
+
+  /**
+   * Decrement stats on delete. Flushes any pending inserts first so the
+   * dirty-bound check sees the correct pre-delete state, then applies the
+   * decrement synchronously. Removes are much rarer than inserts in
+   * analytical shreds; the per-remove flush is cheap (flushes are O(distinct
+   * paths) and typically O(10)).
    */
   public void removeValue(final long pathNodeKey, final long numericValue) {
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
+    flushPendingStats();
     final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
         pathNodeKey, IndexType.PATH_SUMMARY, 0);
     pathNode.removeLongValue(numericValue);
@@ -845,6 +1023,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
+    flushPendingStats();
     final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
         pathNodeKey, IndexType.PATH_SUMMARY, 0);
     pathNode.removeBytesValue(bytesValue);
@@ -856,6 +1035,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
+    flushPendingStats();
     final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
         pathNodeKey, IndexType.PATH_SUMMARY, 0);
     pathNode.removeBooleanValue(value);
@@ -867,6 +1047,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
+    flushPendingStats();
     final PathNode pathNode = storageEngineWriter.prepareRecordForModification(
         pathNodeKey, IndexType.PATH_SUMMARY, 0);
     pathNode.removeNullValue();
