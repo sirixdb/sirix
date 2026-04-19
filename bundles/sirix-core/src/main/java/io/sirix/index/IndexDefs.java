@@ -5,6 +5,7 @@ import io.brackit.query.jdm.Type;
 import io.brackit.query.util.path.Path;
 import io.sirix.page.PageConstants;
 
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -124,5 +125,26 @@ public final class IndexDefs {
       final int hnswEfSearch, final int indexDefNo, final IndexDef.DbType dbType) {
     return new IndexDef(dimension, distanceType, paths, hnswM, hnswEfConstruction,
         hnswEfSearch, indexDefNo, dbType);
+  }
+
+  /**
+   * Create a projection {@link IndexDef}. Rows materialised at query time
+   * correspond one-to-one with the records matching {@code rootPath}, and
+   * each row carries the declared field columns in {@code fieldPaths}
+   * order — HOT leaf pages are laid out as parallel primitive arrays
+   * (one per column + a {@code recordKey} column), enabling SIMD-friendly
+   * multi-field filter scans without the OBJECT_KEY indirection the
+   * generic predicate path pays.
+   *
+   * @param rootPath    projection root (e.g. {@code $doc[]})
+   * @param fieldPaths  ordered sub-field paths; order dictates column layout
+   * @param fieldTypes  per-field value type (index-aligned with {@code fieldPaths})
+   * @param indexDefNo  stable id slot in the resource's index catalogue
+   * @param dbType      XML / JSON
+   */
+  public static IndexDef createProjectionIdxDef(final Path<QNm> rootPath,
+      final List<Path<QNm>> fieldPaths, final List<Type> fieldTypes,
+      final int indexDefNo, final IndexDef.DbType dbType) {
+    return new IndexDef(rootPath, fieldPaths, fieldTypes, indexDefNo, dbType);
   }
 }
