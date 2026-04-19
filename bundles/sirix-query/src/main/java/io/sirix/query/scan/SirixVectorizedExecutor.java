@@ -36,6 +36,7 @@ import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
@@ -1459,6 +1460,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long[] slotPathNodeKeys;
     final long[] slotParentKeys;
     final long[] slotFirstChildKeys;
+    /**
+     * Canonical-String dedup cache for column-read string values. Analytical
+     * group-by queries typically target low-cardinality columns (e.g. 8
+     * departments over 10M records) but {@code readFieldValueDirect}
+     * allocates a fresh {@link String} per row. The cache is keyed by a
+     * 64-bit content hash of the decoded bytes; on hit we reuse the
+     * canonical String reference, avoiding both the allocation and the
+     * downstream {@code String.hashCode} recompute that the group-by
+     * accumulator pays on insert.
+     *
+     * <p>Scope: per-worker (EvalBatch is per-worker). Unbounded to keep the
+     * code simple — for the analytical workloads the executor targets the
+     * distinct-value count is bounded by column cardinality, which is small.
+     */
+    final Long2ObjectOpenHashMap<String> canonicalStrings;
 
     EvalBatch(final int nFields, final int nNodes, final int initialCapacity) {
       final int cap = Math.max(64, initialCapacity);
@@ -1486,6 +1502,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       this.slotPathNodeKeys = new long[cap];
       this.slotParentKeys = new long[cap];
       this.slotFirstChildKeys = new long[cap];
+      // Pre-size for typical analytical column cardinality; the map grows
+      // naturally if the query targets a high-cardinality column.
+      this.canonicalStrings = new Long2ObjectOpenHashMap<>(64);
     }
 
     /**
@@ -1708,11 +1727,59 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (kindId == 40) {  // OBJECT_STRING_VALUE
       final int n = kv.readObjectStringValueBytesFromSlot(valueSlot, batch.strScratch);
       if (n < 0) return false;  // FSST oversize / unavailable
-      batch.strCols[fieldIdx][row] = new String(batch.strScratch, 0, n, StandardCharsets.UTF_8);
+      batch.strCols[fieldIdx][row] = canonicalize(batch, batch.strScratch, n);
       batch.presentKind[fieldIdx][row] = 3;
       return true;
     }
     return false;
+  }
+
+  /**
+   * Return a canonical {@link String} for the decoded bytes in
+   * {@code scratch[0..n)}. Uses a 64-bit content hash keyed lookup on the
+   * per-worker {@link EvalBatch#canonicalStrings} cache so low-cardinality
+   * group-by columns (e.g. 8 department names over 10M rows) allocate only
+   * one String per distinct value instead of one per row.
+   *
+   * <p>The hash is a simple xor-multiply FNV-like accumulator — fast to
+   * inline and collision-resistant enough that a collision would require a
+   * content mismatch, which we defend against with a byte-by-byte verify
+   * before returning the cached String.
+   */
+  private static String canonicalize(final EvalBatch batch, final byte[] scratch, final int n) {
+    // Hash the scratch bytes. FNV-1a-ish 64-bit mix — cheap and avoids a
+    // multiply dependency chain by XORing after the shift.
+    long h = 0xCBF29CE484222325L;
+    for (int i = 0; i < n; i++) {
+      h ^= scratch[i] & 0xFFL;
+      h *= 0x100000001B3L;
+    }
+    final Long2ObjectOpenHashMap<String> cache = batch.canonicalStrings;
+    final String cached = cache.get(h);
+    if (cached != null && stringMatchesBytes(cached, scratch, n)) {
+      return cached;
+    }
+    final String fresh = new String(scratch, 0, n, StandardCharsets.UTF_8);
+    cache.put(h, fresh);
+    return fresh;
+  }
+
+  /**
+   * Allocation-free verify that {@code s}'s ASCII encoding matches
+   * {@code bytes[0..n)}. Returns {@code false} if {@code s} contains any
+   * non-ASCII character so the caller falls back to a fresh decoded String
+   * — safe for the UTF-8 general case at the cost of cache misses on
+   * multi-byte strings. Group-by keys in analytical workloads are almost
+   * always ASCII (enumerations, product codes, department names), so the
+   * ASCII path covers the common case without a {@code byte[]} allocation.
+   */
+  private static boolean stringMatchesBytes(final String s, final byte[] bytes, final int n) {
+    if (s.length() != n) return false;
+    for (int i = 0; i < n; i++) {
+      final char c = s.charAt(i);
+      if (c >= 0x80 || ((byte) c) != bytes[i]) return false;
+    }
+    return true;
   }
 
   /**
