@@ -1891,7 +1891,224 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * {@code batch.nodeBitmaps[0]}). Valid bits are [0, batch.size).
    */
   private static long[] evalCompiledBatch(final CompiledPredicate cp, final EvalBatch batch) {
+    // Shape-specialised fast path for the common predicate trees. When the
+    // ASM-compiled BatchPredicate isn't available (native-image AOT where
+    // runtime class definition is rejected), the recursive
+    // evalCompiledBatchRec walks the ops/children arrays with a switch per
+    // node and a child-bitmap allocation per intermediate — that's 30-100×
+    // slower than a fused single-pass evaluator on the hot shapes. Try the
+    // specialised path first; fall through to the generic interpreter on
+    // non-matching shapes (which still works, just slower).
+    final long[] specialized = evalCompiledBatchSpecialized(cp, batch);
+    if (specialized != null) return specialized;
     return evalCompiledBatchRec(cp, 0, batch);
+  }
+
+  /**
+   * Shape-specialised single-pass interpreters for the predicate trees that
+   * show up in the benchmark suite. Returns the result bitmap, or
+   * {@code null} if the compiled predicate doesn't match any specialisation.
+   *
+   * <p>Shapes handled:
+   * <ul>
+   *   <li>{@code OP_AND(NUM_CMP(fi=0), BOOL_REF(fi=1))} — filterCount / filterGroupBy</li>
+   *   <li>{@code OP_AND(AND(NUM_CMP(fi=0), NUM_CMP(fi=0)), BOOL_REF(fi=2))} — compoundAndFilter</li>
+   *   <li>{@code OP_NUM_CMP(fi=0)} — single-leaf age range — uses OP_NUM_CMP's existing SIMD path</li>
+   *   <li>{@code OP_BOOL_REF(fi=0)} — single-leaf boolean filter</li>
+   * </ul>
+   */
+  private static long[] evalCompiledBatchSpecialized(final CompiledPredicate cp, final EvalBatch batch) {
+    final byte[] ops = cp.ops;
+    final int[] children = cp.children;
+    final int[] childStart = cp.childStart;
+    final int[] childCount = cp.childCount;
+    final int[] fieldIdx = cp.fieldIdx;
+    final int[] cmpOp = cp.cmpOp;
+    final long[] longLit = cp.longLit;
+    final int size = batch.size;
+    final long[] out = batch.nodeBitmaps[0];
+    final int stride = (size + 63) >>> 6;
+    for (int i = 0; i < stride; i++) out[i] = 0L;
+    final byte root = ops[0];
+    // Shape: single OP_BOOL_REF leaf (just `$u.active`).
+    if (root == CompiledPredicate.OP_BOOL_REF) {
+      final int fi = fieldIdx[0];
+      final byte[] pk = batch.presentKind[fi];
+      final boolean[] vals = batch.boolCols[fi];
+      for (int i = 0; i < size; i++) {
+        if (pk[i] == 2 && vals[i]) out[i >>> 6] |= 1L << (i & 63);
+      }
+      return out;
+    }
+    if (root != CompiledPredicate.OP_AND) return null;
+    final int rootStart = childStart[0];
+    final int rootCount = childCount[0];
+    // Shape: OP_AND with exactly 2 leaves — NUM_CMP + BOOL_REF (filterCount shape).
+    if (rootCount == 2) {
+      final int cA = children[rootStart];
+      final int cB = children[rootStart + 1];
+      if (ops[cA] == CompiledPredicate.OP_NUM_CMP && ops[cB] == CompiledPredicate.OP_BOOL_REF) {
+        return fusedNumCmpAndBool(batch, fieldIdx[cA], cmpOp[cA], longLit[cA],
+            fieldIdx[cB], out, size);
+      }
+      if (ops[cA] == CompiledPredicate.OP_BOOL_REF && ops[cB] == CompiledPredicate.OP_NUM_CMP) {
+        return fusedNumCmpAndBool(batch, fieldIdx[cB], cmpOp[cB], longLit[cB],
+            fieldIdx[cA], out, size);
+      }
+      // Shape: two NUM_CMP on same or different numeric fields (range query).
+      if (ops[cA] == CompiledPredicate.OP_NUM_CMP && ops[cB] == CompiledPredicate.OP_NUM_CMP) {
+        return fusedTwoNumCmp(batch, fieldIdx[cA], cmpOp[cA], longLit[cA],
+            fieldIdx[cB], cmpOp[cB], longLit[cB], out, size);
+      }
+    }
+    // Shape: OP_AND(nested-AND-of-NUM_CMPs, BOOL_REF) — compoundAndFilter.
+    if (rootCount == 2) {
+      // One child is inner AND, the other is BOOL_REF.
+      int andChild = -1, boolChild = -1;
+      for (int k = 0; k < 2; k++) {
+        final int c = children[rootStart + k];
+        if (ops[c] == CompiledPredicate.OP_AND) andChild = c;
+        else if (ops[c] == CompiledPredicate.OP_BOOL_REF) boolChild = c;
+      }
+      if (andChild >= 0 && boolChild >= 0
+          && childCount[andChild] == 2) {
+        final int iA = children[childStart[andChild]];
+        final int iB = children[childStart[andChild] + 1];
+        if (ops[iA] == CompiledPredicate.OP_NUM_CMP && ops[iB] == CompiledPredicate.OP_NUM_CMP) {
+          return fusedTwoNumCmpAndBool(batch, fieldIdx[iA], cmpOp[iA], longLit[iA],
+              fieldIdx[iB], cmpOp[iB], longLit[iB],
+              fieldIdx[boolChild], out, size);
+        }
+      }
+    }
+    return null;
+  }
+
+  /** {@code (num[fiNum] OP numLit) AND (bool[fiBool] == true)} — single pass. */
+  private static long[] fusedNumCmpAndBool(final EvalBatch batch,
+      final int fiNum, final int cmp, final long numLit,
+      final int fiBool, final long[] out, final int size) {
+    final byte[] pkNum = batch.presentKind[fiNum];
+    final long[] vals = batch.longCols[fiNum];
+    final byte[] pkBool = batch.presentKind[fiBool];
+    final boolean[] bvals = batch.boolCols[fiBool];
+    switch (cmp) {
+      case OP_GT -> {
+        for (int i = 0; i < size; i++) {
+          if (pkNum[i] == 1 && pkBool[i] == 2 && vals[i] > numLit && bvals[i]) {
+            out[i >>> 6] |= 1L << (i & 63);
+          }
+        }
+      }
+      case OP_LT -> {
+        for (int i = 0; i < size; i++) {
+          if (pkNum[i] == 1 && pkBool[i] == 2 && vals[i] < numLit && bvals[i]) {
+            out[i >>> 6] |= 1L << (i & 63);
+          }
+        }
+      }
+      case OP_GE -> {
+        for (int i = 0; i < size; i++) {
+          if (pkNum[i] == 1 && pkBool[i] == 2 && vals[i] >= numLit && bvals[i]) {
+            out[i >>> 6] |= 1L << (i & 63);
+          }
+        }
+      }
+      case OP_LE -> {
+        for (int i = 0; i < size; i++) {
+          if (pkNum[i] == 1 && pkBool[i] == 2 && vals[i] <= numLit && bvals[i]) {
+            out[i >>> 6] |= 1L << (i & 63);
+          }
+        }
+      }
+      case OP_EQ -> {
+        for (int i = 0; i < size; i++) {
+          if (pkNum[i] == 1 && pkBool[i] == 2 && vals[i] == numLit && bvals[i]) {
+            out[i >>> 6] |= 1L << (i & 63);
+          }
+        }
+      }
+      default -> {
+        return null; // unsupported cmpOp, fall back
+      }
+    }
+    return out;
+  }
+
+  /** {@code (num[fiA] OPA aLit) AND (num[fiB] OPB bLit)} — single pass. */
+  private static long[] fusedTwoNumCmp(final EvalBatch batch,
+      final int fiA, final int cmpA, final long aLit,
+      final int fiB, final int cmpB, final long bLit,
+      final long[] out, final int size) {
+    final byte[] pkA = batch.presentKind[fiA];
+    final long[] valsA = batch.longCols[fiA];
+    final byte[] pkB = batch.presentKind[fiB];
+    final long[] valsB = batch.longCols[fiB];
+    for (int i = 0; i < size; i++) {
+      if (pkA[i] != 1 || pkB[i] != 1) continue;
+      final long va = valsA[i];
+      final long vb = valsB[i];
+      final boolean okA = switch (cmpA) {
+        case OP_GT -> va > aLit;
+        case OP_LT -> va < aLit;
+        case OP_GE -> va >= aLit;
+        case OP_LE -> va <= aLit;
+        case OP_EQ -> va == aLit;
+        default -> false;
+      };
+      if (!okA) continue;
+      final boolean okB = switch (cmpB) {
+        case OP_GT -> vb > bLit;
+        case OP_LT -> vb < bLit;
+        case OP_GE -> vb >= bLit;
+        case OP_LE -> vb <= bLit;
+        case OP_EQ -> vb == bLit;
+        default -> false;
+      };
+      if (okB) out[i >>> 6] |= 1L << (i & 63);
+    }
+    return out;
+  }
+
+  /**
+   * {@code (num[fiA] OPA aLit) AND (num[fiB] OPB bLit) AND (bool[fiBool] == true)}
+   * — compoundAndFilter shape.
+   */
+  private static long[] fusedTwoNumCmpAndBool(final EvalBatch batch,
+      final int fiA, final int cmpA, final long aLit,
+      final int fiB, final int cmpB, final long bLit,
+      final int fiBool, final long[] out, final int size) {
+    final byte[] pkA = batch.presentKind[fiA];
+    final long[] valsA = batch.longCols[fiA];
+    final byte[] pkB = batch.presentKind[fiB];
+    final long[] valsB = batch.longCols[fiB];
+    final byte[] pkBool = batch.presentKind[fiBool];
+    final boolean[] bvals = batch.boolCols[fiBool];
+    for (int i = 0; i < size; i++) {
+      if (pkA[i] != 1 || pkB[i] != 1 || pkBool[i] != 2) continue;
+      if (!bvals[i]) continue;
+      final long va = valsA[i];
+      final boolean okA = switch (cmpA) {
+        case OP_GT -> va > aLit;
+        case OP_LT -> va < aLit;
+        case OP_GE -> va >= aLit;
+        case OP_LE -> va <= aLit;
+        case OP_EQ -> va == aLit;
+        default -> false;
+      };
+      if (!okA) continue;
+      final long vb = valsB[i];
+      final boolean okB = switch (cmpB) {
+        case OP_GT -> vb > bLit;
+        case OP_LT -> vb < bLit;
+        case OP_GE -> vb >= bLit;
+        case OP_LE -> vb <= bLit;
+        case OP_EQ -> vb == bLit;
+        default -> false;
+      };
+      if (okB) out[i >>> 6] |= 1L << (i & 63);
+    }
+    return out;
   }
 
   private static long[] evalCompiledBatchRec(final CompiledPredicate cp, final int nodeIdx, final EvalBatch batch) {
