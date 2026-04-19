@@ -214,6 +214,57 @@ public final class PredicateTreeCountIntegrationTest {
     }
   }
 
+  /**
+   * Randomized fuzz sweep: generate 10 predicate shapes mixing NumCmp, StrEq,
+   * BoolRef, AND, and OR, and assert the default pipeline (which exercises
+   * the generated {@link SirixVectorizedExecutor.BatchPredicate} class) returns
+   * the same count as in-memory ground truth. This effectively compares the
+   * compiled path to the interpreter because the shapes' correctness is
+   * independent of path — any divergence between them surfaces here first.
+   */
+  @Test
+  void compiledPredicateMatchesInterpreter() throws Exception {
+    final Random rng = new Random(12345);
+    final String[] ops = { "gt", "lt", "ge", "le", "eq" };
+    for (int t = 0; t < 10; t++) {
+      // Build a random 2-or-3-term AND/OR predicate.
+      final int kind = rng.nextInt(3);
+      final int ageLit = 18 + rng.nextInt(48);
+      final String op = ops[rng.nextInt(ops.length)];
+      final String city1 = CITIES[rng.nextInt(CITIES.length)];
+      final String city2 = CITIES[rng.nextInt(CITIES.length)];
+      final String dept1 = DEPTS[rng.nextInt(DEPTS.length)];
+
+      final String predStr;
+      final IntPredicate expectedPred;
+      if (kind == 0) {
+        predStr = "$u.age " + op + " " + ageLit + " and $u.active";
+        expectedPred = i -> cmp(ages[i], op, ageLit) && active[i];
+      } else if (kind == 1) {
+        predStr = "$u.city eq \"" + city1 + "\" or $u.city eq \"" + city2 + "\"";
+        expectedPred = i -> city1.equals(city[i]) || city2.equals(city[i]);
+      } else {
+        predStr = "$u.age " + op + " " + ageLit + " and $u.dept eq \"" + dept1 + "\"";
+        expectedPred = i -> cmp(ages[i], op, ageLit) && dept1.equals(dept[i]);
+      }
+      final long expected = countWhere(expectedPred);
+      final long actual = runFilterCount("count(for $u in jn:doc('" + DB + "','" + RES + "')[] where "
+          + predStr + " return $u)");
+      assertEquals(expected, actual, "randomized predicate shape " + t + " (" + predStr + ") mismatch");
+    }
+  }
+
+  private static boolean cmp(final int v, final String op, final int lit) {
+    return switch (op) {
+      case "gt" -> v > lit;
+      case "lt" -> v < lit;
+      case "ge" -> v >= lit;
+      case "le" -> v <= lit;
+      case "eq" -> v == lit;
+      default -> false;
+    };
+  }
+
   private long runFilterCount(final String query) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);

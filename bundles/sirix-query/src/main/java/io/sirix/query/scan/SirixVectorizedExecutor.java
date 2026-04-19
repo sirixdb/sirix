@@ -37,19 +37,30 @@ import io.sirix.settings.Constants;
 
 import jdk.incubator.vector.VectorOperators;
 
+import java.lang.classfile.ClassBuilder;
+import java.lang.classfile.ClassFile;
+import java.lang.classfile.CodeBuilder;
+import java.lang.classfile.Label;
+import java.lang.classfile.MethodBuilder;
+import java.lang.constant.ClassDesc;
+import java.lang.constant.MethodTypeDesc;
 import java.lang.foreign.MemorySegment;
-
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodHandles.Lookup;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Vectorized executor backed by a Sirix {@link JsonResourceSession}.
@@ -93,6 +104,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private static final boolean BATCH_GENERIC_EVAL_ENABLED =
       !"false".equalsIgnoreCase(System.getProperty("sirix.vec.batchGenericEval", "true"));
+
+  /**
+   * Toggle per-predicate JIT-style class generation via {@link java.lang.classfile}.
+   * When {@code true} (default), each distinct {@link CompiledPredicate} tree is
+   * compiled to a dedicated hidden class implementing {@link BatchPredicate} — the
+   * opcode switch + recursive tree walk collapse to straight-line column kernels
+   * with all constants (comparison threshold, cmp op, fieldIdx) inlined. When
+   * {@code false}, {@link #evalCompiledBatch} interprets the flat op-array.
+   * Use {@code -Dsirix.vec.compiledPredicate=false} for A/B bisection.
+   */
+  private static final boolean COMPILED_PREDICATE_ENABLED =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.vec.compiledPredicate", "true"));
+
+  /** Monotonic counter for generated-class name uniqueness (aids in debugger symbol tables). */
+  private static final AtomicInteger COMPILED_PREDICATE_SEQ = new AtomicInteger();
 
   /**
    * Lightweight scan-path diagnostics. Toggled via {@code -Dsirix.scan.diag=true}.
@@ -262,6 +288,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /** Cache of aggregated scans keyed by predicate + field + func (for predicate aggregate). */
   private final ConcurrentHashMap<String, Sequence> predicateAggregateCache = new ConcurrentHashMap<>();
+
+  /**
+   * Per-predicate cache of generated {@link BatchPredicate} instances. Key is
+   * {@code predicateCacheKey} plus a field-layout suffix so two predicates with
+   * structurally identical trees but different field indices get distinct
+   * classes. The generated class is a hidden class loaded under an anonymous
+   * Lookup — it is GC'd when its last reference (this map entry) is cleared.
+   */
+  private final ConcurrentHashMap<String, BatchPredicate> compiledPredicateCache = new ConcurrentHashMap<>();
+
+  /**
+   * Keys recorded in this set represent predicates whose
+   * {@link #compileToClass(CompiledPredicate)} attempt threw. We fall back to
+   * the interpreter on every subsequent lookup rather than re-trying the
+   * bytecode build — failures are pathological (classfile API bug, unsupported
+   * shape) and should never hot-spin.
+   */
+  private final Set<String> skipCompileSet = ConcurrentHashMap.newKeySet();
 
   public SirixVectorizedExecutor(JsonResourceSession session, int revision) {
     this(session, revision, defaultThreadCount());
@@ -441,6 +485,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final Map<String, long[]>[] perThread = new Map[eff];
 
     final boolean useBatch = BATCH_GENERIC_EVAL_ENABLED;
+    // Compile once, share across workers. Key disambiguates by field layout.
+    final String compileKey = compiledClassKey(predicate, cp) + "#gb:" + groupField;
+    final BatchPredicate compiled = useBatch ? resolveCompiledPredicate(compileKey, cp) : null;
     parallel(eff, idx -> {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final long s = (long) idx * ppt;
@@ -450,6 +497,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final HashMap<String, long[]> local = new HashMap<>();
       if (useBatch) {
         final EvalBatch batch = new EvalBatch(cp.fieldNames.length, cp.ops.length, Constants.INP_REFERENCE_COUNT);
+        final long[] rootOut = new long[batch.bitmapStride];
         for (long pk = s; pk < e; pk++) {
           final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
           if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
@@ -458,7 +506,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (matches.length == 0) continue;
           collectColumns(kv, base, matches, cp, anchorPathNodeKey, batch, rtx);
           if (batch.size == 0) continue;
-          final long[] bitmap = evalCompiledBatch(cp, batch);
+          final long[] bitmap;
+          if (compiled != null) {
+            compiled.evaluate(batch, rootOut);
+            bitmap = rootOut;
+          } else {
+            bitmap = evalCompiledBatch(cp, batch);
+          }
           final byte[] gpk = batch.presentKind[groupFieldIdx];
           final String[] gvs = batch.strCols[groupFieldIdx];
           final int size = batch.size;
@@ -1122,6 +1176,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long[] perThread = new long[eff];
 
     final boolean useBatch = BATCH_GENERIC_EVAL_ENABLED;
+    // Resolve the generated BatchPredicate up-front (single compile for all
+    // workers). Null = interpreter fallback. We include the field-layout hash
+    // in the cache key so two predicates with identical structure but
+    // different resolved fieldIdx order don't alias.
+    final String compileKey = compiledClassKey(predicate, cp);
+    final BatchPredicate compiled = useBatch ? resolveCompiledPredicate(compileKey, cp) : null;
     parallel(eff, idx -> {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final long s = (long) idx * ppt;
@@ -1131,6 +1191,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       long localCount = 0;
       if (useBatch) {
         final EvalBatch batch = new EvalBatch(cp.fieldNames.length, cp.ops.length, Constants.INP_REFERENCE_COUNT);
+        final long[] rootOut = new long[batch.bitmapStride];
         for (long pk = s; pk < e; pk++) {
           final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
           if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
@@ -1139,7 +1200,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (matches.length == 0) continue;
           collectColumns(kv, base, matches, cp, anchorPathNodeKey, batch, rtx);
           if (batch.size == 0) continue;
-          final long[] bitmap = evalCompiledBatch(cp, batch);
+          final long[] bitmap;
+          if (compiled != null) {
+            compiled.evaluate(batch, rootOut);
+            bitmap = rootOut;
+          } else {
+            bitmap = evalCompiledBatch(cp, batch);
+          }
           localCount += countBits(bitmap, batch.size);
         }
       } else {
@@ -1289,7 +1356,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * {@link #ensureCapacity}. All per-worker reusable — allocated once, reset
    * {@code size} between pages.
    */
-  private static final class EvalBatch {
+  static final class EvalBatch {
     int size;
     int capacity;
     /** Anchor slot for row i on the current page — used for direct-slot reads. */
@@ -2295,6 +2362,835 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case OP_EQ -> VectorOperators.EQ;
       default -> null;
     };
+  }
+
+  // ==================================================================
+  // Per-predicate class-generated evaluator (Task #29).
+  //
+  // At query compile time we emit a specialised class implementing
+  // BatchPredicate. The class's evaluate() method is straight-line code:
+  //
+  //   • every opcode is expanded inline (no runtime dispatch)
+  //   • threshold constants, field indices, and string-literal indices
+  //     are baked into the bytecode as LDC / SIPUSH instructions
+  //   • AND/OR/NOT are plain long[] bitwise loops over the per-node
+  //     scratch bitmaps that EvalBatch already allocates
+  //
+  // The class is loaded as a hidden class (Lookup.defineHiddenClass) so
+  // the JVM can unload it as soon as the last reference clears.
+  //
+  // If class generation fails for any reason we fall back to the
+  // interpreter — correctness never regresses. See skipCompileSet.
+  // ==================================================================
+
+  /**
+   * Bytecode-generated equivalent of {@link #evalCompiledBatch}. Implementations
+   * are produced on demand by {@link #compileToClass(CompiledPredicate)} and
+   * cached in {@link #compiledPredicateCache}. Implementations MUST:
+   *
+   * <ul>
+   *   <li>Write the match bitmap for the root predicate node into {@code out}
+   *       covering the valid range {@code [0, batch.size)}. Words beyond the
+   *       valid prefix are left unmodified — callers mask {@code size & 63}
+   *       when counting.</li>
+   *   <li>Populate {@code batch.nodeBitmaps[nodeIdx]} for every non-root node
+   *       as a side effect. Callers assume these bitmaps are scratch-only.</li>
+   *   <li>Allocate NOTHING on the call path.</li>
+   * </ul>
+   */
+  public interface BatchPredicate {
+    void evaluate(EvalBatch batch, long[] out);
+  }
+
+  /**
+   * Build a hidden class implementing {@link BatchPredicate} for {@code cp}.
+   * Called at most once per distinct predicate signature — the result is
+   * cached in {@link #compiledPredicateCache}. Uses the Java 25
+   * {@code java.lang.classfile} API (no ASM dependency).
+   *
+   * <p>The emitted {@code evaluate} method:
+   * <ol>
+   *   <li>Hoists all EvalBatch array references into locals (one aaload per
+   *       2D column array, not per node).</li>
+   *   <li>For every tree node (in post-order on tree indices), emits an
+   *       inline kernel that writes the node's bitmap into
+   *       {@code batch.nodeBitmaps[nodeIdx]}.</li>
+   *   <li>Ends with a bitwise copy of {@code batch.nodeBitmaps[0]} to the
+   *       caller's {@code out} array.</li>
+   * </ol>
+   *
+   * @throws Exception if the classfile emission or hidden-class load fails.
+   */
+  /**
+   * Cache key for the generated-class map: predicate signature plus the
+   * distinct ordered field list. Two structurally identical predicate trees
+   * with different field sets generate different classes.
+   */
+  private static String compiledClassKey(final PredicateNode predicate, final CompiledPredicate cp) {
+    final StringBuilder sb = new StringBuilder(64);
+    appendKey(sb, predicate);
+    sb.append("|f:");
+    for (int i = 0; i < cp.fieldNames.length; i++) {
+      if (i > 0) sb.append(',');
+      sb.append(cp.fieldNames[i]);
+    }
+    return sb.toString();
+  }
+
+  /**
+   * Resolve a compiled {@link BatchPredicate} for {@code cp} if class generation
+   * is enabled and the predicate hasn't been blacklisted from a prior failure.
+   * Returns {@code null} if the caller must fall back to {@link #evalCompiledBatch}.
+   * Never throws — failures are caught, the key is recorded in
+   * {@link #skipCompileSet}, and {@code null} is returned so the caller invokes
+   * the interpreter.
+   */
+  private BatchPredicate resolveCompiledPredicate(final String cacheKey, final CompiledPredicate cp) {
+    if (!COMPILED_PREDICATE_ENABLED) return null;
+    if (skipCompileSet.contains(cacheKey)) return null;
+    final BatchPredicate cached = compiledPredicateCache.get(cacheKey);
+    if (cached != null) return cached;
+    try {
+      final BatchPredicate built = compileToClass(cp);
+      final BatchPredicate existing = compiledPredicateCache.putIfAbsent(cacheKey, built);
+      return existing != null ? existing : built;
+    } catch (Throwable t) {
+      // Blacklist the key — do not retry on the hot path. Surface a single
+      // stderr log entry for diagnosis.
+      if (skipCompileSet.add(cacheKey)) {
+        System.err.println("[sirix-vec] compileToClass failed for " + cacheKey + " — falling back ("
+            + t.getClass().getSimpleName() + ": " + t.getMessage() + ")");
+      }
+      return null;
+    }
+  }
+
+  private BatchPredicate compileToClass(final CompiledPredicate cp) throws Exception {
+    final int seq = COMPILED_PREDICATE_SEQ.incrementAndGet();
+    final String simpleName = "SirixBatchPred$" + seq;
+    final ClassDesc thisClass = ClassDesc.of("io.sirix.query.scan." + simpleName);
+
+    final byte[] classBytes = ClassFile.of().build(thisClass, cb -> emitBatchPredicateClass(cb, thisClass, cp));
+
+    // NESTMATE: join the nest of SirixVectorizedExecutor so the generated code
+    // can access private nested types (BatchPredicate, EvalBatch) without
+    // synthetic accessor methods.
+    final Lookup lookup = MethodHandles.lookup()
+        .defineHiddenClass(classBytes, true, MethodHandles.Lookup.ClassOption.NESTMATE);
+    final Class<?> genClass = lookup.lookupClass();
+    try {
+      final Object instance = genClass.getDeclaredConstructor(String[].class)
+          .newInstance((Object) cp.strLiterals);
+      return (BatchPredicate) instance;
+    } catch (InvocationTargetException ite) {
+      final Throwable cause = ite.getCause();
+      if (cause instanceof RuntimeException re) throw re;
+      throw new RuntimeException("Generated predicate class constructor threw", cause);
+    }
+  }
+
+  // ClassDesc constants used across the emitter — hoisted to avoid re-allocating on each compile.
+  private static final ClassDesc CD_OBJECT = ClassDesc.ofDescriptor("Ljava/lang/Object;");
+  private static final ClassDesc CD_STRING = ClassDesc.ofDescriptor("Ljava/lang/String;");
+  private static final ClassDesc CD_VOID = ClassDesc.ofDescriptor("V");
+  private static final ClassDesc CD_BATCH_PRED =
+      ClassDesc.ofDescriptor("Lio/sirix/query/scan/SirixVectorizedExecutor$BatchPredicate;");
+  private static final ClassDesc CD_EVAL_BATCH =
+      ClassDesc.ofDescriptor("Lio/sirix/query/scan/SirixVectorizedExecutor$EvalBatch;");
+  private static final ClassDesc CD_STRING_ARR = ClassDesc.ofDescriptor("[Ljava/lang/String;");
+  private static final ClassDesc CD_STRING_2D = ClassDesc.ofDescriptor("[[Ljava/lang/String;");
+  private static final ClassDesc CD_LONG_2D = ClassDesc.ofDescriptor("[[J");
+  private static final ClassDesc CD_BYTE_2D = ClassDesc.ofDescriptor("[[B");
+  private static final ClassDesc CD_BOOL_2D = ClassDesc.ofDescriptor("[[Z");
+  private static final ClassDesc CD_LONG_ARR = ClassDesc.ofDescriptor("[J");
+  private static final ClassDesc CD_BYTE_ARR = ClassDesc.ofDescriptor("[B");
+  private static final ClassDesc CD_BOOL_ARR = ClassDesc.ofDescriptor("[Z");
+
+  /**
+   * Emit the generated class. Structure:
+   * <pre>
+   *   public final class SirixBatchPred$N implements BatchPredicate {
+   *     private final String[] strLits;
+   *     public SirixBatchPred$N(String[] lits) { this.strLits = lits; }
+   *     public void evaluate(EvalBatch batch, long[] out) {
+   *        // hoist all arrays; for every compiled node, inline-evaluate into
+   *        // batch.nodeBitmaps[nodeIdx]; finally copy root bitmap into out.
+   *     }
+   *   }
+   * </pre>
+   */
+  private static void emitBatchPredicateClass(final ClassBuilder cb, final ClassDesc thisClass,
+      final CompiledPredicate cp) {
+    cb.withSuperclass(CD_OBJECT);
+    cb.withInterfaceSymbols(CD_BATCH_PRED);
+    cb.withFlags(ClassFile.ACC_PUBLIC | ClassFile.ACC_FINAL | ClassFile.ACC_SUPER);
+
+    cb.withField("strLits", CD_STRING_ARR,
+        fb -> fb.withFlags(ClassFile.ACC_PRIVATE | ClassFile.ACC_FINAL));
+
+    // Constructor: (String[] lits) { super(); this.strLits = lits; }
+    cb.withMethod("<init>", MethodTypeDesc.of(CD_VOID, CD_STRING_ARR),
+        ClassFile.ACC_PUBLIC,
+        (MethodBuilder mb) -> mb.withCode(code -> {
+          code.aload(0);
+          code.invokespecial(CD_OBJECT, "<init>", MethodTypeDesc.of(CD_VOID));
+          code.aload(0);
+          code.aload(1);
+          code.putfield(thisClass, "strLits", CD_STRING_ARR);
+          code.return_();
+        }));
+
+    cb.withMethod("evaluate",
+        MethodTypeDesc.of(CD_VOID, CD_EVAL_BATCH, CD_LONG_ARR),
+        ClassFile.ACC_PUBLIC | ClassFile.ACC_FINAL,
+        (MethodBuilder mb) -> mb.withCode(code -> emitEvaluateBody(code, thisClass, cp)));
+  }
+
+  /**
+   * Local-slot layout for the generated {@code evaluate(EvalBatch, long[])}:
+   *
+   * <pre>
+   *  slot 0   this
+   *  slot 1   batch              (EvalBatch)
+   *  slot 2   out                (long[])
+   *  slot 3   size               (int)    — batch.size
+   *  slot 4   stride             (int)    — (size + 63) >>> 6
+   *  slot 5   nodeBitmaps        (long[][])
+   *  slot 6   presentKind        (byte[][])
+   *  slot 7   longCols           (long[][])
+   *  slot 8   boolCols           (boolean[][])
+   *  slot 9   strCols            (String[][])
+   *  slot 10  strLits            (String[])
+   *  slot 11+ per-node scratch ints / longs as needed (reused within each kernel)
+   * </pre>
+   *
+   * Each node kernel reuses slots 11..13 (int i, long word) and 14+ as
+   * needed. Because we emit straight-line kernels one after the other the
+   * slot budget stays bounded: O(1) per tree.
+   */
+  private static final int SLOT_THIS = 0;
+  private static final int SLOT_BATCH = 1;
+  private static final int SLOT_OUT = 2;
+  private static final int SLOT_SIZE = 3;
+  private static final int SLOT_STRIDE = 4;
+  private static final int SLOT_NODE_BITMAPS = 5;
+  private static final int SLOT_PRESENT_KIND = 6;
+  private static final int SLOT_LONG_COLS = 7;
+  private static final int SLOT_BOOL_COLS = 8;
+  private static final int SLOT_STR_COLS = 9;
+  private static final int SLOT_STR_LITS = 10;
+  // Scratch slots used within individual kernels — reused node-by-node.
+  private static final int SLOT_BM = 11;      // long[] current-node bitmap (ref)
+  private static final int SLOT_I = 12;       // int  loop counter
+  private static final int SLOT_STR_V = 13;   // String scratch (for STR_EQ)
+  private static final int SLOT_LIT = 14;     // String literal (for STR_EQ)
+  private static final int SLOT_CHILD_BM = 16; // long[] child bitmap (for NOT/AND/OR)
+
+  /**
+   * Emit the evaluate() body. We recursively descend through the
+   * {@link CompiledPredicate} tree (node 0 is root) and, for each node,
+   * emit a self-contained kernel that populates
+   * {@code batch.nodeBitmaps[nodeIdx]}. Finally we copy node 0's bitmap
+   * into {@code out}.
+   */
+  private static void emitEvaluateBody(final CodeBuilder code, final ClassDesc thisClass,
+      final CompiledPredicate cp) {
+    // 1. Hoist all array references into locals.
+    // size = batch.size
+    code.aload(SLOT_BATCH);
+    code.getfield(CD_EVAL_BATCH, "size", ClassDesc.ofDescriptor("I"));
+    code.istore(SLOT_SIZE);
+
+    // stride = (size + 63) >>> 6
+    code.iload(SLOT_SIZE);
+    code.bipush(63);
+    code.iadd();
+    code.bipush(6);
+    code.iushr();
+    code.istore(SLOT_STRIDE);
+
+    code.aload(SLOT_BATCH);
+    code.getfield(CD_EVAL_BATCH, "nodeBitmaps", CD_LONG_2D);
+    code.astore(SLOT_NODE_BITMAPS);
+
+    code.aload(SLOT_BATCH);
+    code.getfield(CD_EVAL_BATCH, "presentKind", CD_BYTE_2D);
+    code.astore(SLOT_PRESENT_KIND);
+
+    code.aload(SLOT_BATCH);
+    code.getfield(CD_EVAL_BATCH, "longCols", CD_LONG_2D);
+    code.astore(SLOT_LONG_COLS);
+
+    code.aload(SLOT_BATCH);
+    code.getfield(CD_EVAL_BATCH, "boolCols", CD_BOOL_2D);
+    code.astore(SLOT_BOOL_COLS);
+
+    code.aload(SLOT_BATCH);
+    code.getfield(CD_EVAL_BATCH, "strCols", CD_STRING_2D);
+    code.astore(SLOT_STR_COLS);
+
+    code.aload(SLOT_THIS);
+    code.getfield(thisClass, "strLits", CD_STRING_ARR);
+    code.astore(SLOT_STR_LITS);
+
+    // 2. Emit every tree node in index order. Because children are always at
+    // higher indices in the flatten layout, emitting ascending node order
+    // would evaluate children before parents — but CompiledPredicate does
+    // NOT guarantee that: flatten reserves the parent slot first, then
+    // recurses, so children end up at *higher* indices. We exploit that:
+    // iterate from n-1 down to 0 to evaluate children first. (Equivalent
+    // to post-order for the tree emitted by flatten().)
+    final int n = cp.ops.length;
+    for (int idx = n - 1; idx >= 0; idx--) {
+      emitNodeKernel(code, cp, idx);
+    }
+
+    // 3. Copy nodeBitmaps[0] into out.
+    // for (int i = 0; i < stride; i++) out[i] = nodeBitmaps[0][i];
+    code.aload(SLOT_NODE_BITMAPS);
+    code.iconst_0();
+    code.aaload();
+    code.astore(SLOT_BM); // root bitmap
+    final Label copyCond = code.newLabel();
+    final Label copyTop = code.newLabel();
+    code.iconst_0();
+    code.istore(SLOT_I);
+    code.goto_(copyCond);
+    code.labelBinding(copyTop);
+    code.aload(SLOT_OUT);
+    code.iload(SLOT_I);
+    code.aload(SLOT_BM);
+    code.iload(SLOT_I);
+    code.laload();
+    code.lastore();
+    code.iinc(SLOT_I, 1);
+    code.labelBinding(copyCond);
+    code.iload(SLOT_I);
+    code.iload(SLOT_STRIDE);
+    code.if_icmplt(copyTop);
+
+    code.return_();
+  }
+
+  /**
+   * Emit the straight-line kernel for a single compiled-predicate node. Writes
+   * into {@code batch.nodeBitmaps[nodeIdx]}. Semantics match
+   * {@link #evalCompiledBatchRec} case-for-case — constants are inlined.
+   */
+  private static void emitNodeKernel(final CodeBuilder code, final CompiledPredicate cp, final int nodeIdx) {
+    final byte op = cp.ops[nodeIdx];
+    // Load nodeBitmaps[nodeIdx] into SLOT_BM.
+    code.aload(SLOT_NODE_BITMAPS);
+    loadIntConst(code, nodeIdx);
+    code.aaload();
+    code.astore(SLOT_BM);
+
+    // Zero the valid portion: for (int i = 0; i < stride; i++) bm[i] = 0L;
+    emitZeroBitmap(code);
+
+    switch (op) {
+      case CompiledPredicate.OP_ALWAYS_T -> emitAlwaysTrue(code);
+      case CompiledPredicate.OP_ALWAYS_F -> { /* already zero */ }
+      case CompiledPredicate.OP_NOT ->
+          emitNot(code, cp.children[cp.childStart[nodeIdx]]);
+      case CompiledPredicate.OP_AND ->
+          emitAnd(code, cp, cp.childStart[nodeIdx], cp.childCount[nodeIdx]);
+      case CompiledPredicate.OP_OR ->
+          emitOr(code, cp, cp.childStart[nodeIdx], cp.childCount[nodeIdx]);
+      case CompiledPredicate.OP_NUM_CMP ->
+          emitNumCmp(code, cp.fieldIdx[nodeIdx], cp.cmpOp[nodeIdx], cp.longLit[nodeIdx]);
+      case CompiledPredicate.OP_STR_EQ ->
+          emitStrEq(code, cp.fieldIdx[nodeIdx], cp.strIdx[nodeIdx]);
+      case CompiledPredicate.OP_BOOL_REF ->
+          emitBoolRef(code, cp.fieldIdx[nodeIdx]);
+      default -> throw new IllegalStateException("unsupported opcode " + op);
+    }
+  }
+
+  /** bm = nodeBitmaps[nodeIdx] already in SLOT_BM. Zero bm[0..stride). */
+  private static void emitZeroBitmap(final CodeBuilder code) {
+    final Label cond = code.newLabel();
+    final Label top = code.newLabel();
+    code.iconst_0();
+    code.istore(SLOT_I);
+    code.goto_(cond);
+    code.labelBinding(top);
+    code.aload(SLOT_BM);
+    code.iload(SLOT_I);
+    code.lconst_0();
+    code.lastore();
+    code.iinc(SLOT_I, 1);
+    code.labelBinding(cond);
+    code.iload(SLOT_I);
+    code.iload(SLOT_STRIDE);
+    code.if_icmplt(top);
+  }
+
+  /**
+   * Emit OP_ALWAYS_T: set all valid bits in bm. Full words to -1L, tail word
+   * to {@code (1L << (size & 63)) - 1}.
+   */
+  private static void emitAlwaysTrue(final CodeBuilder code) {
+    // full = size >>> 6
+    // for (int i = 0; i < full; i++) bm[i] = -1L;
+    // final int tail = size & 63;
+    // if (tail > 0) bm[full] = (1L << tail) - 1;
+    final int SLOT_FULL = SLOT_STR_V;   // reuse int slot
+    code.iload(SLOT_SIZE);
+    code.bipush(6);
+    code.iushr();
+    code.istore(SLOT_FULL);
+
+    final Label cond = code.newLabel();
+    final Label top = code.newLabel();
+    code.iconst_0();
+    code.istore(SLOT_I);
+    code.goto_(cond);
+    code.labelBinding(top);
+    code.aload(SLOT_BM);
+    code.iload(SLOT_I);
+    code.ldc(-1L);
+    code.lastore();
+    code.iinc(SLOT_I, 1);
+    code.labelBinding(cond);
+    code.iload(SLOT_I);
+    code.iload(SLOT_FULL);
+    code.if_icmplt(top);
+
+    // tail = size & 63; store in SLOT_I (its loop use is done).
+    code.iload(SLOT_SIZE);
+    code.bipush(63);
+    code.iand();
+    code.istore(SLOT_I);
+    final Label noTail = code.newLabel();
+    code.iload(SLOT_I);
+    code.ifeq(noTail);
+    // bm[full] = (1L << tail) - 1L
+    code.aload(SLOT_BM);
+    code.iload(SLOT_FULL);
+    code.lconst_1();
+    code.iload(SLOT_I);
+    code.lshl();
+    code.lconst_1();
+    code.lsub();
+    code.lastore();
+    code.labelBinding(noTail);
+  }
+
+  /**
+   * bm = ~childBm, masked to the valid prefix. Emits:
+   * <pre>
+   *   final int full = size >>> 6;
+   *   for (int i = 0; i < full; i++) bm[i] = ~childBm[i];
+   *   final int tail = size & 63;
+   *   if (tail > 0) bm[full] = (~childBm[full]) & ((1L << tail) - 1L);
+   * </pre>
+   */
+  private static void emitNot(final CodeBuilder code, final int childIdx) {
+    // Load childBm
+    code.aload(SLOT_NODE_BITMAPS);
+    loadIntConst(code, childIdx);
+    code.aaload();
+    code.astore(SLOT_CHILD_BM);
+
+    final int SLOT_FULL = SLOT_STR_V;
+    code.iload(SLOT_SIZE);
+    code.bipush(6);
+    code.iushr();
+    code.istore(SLOT_FULL);
+
+    final Label cond = code.newLabel();
+    final Label top = code.newLabel();
+    code.iconst_0();
+    code.istore(SLOT_I);
+    code.goto_(cond);
+    code.labelBinding(top);
+    code.aload(SLOT_BM);
+    code.iload(SLOT_I);
+    code.aload(SLOT_CHILD_BM);
+    code.iload(SLOT_I);
+    code.laload();
+    code.ldc(-1L);
+    code.lxor();
+    code.lastore();
+    code.iinc(SLOT_I, 1);
+    code.labelBinding(cond);
+    code.iload(SLOT_I);
+    code.iload(SLOT_FULL);
+    code.if_icmplt(top);
+
+    // tail
+    final Label noTail = code.newLabel();
+    code.iload(SLOT_SIZE);
+    code.bipush(63);
+    code.iand();
+    code.ifeq(noTail);
+    code.aload(SLOT_BM);
+    code.iload(SLOT_FULL);
+    code.aload(SLOT_CHILD_BM);
+    code.iload(SLOT_FULL);
+    code.laload();
+    code.ldc(-1L);
+    code.lxor();
+    code.lconst_1();
+    code.iload(SLOT_SIZE);
+    code.bipush(63);
+    code.iand();
+    code.lshl();
+    code.lconst_1();
+    code.lsub();
+    code.land();
+    code.lastore();
+    code.labelBinding(noTail);
+  }
+
+  /**
+   * bm = firstChild; for k in 1..n-1: bm &amp;= childKBm;
+   * Vacuously true for n==0.
+   */
+  private static void emitAnd(final CodeBuilder code, final CompiledPredicate cp, final int start, final int n) {
+    if (n == 0) { emitAlwaysTrue(code); return; }
+    // bm = first child's bitmap (copy stride words)
+    final int firstChild = cp.children[start];
+    emitBitmapCopy(code, firstChild);
+    for (int k = 1; k < n; k++) {
+      final int ci = cp.children[start + k];
+      emitBitmapAnd(code, ci);
+    }
+  }
+
+  /** bm = 0; for k in 0..n-1: bm |= childKBm; */
+  private static void emitOr(final CodeBuilder code, final CompiledPredicate cp, final int start, final int n) {
+    // already zero from emitZeroBitmap
+    for (int k = 0; k < n; k++) {
+      final int ci = cp.children[start + k];
+      emitBitmapOr(code, ci);
+    }
+  }
+
+  /** for i in 0..stride-1: bm[i] = nodeBitmaps[childIdx][i]; */
+  private static void emitBitmapCopy(final CodeBuilder code, final int childIdx) {
+    code.aload(SLOT_NODE_BITMAPS);
+    loadIntConst(code, childIdx);
+    code.aaload();
+    code.astore(SLOT_CHILD_BM);
+    final Label cond = code.newLabel();
+    final Label top = code.newLabel();
+    code.iconst_0();
+    code.istore(SLOT_I);
+    code.goto_(cond);
+    code.labelBinding(top);
+    code.aload(SLOT_BM);
+    code.iload(SLOT_I);
+    code.aload(SLOT_CHILD_BM);
+    code.iload(SLOT_I);
+    code.laload();
+    code.lastore();
+    code.iinc(SLOT_I, 1);
+    code.labelBinding(cond);
+    code.iload(SLOT_I);
+    code.iload(SLOT_STRIDE);
+    code.if_icmplt(top);
+  }
+
+  /** for i in 0..stride-1: bm[i] &amp;= nodeBitmaps[childIdx][i]; */
+  private static void emitBitmapAnd(final CodeBuilder code, final int childIdx) {
+    code.aload(SLOT_NODE_BITMAPS);
+    loadIntConst(code, childIdx);
+    code.aaload();
+    code.astore(SLOT_CHILD_BM);
+    final Label cond = code.newLabel();
+    final Label top = code.newLabel();
+    code.iconst_0();
+    code.istore(SLOT_I);
+    code.goto_(cond);
+    code.labelBinding(top);
+    code.aload(SLOT_BM);
+    code.iload(SLOT_I);
+    // existing bm[i]
+    code.dup2();               // [bm, i, bm, i]
+    code.laload();             // [bm, i, bm[i](long)]
+    code.aload(SLOT_CHILD_BM);
+    code.iload(SLOT_I);
+    code.laload();             // [bm, i, bm[i], child[i]]
+    code.land();               // [bm, i, result]
+    code.lastore();
+    code.iinc(SLOT_I, 1);
+    code.labelBinding(cond);
+    code.iload(SLOT_I);
+    code.iload(SLOT_STRIDE);
+    code.if_icmplt(top);
+  }
+
+  /** for i in 0..stride-1: bm[i] |= nodeBitmaps[childIdx][i]; */
+  private static void emitBitmapOr(final CodeBuilder code, final int childIdx) {
+    code.aload(SLOT_NODE_BITMAPS);
+    loadIntConst(code, childIdx);
+    code.aaload();
+    code.astore(SLOT_CHILD_BM);
+    final Label cond = code.newLabel();
+    final Label top = code.newLabel();
+    code.iconst_0();
+    code.istore(SLOT_I);
+    code.goto_(cond);
+    code.labelBinding(top);
+    code.aload(SLOT_BM);
+    code.iload(SLOT_I);
+    code.dup2();
+    code.laload();
+    code.aload(SLOT_CHILD_BM);
+    code.iload(SLOT_I);
+    code.laload();
+    code.lor();
+    code.lastore();
+    code.iinc(SLOT_I, 1);
+    code.labelBinding(cond);
+    code.iload(SLOT_I);
+    code.iload(SLOT_STRIDE);
+    code.if_icmplt(top);
+  }
+
+  /**
+   * Numeric comparison kernel:
+   * <pre>
+   *   final byte[] pk = presentKind[fieldIdx];
+   *   final long[] vals = longCols[fieldIdx];
+   *   for (int i = 0; i < size; i++) {
+   *     if (pk[i] == 1 &amp;&amp; vals[i] {cmp} lit) bm[i>>>6] |= 1L << (i &amp; 63);
+   *   }
+   * </pre>
+   * Comparison is constant-folded in the emitted bytecode via the opcode
+   * selection below (one lcmp + if-family per row).
+   */
+  private static void emitNumCmp(final CodeBuilder code, final int fieldIdx, final int cmpOp, final long lit) {
+    // pkLocal = presentKind[fieldIdx] — overlay SLOT_CHILD_BM for a byte[] ref
+    final int SLOT_PK = SLOT_CHILD_BM;  // byte[]
+    final int SLOT_VALS = SLOT_CHILD_BM + 1;  // long[]
+    code.aload(SLOT_PRESENT_KIND);
+    loadIntConst(code, fieldIdx);
+    code.aaload();
+    code.astore(SLOT_PK);
+    code.aload(SLOT_LONG_COLS);
+    loadIntConst(code, fieldIdx);
+    code.aaload();
+    code.astore(SLOT_VALS);
+
+    final Label cond = code.newLabel();
+    final Label top = code.newLabel();
+    final Label skip = code.newLabel();
+    code.iconst_0();
+    code.istore(SLOT_I);
+    code.goto_(cond);
+    code.labelBinding(top);
+    // if (pk[i] != 1) goto skip
+    code.aload(SLOT_PK);
+    code.iload(SLOT_I);
+    code.baload();
+    code.iconst_1();
+    code.if_icmpne(skip);
+    // vals[i] {cmp} lit?
+    code.aload(SLOT_VALS);
+    code.iload(SLOT_I);
+    code.laload();
+    code.ldc(lit);
+    code.lcmp();  // stack: int (-1, 0, 1)
+    // lcmp result vs 0 — use the right branch
+    //   GT (1): lcmp > 0 iff val > lit      -> iflt skip (skip if lcmp<=0)
+    //   LT (2): lcmp < 0 iff val < lit      -> ifgt skip (skip if lcmp>=0)... inverted
+    //   GE (3): lcmp >= 0
+    //   LE (4): lcmp <= 0
+    //   EQ (5): lcmp == 0
+    switch (cmpOp) {
+      case OP_GT -> code.ifle(skip);
+      case OP_LT -> code.ifge(skip);
+      case OP_GE -> code.iflt(skip);
+      case OP_LE -> code.ifgt(skip);
+      case OP_EQ -> code.ifne(skip);
+      default -> throw new IllegalStateException("bad cmpOp " + cmpOp);
+    }
+    // bm[i>>>6] |= 1L << (i & 63)
+    emitSetBit(code);
+    code.labelBinding(skip);
+    code.iinc(SLOT_I, 1);
+    code.labelBinding(cond);
+    code.iload(SLOT_I);
+    code.iload(SLOT_SIZE);
+    code.if_icmplt(top);
+  }
+
+  /**
+   * String-equality kernel:
+   * <pre>
+   *   final String lit = strLits[strIdx];
+   *   final int litLen = lit.length();
+   *   final byte[] pk = presentKind[fieldIdx];
+   *   final String[] vals = strCols[fieldIdx];
+   *   for (int i = 0; i < size; i++) {
+   *     if (pk[i] != 3) continue;
+   *     final String v = vals[i];
+   *     if (v == lit || (v != null &amp;&amp; v.length() == litLen &amp;&amp; lit.equals(v)))
+   *         bm[i>>>6] |= 1L << (i &amp; 63);
+   *   }
+   * </pre>
+   */
+  private static void emitStrEq(final CodeBuilder code, final int fieldIdx, final int strIdx) {
+    // Load lit into SLOT_LIT; litLen into SLOT_STR_V (int)
+    code.aload(SLOT_STR_LITS);
+    loadIntConst(code, strIdx);
+    code.aaload();
+    code.astore(SLOT_LIT);
+
+    code.aload(SLOT_LIT);
+    code.invokevirtual(CD_STRING, "length", MethodTypeDesc.of(ClassDesc.ofDescriptor("I")));
+    code.istore(SLOT_STR_V);
+
+    // pk = presentKind[fi], vals = strCols[fi]
+    final int SLOT_PK = SLOT_CHILD_BM;
+    final int SLOT_VALS = SLOT_CHILD_BM + 1;
+    code.aload(SLOT_PRESENT_KIND);
+    loadIntConst(code, fieldIdx);
+    code.aaload();
+    code.astore(SLOT_PK);
+    code.aload(SLOT_STR_COLS);
+    loadIntConst(code, fieldIdx);
+    code.aaload();
+    code.astore(SLOT_VALS);
+
+    final Label cond = code.newLabel();
+    final Label top = code.newLabel();
+    final Label skip = code.newLabel();
+    final Label setBit = code.newLabel();
+    code.iconst_0();
+    code.istore(SLOT_I);
+    code.goto_(cond);
+    code.labelBinding(top);
+    // if (pk[i] != 3) skip
+    code.aload(SLOT_PK);
+    code.iload(SLOT_I);
+    code.baload();
+    code.iconst_3();
+    code.if_icmpne(skip);
+    // v = vals[i]
+    final int SLOT_V = SLOT_CHILD_BM + 2;
+    code.aload(SLOT_VALS);
+    code.iload(SLOT_I);
+    code.aaload();
+    code.astore(SLOT_V);
+    // if (v == lit) -> setBit
+    code.aload(SLOT_V);
+    code.aload(SLOT_LIT);
+    code.if_acmpeq(setBit);
+    // if (v == null) skip
+    code.aload(SLOT_V);
+    code.ifnull(skip);
+    // if (v.length() != litLen) skip
+    code.aload(SLOT_V);
+    code.invokevirtual(CD_STRING, "length", MethodTypeDesc.of(ClassDesc.ofDescriptor("I")));
+    code.iload(SLOT_STR_V);
+    code.if_icmpne(skip);
+    // if (!lit.equals(v)) skip
+    code.aload(SLOT_LIT);
+    code.aload(SLOT_V);
+    code.invokevirtual(CD_STRING, "equals",
+        MethodTypeDesc.of(ClassDesc.ofDescriptor("Z"), CD_OBJECT));
+    code.ifeq(skip);
+    code.labelBinding(setBit);
+    emitSetBit(code);
+    code.labelBinding(skip);
+    code.iinc(SLOT_I, 1);
+    code.labelBinding(cond);
+    code.iload(SLOT_I);
+    code.iload(SLOT_SIZE);
+    code.if_icmplt(top);
+  }
+
+  /**
+   * Boolean-ref kernel:
+   * <pre>
+   *   final byte[] pk = presentKind[fieldIdx];
+   *   final boolean[] vals = boolCols[fieldIdx];
+   *   for (int i = 0; i < size; i++) {
+   *     if (pk[i] == 2 &amp;&amp; vals[i]) bm[i>>>6] |= 1L << (i &amp; 63);
+   *   }
+   * </pre>
+   */
+  private static void emitBoolRef(final CodeBuilder code, final int fieldIdx) {
+    final int SLOT_PK = SLOT_CHILD_BM;
+    final int SLOT_VALS = SLOT_CHILD_BM + 1;
+    code.aload(SLOT_PRESENT_KIND);
+    loadIntConst(code, fieldIdx);
+    code.aaload();
+    code.astore(SLOT_PK);
+    code.aload(SLOT_BOOL_COLS);
+    loadIntConst(code, fieldIdx);
+    code.aaload();
+    code.astore(SLOT_VALS);
+
+    final Label cond = code.newLabel();
+    final Label top = code.newLabel();
+    final Label skip = code.newLabel();
+    code.iconst_0();
+    code.istore(SLOT_I);
+    code.goto_(cond);
+    code.labelBinding(top);
+    code.aload(SLOT_PK);
+    code.iload(SLOT_I);
+    code.baload();
+    code.iconst_2();
+    code.if_icmpne(skip);
+    code.aload(SLOT_VALS);
+    code.iload(SLOT_I);
+    code.baload();  // boolean[] via baload
+    code.ifeq(skip);
+    emitSetBit(code);
+    code.labelBinding(skip);
+    code.iinc(SLOT_I, 1);
+    code.labelBinding(cond);
+    code.iload(SLOT_I);
+    code.iload(SLOT_SIZE);
+    code.if_icmplt(top);
+  }
+
+  /**
+   * Emit {@code bm[i>>>6] |= 1L << (i &amp; 63);}. {@code i} must be in
+   * {@link #SLOT_I}, {@code bm} in {@link #SLOT_BM}.
+   */
+  private static void emitSetBit(final CodeBuilder code) {
+    code.aload(SLOT_BM);
+    code.iload(SLOT_I);
+    code.bipush(6);
+    code.iushr();
+    // stack: [bm, wordIdx]
+    code.dup2();  // [bm, wordIdx, bm, wordIdx]
+    code.laload();  // [bm, wordIdx, bm[wordIdx]]
+    code.lconst_1();
+    code.iload(SLOT_I);
+    code.bipush(63);
+    code.iand();
+    code.lshl();    // [bm, wordIdx, bm[wordIdx], 1L<<bit]
+    code.lor();     // [bm, wordIdx, result]
+    code.lastore();
+  }
+
+  /** Push an int constant using the smallest applicable opcode. */
+  private static void loadIntConst(final CodeBuilder code, final int v) {
+    if (v >= -1 && v <= 5) {
+      switch (v) {
+        case -1 -> code.iconst_m1();
+        case 0 -> code.iconst_0();
+        case 1 -> code.iconst_1();
+        case 2 -> code.iconst_2();
+        case 3 -> code.iconst_3();
+        case 4 -> code.iconst_4();
+        case 5 -> code.iconst_5();
+      }
+    } else if (v >= Byte.MIN_VALUE && v <= Byte.MAX_VALUE) {
+      code.bipush(v);
+    } else if (v >= Short.MIN_VALUE && v <= Short.MAX_VALUE) {
+      code.sipush(v);
+    } else {
+      code.ldc(v);
+    }
   }
 
   private long getMaxNodeKey() {
