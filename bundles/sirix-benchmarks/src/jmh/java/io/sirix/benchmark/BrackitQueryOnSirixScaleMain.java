@@ -210,10 +210,31 @@ public final class BrackitQueryOnSirixScaleMain {
       return;
     }
 
+    // -Dsirix.bench.freshExecutorPerIter=true rebuilds SirixVectorizedExecutor
+    // before every measured iter so per-executor caches (aggregateCache,
+    // filterCountCache, groupByCountCache, filteredGroupByCountCache,
+    // pathStatsCache, countDistinctResultCache, compiledPredicateCache) all
+    // start empty. Reveals real cold-scan cost rather than cache-hit cost.
+    final boolean freshPerIter = Boolean.getBoolean("sirix.bench.freshExecutorPerIter");
+
     long min = Long.MAX_VALUE, max = 0, sum = 0;
     int bytes = 0;
     try {
       for (int i = 0; i < iters; i++) {
+        if (freshPerIter) {
+          final var current = SequentialPipelineStrategy.getVectorizedExecutor();
+          if (current instanceof SirixVectorizedExecutor s) {
+            s.close();
+            final JsonDBCollection coll = (JsonDBCollection) ((JsonDBItem) ctx.resolve(DOC_VAR)).getCollection();
+            final JsonResourceSession sess = coll.getDatabase().beginResourceSession(JSON_RESOURCE);
+            final int vecThreads = Integer.parseInt(
+                System.getProperty("sirix.vec.threads",
+                    String.valueOf(Runtime.getRuntime().availableProcessors())));
+            final SirixVectorizedExecutor fresh = new SirixVectorizedExecutor(sess,
+                sess.getMostRecentRevisionNumber(), vecThreads);
+            SequentialPipelineStrategy.setVectorizedExecutor(fresh);
+          }
+        }
         long t0 = System.nanoTime();
         bytes = runOnce(chain, ctx, wrapped);
         long elapsed = System.nanoTime() - t0;
