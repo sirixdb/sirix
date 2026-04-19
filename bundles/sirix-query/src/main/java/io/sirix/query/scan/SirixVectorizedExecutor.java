@@ -35,6 +35,8 @@ import io.sirix.page.pax.NumberRegionSimd;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+
 import jdk.incubator.vector.VectorOperators;
 
 import java.lang.classfile.ClassBuilder;
@@ -116,6 +118,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private static final boolean COMPILED_PREDICATE_ENABLED =
       !"false".equalsIgnoreCase(System.getProperty("sirix.vec.compiledPredicate", "true"));
+
+  /**
+   * Toggle direct-slot column feed in {@link #collectColumns}. When {@code true}
+   * (default), multi-field predicates collect each referenced column via a
+   * name-key slot scan + parent-OBJECT lookup table — bypassing
+   * {@code rtx.moveToFirstChild + moveToRightSibling} per record. When
+   * {@code false}, every multi-field page falls back to the legacy rtx cursor
+   * walk ({@link #loadFieldsIntoBatch}). Use
+   * {@code -Dsirix.vec.directSlotColumns=false} for A/B bisection.
+   */
+  private static final boolean DIRECT_SLOT_COLUMNS_ENABLED =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.vec.directSlotColumns", "true"));
 
   /** Monotonic counter for generated-class name uniqueness (aids in debugger symbol tables). */
   private static final AtomicInteger COMPILED_PREDICATE_SEQ = new AtomicInteger();
@@ -1391,6 +1405,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * per OP_NUM_CMP leaf evaluation.
      */
     final long[] maskedColScratch;
+    /**
+     * Parent-OBJECT nodeKey → row index. Populated in {@link #collectColumns}
+     * pass 1 so pass 2 can join sibling fields in O(1) per slot without an
+     * rtx cursor walk. Reused across pages — {@code clear()} per page.
+     */
+    final Long2IntOpenHashMap parentKeyToRow;
+    /**
+     * Scratch byte[] for direct-slot string reads in pass 2. Sized to a
+     * typical JSON string payload; oversized values fall back to rtx.
+     */
+    final byte[] strScratch;
 
     EvalBatch(final int nFields, final int nNodes, final int initialCapacity) {
       final int cap = Math.max(64, initialCapacity);
@@ -1406,6 +1431,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       this.workBitmap = new long[bitmapStride];
       this.indicesScratch = new int[cap];
       this.maskedColScratch = new long[cap];
+      // Pre-sized to 2x expected rows with 0.5 load factor — no rehashes on
+      // typical pages. defaultReturnValue(-1) so absent lookups signal
+      // "parent not in batch" without a containsKey probe.
+      this.parentKeyToRow = new Long2IntOpenHashMap(cap * 2);
+      this.parentKeyToRow.defaultReturnValue(-1);
+      this.strScratch = new byte[4096];
     }
 
     /**
@@ -1423,10 +1454,24 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
   /**
    * Phase 1: collect per-row column values for the current page. Returns the
-   * number of rows stored in {@code batch.size}. The anchor field's value is
-   * read directly off the page slot via {@link KeyValueLeafPage} primitives
-   * when the child lives on the same page; sibling fields fall back to rtx
-   * cursor navigation because they're scattered under the enclosing object.
+   * number of rows stored in {@code batch.size}.
+   *
+   * <p>Strategy (multi-field, direct-slot default):
+   * <ol>
+   *   <li>Pass 1 — anchor: iterate the candidate anchor OBJECT_KEY slots,
+   *       filter by pathNodeKey, read the anchor value via direct-slot
+   *       primitives. Record (parentOBJ nodeKey → row) in
+   *       {@link EvalBatch#parentKeyToRow} so pass 2 can join.</li>
+   *   <li>Pass 2 — one pass per sibling field: iterate that field's
+   *       {@code getObjectKeySlotsForNameKey}, decode the OBJECT_KEY's
+   *       parentKey directly, look up the row index; if in-batch, read the
+   *       value node via direct-slot primitives (same-page fast path).</li>
+   *   <li>Pass 3 — rtx fallback: for any row whose anchor value couldn't be
+   *       read direct (cross-page / FSST string oversize / float payload),
+   *       walk the rtx cursor for that row only.</li>
+   * </ol>
+   *
+   * <p>Single-field predicates keep the existing anchor-only fast path.
    */
   private static void collectColumns(final KeyValueLeafPage kv, final long pageBase, final int[] anchorSlots,
       final CompiledPredicate cp, final long anchorPathNodeKey, final EvalBatch batch,
@@ -1434,13 +1479,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     batch.size = 0;
     if (anchorSlots.length == 0) return;
     batch.ensureCapacity(anchorSlots.length);
-    // Reset present columns up-front — size is still 0, so this is a no-op,
-    // but we set it correctly after the loop. Instead reset per-field as we
-    // go — done at the end once we know batch.size.
     final int[] fieldKeys = cp.fieldNameKeys;
     final int nFields = fieldKeys.length;
     final int anchorFieldIdx = 0;
     final int anchorPageMask = (1 << Constants.INP_REFERENCE_COUNT_EXPONENT) - 1;
+    // rowNeedsRtx[i]: the i-th row's anchor value couldn't be direct-read.
+    // Reuses workBitmap as a scratch bitmap (we zero it up-front, caller owns
+    // it per-page). Keeps allocation off the hot loop.
+    final long[] rowNeedsRtx = batch.workBitmap;
+    final int stride = batch.bitmapStride;
+    for (int i = 0; i < stride; i++) rowNeedsRtx[i] = 0L;
+
+    // ---------------------------------------------------------------------
+    // Pass 1: anchor scan — fills anchorSlots/anchorObjectKeys/longCols[0]
+    // and populates parentKeyToRow for pass 2.
+    // ---------------------------------------------------------------------
+    final Long2IntOpenHashMap parentToRow = batch.parentKeyToRow;
+    parentToRow.clear();
+    final boolean multi = nFields > 1;
+    final boolean directSlot = DIRECT_SLOT_COLUMNS_ENABLED;
     int row = 0;
     for (final int slot : anchorSlots) {
       final long anchorObjectKey = pageBase + slot;
@@ -1448,32 +1505,140 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
         continue;
       }
-      // Reset this row's presence bits for all fields.
+      // Reset this row's presence bits for all fields. (Anchor will be set
+      // below; sibling rows default to missing unless pass 2 fills them.)
       for (int f = 0; f < nFields; f++) batch.presentKind[f][row] = 0;
-      // Anchor field (row slot's direct child) — try the direct-slot fast path.
-      // firstChildKey of the OBJECT_KEY = the value node's nodeKey. If that
-      // value lives on the same page, we can read it without moveTo.
-      boolean needRtx = false;
-      if (nFields == 1) {
-        // Single-field predicate: the anchor value IS the only thing we need.
-        final long valueKey = kv.getObjectKeyFirstChildKeyFromSlot(slot, anchorObjectKey);
-        if (!readAnchorValueDirect(kv, pageBase, valueKey, anchorPageMask, anchorFieldIdx, row, batch)) {
-          // Cross-page or non-primitive payload — fall back to rtx.
-          needRtx = true;
+
+      // Anchor value — direct slot first.
+      final long anchorValueKey = kv.getObjectKeyFirstChildKeyFromSlot(slot, anchorObjectKey);
+      final boolean anchorDirect = readAnchorValueDirect(
+          kv, pageBase, anchorValueKey, anchorPageMask, anchorFieldIdx, row, batch);
+      if (!anchorDirect) {
+        // Single-field: fall back to rtx right here (legacy behaviour kept).
+        if (!multi) {
+          if (!rtx.moveTo(anchorObjectKey)) continue;
+          if (!rtx.moveToParent()) continue;
+          if (!loadFieldsIntoBatch(rtx, cp, batch, row)) continue;
+        } else {
+          // Multi-field: mark the row for pass-3 rtx fallback.
+          rowNeedsRtx[row >>> 6] |= 1L << (row & 63);
         }
-      } else {
-        needRtx = true;
       }
-      if (needRtx) {
-        if (!rtx.moveTo(anchorObjectKey)) continue;
-        if (!rtx.moveToParent()) continue;
-        if (!loadFieldsIntoBatch(rtx, cp, batch, row)) continue;
-      }
+
       batch.anchorSlots[row] = slot;
       batch.anchorObjectKeys[row] = anchorObjectKey;
+      if (multi && directSlot) {
+        // Record parent-OBJECT nodeKey → row so pass 2 can join by parentKey.
+        final long parentKey = kv.getObjectKeyParentKeyFromSlot(slot, anchorObjectKey);
+        if (parentKey != -1L) parentToRow.put(parentKey, row);
+      }
       row++;
     }
     batch.size = row;
+    if (row == 0) return;
+
+    // ---------------------------------------------------------------------
+    // Pass 2: sibling fields via direct-slot join on parentKey.
+    // Only when multi-field and the switch is on.
+    // ---------------------------------------------------------------------
+    if (multi && directSlot) {
+      for (int fi = 1; fi < nFields; fi++) {
+        final int nameKey = fieldKeys[fi];
+        if (nameKey == -1) continue;
+        final int[] siblingSlots = kv.getObjectKeySlotsForNameKey(nameKey);
+        if (siblingSlots.length == 0) continue;
+        for (final int sslot : siblingSlots) {
+          final long sNodeKey = pageBase + sslot;
+          final long parentKey = kv.getObjectKeyParentKeyFromSlot(sslot, sNodeKey);
+          if (parentKey == -1L) continue;
+          final int rowIdx = parentToRow.get(parentKey);
+          if (rowIdx < 0) continue;  // not in batch
+          final long valueKey = kv.getObjectKeyFirstChildKeyFromSlot(sslot, sNodeKey);
+          if (!readFieldValueDirect(kv, pageBase, valueKey, anchorPageMask, fi, rowIdx, batch)) {
+            // Cross-page / FSST / unsupported — defer to rtx fallback for
+            // this row. Mark the row so pass 3 picks it up.
+            rowNeedsRtx[rowIdx >>> 6] |= 1L << (rowIdx & 63);
+          }
+        }
+      }
+    } else if (multi) {
+      // Direct-slot disabled: every row needs rtx for its sibling fields.
+      for (int i = 0; i < row; i++) rowNeedsRtx[i >>> 6] |= 1L << (i & 63);
+    }
+
+    // ---------------------------------------------------------------------
+    // Pass 3: rtx fallback. Two reasons a row needs it:
+    //   (a) anchor value couldn't be direct-read (cross-page, FSST oversize,
+    //       float/double payload) — flagged in rowNeedsRtx during pass 1.
+    //   (b) a required sibling OBJECT_KEY lives on a DIFFERENT page from
+    //       its anchor (the enclosing object's children straddle pages) —
+    //       pass 2 can't see it, so the row's sibling field stays
+    //       presentKind == 0. We detect this here by scanning sibling
+    //       fields and marking any row with an unresolved field for rtx.
+    //
+    // Note: the scan is conservative — if a field is genuinely absent in
+    // the source JSON, rtx.loadFieldsIntoBatch will also leave it at
+    // presentKind=0. Cost is bounded by batch.size (<=1024 per page).
+    // ---------------------------------------------------------------------
+    if (multi) {
+      if (directSlot) {
+        // Detect unresolved sibling fields and promote those rows to rtx.
+        for (int fi = 1; fi < nFields; fi++) {
+          final byte[] pk = batch.presentKind[fi];
+          for (int i = 0; i < row; i++) {
+            if (pk[i] == 0) rowNeedsRtx[i >>> 6] |= 1L << (i & 63);
+          }
+        }
+      }
+      for (int i = 0; i < row; i++) {
+        if ((rowNeedsRtx[i >>> 6] & (1L << (i & 63))) == 0L) continue;
+        final long anchorObjectKey = batch.anchorObjectKeys[i];
+        if (!rtx.moveTo(anchorObjectKey)) continue;
+        if (!rtx.moveToParent()) continue;
+        // loadFieldsIntoBatch overwrites all fields for this row, including
+        // any that pass 2 already populated — benign (rtx is the source of
+        // truth) and avoids branching inside the inner loader.
+        loadFieldsIntoBatch(rtx, cp, batch, i);
+      }
+    }
+  }
+
+  /**
+   * Direct-slot value read for an arbitrary sibling field (not just the
+   * anchor). Handles OBJECT_NUMBER_VALUE / OBJECT_BOOLEAN_VALUE / OBJECT_STRING_VALUE
+   * when the value node lives on the same page as its OBJECT_KEY. Returns
+   * {@code false} if the caller must fall back to rtx.
+   */
+  private static boolean readFieldValueDirect(final KeyValueLeafPage kv, final long pageBase,
+      final long valueKey, final int pageMask, final int fieldIdx, final int row, final EvalBatch batch) {
+    // Cross-page? Same shared base means both nodeKeys fall into the same
+    // 1024-slot page → upper bits match.
+    if ((valueKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT)
+        != (pageBase >>> Constants.INP_REFERENCE_COUNT_EXPONENT)) {
+      return false;
+    }
+    final int valueSlot = (int) (valueKey & pageMask);
+    final int kindId = kv.getSlotNodeKindId(valueSlot);
+    if (kindId == 42) {  // OBJECT_NUMBER_VALUE
+      final long v = kv.getNumberValueLongFromSlot(valueSlot);
+      if (v == Long.MIN_VALUE) return false;  // float/double/BigDecimal sentinel
+      batch.longCols[fieldIdx][row] = v;
+      batch.presentKind[fieldIdx][row] = 1;
+      return true;
+    }
+    if (kindId == 41) {  // OBJECT_BOOLEAN_VALUE
+      batch.boolCols[fieldIdx][row] = kv.getObjectBooleanValueFromSlot(valueSlot);
+      batch.presentKind[fieldIdx][row] = 2;
+      return true;
+    }
+    if (kindId == 40) {  // OBJECT_STRING_VALUE
+      final int n = kv.readObjectStringValueBytesFromSlot(valueSlot, batch.strScratch);
+      if (n < 0) return false;  // FSST oversize / unavailable
+      batch.strCols[fieldIdx][row] = new String(batch.strScratch, 0, n, StandardCharsets.UTF_8);
+      batch.presentKind[fieldIdx][row] = 3;
+      return true;
+    }
+    return false;
   }
 
   /**

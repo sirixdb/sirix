@@ -1672,6 +1672,49 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Read the delta-encoded parentKey (enclosing OBJECT's nodeKey) from an
+   * OBJECT_KEY slot without moving any cursor or binding a singleton.
+   * Decoded directly off the slotted page so the vectorized scan can join
+   * sibling fields in Pass 2 by parent-OBJECT nodeKey in O(1) per slot.
+   *
+   * <p>Handles both the dense OBJECT_KEY encoding (kind 26) and the PAX
+   * variant (kind 126 — nameKey hoisted to an external region; field index 0
+   * remains {@code OBJKEY_PARENT_KEY}, only the field count changes).
+   *
+   * <p>Caller must verify the slot holds an OBJECT_KEY (kind 26 or 126); no
+   * validation is performed to keep the hot path branch-free beyond the
+   * kind-id dispatch that selects the field-count constant.
+   *
+   * @param slotNumber       the slot index (assumed populated + OBJECT_KEY kind)
+   * @param objectKeyNodeKey the slot's nodeKey (base + slotNumber) — the
+   *                         delta-decoder reconstructs parentKey against it
+   * @return parentKey (enclosing OBJECT nodeKey); {@code -1L} if the page was
+   *         evicted mid-scan
+   */
+  public long getObjectKeyParentKeyFromSlot(final int slotNumber, final long objectKeyNodeKey) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      return -1L;
+    }
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+    final int fieldCount;
+    if (kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID) {
+      fieldCount = NodeFieldLayout.OBJECT_KEY_PAX_FIELD_COUNT;
+    } else {
+      fieldCount = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+    }
+    // OBJKEY_PARENT_KEY = 0 for both dense and PAX layouts — the PAX variant
+    // only hoists nameKey out of the record, the leading parent/sibling/
+    // firstChild offsets are unchanged.
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJKEY_PARENT_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + fieldCount;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, objectKeyNodeKey);
+  }
+
+  /**
    * Read the pathNodeKey stored on an OBJECT_KEY slot — the fully-qualified
    * path identifier pointing into the PathSummary. Decoded directly off the
    * slotted page without cursor movement or singleton binding, so the
