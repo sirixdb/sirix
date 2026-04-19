@@ -1867,6 +1867,46 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Two-column variant of {@link #bulkDecodeObjectKeyColumns} that skips the
+   * {@code pathNodeKey} decode — used by {@code collectColumns} pass 2,
+   * which only needs {@code parentKey} (for the batch parent-row join) and
+   * {@code firstChildKey} (for the sibling value read). Decoding the
+   * third column there would waste one varint read per sibling slot per
+   * field per page.
+   */
+  public void bulkDecodeObjectKeyParentAndChildKeys(final int[] slots, final int count,
+      final long pageBase, final long[] outParentKeys, final long[] outFirstChildKeys) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      for (int i = 0; i < count; i++) {
+        outParentKeys[i] = -1L;
+        outFirstChildKeys[i] = -1L;
+      }
+      return;
+    }
+    for (int i = 0; i < count; i++) {
+      final int slot = slots[i];
+      final long nodeKey = pageBase + slot;
+      final int heapOffset = PageLayout.getDirHeapOffset(sp, slot);
+      final long recordBase = PageLayout.HEAP_START + heapOffset;
+      final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+      final int fieldCount = (kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID)
+          ? NodeFieldLayout.OBJECT_KEY_PAX_FIELD_COUNT
+          : NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+      final long offsetTable = recordBase + 1;
+      final long dataStart = offsetTable + fieldCount;
+      final int parentFieldOff =
+          sp.get(ValueLayout.JAVA_BYTE, offsetTable + NodeFieldLayout.OBJKEY_PARENT_KEY) & 0xFF;
+      final int firstChildFieldOff =
+          sp.get(ValueLayout.JAVA_BYTE, offsetTable + NodeFieldLayout.OBJKEY_FIRST_CHILD_KEY) & 0xFF;
+      outParentKeys[i] =
+          DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + parentFieldOff, nodeKey);
+      outFirstChildKeys[i] =
+          DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + firstChildFieldOff, nodeKey);
+    }
+  }
+
+  /**
    * Decode a numeric value from an OBJECT_NUMBER_VALUE slot directly off the
    * slotted page — no moveTo, no singleton binding, no Number boxing. Returns
    * {@code Long.MIN_VALUE} if the payload's number type isn't Integer or Long

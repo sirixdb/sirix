@@ -1635,18 +1635,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Only when multi-field and the switch is on.
     // ---------------------------------------------------------------------
     if (multi && directSlot) {
+      // Reuse the anchor-slot scratch arrays for sibling bulk decode —
+      // their size is cap == INP_REFERENCE_COUNT which matches the hard
+      // upper bound on sibling-match arrays too. Decoding only (parent,
+      // firstChild) here, not pathNodeKey (unused for the sibling join).
+      final long[] siblingParentKeys = batch.slotParentKeys;
+      final long[] siblingFirstChildKeys = batch.slotFirstChildKeys;
       for (int fi = 1; fi < nFields; fi++) {
         final int nameKey = fieldKeys[fi];
         if (nameKey == -1) continue;
         final int[] siblingSlots = kv.getObjectKeySlotsForNameKey(nameKey);
-        if (siblingSlots.length == 0) continue;
-        for (final int sslot : siblingSlots) {
-          final long sNodeKey = pageBase + sslot;
-          final long parentKey = kv.getObjectKeyParentKeyFromSlot(sslot, sNodeKey);
+        final int nSibs = siblingSlots.length;
+        if (nSibs == 0) continue;
+        kv.bulkDecodeObjectKeyParentAndChildKeys(siblingSlots, nSibs, pageBase,
+            siblingParentKeys, siblingFirstChildKeys);
+        for (int k = 0; k < nSibs; k++) {
+          final long parentKey = siblingParentKeys[k];
           if (parentKey == -1L) continue;
           final int rowIdx = parentToRow.get(parentKey);
           if (rowIdx < 0) continue;  // not in batch
-          final long valueKey = kv.getObjectKeyFirstChildKeyFromSlot(sslot, sNodeKey);
+          final long valueKey = siblingFirstChildKeys[k];
           if (!readFieldValueDirect(kv, pageBase, valueKey, anchorPageMask, fi, rowIdx, batch)) {
             // Cross-page / FSST / unsupported — defer to rtx fallback for
             // this row. Mark the row so pass 3 picks it up.
