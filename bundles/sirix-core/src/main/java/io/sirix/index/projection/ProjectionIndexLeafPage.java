@@ -71,36 +71,36 @@ import java.nio.charset.StandardCharsets;
  *
  * <h2>Versioning &amp; storage placement</h2>
  *
- * The {@link #serialize} output is stored as the value-payload of a single
- * entry in a {@link io.sirix.page.HOTLeafPage} ({@code implements
- * KeyValuePage}), keyed by a synthetic leaf-id. That gives us the full
- * Sirix multi-revision delta chain <em>at HOT-entry granularity</em>:
+ * Follows the same pattern Sirix uses for large CAS bitmap values: this
+ * class is promoted to a first-class Sirix {@link io.sirix.page.interfaces.Page},
+ * and a projection index's HOT entry value is a
+ * {@link io.sirix.index.hot.ChunkDirectory} whose sorted
+ * {@link io.sirix.page.PageReference}s point to one such chunk per
+ * 1024-row range.
  *
- * <ul>
- *   <li>FULL — every revision of the HOT page writes complete payloads
- *       (biggest waste on update-heavy workloads).</li>
- *   <li>INCREMENTAL / SLIDING_SNAPSHOT — writes only the payloads of
- *       entries modified since the last full dump. Untouched projection
- *       leaves in the same HOT page <strong>alias</strong> the previous
- *       revision's bytes — no duplicate storage.
- *       See {@link io.sirix.settings.VersioningType#combineRecordPages}.</li>
- *   <li>DIFFERENTIAL — two-way merge against a single prior full.</li>
- * </ul>
+ * <p>Sub-entry versioning follows from the standard page-reference CoW
+ * scheme: a commit that modifies rows in chunk <em>N</em> writes a new
+ * {@code ProjectionIndexLeafPage} page at a fresh offset, its
+ * {@code PageReference} replaces slot <em>N</em> in the
+ * {@code ChunkDirectory}, and every other chunk's reference stays
+ * verbatim — those pages are <strong>aliased on disk</strong>, zero
+ * duplicate bytes for untouched chunks.
  *
- * For append-heavy workloads (new records appended to the latest leaf,
- * old leaves frozen) this is already near-optimal: once a leaf fills up
- * it is never rewritten, so INCREMENTAL emits zero bytes for it per
- * subsequent revision.
+ * <p>Per-commit storage cost therefore scales with the number of
+ * chunks actually touched, not with total index size. Append-only
+ * workloads pay one new chunk page per flush of the tail leaf; a full
+ * rewrite of a random row in a frozen chunk costs exactly one chunk
+ * page plus the small directory update. No projection-relevant change
+ * in a commit → zero bytes emitted.
  *
- * <p><b>Known limitation.</b> On update-heavy workloads where a single
- * row in a frozen leaf changes, the whole 20 KB payload still gets
- * rewritten in the new revision — INCREMENTAL shares at entry
- * granularity, not at row-within-entry granularity. A future refinement
- * is to promote {@code ProjectionIndexLeafPage} itself to a first-class
- * {@link io.sirix.page.interfaces.KeyValuePage} with per-column slots
- * so only modified column slots get re-serialized. That's a non-trivial
- * refactor and gated on observing actual waste under a real
- * update-heavy workload; append-heavy stays on today's design.
+ * <p>See {@link io.sirix.index.hot.ChunkDirectory} and
+ * {@link io.sirix.page.BitmapChunkPage} for the analogous mechanism
+ * used by CAS indexes.
+ *
+ * <p><b>Status</b>: the first-class Page + ChunkDirectory wiring lands
+ * in task #57. Until then, leaves are produced as opaque byte[]s by
+ * {@link #serialize} and consumed by the byte-scan directly — no
+ * inter-revision sharing yet.
  */
 public final class ProjectionIndexLeafPage {
 
