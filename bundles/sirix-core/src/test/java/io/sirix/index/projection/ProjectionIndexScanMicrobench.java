@@ -78,6 +78,108 @@ public final class ProjectionIndexScanMicrobench {
         () -> ProjectionIndexScan.conjunctiveCount(payloads, strEqMiss));
     run("3-way AND (num & bool & str)", payloads, totalRows,
         () -> ProjectionIndexScan.conjunctiveCount(payloads, threeWay));
+
+    // Zero-copy variant — reads directly from byte[] via VarHandle,
+    // no per-leaf column materialisation.
+    System.out.println("-- zero-copy byte-scan --");
+    run("byteScan countRows", payloads, totalRows, () -> ProjectionIndexByteScan.countRows(payloads));
+    run("byteScan numeric GT", payloads, totalRows,
+        () -> ProjectionIndexByteScan.conjunctiveCount(payloads, numGt));
+    run("byteScan boolean EQ true", payloads, totalRows,
+        () -> ProjectionIndexByteScan.conjunctiveCount(payloads, boolTrue));
+    run("byteScan string EQ hit", payloads, totalRows,
+        () -> ProjectionIndexByteScan.conjunctiveCount(payloads, strEqHit));
+    run("byteScan string EQ miss", payloads, totalRows,
+        () -> ProjectionIndexByteScan.conjunctiveCount(payloads, strEqMiss));
+    run("byteScan 3-way AND", payloads, totalRows,
+        () -> ProjectionIndexByteScan.conjunctiveCount(payloads, threeWay));
+
+    // Isolation measurement: what fraction is deserialize vs kernel?
+    final List<ProjectionIndexLeafPage> preDeser = new ArrayList<>(payloads.size());
+    for (final byte[] p : payloads) preDeser.add(ProjectionIndexLeafPage.deserialize(p));
+    System.out.println("-- pre-deserialised (kernel-only) --");
+    run("deserialise-only (no predicates)", payloads, totalRows, () -> {
+      long acc = 0;
+      for (final byte[] p : payloads) acc ^= ProjectionIndexLeafPage.deserialize(p).getRowCount();
+      return acc;
+    });
+    run("numeric GT kernel-only", payloads, totalRows, () -> kernelOnlyNumGt(preDeser));
+    run("boolean EQ kernel-only", payloads, totalRows, () -> kernelOnlyBoolTrue(preDeser));
+    run("string EQ hit kernel-only", payloads, totalRows, () -> kernelOnlyStrEqHit(preDeser));
+    run("3-way AND kernel-only", payloads, totalRows, () -> kernelOnly3way(preDeser));
+  }
+
+  private static long kernelOnlyNumGt(final List<ProjectionIndexLeafPage> pages) {
+    long total = 0;
+    for (final ProjectionIndexLeafPage page : pages) {
+      final int rc = page.getRowCount();
+      if (rc == 0) continue;
+      final long[] col = page.numericColumn(0);
+      final int stride = (rc + 63) >>> 6;
+      final long[] mask = new long[stride];
+      for (int i = 0; i < rc; i++) if (col[i] > 40L) mask[i >>> 6] |= 1L << (i & 63);
+      for (int i = 0; i < stride; i++) total += Long.bitCount(mask[i]);
+    }
+    return total;
+  }
+
+  private static long kernelOnlyBoolTrue(final List<ProjectionIndexLeafPage> pages) {
+    long total = 0;
+    for (final ProjectionIndexLeafPage page : pages) {
+      final int rc = page.getRowCount();
+      if (rc == 0) continue;
+      final long[] bits = page.booleanColumnBits(1);
+      final int stride = (rc + 63) >>> 6;
+      final int tail = rc & 63;
+      long last = tail == 0 ? bits[stride - 1] : (bits[stride - 1] & ((1L << tail) - 1L));
+      for (int i = 0; i < stride - 1; i++) total += Long.bitCount(bits[i]);
+      total += Long.bitCount(last);
+    }
+    return total;
+  }
+
+  private static long kernelOnlyStrEqHit(final List<ProjectionIndexLeafPage> pages) {
+    final byte[] lit = "Eng".getBytes(StandardCharsets.UTF_8);
+    long total = 0;
+    for (final ProjectionIndexLeafPage page : pages) {
+      final int rc = page.getRowCount();
+      if (rc == 0) continue;
+      final byte[][] dict = page.stringDictionary(2);
+      int tid = -1;
+      for (int i = 0; i < dict.length && dict[i] != null; i++) {
+        if (Arrays.equals(dict[i], lit)) { tid = i; break; }
+      }
+      if (tid < 0) continue;
+      final int[] ids = page.stringDictIdColumn(2);
+      for (int i = 0; i < rc; i++) if (ids[i] == tid) total++;
+    }
+    return total;
+  }
+
+  private static long kernelOnly3way(final List<ProjectionIndexLeafPage> pages) {
+    final byte[] lit = "Eng".getBytes(StandardCharsets.UTF_8);
+    long total = 0;
+    for (final ProjectionIndexLeafPage page : pages) {
+      final int rc = page.getRowCount();
+      if (rc == 0) continue;
+      final long[] nums = page.numericColumn(0);
+      final long[] bools = page.booleanColumnBits(1);
+      final byte[][] dict = page.stringDictionary(2);
+      int tid = -1;
+      for (int i = 0; i < dict.length && dict[i] != null; i++) {
+        if (Arrays.equals(dict[i], lit)) { tid = i; break; }
+      }
+      if (tid < 0) continue;
+      final int[] ids = page.stringDictIdColumn(2);
+      for (int i = 0; i < rc; i++) {
+        if (nums[i] > 40L
+            && (bools[i >>> 6] & (1L << (i & 63))) != 0
+            && ids[i] == tid) {
+          total++;
+        }
+      }
+    }
+    return total;
   }
 
   private static void run(final String label, final List<byte[]> payloads, final int totalRows,
