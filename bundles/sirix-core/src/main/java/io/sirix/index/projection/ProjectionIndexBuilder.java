@@ -139,11 +139,24 @@ public final class ProjectionIndexBuilder {
       while (axis.hasNext()) {
         axis.nextLong();
         if (!isRecordRoot(rtx)) continue;
-        final long recordKey = rtx.getNodeKey();
-        extractRow(rtx, recordKey);
-        // Restore position for next axis.hasNext() call — rtx was moved to
-        // field values during extraction.
-        rtx.moveTo(recordKey);
+        final long matchKey = rtx.getNodeKey();
+        // In Sirix's JSON path model, a trailing {@code /[]} path matches
+        // the ARRAY container, not each of its elements. The projection's
+        // records live one level below: each array child is a row.
+        // OBJECT_KEY roots (e.g. projection over a single keyed subtree)
+        // are treated as the row themselves.
+        if (rtx.getKind() == NodeKind.ARRAY) {
+          if (rtx.moveToFirstChild()) {
+            do {
+              final long elementKey = rtx.getNodeKey();
+              extractRow(rtx, elementKey);
+              rtx.moveTo(elementKey);
+            } while (rtx.moveToRightSibling());
+          }
+        } else {
+          extractRow(rtx, matchKey);
+        }
+        rtx.moveTo(matchKey);
       }
       flushCurrentLeaf();
     } finally {
@@ -193,21 +206,29 @@ public final class ProjectionIndexBuilder {
       rowBools[i] = false;
       rowStrings[i] = "";
     }
-    // Walk the record's descendants once, dispatching each OBJECT_KEY
-    // whose pathNodeKey matches a declared field into the right column
-    // slot. Single DescendantAxis pass per record — no re-descent per
-    // field.
+    // Walk the record's descendants once, dispatching each declared field's
+    // primitive value into the right column slot. DescendantAxis reads rtx's
+    // position between steps, so we cannot dive to the value child and
+    // return — instead we track a pending-column state machine: on a matching
+    // OBJECT_KEY, remember the target column; on the axis's next step the
+    // cursor naturally lands on the value child, where we read.
     final DescendantAxis fieldAxis = new DescendantAxis(rtx);
+    int pendingCol = -1;
     while (fieldAxis.hasNext()) {
       fieldAxis.nextLong();
+      if (pendingCol >= 0) {
+        // Prior step matched an OBJECT_KEY for a declared field; this step is
+        // its (first) value child in document order.
+        readValueIntoRow(rtx, pendingCol);
+        pendingCol = -1;
+        // fall through to also evaluate this node as a potential OBJECT_KEY
+        // match — rare in JSON (a value is a leaf), but keeps the pass robust.
+      }
       final long pk = getPathNodeKeyAtCursor(rtx);
       if (pk < 0) continue;
       final int col = findField(pk);
       if (col < 0) continue;
-      // rtx is on the OBJECT_KEY — move to its value child and read.
-      if (!rtx.moveToFirstChild()) continue;
-      readValueIntoRow(rtx, col);
-      rtx.moveToParent();  // back to OBJECT_KEY so axis continuation is coherent
+      pendingCol = col;
     }
     if (!currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings)) {
       flushCurrentLeaf();
