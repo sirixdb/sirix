@@ -1444,6 +1444,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
      * typical JSON string payload; oversized values fall back to rtx.
      */
     final byte[] strScratch;
+    /**
+     * Bulk-decoded {@code pathNodeKey} / {@code parentKey} / {@code firstChildKey}
+     * columns produced by {@link KeyValueLeafPage#bulkDecodeObjectKeyColumns}.
+     * Indexed by anchor-slot position (not row) — pass 1 walks these in
+     * lock-step with the input {@code anchorSlots} array. Reused across
+     * pages; sized to {@code capacity}, which matches the max anchor match
+     * count per page (INP_REFERENCE_COUNT).
+     */
+    final long[] slotPathNodeKeys;
+    final long[] slotParentKeys;
+    final long[] slotFirstChildKeys;
 
     EvalBatch(final int nFields, final int nNodes, final int initialCapacity) {
       final int cap = Math.max(64, initialCapacity);
@@ -1468,6 +1479,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       this.parentKeyToRow = new Long2IntOpenHashMap(cap);
       this.parentKeyToRow.defaultReturnValue(-1);
       this.strScratch = new byte[4096];
+      this.slotPathNodeKeys = new long[cap];
+      this.slotParentKeys = new long[cap];
+      this.slotFirstChildKeys = new long[cap];
     }
 
     /**
@@ -1524,24 +1538,49 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // ---------------------------------------------------------------------
     // Pass 1: anchor scan — fills anchorSlots/anchorObjectKeys/longCols[0]
     // and populates parentKeyToRow for pass 2.
+    //
+    // When both the pathNodeKey scope filter and the parent-row map are
+    // active, bulk-decode the three anchor columns (pathNodeKey, parentKey,
+    // firstChildKey) in one tight loop. The bulk path hoists the slotted-
+    // page null check, heap-offset lookup, and kindId probe out of each
+    // slot, cutting ~4.5% off the filterCount worker in the iter-5 profile
+    // *when all three are needed*.
+    //
+    // When only firstChildKey is needed (no path summary AND single-field
+    // predicate — e.g. the default 10M benchmark with pathSummary=off),
+    // bulking all three wastes 2× the decodes, so we keep the per-slot
+    // firstChildKey call on that branch.
     // ---------------------------------------------------------------------
     final Long2IntOpenHashMap parentToRow = batch.parentKeyToRow;
     parentToRow.clear();
     final boolean multi = nFields > 1;
     final boolean directSlot = DIRECT_SLOT_COLUMNS_ENABLED;
+    final boolean needPath = anchorPathNodeKey != -1L;
+    final boolean needParent = multi && directSlot;
+    final boolean useBulk = needPath || needParent;
+    final long[] slotPathNodeKeys = batch.slotPathNodeKeys;
+    final long[] slotParentKeys = batch.slotParentKeys;
+    final long[] slotFirstChildKeys = batch.slotFirstChildKeys;
+    if (useBulk) {
+      kv.bulkDecodeObjectKeyColumns(anchorSlots, anchorSlots.length, pageBase,
+          slotPathNodeKeys, slotParentKeys, slotFirstChildKeys);
+    }
     int row = 0;
-    for (final int slot : anchorSlots) {
+    for (int si = 0, nSlots = anchorSlots.length; si < nSlots; si++) {
+      final int slot = anchorSlots[si];
       final long anchorObjectKey = pageBase + slot;
-      if (anchorPathNodeKey != -1L
-          && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
+      if (needPath && slotPathNodeKeys[si] != anchorPathNodeKey) {
         continue;
       }
       // Reset this row's presence bits for all fields. (Anchor will be set
       // below; sibling rows default to missing unless pass 2 fills them.)
       for (int f = 0; f < nFields; f++) batch.presentKind[f][row] = 0;
 
-      // Anchor value — direct slot first.
-      final long anchorValueKey = kv.getObjectKeyFirstChildKeyFromSlot(slot, anchorObjectKey);
+      // Anchor value — direct slot first. Pull the firstChildKey from the
+      // bulk-decoded scratch when available, else decode per-slot.
+      final long anchorValueKey = useBulk
+          ? slotFirstChildKeys[si]
+          : kv.getObjectKeyFirstChildKeyFromSlot(slot, anchorObjectKey);
       final boolean anchorDirect = readAnchorValueDirect(
           kv, pageBase, anchorValueKey, anchorPageMask, anchorFieldIdx, row, batch);
       if (!anchorDirect) {
@@ -1558,9 +1597,9 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
 
       batch.anchorSlots[row] = slot;
       batch.anchorObjectKeys[row] = anchorObjectKey;
-      if (multi && directSlot) {
+      if (needParent) {
         // Record parent-OBJECT nodeKey → row so pass 2 can join by parentKey.
-        final long parentKey = kv.getObjectKeyParentKeyFromSlot(slot, anchorObjectKey);
+        final long parentKey = slotParentKeys[si];
         if (parentKey != -1L) parentToRow.put(parentKey, row);
       }
       row++;

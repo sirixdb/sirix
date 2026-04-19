@@ -1763,6 +1763,87 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Bulk-decode the {@code pathNodeKey}, {@code parentKey}, and
+   * {@code firstChildKey} columns for {@code count} OBJECT_KEY slots in one
+   * tight loop. Mirrors the semantics of
+   * {@link #getObjectKeyPathNodeKeyFromSlot},
+   * {@link #getObjectKeyParentKeyFromSlot}, and
+   * {@link #getObjectKeyFirstChildKeyFromSlot}, but:
+   *
+   * <ul>
+   *   <li>Hoists the slotted-page null check + session checks out of the
+   *       per-slot loop so the JIT can peel loop-invariant guards.</li>
+   *   <li>Shares the heap-offset lookup and record base across the three
+   *       varint decodes per slot — dropping two byte reads that each of
+   *       the three getters would pay independently.</li>
+   *   <li>Probes the kind id once per slot so a page that happens to mix
+   *       dense and PAX OBJECT_KEY encodings (same kind family, different
+   *       field layout) stays correct.</li>
+   * </ul>
+   *
+   * <p>If the page has been evicted mid-scan ({@code slottedPage == null}),
+   * the method fills the output arrays with {@code -1L} so callers can skip
+   * the slot via the same sentinel contract as the per-slot getters.
+   *
+   * <p>CPU profile on 10M cold filterCount showed the three per-slot getters
+   * accounting for ~4.5% of the worker thread. A single bulk call in the
+   * scan driver (see {@code SirixVectorizedExecutor.collectColumns}) removes
+   * the per-iteration method-dispatch + per-call MemorySegment session
+   * checks so the JIT can keep the tight inner loop in registers.
+   *
+   * @param slots             slot indices to decode (valid for {@code 0..count})
+   * @param count             number of slots to decode
+   * @param pageBase          base nodeKey for this page (pageKey {@literal <<}
+   *                          {@link Constants#INP_REFERENCE_COUNT_EXPONENT})
+   * @param outPathNodeKeys   result column — pathNodeKey per slot, sized
+   *                          {@code >= count}. Values match
+   *                          {@link #getObjectKeyPathNodeKeyFromSlot}.
+   * @param outParentKeys     result column — parentKey per slot.
+   * @param outFirstChildKeys result column — firstChildKey per slot.
+   */
+  public void bulkDecodeObjectKeyColumns(final int[] slots, final int count, final long pageBase,
+      final long[] outPathNodeKeys, final long[] outParentKeys, final long[] outFirstChildKeys) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      for (int i = 0; i < count; i++) {
+        outPathNodeKeys[i] = -1L;
+        outParentKeys[i] = -1L;
+        outFirstChildKeys[i] = -1L;
+      }
+      return;
+    }
+    for (int i = 0; i < count; i++) {
+      final int slot = slots[i];
+      final long nodeKey = pageBase + slot;
+      final int heapOffset = PageLayout.getDirHeapOffset(sp, slot);
+      final long recordBase = PageLayout.HEAP_START + heapOffset;
+      final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+      final int pathIdx;
+      final int fieldCount;
+      if (kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID) {
+        pathIdx = NodeFieldLayout.OBJKEY_PAX_PATH_NODE_KEY;
+        fieldCount = NodeFieldLayout.OBJECT_KEY_PAX_FIELD_COUNT;
+      } else {
+        pathIdx = NodeFieldLayout.OBJKEY_PATH_NODE_KEY;
+        fieldCount = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+      }
+      final long offsetTable = recordBase + 1;
+      final long dataStart = offsetTable + fieldCount;
+      final int parentFieldOff =
+          sp.get(ValueLayout.JAVA_BYTE, offsetTable + NodeFieldLayout.OBJKEY_PARENT_KEY) & 0xFF;
+      final int firstChildFieldOff =
+          sp.get(ValueLayout.JAVA_BYTE, offsetTable + NodeFieldLayout.OBJKEY_FIRST_CHILD_KEY) & 0xFF;
+      final int pathFieldOff = sp.get(ValueLayout.JAVA_BYTE, offsetTable + pathIdx) & 0xFF;
+      outParentKeys[i] =
+          DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + parentFieldOff, nodeKey);
+      outFirstChildKeys[i] =
+          DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + firstChildFieldOff, nodeKey);
+      outPathNodeKeys[i] =
+          DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + pathFieldOff, nodeKey);
+    }
+  }
+
+  /**
    * Decode a numeric value from an OBJECT_NUMBER_VALUE slot directly off the
    * slotted page — no moveTo, no singleton binding, no Number boxing. Returns
    * {@code Long.MIN_VALUE} if the payload's number type isn't Integer or Long
