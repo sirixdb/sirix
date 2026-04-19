@@ -69,17 +69,38 @@ import java.nio.charset.StandardCharsets;
  * mask; conjunctive predicates AND their masks, popcount gives the count.
  * Zero {@code Object} allocations in the inner loop.
  *
- * <h2>Versioning</h2>
+ * <h2>Versioning &amp; storage placement</h2>
  *
- * Subject to the standard Sirix CoW page-reference scheme: a write-time
- * listener appending to the current open leaf triggers a shadow copy on
- * commit, and the parent IndirectPage in the projection's HOT trie gets
- * the updated page reference. Old revisions keep their reference chain
- * unchanged.
+ * The {@link #serialize} output is stored as the value-payload of a single
+ * entry in a {@link io.sirix.page.HOTLeafPage} ({@code implements
+ * KeyValuePage}), keyed by a synthetic leaf-id. That gives us the full
+ * Sirix multi-revision delta chain <em>at HOT-entry granularity</em>:
  *
- * <p><b>Status</b>: layout contract only. Fields and accessors are
- * declared here for forward plumbing; ser/deser + the HOT page-type
- * registration land in follow-up commits (task #23).
+ * <ul>
+ *   <li>FULL — every revision of the HOT page writes complete payloads
+ *       (biggest waste on update-heavy workloads).</li>
+ *   <li>INCREMENTAL / SLIDING_SNAPSHOT — writes only the payloads of
+ *       entries modified since the last full dump. Untouched projection
+ *       leaves in the same HOT page <strong>alias</strong> the previous
+ *       revision's bytes — no duplicate storage.
+ *       See {@link io.sirix.settings.VersioningType#combineRecordPages}.</li>
+ *   <li>DIFFERENTIAL — two-way merge against a single prior full.</li>
+ * </ul>
+ *
+ * For append-heavy workloads (new records appended to the latest leaf,
+ * old leaves frozen) this is already near-optimal: once a leaf fills up
+ * it is never rewritten, so INCREMENTAL emits zero bytes for it per
+ * subsequent revision.
+ *
+ * <p><b>Known limitation.</b> On update-heavy workloads where a single
+ * row in a frozen leaf changes, the whole 20 KB payload still gets
+ * rewritten in the new revision — INCREMENTAL shares at entry
+ * granularity, not at row-within-entry granularity. A future refinement
+ * is to promote {@code ProjectionIndexLeafPage} itself to a first-class
+ * {@link io.sirix.page.interfaces.KeyValuePage} with per-column slots
+ * so only modified column slots get re-serialized. That's a non-trivial
+ * refactor and gated on observing actual waste under a real
+ * update-heavy workload; append-heavy stays on today's design.
  */
 public final class ProjectionIndexLeafPage {
 
