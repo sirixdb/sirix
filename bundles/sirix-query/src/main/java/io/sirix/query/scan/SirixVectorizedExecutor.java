@@ -236,6 +236,15 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private final ConcurrentHashMap<String, Sequence> pathStatsCache = new ConcurrentHashMap<>();
 
+  /**
+   * Cache of count-distinct results (HLL estimate) per source path + field.
+   * Same rationale as {@link #pathStatsCache}: the underlying HLL sketch is
+   * immutable for the executor's (session, revision), so there's no reason
+   * to reopen the PathSummary on repeat calls. Key is
+   * {@code pathCacheKey(sourcePath, field)}.
+   */
+  private final ConcurrentHashMap<String, Sequence> countDistinctResultCache = new ConcurrentHashMap<>();
+
   /** Cache of aggregated scans keyed by predicate + field + func (for predicate aggregate). */
   private final ConcurrentHashMap<String, Sequence> predicateAggregateCache = new ConcurrentHashMap<>();
 
@@ -1186,36 +1195,43 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (!session.getResourceConfig().withPathStatistics) {
         return null;
       }
+      final String cdKey = pathCacheKey(sourcePath, field);
+      final Sequence cached = countDistinctResultCache.get(cdKey);
+      if (cached != null) return cached;
       final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
       try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
         final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
         try {
+          final Sequence computed;
           if (targetPathNodeKey != -1L) {
             // Path-scoped fast path: read the single PathNode's HLL — no union needed.
             final PathNode target = summary.getPathNodeForPathNodeKey(targetPathNodeKey);
             if (target == null) return null;
             final HyperLogLogSketch hll = target.getHllSketch();
-            return new Int64(hll == null ? 0L : hll.estimate());
-          }
-          // Fallback: union across every PathNode with this local name. Matches
-          // the pre-refactor behaviour for documents without PathSummary or
-          // whose sourcePath can't be disambiguated.
-          final List<PathNode> paths = summary.findPathsByLocalName(field);
-          if (paths.isEmpty()) {
-            return null;
-          }
-          HyperLogLogSketch union = null;
-          for (final PathNode p : paths) {
-            final HyperLogLogSketch hll = p.getHllSketch();
-            if (hll == null) {
-              continue;
+            computed = new Int64(hll == null ? 0L : hll.estimate());
+          } else {
+            // Fallback: union across every PathNode with this local name. Matches
+            // the pre-refactor behaviour for documents without PathSummary or
+            // whose sourcePath can't be disambiguated.
+            final List<PathNode> paths = summary.findPathsByLocalName(field);
+            if (paths.isEmpty()) {
+              return null;
             }
-            if (union == null) {
-              union = new HyperLogLogSketch();
+            HyperLogLogSketch union = null;
+            for (final PathNode p : paths) {
+              final HyperLogLogSketch hll = p.getHllSketch();
+              if (hll == null) {
+                continue;
+              }
+              if (union == null) {
+                union = new HyperLogLogSketch();
+              }
+              union.union(hll);
             }
-            union.union(hll);
+            computed = new Int64(union == null ? 0L : union.estimate());
           }
-          return new Int64(union == null ? 0L : union.estimate());
+          countDistinctResultCache.putIfAbsent(cdKey, computed);
+          return computed;
         } finally {
           summary.close();
         }
