@@ -133,6 +133,23 @@ public final class PageUtils {
       return;
     }
 
+    // FullReferencesPage dominates the hot deserialization path for indirect
+    // trees. Specialize it to walk the backing array directly — avoids the
+    // Arrays.asList wrapper allocation + iterator object that the generic
+    // getReferences() path pays per call. Profile showed fixupPageReferenceIds
+    // at ~1% of the cold-scan worker time; the List alloc was most of it.
+    if (page instanceof io.sirix.page.delegates.FullReferencesPage frp) {
+      final PageReference[] refs = frp.getReferencesArray();
+      for (int i = 0, n = refs.length; i < n; i++) {
+        final PageReference ref = refs[i];
+        if (ref != null) {
+          ref.setDatabaseId(databaseId);
+          ref.setResourceId(resourceId);
+        }
+      }
+      return;
+    }
+
     // Some page types (like UberPage) don't have PageReferences to fix up
     try {
       var references = page.getReferences();
