@@ -18,6 +18,7 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.compiler.CompileChain;
 import io.brackit.query.compiler.optimizer.Optimizer;
 import io.brackit.query.compiler.translator.BlockPipelineStrategy;
+import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
 import io.brackit.query.compiler.translator.Translator;
 import io.brackit.query.util.Cfg;
 
@@ -101,6 +102,21 @@ public final class SirixCompileChain extends CompileChain implements AutoCloseab
   public static SirixCompileChain createParallel(final XmlDBStore nodeStore, final JsonDBStore jsonStore,
       final boolean ordered) {
     return new SirixCompileChain(nodeStore, jsonStore, true, ordered);
+  }
+
+  /**
+   * Create a parallel compile chain that additionally enables morsel-driven fan-out
+   * for PipeExprs that fall out of the vectorized fast path. Morsel wrapping is a
+   * process-wide toggle on {@link SequentialPipelineStrategy}, so enabling it here
+   * affects all compile chains in the JVM until disabled.
+   *
+   * @param nodeStore the XML node store (or null)
+   * @param jsonStore the JSON item store (or null)
+   * @return a parallel compile chain with morsel fan-out enabled
+   */
+  public static SirixCompileChain createParallelWithMorsel(final XmlDBStore nodeStore, final JsonDBStore jsonStore) {
+    SequentialPipelineStrategy.setMorselEnabled(true);
+    return createParallel(nodeStore, jsonStore);
   }
 
   /**
