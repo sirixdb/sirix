@@ -25,6 +25,9 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
+import io.sirix.index.projection.ProjectionIndexByteScan;
+import io.sirix.index.projection.ProjectionIndexRegistry;
+import io.sirix.index.projection.ProjectionIndexScan;
 import io.sirix.index.path.summary.HyperLogLogSketch;
 import io.sirix.index.path.summary.PathNode;
 import io.sirix.index.path.summary.PathSummaryReader;
@@ -1189,10 +1192,132 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    *       allocation, no boxing.</li>
    * </ul>
    */
+  /**
+   * If a covering projection index is installed in
+   * {@link ProjectionIndexRegistry} for this {@code (session, sourcePath)}
+   * and the predicate is a conjunctive tree over supported leaf shapes
+   * (NUM_CMP, STR_EQ, BOOL_REF), returns the count produced by
+   * {@link ProjectionIndexByteScan#conjunctiveCount}. Returns {@code null}
+   * otherwise, triggering the generic predicate path below.
+   *
+   * <p>Supported conjunctive shapes: a single NUM_CMP / STR_EQ / BOOL_REF
+   * leaf, or OP_AND whose direct children are all such leaves. Nested
+   * ANDs, ORs, NOTs, or comparisons against literals that aren't integer /
+   * UTF-8 string are intentionally not matched — they fall back rather
+   * than silently mis-evaluate.
+   */
+  private Long tryProjectionIndexFastPath(final String[] sourcePath, final CompiledPredicate cp) {
+    final String resourceKey = projectionResourceKey();
+    if (resourceKey == null) return null;
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
+    if (handle == null) return null;
+    if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
+    final ProjectionIndexScan.ColumnPredicate[] preds = extractConjunctivePredicates(cp, handle);
+    if (preds == null) return null;
+    if (preds.length == 0) return ProjectionIndexByteScan.countRows(handle.leafPayloads());
+    return ProjectionIndexByteScan.conjunctiveCount(handle.leafPayloads(), preds);
+  }
+
+  /**
+   * Walk the flat {@link CompiledPredicate} tree and build a
+   * {@link ProjectionIndexScan.ColumnPredicate}{@code []} if the tree is a
+   * pure conjunction of supported leaves. {@code null} signals "unsupported
+   * shape; fall back to the generic path".
+   */
+  private static ProjectionIndexScan.ColumnPredicate[] extractConjunctivePredicates(
+      final CompiledPredicate cp, final ProjectionIndexRegistry.Handle handle) {
+    final byte rootOp = cp.ops[0];
+    final int[] leafNodeIdx;
+    if (rootOp == CompiledPredicate.OP_AND) {
+      leafNodeIdx = new int[cp.childCount[0]];
+      for (int i = 0; i < leafNodeIdx.length; i++) {
+        leafNodeIdx[i] = cp.children[cp.childStart[0] + i];
+      }
+    } else if (rootOp == CompiledPredicate.OP_NUM_CMP
+        || rootOp == CompiledPredicate.OP_STR_EQ
+        || rootOp == CompiledPredicate.OP_BOOL_REF) {
+      leafNodeIdx = new int[] {0};
+    } else {
+      return null; // OR / NOT / ALWAYS_* / nested — fall back.
+    }
+
+    final ProjectionIndexScan.ColumnPredicate[] out = new ProjectionIndexScan.ColumnPredicate[leafNodeIdx.length];
+    for (int i = 0; i < leafNodeIdx.length; i++) {
+      final int n = leafNodeIdx[i];
+      final byte op = cp.ops[n];
+      final int column = handle.columnOf(cp.fieldNames[cp.fieldIdx[n]]);
+      if (column < 0) return null; // field not in index — should have been filtered by covers()
+      switch (op) {
+        case CompiledPredicate.OP_NUM_CMP -> {
+          final ProjectionIndexScan.Op translated = translateCmpOp(cp.cmpOp[n]);
+          if (translated == null) return null;
+          out[i] = ProjectionIndexScan.ColumnPredicate.numeric(column, translated, cp.longLit[n]);
+        }
+        case CompiledPredicate.OP_STR_EQ -> {
+          final byte[] lit = cp.strLiteralBytes[cp.strIdx[n]];
+          out[i] = ProjectionIndexScan.ColumnPredicate.stringEq(column, lit);
+        }
+        case CompiledPredicate.OP_BOOL_REF -> {
+          // BOOL_REF means "field value is true" (a standalone truthy
+          // field reference compiles here). Represent as booleanEq(true).
+          out[i] = ProjectionIndexScan.ColumnPredicate.booleanEq(column, true);
+        }
+        default -> {
+          return null; // unsupported leaf — fall back
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Map the executor's internal cmpOp encoding ({@link #OP_GT}..{@link #OP_EQ})
+   * to {@link ProjectionIndexScan.Op}. Returns {@code null} for unrecognised
+   * codes (e.g. NE), which trigger fallback.
+   */
+  private static ProjectionIndexScan.Op translateCmpOp(final int cmp) {
+    return switch (cmp) {
+      case OP_GT -> ProjectionIndexScan.Op.GT;
+      case OP_LT -> ProjectionIndexScan.Op.LT;
+      case OP_GE -> ProjectionIndexScan.Op.GE;
+      case OP_LE -> ProjectionIndexScan.Op.LE;
+      case OP_EQ -> ProjectionIndexScan.Op.EQ;
+      default -> null;
+    };
+  }
+
+  /**
+   * Stable identifier used as the registry key for this executor's
+   * resource. {@code null} when no resource path is available (no
+   * projection-index fast-path applies).
+   */
+  private String projectionResourceKey() {
+    try {
+      return session.getResourceConfig().getResource().toString();
+    } catch (final Exception e) {
+      return null;
+    }
+  }
+
   private long parallelGenericPredicateCount(final String[] sourcePath, final PredicateNode predicate)
       throws Exception {
     final CompiledPredicate cp = compile(predicate);
     if (cp.fieldNames.length == 0) return 0L;
+    // Fast-path: if a covering projection index is installed for this
+    // (resource, sourcePath), convert the predicate tree to ColumnPredicate[]
+    // and route the count to the zero-copy SIMD byte-scan — no OBJECT_KEY
+    // traversal, no collectColumns, no per-record varint decodes. Only
+    // conjunctive (AND-only) trees of NUM_CMP / STR_EQ / BOOL_REF leaves
+    // are eligible; anything else falls back to the generic path below.
+    // Registry lookup is a single ConcurrentHashMap.get — adds ~50 ns to
+    // queries that have no projection index installed (measured in the
+    // iter-5 bench), swallowed by the millisecond-scale fallback path.
+    {
+      final Long projected = tryProjectionIndexFastPath(sourcePath, cp);
+      if (projected != null) {
+        return projected;
+      }
+    }
     // Anchor on the first field — its nameKey drives slot iteration.
     final int anchorNameKey = cp.fieldNameKeys[0];
     if (anchorNameKey == -1) return 0L;
