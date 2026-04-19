@@ -1459,10 +1459,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       this.workBitmap = new long[bitmapStride];
       this.indicesScratch = new int[cap];
       this.maskedColScratch = new long[cap];
-      // Pre-sized to 2x expected rows with 0.5 load factor — no rehashes on
-      // typical pages. defaultReturnValue(-1) so absent lookups signal
-      // "parent not in batch" without a containsKey probe.
-      this.parentKeyToRow = new Long2IntOpenHashMap(cap * 2);
+      // Sized to the expected row count (1024 slots max per page). fastutil
+      // rounds up to the next power-of-two internal capacity, so with cap=1024
+      // the table has 2048 buckets — half the clear cost vs the previous
+      // cap*2 sizing without risking a rehash (we never exceed `cap` entries).
+      // defaultReturnValue(-1) so absent lookups signal "parent not in batch"
+      // without a containsKey probe.
+      this.parentKeyToRow = new Long2IntOpenHashMap(cap);
       this.parentKeyToRow.defaultReturnValue(-1);
       this.strScratch = new byte[4096];
     }
