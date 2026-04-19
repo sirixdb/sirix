@@ -1212,6 +1212,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // different resolved fieldIdx order don't alias.
     final String compileKey = compiledClassKey(predicate, cp);
     final BatchPredicate compiled = useBatch ? resolveCompiledPredicate(compileKey, cp) : null;
+    // Pre-extract anchor-field NumCmp constraints for zone-map pruning.
+    // Per-page we probe tagMin/tagMax of the anchor nameKey in the page's
+    // NumberRegion and skip the whole page on a provable miss. Cost: a
+    // handful of int compares per page when the probe is active.
+    final AnchorZoneProbe zoneProbe = extractAnchorZoneProbe(cp);
     // Work-stealing via shared atomic cursor — each worker grabs the next
     // stride of pages dynamically. Previously we pre-partitioned into
     // (totalPages / eff) per-worker ranges; that's catastrophic when one
@@ -1237,6 +1242,23 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
             if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+            // Zone-map pre-check: if the anchor field's per-page tagMin/tagMax
+            // proves no row on this page can satisfy the conjunctive NumCmp
+            // constraints, skip the entire page without decoding a single
+            // record.
+            if (zoneProbe != null) {
+              final NumberRegion.Header numHdr = kv.getNumberRegionHeader();
+              if (numHdr != null && numHdr.tagMin != null) {
+                final int lookupKey = (numHdr.tagKind == NumberRegion.TAG_KIND_PATH_NODE
+                    && anchorPathNodeKey > 0 && anchorPathNodeKey <= Integer.MAX_VALUE)
+                    ? (int) anchorPathNodeKey : anchorNameKey;
+                final int tag = NumberRegion.lookupTag(numHdr, lookupKey);
+                if (tag >= 0 && canPruneByZone(zoneProbe,
+                    numHdr.tagMin[tag], numHdr.tagMax[tag])) {
+                  continue;
+                }
+              }
+            }
             final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
             if (matches.length == 0) continue;
             collectColumns(kv, base, matches, cp, anchorPathNodeKey, batch, rtx);
@@ -1562,17 +1584,12 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Pass 1: anchor scan — fills anchorSlots/anchorObjectKeys/longCols[0]
     // and populates parentKeyToRow for pass 2.
     //
-    // When both the pathNodeKey scope filter and the parent-row map are
-    // active, bulk-decode the three anchor columns (pathNodeKey, parentKey,
-    // firstChildKey) in one tight loop. The bulk path hoists the slotted-
-    // page null check, heap-offset lookup, and kindId probe out of each
-    // slot, cutting ~4.5% off the filterCount worker in the iter-5 profile
-    // *when all three are needed*.
-    //
-    // When only firstChildKey is needed (no path summary AND single-field
-    // predicate — e.g. the default 10M benchmark with pathSummary=off),
-    // bulking all three wastes 2× the decodes, so we keep the per-slot
-    // firstChildKey call on that branch.
+    // When the pathNodeKey scope filter or the parent-row map is active,
+    // fetch the bulk-decoded column set for this field via the page's
+    // ObjectKeyColumns cache (task #41). First call on the page for this
+    // nameKey pays the varint decode; subsequent calls — including the
+    // sibling-field pass below, iter 2+ of the same query, and any
+    // follow-up query touching this field — get zero-decode array access.
     // ---------------------------------------------------------------------
     final Long2IntOpenHashMap parentToRow = batch.parentKeyToRow;
     parentToRow.clear();
@@ -2616,6 +2633,75 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final int ZONE_NONE    = 0; // predicate can never match any value in [min,max]
   private static final int ZONE_SOME    = 1; // predicate might match; need to iterate
   private static final int ZONE_ALL     = 2; // predicate matches every value in [min,max]
+
+  /**
+   * Anchor-field zone-map probe extracted once per query. Lists the
+   * {@code fieldIdx == 0} OP_NUM_CMP leaves of a purely conjunctive
+   * (AND-only) predicate tree. On each page's pass we probe the anchor
+   * nameKey's per-tag zone map against these constraints; if ANY
+   * constraint returns {@link #ZONE_NONE}, the whole page can be
+   * skipped without touching a single record. Built lazily; returns
+   * {@code null} for predicate shapes we don't handle (OR/NOT, no
+   * anchor-field NumCmp constraint, single field-idx that's not 0).
+   */
+  private static final class AnchorZoneProbe {
+    final int n;
+    final int[] cmpOps;
+    final long[] thresholds;
+
+    AnchorZoneProbe(final int n, final int[] cmpOps, final long[] thresholds) {
+      this.n = n;
+      this.cmpOps = cmpOps;
+      this.thresholds = thresholds;
+    }
+  }
+
+  /**
+   * Extract conjunctive OP_NUM_CMP constraints on the anchor field
+   * (fieldIdx 0) from {@code cp}, or {@code null} if the tree contains
+   * OR/NOT (which would need per-branch zone probing) or has no anchor
+   * NumCmp at all.
+   */
+  private static AnchorZoneProbe extractAnchorZoneProbe(final CompiledPredicate cp) {
+    final int n = cp.ops.length;
+    if (n == 0) return null;
+    // Purely conjunctive: no OR or NOT anywhere in the tree.
+    for (int i = 0; i < n; i++) {
+      final byte op = cp.ops[i];
+      if (op == CompiledPredicate.OP_OR || op == CompiledPredicate.OP_NOT) return null;
+    }
+    int[] ops = new int[4];
+    long[] ts = new long[4];
+    int cnt = 0;
+    for (int i = 0; i < n; i++) {
+      if (cp.ops[i] == CompiledPredicate.OP_NUM_CMP && cp.fieldIdx[i] == 0) {
+        if (cnt == ops.length) {
+          ops = java.util.Arrays.copyOf(ops, ops.length * 2);
+          ts = java.util.Arrays.copyOf(ts, ts.length * 2);
+        }
+        ops[cnt] = cp.cmpOp[i];
+        ts[cnt] = cp.longLit[i];
+        cnt++;
+      }
+    }
+    if (cnt == 0) return null;
+    return new AnchorZoneProbe(cnt, ops, ts);
+  }
+
+  /**
+   * Returns {@code true} if {@code probe}'s conjunctive constraints on
+   * the anchor field can be proven unsatisfiable on a page whose
+   * anchor-tag zone map spans {@code [tagMin, tagMax]}. First
+   * {@link #zoneMapOutcome} == {@link #ZONE_NONE} wins.
+   */
+  private static boolean canPruneByZone(final AnchorZoneProbe probe, final long tagMin, final long tagMax) {
+    final int[] ops = probe.cmpOps;
+    final long[] ts = probe.thresholds;
+    for (int k = 0, n = probe.n; k < n; k++) {
+      if (zoneMapOutcome(ops[k], ts[k], tagMin, tagMax) == ZONE_NONE) return true;
+    }
+    return false;
+  }
 
   /**
    * Evaluate whether the predicate {@code v OP threshold} can be decided against the
