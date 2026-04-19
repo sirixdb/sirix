@@ -71,7 +71,7 @@ public final class PredicateTreeDifferentialTest {
     }
     sb.append(']');
 
-    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
          var chain = SirixCompileChain.createWithJsonStore(store)) {
       new Query(chain, "jn:store('" + DB + "','" + RES + "','" + sb.toString().replace("'", "''") + "')")
@@ -114,7 +114,7 @@ public final class PredicateTreeDifferentialTest {
         "$u.score gt 900 and $u.dept eq \"HR\" and $u.active"
     };
 
-    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
+    try (var store = BasicJsonDBStore.newBuilder().location(dbDir).buildPathSummary(true).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);
          var chain = SirixCompileChain.createWithJsonStore(store)) {
       var coll = store.lookup(DB);
