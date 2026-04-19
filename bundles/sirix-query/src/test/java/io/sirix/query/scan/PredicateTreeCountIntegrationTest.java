@@ -176,6 +176,44 @@ public final class PredicateTreeCountIntegrationTest {
     assertEquals(expected, actual, "OR count mismatch");
   }
 
+  /**
+   * Column-batched evaluator correctness sweep. Runs each supported predicate
+   * shape against the default ({@code -Dsirix.vec.batchGenericEval=true}) path
+   * and asserts counts match in-memory ground truth, exercising
+   * {@code EvalBatch}, {@code collectColumns}, and {@code evalCompiledBatch}
+   * end-to-end for every opcode (NUM_CMP, STR_EQ, BOOL_REF, AND, OR).
+   * The path toggle is read at class-init time (static final) so we cannot
+   * flip it per-test without a forked JVM; running with
+   * {@code -Dsirix.vec.batchGenericEval=false} exercises the legacy path via
+   * the same test body.
+   */
+  @Test
+  void batchEvaluator_allShapesCorrect() throws Exception {
+    final long[][] expected = new long[][] {
+        { countWhere(i -> ages[i] > 40) },
+        { countWhere(i -> ages[i] > 40 && active[i]) },
+        { countWhere(i -> ages[i] > 30 && ages[i] < 50 && active[i]) },
+        { countWhere(i -> "NYC".equals(city[i])) },
+        { countWhere(i -> ages[i] > 35 && "Eng".equals(dept[i])) },
+        { countWhere(i -> "NYC".equals(city[i]) || "SF".equals(city[i])) },
+    };
+    final String[] queries = new String[] {
+        "count(for $u in jn:doc('" + DB + "','" + RES + "')[] where $u.age gt 40 return $u)",
+        "count(for $u in jn:doc('" + DB + "','" + RES + "')[] where $u.age gt 40 and $u.active return $u)",
+        "count(for $u in jn:doc('" + DB + "','" + RES + "')[] "
+            + "where $u.age gt 30 and $u.age lt 50 and $u.active return $u)",
+        "count(for $u in jn:doc('" + DB + "','" + RES + "')[] where $u.city eq \"NYC\" return $u)",
+        "count(for $u in jn:doc('" + DB + "','" + RES + "')[] "
+            + "where $u.age gt 35 and $u.dept eq \"Eng\" return $u)",
+        "count(for $u in jn:doc('" + DB + "','" + RES + "')[] "
+            + "where $u.city eq \"NYC\" or $u.city eq \"SF\" return $u)",
+    };
+    for (int q = 0; q < queries.length; q++) {
+      final long actual = runFilterCount(queries[q]);
+      assertEquals(expected[q][0], actual, "shape[" + q + "] count mismatch");
+    }
+  }
+
   private long runFilterCount(final String query) throws Exception {
     try (var store = BasicJsonDBStore.newBuilder().location(dbDir).build();
          var ctx = SirixQueryContext.createWithJsonStore(store);

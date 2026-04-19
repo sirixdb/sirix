@@ -80,6 +80,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       !"false".equalsIgnoreCase(System.getProperty("sirix.pax.scan", "true"));
 
   /**
+   * Toggle the column-batched generic-predicate evaluator. When {@code true}
+   * (default), {@link #parallelGenericPredicateCount} and
+   * {@link #parallelGenericPredicateGroupByCount} collect each page's matching
+   * records into per-field primitive columns and evaluate the compiled predicate
+   * against those columns into a bitmap — amortising rtx navigation / dispatch
+   * overhead across the page. When {@code false}, falls back to the legacy
+   * record-at-a-time interpreter. Use {@code -Dsirix.vec.batchGenericEval=false}
+   * for A/B regression bisection.
+   */
+  private static final boolean BATCH_GENERIC_EVAL_ENABLED =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.vec.batchGenericEval", "true"));
+
+  /**
    * Lightweight scan-path diagnostics. Toggled via {@code -Dsirix.scan.diag=true}.
    * When {@code false}, all counter increments are dead-code-eliminated by the
    * JIT because this field is {@code static final} and read as a compile-time
@@ -425,42 +438,81 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     @SuppressWarnings("unchecked")
     final Map<String, long[]>[] perThread = new Map[eff];
 
+    final boolean useBatch = BATCH_GENERIC_EVAL_ENABLED;
     parallel(eff, idx -> {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final long s = (long) idx * ppt;
       final long e = Math.min(s + ppt, totalPages);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
-      final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
       final HashMap<String, long[]> local = new HashMap<>();
-      for (long pk = s; pk < e; pk++) {
-        final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
-        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
-        final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
-        final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
-        for (final int slot : matches) {
-          final long anchorObjectKey = base + slot;
-          // Path-scope filter: reject anchor slots whose pathNodeKey is not
-          // the one the query targets. Cheap (one varint decode off the page)
-          // and branch-predictable because anchorPathNodeKey is loop-invariant.
-          if (anchorPathNodeKey != -1L
-              && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
-            continue;
+      if (useBatch) {
+        final EvalBatch batch = new EvalBatch(cp.fieldNames.length, cp.ops.length, Constants.INP_REFERENCE_COUNT);
+        for (long pk = s; pk < e; pk++) {
+          final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+          if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+          final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+          final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
+          if (matches.length == 0) continue;
+          collectColumns(kv, base, matches, cp, anchorPathNodeKey, batch, rtx);
+          if (batch.size == 0) continue;
+          final long[] bitmap = evalCompiledBatch(cp, batch);
+          final byte[] gpk = batch.presentKind[groupFieldIdx];
+          final String[] gvs = batch.strCols[groupFieldIdx];
+          final int size = batch.size;
+          final int stride = (size + 63) >>> 6;
+          for (int w = 0; w < stride; w++) {
+            long word = bitmap[w];
+            while (word != 0L) {
+              final int bit = Long.numberOfTrailingZeros(word);
+              final int rowIdx = (w << 6) + bit;
+              if (rowIdx >= size) break;
+              if (gpk[rowIdx] == 3) {
+                final String gv = gvs[rowIdx];
+                if (gv != null) {
+                  long[] counter = local.get(gv);
+                  if (counter == null) {
+                    counter = new long[] { 0L };
+                    local.put(gv, counter);
+                  }
+                  counter[0]++;
+                }
+              }
+              word &= word - 1L;
+            }
           }
-          if (!rtx.moveTo(anchorObjectKey)) continue;
-          if (!rtx.moveToParent()) continue;
-          loadFields(rtx, cp, scratch);
-          if (!evalCompiled(cp, 0, scratch)) continue;
-          // Read the group field's value from the same scratch.
-          if (scratch.fieldKind[groupFieldIdx] != 3) continue;  // require string group
-          final String gv = scratch.strVals[groupFieldIdx];
-          if (gv == null) continue;
-          long[] counter = local.get(gv);
-          if (counter == null) {
-            counter = new long[] { 0L };
-            local.put(gv, counter);
+        }
+      } else {
+        final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
+        for (long pk = s; pk < e; pk++) {
+          final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+          if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+          final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+          final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
+          for (final int slot : matches) {
+            final long anchorObjectKey = base + slot;
+            // Path-scope filter: reject anchor slots whose pathNodeKey is not
+            // the one the query targets. Cheap (one varint decode off the page)
+            // and branch-predictable because anchorPathNodeKey is loop-invariant.
+            if (anchorPathNodeKey != -1L
+                && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
+              continue;
+            }
+            if (!rtx.moveTo(anchorObjectKey)) continue;
+            if (!rtx.moveToParent()) continue;
+            loadFields(rtx, cp, scratch);
+            if (!evalCompiled(cp, 0, scratch)) continue;
+            // Read the group field's value from the same scratch.
+            if (scratch.fieldKind[groupFieldIdx] != 3) continue;  // require string group
+            final String gv = scratch.strVals[groupFieldIdx];
+            if (gv == null) continue;
+            long[] counter = local.get(gv);
+            if (counter == null) {
+              counter = new long[] { 0L };
+              local.put(gv, counter);
+            }
+            counter[0]++;
           }
-          counter[0]++;
         }
       }
       perThread[idx] = local;
@@ -1067,29 +1119,45 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long ppt = (totalPages + eff - 1) / eff;
     final long[] perThread = new long[eff];
 
+    final boolean useBatch = BATCH_GENERIC_EVAL_ENABLED;
     parallel(eff, idx -> {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final long s = (long) idx * ppt;
       final long e = Math.min(s + ppt, totalPages);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
-      final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
       long localCount = 0;
-      for (long pk = s; pk < e; pk++) {
-        final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
-        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
-        final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
-        final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
-        for (final int slot : matches) {
-          final long anchorObjectKey = base + slot;
-          if (anchorPathNodeKey != -1L
-              && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
-            continue;
+      if (useBatch) {
+        final EvalBatch batch = new EvalBatch(cp.fieldNames.length, cp.ops.length, Constants.INP_REFERENCE_COUNT);
+        for (long pk = s; pk < e; pk++) {
+          final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+          if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+          final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+          final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
+          if (matches.length == 0) continue;
+          collectColumns(kv, base, matches, cp, anchorPathNodeKey, batch, rtx);
+          if (batch.size == 0) continue;
+          final long[] bitmap = evalCompiledBatch(cp, batch);
+          localCount += countBits(bitmap, batch.size);
+        }
+      } else {
+        final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
+        for (long pk = s; pk < e; pk++) {
+          final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+          if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+          final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+          final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
+          for (final int slot : matches) {
+            final long anchorObjectKey = base + slot;
+            if (anchorPathNodeKey != -1L
+                && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
+              continue;
+            }
+            if (!rtx.moveTo(anchorObjectKey)) continue;
+            if (!rtx.moveToParent()) continue;  // enclosing object
+            loadFields(rtx, cp, scratch);
+            if (evalCompiled(cp, 0, scratch)) localCount++;
           }
-          if (!rtx.moveTo(anchorObjectKey)) continue;
-          if (!rtx.moveToParent()) continue;  // enclosing object
-          loadFields(rtx, cp, scratch);
-          if (evalCompiled(cp, 0, scratch)) localCount++;
         }
       }
       perThread[idx] = localCount;
@@ -1186,6 +1254,337 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       default:
         throw new IllegalStateException("bad opcode " + op);
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Column-batched generic-predicate evaluator (Task #30).
+  //
+  // The record-at-a-time path (loadFields + evalCompiled) pays one rtx
+  // cursor walk per record and then re-dispatches the compiled predicate
+  // interpreter on every single row. For Umbra/ClickHouse-style throughput
+  // we want the inner loop to look like a column kernel: sweep all rows of
+  // one field, then the next, then AND / OR their match bitmaps.
+  //
+  // Phase 1 (collectColumns): for each page, scan the matching anchor
+  // slots; for each row, load every referenced field into
+  // EvalBatch's primitive columns. The anchor field's value is read
+  // directly off the page slot (bypasses rtx.moveTo) whenever it lives
+  // on the same page as the OBJECT_KEY; siblings still use rtx because
+  // they're scattered across the object's children. Missing fields leave
+  // presentKind = 0.
+  //
+  // Phase 2 (evalCompiledBatch): evaluate the CompiledPredicate against
+  // the columns. Each tree node produces a match bitmap sized
+  // (batch.size + 63) >>> 6. NOT = bitwise invert, AND / OR = bitwise
+  // combine. Leaves iterate all batch.size rows of the referenced column
+  // and set the bit if the comparison passes. Bitmaps are per-worker
+  // scratch, grown on demand — no allocation in the hot loop.
+  // ------------------------------------------------------------------
+
+  /**
+   * Per-field primitive columns for a single page's worth of matching records.
+   * Sized for the typical page slot count (~256) and grown on demand by
+   * {@link #ensureCapacity}. All per-worker reusable — allocated once, reset
+   * {@code size} between pages.
+   */
+  private static final class EvalBatch {
+    int size;
+    int capacity;
+    /** Anchor slot for row i on the current page — used for direct-slot reads. */
+    int[] anchorSlots;
+    /** Sirix nodeKey (base + slot) of the anchor OBJECT_KEY for row i. */
+    long[] anchorObjectKeys;
+    /** [fieldIdx] → long[capacity] — valid iff presentKind[fieldIdx][i] == 1. */
+    final long[][] longCols;
+    /** [fieldIdx] → boolean[capacity] — valid iff presentKind[fieldIdx][i] == 2. */
+    final boolean[][] boolCols;
+    /** [fieldIdx] → String[capacity] — valid iff presentKind[fieldIdx][i] == 3. */
+    final String[][] strCols;
+    /** [fieldIdx] → byte[capacity]. 0=missing, 1=num, 2=bool, 3=str. */
+    final byte[][] presentKind;
+    /** Per-compiled-node match bitmap; length (capacity + 63) >>> 6. */
+    final long[][] nodeBitmaps;
+    final int bitmapStride;
+    /** Work bitmap for NOT etc. */
+    final long[] workBitmap;
+
+    EvalBatch(final int nFields, final int nNodes, final int initialCapacity) {
+      final int cap = Math.max(64, initialCapacity);
+      this.capacity = cap;
+      this.anchorSlots = new int[cap];
+      this.anchorObjectKeys = new long[cap];
+      this.longCols = new long[nFields][cap];
+      this.boolCols = new boolean[nFields][cap];
+      this.strCols = new String[nFields][cap];
+      this.presentKind = new byte[nFields][cap];
+      this.bitmapStride = (cap + 63) >>> 6;
+      this.nodeBitmaps = new long[nNodes][bitmapStride];
+      this.workBitmap = new long[bitmapStride];
+    }
+
+    /**
+     * Assert that we have room for {@code n} rows. EvalBatch is sized for the
+     * maximum page slot count at construction (caller uses INP_REFERENCE_COUNT);
+     * anchor match sets are bounded by that, so this method only catches bugs.
+     */
+    void ensureCapacity(final int n) {
+      if (n <= capacity) return;
+      throw new IllegalStateException(
+          "EvalBatch capacity exceeded (" + capacity + " < " + n + "); "
+              + "initial capacity must be >= max page slot count");
+    }
+  }
+
+  /**
+   * Phase 1: collect per-row column values for the current page. Returns the
+   * number of rows stored in {@code batch.size}. The anchor field's value is
+   * read directly off the page slot via {@link KeyValueLeafPage} primitives
+   * when the child lives on the same page; sibling fields fall back to rtx
+   * cursor navigation because they're scattered under the enclosing object.
+   */
+  private static void collectColumns(final KeyValueLeafPage kv, final long pageBase, final int[] anchorSlots,
+      final CompiledPredicate cp, final long anchorPathNodeKey, final EvalBatch batch,
+      final JsonNodeReadOnlyTrx rtx) {
+    batch.size = 0;
+    if (anchorSlots.length == 0) return;
+    batch.ensureCapacity(anchorSlots.length);
+    // Reset present columns up-front — size is still 0, so this is a no-op,
+    // but we set it correctly after the loop. Instead reset per-field as we
+    // go — done at the end once we know batch.size.
+    final int[] fieldKeys = cp.fieldNameKeys;
+    final int nFields = fieldKeys.length;
+    final int anchorFieldIdx = 0;
+    final int anchorPageMask = (1 << Constants.INP_REFERENCE_COUNT_EXPONENT) - 1;
+    int row = 0;
+    for (final int slot : anchorSlots) {
+      final long anchorObjectKey = pageBase + slot;
+      if (anchorPathNodeKey != -1L
+          && kv.getObjectKeyPathNodeKeyFromSlot(slot, anchorObjectKey) != anchorPathNodeKey) {
+        continue;
+      }
+      // Reset this row's presence bits for all fields.
+      for (int f = 0; f < nFields; f++) batch.presentKind[f][row] = 0;
+      // Anchor field (row slot's direct child) — try the direct-slot fast path.
+      // firstChildKey of the OBJECT_KEY = the value node's nodeKey. If that
+      // value lives on the same page, we can read it without moveTo.
+      boolean needRtx = false;
+      if (nFields == 1) {
+        // Single-field predicate: the anchor value IS the only thing we need.
+        final long valueKey = kv.getObjectKeyFirstChildKeyFromSlot(slot, anchorObjectKey);
+        if (!readAnchorValueDirect(kv, pageBase, valueKey, anchorPageMask, anchorFieldIdx, row, batch)) {
+          // Cross-page or non-primitive payload — fall back to rtx.
+          needRtx = true;
+        }
+      } else {
+        needRtx = true;
+      }
+      if (needRtx) {
+        if (!rtx.moveTo(anchorObjectKey)) continue;
+        if (!rtx.moveToParent()) continue;
+        if (!loadFieldsIntoBatch(rtx, cp, batch, row)) continue;
+      }
+      batch.anchorSlots[row] = slot;
+      batch.anchorObjectKeys[row] = anchorObjectKey;
+      row++;
+    }
+    batch.size = row;
+  }
+
+  /**
+   * Direct-slot value read for the anchor field when both the OBJECT_KEY and
+   * its value live on the same page. Returns {@code true} on success, or
+   * {@code false} if caller must fall back to rtx (cross-page, FSST string
+   * too large for scratch, or unsupported number type).
+   */
+  private static boolean readAnchorValueDirect(final KeyValueLeafPage kv, final long pageBase,
+      final long valueKey, final int pageMask, final int fieldIdx, final int row, final EvalBatch batch) {
+    // Cross-page? Shared base means (valueKey >>> 10) == (pageBase >>> 10).
+    if ((valueKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT)
+        != (pageBase >>> Constants.INP_REFERENCE_COUNT_EXPONENT)) {
+      return false;
+    }
+    final int valueSlot = (int) (valueKey & pageMask);
+    final int kindId = kv.getSlotNodeKindId(valueSlot);
+    // 42 = OBJECT_NUMBER_VALUE, 40 = OBJECT_STRING_VALUE, 41 = OBJECT_BOOLEAN_VALUE
+    if (kindId == 42) {
+      final long v = kv.getNumberValueLongFromSlot(valueSlot);
+      if (v == Long.MIN_VALUE) return false; // float/double/BigDecimal sentinel
+      batch.longCols[fieldIdx][row] = v;
+      batch.presentKind[fieldIdx][row] = 1;
+      return true;
+    }
+    if (kindId == 41) {
+      batch.boolCols[fieldIdx][row] = kv.getObjectBooleanValueFromSlot(valueSlot);
+      batch.presentKind[fieldIdx][row] = 2;
+      return true;
+    }
+    if (kindId == 40) {
+      // String: go through the rtx path — readObjectStringValueBytesFromSlot
+      // requires a caller-supplied scratch byte[] and FSST decode logic;
+      // keeping parity with the legacy path is safer than duplicating decode
+      // here. Cheap to opt out (single-field STR_EQ isn't the common hot case).
+      return false;
+    }
+    return false;
+  }
+
+  /**
+   * Variant of {@link #loadFields} that writes into {@link EvalBatch}'s
+   * column arrays at the given {@code row} rather than into a single scratch.
+   * Returns {@code false} iff the enclosing object has no children (caller
+   * must skip this row).
+   */
+  private static boolean loadFieldsIntoBatch(final JsonNodeReadOnlyTrx rtx, final CompiledPredicate cp,
+      final EvalBatch batch, final int row) {
+    if (!rtx.moveToFirstChild()) return false;
+    final int[] wantKeys = cp.fieldNameKeys;
+    do {
+      final int nk = rtx.getNameKey();
+      int fi = -1;
+      for (int i = 0; i < wantKeys.length; i++) if (wantKeys[i] == nk) { fi = i; break; }
+      if (fi < 0) continue;
+      if (!rtx.moveToFirstChild()) { rtx.moveToParent(); continue; }
+      final NodeKind kind = rtx.getKind();
+      switch (kind) {
+        case OBJECT_NUMBER_VALUE, NUMBER_VALUE -> {
+          final Number n = rtx.getNumberValue();
+          if (n != null) {
+            batch.longCols[fi][row] = n.longValue();
+            batch.presentKind[fi][row] = 1;
+          }
+        }
+        case OBJECT_BOOLEAN_VALUE, BOOLEAN_VALUE -> {
+          batch.boolCols[fi][row] = rtx.getBooleanValue();
+          batch.presentKind[fi][row] = 2;
+        }
+        case OBJECT_STRING_VALUE, STRING_VALUE -> {
+          batch.strCols[fi][row] = rtx.getValue();
+          batch.presentKind[fi][row] = 3;
+        }
+        default -> { /* unsupported — leave presentKind[fi][row] = 0 */ }
+      }
+      rtx.moveToParent();
+    } while (rtx.moveToRightSibling());
+    return true;
+  }
+
+  /**
+   * Phase 2: evaluate the compiled predicate over the columns into a bitmap.
+   * Returns the root node's bitmap (stored in
+   * {@code batch.nodeBitmaps[0]}). Valid bits are [0, batch.size).
+   */
+  private static long[] evalCompiledBatch(final CompiledPredicate cp, final EvalBatch batch) {
+    return evalCompiledBatchRec(cp, 0, batch);
+  }
+
+  private static long[] evalCompiledBatchRec(final CompiledPredicate cp, final int nodeIdx, final EvalBatch batch) {
+    final byte op = cp.ops[nodeIdx];
+    final long[] out = batch.nodeBitmaps[nodeIdx];
+    final int size = batch.size;
+    final int stride = (size + 63) >>> 6;
+    // Zero the valid portion of the output bitmap.
+    for (int i = 0; i < stride; i++) out[i] = 0L;
+    switch (op) {
+      case CompiledPredicate.OP_ALWAYS_T: {
+        // Set all valid bits.
+        final int full = size >>> 6;
+        for (int i = 0; i < full; i++) out[i] = -1L;
+        final int tail = size & 63;
+        if (tail > 0) out[full] = (1L << tail) - 1L;
+        return out;
+      }
+      case CompiledPredicate.OP_ALWAYS_F:
+        return out;  // already zeroed
+      case CompiledPredicate.OP_NOT: {
+        final long[] child = evalCompiledBatchRec(cp, cp.children[cp.childStart[nodeIdx]], batch);
+        final int full = size >>> 6;
+        for (int i = 0; i < full; i++) out[i] = ~child[i];
+        final int tail = size & 63;
+        if (tail > 0) out[full] = (~child[full]) & ((1L << tail) - 1L);
+        return out;
+      }
+      case CompiledPredicate.OP_AND: {
+        final int start = cp.childStart[nodeIdx];
+        final int n = cp.childCount[nodeIdx];
+        if (n == 0) {
+          // vacuously true
+          final int full = size >>> 6;
+          for (int i = 0; i < full; i++) out[i] = -1L;
+          final int tail = size & 63;
+          if (tail > 0) out[full] = (1L << tail) - 1L;
+          return out;
+        }
+        final long[] first = evalCompiledBatchRec(cp, cp.children[start], batch);
+        for (int i = 0; i < stride; i++) out[i] = first[i];
+        for (int k = 1; k < n; k++) {
+          final long[] child = evalCompiledBatchRec(cp, cp.children[start + k], batch);
+          for (int i = 0; i < stride; i++) out[i] &= child[i];
+        }
+        return out;
+      }
+      case CompiledPredicate.OP_OR: {
+        final int start = cp.childStart[nodeIdx];
+        final int n = cp.childCount[nodeIdx];
+        for (int k = 0; k < n; k++) {
+          final long[] child = evalCompiledBatchRec(cp, cp.children[start + k], batch);
+          for (int i = 0; i < stride; i++) out[i] |= child[i];
+        }
+        return out;
+      }
+      case CompiledPredicate.OP_NUM_CMP: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        final int cmp = cp.cmpOp[nodeIdx];
+        final long lit = cp.longLit[nodeIdx];
+        final byte[] pk = batch.presentKind[fi];
+        final long[] vals = batch.longCols[fi];
+        // Tight branchless-per-iteration loop. JIT vectorises this fine on
+        // primitive long arrays; manual Panama-SIMD would save the branch
+        // but adds another fallback path. Keep simple until profiling says
+        // otherwise.
+        switch (cmp) {
+          case OP_GT -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] > lit) out[i >>> 6] |= 1L << (i & 63); }
+          case OP_LT -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] < lit) out[i >>> 6] |= 1L << (i & 63); }
+          case OP_GE -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] >= lit) out[i >>> 6] |= 1L << (i & 63); }
+          case OP_LE -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] <= lit) out[i >>> 6] |= 1L << (i & 63); }
+          case OP_EQ -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] == lit) out[i >>> 6] |= 1L << (i & 63); }
+          default -> throw new IllegalStateException("bad cmpOp " + cmp);
+        }
+        return out;
+      }
+      case CompiledPredicate.OP_STR_EQ: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        final String lit = cp.strLiterals[cp.strIdx[nodeIdx]];
+        final byte[] pk = batch.presentKind[fi];
+        final String[] vals = batch.strCols[fi];
+        for (int i = 0; i < size; i++) {
+          if (pk[i] == 3 && lit.equals(vals[i])) out[i >>> 6] |= 1L << (i & 63);
+        }
+        return out;
+      }
+      case CompiledPredicate.OP_BOOL_REF: {
+        final int fi = cp.fieldIdx[nodeIdx];
+        final byte[] pk = batch.presentKind[fi];
+        final boolean[] vals = batch.boolCols[fi];
+        for (int i = 0; i < size; i++) if (pk[i] == 2 && vals[i]) out[i >>> 6] |= 1L << (i & 63);
+        return out;
+      }
+      default:
+        throw new IllegalStateException("bad opcode " + op);
+    }
+  }
+
+  /**
+   * Popcount over the valid prefix of a match bitmap. Sums
+   * {@link Long#bitCount} per word; the final word is masked to only the
+   * valid tail bits.
+   */
+  private static int countBits(final long[] bitmap, final int size) {
+    int c = 0;
+    final int full = size >>> 6;
+    for (int i = 0; i < full; i++) c += Long.bitCount(bitmap[i]);
+    final int tail = size & 63;
+    if (tail > 0) c += Long.bitCount(bitmap[full] & ((1L << tail) - 1L));
+    return c;
   }
 
   @Override
