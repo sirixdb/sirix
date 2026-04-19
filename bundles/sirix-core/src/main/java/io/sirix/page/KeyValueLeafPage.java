@@ -1827,7 +1827,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public void bulkDecodeObjectKeyColumns(final int[] slots, final int count, final long pageBase,
       final long[] outPathNodeKeys, final long[] outParentKeys, final long[] outFirstChildKeys) {
     final MemorySegment sp = slottedPage;
-    if (sp == null) {
+    if (sp == null || count == 0) {
       for (int i = 0; i < count; i++) {
         outPathNodeKeys[i] = -1L;
         outParentKeys[i] = -1L;
@@ -1835,21 +1835,28 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       }
       return;
     }
+    // Probe the kindId once from slot[0]. All OBJECT_KEY slots on a given
+    // page share the same dense-vs-PAX layout (PAX is a page-level choice
+    // driven by whether the page has a KIND_OBJECT_KEY_NAMEKEY region),
+    // so lifting the branch out of the inner loop lets the JIT keep the
+    // three field-offset indices in registers.
+    final int probeHeapOffset = PageLayout.getDirHeapOffset(sp, slots[0]);
+    final long probeRecordBase = PageLayout.HEAP_START + probeHeapOffset;
+    final int probeKindId = sp.get(ValueLayout.JAVA_BYTE, probeRecordBase) & 0xFF;
+    final int pathIdx;
+    final int fieldCount;
+    if (probeKindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID) {
+      pathIdx = NodeFieldLayout.OBJKEY_PAX_PATH_NODE_KEY;
+      fieldCount = NodeFieldLayout.OBJECT_KEY_PAX_FIELD_COUNT;
+    } else {
+      pathIdx = NodeFieldLayout.OBJKEY_PATH_NODE_KEY;
+      fieldCount = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+    }
     for (int i = 0; i < count; i++) {
       final int slot = slots[i];
       final long nodeKey = pageBase + slot;
       final int heapOffset = PageLayout.getDirHeapOffset(sp, slot);
       final long recordBase = PageLayout.HEAP_START + heapOffset;
-      final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
-      final int pathIdx;
-      final int fieldCount;
-      if (kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID) {
-        pathIdx = NodeFieldLayout.OBJKEY_PAX_PATH_NODE_KEY;
-        fieldCount = NodeFieldLayout.OBJECT_KEY_PAX_FIELD_COUNT;
-      } else {
-        pathIdx = NodeFieldLayout.OBJKEY_PATH_NODE_KEY;
-        fieldCount = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
-      }
       final long offsetTable = recordBase + 1;
       final long dataStart = offsetTable + fieldCount;
       final int parentFieldOff =
@@ -1877,22 +1884,25 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   public void bulkDecodeObjectKeyParentAndChildKeys(final int[] slots, final int count,
       final long pageBase, final long[] outParentKeys, final long[] outFirstChildKeys) {
     final MemorySegment sp = slottedPage;
-    if (sp == null) {
+    if (sp == null || count == 0) {
       for (int i = 0; i < count; i++) {
         outParentKeys[i] = -1L;
         outFirstChildKeys[i] = -1L;
       }
       return;
     }
+    // Probe kindId once — see bulkDecodeObjectKeyColumns for rationale.
+    final int probeHeapOffset = PageLayout.getDirHeapOffset(sp, slots[0]);
+    final long probeRecordBase = PageLayout.HEAP_START + probeHeapOffset;
+    final int probeKindId = sp.get(ValueLayout.JAVA_BYTE, probeRecordBase) & 0xFF;
+    final int fieldCount = (probeKindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID)
+        ? NodeFieldLayout.OBJECT_KEY_PAX_FIELD_COUNT
+        : NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
     for (int i = 0; i < count; i++) {
       final int slot = slots[i];
       final long nodeKey = pageBase + slot;
       final int heapOffset = PageLayout.getDirHeapOffset(sp, slot);
       final long recordBase = PageLayout.HEAP_START + heapOffset;
-      final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
-      final int fieldCount = (kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID)
-          ? NodeFieldLayout.OBJECT_KEY_PAX_FIELD_COUNT
-          : NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
       final long offsetTable = recordBase + 1;
       final long dataStart = offsetTable + fieldCount;
       final int parentFieldOff =
