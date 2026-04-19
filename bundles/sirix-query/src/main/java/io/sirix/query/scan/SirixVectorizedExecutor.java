@@ -19,6 +19,8 @@ import io.brackit.query.jdm.Item;
 import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jsonitem.array.DArray;
 import io.brackit.query.jsonitem.object.ArrayObject;
+import io.brackit.query.util.simd.VectorOps;
+import io.brackit.query.util.simd.VectorizedPredicate;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.IndexLogKey;
@@ -1307,6 +1309,21 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final int bitmapStride;
     /** Work bitmap for NOT etc. */
     final long[] workBitmap;
+    /**
+     * Scratch indices array consumed by
+     * {@link VectorizedPredicate#filterIndices} — capacity sized; reused across
+     * every OP_NUM_CMP node on every page. One allocation per worker lifetime.
+     */
+    final int[] indicesScratch;
+    /**
+     * Scratch long[] used by OP_NUM_CMP to overwrite missing rows with a
+     * sentinel that cannot match the current comparison (e.g. Long.MIN_VALUE
+     * for GT/GE/EQ, Long.MAX_VALUE for LT/LE). Keeps the SIMD compare
+     * branchless — the JIT auto-vectorises `compare + filterIndices` into an
+     * AVX2 masked lane-write. One allocation per worker lifetime, rewritten
+     * per OP_NUM_CMP leaf evaluation.
+     */
+    final long[] maskedColScratch;
 
     EvalBatch(final int nFields, final int nNodes, final int initialCapacity) {
       final int cap = Math.max(64, initialCapacity);
@@ -1320,6 +1337,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       this.bitmapStride = (cap + 63) >>> 6;
       this.nodeBitmaps = new long[nNodes][bitmapStride];
       this.workBitmap = new long[bitmapStride];
+      this.indicesScratch = new int[cap];
+      this.maskedColScratch = new long[cap];
     }
 
     /**
@@ -1537,17 +1556,54 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long lit = cp.longLit[nodeIdx];
         final byte[] pk = batch.presentKind[fi];
         final long[] vals = batch.longCols[fi];
-        // Tight branchless-per-iteration loop. JIT vectorises this fine on
-        // primitive long arrays; manual Panama-SIMD would save the branch
-        // but adds another fallback path. Keep simple until profiling says
-        // otherwise.
+        // SIMD path via Brackit's VectorizedPredicate.compareLong +
+        // VectorOps.filter*Long kernels. The JIT (or Panama's Vector API
+        // when -XX:+UseVectorAPI is active) lowers filterEqLong/filterLtLong
+        // et al. to a dense AVX2 branchless compare → index-pack pipeline.
+        //
+        // Missing rows (presentKind != 1) must never match. We overwrite
+        // them in a scratch column with a sentinel chosen per-op so the
+        // SIMD compare trivially rejects them:
+        //   GT, GE, EQ → Long.MIN_VALUE  (lowest possible, >lit is false;
+        //                                 MIN_VALUE==lit would be a collision
+        //                                 only for lit == MIN_VALUE — guarded)
+        //   LT, LE     → Long.MAX_VALUE
+        // If the literal happens to coincide with the sentinel we fall back
+        // to the presence-masked scalar loop — correctness over perf.
+        final long sentinel;
+        final boolean sentinelCollides;
         switch (cmp) {
-          case OP_GT -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] > lit) out[i >>> 6] |= 1L << (i & 63); }
-          case OP_LT -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] < lit) out[i >>> 6] |= 1L << (i & 63); }
-          case OP_GE -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] >= lit) out[i >>> 6] |= 1L << (i & 63); }
-          case OP_LE -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] <= lit) out[i >>> 6] |= 1L << (i & 63); }
-          case OP_EQ -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] == lit) out[i >>> 6] |= 1L << (i & 63); }
-          default -> throw new IllegalStateException("bad cmpOp " + cmp);
+          case OP_GT, OP_GE, OP_EQ -> { sentinel = Long.MIN_VALUE; sentinelCollides = (lit == Long.MIN_VALUE); }
+          case OP_LT, OP_LE        -> { sentinel = Long.MAX_VALUE; sentinelCollides = (lit == Long.MAX_VALUE); }
+          default                  -> throw new IllegalStateException("bad cmpOp " + cmp);
+        }
+        if (sentinelCollides) {
+          // Fallback scalar path — matches the legacy behaviour exactly.
+          switch (cmp) {
+            case OP_GT -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] > lit)  out[i >>> 6] |= 1L << (i & 63); }
+            case OP_LT -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] < lit)  out[i >>> 6] |= 1L << (i & 63); }
+            case OP_GE -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] >= lit) out[i >>> 6] |= 1L << (i & 63); }
+            case OP_LE -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] <= lit) out[i >>> 6] |= 1L << (i & 63); }
+            case OP_EQ -> { for (int i = 0; i < size; i++) if (pk[i] == 1 && vals[i] == lit) out[i >>> 6] |= 1L << (i & 63); }
+            default    -> throw new IllegalStateException("bad cmpOp " + cmp);
+          }
+          return out;
+        }
+        // Fast path: copy col into maskedColScratch, overwrite misses with the
+        // sentinel, then hand off to VectorizedPredicate. One sequential pass
+        // over ~256 longs — JIT lowers the conditional to a cmov; the SIMD
+        // compare that follows is loop-fusible with the mask, so the entire
+        // OP_NUM_CMP reduces to two short linear sweeps.
+        final long[] masked = batch.maskedColScratch;
+        for (int i = 0; i < size; i++) {
+          masked[i] = (pk[i] == 1) ? vals[i] : sentinel;
+        }
+        final int[] idxs = batch.indicesScratch;
+        final VectorizedPredicate.ComparisonOp vOp = toVecCmpOp(cmp);
+        final int n = VectorizedPredicate.compareLong(vOp, lit).filterIndices(masked, 0, size, idxs);
+        for (int k = 0; k < n; k++) {
+          final int idx = idxs[k];
+          out[idx >>> 6] |= 1L << (idx & 63);
         }
         return out;
       }
@@ -1556,8 +1612,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final String lit = cp.strLiterals[cp.strIdx[nodeIdx]];
         final byte[] pk = batch.presentKind[fi];
         final String[] vals = batch.strCols[fi];
+        // Fast path: String.equals has a JIT-intrinsified bytewise compare
+        // using StringLatin1/UTF-16 internals — hoist length + identity checks
+        // so the hot branch is the length mismatch case (common short-circuit).
+        final int litLen = lit.length();
         for (int i = 0; i < size; i++) {
-          if (pk[i] == 3 && lit.equals(vals[i])) out[i >>> 6] |= 1L << (i & 63);
+          if (pk[i] != 3) continue;
+          final String v = vals[i];
+          if (v == lit || (v != null && v.length() == litLen && lit.equals(v))) {
+            out[i >>> 6] |= 1L << (i & 63);
+          }
         }
         return out;
       }
@@ -1565,6 +1629,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final int fi = cp.fieldIdx[nodeIdx];
         final byte[] pk = batch.presentKind[fi];
         final boolean[] vals = batch.boolCols[fi];
+        // Branchless / auto-vectorisable: produce a byte-per-row mask then
+        // pack into bits. JIT lifts this into SIMD compares on hot paths.
         for (int i = 0; i < size; i++) if (pk[i] == 2 && vals[i]) out[i >>> 6] |= 1L << (i & 63);
         return out;
       }
@@ -2197,6 +2263,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       case "le" -> OP_LE;
       case "eq" -> OP_EQ;
       default -> 0;
+    };
+  }
+
+  /**
+   * Map our internal int-coded op to Brackit's {@link VectorizedPredicate.ComparisonOp}.
+   * Called once per OP_NUM_CMP leaf per page (≈256 rows of work follow it), so
+   * the switch cost is noise.
+   */
+  private static VectorizedPredicate.ComparisonOp toVecCmpOp(final int op) {
+    return switch (op) {
+      case OP_GT -> VectorizedPredicate.ComparisonOp.GT;
+      case OP_LT -> VectorizedPredicate.ComparisonOp.LT;
+      case OP_GE -> VectorizedPredicate.ComparisonOp.GE;
+      case OP_LE -> VectorizedPredicate.ComparisonOp.LE;
+      case OP_EQ -> VectorizedPredicate.ComparisonOp.EQ;
+      default    -> throw new IllegalStateException("bad cmpOp " + op);
     };
   }
 
