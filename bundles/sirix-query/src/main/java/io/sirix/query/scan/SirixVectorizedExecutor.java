@@ -224,6 +224,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    */
   private final ConcurrentHashMap<String, Long> pathNodeKeyCache = new ConcurrentHashMap<>();
 
+  /**
+   * Cache of {@link #tryPathSummaryStats(String[], String, String)} results,
+   * keyed by {@code pathNodeKey + "#" + func}. The executor is bound to a
+   * single (session, revision) so each PathNode's statistics are stable for
+   * its lifetime; we don't need to reopen the PathSummary for repeat aggregate
+   * queries on the same path. Without this cache every {@code sum($doc[].age)}
+   * call paid the cost of {@code beginNodeReadOnlyTrx + openPathSummary} —
+   * roughly 0.5–1 ms per query on 10 M records, completely dominating the
+   * µs-level stats lookup itself.
+   */
+  private final ConcurrentHashMap<String, Sequence> pathStatsCache = new ConcurrentHashMap<>();
+
   /** Cache of aggregated scans keyed by predicate + field + func (for predicate aggregate). */
   private final ConcurrentHashMap<String, Sequence> predicateAggregateCache = new ConcurrentHashMap<>();
 
@@ -1288,7 +1300,27 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (targetPathNodeKey == -1L) {
       return null;
     }
+    // Cached per (pathNodeKey, func) — executor is bound to one (session, revision)
+    // so the stats snapshot is stable. Hot path: single ConcurrentHashMap probe.
+    final String statsKey = targetPathNodeKey + "#" + func;
+    final Sequence cached = pathStatsCache.get(statsKey);
+    if (cached != null) {
+      return cached;
+    }
+    final Sequence computed = computePathStatsSequence(targetPathNodeKey, func);
+    if (computed != null) {
+      pathStatsCache.putIfAbsent(statsKey, computed);
+    }
+    return computed;
+  }
 
+  /**
+   * Actually read the PathNode's per-path statistics and package them as a
+   * Brackit Sequence. Opens a read-only trx + PathSummaryReader for the call
+   * duration. Called at most once per {@code (pathNodeKey, func)} during the
+   * executor's lifetime — results are cached by the caller.
+   */
+  private Sequence computePathStatsSequence(final long targetPathNodeKey, final String func) {
     try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
       final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
       try {
