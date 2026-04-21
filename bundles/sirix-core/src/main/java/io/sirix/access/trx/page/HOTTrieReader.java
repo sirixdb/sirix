@@ -119,25 +119,17 @@ public final class HOTTrieReader implements AutoCloseable {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
 
-    // Leaf cache fast path: if the previously-guarded leaf's key range
-    // covers the lookup key (firstKey <= key <= lastKey by unsigned
-    // compare), reuse it directly. Skips full root-to-leaf descent AND
-    // guard acquire/release — the common case for bulk scans, multi-
-    // chunk reads, and locality-friendly access patterns.
-    final HOTLeafPage cached = guardedLeaf;
-    if (cached != null) {
-      final byte[] first = cached.getFirstKey();
-      final byte[] last = cached.getLastKey();
-      if (first.length > 0 && last.length > 0
-          && Arrays.compareUnsigned(key, first) >= 0
-          && Arrays.compareUnsigned(key, last) <= 0) {
-        final int idx = cached.findEntry(key);
-        if (idx < 0) return null;
-        return cached.getValueSlice(idx);
-      }
-    }
+    // NOTE: a min/max-range leaf cache is UNSAFE for HOT. Leaves in HOT
+    // partition by PEXT of disc bits, not by total key order — two
+    // distinct leaves can have overlapping [firstKey, lastKey] ranges.
+    // A key K whose value matches cached.first <= K <= cached.last may
+    // belong to a different leaf. Caching by range produces false
+    // negatives (returns null for keys that exist in a different leaf).
+    // The correct fast path would key on the exact routing decisions
+    // that land at the leaf; for now we always re-navigate, which is
+    // still cheap for log_32-shallow HOT trees.
 
-    // Slow path: re-navigate.
+    // Release any previously guarded leaf.
     releaseGuardedLeaf();
     final HOTLeafPage leaf = navigateToLeaf(rootRef, key);
     if (leaf == null) return null;

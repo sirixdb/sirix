@@ -449,23 +449,12 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @return the HOT leaf page, or null if not found
    */
   protected @Nullable HOTLeafPage getLeafForRead(byte[] keyBuf) {
-    // Leaf-cache fast path: if the previous lookup's leaf covers keyBuf
-    // (by unsigned key range), reuse it directly. Eliminates the root-
-    // to-leaf descent + TIL log probe at every level — the dominant
-    // latency contributor on repeated reads with locality (bulk scans,
-    // multi-chunk reads, sequential leafIndex iteration).
-    final HOTLeafPage cached = cachedLeaf;
-    if (cached != null) {
-      final byte[] first = cachedLeafFirstKey;
-      final byte[] last = cachedLeafLastKey;
-      if (first != null && last != null
-          && Arrays.compareUnsigned(keyBuf, first) >= 0
-          && Arrays.compareUnsigned(keyBuf, last) <= 0) {
-        return cached;
-      }
-    }
+    // NOTE: min/max-range leaf caching is UNSAFE for HOT. Leaves partition
+    // by PEXT of disc bits, not by total key order — two distinct leaves
+    // can have overlapping [firstKey, lastKey]. A key K matching cached
+    // leaf's range may actually belong to a different leaf. The HOT tree
+    // is log_K-shallow so re-navigation is cheap; no cache needed.
 
-    // Slow path: root-to-leaf descent.
     PageReference currentRef = getRootReference();
     if (currentRef == null) return null;
 
@@ -479,26 +468,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       page = resolveHOTPageForTraversal(currentRef);
       if (page == null) return null;
     }
-
-    if (page instanceof HOTLeafPage hotLeaf) {
-      cachedLeaf = hotLeaf;
-      cachedLeafFirstKey = hotLeaf.getFirstKey();
-      cachedLeafLastKey = hotLeaf.getLastKey();
-      return hotLeaf;
-    }
-    return null;
+    return page instanceof HOTLeafPage hotLeaf ? hotLeaf : null;
   }
 
-  /** Leaf cache for getLeafForRead fast path. Single-threaded (per-trx). */
-  private @Nullable HOTLeafPage cachedLeaf;
-  private byte @Nullable [] cachedLeafFirstKey;
-  private byte @Nullable [] cachedLeafLastKey;
-
-  /** Invalidate leaf cache — call after any write that may change leaf contents. */
+  /** No-op: leaf cache was removed (unsafe for HOT's PEXT-based partitioning). */
   protected final void invalidateLeafCache() {
-    cachedLeaf = null;
-    cachedLeafFirstKey = null;
-    cachedLeafLastKey = null;
+    // kept as a public hook in case callers rely on it; nothing to invalidate.
   }
 
   /**
