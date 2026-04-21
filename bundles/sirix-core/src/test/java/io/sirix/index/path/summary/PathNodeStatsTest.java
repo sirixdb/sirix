@@ -9,10 +9,14 @@ import io.sirix.node.delegates.StructNodeDelegate;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.jupiter.api.Test;
 
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
+import org.roaringbitmap.RoaringBitmap;
+
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -151,6 +155,47 @@ final class PathNodeStatsTest {
     node.clearMinDirty(Long.MAX_VALUE);
     assertFalse(node.isStatsMinDirty());
     assertEquals(Long.MAX_VALUE, node.getStatsMin());
+  }
+
+  @Test
+  void pageKeys_absentUntilRecorded() {
+    final PathNode node = newPathNode();
+    assertNull(node.getPageKeys(),
+        "fresh PathNode has no bitmap — lazy-allocated on first mergePageKeys");
+    assertNull(node.getPageKeysArray());
+  }
+
+  @Test
+  void pageKeys_mergeLazilyAllocatesAndDedupes() {
+    final PathNode node = newPathNode();
+    final IntOpenHashSet batch1 = new IntOpenHashSet();
+    batch1.add(3); batch1.add(7); batch1.add(42);
+    node.mergePageKeys(batch1);
+    assertArrayEquals(new int[] {3, 7, 42}, node.getPageKeysArray());
+
+    final IntOpenHashSet batch2 = new IntOpenHashSet();
+    batch2.add(7); batch2.add(100);  // 7 is duplicate
+    node.mergePageKeys(batch2);
+    assertArrayEquals(new int[] {3, 7, 42, 100}, node.getPageKeysArray());
+  }
+
+  @Test
+  void pageKeys_emptyBatchNoOp() {
+    final PathNode node = newPathNode();
+    node.mergePageKeys(new IntOpenHashSet());
+    assertNull(node.getPageKeys());
+  }
+
+  @Test
+  void pageKeys_explicitSetterTakesOwnership() {
+    final PathNode node = newPathNode();
+    final RoaringBitmap bm = new RoaringBitmap();
+    bm.add(5); bm.add(99);
+    node.setPageKeys(bm);
+    assertArrayEquals(new int[] {5, 99}, node.getPageKeysArray());
+    // Setting null clears the bitmap.
+    node.setPageKeys(null);
+    assertNull(node.getPageKeys());
   }
 
   @Test

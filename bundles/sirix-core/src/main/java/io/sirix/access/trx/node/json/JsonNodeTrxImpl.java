@@ -1547,7 +1547,7 @@ final class JsonNodeTrxImpl extends
    */
   private void recordPrimitiveStat(final long pathNodeKey, final PrimitiveNodeType type,
       final byte[] stringValue, final int stringOff, final int stringLen,
-      final Number numberValue, final boolean booleanValue) {
+      final Number numberValue, final boolean booleanValue, final long valueNodeKey) {
     if (pathSummaryWriter == null || pathNodeKey <= 0) {
       return;
     }
@@ -1557,19 +1557,20 @@ final class JsonNodeTrxImpl extends
           return;
         }
         if (stringOff == 0 && stringLen == stringValue.length) {
-          pathSummaryWriter.recordValue(pathNodeKey, stringValue);
+          pathSummaryWriter.recordValue(pathNodeKey, stringValue, valueNodeKey);
         } else {
           pathSummaryWriter.recordValue(pathNodeKey,
-              java.util.Arrays.copyOfRange(stringValue, stringOff, stringOff + stringLen));
+              java.util.Arrays.copyOfRange(stringValue, stringOff, stringOff + stringLen),
+              valueNodeKey);
         }
       }
       case NUMBER -> {
         if (numberValue != null) {
-          pathSummaryWriter.recordValue(pathNodeKey, numberValue.longValue());
+          pathSummaryWriter.recordValue(pathNodeKey, numberValue.longValue(), valueNodeKey);
         }
       }
-      case BOOLEAN -> pathSummaryWriter.recordBooleanValue(pathNodeKey, booleanValue);
-      case NULL -> pathSummaryWriter.recordNullValue(pathNodeKey);
+      case BOOLEAN -> pathSummaryWriter.recordBooleanValue(pathNodeKey, booleanValue, valueNodeKey);
+      case NULL -> pathSummaryWriter.recordNullValue(pathNodeKey, valueNodeKey);
     }
   }
 
@@ -1676,7 +1677,7 @@ final class JsonNodeTrxImpl extends
       }
 
       if (pathStatsEnabled) {
-        recordPrimitiveStat(pathNodeKey, type, stringValue, stringOff, stringLen, numberValue, booleanValue);
+        recordPrimitiveStat(pathNodeKey, type, stringValue, stringOff, stringLen, numberValue, booleanValue, nodeKey);
       }
 
       if (kind != NodeKind.OBJECT_KEY && !nodeHashing.isBulkInsert()) {
@@ -1745,7 +1746,7 @@ final class JsonNodeTrxImpl extends
         final long parentPathNodeKey = getPathNodeKey(nodeReadOnlyTrx.getStructuralNodeView());
         nodeReadOnlyTrx.moveTo(nodeKey);
         recordPrimitiveStat(parentPathNodeKey, type, stringValue, stringOff, stringLen,
-            numberValue, booleanValue);
+            numberValue, booleanValue, nodeKey);
       }
 
       if (!nodeHashing.isBulkInsert()) {
@@ -2617,7 +2618,7 @@ final class JsonNodeTrxImpl extends
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
       if (statsOn) {
         pathSummaryWriter.removeValue(pathNodeKey, oldBytes);
-        pathSummaryWriter.recordValue(pathNodeKey, byteVal);
+        pathSummaryWriter.recordValue(pathNodeKey, byteVal, node.getNodeKey());
       }
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
@@ -2670,7 +2671,7 @@ final class JsonNodeTrxImpl extends
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
       if (statsOn) {
         pathSummaryWriter.removeBooleanValue(pathNodeKey, oldValue);
-        pathSummaryWriter.recordBooleanValue(pathNodeKey, value);
+        pathSummaryWriter.recordBooleanValue(pathNodeKey, value, node.getNodeKey());
       }
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());
@@ -2724,7 +2725,7 @@ final class JsonNodeTrxImpl extends
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
       if (statsOn) {
         pathSummaryWriter.removeValue(pathNodeKey, oldValueAsLong);
-        pathSummaryWriter.recordValue(pathNodeKey, value.longValue());
+        pathSummaryWriter.recordValue(pathNodeKey, value.longValue(), node.getNodeKey());
       }
 
       adaptUpdateOperationsForUpdate(node.getDeweyID(), node.getNodeKey());

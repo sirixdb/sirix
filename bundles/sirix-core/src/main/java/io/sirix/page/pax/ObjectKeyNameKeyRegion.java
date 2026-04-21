@@ -122,6 +122,30 @@ public final class ObjectKeyNameKeyRegion {
   }
 
   /**
+   * Extract the distinct {@code nameKey}s present on this page. Reads
+   * directly from the dictKeys header — O(numUnique) with one VarHandle
+   * load per entry. Empty array if the region is absent or the page has
+   * no OBJECT_KEY slots.
+   *
+   * <p>Used by the page-skip index builder to determine, per leaf page,
+   * which field names are present — the presence set is then folded into
+   * a per-{@code nameKey} {@link org.roaringbitmap.RoaringBitmap} of pages
+   * so scans can skip pages that have no slot with their anchor field.
+   */
+  public static int[] uniqueNameKeys(final byte[] payload) {
+    if (payload == null) return EMPTY_INT_ARRAY;
+    final int numUnique = payload[0] & 0xFF;
+    if (numUnique == 0) return EMPTY_INT_ARRAY;
+    final int[] out = new int[numUnique];
+    for (int i = 0; i < numUnique; i++) {
+      out[i] = getInt(payload, 1 + i * 4);
+    }
+    return out;
+  }
+
+  private static final int[] EMPTY_INT_ARRAY = new int[0];
+
+  /**
    * Look up nameKey for the N-th OBJECT_KEY slot (0-based in bitmap order).
    * Returns the nameKey, or -1 if index is out of range.
    */

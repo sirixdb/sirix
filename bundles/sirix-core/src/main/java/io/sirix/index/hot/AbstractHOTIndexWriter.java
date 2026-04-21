@@ -39,6 +39,7 @@ import io.sirix.page.HOTLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
+import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
@@ -152,6 +153,10 @@ public abstract class AbstractHOTIndexWriter<K> {
         final RevisionRootPage rrp = writer.getActualRevisionRootPage();
         return writer.getNamePage(rrp).incrementAndGetMaxHotPageKey(indexNo);
       };
+      case PROJECTION -> () -> {
+        final RevisionRootPage rrp = writer.getActualRevisionRootPage();
+        return writer.getProjectionIndexPage(rrp).incrementAndGetMaxHotPageKey(indexNo);
+      };
       default -> throw new IllegalArgumentException("Unsupported index type for HOT: " + type);
     };
   }
@@ -232,6 +237,10 @@ public abstract class AbstractHOTIndexWriter<K> {
         final NamePage namePage = storageEngineWriter.getNamePage(revisionRootPage);
         yield namePage.getOrCreateReference(indexNumber);
       }
+      case PROJECTION -> {
+        final ProjectionIndexPage projPage = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
+        yield projPage.getOrCreateReference(indexNumber);
+      }
       default -> throw new IllegalStateException("Unsupported index type for HOT: " + indexType);
     };
   }
@@ -266,6 +275,14 @@ public abstract class AbstractHOTIndexWriter<K> {
           storageEngineWriter.appendLogRecord(namePageRef, PageContainer.getInstance(namePage, namePage));
         }
       }
+      case PROJECTION -> {
+        final PageReference projPageRef = revisionRootPage.getProjectionIndexPageReference();
+        PageContainer container = storageEngineWriter.getLog().get(projPageRef);
+        if (container == null) {
+          ProjectionIndexPage projPage = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
+          storageEngineWriter.appendLogRecord(projPageRef, PageContainer.getInstance(projPage, projPage));
+        }
+      }
       default -> {
         /* ignore */ }
     }
@@ -292,6 +309,10 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (rootRef == null) {
       throw new IllegalStateException("HOT index not initialized");
     }
+    // Any write-path navigation invalidates the read-side leaf cache —
+    // splits/merges change key ranges and leaf identities, so the cached
+    // firstKey/lastKey may no longer match the resident page.
+    invalidateLeafCache();
 
     // Reset path depth counter — no allocation
     int pathDepth = 0;
@@ -428,32 +449,56 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @return the HOT leaf page, or null if not found
    */
   protected @Nullable HOTLeafPage getLeafForRead(byte[] keyBuf) {
-    // Get fresh reference from the index page to ensure consistency
-    PageReference currentRef = getRootReference();
-    if (currentRef == null) {
-      return null;
+    // Leaf-cache fast path: if the previous lookup's leaf covers keyBuf
+    // (by unsigned key range), reuse it directly. Eliminates the root-
+    // to-leaf descent + TIL log probe at every level — the dominant
+    // latency contributor on repeated reads with locality (bulk scans,
+    // multi-chunk reads, sequential leafIndex iteration).
+    final HOTLeafPage cached = cachedLeaf;
+    if (cached != null) {
+      final byte[] first = cachedLeafFirstKey;
+      final byte[] last = cachedLeafLastKey;
+      if (first != null && last != null
+          && Arrays.compareUnsigned(keyBuf, first) >= 0
+          && Arrays.compareUnsigned(keyBuf, last) <= 0) {
+        return cached;
+      }
     }
+
+    // Slow path: root-to-leaf descent.
+    PageReference currentRef = getRootReference();
+    if (currentRef == null) return null;
 
     Page page = resolveHOTPageForTraversal(currentRef);
     while (page instanceof HOTIndirectPage indirectPage) {
       int childIndex = indirectPage.findChildIndex(keyBuf);
-      if (childIndex < 0) {
-        childIndex = 0;
-      }
-
+      if (childIndex < 0) childIndex = 0;
       final PageReference childRef = indirectPage.getChildReference(childIndex);
-      if (childRef == null) {
-        return null;
-      }
-
+      if (childRef == null) return null;
       currentRef = childRef;
       page = resolveHOTPageForTraversal(currentRef);
-      if (page == null) {
-        return null;
-      }
+      if (page == null) return null;
     }
 
-    return page instanceof HOTLeafPage hotLeaf ? hotLeaf : null;
+    if (page instanceof HOTLeafPage hotLeaf) {
+      cachedLeaf = hotLeaf;
+      cachedLeafFirstKey = hotLeaf.getFirstKey();
+      cachedLeafLastKey = hotLeaf.getLastKey();
+      return hotLeaf;
+    }
+    return null;
+  }
+
+  /** Leaf cache for getLeafForRead fast path. Single-threaded (per-trx). */
+  private @Nullable HOTLeafPage cachedLeaf;
+  private byte @Nullable [] cachedLeafFirstKey;
+  private byte @Nullable [] cachedLeafLastKey;
+
+  /** Invalidate leaf cache — call after any write that may change leaf contents. */
+  protected final void invalidateLeafCache() {
+    cachedLeaf = null;
+    cachedLeafFirstKey = null;
+    cachedLeafLastKey = null;
   }
 
   /**

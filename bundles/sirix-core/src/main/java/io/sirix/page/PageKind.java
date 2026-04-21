@@ -713,7 +713,7 @@ public enum PageKind {
 
       switch (binaryVersion) {
         case V0 -> {
-          Page delegate = new BitmapReferencesPage(9, source, type);
+          Page delegate = new BitmapReferencesPage(10, source, type);
           final int revision = source.readInt();
           final long maxNodeKeyInDocumentIndex = source.readLong();
           final long maxNodeKeyInChangedNodesIndex = source.readLong();
@@ -1227,8 +1227,9 @@ public enum PageKind {
       }
 
       // Create appropriate node type and layout
+      final HOTIndirectPage created;
       if (layoutType == HOTIndirectPage.LayoutType.MULTI_MASK) {
-        return switch (nodeType) {
+        created = switch (nodeType) {
           case SPAN_NODE -> HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision,
               extractionPositions, extractionMasks, numExtractionBytes,
               partialKeys, children, height, mostSignificantBitIndex);
@@ -1237,7 +1238,7 @@ public enum PageKind {
               partialKeys, children, height, mostSignificantBitIndex);
         };
       } else {
-        return switch (nodeType) {
+        created = switch (nodeType) {
           case SPAN_NODE -> HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos, bitMask,
               partialKeys, children, height);
           case MULTI_NODE -> {
@@ -1249,6 +1250,8 @@ public enum PageKind {
           }
         };
       }
+
+      return created;
     }
 
     @Override
@@ -1324,6 +1327,7 @@ public enum PageKind {
           sink.write(new byte[256]);
         }
       }
+
     }
   },
 
@@ -1418,6 +1422,61 @@ public enum PageKind {
       sink.writeInt(currentMaxLevelOfIndirectPagesSize);
       for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
         sink.writeByte((byte) vectorPage.getCurrentMaxLevelOfIndirectPages(i));
+      }
+    }
+  },
+
+  /**
+   * {@link ProjectionIndexPage}.
+   */
+  PROJECTIONPAGE((byte) 16, ProjectionIndexPage.class) {
+    @Override
+    public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+
+      switch (binaryVersion) {
+        case V0 -> {
+          final Page delegate = PageUtils.createDelegate(source, type);
+
+          final Int2LongMap maxNodeKeys = PageKind.deserializeMaxNodeKeys(source);
+          final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxNodeKeys(source);
+          final Int2IntMap currentMaxLevelsOfIndirectPages =
+              PageKind.deserializeCurrentMaxLevelsOfIndirectPages(source);
+
+          return new ProjectionIndexPage(delegate, maxNodeKeys, maxHotPageKeys, currentMaxLevelsOfIndirectPages);
+        }
+        default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      }
+    }
+
+    @Override
+    public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
+        final SerializationType type) {
+      final ProjectionIndexPage projectionPage = (ProjectionIndexPage) page;
+      final Page delegate = projectionPage.delegate();
+      sink.writeByte(PROJECTIONPAGE.id);
+      sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
+
+      PageKind.writeDelegateType(delegate, sink);
+      PageKind.serializeDelegate(sink, delegate, type);
+
+      final int maxNodeKeySize = projectionPage.getMaxNodeKeySize();
+      sink.writeInt(maxNodeKeySize);
+      for (int i = 0; i < maxNodeKeySize; i++) {
+        sink.writeLong(projectionPage.getMaxNodeKey(i));
+      }
+
+      final int maxHotPageKeysSize = projectionPage.getMaxHotPageKeySize();
+      sink.writeInt(maxHotPageKeysSize);
+      for (int i = 0; i < maxHotPageKeysSize; i++) {
+        sink.writeLong(projectionPage.getMaxHotPageKey(i));
+      }
+
+      final int currentMaxLevelOfIndirectPagesSize = projectionPage.getCurrentMaxLevelOfIndirectPagesSize();
+      sink.writeInt(currentMaxLevelOfIndirectPagesSize);
+      for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
+        sink.writeByte((byte) projectionPage.getCurrentMaxLevelOfIndirectPages(i));
       }
     }
   };

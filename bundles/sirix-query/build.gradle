@@ -86,6 +86,36 @@ test {
     jvmArgs = baseArgs
 }
 
+// Correctness-validation runner: prints each scale-bench query's actual
+// result against an existing shredded DB so we can diff against DuckDB /
+// other reference engines. Usage:
+//   ./gradlew :sirix-query:validateScaleResults \
+//       -Pvalidate.args="" \
+//       -Pvalidate.jvmArgs="-Dsirix.db=/tmp/sirix-scale-bench14464799191471130103"
+tasks.register('validateScaleResults', JavaExec) {
+    group = 'verification'
+    description = 'Print actual scale-bench query results from a pre-shredded DB.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.ValidateScaleResults'
+    def argsStr = (findProperty('validate.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx12g'
+    ]
+    def extraJvmArgs = (findProperty('validate.jvmArgs') ?: '').toString().trim()
+    if (!extraJvmArgs.isEmpty()) {
+        jvmArgs = baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+    } else {
+        jvmArgs = baseJvmArgs
+    }
+}
+
 // Task to run only native-image smoke tests on JVM (for validation before native compilation)
 tasks.register('nativeImageSmokeTest', Test) {
     description = 'Run native-image smoke tests on JVM'

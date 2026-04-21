@@ -421,6 +421,112 @@ public final class ProjectionIndexLeafPage {
    * scan path is preserved by the reader — ser is a cold path used only
    * during commit.
    */
+  /**
+   * HFT zero-allocation serialisation: write the on-disk form directly
+   * into a caller-supplied off-heap {@code MemorySegment} at offset
+   * {@code dstOff}, returning the byte count written. No {@code
+   * ByteArrayOutputStream}, no per-buffer {@code ByteBuffer.allocate} — a
+   * single arraycopy per column, plus scalar longs written straight into
+   * the segment via {@code LITTLE_ENDIAN} layouts.
+   *
+   * <p>Caller owns the scratch segment across many leaves (typical
+   * pattern: one pooled 256 KB scratch in a {@code ThreadLocal}, reused
+   * for every leaf — ~0 alloc per leaf on the build hot path).
+   *
+   * @param dst     destination off-heap segment
+   * @param dstOff  starting byte offset within {@code dst}
+   * @return bytes written
+   */
+  public int serializeIntoSegment(final java.lang.foreign.MemorySegment dst, final long dstOff) {
+    final java.lang.foreign.ValueLayout.OfInt I =
+        java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+    final java.lang.foreign.ValueLayout.OfLong L =
+        java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+    long off = dstOff;
+    dst.set(I, off, rowCount);                          off += 4;
+    dst.set(I, off, columnCount);                       off += 4;
+    dst.set(L, off, firstRecordKey);                    off += 8;
+    dst.set(L, off, lastRecordKey);                     off += 8;
+    // columnKinds — bulk-copy on-heap bytes to segment.
+    if (columnCount > 0) {
+      java.lang.foreign.MemorySegment.copy(
+          columnKinds, 0, dst, java.lang.foreign.ValueLayout.JAVA_BYTE, off, columnCount);
+      off += columnCount;
+    }
+    if (rowCount == 0) {
+      return (int) (off - dstOff);
+    }
+    // recordKeys: bulk copy long[]
+    java.lang.foreign.MemorySegment.copy(recordKeys, 0, dst, L, off, rowCount);
+    off += rowCount * 8L;
+    // per-column
+    for (int c = 0; c < columnCount; c++) {
+      dst.set(L, off, columnMin[c]); off += 8;
+      dst.set(L, off, columnMax[c]); off += 8;
+      switch (columnKinds[c]) {
+        case COLUMN_KIND_NUMERIC_LONG -> {
+          java.lang.foreign.MemorySegment.copy(numericCols[c], 0, dst, L, off, rowCount);
+          off += rowCount * 8L;
+        }
+        case COLUMN_KIND_BOOLEAN -> {
+          final int wordCount = (rowCount + 63) >>> 6;
+          java.lang.foreign.MemorySegment.copy(booleanCols[c], 0, dst, L, off, wordCount);
+          off += wordCount * 8L;
+        }
+        case COLUMN_KIND_STRING_DICT -> {
+          final byte[][] dict = stringDicts[c];
+          int dictSize = 0;
+          while (dictSize < dict.length && dict[dictSize] != null) dictSize++;
+          dst.set(I, off, dictSize); off += 4;
+          for (int i = 0; i < dictSize; i++) {
+            dst.set(I, off, dict[i].length); off += 4;
+          }
+          for (int i = 0; i < dictSize; i++) {
+            final int n = dict[i].length;
+            if (n > 0) {
+              java.lang.foreign.MemorySegment.copy(
+                  dict[i], 0, dst, java.lang.foreign.ValueLayout.JAVA_BYTE, off, n);
+              off += n;
+            }
+          }
+          java.lang.foreign.MemorySegment.copy(stringDictIdCols[c], 0, dst, I, off, rowCount);
+          off += rowCount * 4L;
+        }
+        default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
+      }
+    }
+    return (int) (off - dstOff);
+  }
+
+  /**
+   * Compute the exact byte count {@link #serializeIntoSegment} will write
+   * for the current leaf state. Callers pre-size the scratch segment to
+   * this before the call.
+   */
+  public int serializedSize() {
+    int size = 4 + 4 + 8 + 8 + columnCount;            // header
+    if (rowCount == 0) return size;
+    size += rowCount * 8;                              // recordKeys
+    for (int c = 0; c < columnCount; c++) {
+      size += 16;                                      // columnMin/Max
+      switch (columnKinds[c]) {
+        case COLUMN_KIND_NUMERIC_LONG -> size += rowCount * 8;
+        case COLUMN_KIND_BOOLEAN      -> size += ((rowCount + 63) >>> 6) * 8;
+        case COLUMN_KIND_STRING_DICT  -> {
+          final byte[][] dict = stringDicts[c];
+          int dictSize = 0, dictBytes = 0;
+          while (dictSize < dict.length && dict[dictSize] != null) {
+            dictBytes += dict[dictSize].length;
+            dictSize++;
+          }
+          size += 4 + dictSize * 4 + dictBytes + rowCount * 4;
+        }
+        default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
+      }
+    }
+    return size;
+  }
+
   public byte[] serialize() {
     final ByteArrayOutputStream baos = new ByteArrayOutputStream(4096);
     final ByteBuffer header = ByteBuffer.allocate(8 + 16 + columnCount).order(ByteOrder.LITTLE_ENDIAN);

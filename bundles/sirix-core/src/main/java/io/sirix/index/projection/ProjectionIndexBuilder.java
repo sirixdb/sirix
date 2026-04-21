@@ -52,6 +52,9 @@ public final class ProjectionIndexBuilder {
   /** Resolved pathNodeKey of the projection root (e.g. {@code $doc[]}). */
   private final long rootPathNodeKey;
 
+  /** Strict ancestor pathNodeKeys of {@link #rootPathNodeKey} — guides pruned descent. */
+  private final it.unimi.dsi.fastutil.longs.LongSet rootAncestorPathNodeKeys;
+
   /**
    * Resolved pathNodeKey per declared field, index-aligned with
    * {@code indexDef.getProjectionFields()}. {@code -1L} when the path is
@@ -99,6 +102,13 @@ public final class ProjectionIndexBuilder {
               + " pathNodeKeys; only single-path roots are supported in this version");
     }
     this.rootPathNodeKey = rootPcrs.iterator().next();
+    // Pre-compute the set of pathNodeKeys along every path from docRoot
+    // to rootPathNodeKey — used to PRUNE the walk to only descend into
+    // subtrees that can structurally contain records. For deep nested
+    // projections (e.g. /wrapper/records/[]) this turns O(total-nodes)
+    // into O(ancestor-depth + records). Reference to a HashSet of longs
+    // via fastutil to avoid boxing.
+    this.rootAncestorPathNodeKeys = computeAncestorPathNodeKeys(pathSummary, rootPathNodeKey);
 
     final List<Path<QNm>> fieldPaths = indexDef.getProjectionFields();
     final List<Type> fieldTypes = indexDef.getProjectionFieldTypes();
@@ -115,6 +125,23 @@ public final class ProjectionIndexBuilder {
     this.rowBools = new boolean[fieldPaths.size()];
     this.rowStrings = new String[fieldPaths.size()];
     this.currentLeaf = new ProjectionIndexLeafPage(columnKinds);
+  }
+
+  private static it.unimi.dsi.fastutil.longs.LongSet computeAncestorPathNodeKeys(
+      final PathSummaryReader pathSummary, final long rootPathNodeKey) {
+    final it.unimi.dsi.fastutil.longs.LongSet ancestors = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+    final long saved = pathSummary.getNodeKey();
+    try {
+      if (!pathSummary.moveTo(rootPathNodeKey)) return ancestors;
+      while (pathSummary.moveToParent()) {
+        final long pk = pathSummary.getNodeKey();
+        if (pk <= 0) break; // document root / no more
+        ancestors.add(pk);
+      }
+    } finally {
+      pathSummary.moveTo(saved);
+    }
+    return ancestors;
   }
 
   private static byte mapTypeToColumnKind(final Type type) {
@@ -134,17 +161,59 @@ public final class ProjectionIndexBuilder {
   public void build(final JsonNodeReadOnlyTrx rtx) {
     final long restoreNodeKey = rtx.getNodeKey();
     try {
-      rtx.moveToDocumentRoot();
-      final DescendantAxis axis = new DescendantAxis(rtx);
-      while (axis.hasNext()) {
-        axis.nextLong();
-        if (!isRecordRoot(rtx)) continue;
+      // Optional: -Dsirix.projection.builder=generic forces the original
+      // DescendantAxis walk. Used for A/B verification against the pruned
+      // descent.
+      final boolean forceGeneric = "generic".equals(
+          System.getProperty("sirix.projection.builder"));
+      if (forceGeneric) {
+        genericBuild(rtx);
+      } else {
+        rtx.moveToDocumentRoot();
+        if (!tryFastArrayIteration(rtx)) {
+          genericBuild(rtx);
+        }
+      }
+      flushCurrentLeaf();
+    } finally {
+      rtx.moveTo(restoreNodeKey);
+    }
+  }
+
+  /**
+   * Generic pruned descent: walk from docRoot, descending only into
+   * subtrees whose pathNodeKey is an ancestor of {@code rootPathNodeKey}
+   * (pre-computed from PathSummary). When a descendant matches the root
+   * pathNodeKey, process it as a record — either as an array whose
+   * children are rows, or as a single-record itself.
+   *
+   * <p>Cost bound: O(ancestor-depth + records + record-field-walk) —
+   * independent of the total document node count. Works for arbitrary
+   * nesting depths, multiple matching roots across sibling subtrees,
+   * and any structured record shape.
+   */
+  private boolean tryFastArrayIteration(final JsonNodeReadOnlyTrx rtx) {
+    final long docRoot = rtx.getNodeKey();
+    if (rootAncestorPathNodeKeys.isEmpty() && rootPathNodeKey <= 0) return false;
+    boolean processedAny = descendToRoots(rtx, docRoot);
+    rtx.moveTo(docRoot);
+    return processedAny;
+  }
+
+  /**
+   * Recursively descend from {@code parentKey} into children whose
+   * pathNodeKey lies on the path to the projection root, processing each
+   * root-matching node. Returns true if any record(s) were processed.
+   */
+  private boolean descendToRoots(final JsonNodeReadOnlyTrx rtx, final long parentKey) {
+    rtx.moveTo(parentKey);
+    if (!rtx.moveToFirstChild()) return false;
+    boolean any = false;
+    do {
+      final long pk = getPathNodeKeyAtCursor(rtx);
+      if (pk == rootPathNodeKey) {
+        // Match — process as record(s).
         final long matchKey = rtx.getNodeKey();
-        // In Sirix's JSON path model, a trailing {@code /[]} path matches
-        // the ARRAY container, not each of its elements. The projection's
-        // records live one level below: each array child is a row.
-        // OBJECT_KEY roots (e.g. projection over a single keyed subtree)
-        // are treated as the row themselves.
         if (rtx.getKind() == NodeKind.ARRAY) {
           if (rtx.moveToFirstChild()) {
             do {
@@ -157,10 +226,38 @@ public final class ProjectionIndexBuilder {
           extractRow(rtx, matchKey);
         }
         rtx.moveTo(matchKey);
+        any = true;
+      } else if (pk >= 0 && rootAncestorPathNodeKeys.contains(pk)) {
+        // Structural ancestor of the root — descend further.
+        final long curKey = rtx.getNodeKey();
+        if (descendToRoots(rtx, curKey)) any = true;
+        rtx.moveTo(curKey);
       }
-      flushCurrentLeaf();
-    } finally {
-      rtx.moveTo(restoreNodeKey);
+      // else: pathNodeKey is unrelated — prune this subtree entirely.
+    } while (rtx.moveToRightSibling());
+    return any;
+  }
+
+  /** Fallback: original descendant-axis walk from the document root. */
+  private void genericBuild(final JsonNodeReadOnlyTrx rtx) {
+    rtx.moveToDocumentRoot();
+    final DescendantAxis axis = new DescendantAxis(rtx);
+    while (axis.hasNext()) {
+      axis.nextLong();
+      if (!isRecordRoot(rtx)) continue;
+      final long matchKey = rtx.getNodeKey();
+      if (rtx.getKind() == NodeKind.ARRAY) {
+        if (rtx.moveToFirstChild()) {
+          do {
+            final long elementKey = rtx.getNodeKey();
+            extractRow(rtx, elementKey);
+            rtx.moveTo(elementKey);
+          } while (rtx.moveToRightSibling());
+        }
+      } else {
+        extractRow(rtx, matchKey);
+      }
+      rtx.moveTo(matchKey);
     }
   }
 
@@ -197,45 +294,81 @@ public final class ProjectionIndexBuilder {
     return -1L;
   }
 
+  /**
+   * Reusable DFS work-list (pre-sized) — holds nodeKeys of unprocessed
+   * subtree roots. Replaces {@link DescendantAxis}'s internal stack +
+   * per-call allocation. Generic for any nested record shape.
+   */
+  private long[] workList = new long[64];
+  private int workListSize;
+
   private void extractRow(final JsonNodeReadOnlyTrx rtx, final long recordKey) {
     // Reset per-row slots — fields we fail to resolve become "missing"
-    // and serialise as defaults on the leaf page (no-op for numeric/bool
-    // zone-map maintenance, null dict-id for string).
+    // and serialise as defaults on the leaf page.
     for (int i = 0; i < fieldPathNodeKeys.length; i++) {
       rowLongs[i] = 0L;
       rowBools[i] = false;
       rowStrings[i] = "";
     }
-    // Walk the record's descendants once, dispatching each declared field's
-    // primitive value into the right column slot. DescendantAxis reads rtx's
-    // position between steps, so we cannot dive to the value child and
-    // return — instead we track a pending-column state machine: on a matching
-    // OBJECT_KEY, remember the target column; on the axis's next step the
-    // cursor naturally lands on the value child, where we read.
-    final DescendantAxis fieldAxis = new DescendantAxis(rtx);
-    int pendingCol = -1;
-    while (fieldAxis.hasNext()) {
-      fieldAxis.nextLong();
-      if (pendingCol >= 0) {
-        // Prior step matched an OBJECT_KEY for a declared field; this step is
-        // its (first) value child in document order.
-        readValueIntoRow(rtx, pendingCol);
-        pendingCol = -1;
-        // fall through to also evaluate this node as a potential OBJECT_KEY
-        // match — rare in JSON (a value is a leaf), but keeps the pass robust.
-      }
-      final long pk = getPathNodeKeyAtCursor(rtx);
-      if (pk < 0) continue;
-      final int col = findField(pk);
-      if (col < 0) continue;
-      pendingCol = col;
+    // Generic DFS: walk every descendant of recordKey via an explicit
+    // work-list of unvisited first-children. For each node we visit:
+    //   - if its pathNodeKey matches a declared field, dive into its
+    //     first child to read the value (value nodes don't carry a
+    //     pathNodeKey of interest, but their parent OBJECT_KEY does)
+    //   - push its first child (if any) onto the work-list, then
+    //     iterate right-siblings inline.
+    // HFT discipline: no per-row allocation. Single long[] work-list
+    // reused across records (sized up once when deep records are seen).
+    workListSize = 0;
+    pushFirstChild(rtx, recordKey);
+    while (workListSize > 0) {
+      final long top = workList[--workListSize];
+      rtx.moveTo(top);
+      // Walk right-sibling chain at this level inline.
+      long cur = top;
+      do {
+        final NodeKind kind = rtx.getKind();
+        if (kind == NodeKind.OBJECT_KEY) {
+          final long pk = rtx.getPathNodeKey();
+          final int col = findField(pk);
+          if (col >= 0) {
+            final long keyKey = rtx.getNodeKey();
+            if (rtx.moveToFirstChild()) {
+              readValueIntoRow(rtx, col);
+              rtx.moveTo(keyKey);
+            }
+          } else {
+            // Non-matching OBJECT_KEY — descend in case nested objects hold matching fields.
+            pushFirstChild(rtx, cur);
+          }
+        } else if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY) {
+          // Structured — descend.
+          pushFirstChild(rtx, cur);
+        }
+        // Primitives have no children; skip.
+        if (!rtx.moveToRightSibling()) break;
+        cur = rtx.getNodeKey();
+      } while (true);
     }
+    rtx.moveTo(recordKey);
     if (!currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings)) {
       flushCurrentLeaf();
       currentLeaf = new ProjectionIndexLeafPage(columnKinds);
       currentLeaf.appendRow(recordKey, rowLongs, rowBools, rowStrings);
     }
     rowsEmitted++;
+  }
+
+  private void pushFirstChild(final JsonNodeReadOnlyTrx rtx, final long parentKey) {
+    final long saved = rtx.getNodeKey();
+    rtx.moveTo(parentKey);
+    if (rtx.moveToFirstChild()) {
+      if (workListSize == workList.length) {
+        workList = java.util.Arrays.copyOf(workList, workList.length * 2);
+      }
+      workList[workListSize++] = rtx.getNodeKey();
+    }
+    rtx.moveTo(saved);
   }
 
   private int findField(final long pathNodeKey) {

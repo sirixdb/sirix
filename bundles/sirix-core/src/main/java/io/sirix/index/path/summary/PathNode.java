@@ -1,6 +1,8 @@
 package io.sirix.index.path.summary;
 
 import io.sirix.utils.ToStringHelper;
+import it.unimi.dsi.fastutil.ints.IntIterator;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.Arrays;
 import java.util.Objects;
 import io.sirix.node.NodeKind;
@@ -11,6 +13,7 @@ import io.sirix.node.interfaces.NameNode;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
 import org.jspecify.annotations.Nullable;
+import org.roaringbitmap.RoaringBitmap;
 import io.sirix.node.xml.AbstractStructForwardingNode;
 
 import static io.sirix.utils.Preconditions.checkArgument;
@@ -101,6 +104,16 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * too high. Reader rebounds on demand.
    */
   private boolean statsMaxDirty;
+
+  /**
+   * Presence bitmap — set of leaf pageKeys that contain at least one node
+   * with this PathNode's {@link #getPathNodeKey()}. Populated incrementally
+   * at commit time from the caller's deferred stats; read at query time to
+   * skip leaf-page fetches for pages that provably don't contribute. Lazily
+   * allocated on the first recorded page to avoid the 60 B empty-bitmap
+   * overhead on PathNodes that never see an analytical query.
+   */
+  private @Nullable RoaringBitmap pageKeys;
 
   /**
    * Constructor.
@@ -518,6 +531,50 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   void clearMaxDirty(final long newMax) {
     this.statsMax = newMax;
     this.statsMaxDirty = false;
+  }
+
+  /**
+   * Merge the set of {@code leafPageKeys} into this PathNode's presence
+   * bitmap. Each entry is a page key — {@code nodeKey >>> INP_REFERENCE_COUNT_EXPONENT}
+   * for the leaf page where a node with this pathNodeKey was stored.
+   *
+   * <p>Lazily allocates the bitmap on first call. Updates are idempotent
+   * (RoaringBitmap dedupes). Caller must hold a writable reference to this
+   * PathNode — typically via {@code prepareRecordForModification}.
+   */
+  void mergePageKeys(final IntSet leafPageKeys) {
+    if (leafPageKeys == null || leafPageKeys.isEmpty()) return;
+    if (pageKeys == null) pageKeys = new RoaringBitmap();
+    final IntIterator it = leafPageKeys.iterator();
+    while (it.hasNext()) pageKeys.add(it.nextInt());
+  }
+
+  /**
+   * Serializer-accessible setter. Package-exposed via a public accessor
+   * on the {@link io.sirix.node.NodeKind} enum. Takes ownership of the
+   * supplied bitmap.
+   */
+  public void setPageKeys(final @Nullable RoaringBitmap pageKeys) {
+    this.pageKeys = pageKeys;
+  }
+
+  /**
+   * @return the presence bitmap, or {@code null} if this pathNode has
+   *         no page-key tracking (either never recorded or the resource
+   *         was built without path statistics).
+   */
+  public @Nullable RoaringBitmap getPageKeys() {
+    return pageKeys;
+  }
+
+  /**
+   * @return sorted array copy of the page keys where this pathNodeKey
+   *         is present, or {@code null} if the bitmap is absent. Empty
+   *         array (distinct from {@code null}) signals "definitely no
+   *         page has this pathNodeKey".
+   */
+  public int @Nullable [] getPageKeysArray() {
+    return pageKeys == null ? null : pageKeys.toArray();
   }
 
   // =====================================================================

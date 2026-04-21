@@ -9,6 +9,7 @@ import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -85,6 +86,11 @@ public final class PredicateTreeDifferentialTest {
     if (dbDir != null) Databases.removeDatabase(dbDir);
   }
 
+  @Disabled("heavy differential harness — shreds 200K records then runs 20 "
+      + "randomised predicates. ~15 min wall time per run, not suitable for "
+      + "the default :sirix-query:test suite. Enable manually via "
+      + "--tests io.sirix.query.scan.PredicateTreeDifferentialTest when "
+      + "validating kernel changes.")
   @Test
   void randomizedPredicates_matchGroundTruth() throws Exception {
     // 20 randomized predicate shapes covering: single NumCmp (every op),

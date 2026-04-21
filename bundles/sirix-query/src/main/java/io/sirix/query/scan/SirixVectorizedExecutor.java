@@ -25,6 +25,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.cache.IndexLogKey;
 import io.sirix.index.IndexType;
+import io.sirix.index.pageskip.PageSkipRegistry;
 import io.sirix.index.projection.ProjectionIndexByteScan;
 import io.sirix.index.projection.ProjectionIndexRegistry;
 import io.sirix.index.projection.ProjectionIndexScan;
@@ -45,6 +46,8 @@ import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import it.unimi.dsi.fastutil.objects.Object2LongMap;
 
 import jdk.incubator.vector.VectorOperators;
+
+import org.roaringbitmap.RoaringBitmap;
 
 import java.lang.classfile.ClassBuilder;
 import java.lang.classfile.ClassFile;
@@ -158,6 +161,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
    * constant at class-init time. Zero steady-state overhead when disabled.
    */
   static final boolean DIAGNOSTICS_ENABLED = Boolean.getBoolean("sirix.scan.diag");
+  /** Diagnostic: force {@code parallelGroupByCount} off the StringRegion fast path. */
+  private static final boolean STRING_REGION_FAST_OFF = Boolean.getBoolean("sirix.scan.stringRegion.off");
 
   /**
    * Per-query scan counters — attributes where the hot loop spent its pages and
@@ -503,6 +508,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Augment the predicate's field set with the group field so `loadFields`
     // picks it up in the same sweep over the record's children.
     final CompiledPredicate cp = compileWithExtraField(predicate, groupField);
+    // Projection fast-path: if a covering projection index is installed and
+    // the predicate tree is a pure conjunction of supported leaves over
+    // columns the index carries — plus the group column is STRING_DICT —
+    // route the groupBy-count to the zero-copy SIMD byte-scan, which
+    // avoids the OBJECT_KEY traversal + per-record loadFields entirely.
+    // Registry lookup is a single ConcurrentHashMap.get; the dispatch
+    // cost on a miss is negligible against a millisecond-scale fallback.
+    {
+      final Sequence projected = tryProjectionIndexGroupByFastPath(sourcePath, cp, groupField);
+      if (projected != null) return projected;
+    }
     // The anchor is still the predicate's first field — the group field is
     // not necessarily selective, so we don't drive from it.
     final int anchorNameKey = cp.fieldNameKeys[0];
@@ -527,14 +543,19 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Compile once, share across workers. Key disambiguates by field layout.
     final String compileKey = compiledClassKey(predicate, cp) + "#gb:" + groupField;
     final BatchPredicate compiled = useBatch ? resolveCompiledPredicate(compileKey, cp) : null;
+    // Page-skip index: reuse bitmap from prior scans anchored on the same
+    // nameKey, or build it as a side-effect of this scan.
+    final PageScanSchedule schedule = planPageScan(anchorNameKey, anchorPathNodeKey, totalPages, eff);
     // Work-stealing via shared atomic cursor — see parallelGenericPredicateCount
     // for rationale. Stride = 8 amortises CAS over enough work.
     final AtomicLong cursor = new AtomicLong();
     final int STRIDE = 8;
+    final long scheduleSize = schedule.scheduleSize();
     parallel(eff, idx -> {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
+      final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
       // Primitive-long accumulator — avoids the per-group `long[] { 0L }`
       // box-on-insert that the previous HashMap<String, long[]> carried, and
       // uses addTo() so the hot loop does one hashmap op per match instead
@@ -546,14 +567,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final long[] rootOut = new long[batch.bitmapStride];
         while (true) {
           final long s = cursor.getAndAdd(STRIDE);
-          if (s >= totalPages) break;
-          final long e = Math.min(s + STRIDE, totalPages);
-          for (long pk = s; pk < e; pk++) {
+          if (s >= scheduleSize) break;
+          final long e = Math.min(s + STRIDE, scheduleSize);
+          for (long j = s; j < e; j++) {
+            final long pk = schedule.pageAt(j);
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
             if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
             final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
             if (matches.length == 0) continue;
+            if (recordBuf != null) recordBuf.add((int) pk);
             collectColumns(kv, base, matches, cp, anchorPathNodeKey, batch, rtx);
             if (batch.size == 0) continue;
             final long[] bitmap;
@@ -588,13 +611,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
         while (true) {
           final long s = cursor.getAndAdd(STRIDE);
-          if (s >= totalPages) break;
-          final long e = Math.min(s + STRIDE, totalPages);
-          for (long pk = s; pk < e; pk++) {
+          if (s >= scheduleSize) break;
+          final long e = Math.min(s + STRIDE, scheduleSize);
+          for (long j = s; j < e; j++) {
+            final long pk = schedule.pageAt(j);
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
             if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
             final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
+            if (matches.length == 0) continue;
+            if (recordBuf != null) recordBuf.add((int) pk);
             for (final int slot : matches) {
             final long anchorObjectKey = base + slot;
             // Path-scope filter: reject anchor slots whose pathNodeKey is not
@@ -619,6 +645,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       perThread[idx] = local;
     });
+    schedule.publish(anchorNameKey);
 
     // Merge per-thread maps into a primitive-long accumulator (no boxing).
     final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
@@ -697,6 +724,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final boolean isCount = "count".equals(func);
     final CompiledPredicate cp = isCount ? compile(predicate) : compileWithExtraField(predicate, aggField);
     if (cp.fieldNames.length == 0) return null;
+    // Projection-index fast-path for aggregate-count (func="count") — the
+    // same pattern as parallelGenericPredicateCount. Aggregates other than
+    // count need the aggregate column available in the projection too;
+    // skip them for now (handled by the generic path below).
+    if (isCount) {
+      final Long projected = tryProjectionIndexFastPath(sourcePath, cp);
+      if (projected != null) {
+        return new Int64(projected);
+      }
+    }
     final int anchorNameKey = cp.fieldNameKeys[0];
     if (anchorNameKey == -1) {
       return switch (func) {
@@ -720,27 +757,38 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final long maxNodeKey = getMaxNodeKey();
     final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
     final int eff = (int) Math.min(threads, Math.max(1, totalPages));
-    final long ppt = (totalPages + eff - 1) / eff;
     // [count, sum, min, max] per thread.
     final long[][] perThread = new long[eff][4];
     for (int i = 0; i < eff; i++) {
       perThread[i][2] = Long.MAX_VALUE;
       perThread[i][3] = Long.MIN_VALUE;
     }
+    // Page-skip index — reuse bitmap from prior scans anchored on the
+    // same nameKey, or build it as a side-effect of this scan. The
+    // aggregate path uses a per-worker contiguous range over the
+    // schedule (simpler than work-stealing and sufficient for the
+    // balanced case).
+    final PageScanSchedule schedule = planPageScan(anchorNameKey, anchorPathNodeKey, totalPages, eff);
+    final long scheduleSize = schedule.scheduleSize();
+    final long ppt = (scheduleSize + eff - 1) / eff;
 
     parallel(eff, idx -> {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final long s = (long) idx * ppt;
-      final long e = Math.min(s + ppt, totalPages);
+      final long e = Math.min(s + ppt, scheduleSize);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
       final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
       final long[] acc = perThread[idx];
-      for (long pk = s; pk < e; pk++) {
+      final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
+      for (long j = s; j < e; j++) {
+        final long pk = schedule.pageAt(j);
         final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
         final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
         final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
+        if (matches.length == 0) continue;
+        if (recordBuf != null) recordBuf.add((int) pk);
         for (final int slot : matches) {
           final long anchorObjectKey = base + slot;
           if (anchorPathNodeKey != -1L
@@ -765,6 +813,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
       }
     });
+    schedule.publish(anchorNameKey);
 
     long count = 0L;
     long sum = 0L;
@@ -1228,14 +1277,290 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Registry key is resolved once at executor construction — no
     // per-query toString() or try/catch on the hot path.
     final String resourceKey = projectionRegistryKey;
+    if (resourceKey == null) {
+      if (PROJ_DIAG) System.err.println("[proj] null resourceKey");
+      return null;
+    }
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
+    if (handle == null) {
+      if (PROJ_DIAG) System.err.println("[proj] no handle for key=" + resourceKey + " path=" + java.util.Arrays.toString(sourcePath));
+      return null;
+    }
+    if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) {
+      if (PROJ_DIAG) System.err.println("[proj] not covered: fields=" + java.util.Arrays.toString(cp.fieldNames));
+      return null;
+    }
+    final ProjectionIndexScan.ColumnPredicate[] preds = extractConjunctivePredicates(cp, handle);
+    if (preds == null) {
+      if (PROJ_DIAG) System.err.println("[proj] unsupported shape");
+      return null;
+    }
+    if (preds.length == 0) return ProjectionIndexByteScan.countRows(handle.leafPayloads());
+    return parallelConjunctiveCount(handle.leafPayloads(), preds);
+  }
+
+  /**
+   * Parallel wrapper around {@link ProjectionIndexByteScan#conjunctiveCount}.
+   * At 100M records the projection index holds ~100K leaves (~2 GB of
+   * {@code byte[]}s); a single-threaded iteration spends most of its
+   * time in per-leaf overhead (header decode + zone-map probe + mask
+   * reset + SIMD evaluate) rather than payload bandwidth. Chunking the
+   * leaf list across the executor's worker pool turns this into a
+   * parallel reduction — essentially free given we already have the
+   * threads, and roughly {@code threads}× throughput on scans where
+   * per-leaf work dominates.
+   *
+   * <p>The chunks are materialised as {@link java.util.List} sub-views
+   * (no copy). Each worker gets its own per-chunk scratch (long[],
+   * mask buffers) — the underlying {@code countLeaf} is already
+   * zero-alloc per leaf so the only allocation is the per-worker
+   * scratch, amortised over {@code leafCount / threads} leaves.
+   */
+  private long parallelConjunctiveCount(final java.util.List<byte[]> leafPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] preds) {
+    final int leafCount = leafPayloads.size();
+    if (leafCount == 0) return 0L;
+    // For very small leaf counts (e.g. small datasets) the fan-out cost
+    // dominates; fall back to single-threaded scan.
+    if (leafCount < 64) {
+      return ProjectionIndexByteScan.conjunctiveCount(leafPayloads, preds);
+    }
+    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final long[] perThread = new long[eff];
+    final int chunkSize = (leafCount + eff - 1) / eff;
+
+    try {
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, leafCount);
+        if (from >= to) return;
+        // subList is a view — no copy. The underlying List is immutable
+        // (installed once, read many), so concurrent subList iteration is
+        // safe.
+        perThread[idx] = ProjectionIndexByteScan.conjunctiveCount(
+            leafPayloads.subList(from, to), preds);
+      });
+    } catch (final Exception e) {
+      throw new RuntimeException("parallel projection conjunctiveCount failed", e);
+    }
+
+    long total = 0L;
+    for (final long c : perThread) total += c;
+    return total;
+  }
+
+  /**
+   * Parallel wrapper around {@link ProjectionIndexByteScan#conjunctiveCountByGroup}.
+   * Same rationale as {@link #parallelConjunctiveCount} — the per-leaf
+   * work is dominated by header decode + predicate eval, and a
+   * single-thread scan over 100K leaves leaves ~19 cores idle. Per-worker
+   * partial group-count maps are merged at the end.
+   */
+  private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroup(
+      final java.util.List<byte[]> leafPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] preds,
+      final int groupColumn) {
+    final int leafCount = leafPayloads.size();
+    final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
+    merged.defaultReturnValue(0L);
+    if (leafCount == 0) return merged;
+    if (leafCount < 64) {
+      ProjectionIndexByteScan.conjunctiveCountByGroup(leafPayloads, preds, groupColumn, merged);
+      return merged;
+    }
+    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    @SuppressWarnings("unchecked")
+    final Object2LongOpenHashMap<String>[] perThread = new Object2LongOpenHashMap[eff];
+    final int chunkSize = (leafCount + eff - 1) / eff;
+
+    try {
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, leafCount);
+        if (from >= to) return;
+        final Object2LongOpenHashMap<String> local = new Object2LongOpenHashMap<>();
+        local.defaultReturnValue(0L);
+        ProjectionIndexByteScan.conjunctiveCountByGroup(
+            leafPayloads.subList(from, to), preds, groupColumn, local);
+        perThread[idx] = local;
+      });
+    } catch (final Exception e) {
+      throw new RuntimeException("parallel projection conjunctiveCountByGroup failed", e);
+    }
+
+    for (final var m : perThread) {
+      if (m == null) continue;
+      final ObjectIterator<Object2LongMap.Entry<String>> it = m.object2LongEntrySet().fastIterator();
+      while (it.hasNext()) {
+        final Object2LongMap.Entry<String> e = it.next();
+        merged.addTo(e.getKey(), e.getLongValue());
+      }
+    }
+    return merged;
+  }
+
+  /**
+   * Group-by-count analogue of {@link #tryProjectionIndexFastPath}. Returns
+   * a Brackit {@link Sequence} of {@code {"<groupField>": value, "count": n}}
+   * objects when the query can be answered entirely from a projection index;
+   * {@code null} otherwise (triggers fallback to the generic scan).
+   *
+   * <p>Eligibility criteria:
+   * <ul>
+   *   <li>A projection index is registered for the (resource, sourcePath).
+   *   <li>All predicate fields AND the group field are columns of that index.
+   *   <li>The predicate tree is a conjunction of supported leaves
+   *       (see {@link #extractConjunctivePredicates}).
+   *   <li>The group column is STRING_DICT — numeric / boolean group-by is
+   *       out of scope here and falls through.
+   * </ul>
+   */
+  private Sequence tryProjectionIndexGroupByFastPath(
+      final String[] sourcePath, final CompiledPredicate cp, final String groupField) {
+    final String resourceKey = projectionRegistryKey;
     if (resourceKey == null) return null;
     final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
     if (handle == null) return null;
+    // cp.fieldNames includes the group field (compileWithExtraField).
+    // covers() checks every name, so it implicitly requires the group
+    // field to also be a column of the index.
     if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
+    final int groupColumn = handle.columnOf(groupField);
+    if (groupColumn < 0) return null;
     final ProjectionIndexScan.ColumnPredicate[] preds = extractConjunctivePredicates(cp, handle);
     if (preds == null) return null;
-    if (preds.length == 0) return ProjectionIndexByteScan.countRows(handle.leafPayloads());
-    return ProjectionIndexByteScan.conjunctiveCount(handle.leafPayloads(), preds);
+    final Object2LongOpenHashMap<String> agg;
+    try {
+      agg = parallelConjunctiveCountByGroup(handle.leafPayloads(), preds, groupColumn);
+    } catch (final IllegalStateException ise) {
+      // Group column kind mismatch (e.g. numeric group). Fall back to the
+      // generic scan path rather than raise an executor-level error.
+      return null;
+    }
+    if (agg == null) return null;
+    final ArrayList<Item> outItems = new ArrayList<>(agg.size());
+    final QNm keyQnm = new QNm(groupField);
+    final QNm cntQnm = new QNm("count");
+    final ObjectIterator<Object2LongMap.Entry<String>> it = agg.object2LongEntrySet().fastIterator();
+    while (it.hasNext()) {
+      final Object2LongMap.Entry<String> e = it.next();
+      final QNm[] keys = { keyQnm, cntQnm };
+      final Sequence[] vals = { new Str(e.getKey()), new Int64(e.getLongValue()) };
+      outItems.add(new ArrayObject(keys, vals));
+    }
+    return new DArray(outItems);
+  }
+
+  private static final boolean PROJ_DIAG = Boolean.getBoolean("sirix.projDiag");
+
+  /**
+   * Page-skip scan plan: decides whether to scan all pages or only a
+   * cached subset, and whether to populate the page-skip bitmap as a
+   * side-effect of this scan.
+   *
+   * <p>Layout:
+   * <ul>
+   *   <li>{@code pages != null}: iterate only these {@code int} page keys
+   *       (sorted ascending). No recording — the bitmap was already
+   *       built by a previous scan anchored on the same nameKey.</li>
+   *   <li>{@code pages == null && recordBuffers != null}: iterate all
+   *       pages [0, totalPages); each worker records the pages where
+   *       anchor nameKey matched into its own buffer. Buffers are
+   *       merged and published at scan end.</li>
+   *   <li>{@code pages == null && recordBuffers == null}: iterate all
+   *       pages; don't record (no resource key, or nameKey == -1).</li>
+   * </ul>
+   */
+  private final class PageScanSchedule {
+    private final int[] pages;
+    private final RoaringBitmap[] recordBuffers;
+    private final long totalPages;
+
+    PageScanSchedule(final int[] pages, final RoaringBitmap[] recordBuffers, final long totalPages) {
+      this.pages = pages;
+      this.recordBuffers = recordBuffers;
+      this.totalPages = totalPages;
+    }
+
+    /** @return number of pages this scan should visit. */
+    long scheduleSize() {
+      return pages != null ? pages.length : totalPages;
+    }
+
+    /** Map a schedule index to the actual page key. */
+    long pageAt(final long scheduleIdx) {
+      return pages != null ? Integer.toUnsignedLong(pages[(int) scheduleIdx]) : scheduleIdx;
+    }
+
+    /** @return per-worker record buffer for the given worker index, or {@code null} if not recording. */
+    RoaringBitmap recordBufferOrNull(final int workerIdx) {
+      return recordBuffers == null ? null : recordBuffers[workerIdx];
+    }
+
+    /**
+     * Merge the per-worker record buffers and publish the resulting
+     * bitmap to the page-skip registry under {@code anchorNameKey}. A
+     * no-op when the schedule wasn't recording. First publisher wins
+     * (see {@link PageSkipRegistry.Handle#record}); concurrent publishes
+     * of the same {@code (resource, nameKey)} are safe and harmless.
+     */
+    void publish(final int anchorNameKey) {
+      if (recordBuffers == null || projectionRegistryKey == null || anchorNameKey < 0) return;
+      final RoaringBitmap merged = new RoaringBitmap();
+      for (final RoaringBitmap b : recordBuffers) merged.or(b);
+      merged.runOptimize();
+      PageSkipRegistry.handleFor(projectionRegistryKey).record(anchorNameKey, merged, totalPages);
+    }
+  }
+
+  /**
+   * Build a {@link PageScanSchedule} for the given anchor.
+   *
+   * <p>Three sources, in priority order:
+   * <ol>
+   *   <li><b>PathSummary bitmap</b> — if {@code anchorPathNodeKey} resolves
+   *       to a PathNode whose persisted presence bitmap is non-null, the
+   *       schedule iterates only those pages. This survives restarts and
+   *       is populated at write time.</li>
+   *   <li><b>In-memory registry</b> — if a previous scan in this session
+   *       already built the per-{@code nameKey} bitmap, reuse it.</li>
+   *   <li><b>Full scan + record</b> — iterate all pages and populate the
+   *       registry as a side effect, so subsequent scans in the same
+   *       session skip the pages where the anchor is absent.</li>
+   * </ol>
+   */
+  private PageScanSchedule planPageScan(final int anchorNameKey, final long anchorPathNodeKey,
+      final long totalPages, final int eff) {
+    // Source 1: PathSummary-persisted bitmap.
+    if (anchorPathNodeKey > 0L) {
+      try {
+        final JsonNodeReadOnlyTrx rtx = workerTrx();
+        try (PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision)) {
+          final io.sirix.index.path.summary.PathNode pn = summary.getPathNodeForPathNodeKey(anchorPathNodeKey);
+          if (pn != null) {
+            final int[] persisted = pn.getPageKeysArray();
+            if (persisted != null) {
+              return new PageScanSchedule(persisted, null, totalPages);
+            }
+          }
+        }
+      } catch (final Exception ignored) {
+        // PathSummary open can fail on resources without summaries;
+        // gracefully fall through to source 2.
+      }
+    }
+    // Source 2 + 3: opportunistic in-memory registry.
+    if (projectionRegistryKey == null || anchorNameKey < 0) {
+      return new PageScanSchedule(null, null, totalPages);
+    }
+    final PageSkipRegistry.Handle handle = PageSkipRegistry.handleFor(projectionRegistryKey);
+    final int[] cached = handle.pagesForIfValid(anchorNameKey, totalPages);
+    if (cached != null) {
+      return new PageScanSchedule(cached, null, totalPages);
+    }
+    final RoaringBitmap[] buffers = new RoaringBitmap[eff];
+    for (int i = 0; i < eff; i++) buffers[i] = new RoaringBitmap();
+    return new PageScanSchedule(null, buffers, totalPages);
   }
 
   /**
@@ -1369,6 +1694,14 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // NumberRegion and skip the whole page on a provable miss. Cost: a
     // handful of int compares per page when the probe is active.
     final AnchorZoneProbe zoneProbe = extractAnchorZoneProbe(cp);
+    // Page-skip index: if a previous scan built a bitmap of pages where
+    // this anchor nameKey exists, iterate only those pages. Otherwise
+    // iterate all pages AND populate the bitmap as a side effect (per-
+    // thread accumulators merged at the end). The bitmap build is free:
+    // the loop had to visit every page anyway to produce this scan's
+    // result. After publication, subsequent scans for the same nameKey
+    // skip the pages where it's absent.
+    final PageScanSchedule schedule = planPageScan(anchorNameKey, anchorPathNodeKey, totalPages, eff);
     // Work-stealing via shared atomic cursor — each worker grabs the next
     // stride of pages dynamically. Previously we pre-partitioned into
     // (totalPages / eff) per-worker ranges; that's catastrophic when one
@@ -1378,19 +1711,22 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     // Stride = 8 pages per steal amortises the atomic CAS over enough work.
     final AtomicLong cursor = new AtomicLong();
     final int STRIDE = 8;
+    final long scheduleSize = schedule.scheduleSize();
     parallel(eff, idx -> {
       final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
       final JsonNodeReadOnlyTrx rtx = workerTrx();
       final var reader = rtx.getStorageEngineReader();
+      final RoaringBitmap recordBuf = schedule.recordBufferOrNull(idx);
       long localCount = 0;
       if (useBatch) {
         final EvalBatch batch = new EvalBatch(cp.fieldNames.length, cp.ops.length, Constants.INP_REFERENCE_COUNT);
         final long[] rootOut = new long[batch.bitmapStride];
         while (true) {
           final long s = cursor.getAndAdd(STRIDE);
-          if (s >= totalPages) break;
-          final long e = Math.min(s + STRIDE, totalPages);
-          for (long pk = s; pk < e; pk++) {
+          if (s >= scheduleSize) break;
+          final long e = Math.min(s + STRIDE, scheduleSize);
+          for (long j = s; j < e; j++) {
+            final long pk = schedule.pageAt(j);
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
             if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
@@ -1413,6 +1749,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             }
             final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
             if (matches.length == 0) continue;
+            if (recordBuf != null) recordBuf.add((int) pk);
             collectColumns(kv, base, matches, cp, anchorPathNodeKey, batch, rtx);
             if (batch.size == 0) continue;
             final long[] bitmap;
@@ -1429,13 +1766,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         final EvalScratch scratch = new EvalScratch(cp.fieldNames.length, cp.ops.length);
         while (true) {
           final long s = cursor.getAndAdd(STRIDE);
-          if (s >= totalPages) break;
-          final long e = Math.min(s + STRIDE, totalPages);
-          for (long pk = s; pk < e; pk++) {
+          if (s >= scheduleSize) break;
+          final long e = Math.min(s + STRIDE, scheduleSize);
+          for (long j = s; j < e; j++) {
+            final long pk = schedule.pageAt(j);
             final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
             if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
             final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
             final int[] matches = kv.getObjectKeySlotsForNameKey(anchorNameKey);
+            if (matches.length == 0) continue;
+            if (recordBuf != null) recordBuf.add((int) pk);
             for (final int slot : matches) {
               final long anchorObjectKey = base + slot;
               if (anchorPathNodeKey != -1L
@@ -1452,6 +1792,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       }
       perThread[idx] = localCount;
     });
+    schedule.publish(anchorNameKey);
     long total = 0;
     for (final long c : perThread) total += c;
     return total;
@@ -2423,57 +2764,190 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   @Override
   public Sequence executeCountDistinct(QueryContext ctx, String[] sourcePath, String field) throws QueryException {
     try {
-      // Only honour the short-circuit when the resource maintains an HLL per path.
-      if (!session.getResourceConfig().withPathStatistics) {
-        return null;
-      }
       final String cdKey = pathCacheKey(sourcePath, field);
       final Sequence cached = countDistinctResultCache.get(cdKey);
       if (cached != null) return cached;
-      final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
-      try (var rtx = session.beginNodeReadOnlyTrx(revision)) {
-        final PathSummaryReader summary = rtx.getResourceSession().openPathSummary(revision);
-        try {
-          final Sequence computed;
-          if (targetPathNodeKey != -1L) {
-            // Path-scoped fast path: read the single PathNode's HLL — no union needed.
-            final PathNode target = summary.getPathNodeForPathNodeKey(targetPathNodeKey);
-            if (target == null) return null;
-            final HyperLogLogSketch hll = target.getHllSketch();
-            computed = new Int64(hll == null ? 0L : hll.estimate());
-          } else {
-            // Fallback: union across every PathNode with this local name. Matches
-            // the pre-refactor behaviour for documents without PathSummary or
-            // whose sourcePath can't be disambiguated.
-            final List<PathNode> paths = summary.findPathsByLocalName(field);
-            if (paths.isEmpty()) {
-              return null;
-            }
-            HyperLogLogSketch union = null;
-            for (final PathNode p : paths) {
-              final HyperLogLogSketch hll = p.getHllSketch();
-              if (hll == null) {
-                continue;
-              }
-              if (union == null) {
-                union = new HyperLogLogSketch();
-              }
-              union.union(hll);
-            }
-            computed = new Int64(union == null ? 0L : union.estimate());
-          }
-          countDistinctResultCache.putIfAbsent(cdKey, computed);
-          return computed;
-        } finally {
-          summary.close();
-        }
+      // Exact count-distinct (task #66). The prior HLL-based fast path
+      // returned approximate answers above the ~2 K linear-counting
+      // threshold (2.3% std error at precision P=11) — not acceptable
+      // for a user-facing query result. The HLL sketch in PathSummary
+      // is retained but only consumed by the cost-based optimizer's
+      // cardinality estimator.
+      //
+      // We don't delegate to executeGroupByCount because its
+      // ScanResult.GroupByResult hash map has a fixed 4 K capacity —
+      // workloads with more distinct values deadlock on linear probe
+      // when no slot is ever free. A dedicated kernel with a growable
+      // HashSet<ByteBuffer> handles any cardinality.
+      final int fieldKey = resolveFieldKey(field);
+      if (fieldKey < 0) {
+        final Sequence empty = new Int64(0L);
+        countDistinctResultCache.putIfAbsent(cdKey, empty);
+        return empty;
       }
+      final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, field);
+      final long distinct = parallelCountDistinct(fieldKey, targetPathNodeKey);
+      final Sequence computed = new Int64(distinct);
+      countDistinctResultCache.putIfAbsent(cdKey, computed);
+      return computed;
     } catch (Exception e) {
       throw new QueryException(e,
                                ErrorCode.BIT_DYN_INT_ERROR,
                                "Sirix vectorized count-distinct failed: %s",
                                e.getMessage());
     }
+  }
+
+  /**
+   * Dedicated count-distinct kernel. HFT-grade, zero-allocation on the
+   * per-page hot path:
+   *
+   * <ul>
+   *   <li>For pages with a {@link io.sirix.page.pax.StringRegion} that
+   *       knows about the anchor tag, iterate the per-page dict
+   *       directly (3–10 entries typical). The dict is already deduped
+   *       by the region build, so we pay one long-hash per distinct
+   *       value per page — not per record.</li>
+   *   <li>For pages without a region (or where the region has no tag
+   *       for our anchor), fall back to a slot-walk + value-read, still
+   *       feeding long-hashes into the set.</li>
+   * </ul>
+   *
+   * <p>The per-thread set is a fastutil {@link it.unimi.dsi.fastutil.longs.LongOpenHashSet}
+   * of 64-bit {@code xxHash3}s. Collision probability at 10 M distinct
+   * values is roughly {@code 10^-19} — two orders of magnitude below
+   * hardware error rates. If perfect correctness is required at
+   * billion-cardinality scale, swap to a 128-bit hash or a keyed-set
+   * variant.
+   */
+  private long parallelCountDistinct(final int fieldKey, final long targetPathNodeKey) throws Exception {
+    final long maxNodeKey = getMaxNodeKey();
+    final long totalPages = (maxNodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+    final int eff = (int) Math.min(threads, Math.max(1, totalPages));
+    final long ppt = (totalPages + eff - 1) / eff;
+    final it.unimi.dsi.fastutil.longs.LongOpenHashSet[] perThread =
+        new it.unimi.dsi.fastutil.longs.LongOpenHashSet[eff];
+
+    parallel(eff, idx -> {
+      final IndexLogKey reusableKey = new IndexLogKey(IndexType.DOCUMENT, 0, 0, revision);
+      final long s = (long) idx * ppt;
+      final long e = Math.min(s + ppt, totalPages);
+      final JsonNodeReadOnlyTrx rtx = workerTrx();
+      final var reader = rtx.getStorageEngineReader();
+      final int SLOT_MASK = Constants.NDP_NODE_COUNT - 1;
+      final byte[] scratch = new byte[256];
+      final it.unimi.dsi.fastutil.longs.LongOpenHashSet local =
+          new it.unimi.dsi.fastutil.longs.LongOpenHashSet(16);
+      for (long pk = s; pk < e; pk++) {
+        final var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        final long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+
+        // Fast path: iterate the StringRegion's per-tag dict directly.
+        // 3–10 unique values per page — one long-hash per entry, no
+        // per-record touch. Matches the same dispatch rules as the
+        // groupByCount fast path (path-tagged region if path-scoped).
+        final StringRegion.Header sh = kv.getStringRegionHeader();
+        final int fastLookupTag;
+        if (sh == null) {
+          fastLookupTag = Integer.MIN_VALUE;
+        } else if (targetPathNodeKey == -1L) {
+          fastLookupTag = fieldKey;
+        } else if (sh.tagKind == StringRegion.TAG_KIND_PATH_NODE
+            && targetPathNodeKey > 0L
+            && targetPathNodeKey <= (long) Integer.MAX_VALUE) {
+          fastLookupTag = (int) targetPathNodeKey;
+        } else {
+          fastLookupTag = Integer.MIN_VALUE;
+        }
+        boolean fastPathComplete = false;
+        if (sh != null && fastLookupTag != Integer.MIN_VALUE) {
+          final int tag = StringRegion.lookupTag(sh, fastLookupTag);
+          if (tag >= 0) {
+            // Correctness guard mirrors parallelGroupByCount: the region
+            // under-counts when a record spans a page boundary (value on
+            // P, OBJECT_KEY on P-1). Verify per-tag total against the
+            // slot oracle; on mismatch, fall through to slot walk.
+            final byte[] payload = kv.getStringRegionPayload();
+            final int dictSize = sh.tagStringDictSize[tag];
+            final int[] anchorSlots = kv.getObjectKeySlotsForNameKey(fieldKey);
+            // sh.tagCount[tag] is the number of VALUES (not distinct)
+            // contributing to this tag. If it matches the slot count,
+            // every anchor OBJECT_KEY on this page was captured by the
+            // region, so every distinct dept value is in the dict.
+            if (sh.tagCount[tag] == anchorSlots.length) {
+              for (int d = 0; d < dictSize; d++) {
+                final int off = StringRegion.decodeStringOffset(payload, sh, tag, d);
+                final int len = StringRegion.decodeStringLength(payload, sh, tag, d);
+                local.add(fnv1a64(payload, off, len));
+              }
+              fastPathComplete = true;
+            }
+          }
+        }
+        if (fastPathComplete) continue;
+
+        // Slow path: walk OBJECT_KEY slots, read each value's bytes.
+        final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
+        if (matches.length == 0) continue;
+        for (final int slot : matches) {
+          final long objectKeyNodeKey = base + slot;
+          if (targetPathNodeKey != -1L
+              && kv.getObjectKeyPathNodeKeyFromSlot(slot, objectKeyNodeKey) != targetPathNodeKey) {
+            continue;
+          }
+          final long firstChildKey = kv.getObjectKeyFirstChildKeyFromSlot(slot, objectKeyNodeKey);
+          final long childPk = firstChildKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
+          byte[] valueBytes = null;
+          int valueLen = 0;
+          int valueOff = 0;
+          if (childPk == pk) {
+            final int valueSlot = (int) (firstChildKey & SLOT_MASK);
+            final int n = kv.readObjectStringValueBytesFromSlot(valueSlot, scratch);
+            if (n > 0) {
+              valueBytes = scratch;
+              valueLen = n;
+            }
+          }
+          if (valueBytes == null) {
+            // Cross-page or oversized — rtx fallback.
+            if (!rtx.moveTo(objectKeyNodeKey)) continue;
+            if (!rtx.moveToFirstChild()) continue;
+            final byte[] rawValue = rtx.getValueBytes();
+            if (rawValue == null || rawValue.length == 0) continue;
+            valueBytes = rawValue;
+            valueLen = rawValue.length;
+          }
+          local.add(fnv1a64(valueBytes, valueOff, valueLen));
+        }
+      }
+      perThread[idx] = local;
+    });
+
+    // Merge per-thread long-hash sets. Union is O(total distinct), no
+    // key copies. addAll on LongOpenHashSet bypasses autoboxing.
+    final it.unimi.dsi.fastutil.longs.LongOpenHashSet merged =
+        new it.unimi.dsi.fastutil.longs.LongOpenHashSet(32);
+    for (final var localSet : perThread) {
+      if (localSet != null) merged.addAll(localSet);
+    }
+    return merged.size();
+  }
+
+  /**
+   * 64-bit FNV-1a hash over a byte slice. Stable across JVMs; good
+   * distribution for short strings. Matches the hash used in
+   * {@link io.sirix.page.pax.StringRegion.Encoder} so encoder/decoder
+   * share the same key space when needed.
+   */
+  private static long fnv1a64(final byte[] data, final int off, final int len) {
+    long h = 0xcbf29ce484222325L;
+    final int end = off + len;
+    for (int i = off; i < end; i++) {
+      h ^= data[i] & 0xFF;
+      h *= 0x100000001b3L;
+    }
+    return h;
   }
 
   @Override
@@ -2864,6 +3338,13 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
 
+        // Diagnostic kill switch for the StringRegion fast path. Setting
+        // {@code -Dsirix.scan.stringRegion.off=true} bypasses the fast
+        // path entirely — we use this to localize correctness discrepancies
+        // (the unfiltered groupBy has undercounted records vs DuckDB; see
+        // task #65). Keep it cheap by evaluating once per page, branch-
+        // predictable; JIT folds it away when the system property is unset.
+        final boolean stringRegionFastOff = STRING_REGION_FAST_OFF;
         // Fast path: if the page exposes a StringRegion, count locally per
         // dict-id (8-entry bump per page) then emit one aggregated add per
         // local dict id (8 hash inserts/page instead of 90). Saves the per-
@@ -2878,7 +3359,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         //     tree path, not just the local name.
         //   * Path-scope AND region is name-tagged: skip the SIMD path and fall
         //     through to the slot-walk, which filters per-slot by pathNodeKey.
-        final StringRegion.Header sh = kv.getStringRegionHeader();
+        final StringRegion.Header sh = stringRegionFastOff ? null : kv.getStringRegionHeader();
         final int fastLookupTag;
         if (sh == null) {
           fastLookupTag = Integer.MIN_VALUE;
@@ -2903,7 +3384,28 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
             if (dictSize > localDictCounts.length) {
               if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesDictBig++;
             } else {
-              if (DIAGNOSTICS_ENABLED) diag.stringRegionHits++;
+              // Correctness guard: the StringRegion fast path groups VALUES
+              // by their parent OBJECT_KEY's nameKey. When a record spans a
+              // page boundary (OBJECT_KEY on page P-1, VALUE on page P), the
+              // value's parent lives cross-page and the region build tags it
+              // with a sentinel (-1) instead of the actual nameKey. The
+              // canonical-nameKey tag on P then under-counts by exactly the
+              // number of cross-page values, and the canonical-nameKey tag
+              // on P-1 under-counts by the number of OBJECT_KEYs whose VALUE
+              // spills to P. Query at groupByDept(dept) on 10M records would
+              // miss ~0.1% — pre-existing bug documented in task #65.
+              //
+              // Fix: compare the fast path's per-tag total against the slot
+              // count returned by getObjectKeySlotsForNameKey (the slow-path
+              // oracle). If they agree, the fast path captures every record
+              // that a complete scan would — commit its counts. If they
+              // disagree, fall through to the slow path, which walks each
+              // OBJECT_KEY and handles cross-page children via rtx-fallback.
+              //
+              // Cost: one extra slot-lookup per page. The lookup is cached
+              // per (page, nameKey), so the subsequent slow-path call reuses
+              // the same int[] — no second SIMD scan, no re-allocation.
+              final int[] anchorSlots = kv.getObjectKeySlotsForNameKey(fieldKey);
               // Reset only what we'll touch.
               for (int d = 0; d < dictSize; d++) localDictCounts[d] = 0;
               final int start = sh.tagStart[tag];
@@ -2913,15 +3415,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               // that share an 8-byte window (at bw=3 for 8-value dept fields
               // each word covers ~21 dict-ids, so one read serves 21 counts).
               StringRegion.countDictIds(payload, sh, start, n, localDictCounts);
-              for (int d = 0; d < dictSize; d++) {
-                final long c = localDictCounts[d];
-                if (c == 0) continue;
-                final int off = StringRegion.decodeStringOffset(payload, sh, tag, d);
-                final int len = StringRegion.decodeStringLength(payload, sh, tag, d);
-                acc.addN(payload, off, len, c);
-                if (DIAGNOSTICS_ENABLED) diag.recordsMatched += c;
+              long fastPathTotal = 0L;
+              for (int d = 0; d < dictSize; d++) fastPathTotal += localDictCounts[d];
+              if (fastPathTotal != (long) anchorSlots.length) {
+                // Mismatch → fast path is incomplete for this page (likely
+                // a page-boundary record). Fall through to slow path, which
+                // walks OBJECT_KEY slots and handles cross-page children.
+                if (DIAGNOSTICS_ENABLED) diag.stringRegionMissesDictBig++;
+              } else {
+                if (DIAGNOSTICS_ENABLED) diag.stringRegionHits++;
+                for (int d = 0; d < dictSize; d++) {
+                  final long c = localDictCounts[d];
+                  if (c == 0) continue;
+                  final int off = StringRegion.decodeStringOffset(payload, sh, tag, d);
+                  final int len = StringRegion.decodeStringLength(payload, sh, tag, d);
+                  acc.addN(payload, off, len, c);
+                  if (DIAGNOSTICS_ENABLED) diag.recordsMatched += c;
+                }
+                continue;
               }
-              continue;
             }
           }
         }

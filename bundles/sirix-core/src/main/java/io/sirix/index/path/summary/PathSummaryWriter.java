@@ -32,6 +32,8 @@ import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.ObjectKeyNode;
 import io.sirix.settings.Fixed;
 import io.brackit.query.atomic.QNm;
+import io.sirix.settings.Constants;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 
 import javax.xml.namespace.QName;
@@ -163,6 +165,14 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     byte[] minBytes;
     byte[] maxBytes;
     HyperLogLogSketch hll;
+    /**
+     * Leaf-page keys witnessed during this batch. Small set — typically
+     * O(distinct pages touched since the last flush for this path) which
+     * is bounded by {@code MAX_PENDING_PATH_ENTRIES} / distinct paths.
+     * Lazily allocated so paths that never feed the page-skip index pay
+     * no extra state.
+     */
+    IntOpenHashSet seenPages;
 
     DeferredStats() {
       reset();
@@ -178,6 +188,13 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       minBytes = null;
       maxBytes = null;
       hll = null;
+      if (seenPages != null) seenPages.clear();
+    }
+
+    void recordPage(final int pageKey) {
+      if (pageKey < 0) return;
+      if (seenPages == null) seenPages = new IntOpenHashSet(4);
+      seenPages.add(pageKey);
     }
 
     void addLong(final long v) {
@@ -887,58 +904,87 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    * magnitude reduction for analytical shreds.
    */
   public void recordValue(final long pathNodeKey, final long numericValue) {
-    if (!withPathStatistics || pathNodeKey < 0) {
-      return;
-    }
-    DeferredStats d = pendingStats.get(pathNodeKey);
-    if (d == null) {
-      d = acquireDeferredStats();
-      pendingStats.put(pathNodeKey, d);
-    }
-    d.addLong(numericValue);
-    maybeFlushIfOverflow();
+    recordValue(pathNodeKey, numericValue, -1L);
   }
 
   /** Record a byte-sequence value observation (string / utf-8). No-op if stats disabled. */
   public void recordValue(final long pathNodeKey, final byte[] bytesValue) {
-    if (!withPathStatistics || pathNodeKey < 0) {
-      return;
-    }
-    DeferredStats d = pendingStats.get(pathNodeKey);
-    if (d == null) {
-      d = acquireDeferredStats();
-      pendingStats.put(pathNodeKey, d);
-    }
-    d.addBytes(bytesValue);
-    maybeFlushIfOverflow();
+    recordValue(pathNodeKey, bytesValue, -1L);
   }
 
   /** Record a boolean value observation. No-op if stats disabled. */
   public void recordBooleanValue(final long pathNodeKey, final boolean value) {
-    if (!withPathStatistics || pathNodeKey < 0) {
-      return;
-    }
-    DeferredStats d = pendingStats.get(pathNodeKey);
-    if (d == null) {
-      d = acquireDeferredStats();
-      pendingStats.put(pathNodeKey, d);
-    }
-    d.addLong(value ? 1L : 0L);
-    maybeFlushIfOverflow();
+    recordBooleanValue(pathNodeKey, value, -1L);
   }
 
   /** Record a null value observation. No-op if stats disabled. */
   public void recordNullValue(final long pathNodeKey) {
+    recordNullValue(pathNodeKey, -1L);
+  }
+
+  /**
+   * {@code pageSourceNodeKey}-aware variant. The caller passes the node
+   * key of the just-inserted value node (or its enclosing OBJECT_KEY);
+   * the leaf pageKey is derived as
+   * {@code nodeKey >>> INP_REFERENCE_COUNT_EXPONENT} and folded into the
+   * PathNode's presence bitmap at flush time. Pass {@code -1L} to skip
+   * page-skip tracking — callers that don't yet have the nodeKey (or
+   * resources where the bitmap is useless) can use the un-keyed overload.
+   */
+  public void recordValue(final long pathNodeKey, final long numericValue, final long pageSourceNodeKey) {
     if (!withPathStatistics || pathNodeKey < 0) {
       return;
     }
+    final DeferredStats d = acquireOrCreate(pathNodeKey);
+    d.addLong(numericValue);
+    recordPageFor(d, pageSourceNodeKey);
+    maybeFlushIfOverflow();
+  }
+
+  public void recordValue(final long pathNodeKey, final byte[] bytesValue, final long pageSourceNodeKey) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final DeferredStats d = acquireOrCreate(pathNodeKey);
+    d.addBytes(bytesValue);
+    recordPageFor(d, pageSourceNodeKey);
+    maybeFlushIfOverflow();
+  }
+
+  public void recordBooleanValue(final long pathNodeKey, final boolean value, final long pageSourceNodeKey) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final DeferredStats d = acquireOrCreate(pathNodeKey);
+    d.addLong(value ? 1L : 0L);
+    recordPageFor(d, pageSourceNodeKey);
+    maybeFlushIfOverflow();
+  }
+
+  public void recordNullValue(final long pathNodeKey, final long pageSourceNodeKey) {
+    if (!withPathStatistics || pathNodeKey < 0) {
+      return;
+    }
+    final DeferredStats d = acquireOrCreate(pathNodeKey);
+    d.addNull();
+    recordPageFor(d, pageSourceNodeKey);
+    maybeFlushIfOverflow();
+  }
+
+  private DeferredStats acquireOrCreate(final long pathNodeKey) {
     DeferredStats d = pendingStats.get(pathNodeKey);
     if (d == null) {
       d = acquireDeferredStats();
       pendingStats.put(pathNodeKey, d);
     }
-    d.addNull();
-    maybeFlushIfOverflow();
+    return d;
+  }
+
+  private static void recordPageFor(final DeferredStats d, final long nodeKey) {
+    if (nodeKey < 0L) return;
+    final long pk = nodeKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
+    if (pk > Integer.MAX_VALUE) return; // bitmap is int-keyed; above 2^31 pages, skip tracking
+    d.recordPage((int) pk);
   }
 
   /** Bound the deferred buffer; distinct-path cardinality should be small in practice. */
@@ -997,6 +1043,9 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     }
     if (d.hll != null) {
       pn.unionHll(d.hll);
+    }
+    if (d.seenPages != null && !d.seenPages.isEmpty()) {
+      pn.mergePageKeys(d.seenPages);
     }
   }
 

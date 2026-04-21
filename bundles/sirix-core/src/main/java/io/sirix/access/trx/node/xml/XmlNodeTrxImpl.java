@@ -953,7 +953,7 @@ final class XmlNodeTrxImpl extends
 
       // Index text value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
-      recordXmlValueStat(pathNodeKey, textValue);
+      recordXmlValueStat(pathNodeKey, textValue, nodeKey);
 
       return this;
     } finally {
@@ -1030,7 +1030,7 @@ final class XmlNodeTrxImpl extends
 
       // Index text value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
-      recordXmlValueStat(pathNodeKey, textValue);
+      recordXmlValueStat(pathNodeKey, textValue, nodeKey);
 
       return this;
     } finally {
@@ -1109,7 +1109,7 @@ final class XmlNodeTrxImpl extends
 
       // Index text value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
-      recordXmlValueStat(pathNodeKey, textValue);
+      recordXmlValueStat(pathNodeKey, textValue, nodeKey);
 
       return this;
     } finally {
@@ -1200,7 +1200,7 @@ final class XmlNodeTrxImpl extends
 
       // Index text value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
-      recordXmlValueStat(pathNodeKey, attValue);
+      recordXmlValueStat(pathNodeKey, attValue, nodeKey);
 
       if (move == Movement.TOPARENT) {
         moveToParent();
@@ -1409,9 +1409,14 @@ final class XmlNodeTrxImpl extends
    * {@code pathNodeKey}. No-op when stats are disabled or {@code pathNodeKey <= 0}.
    */
   private void recordXmlValueStat(final long pathNodeKey, final byte[] bytesValue) {
+    recordXmlValueStat(pathNodeKey, bytesValue, -1L);
+  }
+
+  /** Variant threading the value node's key so the PathNode's presence bitmap can be updated. */
+  private void recordXmlValueStat(final long pathNodeKey, final byte[] bytesValue, final long valueNodeKey) {
     if (pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled()
         && pathNodeKey > 0 && bytesValue != null) {
-      pathSummaryWriter.recordValue(pathNodeKey, bytesValue);
+      pathSummaryWriter.recordValue(pathNodeKey, bytesValue, valueNodeKey);
     }
   }
 
@@ -1627,7 +1632,7 @@ final class XmlNodeTrxImpl extends
         notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
         if (statsOn) {
           removeXmlValueStat(pathNodeKey, oldBytes);
-          recordXmlValueStat(pathNodeKey, byteVal);
+          recordXmlValueStat(pathNodeKey, byteVal, node.getNodeKey());
         }
 
         return this;

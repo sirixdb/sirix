@@ -37,6 +37,7 @@ import io.sirix.access.trx.node.HashType;
 import io.sirix.index.AtomicUtil;
 import io.sirix.index.path.summary.HyperLogLogSketch;
 import io.sirix.index.path.summary.PathNode;
+import io.sirix.index.projection.ProjectionIndexLeafRecord;
 import io.sirix.index.redblacktree.RBNodeKey;
 import io.sirix.index.redblacktree.RBNodeValue;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
@@ -75,9 +76,14 @@ import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import net.openhft.hashing.LongHashFunction;
+import org.roaringbitmap.RoaringBitmap;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInput;
 import java.io.DataInputStream;
+import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -650,6 +656,29 @@ public enum NodeKind implements DeweyIdSerializer {
         final boolean statsMaxDirty = source.readBoolean();
         pathNode.setStatsState(statsCount, statsNullCount, statsSum, statsMin, statsMax,
             statsMinBytes, statsMaxBytes, hll, statsMinDirty, statsMaxDirty);
+        // Optional presence bitmap (leaf-page-skip index). Length prefix:
+        //   -1  → absent (new field in older serialisations)
+        //    N  → N bytes of RoaringBitmap.serialize() data (native format,
+        //          same as RoaringBitmap.deserialize(DataInput) consumes).
+        // Older on-disk records stop before this field; the reader skips it
+        // transparently when source is exhausted (eof → -1 length).
+        final int bitmapLen = readOptionalIntLength(source);
+        if (bitmapLen > 0) {
+          final byte[] bmBytes = new byte[bitmapLen];
+          source.read(bmBytes, 0, bitmapLen);
+          final RoaringBitmap bm = new RoaringBitmap();
+          try {
+            bm.deserialize(new DataInputStream(new ByteArrayInputStream(bmBytes)));
+          } catch (final IOException e) {
+            throw new UncheckedIOException("PathNode pageKeys deserialize failed", e);
+          }
+          pathNode.setPageKeys(bm);
+        } else if (bitmapLen == 0) {
+          // Empty bitmap was explicitly serialised — preserve that (a
+          // completed scan that proved the nameKey is present nowhere).
+          pathNode.setPageKeys(new RoaringBitmap());
+        }
+        // bitmapLen == -1 → leave pageKeys null (legacy record).
       }
 
       return pathNode;
@@ -686,6 +715,27 @@ public enum NodeKind implements DeweyIdSerializer {
         }
         sink.writeBoolean(node.isStatsMinDirty());
         sink.writeBoolean(node.isStatsMaxDirty());
+        // Presence bitmap trailer. -1 length = absent (the PathNode has no
+        // tracked pageKeys). RoaringBitmap.serialize writes the portable
+        // self-describing format; we prefix with the byte length so the
+        // reader can skip the correct number of bytes even if the bitmap
+        // format changes across RoaringBitmap versions.
+        final RoaringBitmap pageKeys = node.getPageKeys();
+        if (pageKeys == null) {
+          sink.writeInt(-1);
+        } else {
+          pageKeys.runOptimize();
+          final ByteArrayOutputStream baos = new ByteArrayOutputStream(
+              Math.max(16, pageKeys.serializedSizeInBytes()));
+          try {
+            pageKeys.serialize(new DataOutputStream(baos));
+          } catch (final IOException e) {
+            throw new UncheckedIOException("PathNode pageKeys serialize failed", e);
+          }
+          final byte[] bmBytes = baos.toByteArray();
+          sink.writeInt(bmBytes.length);
+          sink.write(bmBytes);
+        }
       }
     }
 
@@ -1636,6 +1686,48 @@ public enum NodeKind implements DeweyIdSerializer {
   },
 
   /**
+   * Projection-index leaf chunk. Wraps the serialised
+   * {@link io.sirix.index.projection.ProjectionIndexLeafPage} byte[] so the
+   * projection index can live as a HOT sub-tree rooted at
+   * {@code RevisionRootPage#getProjectionPageReference}. The {@code nodeKey}
+   * is the sequential leaf index; payload length is varint-free (plain int
+   * prefix) — leaves are typically in the 4–20 KB range.
+   */
+  PROJECTION_INDEX_LEAF((byte) 44) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      final int length = source.readInt();
+      if (length < 0) {
+        throw new IllegalStateException("Negative PROJECTION_INDEX_LEAF payload length: " + length);
+      }
+      final byte[] payload = new byte[length];
+      if (length > 0) source.read(payload);
+      return new ProjectionIndexLeafRecord(recordID, payload);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ProjectionIndexLeafRecord leaf = (ProjectionIndexLeafRecord) record;
+      final byte[] payload = leaf.getPayload();
+      sink.writeInt(payload.length);
+      if (payload.length > 0) sink.write(payload);
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /**
    * HNSW vector graph node storing an embedding vector and per-layer neighbor lists.
    */
   VECTOR_NODE((byte) 56) {
@@ -1876,6 +1968,23 @@ public enum NodeKind implements DeweyIdSerializer {
       source.read(bytes, 0, length);
     }
     return bytes;
+  }
+
+  /**
+   * Read an {@code int} length prefix, treating end-of-stream as {@code -1}.
+   * Used when appending an optional trailing field to a previously
+   * versionless on-disk record: old records end before the prefix and we
+   * must not propagate the underlying EOF exception.
+   */
+  private static int readOptionalIntLength(BytesIn<?> source) {
+    try {
+      return source.readInt();
+    } catch (final RuntimeException eof) {
+      // Bytes-based backends throw a RuntimeException on underflow rather
+      // than a checked EOFException — treat either as "legacy record, field
+      // not present" and fall back to the null-equivalent sentinel.
+      return -1;
+    }
   }
 
   /**

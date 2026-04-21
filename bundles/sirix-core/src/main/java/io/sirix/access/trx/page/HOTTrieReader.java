@@ -36,6 +36,7 @@ import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import java.util.Arrays;
 import java.util.Objects;
 
 /**
@@ -118,33 +119,35 @@ public final class HOTTrieReader implements AutoCloseable {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
 
-    // Release any previously guarded leaf
-    releaseGuardedLeaf();
-
-    // Navigate to leaf
-    HOTLeafPage leaf = navigateToLeaf(rootRef, key);
-    if (leaf == null) {
-      return null;
-    }
-
-    // Acquire guard to prevent eviction. If the page was already closed/orphaned
-    // between navigateToLeaf returning and this point, acquireGuard returns false
-    // and we must not access the page (use-after-free on released MemorySegment).
-    if (!leaf.acquireGuard()) {
-      return null;
-    }
-    guardedLeaf = leaf;
-
-    try {
-      // Find entry in leaf
-      int index = leaf.findEntry(key);
-      if (index < 0) {
-        return null; // Not found (guard intentionally held for next call)
+    // Leaf cache fast path: if the previously-guarded leaf's key range
+    // covers the lookup key (firstKey <= key <= lastKey by unsigned
+    // compare), reuse it directly. Skips full root-to-leaf descent AND
+    // guard acquire/release — the common case for bulk scans, multi-
+    // chunk reads, and locality-friendly access patterns.
+    final HOTLeafPage cached = guardedLeaf;
+    if (cached != null) {
+      final byte[] first = cached.getFirstKey();
+      final byte[] last = cached.getLastKey();
+      if (first.length > 0 && last.length > 0
+          && Arrays.compareUnsigned(key, first) >= 0
+          && Arrays.compareUnsigned(key, last) <= 0) {
+        final int idx = cached.findEntry(key);
+        if (idx < 0) return null;
+        return cached.getValueSlice(idx);
       }
+    }
 
+    // Slow path: re-navigate.
+    releaseGuardedLeaf();
+    final HOTLeafPage leaf = navigateToLeaf(rootRef, key);
+    if (leaf == null) return null;
+    if (!leaf.acquireGuard()) return null;
+    guardedLeaf = leaf;
+    try {
+      final int index = leaf.findEntry(key);
+      if (index < 0) return null;
       return leaf.getValueSlice(index);
     } catch (Exception e) {
-      // On exception, release the guard to avoid leaking it
       releaseGuardedLeaf();
       throw e;
     }
@@ -420,6 +423,21 @@ public final class HOTTrieReader implements AutoCloseable {
    */
   public int getPathDepth() {
     return pathDepth;
+  }
+
+  /** Diagnostic accessor: indirect node at the given path depth. */
+  public HOTIndirectPage pathNodeAt(int depth) {
+    return pathNodes[depth];
+  }
+
+  /** Diagnostic accessor: child index taken at the given path depth. */
+  public int pathChildAt(int depth) {
+    return pathChildIndices[depth];
+  }
+
+  /** Diagnostic: clear the traversal path. Public wrapper around clearPath(). */
+  public void clearPathPublic() {
+    clearPath();
   }
 
   /**

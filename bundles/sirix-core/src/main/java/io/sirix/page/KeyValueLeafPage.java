@@ -1433,6 +1433,53 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return getObjectKeyNameKeyFromSlot(slotIndex);
   }
 
+  /**
+   * Return the distinct OBJECT_KEY {@code nameKey}s present on this page.
+   * Fast path: reads directly from the PAX dictKeys header (one VarHandle
+   * load per distinct nameKey — typically 3 to 10 entries). Slow path
+   * (region absent): iterates populated slots via the bitmap and
+   * collects distinct nameKeys into a growable array.
+   *
+   * <p>Used by the page-skip index builder to decide which pages are
+   * candidates for a given anchor nameKey, so analytical scans can skip
+   * pages that hold no slot with that field instead of fetching each
+   * page only to bail out on empty {@code getObjectKeySlotsForNameKey}.
+   */
+  public int[] getDistinctObjectKeyNameKeys() {
+    final byte[] payload = regionPayload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+    if (payload != null) {
+      return io.sirix.page.pax.ObjectKeyNameKeyRegion.uniqueNameKeys(payload);
+    }
+    // Slow path: no region — walk populated slots via the page layout
+    // helpers, decode each OBJECT_KEY's nameKey, dedupe in-place. Kept
+    // simple (and allocating) because the fast path covers every page
+    // produced by the current writer; this branch only executes on
+    // legacy-format pages read from older stores.
+    final MemorySegment sp = slottedPage;
+    if (sp == null) return EMPTY_INT_ARRAY;
+    int[] distinct = new int[8];
+    int n = 0;
+    for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
+      if (!PageLayout.isSlotPopulated(sp, slot)) continue;
+      final int heapOffset = PageLayout.getDirHeapOffset(sp, slot);
+      final long recordBase = PageLayout.HEAP_START + heapOffset;
+      final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+      if (!isObjectKeyKindId(kindId)) continue;
+      final int nameKey = getObjectKeyNameKeyFromSlot(slot);
+      if (nameKey < 0) continue;
+      boolean seen = false;
+      for (int i = 0; i < n; i++) {
+        if (distinct[i] == nameKey) { seen = true; break; }
+      }
+      if (!seen) {
+        if (n == distinct.length) distinct = Arrays.copyOf(distinct, distinct.length * 2);
+        distinct[n++] = nameKey;
+      }
+    }
+    if (n == 0) return EMPTY_INT_ARRAY;
+    return n == distinct.length ? distinct : Arrays.copyOf(distinct, n);
+  }
+
   /** OBJECT_NUMBER_VALUE payload type code for Integer (varint). See NodeKind.serializeNumber. */
   private static final byte NUMBER_TYPE_INTEGER = 2;
   private static final byte NUMBER_TYPE_LONG = 3;

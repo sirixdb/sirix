@@ -9,8 +9,10 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.jupiter.api.Test;
+import org.roaringbitmap.RoaringBitmap;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -124,5 +126,41 @@ final class PathNodeSerializationTest {
 
     final PathNode restored = roundTrip(original, config(true));
     assertTrue(restored.isStatsMinDirty());
+  }
+
+  @Test
+  void roundTripPageKeysBitmap_preserved() {
+    final PathNode original = freshNode();
+    final IntOpenHashSet pages = new IntOpenHashSet();
+    // Mix contiguous runs (compress to run-length containers) with sparse
+    // entries (array containers) to exercise both RoaringBitmap formats.
+    for (int p = 100; p < 200; p++) pages.add(p);
+    pages.add(5); pages.add(42_000); pages.add(1_000_000);
+    original.mergePageKeys(pages);
+    assertNotNull(original.getPageKeys());
+
+    final PathNode restored = roundTrip(original, config(true));
+    assertArrayEquals(original.getPageKeysArray(), restored.getPageKeysArray(),
+        "pageKeys bitmap must survive serialize/deserialize byte-for-byte");
+  }
+
+  @Test
+  void roundTripPageKeysAbsent_staysNull() {
+    final PathNode original = freshNode();
+    original.recordLongValue(1);  // stats present, bitmap absent
+    final PathNode restored = roundTrip(original, config(true));
+    assertNull(restored.getPageKeys(),
+        "absent bitmap must round-trip as null (not empty) — preserves legacy semantics");
+  }
+
+  @Test
+  void roundTripPageKeysEmpty_roundTripsAsEmpty() {
+    final PathNode original = freshNode();
+    original.setPageKeys(new RoaringBitmap()); // explicit empty bitmap
+    final PathNode restored = roundTrip(original, config(true));
+    assertNotNull(restored.getPageKeys());
+    assertEquals(0, restored.getPageKeys().getCardinality(),
+        "an explicit empty bitmap is distinguishable from null — a completed "
+      + "scan that proved the nameKey lives on no page");
   }
 }

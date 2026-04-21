@@ -66,6 +66,7 @@ import io.sirix.page.PathPage;
 import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
+import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
@@ -779,6 +780,23 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
+  public ProjectionIndexPage getProjectionIndexPage(final RevisionRootPage revisionRoot) {
+    assertNotClosed();
+    final PageReference ref = revisionRoot.getProjectionIndexPageReference();
+    // Backwards compat: revisions written before PROJECTION_REFERENCE_OFFSET existed
+    // have a bare PageReference with no page attached. Seed an empty container page
+    // on first access so callers never get null — matches the legacy semantics for
+    // CASPage/PathPage/NamePage which are always present on fresh revisions.
+    if (ref.getPage() == null && ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG
+        && ref.getLogKey() == io.sirix.settings.Constants.NULL_ID_INT) {
+      final ProjectionIndexPage fresh = new ProjectionIndexPage();
+      ref.setPage(fresh);
+      return fresh;
+    }
+    return (ProjectionIndexPage) getPage(ref);
+  }
+
+  @Override
   public BufferManager getBufferManager() {
     return resourceBufferManager;
   }
@@ -1464,6 +1482,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case NAME -> getNamePage(revisionRoot).getIndirectPageReference(index);
       case PATH_SUMMARY -> getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
       case VECTOR -> getVectorPage(revisionRoot).getIndirectPageReference(index);
+      case PROJECTION -> getProjectionIndexPage(revisionRoot).getIndirectPageReference(index);
       default ->
           throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     };
@@ -1506,7 +1525,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return switch (indexType) {
       case PATH_SUMMARY -> recordKey >> Constants.PATHINP_REFERENCE_COUNT_EXPONENT;
       case REVISIONS -> recordKey >> Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
-      case PATH, DOCUMENT, CAS, NAME, VECTOR -> recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
+      case PATH, DOCUMENT, CAS, NAME, VECTOR, PROJECTION -> recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
       default -> recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
     };
   }
@@ -1540,8 +1559,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case PATH_SUMMARY -> getPathSummaryPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
       case DEWEYID_TO_RECORDID -> getDeweyIDPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages();
       case VECTOR -> getVectorPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
-      case PROJECTION -> throw new UnsupportedOperationException(
-          "PROJECTION index max-level lookup not yet implemented (task #23)");
+      case PROJECTION -> getProjectionIndexPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
     };
 
     return maxLevel;
@@ -1708,6 +1726,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           yield null;
         }
         yield namePage.getOrCreateReference(indexNumber);
+      }
+      case PROJECTION -> {
+        final ProjectionIndexPage projPage = getProjectionIndexPage(actualRootPage);
+        if (projPage == null || indexNumber >= projPage.getReferences().size()) {
+          yield null;
+        }
+        yield projPage.getOrCreateReference(indexNumber);
       }
       default -> null;
     };

@@ -148,6 +148,16 @@ public final class ScaleBenchMain {
       System.out.printf("# Vec threads: %d%n", vecThreads);
     }
 
+    // -Dprojection=true installs a covering projection index on
+    // (age, active, dept) so filterCount / compoundAndFilterCount route
+    // through ProjectionIndexByteScan instead of the generic predicate path.
+    if (Boolean.getBoolean("projection") && session != null) {
+      final long tBuild = System.nanoTime();
+      final int leafCount = ScaleBenchProjectionSetup.installWildcard(session);
+      System.out.printf("# Projection index: %,d leaves, built in %,d ms%n",
+          leafCount, (System.nanoTime() - tBuild) / 1_000_000L);
+    }
+
     JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);
     JsonDBItem docItem = (JsonDBItem) coll.getDocument();
     ctx.bind(DOC_VAR, (Sequence) docItem);
@@ -193,9 +203,20 @@ public final class ScaleBenchMain {
 
     long min = Long.MAX_VALUE, max = 0, sum = 0;
     int bytes = 0;
+    final boolean variedLiteral = Boolean.getBoolean("sirix.bench.variedLiteral");
     for (int i = 0; i < iters; i++) {
+      final String wrappedForIter;
+      if (variedLiteral) {
+        final int lowJit = i;
+        wrappedForIter = wrapped
+            .replace("$u.age > 40", "$u.age > " + (25 + lowJit))
+            .replace("$u.age > 30", "$u.age > " + (22 + lowJit))
+            .replace("$u.age < 50", "$u.age < " + (55 + lowJit));
+      } else {
+        wrappedForIter = wrapped;
+      }
       long t0 = System.nanoTime();
-      bytes = runOnce(chain, ctx, wrapped);
+      bytes = runOnce(chain, ctx, wrappedForIter);
       long elapsed = System.nanoTime() - t0;
       sum += elapsed;
       if (elapsed < min) min = elapsed;

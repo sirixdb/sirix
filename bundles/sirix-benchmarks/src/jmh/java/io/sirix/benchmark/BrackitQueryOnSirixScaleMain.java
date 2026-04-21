@@ -137,6 +137,15 @@ public final class BrackitQueryOnSirixScaleMain {
       System.out.println("# Shred: skipped (re-using existing DB)");
     }
 
+    // Early exit after shred for storage-profile runs — no need to run
+    // queries. The shutdown hook in io.sirix.io.file.StorageProfile
+    // prints the per-page-class byte distribution.
+    if (Boolean.getBoolean("sirix.shredOnly")) {
+      System.out.println("# shredOnly=true — exiting before queries");
+      io.sirix.io.file.StorageProfile.dump();
+      System.exit(0);
+    }
+
     JsonResourceSession session = null;
     SirixVectorizedExecutor vec = null;
     if (vectorized) {
@@ -250,8 +259,30 @@ public final class BrackitQueryOnSirixScaleMain {
             SequentialPipelineStrategy.setVectorizedExecutor(fresh);
           }
         }
+        // -Dsirix.bench.variedLiteral=true mutates the numeric literal in
+        // the query per iter so the executor's per-predicate result caches
+        // (filterCountCache, groupByCountCache, etc.) never hit. Measures
+        // JIT-warmed no-cache throughput — the realistic apples-to-apples
+        // metric vs. Umbra/CedarDB, which have no such result caches.
+        // Jitter ranges are chosen so the generated ranges always remain
+        // non-empty for the source dataset (ages 20-66): lower bounds
+        // stay ≤42 and upper bounds stay ≥48.
+        final String wrappedForIter;
+        if (Boolean.getBoolean("sirix.bench.variedLiteral")) {
+          // Every iter gets a distinct literal so cache never hits — measures
+          // true per-call fast-path throughput without cache-hit skew. Ranges
+          // keep the filter range non-empty across the 20-66 age distribution.
+          final int lowJit = i;
+          final int upJit = i;
+          wrappedForIter = wrapped
+              .replace("$u.age > 40", "$u.age > " + (25 + lowJit))
+              .replace("$u.age > 30", "$u.age > " + (22 + lowJit))
+              .replace("$u.age < 50", "$u.age < " + (55 + upJit));
+        } else {
+          wrappedForIter = wrapped;
+        }
         long t0 = System.nanoTime();
-        bytes = runOnce(chain, ctx, wrapped);
+        bytes = runOnce(chain, ctx, wrappedForIter);
         long elapsed = System.nanoTime() - t0;
         sum += elapsed;
         if (elapsed < min) min = elapsed;

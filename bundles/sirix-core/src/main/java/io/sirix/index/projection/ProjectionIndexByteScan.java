@@ -3,12 +3,13 @@
  */
 package io.sirix.index.projection;
 
-import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
+import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorMask;
 import jdk.incubator.vector.VectorOperators;
@@ -63,6 +64,36 @@ public final class ProjectionIndexByteScan {
   private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_PREFERRED;
   private static final int LANES = LONG_SPECIES.length();
 
+  /**
+   * Thread-local scan scratch. Hoisted out of {@link #conjunctiveCount} and
+   * {@link #conjunctiveCountByGroup}'s per-call allocation: ~8.5 KB per
+   * invocation × 20 worker threads × N queries = tens of MB/s of GC churn
+   * at sustained analytical load. Reuse across calls; grown on demand if a
+   * wider projection shows up. Single instance per thread is safe because
+   * each conjunctiveCount call is one-shot on its own worker-thread stack —
+   * no re-entrancy.
+   */
+  private static final class ScanScratch {
+    int[] columnDataOff = new int[16];
+    int[] columnMinMaxOff = new int[16];
+    final long[] numericScratch = new long[ProjectionIndexLeafPage.MAX_ROWS];
+    final long[] mask = new long[(ProjectionIndexLeafPage.MAX_ROWS + 63) >>> 6];
+    final long[] colMask = new long[(ProjectionIndexLeafPage.MAX_ROWS + 63) >>> 6];
+    // Lazily-sized dict byte-offset cache + String cache for the group-by
+    // variant. null on threads that only do conjunctiveCount.
+    String[] dictCache;
+    int[] dictByteOff;
+    // Per-thread intern: 64-bit FNV-1a hash of group-value bytes →
+    // canonical String. Zero allocation on the lookup hot path
+    // (hash + Long2ObjectMap.get is primitive-keyed, no autoboxing), one
+    // String decode per distinct group value per thread per scan.
+    // 64-bit hash collision probability at 10M distinct values ~10⁻¹⁹ —
+    // negligible for analytical groupby cardinalities.
+    it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String> stringIntern;
+  }
+
+  private static final ThreadLocal<ScanScratch> SCRATCH = ThreadLocal.withInitial(ScanScratch::new);
+
   private ProjectionIndexByteScan() {
   }
 
@@ -85,21 +116,126 @@ public final class ProjectionIndexByteScan {
     if (predicates == null || predicates.length == 0) {
       throw new IllegalArgumentException("use countRows for unconditional counts");
     }
-    // Scratch offsets per column — parsed once per leaf, reused across
-    // leaves within one scan. Sized to the max expected column count for
-    // a projection index; grown on demand.
-    int[] columnDataOff = new int[16];
-    int[] columnMinMaxOff = new int[16];
+    // Thread-local scratch: one allocation per worker thread amortised
+    // across all analytical queries on that thread. See {@link ScanScratch}.
+    final ScanScratch s = SCRATCH.get();
     long total = 0;
     for (final byte[] payload : leafPayloads) {
-      total += countLeaf(payload, predicates, columnDataOff, columnMinMaxOff);
-      // Grow scratch if a wider leaf shows up.
-      if (columnDataOff.length < columnCountOf(payload)) {
-        columnDataOff = new int[columnCountOf(payload)];
-        columnMinMaxOff = new int[columnCountOf(payload)];
+      // Grow scratch if a wider leaf shows up (rare — projection indexes
+      // are built column-set-at-a-time, so the width is consistent within
+      // a single handle).
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
       }
+      total += countLeaf(payload, predicates, s.columnDataOff, s.columnMinMaxOff,
+          s.numericScratch, s.mask, s.colMask);
     }
     return total;
+  }
+
+  /**
+   * Conjunctive filter + group-by-count: walks {@code leafPayloads} with the
+   * supplied {@code predicates}, then for every matching row reads the
+   * {@code groupColumn}'s UTF-8 string value and increments the matching
+   * group counter in {@code out}. The group column MUST be
+   * {@link ProjectionIndexLeafPage#COLUMN_KIND_STRING_DICT}.
+   *
+   * <p>Per-leaf dict decode is lazy: each dict-id referenced by a matching
+   * row is decoded at most once per leaf via a small {@code String[]}
+   * cache. Group-counter updates use {@link Object2LongOpenHashMap#addTo}
+   * — one hashmap op per match, no box-on-insert.
+   */
+  public static void conjunctiveCountByGroup(final Iterable<byte[]> leafPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates,
+      final int groupColumn,
+      final Object2LongOpenHashMap<String> out) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    // Thread-local scratch + long-hash string intern. The intern map
+    // reduces the 8 dept values shared across 97 K leaves to 8 String
+    // allocations total (per thread, per scan), not 776 K. Keying by
+    // long-hash keeps the lookup fully primitive — no ByteKey / String
+    // object alloc on lookup. The per-leaf dictCache/dictByteOff
+    // buffers are hoisted here too.
+    final ScanScratch s = SCRATCH.get();
+    if (s.dictCache == null) {
+      s.dictCache = new String[64];
+      s.dictByteOff = new int[64];
+    }
+    if (s.stringIntern == null) {
+      s.stringIntern = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>(32);
+    }
+    String[] dictCache = s.dictCache;
+    int[] dictByteOff = s.dictByteOff;
+    final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String> intern = s.stringIntern;
+    for (final byte[] payload : leafPayloads) {
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = evaluateLeafMask(payload, predicates,
+          s.columnDataOff, s.columnMinMaxOff, s.numericScratch, s.mask, s.colMask);
+      if (rowCount <= 0) continue;
+      final byte groupKind = payload[24 + groupColumn];
+      if (groupKind != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+        throw new IllegalStateException("groupColumn " + groupColumn
+            + " is not STRING_DICT (kind=" + groupKind + ")");
+      }
+      final int groupBase = s.columnDataOff[groupColumn];
+      final int dictSize = (int) INT_LE.get(payload, groupBase);
+      if (dictCache.length < dictSize) {
+        final int newSize = Math.max(dictCache.length * 2, dictSize);
+        dictCache = new String[newSize];
+        dictByteOff = new int[newSize];
+        s.dictCache = dictCache;
+        s.dictByteOff = dictByteOff;
+      } else {
+        for (int i = 0; i < dictSize; i++) dictCache[i] = null;
+      }
+      // Layout: [int dictSize][int[dictSize] lengths][concat bytes][int[rowCount] ids]
+      final int lenHeaderOff = groupBase + 4;
+      final int concatOff = lenHeaderOff + dictSize * 4;
+      // Prefix-sum the lengths to get per-dict-id byte offsets (and the
+      // ids-array base as a side product). One pass, no re-scan on miss.
+      int running = concatOff;
+      for (int i = 0; i < dictSize; i++) {
+        dictByteOff[i] = running;
+        running += (int) INT_LE.get(payload, lenHeaderOff + i * 4);
+      }
+      final int idsOff = running;
+
+      final int stride = (rowCount + 63) >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w];
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = (w << 6) + bit;
+          if (rowIdx >= rowCount) break;
+          final int dictId = (int) INT_LE.get(payload, idsOff + rowIdx * 4);
+          String gv = dictCache[dictId];
+          if (gv == null) {
+            final int byteOff = dictByteOff[dictId];
+            final int len = (int) INT_LE.get(payload, lenHeaderOff + dictId * 4);
+            // Lookup by 64-bit FNV-1a hash — zero-alloc hit path.
+            // Collision rate at N=10^7 distinct values ≈ 10⁻¹⁹.
+            final long h = fnv1a64(payload, byteOff, len);
+            gv = intern.get(h);
+            if (gv == null) {
+              gv = new String(payload, byteOff, len, StandardCharsets.UTF_8);
+              intern.put(h, gv);
+            }
+            dictCache[dictId] = gv;
+          }
+          out.addTo(gv, 1L);
+        }
+      }
+    }
   }
 
   private static int columnCountOf(final byte[] payload) {
@@ -108,13 +244,36 @@ public final class ProjectionIndexByteScan {
 
   private static long countLeaf(final byte[] payload,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
-      final int[] columnDataOff, final int[] columnMinMaxOff) {
+      final int[] columnDataOff, final int[] columnMinMaxOff,
+      final long[] numericScratch, final long[] mask, final long[] colMask) {
+    final int rowCount = evaluateLeafMask(payload, predicates,
+        columnDataOff, columnMinMaxOff, numericScratch, mask, colMask);
+    if (rowCount <= 0) return 0L;
+    final int stride = (rowCount + 63) >>> 6;
+    long result = 0;
+    for (int i = 0; i < stride; i++) result += Long.bitCount(mask[i]);
+    return result;
+  }
+
+  /**
+   * Parse leaf offsets, apply zone-map pruning, and compute the final
+   * conjunctive predicate mask into {@code mask}. Returns the leaf's
+   * {@code rowCount} (possibly with a zeroed-out mask when zone-map
+   * rules out the page), or {@code 0} for empty leaves / zone-map
+   * skips — callers should treat {@code 0} as "nothing to do".
+   *
+   * <p>The mask is sized by the caller to {@code ceil(MAX_ROWS/64)};
+   * only the first {@code ceil(rowCount/64)} words are populated.
+   */
+  private static int evaluateLeafMask(final byte[] payload,
+      final ProjectionIndexScan.ColumnPredicate[] predicates,
+      final int[] columnDataOff, final int[] columnMinMaxOff,
+      final long[] numericScratch, final long[] mask, final long[] colMask) {
     final int rowCount = (int) INT_LE.get(payload, 0);
-    if (rowCount == 0) return 0L;
+    if (rowCount == 0) return 0;
     final int columnCount = (int) INT_LE.get(payload, 4);
     final int kindsOff = 24;
     final int recordKeysOff = kindsOff + columnCount;
-    final MemorySegment segment = MemorySegment.ofArray(payload);
 
     // Compute column offsets in one pass. Each column starts with
     // (min, max) 16 bytes, then its kind-specific data.
@@ -133,7 +292,6 @@ public final class ProjectionIndexByteScan {
           for (int i = 0; i < dictSize; i++) {
             lenTotal += (int) INT_LE.get(payload, cursor + 4 + i * 4);
           }
-          // cursor still points at dictSize; data is at cursor + 4 + dictSize*4 + sumLengths
           cursor += 4 + dictSize * 4 + lenTotal + rowCount * 4;
         }
         default -> throw new IllegalStateException("Unknown column kind " + kind);
@@ -147,20 +305,20 @@ public final class ProjectionIndexByteScan {
       if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) continue;
       final long min = (long) LONG_LE.get(payload, columnMinMaxOff[p.column]);
       final long max = (long) LONG_LE.get(payload, columnMinMaxOff[p.column] + 8);
-      if (zoneSkip(p, min, max)) return 0L;
+      if (zoneSkip(p, min, max)) return 0;
     }
 
-    // Per-column mask buffers. Reuse via locals; stride ≤ 16.
+    // Build the conjunctive mask over the caller-provided buffers.
     final int stride = (rowCount + 63) >>> 6;
-    final long[] mask = new long[stride];
     fillAllTrue(mask, rowCount);
-    final long[] colMask = new long[stride];
     for (final var p : predicates) {
-      Arrays.fill(colMask, 0L);
+      // Only clear the live prefix of colMask — tail words beyond
+      // `stride` are never read.
+      Arrays.fill(colMask, 0, stride, 0L);
       final byte kind = payload[kindsOff + p.column];
       switch (kind) {
         case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> evalNumericBytes(
-            payload, segment, columnDataOff[p.column], rowCount, p.op, p.longLit, colMask);
+            payload, columnDataOff[p.column], rowCount, p.op, p.longLit, numericScratch, colMask);
         case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> evalBooleanBytes(
             payload, columnDataOff[p.column], rowCount, p.boolLit, colMask);
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> evalStringEqBytes(
@@ -169,9 +327,7 @@ public final class ProjectionIndexByteScan {
       }
       for (int i = 0; i < stride; i++) mask[i] &= colMask[i];
     }
-    long result = 0;
-    for (int i = 0; i < stride; i++) result += Long.bitCount(mask[i]);
-    return result;
+    return rowCount;
   }
 
   private static boolean zoneSkip(final ProjectionIndexScan.ColumnPredicate p,
@@ -186,15 +342,44 @@ public final class ProjectionIndexByteScan {
   }
 
   /**
-   * SIMD-accelerated numeric compare — loads {@link #LANES} longs at a
-   * time via {@link LongVector#fromMemorySegment}, runs the compare
-   * against a broadcast literal, packs the mask via
-   * {@link VectorMask#toLong()}, and OR's the bits into the output
-   * packed-bit mask at the correct position.
+   * 64-bit FNV-1a hash over a byte slice. Stable across JVMs; adequate
+   * collision resistance for the group-by intern ({@code ~10⁻¹⁹} at 10M
+   * distinct values). Matches the hash used in
+   * {@link io.sirix.page.pax.StringRegion.Encoder} so encoder / decoder
+   * agree on key space when interop is needed.
    */
-  private static void evalNumericBytes(final byte[] payload, final MemorySegment segment,
+  private static long fnv1a64(final byte[] data, final int off, final int len) {
+    long h = 0xcbf29ce484222325L;
+    final int end = off + len;
+    for (int i = off; i < end; i++) {
+      h ^= data[i] & 0xFF;
+      h *= 0x100000001b3L;
+    }
+    return h;
+  }
+
+  /**
+   * SIMD-accelerated numeric compare. Hybrid scalar-load + SIMD-eval:
+   * copies the numeric column out of the byte[] payload into a reusable
+   * {@code long[]} scratch via the byte-array {@link VarHandle} (HotSpot
+   * fully intrinsifies to a tight MOVQ loop), then runs the compare via
+   * {@link LongVector#fromArray} + {@link LongVector#compare(VectorOperators.Comparison, long)}
+   * + {@link VectorMask#toLong()} and OR's the bits into the output
+   * packed-bit mask at the correct position.
+   *
+   * <p>This detour avoids {@link LongVector#fromMemorySegment}, which
+   * funnels through {@code ScopedMemoryAccess.loadFromMemorySegmentScopedInternal}
+   * and does per-leaf session/scope validation — checks that aren't
+   * hoisted out of the hot loop and which prevented the intrinsic path
+   * from kicking in at all in profiling.
+   */
+  private static void evalNumericBytes(final byte[] payload,
       final int baseOff, final int rowCount, final ProjectionIndexScan.Op op,
-      final long lit, final long[] out) {
+      final long lit, final long[] scratch, final long[] out) {
+    // 1) Load column into scratch — fully intrinsified (MOVQ per lane).
+    for (int k = 0; k < rowCount; k++) {
+      scratch[k] = (long) LONG_LE.get(payload, baseOff + k * 8);
+    }
     final VectorOperators.Comparison cmp = switch (op) {
       case GT -> VectorOperators.GT;
       case LT -> VectorOperators.LT;
@@ -202,26 +387,26 @@ public final class ProjectionIndexByteScan {
       case LE -> VectorOperators.LE;
       case EQ -> VectorOperators.EQ;
     };
-    // SIMD tail-friendly: process LANES values per vector op, one output
-    // bit per lane, shift into the correct 64-bit output word.
+    // 2) SIMD-eval over scratch. LongVector.fromArray(long[]) is a
+    // pure intrinsic — no scope checks, bounds folds into the trip
+    // count test.
     int i = 0;
     final int simdEnd = rowCount - (rowCount % LANES);
     for (; i < simdEnd; i += LANES) {
-      final LongVector v = LongVector.fromMemorySegment(
-          LONG_SPECIES, segment, (long) baseOff + (long) i * 8L, ByteOrder.LITTLE_ENDIAN);
+      final LongVector v = LongVector.fromArray(LONG_SPECIES, scratch, i);
       final VectorMask<Long> m = v.compare(cmp, lit);
       final long bits = m.toLong();
       if (bits != 0L) {
         final int wordIdx = i >>> 6;
         final int bitOffset = i & 63;
-        // Because LANES divides 64 (2, 4, or 8 lanes), bits never straddle
-        // two output words — one shift + OR is sufficient.
+        // LANES ∈ {2,4,8} divides 64, so bits never straddle two output
+        // words — one shift + OR is sufficient.
         out[wordIdx] |= bits << bitOffset;
       }
     }
     // Scalar tail — 0..LANES-1 values remain.
     for (; i < rowCount; i++) {
-      final long v = (long) LONG_LE.get(payload, baseOff + i * 8);
+      final long v = scratch[i];
       final boolean match = switch (op) {
         case GT -> v > lit;
         case LT -> v < lit;

@@ -179,6 +179,7 @@ public final class HOTIndirectPage implements Page {
   private @Nullable SparsePartialKeys<?> sparsePartialKeys; // SIMD-accelerated search
   private final PageReference[] childReferences; // References to child pages
 
+
   // ===== SIMD gather for MultiMask (vpshufb optimization) =====
   private static final VectorSpecies<Byte> BYTE_SPECIES = ByteVector.SPECIES_256;
   private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_256;
@@ -440,10 +441,17 @@ public final class HOTIndirectPage implements Page {
   // ===== Child lookup methods =====
 
   /**
-   * Find child index for the given key. Uses SIMD-optimized lookup based on node type.
+   * Find child index for the given key.
+   *
+   * <p>Uses the authoritative {@link #childFirstKeys} table (binary
+   * search over sorted first-keys) when populated — correct regardless
+   * of whether the HOT disc-bit-invariance holds for this key shape.
+   * Falls back to the SIMD-accelerated PEXT partial-key lookup when
+   * the table hasn't been populated yet (e.g. for pre-existing pages
+   * without the new field serialised).
    *
    * @param key the search key
-   * @return child index, or NOT_FOUND (-1) if not found
+   * @return child index, or {@link #NOT_FOUND} (-1) if not found
    */
   public int findChildIndex(byte[] key) {
     return switch (nodeType) {
@@ -482,27 +490,31 @@ public final class HOTIndirectPage implements Page {
       densePartialKey = (int) Long.compress(keyWord, bitMask); // PEXT intrinsic
     }
 
-    // Use SIMD-accelerated search if available
+    // Equality-preferred with subset fallback. HOT paper uses subset-
+    // match for SIMD speed, but subset matching can deliver a key to a
+    // subtree whose INV-constancy it violates (when partials don't
+    // uniformly span the 2^|D| space). Equality-preferred eliminates
+    // that ambiguity while preserving subset-fallback for keys that
+    // legitimately lack an exact match (e.g., lookup of a non-existent
+    // key — should land on the closest leaf so the leaf-level findEntry
+    // returns "not found" cleanly).
     if (sparsePartialKeys != null) {
-      // SIMD search returns bitmask of all matching entries
       int matchMask = sparsePartialKeys.search(densePartialKey);
-      if (matchMask == 0) {
-        return NOT_FOUND;
+      if (matchMask == 0) return NOT_FOUND;
+      final int subsetPick = 31 - Integer.numberOfLeadingZeros(matchMask);
+      for (int i = 0; i < numChildren; i++) {
+        if (partialKeys[i] == densePartialKey) return i;
       }
-      // Return highest matching index (most-specific match per HOT paper)
-      return 31 - Integer.numberOfLeadingZeros(matchMask);
+      return subsetPick;
     }
-
-    // Fallback: Linear search — find the last (highest-index) matching entry
+    int exact = NOT_FOUND;
     int best = NOT_FOUND;
     for (int i = 0; i < numChildren; i++) {
-      // Check: (denseKey & sparseKey[i]) == sparseKey[i]
       int sparseKey = partialKeys[i];
-      if ((densePartialKey & sparseKey) == sparseKey) {
-        best = i;
-      }
+      if (sparseKey == densePartialKey) { exact = i; break; }
+      if ((densePartialKey & sparseKey) == sparseKey) best = i;
     }
-    return best;
+    return exact >= 0 ? exact : best;
   }
 
   /**
@@ -912,7 +924,6 @@ public final class HOTIndirectPage implements Page {
         copy.childReferences[i] = new PageReference(this.childReferences[i]);
       }
     }
-
     return copy;
   }
 
