@@ -1,8 +1,5 @@
 package io.sirix.index;
 
-import java.util.HashMap;
-import java.util.Map;
-
 /**
  * The index type.
  *
@@ -57,7 +54,20 @@ public enum IndexType {
   /**
    * Vector index for nearest-neighbor search on embeddings.
    */
-  VECTOR((byte) 9);
+  VECTOR((byte) 9),
+
+  /**
+   * Projection index — user-declared covering index over a declared root path
+   * and a list of sub-field paths. Stored as a HOT sub-tree whose leaf pages
+   * are column-chunked: each leaf holds N contiguous record projections as
+   * parallel arrays (one per declared field plus a {@code recordKey} column),
+   * enabling SIMD-friendly multi-field filter scans without the OBJECT_KEY
+   * indirection that the generic predicate-count path pays. Created / dropped
+   * at any revision via the same index-lifecycle machinery used by CAS,
+   * PATH, and NAME indexes; participates in the standard CoW-versioned HOT
+   * chain so old revisions remain readable.
+   */
+  PROJECTION((byte) 10);
 
   /**
    * Unique ID.
@@ -73,13 +83,23 @@ public enum IndexType {
   }
 
   /**
-   * Mapping of keys -> page
+   * Direct id-indexed lookup table. IDs are dense [0..9] today; if a sparser
+   * id space is ever introduced, this needs to grow OR fall back to a switch.
+   * Replaces a {@code HashMap<Byte, IndexType>} that was autoboxing the {@code byte}
+   * key on every call ({@code IndexType.getType} showed at ~3% of CPU under
+   * Temurin C2 in the 100M-record scan profile).
    */
-  private static final Map<Byte, IndexType> INSTANCEFORID = new HashMap<>();
+  private static final IndexType[] BY_ID;
 
   static {
-    for (final IndexType indexType : values()) {
-      INSTANCEFORID.put(indexType.id, indexType);
+    final IndexType[] all = values();
+    int max = 0;
+    for (final IndexType t : all) {
+      if (t.id > max) max = t.id;
+    }
+    BY_ID = new IndexType[max + 1];
+    for (final IndexType t : all) {
+      BY_ID[t.id] = t;
     }
   }
 
@@ -90,9 +110,12 @@ public enum IndexType {
    * @return the related index type
    */
   public static IndexType getType(final byte id) {
-    final IndexType indexType = INSTANCEFORID.get(id);
+    if (id < 0 || id >= BY_ID.length) {
+      throw new IllegalStateException("Unknown IndexType id: " + id);
+    }
+    final IndexType indexType = BY_ID[id];
     if (indexType == null) {
-      throw new IllegalStateException();
+      throw new IllegalStateException("Unknown IndexType id: " + id);
     }
     return indexType;
   }

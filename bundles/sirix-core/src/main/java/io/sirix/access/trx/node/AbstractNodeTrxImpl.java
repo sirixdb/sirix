@@ -336,6 +336,16 @@ public abstract class AbstractNodeTrxImpl<R extends NodeReadOnlyTrx & NodeCursor
     runLocked(() -> {
       state = State.COMMITTING;
 
+      // Flush deferred PathSummary statistics into real PathNodes before
+      // commit. Each recordValue() call during the transaction buffered its
+      // delta in PathSummaryWriter.pendingStats rather than paying a
+      // prepareRecordForModification COW per insert; applying them all here
+      // reduces per-shred PathSummary COW traffic by several orders of
+      // magnitude on analytical workloads.
+      if (pathSummaryWriter != null) {
+        pathSummaryWriter.flushPendingStats();
+      }
+
       // Execute pre-commit hooks.
       for (final PreCommitHook hook : preCommitHooks) {
         hook.preCommit(this);

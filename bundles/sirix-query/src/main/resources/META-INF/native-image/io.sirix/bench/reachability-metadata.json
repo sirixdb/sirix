@@ -1,0 +1,614 @@
+{
+  "reflection": [
+    {
+      "type": "ch.qos.logback.classic.Level",
+      "methods": [
+        {
+          "name": "valueOf",
+          "parameterTypes": [
+            "java.lang.String"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.classic.encoder.PatternLayoutEncoder",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.classic.filter.LevelFilter",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        },
+        {
+          "name": "setLevel",
+          "parameterTypes": [
+            "ch.qos.logback.classic.Level"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.classic.joran.SerializedModelConfigurator",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.classic.spi.LogbackServiceProvider"
+    },
+    {
+      "type": "ch.qos.logback.classic.util.DefaultJoranConfigurator",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.core.ConsoleAppender",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.core.OutputStreamAppender",
+      "methods": [
+        {
+          "name": "setEncoder",
+          "parameterTypes": [
+            "ch.qos.logback.core.encoder.Encoder"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.core.UnsynchronizedAppenderBase",
+      "methods": [
+        {
+          "name": "addFilter",
+          "parameterTypes": [
+            "ch.qos.logback.core.filter.Filter"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.core.encoder.Encoder"
+    },
+    {
+      "type": "ch.qos.logback.core.encoder.LayoutWrappingEncoder",
+      "methods": [
+        {
+          "name": "setParent",
+          "parameterTypes": [
+            "ch.qos.logback.core.spi.ContextAware"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.core.filter.AbstractMatcherFilter",
+      "methods": [
+        {
+          "name": "setOnMatch",
+          "parameterTypes": [
+            "ch.qos.logback.core.spi.FilterReply"
+          ]
+        },
+        {
+          "name": "setOnMismatch",
+          "parameterTypes": [
+            "ch.qos.logback.core.spi.FilterReply"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.core.filter.Filter"
+    },
+    {
+      "type": "ch.qos.logback.core.pattern.PatternLayoutEncoderBase",
+      "methods": [
+        {
+          "name": "setPattern",
+          "parameterTypes": [
+            "java.lang.String"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "ch.qos.logback.core.spi.ContextAware"
+    },
+    {
+      "type": "ch.qos.logback.core.spi.FilterReply"
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.BBHeader$ReadAndWriteCounterRef",
+      "fields": [
+        {
+          "name": "writeCounter"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.BBHeader$ReadCounterRef",
+      "fields": [
+        {
+          "name": "readCounter"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.BLCHeader$DrainStatusRef",
+      "fields": [
+        {
+          "name": "drainStatus"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.BaseMpscLinkedArrayQueueColdProducerFields",
+      "fields": [
+        {
+          "name": "producerLimit"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.BaseMpscLinkedArrayQueueConsumerFields",
+      "fields": [
+        {
+          "name": "consumerIndex"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.BaseMpscLinkedArrayQueueProducerFields",
+      "fields": [
+        {
+          "name": "producerIndex"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.BoundedLocalCache",
+      "fields": [
+        {
+          "name": "refreshes"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.PS",
+      "fields": [
+        {
+          "name": "key"
+        },
+        {
+          "name": "value"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.PSMS",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.PSMW",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.SSLMS",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "com.github.benmanes.caffeine.cache.Caffeine",
+            "com.github.benmanes.caffeine.cache.AsyncCacheLoader",
+            "boolean"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.SSLSMW",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "com.github.benmanes.caffeine.cache.Caffeine",
+            "com.github.benmanes.caffeine.cache.AsyncCacheLoader",
+            "boolean"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.SSMS",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "com.github.benmanes.caffeine.cache.Caffeine",
+            "com.github.benmanes.caffeine.cache.AsyncCacheLoader",
+            "boolean"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.StripedBuffer",
+      "fields": [
+        {
+          "name": "tableBusy"
+        }
+      ]
+    },
+    {
+      "type": "com.github.benmanes.caffeine.cache.UnboundedLocalCache",
+      "fields": [
+        {
+          "name": "refreshes"
+        }
+      ]
+    },
+    {
+      "type": "com.sun.org.apache.xerces.internal.jaxp.SAXParserFactoryImpl",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "io.brackit.query.util.log.UtilLogFactory",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "io.sirix.io.bytepipe.FFILz4Compressor",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "io.sirix.node.NodeSerializerImpl",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "io.sirix.page.KeyValueLeafPage",
+      "fields": [
+        {
+          "name": "stateFlags"
+        }
+      ]
+    },
+    {
+      "type": "java.lang.Boolean",
+      "jniAccessible": true,
+      "methods": [
+        {
+          "name": "getBoolean",
+          "parameterTypes": [
+            "java.lang.String"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "jdk.incubator.vector.VectorOperators",
+      "fields": [
+        {
+          "name": "B2D"
+        },
+        {
+          "name": "B2F"
+        },
+        {
+          "name": "B2I"
+        },
+        {
+          "name": "B2L"
+        },
+        {
+          "name": "B2S"
+        },
+        {
+          "name": "D2B"
+        },
+        {
+          "name": "D2F"
+        },
+        {
+          "name": "D2I"
+        },
+        {
+          "name": "D2L"
+        },
+        {
+          "name": "D2S"
+        },
+        {
+          "name": "F2B"
+        },
+        {
+          "name": "F2D"
+        },
+        {
+          "name": "F2I"
+        },
+        {
+          "name": "F2L"
+        },
+        {
+          "name": "F2S"
+        },
+        {
+          "name": "I2B"
+        },
+        {
+          "name": "I2D"
+        },
+        {
+          "name": "I2F"
+        },
+        {
+          "name": "I2L"
+        },
+        {
+          "name": "I2S"
+        },
+        {
+          "name": "L2B"
+        },
+        {
+          "name": "L2D"
+        },
+        {
+          "name": "L2F"
+        },
+        {
+          "name": "L2I"
+        },
+        {
+          "name": "L2S"
+        },
+        {
+          "name": "REINTERPRET_D2L"
+        },
+        {
+          "name": "REINTERPRET_F2I"
+        },
+        {
+          "name": "REINTERPRET_I2F"
+        },
+        {
+          "name": "REINTERPRET_L2D"
+        },
+        {
+          "name": "S2B"
+        },
+        {
+          "name": "S2D"
+        },
+        {
+          "name": "S2F"
+        },
+        {
+          "name": "S2I"
+        },
+        {
+          "name": "S2L"
+        },
+        {
+          "name": "ZERO_EXTEND_B2I"
+        },
+        {
+          "name": "ZERO_EXTEND_B2L"
+        },
+        {
+          "name": "ZERO_EXTEND_B2S"
+        },
+        {
+          "name": "ZERO_EXTEND_I2L"
+        },
+        {
+          "name": "ZERO_EXTEND_S2I"
+        },
+        {
+          "name": "ZERO_EXTEND_S2L"
+        }
+      ]
+    },
+    {
+      "type": "long[]"
+    },
+    {
+      "type": "sun.misc.Unsafe",
+      "fields": [
+        {
+          "name": "theUnsafe"
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.NativePRNG",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": [
+            "java.security.SecureRandomParameters"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "sun.security.provider.SHA",
+      "methods": [
+        {
+          "name": "<init>",
+          "parameterTypes": []
+        }
+      ]
+    },
+    {
+      "type": "sun.text.resources.cldr.FormatData"
+    },
+    {
+      "type": "sun.text.resources.cldr.FormatData_en"
+    },
+    {
+      "type": "sun.text.resources.cldr.FormatData_en_US"
+    }
+  ],
+  "resources": [
+    {
+      "glob": "META-INF/services/ch.qos.logback.classic.spi.Configurator"
+    },
+    {
+      "glob": "META-INF/services/io.sirix.io.StorageProvider"
+    },
+    {
+      "glob": "META-INF/services/java.time.zone.ZoneRulesProvider"
+    },
+    {
+      "glob": "META-INF/services/javax.xml.parsers.SAXParserFactory"
+    },
+    {
+      "glob": "META-INF/services/org.slf4j.spi.SLF4JServiceProvider"
+    },
+    {
+      "glob": "logback-test.scmo"
+    },
+    {
+      "glob": "logback-test.xml"
+    },
+    {
+      "glob": "logback.scmo"
+    },
+    {
+      "glob": "logback.xml"
+    },
+    {
+      "glob": "logging.properties"
+    }
+  ],
+  "foreign": {
+    "downcalls": [
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "void*",
+          "jlong"
+        ]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "void*",
+          "jlong",
+          "jint"
+        ]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": [
+          "void*",
+          "jlong",
+          "jint",
+          "jint",
+          "jint",
+          "jlong"
+        ]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "jint",
+          "jint"
+        ]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "jint"
+        ]
+      },
+      {
+        "returnType": "jlong",
+        "parameterTypes": [
+          "jint"
+        ]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": [
+          "jint"
+        ]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "jint"
+        ]
+      },
+      {
+        "returnType": "jint",
+        "parameterTypes": [
+          "void*",
+          "void*",
+          "jint",
+          "jint",
+          "jint"
+        ]
+      },
+      {
+        "returnType": "void*",
+        "parameterTypes": []
+      }
+    ]
+  }
+}

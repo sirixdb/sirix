@@ -46,10 +46,16 @@ public final class PageGuard implements AutoCloseable {
    */
   private PageGuard(KeyValueLeafPage page, boolean acquireGuard) {
     this.page = page;
-    this.versionAtFix = page.getVersion();
     if (acquireGuard) {
       page.acquireGuard(); // Guard the PAGE (frame)
     }
+    // Capture version AFTER acquireGuard so an in-flight evictor that sees
+    // guardCount==0 cannot bump the version between our snapshot and our
+    // guard. Before the guard is held the frame can be recycled at any time;
+    // once held, the cache's eviction path skips guarded pages. Reversing the
+    // order turned a narrow race into a correctness error under pressure —
+    // the guard's close-time version check was firing on benign recycles.
+    this.versionAtFix = page.getVersion();
   }
 
   /**
@@ -118,8 +124,12 @@ public final class PageGuard implements AutoCloseable {
         return;
       }
 
-      page.releaseGuard(); // Release guard on PAGE
-      int currentVersion = page.getVersion();
+      // Capture version BEFORE releaseGuard. While we hold the guard, no
+      // evictor can bump version. Once we release, another thread can
+      // evict + incrementVersion before we read — a race that produced
+      // spurious FrameReusedException under severe-pressure eviction.
+      final int currentVersion = page.getVersion();
+      page.releaseGuard();
       if (currentVersion != versionAtFix) {
         throw new FrameReusedException(
             "Page frame was reused while guard was active: versionAtFix=" + versionAtFix + ", currentVersion="

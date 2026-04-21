@@ -78,6 +78,20 @@ public final class NodeFieldLayout {
   public static final int OBJKEY_HASH = 8;
   public static final int OBJKEY_DESCENDANT_COUNT = 9;
 
+  // ==================== OBJECT_KEY PAX NODE (9 fields, nameKey in region) ====================
+
+  /** Total field count for OBJECT_KEY PAX nodes (nameKey moved to region). */
+  public static final int OBJECT_KEY_PAX_FIELD_COUNT = 9;
+
+  /** Kind ID for the PAX variant of OBJECT_KEY (nameKey stored in region table). */
+  public static final int OBJECT_KEY_PAX_KIND_ID = 126;
+
+  public static final int OBJKEY_PAX_PATH_NODE_KEY = 4;
+  public static final int OBJKEY_PAX_PREV_REVISION = 5;
+  public static final int OBJKEY_PAX_LAST_MOD_REVISION = 6;
+  public static final int OBJKEY_PAX_HASH = 7;
+  public static final int OBJKEY_PAX_DESCENDANT_COUNT = 8;
+
   // ==================== STRING_VALUE NODE (7 fields + payload) ====================
 
   /** Total field count for STRING_VALUE nodes (excluding payload). */
@@ -312,6 +326,7 @@ public final class NodeFieldLayout {
       case 24 -> OBJECT_FIELD_COUNT;             // OBJECT
       case 25 -> ARRAY_FIELD_COUNT;              // ARRAY
       case 26 -> OBJECT_KEY_FIELD_COUNT;         // OBJECT_KEY
+      case 126 -> OBJECT_KEY_PAX_FIELD_COUNT;    // OBJECT_KEY (PAX, nameKey in region)
       case 27 -> BOOLEAN_VALUE_FIELD_COUNT;      // BOOLEAN_VALUE
       case 28 -> NUMBER_VALUE_FIELD_COUNT;       // NUMBER_VALUE
       case 29 -> NULL_VALUE_FIELD_COUNT;         // NULL_VALUE

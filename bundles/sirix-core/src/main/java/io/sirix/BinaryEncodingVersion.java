@@ -39,6 +39,14 @@ public enum BinaryEncodingVersion {
    * Unified page format: Header(32B) + Bitmap(128B) + Directory(8KB) + Heap.
    * FlyweightNode records bind directly to page memory for zero-copy reads.
    * Non-FlyweightNode records are serialized to the heap at commit time.
+   *
+   * <p>KeyValueLeafPage additionally carries a PAX
+   * {@link io.sirix.page.pax.RegionTable} appended after the heap. Regions
+   * hold payload-type-segregated data (numeric values, string values, struct
+   * pointers, DeweyIDs) so scan operators can read a contiguous buffer
+   * instead of decoding varints per slot. The table is a length-prefixed list
+   * of {@code (kind, size, bytes)} triples, so new region kinds can be added
+   * without a format bump.
    */
   V0((byte) 0);
 

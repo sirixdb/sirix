@@ -8,6 +8,7 @@ import io.sirix.access.Databases;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -18,6 +19,11 @@ import java.util.Random;
  * Standalone perf comparison: Brackit query on Sirix-stored data,
  * Volcano vs SirixVectorizedExecutor. Run via:
  *   ./gradlew :sirix-query:test --tests SirixVectorizedExecutorPerfMain -Dn=100000
+ *
+ * <p>The {@code @Test perf()} wrapper is {@code @Disabled} because it
+ * warms + times 8 query shapes over 100K records — ~40 minutes of
+ * single-threaded wall time that swamps a CI {@code ./gradlew test}
+ * run. Enable it manually for local perf work.
  */
 public final class SirixVectorizedExecutorPerfMain {
 
@@ -26,6 +32,8 @@ public final class SirixVectorizedExecutorPerfMain {
   private static final String[] DEPTS = { "Eng", "Sales", "Mkt", "Ops", "HR", "Finance", "Legal", "Supp" };
   private static final String[] CITIES = { "NYC", "LA", "SF", "ATL", "BOS", "CHI", "DEN", "DAL" };
 
+  @Disabled("perf benchmark — runs ~40 min; enable manually via --tests "
+      + "io.sirix.query.scan.SirixVectorizedExecutorPerfMain")
   @Test
   void perf() throws Exception {
     main(new String[] { System.getProperty("n", "100000") });

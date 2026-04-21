@@ -97,6 +97,11 @@ public final class RevisionRootPage extends AbstractForwardingPage {
   private static final int VECTOR_REFERENCE_OFFSET = 8;
 
   /**
+   * Offset of projection index page reference.
+   */
+  private static final int PROJECTION_REFERENCE_OFFSET = 9;
+
+  /**
    * Last allocated node key.
    */
   private long maxNodeKeyInDocumentIndex;
@@ -157,13 +162,14 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    * Create revision root page.
    */
   public RevisionRootPage() {
-    delegate = new BitmapReferencesPage(9);
+    delegate = new BitmapReferencesPage(10);
     getOrCreateReference(PATH_SUMMARY_REFERENCE_OFFSET).setPage(new PathSummaryPage());
     getOrCreateReference(NAME_REFERENCE_OFFSET).setPage(new NamePage());
     getOrCreateReference(CAS_REFERENCE_OFFSET).setPage(new CASPage());
     getOrCreateReference(PATH_REFERENCE_OFFSET).setPage(new PathPage());
     getOrCreateReference(DEWEYID_REFERENCE_OFFSET).setPage(new DeweyIDPage());
     getOrCreateReference(VECTOR_REFERENCE_OFFSET).setPage(new VectorPage());
+    getOrCreateReference(PROJECTION_REFERENCE_OFFSET).setPage(new ProjectionIndexPage());
     revision = Constants.UBP_ROOT_REVISION_NUMBER;
     maxNodeKeyInDocumentIndex = -1L;
     maxNodeKeyInChangedNodesIndex = -1L;
@@ -310,6 +316,15 @@ public final class RevisionRootPage extends AbstractForwardingPage {
    */
   public PageReference getVectorPageReference() {
     return getOrCreateReference(VECTOR_REFERENCE_OFFSET);
+  }
+
+  /**
+   * Get projection index page reference.
+   *
+   * @return projection index page reference.
+   */
+  public PageReference getProjectionIndexPageReference() {
+    return getOrCreateReference(PROJECTION_REFERENCE_OFFSET);
   }
 
   /**
@@ -478,6 +493,7 @@ public final class RevisionRootPage extends AbstractForwardingPage {
                       .add("CASPage", getOrCreateReference(CAS_REFERENCE_OFFSET))
                       .add("deweyIDPage", getOrCreateReference(DEWEYID_REFERENCE_OFFSET))
                       .add("vectorPage", getOrCreateReference(VECTOR_REFERENCE_OFFSET))
+                      .add("projectionPage", getOrCreateReference(PROJECTION_REFERENCE_OFFSET))
                       .toString();
   }
 

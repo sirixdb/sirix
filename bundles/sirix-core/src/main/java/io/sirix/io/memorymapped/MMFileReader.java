@@ -118,6 +118,31 @@ public final class MMFileReader extends AbstractReader {
     this.arena = null; // Not used when managed by MMStorage
     this.generation = generation;
     this.storage = storage;
+    // Hint the kernel: analytical scans read pages sequentially within each
+    // thread's range. MADV_SEQUENTIAL enables aggressive readahead (~2 MB
+    // instead of the default 128 KB), overlapping I/O with compute.
+    adviseMadvSequential(dataFileSegment);
+  }
+
+  private static final int MADV_SEQUENTIAL = 2;
+
+  private static void adviseMadvSequential(final MemorySegment seg) {
+    try {
+      final var linker = java.lang.foreign.Linker.nativeLinker();
+      final var madvise = linker.downcallHandle(
+          linker.defaultLookup().find("madvise").orElseThrow(),
+          java.lang.foreign.FunctionDescriptor.of(
+              java.lang.foreign.ValueLayout.JAVA_INT,
+              java.lang.foreign.ValueLayout.ADDRESS,
+              java.lang.foreign.ValueLayout.JAVA_LONG,
+              java.lang.foreign.ValueLayout.JAVA_INT));
+      final int rc = (int) madvise.invokeExact(seg, seg.byteSize(), MADV_SEQUENTIAL);
+      if (rc != 0) {
+        // Non-fatal: kernel may not support MADV_SEQUENTIAL on all mappings.
+      }
+    } catch (final Throwable ignored) {
+      // madvise unavailable (non-Linux) — no-op.
+    }
   }
 
   @Override

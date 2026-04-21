@@ -66,6 +66,7 @@ import io.sirix.page.PathPage;
 import io.sirix.page.PathSummaryPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
+import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.page.interfaces.Page;
@@ -576,12 +577,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return new SlotOrCachedResult(null, null);
     }
     
-    // Not cached - acquire guard and return slot location
-    page.acquireGuard();
-
-    // Check if page is still valid after acquiring guard
-    if (page.isClosed()) {
-      page.releaseGuard();
+    // Not cached - atomically acquire guard only if page is still live.
+    // Split acquireGuard + isClosed races with close() under severe eviction.
+    if (!page.tryAcquireGuard()) {
       return new SlotOrCachedResult(null, null);
     }
 
@@ -663,12 +661,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     KeyValueLeafPage page = (KeyValueLeafPage) pageReferenceToPage.page;
     int offset = StorageEngineReader.recordPageOffset(recordKey);
 
-    // Acquire guard FIRST to prevent eviction race
-    page.acquireGuard();
-
-    // Check if page is still valid after acquiring guard
-    if (page.isClosed()) {
-      page.releaseGuard();
+    // tryAcquireGuard is atomic (synchronized) vs close(); split acquire +
+    // isClosed races with the eviction path.
+    if (!page.tryAcquireGuard()) {
       return null;
     }
 
@@ -785,6 +780,23 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
   }
 
   @Override
+  public ProjectionIndexPage getProjectionIndexPage(final RevisionRootPage revisionRoot) {
+    assertNotClosed();
+    final PageReference ref = revisionRoot.getProjectionIndexPageReference();
+    // Backwards compat: revisions written before PROJECTION_REFERENCE_OFFSET existed
+    // have a bare PageReference with no page attached. Seed an empty container page
+    // on first access so callers never get null — matches the legacy semantics for
+    // CASPage/PathPage/NamePage which are always present on fresh revisions.
+    if (ref.getPage() == null && ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG
+        && ref.getLogKey() == io.sirix.settings.Constants.NULL_ID_INT) {
+      final ProjectionIndexPage fresh = new ProjectionIndexPage();
+      ref.setPage(fresh);
+      return fresh;
+    }
+    return (ProjectionIndexPage) getPage(ref);
+  }
+
+  @Override
   public BufferManager getBufferManager() {
     return resourceBufferManager;
   }
@@ -831,22 +843,19 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (indexLogKey.getIndexType() == IndexType.PATH_SUMMARY && isMostRecentlyReadPathSummaryPage(indexLogKey)) {
       var page = pathSummaryRecordPage.page();
 
-      // Fast path: Try to use locally cached page
-      // CRITICAL: Acquire guard FIRST, then verify page is still valid
-      // This prevents TOCTOU race where page is closed between check and guard acquisition
+      // tryAcquireGuard is synchronized — atomically checks CLOSED_BIT +
+      // ORPHANED_BIT and increments guardCount. Split acquireGuard +
+      // isClosed races with close() under severe-pressure eviction.
       closeCurrentPageGuard();
-      page.acquireGuard();
-      
-      // Now check if page is still valid (not closed, memory not released)
-      if (!page.isClosed() && page.getSlottedPage() != null) {
+      if (page.tryAcquireGuard() && page.getSlottedPage() != null) {
         currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
         return new PageReferenceToPage(pathSummaryRecordPage.pageReference, page);
-      } else {
-        // Page was closed/evicted - release guard and clear stale reference
-        page.releaseGuard();
-        pathSummaryRecordPage = null;
-        // Fall through to reload
       }
+      if (!page.isClosed()) {
+        // Acquired but slottedPage was null — release and fall through.
+        page.releaseGuard();
+      }
+      pathSummaryRecordPage = null;
     }
 
     // Check the most recent page for this type/index
@@ -857,23 +866,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (cachedPage != null) {
       var page = cachedPage.page();
 
-      // Fast path: Try to use locally cached page
-      // CRITICAL: Acquire guard FIRST, then verify page is still valid
-      // This prevents TOCTOU race where page is closed between check and guard acquisition
       closeCurrentPageGuard();
-      page.acquireGuard();
-      
-      // Now check if page is still valid (not closed, memory not released)
-      if (!page.isClosed() && page.getSlottedPage() != null) {
+      if (page.tryAcquireGuard() && page.getSlottedPage() != null) {
         currentPageGuard = PageGuard.wrapAlreadyGuarded(page);
         return new PageReferenceToPage(cachedPage.pageReference, page);
-      } else {
-        // Page was closed/evicted - release guard and clear stale reference
-        page.releaseGuard();
-        setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), null);
-        cachedPage = null;
-        // Fall through to reload
       }
+      if (!page.isClosed()) {
+        page.releaseGuard();
+      }
+      setMostRecentPage(indexLogKey.getIndexType(), indexLogKey.getIndexNumber(), null);
+      cachedPage = null;
     }
 
     // Second: Traverse trie.
@@ -1115,9 +1117,18 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
 
     final ResourceConfiguration config = resourceSession.getResourceConfig();
 
-    // FULL versioning fast path: Page on disk IS complete - load directly without combining
-    // This saves 100% of the allocation and copy overhead for reads
-    if (config.versioningType == VersioningType.FULL) {
+    // Fast path 1 — FULL versioning always stores a complete page (no
+    // fragments). Fast path 2 — SLIDING_SNAPSHOT / INCREMENTAL /
+    // DIFFERENTIAL with no historic fragments (typical for reads on the
+    // most recent revision, which is the analytical-scan common case).
+    // In both cases skip the RecordPageFragmentCache + combineRecordPages
+    // round-trip and load straight into RecordPageCache. Profile showed
+    // combineRecordPages at ~50% inclusive CPU before this change.
+    final boolean singleFragmentFastPath =
+        pageReferenceToRecordPage.getKey() != Constants.NULL_ID_LONG
+            && (config.versioningType == VersioningType.FULL
+                || pageReferenceToRecordPage.getPageFragments().isEmpty());
+    if (singleFragmentFastPath) {
       KeyValueLeafPage page = resourceBufferManager.getRecordPageCache()
           .getOrLoadAndGuard(pageReferenceToRecordPage,
               ref -> (KeyValueLeafPage) pageReader.read(ref, config));
@@ -1130,7 +1141,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return page;
     }
 
-    // Other versioning types: load fragments → combine → cache
+    // Other versioning types with fragment history: load fragments → combine → cache
     KeyValueLeafPage page = resourceBufferManager.getRecordPageCache()
         .getOrLoadAndGuard(pageReferenceToRecordPage,
             ref -> (KeyValueLeafPage) loadDataPageFromDurableStorageAndCombinePageFragments(ref));
@@ -1268,20 +1279,17 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                        kvLeafPage.getRevision());
         }
 
-        // Fast path: Use swizzled page directly if still valid
-        // CRITICAL: Acquire guard FIRST, then verify page is still valid
-        // This prevents TOCTOU race where page is closed between check and guard acquisition
+        // tryAcquireGuard is atomic with close(): split acquire + isClosed
+        // races under severe-pressure eviction and produces FrameReusedException.
         closeCurrentPageGuard();
-        kvLeafPage.acquireGuard();
-        
-        // Now check if page is still valid (not closed, memory not released)
-        if (!kvLeafPage.isClosed() && kvLeafPage.getSlottedPage() != null) {
+        if (kvLeafPage.tryAcquireGuard() && kvLeafPage.getSlottedPage() != null) {
           currentPageGuard = PageGuard.wrapAlreadyGuarded(kvLeafPage);
         } else {
-          // Swizzled page was closed - release guard and reload
-          kvLeafPage.releaseGuard();
-          pageReferenceToRecordPage.setPage(null);  // Clear stale swizzled reference
-          return null;  // Signal caller to reload
+          if (!kvLeafPage.isClosed()) {
+            kvLeafPage.releaseGuard();
+          }
+          pageReferenceToRecordPage.setPage(null);
+          return null;
         }
       }
       return page;
@@ -1399,13 +1407,24 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return result;
   }
 
+  /**
+   * Thread-local scratch PageReference used as a cache-lookup key on the fast
+   * path. ConcurrentHashMap.get only needs an object with matching hashCode/
+   * equals — it never stores the passed-in key. Allocating a fresh
+   * PageReference per cache hit was 21% of all allocations (async-profiler
+   * alloc mode). On cache miss we still allocate a fresh PageReference for
+   * insertion so each cache entry owns a stable key.
+   */
+  private static final ThreadLocal<PageReference> LOOKUP_REF = ThreadLocal.withInitial(PageReference::new);
+
   @SuppressWarnings("unchecked")
   private CompletableFuture<KeyValuePage<DataRecord>> readPage(final PageFragmentKey pageFragmentKey) {
-    final var pageReference =
-        new PageReference().setKey(pageFragmentKey.key()).setDatabaseId(databaseId).setResourceId(resourceId);
+    final long key = pageFragmentKey.key();
+    final PageReference lookup = LOOKUP_REF.get();
+    lookup.setKey(key).setDatabaseId(databaseId).setResourceId(resourceId);
 
-    // Try to get from cache with guard
-    KeyValueLeafPage pageFromCache = resourceBufferManager.getRecordPageFragmentCache().getAndGuard(pageReference);
+    // Try to get from cache with guard using the thread-local lookup key.
+    KeyValueLeafPage pageFromCache = resourceBufferManager.getRecordPageFragmentCache().getAndGuard(lookup);
 
     if (pageFromCache != null) {
       assert pageFragmentKey.revision() == pageFromCache.getRevision() :
@@ -1413,7 +1432,9 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return CompletableFuture.completedFuture(pageFromCache);
     }
 
-    // Cache miss - load async, then cache with atomic guard acquisition
+    // Cache miss — allocate a proper PageReference for insertion as the map key.
+    final var pageReference =
+        new PageReference().setKey(key).setDatabaseId(databaseId).setResourceId(resourceId);
     final var reader = resourceSession.createReader();
     return reader.readAsync(pageReference, resourceSession.getResourceConfig())
                  .thenApply(loadedPage -> {
@@ -1421,9 +1442,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
                    assert pageFragmentKey.revision() == ((KeyValuePage<DataRecord>) loadedPage).getRevision() :
                        "Revision mismatch: key=" + pageFragmentKey.revision() + ", page=" + ((KeyValuePage<DataRecord>) loadedPage).getRevision();
 
-                   // Atomic cache-or-store with guard (handles race with other threads)
-                   // If another thread cached the page first, returns that cached page with guard.
-                   // Otherwise caches our loaded page with guard.
+                   // Atomic cache-or-store with guard (handles race with other threads).
                    KeyValueLeafPage cachedPage = resourceBufferManager.getRecordPageFragmentCache()
                        .getOrLoadAndGuard(pageReference, _ -> (KeyValueLeafPage) loadedPage);
 
@@ -1463,6 +1482,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case NAME -> getNamePage(revisionRoot).getIndirectPageReference(index);
       case PATH_SUMMARY -> getPathSummaryPage(revisionRoot).getIndirectPageReference(index);
       case VECTOR -> getVectorPage(revisionRoot).getIndirectPageReference(index);
+      case PROJECTION -> getProjectionIndexPage(revisionRoot).getIndirectPageReference(index);
       default ->
           throw new IllegalStateException("Only defined for node, path summary, text value and attribute value pages!");
     };
@@ -1505,7 +1525,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return switch (indexType) {
       case PATH_SUMMARY -> recordKey >> Constants.PATHINP_REFERENCE_COUNT_EXPONENT;
       case REVISIONS -> recordKey >> Constants.UBPINP_REFERENCE_COUNT_EXPONENT;
-      case PATH, DOCUMENT, CAS, NAME, VECTOR -> recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
+      case PATH, DOCUMENT, CAS, NAME, VECTOR, PROJECTION -> recordKey >> Constants.INP_REFERENCE_COUNT_EXPONENT;
       default -> recordKey >> Constants.NDP_NODE_COUNT_EXPONENT;
     };
   }
@@ -1539,6 +1559,7 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       case PATH_SUMMARY -> getPathSummaryPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
       case DEWEYID_TO_RECORDID -> getDeweyIDPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages();
       case VECTOR -> getVectorPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
+      case PROJECTION -> getProjectionIndexPage(currentRevisionRootPage).getCurrentMaxLevelOfIndirectPages(index);
     };
 
     return maxLevel;
@@ -1705,6 +1726,13 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
           yield null;
         }
         yield namePage.getOrCreateReference(indexNumber);
+      }
+      case PROJECTION -> {
+        final ProjectionIndexPage projPage = getProjectionIndexPage(actualRootPage);
+        if (projPage == null || indexNumber >= projPage.getReferences().size()) {
+          yield null;
+        }
+        yield projPage.getOrCreateReference(indexNumber);
       }
       default -> null;
     };

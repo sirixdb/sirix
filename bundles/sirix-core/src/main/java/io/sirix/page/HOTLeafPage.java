@@ -29,16 +29,14 @@
 package io.sirix.page;
 
 import io.sirix.api.StorageEngineReader;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.interfaces.KeyValuePage;
 import io.sirix.settings.DiagnosticSettings;
-import io.sirix.utils.OS;
 import jdk.incubator.vector.ByteVector;
 import jdk.incubator.vector.IntVector;
 import jdk.incubator.vector.ShortVector;
@@ -207,9 +205,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     this.indexType = Objects.requireNonNull(indexType);
 
     // Allocate off-heap memory
-    MemorySegmentAllocator allocator = OS.isWindows()
-        ? WindowsMemorySegmentAllocator.getInstance()
-        : LinuxMemorySegmentAllocator.getInstance();
+    MemorySegmentAllocator allocator = Allocators.getInstance();
     this.slotMemory = allocator.allocate(DEFAULT_SIZE);
     // Capture by local variable to avoid releasing wrong memory if slotMemory field is later changed
     final MemorySegment segmentToRelease = this.slotMemory;
@@ -801,6 +797,251 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Zero-allocation variant of {@link #put(byte[], byte[])}: writes the
+   * value range {@code [valueOff, valueOff+valueLen)} from {@code valueBuf}
+   * directly into the slot heap without requiring the caller to slice its
+   * payload into a standalone {@code byte[]} first.
+   *
+   * <p>HFT write path: the projection builder stores 20 KB leaves as 5×4 KB
+   * chunks — the per-leaf arraycopy on this path alone was ~100 MB/s churn
+   * at 100M scale. Letting {@link HOTLeafPage} consume the range directly
+   * eliminates the intermediate allocation, dropping the per-chunk cost to
+   * a single {@code MemorySegment.copy} against the pre-allocated heap.
+   *
+   * @param key the full key (routing bytes — the trie caller already
+   *            navigated here, so this is used only for suffix extraction
+   *            and binary-search ordering).
+   * @param valueBuf buffer holding the value range
+   * @param valueOff offset in {@code valueBuf} where the value starts
+   * @param valueLen length of the value range
+   * @return {@code true} on successful insert; {@code false} if the key
+   *         already exists (caller should fall through to {@link #updateValue})
+   *         or the page is full (caller should split).
+   */
+  public boolean putRange(byte[] key, byte[] valueBuf, int valueOff, int valueLen) {
+    Objects.requireNonNull(key);
+    Objects.requireNonNull(valueBuf);
+    if (valueOff < 0 || valueLen < 0 || valueOff + valueLen > valueBuf.length) {
+      throw new IndexOutOfBoundsException(
+          "valueOff=" + valueOff + " valueLen=" + valueLen + " valueBuf.length=" + valueBuf.length);
+    }
+
+    handlePrefixForInsert(key);
+
+    int index = findEntry(key);
+    if (index >= 0) {
+      return false; // existing — caller handles via updateValue
+    }
+
+    int insertPos = -(index + 1);
+    final int suffixLen = key.length - commonPrefixLen;
+    return insertAtSuffixRange(insertPos, key, commonPrefixLen, suffixLen, valueBuf, valueOff, valueLen);
+  }
+
+  /**
+   * Insert entry at {@code pos} using a value slice from {@code valueBuf}.
+   * Identical to {@link #insertAtSuffix} apart from consuming a range
+   * rather than a stand-alone array.
+   */
+  private boolean insertAtSuffixRange(int pos, byte[] keyBuf, int suffixOffset, int suffixLen,
+      byte[] valueBuf, int valueOff, int valueLen) {
+    if (suffixLen > MAX_KEY_VALUE_LENGTH) {
+      throw new IllegalArgumentException("Suffix length " + suffixLen + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
+    }
+    if (valueLen > MAX_KEY_VALUE_LENGTH) {
+      throw new IllegalArgumentException("Value length " + valueLen + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
+    }
+    if (entryCount >= MAX_ENTRIES) {
+      return false;
+    }
+
+    ensureMutableSlotMemory();
+
+    final int entrySize = 2 + suffixLen + 2 + valueLen;
+
+    if (usedSlotMemorySize + entrySize > slotMemory.byteSize()) {
+      compact();
+      if (usedSlotMemorySize + entrySize > slotMemory.byteSize()) {
+        return false;
+      }
+    }
+
+    if (pos < entryCount) {
+      System.arraycopy(slotOffsets, pos, slotOffsets, pos + 1, entryCount - pos);
+    }
+
+    int offset = usedSlotMemorySize;
+    slotOffsets[pos] = offset;
+
+    slotMemory.set(JAVA_SHORT_UNALIGNED, offset, (short) suffixLen);
+    offset += 2;
+    if (suffixLen > 0) {
+      MemorySegment.copy(keyBuf, suffixOffset, slotMemory, ValueLayout.JAVA_BYTE, offset, suffixLen);
+    }
+    offset += suffixLen;
+    slotMemory.set(JAVA_SHORT_UNALIGNED, offset, (short) valueLen);
+    offset += 2;
+    if (valueLen > 0) {
+      MemorySegment.copy(valueBuf, valueOff, slotMemory, ValueLayout.JAVA_BYTE, offset, valueLen);
+    }
+
+    usedSlotMemorySize += entrySize;
+    entryCount++;
+    pextValid = false;
+
+    return true;
+  }
+
+  /**
+   * MemorySegment-native variant of {@link #putRange(byte[], byte[], int, int)}:
+   * consumes the value directly from an off-heap {@code MemorySegment}
+   * — no intermediate byte[]. Matches the pattern
+   * {@link io.sirix.page.KeyValueLeafPage} uses for writing slot payloads
+   * straight from off-heap buffers.
+   *
+   * <p>HFT use case: the projection builder serialises into a reusable
+   * off-heap scratch segment, then slices 4 KB ranges from that segment
+   * directly into the HOT leaf's {@code slotMemory} via
+   * {@link MemorySegment#copy(MemorySegment, long, MemorySegment, long, long)}.
+   * Zero heap allocation per chunk, zero GC pressure at commit time.
+   */
+  public boolean putRange(byte[] key, MemorySegment valueSrc, long valueOff, int valueLen) {
+    Objects.requireNonNull(key);
+    Objects.requireNonNull(valueSrc);
+    if (valueOff < 0 || valueLen < 0 || valueOff + valueLen > valueSrc.byteSize()) {
+      throw new IndexOutOfBoundsException(
+          "valueOff=" + valueOff + " valueLen=" + valueLen + " segBytes=" + valueSrc.byteSize());
+    }
+
+    handlePrefixForInsert(key);
+
+    int index = findEntry(key);
+    if (index >= 0) {
+      return false;
+    }
+
+    int insertPos = -(index + 1);
+    final int suffixLen = key.length - commonPrefixLen;
+    return insertAtSuffixSegmentRange(insertPos, key, commonPrefixLen, suffixLen, valueSrc, valueOff, valueLen);
+  }
+
+  private boolean insertAtSuffixSegmentRange(int pos, byte[] keyBuf, int suffixOffset, int suffixLen,
+      MemorySegment valueSrc, long valueOff, int valueLen) {
+    if (suffixLen > MAX_KEY_VALUE_LENGTH) {
+      throw new IllegalArgumentException("Suffix length " + suffixLen + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
+    }
+    if (valueLen > MAX_KEY_VALUE_LENGTH) {
+      throw new IllegalArgumentException("Value length " + valueLen + " exceeds maximum " + MAX_KEY_VALUE_LENGTH);
+    }
+    if (entryCount >= MAX_ENTRIES) {
+      return false;
+    }
+
+    ensureMutableSlotMemory();
+
+    final int entrySize = 2 + suffixLen + 2 + valueLen;
+
+    if (usedSlotMemorySize + entrySize > slotMemory.byteSize()) {
+      compact();
+      if (usedSlotMemorySize + entrySize > slotMemory.byteSize()) {
+        return false;
+      }
+    }
+
+    if (pos < entryCount) {
+      System.arraycopy(slotOffsets, pos, slotOffsets, pos + 1, entryCount - pos);
+    }
+
+    int offset = usedSlotMemorySize;
+    slotOffsets[pos] = offset;
+
+    slotMemory.set(JAVA_SHORT_UNALIGNED, offset, (short) suffixLen);
+    offset += 2;
+    if (suffixLen > 0) {
+      MemorySegment.copy(keyBuf, suffixOffset, slotMemory, ValueLayout.JAVA_BYTE, offset, suffixLen);
+    }
+    offset += suffixLen;
+    slotMemory.set(JAVA_SHORT_UNALIGNED, offset, (short) valueLen);
+    offset += 2;
+    if (valueLen > 0) {
+      // Pure off-heap → off-heap copy. On Linux this is a single
+      // memcpy call — no per-element bounds check, no heap touch.
+      MemorySegment.copy(valueSrc, valueOff, slotMemory, offset, valueLen);
+    }
+
+    usedSlotMemorySize += entrySize;
+    entryCount++;
+    pextValid = false;
+
+    return true;
+  }
+
+  /**
+   * MemorySegment-native variant of {@link #updateValueRange(int, byte[], int, int)}:
+   * in-place update from an off-heap segment range. Returns {@code true}
+   * iff the new value length matches the existing slot (in-place). Size
+   * change falls back to the caller's copying path.
+   */
+  public boolean updateValueRange(int index, MemorySegment valueSrc, long valueOff, int valueLen) {
+    if (index < 0 || index >= entryCount) {
+      throw new IndexOutOfBoundsException("index=" + index + " entryCount=" + entryCount);
+    }
+    if (valueOff < 0 || valueLen < 0 || valueOff + valueLen > valueSrc.byteSize()) {
+      throw new IndexOutOfBoundsException(
+          "valueOff=" + valueOff + " valueLen=" + valueLen + " segBytes=" + valueSrc.byteSize());
+    }
+    ensureMutableSlotMemory();
+    final int entryOffset = slotOffsets[index];
+    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, entryOffset));
+    final int valueLenOffset = entryOffset + 2 + suffixLen;
+    final int oldValueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueLenOffset));
+    if (valueLen == oldValueLen) {
+      if (valueLen > 0) {
+        MemorySegment.copy(valueSrc, valueOff, slotMemory, valueLenOffset + 2, valueLen);
+      }
+      pextValid = false;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Zero-allocation variant of {@link #updateValue(int, byte[])}: writes
+   * {@code [valueOff, valueOff+valueLen)} from {@code valueBuf} as the new
+   * value for the entry at {@code index}. Falls back to the copying path
+   * if the new value doesn't fit the existing slot, returning {@code false}.
+   */
+  public boolean updateValueRange(int index, byte[] valueBuf, int valueOff, int valueLen) {
+    if (index < 0 || index >= entryCount) {
+      throw new IndexOutOfBoundsException("index=" + index + " entryCount=" + entryCount);
+    }
+    if (valueOff < 0 || valueLen < 0 || valueOff + valueLen > valueBuf.length) {
+      throw new IndexOutOfBoundsException(
+          "valueOff=" + valueOff + " valueLen=" + valueLen + " valueBuf.length=" + valueBuf.length);
+    }
+    ensureMutableSlotMemory();
+    final int entryOffset = slotOffsets[index];
+    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, entryOffset));
+    final int valueLenOffset = entryOffset + 2 + suffixLen;
+    final int oldValueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueLenOffset));
+
+    if (valueLen == oldValueLen) {
+      // In-place update — the common case for projection chunk rewrites
+      // where the chunk size stays the same across revisions. Zero growth,
+      // zero compaction — just overwrite the existing byte range.
+      if (valueLen > 0) {
+        MemorySegment.copy(valueBuf, valueOff, slotMemory, ValueLayout.JAVA_BYTE, valueLenOffset + 2, valueLen);
+      }
+      pextValid = false;
+      return true;
+    }
+    // Size changed — fall back to the original path (re-insert with
+    // compaction). Signalled by returning false so the caller can choose
+    // to build a copied byte[] and call updateValue.
+    return false;
+  }
+
+  /**
    * Establish or update the common prefix when inserting a new key.
    *
    * <p>On first insert: commonPrefix = key (suffix = empty).
@@ -1055,9 +1296,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     if (slotMemory.byteSize() >= DEFAULT_SIZE) {
       return;
     }
-    final MemorySegmentAllocator allocator = OS.isWindows()
-        ? WindowsMemorySegmentAllocator.getInstance()
-        : LinuxMemorySegmentAllocator.getInstance();
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
     final MemorySegment newMemory = allocator.allocate(DEFAULT_SIZE);
     MemorySegment.copy(slotMemory, 0, newMemory, 0, usedSlotMemorySize);
     // Capture old releaser BEFORE reassigning — release old memory AFTER assigning new
@@ -1323,9 +1562,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    */
   public HOTLeafPage copy() {
     // Allocate new off-heap memory
-    final MemorySegmentAllocator allocator = OS.isWindows()
-        ? WindowsMemorySegmentAllocator.getInstance()
-        : LinuxMemorySegmentAllocator.getInstance();
+    final MemorySegmentAllocator allocator = Allocators.getInstance();
     final MemorySegment newSlotMemory = allocator.allocate(DEFAULT_SIZE);
     final Runnable newReleaser = () -> allocator.release(newSlotMemory);
 

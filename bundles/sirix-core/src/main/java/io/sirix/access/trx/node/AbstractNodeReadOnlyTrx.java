@@ -730,15 +730,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return true;
     }
 
-    // Check slot data on modified page
-    final MemorySegment data = page.getSlot(slotOffset);
-    if (data == null) {
-      // Not in modified page heap either — fall back to legacy
+    // Inline slot lookup: avoid KeyValueLeafPage.getSlot's asSlice allocation,
+    // which is hot on shred (every moveTo allocates a MemorySegment view just
+    // to read one byte). Read the kind byte directly from the slotted page.
+    final MemorySegment sp = page.getSlottedPage();
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotOffset)) {
       return moveToLegacy(nodeKey);
     }
-
-    // Read node kind from first byte
-    final byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotOffset);
+    final int recordAbs = PageLayout.HEAP_START + heapOffset;
+    final byte kindByte = sp.get(java.lang.foreign.ValueLayout.JAVA_BYTE, recordAbs);
     final NodeKind kind = NodeKind.getKind(kindByte);
 
     if (kind == NodeKind.DELETE) {
@@ -752,10 +753,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
 
     // Bind singleton to page data (zero allocation)
-    // Cache slottedPage locally to avoid repeated virtual calls to getSlottedPage()
-    final MemorySegment sp = page.getSlottedPage();
-    if (sp != null && singleton instanceof FlyweightNode fn) {
-      final int heapOffset = PageLayout.getDirHeapOffset(sp, slotOffset);
+    if (singleton instanceof FlyweightNode fn) {
       final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
       fn.bind(sp, recordBase, nodeKey, slotOffset);
       // Propagate DeweyID lazily — no SirixDeweyID parsing until getDeweyID() called.
@@ -765,7 +763,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       }
     } else {
       // Legacy format: populate singleton from serialized data (NO ALLOCATION)
-      reusableBytesIn.reset(data, 1);
+      // Size the view from the record length (skip kind byte).
+      final int recordLength = PageLayout.getRecordOnlyLength(sp, slotOffset);
+      if (recordLength <= 0) {
+        return moveToLegacy(nodeKey);
+      }
+      reusableBytesIn.reset(sp.asSlice(recordAbs, recordLength), 1);
       final byte[] deweyId = resourceConfig.areDeweyIDsStored
           ? page.getDeweyIdAsByteArray(slotOffset) : null;
       populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);

@@ -1,8 +1,11 @@
 package io.sirix.benchmark;
 
 import ch.qos.logback.classic.Logger;
+import com.google.gson.stream.JsonReader;
 import io.brackit.query.Query;
+import io.brackit.query.atomic.QNm;
 import io.brackit.query.compiler.translator.SequentialPipelineStrategy;
+import io.brackit.query.jdm.Sequence;
 import io.brackit.query.util.io.IOUtils;
 import io.brackit.query.util.serialize.StringSerializer;
 import io.sirix.access.Databases;
@@ -11,6 +14,8 @@ import io.sirix.api.json.JsonResourceSession;
 import io.sirix.query.SirixCompileChain;
 import io.sirix.query.SirixQueryContext;
 import io.sirix.query.json.BasicJsonDBStore;
+import io.sirix.query.json.JsonDBCollection;
+import io.sirix.query.json.JsonDBItem;
 import io.sirix.query.scan.SirixVectorizedExecutor;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -28,6 +33,7 @@ import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.Blackhole;
 import org.slf4j.LoggerFactory;
 
+import java.io.Reader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Random;
@@ -69,6 +75,8 @@ public class BrackitQueryOnSirixBenchmark {
   private static final String JSON_DB = "bench-db";
   private static final String JSON_RESOURCE = "records.jn";
 
+  private static final QNm DOC_VAR = new QNm("doc");
+
   private Path dbDir;
   private BasicJsonDBStore store;
   private SirixCompileChain chain;
@@ -84,27 +92,16 @@ public class BrackitQueryOnSirixBenchmark {
 
     dbDir = Files.createTempDirectory("sirix-jmh-brackit");
 
-    // Build a JSON array of records and shred it into a Sirix resource.
-    Random rng = new Random(42);
-    StringBuilder sb = new StringBuilder(recordCount * 64);
-    sb.append('[');
-    for (int i = 0; i < recordCount; i++) {
-      if (i > 0) sb.append(',');
-      sb.append("{\"id\":").append(i)
-        .append(",\"age\":").append(18 + rng.nextInt(48))
-        .append(",\"dept\":\"").append(DEPTS[rng.nextInt(DEPTS.length)])
-        .append("\",\"city\":\"").append(CITIES[rng.nextInt(CITIES.length)])
-        .append("\",\"active\":").append(rng.nextBoolean() ? "true" : "false")
-        .append('}');
-    }
-    sb.append(']');
-
     store = BasicJsonDBStore.newBuilder().location(dbDir).build();
     ctx = SirixQueryContext.createWithJsonStore(store);
     chain = SirixCompileChain.createWithJsonStore(store);
 
-    String storeQuery = "jn:store('" + JSON_DB + "','" + JSON_RESOURCE + "','" + sb.toString().replace("'", "''") + "')";
-    new Query(chain, storeQuery).evaluate(ctx);
+    // Stream-shred via a generated Reader so that recordCount > 100k stays out
+    // of memory. For 1B records the JSON would be ~64 GB if materialized.
+    try (Reader src = new GeneratedRecordsReader(recordCount);
+         JsonReader jsonReader = new JsonReader(src)) {
+      store.create(JSON_DB, JSON_RESOURCE, jsonReader);
+    }
 
     if (vectorized) {
       // Reuse the store's existing Database handle (don't open a second one
@@ -120,6 +117,14 @@ public class BrackitQueryOnSirixBenchmark {
     } else {
       SequentialPipelineStrategy.setVectorizedExecutor(null);
     }
+
+    // Pre-bind $doc as an external variable (one trx for the whole trial)
+    // to avoid jn:doc() opening a fresh trx per iteration — that exhausts
+    // the RevisionEpochTracker (4096 slots) within the warmup window for
+    // sub-millisecond vectorized queries.
+    JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);
+    JsonDBItem docItem = (JsonDBItem) coll.getDocument();
+    ctx.bind(DOC_VAR, (Sequence) docItem);
   }
 
   @TearDown(Level.Trial)
@@ -134,7 +139,7 @@ public class BrackitQueryOnSirixBenchmark {
   }
 
   private void runQuery(Blackhole bh, String body) {
-    String wrapped = "let $doc := jn:doc('bench-db','records.jn') " + body;
+    String wrapped = "declare variable $doc external; " + body;
     var buf = IOUtils.createBuffer();
     try (var ser = new StringSerializer(buf)) {
       ser.serialize(new Query(chain, wrapped).execute(ctx));
@@ -142,9 +147,71 @@ public class BrackitQueryOnSirixBenchmark {
     bh.consume(buf);
   }
 
+  /**
+   * Generates a JSON array of {@code [{"id":i,"age":..,"dept":..,"city":..,"active":..}, ...]}
+   * lazily into a char buffer so that callers (Gson's {@link JsonReader}) can pull
+   * arbitrarily large datasets without materializing the JSON string.
+   */
+  private static final class GeneratedRecordsReader extends Reader {
+    private final long total;
+    private final Random rng = new Random(42);
+    private final StringBuilder line = new StringBuilder(96);
+    private long produced = 0;
+    private int pos = 0;
+    private boolean opened = false;
+    private boolean closed = false;
+
+    GeneratedRecordsReader(long total) {
+      this.total = total;
+    }
+
+    private void refill() {
+      line.setLength(0);
+      pos = 0;
+      if (!opened) {
+        line.append('[');
+        opened = true;
+        return;
+      }
+      if (produced < total) {
+        if (produced > 0) line.append(',');
+        line.append("{\"id\":").append(produced)
+            .append(",\"age\":").append(18 + rng.nextInt(48))
+            .append(",\"dept\":\"").append(DEPTS[rng.nextInt(DEPTS.length)])
+            .append("\",\"city\":\"").append(CITIES[rng.nextInt(CITIES.length)])
+            .append("\",\"active\":").append(rng.nextBoolean() ? "true" : "false")
+            .append('}');
+        produced++;
+        return;
+      }
+      if (!closed) {
+        line.append(']');
+        closed = true;
+      }
+    }
+
+    @Override
+    public int read(char[] cbuf, int off, int len) {
+      if (pos >= line.length()) {
+        if (closed) return -1;
+        refill();
+        if (pos >= line.length()) return -1;
+      }
+      int n = Math.min(len, line.length() - pos);
+      line.getChars(pos, pos + n, cbuf, off);
+      pos += n;
+      return n;
+    }
+
+    @Override
+    public void close() {
+      // no-op
+    }
+  }
+
   @Benchmark
   public void filterCount(Blackhole bh) {
-    runQuery(bh, "return count(for $u in $doc[] where $u.age > 40 and $u.active return $u)");
+    runQuery(bh, "count(for $u in $doc[] where $u.age > 40 and $u.active return $u)");
   }
 
   @Benchmark
@@ -154,16 +221,36 @@ public class BrackitQueryOnSirixBenchmark {
 
   @Benchmark
   public void sumAge(Blackhole bh) {
-    runQuery(bh, "return sum(for $u in $doc[] return $u.age)");
+    runQuery(bh, "sum(for $u in $doc[] return $u.age)");
   }
 
   @Benchmark
   public void avgAge(Blackhole bh) {
-    runQuery(bh, "return avg(for $u in $doc[] return $u.age)");
+    runQuery(bh, "avg(for $u in $doc[] return $u.age)");
   }
 
   @Benchmark
   public void minMaxAge(Blackhole bh) {
-    runQuery(bh, "return {\"min\": min(for $u in $doc[] return $u.age), \"max\": max(for $u in $doc[] return $u.age)}");
+    runQuery(bh, "{\"min\": min(for $u in $doc[] return $u.age), \"max\": max(for $u in $doc[] return $u.age)}");
+  }
+
+  @Benchmark
+  public void groupBy2Keys(Blackhole bh) {
+    runQuery(bh, "for $u in $doc[] let $d := $u.dept, $c := $u.city group by $d, $c return {\"d\": $d, \"c\": $c, \"n\": count($u)}");
+  }
+
+  @Benchmark
+  public void filterGroupBy(Blackhole bh) {
+    runQuery(bh, "for $u in $doc[] where $u.active let $d := $u.dept group by $d return {\"dept\": $d, \"count\": count($u)}");
+  }
+
+  @Benchmark
+  public void countDistinct(Blackhole bh) {
+    runQuery(bh, "count(for $u in $doc[] let $d := $u.dept group by $d return $d)");
+  }
+
+  @Benchmark
+  public void compoundAndFilterCount(Blackhole bh) {
+    runQuery(bh, "count(for $u in $doc[] where $u.age > 30 and $u.age < 50 and $u.active return $u)");
   }
 }

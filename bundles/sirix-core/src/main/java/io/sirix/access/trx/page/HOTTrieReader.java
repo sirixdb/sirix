@@ -36,6 +36,7 @@ import io.sirix.page.interfaces.Page;
 import org.jspecify.annotations.Nullable;
 
 import java.lang.foreign.MemorySegment;
+import java.util.Arrays;
 import java.util.Objects;
 
 /**
@@ -118,33 +119,27 @@ public final class HOTTrieReader implements AutoCloseable {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
 
-    // Release any previously guarded leaf
+    // NOTE: a min/max-range leaf cache is UNSAFE for HOT. Leaves in HOT
+    // partition by PEXT of disc bits, not by total key order — two
+    // distinct leaves can have overlapping [firstKey, lastKey] ranges.
+    // A key K whose value matches cached.first <= K <= cached.last may
+    // belong to a different leaf. Caching by range produces false
+    // negatives (returns null for keys that exist in a different leaf).
+    // The correct fast path would key on the exact routing decisions
+    // that land at the leaf; for now we always re-navigate, which is
+    // still cheap for log_32-shallow HOT trees.
+
+    // Release any previously guarded leaf.
     releaseGuardedLeaf();
-
-    // Navigate to leaf
-    HOTLeafPage leaf = navigateToLeaf(rootRef, key);
-    if (leaf == null) {
-      return null;
-    }
-
-    // Acquire guard to prevent eviction. If the page was already closed/orphaned
-    // between navigateToLeaf returning and this point, acquireGuard returns false
-    // and we must not access the page (use-after-free on released MemorySegment).
-    if (!leaf.acquireGuard()) {
-      return null;
-    }
+    final HOTLeafPage leaf = navigateToLeaf(rootRef, key);
+    if (leaf == null) return null;
+    if (!leaf.acquireGuard()) return null;
     guardedLeaf = leaf;
-
     try {
-      // Find entry in leaf
-      int index = leaf.findEntry(key);
-      if (index < 0) {
-        return null; // Not found (guard intentionally held for next call)
-      }
-
+      final int index = leaf.findEntry(key);
+      if (index < 0) return null;
       return leaf.getValueSlice(index);
     } catch (Exception e) {
-      // On exception, release the guard to avoid leaking it
       releaseGuardedLeaf();
       throw e;
     }
@@ -420,6 +415,21 @@ public final class HOTTrieReader implements AutoCloseable {
    */
   public int getPathDepth() {
     return pathDepth;
+  }
+
+  /** Diagnostic accessor: indirect node at the given path depth. */
+  public HOTIndirectPage pathNodeAt(int depth) {
+    return pathNodes[depth];
+  }
+
+  /** Diagnostic accessor: child index taken at the given path depth. */
+  public int pathChildAt(int depth) {
+    return pathChildIndices[depth];
+  }
+
+  /** Diagnostic: clear the traversal path. Public wrapper around clearPath(). */
+  public void clearPathPublic() {
+    clearPath();
   }
 
   /**

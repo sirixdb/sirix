@@ -4,11 +4,12 @@ import io.sirix.utils.ToStringHelper;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.node.DeltaVarIntCodec;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import java.util.Arrays;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.DeweyIdSerializer;
@@ -17,12 +18,14 @@ import io.sirix.node.interfaces.RecordSerializer;
 import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.page.interfaces.KeyValuePage;
+import io.sirix.page.pax.NumberRegion;
+import io.sirix.page.pax.RegionTable;
+import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.DiagnosticSettings;
 import io.sirix.settings.StringCompressionType;
 import io.sirix.utils.FSSTCompressor;
 import io.sirix.utils.ArrayIterator;
-import io.sirix.utils.OS;
 import io.sirix.node.BytesOut;
 import io.sirix.node.MemorySegmentBytesOut;
 import org.jspecify.annotations.Nullable;
@@ -221,11 +224,42 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private byte[] fsstSymbolTable;
 
-  /** Reusable flyweight for FSST compression of StringNode slots on slotted page. */
-  private final StringNode fsstStringFlyweight = new StringNode(0, null);
+  /**
+   * PAX region table appended in {@link io.sirix.BinaryEncodingVersion#V1}. Null
+   * when the page was written in V0 format or when no regions have been populated.
+   * Later tasks populate this with number / string / struct / DeweyID regions;
+   * scan operators read contiguous payload buffers from it instead of decoding
+   * varints per slot.
+   */
+  private io.sirix.page.pax.RegionTable regionTable;
 
-  /** Reusable flyweight for FSST compression of ObjectStringNode slots on slotted page. */
-  private final ObjectStringNode fsstObjStringFlyweight = new ObjectStringNode(0, null);
+  /**
+   * FSST-compression flyweights (StringNode / ObjectStringNode), lazy-init
+   * only on the write-path where FSST compression actually runs. For
+   * analytical scan workloads these objects were the top non-page allocator —
+   * 7.6% of samples (async-profiler alloc mode) at 2× per KVLP constructor.
+   * Using a shared sentinel so the null-check in the read path is elided.
+   */
+  private StringNode fsstStringFlyweight;
+  private ObjectStringNode fsstObjStringFlyweight;
+
+  private StringNode fsstStringFlyweight() {
+    StringNode f = fsstStringFlyweight;
+    if (f == null) {
+      f = new StringNode(0, null);
+      fsstStringFlyweight = f;
+    }
+    return f;
+  }
+
+  private ObjectStringNode fsstObjStringFlyweight() {
+    ObjectStringNode f = fsstObjStringFlyweight;
+    if (f == null) {
+      f = new ObjectStringNode(0, null);
+      fsstObjStringFlyweight = f;
+    }
+    return f;
+  }
 
 
 
@@ -273,8 +307,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    */
   private final boolean externallyAllocatedMemory;
 
-  private MemorySegmentAllocator segmentAllocator =
-      OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
+  private MemorySegmentAllocator segmentAllocator = Allocators.getInstance();
 
   /**
    * Backing buffer from decompression (for zero-copy deserialization).
@@ -523,6 +556,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
 
+    // Writer-side query insurance: if a number record currently lives in this slot, the
+    // cached PAX number region is about to become stale (replacement, deletion via
+    // DeletedNode, etc.). Fast-path no-op when no region is currently cached.
+    maybeInvalidateNumberRegionForExistingSlot(offset);
+    maybeInvalidateStringRegionForExistingSlot(offset);
+
     if (record instanceof FlyweightNode fn) {
       if (fn.isWriteSingleton()) {
         // Write singleton: serialize to heap, never store in records[] (aliasing risk).
@@ -568,6 +607,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     bytes = null;
     final var key = record.getNodeKey();
     final var offset = (int) (key - ((key >> Constants.NDP_NODE_COUNT_EXPONENT) << Constants.NDP_NODE_COUNT_EXPONENT));
+    // Defensive: a non-flyweight record may overwrite a number- or string-typed slot.
+    maybeInvalidateNumberRegionForExistingSlot(offset);
+    maybeInvalidateStringRegionForExistingSlot(offset);
     ensureRecords();
     records[offset] = record;
   }
@@ -626,14 +668,21 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     updateHeapUsed(cachedHeapUsed + totalBytes);
 
     // Update directory entry: [heapOffset][dataLength | nodeKindId]
-    PageLayout.setDirEntry(slottedPage, offset, heapEnd, totalBytes,
-        ((NodeKind) fn.getKind()).getId());
+    final int nodeKindId = ((NodeKind) fn.getKind()).getId();
+    PageLayout.setDirEntry(slottedPage, offset, heapEnd, totalBytes, nodeKindId);
 
     // Mark slot populated in bitmap and track last slot index (new slots only)
     if (!PageLayout.isSlotPopulated(slottedPage, offset)) {
       PageLayout.markSlotPopulated(slottedPage, offset);
       updatePopulatedCount(cachedPopulatedCount + 1);
       lastSlotIndex = offset;
+    }
+
+    // Number/string write: drop the cached PAX region so the next reader rebuilds.
+    if (isNumberValueKindId(nodeKindId)) {
+      invalidateNumberRegion();
+    } else if (isStringValueKindId(nodeKindId)) {
+      invalidateStringRegion();
     }
 
     // Bind flyweight — all subsequent mutations go directly to page memory
@@ -710,6 +759,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       updatePopulatedCount(cachedPopulatedCount + 1);
       lastSlotIndex = slotOffset;
     }
+
+    // Number/string write: drop the cached PAX region so the next reader rebuilds.
+    if (isNumberValueKindId(nodeKindId)) {
+      invalidateNumberRegion();
+    } else if (isStringValueKindId(nodeKindId)) {
+      invalidateStringRegion();
+    }
+
     // NOTE: Caller is responsible for binding the flyweight and setting ownerPage.
     // This eliminates interface dispatch (itable stubs) by letting the caller call
     // bind()/setOwnerPage() on the concrete type directly.
@@ -827,6 +884,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     // --- Re-bind flyweight to new location ---
     fn.bind(slottedPage, newRecordBase, nodeKey, slotIndex);
     fn.setOwnerPage(this);
+
+    // Number/string write: in-place field rewrite changed a value the cached region snapshotted.
+    if (isNumberValueKindId(nodeKindId)) {
+      invalidateNumberRegion();
+    } else if (isStringValueKindId(nodeKindId)) {
+      invalidateStringRegion();
+    }
   }
 
   /**
@@ -877,6 +941,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     compressedSegment = null;
     bytes = null;
     addedReferences = false;
+
+    // Number/string copy: a new value lands in this page's heap. The source's region is
+    // not carried, and any region cached for THIS page is now incomplete.
+    if (isNumberValueKindId(srcNodeKindId)) {
+      invalidateNumberRegion();
+    } else if (isStringValueKindId(srcNodeKindId)) {
+      invalidateStringRegion();
+    }
   }
 
   /**
@@ -908,6 +980,56 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     cachedHeapEnd = 0;
     cachedHeapUsed = 0;
     cachedPopulatedCount = 0;
+  }
+
+  /**
+   * Bulk-copy the slotted-page state from {@code src} into a buffer owned by
+   * this page. Used by the single-fragment combine fast path to avoid the
+   * per-slot {@code setSlotWithNodeKind} loop; one MemorySegment.copy
+   * replaces ~1024 small copies + directory writes + bitmap updates.
+   *
+   * <p>If {@code this} already has a slotted page (via eager
+   * {@code ensureSlottedPage} in the constructor), it is released first —
+   * the constructor's allocation is wasted for the combine path, but
+   * reusing it in place requires handling size-class mismatches that rarely
+   * hit. Net: trade one 64 KiB release for a 1024× loop skip.
+   *
+   * <p>Overwrites the header's revision field after the copy so downstream
+   * readers observe this page's target revision (not the donor fragment's).
+   */
+  public void copySlottedPageFrom(final KeyValueLeafPage src) {
+    final MemorySegment srcSp = src.slottedPage;
+    if (srcSp == null) {
+      return;
+    }
+    final int srcCap = src.slottedPageCapacity;
+    final MemorySegment dst;
+    // Reuse the constructor's eagerly-allocated slotted page when capacity
+    // matches — saves a release+reallocate round-trip through the frame
+    // allocator. Capacities almost always match (both sides default to
+    // INITIAL_PAGE_SIZE = 64 KiB) so this is the hot path.
+    if (slottedPage != null && slottedPageCapacity == srcCap) {
+      dst = slottedPage.reinterpret(srcCap);
+    } else {
+      if (slottedPage != null) {
+        try {
+          segmentAllocator.release(slottedPage.reinterpret(slottedPageCapacity));
+        } catch (final Throwable e) {
+          LOGGER.debug("Release of pre-existing slottedPage before copy failed: {}", e.getMessage());
+        }
+        slottedPage = null;
+      }
+      dst = segmentAllocator.allocate(srcCap);
+      slottedPageCapacity = (int) dst.byteSize();
+      slottedPage = dst.reinterpret(Long.MAX_VALUE);
+    }
+    MemorySegment.copy(srcSp, 0, dst, 0, srcCap);
+    cachedHeapEnd = src.cachedHeapEnd;
+    cachedHeapUsed = src.cachedHeapUsed;
+    cachedPopulatedCount = src.cachedPopulatedCount;
+    lastSlotIndex = src.lastSlotIndex;
+    // src's header carries src's revision — overwrite with target revision.
+    PageLayout.setRevision(dst, revision);
   }
 
   /**
@@ -953,7 +1075,7 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return cachedHeapUsed;
   }
 
-  int getCachedPopulatedCount() {
+  public int getCachedPopulatedCount() {
     return cachedPopulatedCount;
   }
 
@@ -1269,6 +1391,811 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       return 0;
     }
     return PageLayout.getDirNodeKindId(slottedPage, slotNumber);
+  }
+
+  /**
+   * Read an ObjectKeyNode's nameKey directly from the slot bytes without binding
+   * a flyweight singleton or moving a transaction cursor. Callers MUST verify
+   * the slot is populated and holds an OBJECT_KEY (kind id 26 or 126) before calling —
+   * the method does no validation for the vectorized scan hot path.
+   *
+   * <p>Used by SirixVectorizedExecutor to filter/count on {@code nameKey} without
+   * paying the per-slot {@code moveTo → bind singleton} cost; non-matching slots
+   * (~4/5 of OBJECT_KEY slots in a typical JSON record) short-circuit before the
+   * cursor move.
+   *
+   * @param slotNumber the slot index (assumed populated + OBJECT_KEY kind)
+   * @return the signed nameKey from the slot
+   */
+  public int getObjectKeyNameKeyFromSlot(final int slotNumber) {
+    final byte[] nameKeyPayload = regionPayload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+    if (nameKeyPayload != null) {
+      return io.sirix.page.pax.ObjectKeyNameKeyRegion.nameKeyForSlot(nameKeyPayload, slotNumber);
+    }
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+    if (kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID) {
+      return -1;
+    }
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJKEY_NAME_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+    return DeltaVarIntCodec.decodeSignedFromSegment(sp, dataStart + fieldOff);
+  }
+
+  public int getObjectKeyNameKeyFromRegion(final int slotIndex) {
+    final byte[] payload = regionPayload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+    if (payload != null) {
+      return io.sirix.page.pax.ObjectKeyNameKeyRegion.nameKeyForSlot(payload, slotIndex);
+    }
+    return getObjectKeyNameKeyFromSlot(slotIndex);
+  }
+
+  /**
+   * Return the distinct OBJECT_KEY {@code nameKey}s present on this page.
+   * Fast path: reads directly from the PAX dictKeys header (one VarHandle
+   * load per distinct nameKey — typically 3 to 10 entries). Slow path
+   * (region absent): iterates populated slots via the bitmap and
+   * collects distinct nameKeys into a growable array.
+   *
+   * <p>Used by the page-skip index builder to decide which pages are
+   * candidates for a given anchor nameKey, so analytical scans can skip
+   * pages that hold no slot with that field instead of fetching each
+   * page only to bail out on empty {@code getObjectKeySlotsForNameKey}.
+   */
+  public int[] getDistinctObjectKeyNameKeys() {
+    final byte[] payload = regionPayload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+    if (payload != null) {
+      return io.sirix.page.pax.ObjectKeyNameKeyRegion.uniqueNameKeys(payload);
+    }
+    // Slow path: no region — walk populated slots via the page layout
+    // helpers, decode each OBJECT_KEY's nameKey, dedupe in-place. Kept
+    // simple (and allocating) because the fast path covers every page
+    // produced by the current writer; this branch only executes on
+    // legacy-format pages read from older stores.
+    final MemorySegment sp = slottedPage;
+    if (sp == null) return EMPTY_INT_ARRAY;
+    int[] distinct = new int[8];
+    int n = 0;
+    for (int slot = 0; slot < Constants.NDP_NODE_COUNT; slot++) {
+      if (!PageLayout.isSlotPopulated(sp, slot)) continue;
+      final int heapOffset = PageLayout.getDirHeapOffset(sp, slot);
+      final long recordBase = PageLayout.HEAP_START + heapOffset;
+      final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+      if (!isObjectKeyKindId(kindId)) continue;
+      final int nameKey = getObjectKeyNameKeyFromSlot(slot);
+      if (nameKey < 0) continue;
+      boolean seen = false;
+      for (int i = 0; i < n; i++) {
+        if (distinct[i] == nameKey) { seen = true; break; }
+      }
+      if (!seen) {
+        if (n == distinct.length) distinct = Arrays.copyOf(distinct, distinct.length * 2);
+        distinct[n++] = nameKey;
+      }
+    }
+    if (n == 0) return EMPTY_INT_ARRAY;
+    return n == distinct.length ? distinct : Arrays.copyOf(distinct, n);
+  }
+
+  /** OBJECT_NUMBER_VALUE payload type code for Integer (varint). See NodeKind.serializeNumber. */
+  private static final byte NUMBER_TYPE_INTEGER = 2;
+  private static final byte NUMBER_TYPE_LONG = 3;
+  private static final int OBJECT_NUMBER_VALUE_KIND_ID = 42;
+  private static final int NUMBER_VALUE_KIND_ID = 28;
+  private static final int OBJECT_STRING_VALUE_KIND_ID = 40;
+  private static final int STRING_VALUE_KIND_ID = 30;
+
+  /**
+   * True when {@code kindId} identifies a record whose value participates in the PAX
+   * {@link RegionTable#KIND_NUMBER} region. Used by mutation paths to gate cache
+   * invalidation: only number-affecting writes pay the (already-cheap) invalidation cost.
+   */
+  static boolean isNumberValueKindId(final int kindId) {
+    return kindId == OBJECT_NUMBER_VALUE_KIND_ID || kindId == NUMBER_VALUE_KIND_ID;
+  }
+
+  /**
+   * True when {@code kindId} identifies a record whose value participates in the PAX
+   * {@link RegionTable#KIND_STRING} region.
+   */
+  static boolean isStringValueKindId(final int kindId) {
+    return kindId == OBJECT_STRING_VALUE_KIND_ID || kindId == STRING_VALUE_KIND_ID;
+  }
+
+  /**
+   * Lazy pre-parsed FSST symbol table, built once per page on first access.
+   * {@code FSSTCompressor.parseSymbolTable} walks the serialized symbol
+   * table bytes into a {@code byte[][]} suitable for {@code decodeRaw}.
+   */
+  private volatile byte[][] parsedFsstSymbols;
+  private static final byte[][] EMPTY_FSST_SYMBOLS = new byte[0][];
+
+  private byte[][] fsstSymbols() {
+    byte[][] s = parsedFsstSymbols;
+    if (s != null) {
+      return s;
+    }
+    final byte[] tbl = fsstSymbolTable;
+    if (tbl == null || tbl.length == 0) {
+      s = EMPTY_FSST_SYMBOLS;
+    } else {
+      s = io.sirix.utils.FSSTCompressor.parseSymbolTable(tbl);
+    }
+    parsedFsstSymbols = s;
+    return s;
+  }
+
+  /**
+   * Read the UTF-8 value bytes of an OBJECT_STRING_VALUE slot directly off the
+   * slotted page — no moveTo, no singleton binding, no
+   * {@code ObjectStringNode.toSnapshot}, no per-record byte[] allocation if the
+   * caller provides {@code scratch}. Handles FSST-compressed values inline
+   * using the page's pre-parsed symbol table.
+   *
+   * <p>Caller must verify the slot holds an OBJECT_STRING_VALUE (kind id 40)
+   * before invoking. Hot path for analytical group-by over string fields.
+   *
+   * @param slotNumber slot index on this page
+   * @param scratch    caller-owned byte[] to write into; sized ≥ max expected
+   *                   value length (decompressed for FSST values). Returns the
+   *                   number of bytes written; caller reads {@code scratch[0..n)}.
+   * @return bytes written, or -1 if the slot is unavailable / oversized.
+   */
+  public int readObjectStringValueBytesFromSlot(final int slotNumber, final byte[] scratch) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) {
+      return -1;
+    }
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    // ObjectStringNode layout: [kind byte][4 field-offset bytes][data region]
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJSTRVAL_PAYLOAD) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_STRING_VALUE_FIELD_COUNT;
+    final long payloadStart = dataStart + fieldOff;
+
+    // Payload: [isCompressed:1][length:varint][value bytes]
+    final boolean compressed = sp.get(ValueLayout.JAVA_BYTE, payloadStart) == 1;
+    final long lenOff = payloadStart + 1;
+    final int length = DeltaVarIntCodec.decodeSignedFromSegment(sp, lenOff);
+    if (length <= 0) {
+      return -1;
+    }
+    final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(sp, lenOff);
+    final long dataOff = lenOff + lenBytes;
+
+    if (!compressed) {
+      if (length > scratch.length) {
+        return -1;
+      }
+      MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, dataOff, scratch, 0, length);
+      return length;
+    }
+
+    // FSST-compressed: inline decode into scratch using the page's pre-parsed
+    // symbol table. Saves the moveTo / toSnapshot / byte[] allocation pipeline
+    // that the rtx slow path would trigger.
+    final byte[][] symbols = fsstSymbols();
+    if (symbols.length == 0) {
+      return -1;
+    }
+    return decodeFsstInto(sp, dataOff, length, symbols, scratch);
+  }
+
+  /**
+   * Read the RAW stored value bytes of an OBJECT_STRING_VALUE slot into the
+   * caller's scratch — does NOT decompress. Callers that do intra-page run
+   * aggregation can compare raw compressed bytes directly (same page →
+   * same FSST table → byte-identical encoding for equal values) and
+   * decompress only at flush time via {@link #decodeRawIfCompressed}.
+   * Returns bytes written or -1 on unavailable/oversized.
+   */
+  public int readObjectStringValueRawBytesFromSlot(final int slotNumber, final byte[] scratch) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotNumber)) {
+      return -1;
+    }
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJSTRVAL_PAYLOAD) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_STRING_VALUE_FIELD_COUNT;
+    final long payloadStart = dataStart + fieldOff;
+    // Skip isCompressed byte — caller infers from page's fsstSymbolTable().
+    final long lenOff = payloadStart + 1;
+    final int length = DeltaVarIntCodec.decodeSignedFromSegment(sp, lenOff);
+    if (length <= 0 || length > scratch.length) {
+      return -1;
+    }
+    final int lenBytes = DeltaVarIntCodec.readSignedVarintWidth(sp, lenOff);
+    MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, lenOff + lenBytes, scratch, 0, length);
+    return length;
+  }
+
+  /**
+   * Decode raw bytes if this page's values are FSST-compressed; otherwise
+   * copy verbatim. {@code in[0..inLen)} is the raw bytes; decoded output
+   * goes to {@code out[outOff..)}. Returns decoded length or -1 on failure.
+   * Fixed-in-place decode: safe when {@code in == out && outOff == 0} for
+   * non-compressed passthrough (we write the same bytes). For compressed
+   * input, caller should pass distinct buffers or accept in-place overwrite
+   * since FSST expands (decoded ≥ encoded).
+   */
+  public int decodeRawIfCompressed(final byte[] in, final int inLen,
+      final byte[] out, final int outOff) {
+    if (fsstSymbolTable == null) {
+      if (in != out || outOff != 0) {
+        System.arraycopy(in, 0, out, outOff, inLen);
+      }
+      return inLen;
+    }
+    final byte[][] symbols = fsstSymbols();
+    if (symbols.length == 0) {
+      if (in != out || outOff != 0) {
+        System.arraycopy(in, 0, out, outOff, inLen);
+      }
+      return inLen;
+    }
+    // Decode into a temp: FSST expands, so writing into `in` in-place risks
+    // overwriting unread bytes. Small (<=256) so stack-ish.
+    final byte[] tmp = in == out ? new byte[inLen * 3 + 8] : null;
+    final byte[] dst = tmp != null ? tmp : out;
+    final int dstOff = tmp != null ? 0 : outOff;
+    int outPos = dstOff;
+    for (int pos = 0; pos < inLen; ) {
+      final int b = in[pos++] & 0xFF;
+      if (b == 0xFF) {
+        if (pos >= inLen || outPos >= dst.length) return -1;
+        dst[outPos++] = in[pos++];
+      } else if (b < symbols.length) {
+        final byte[] sym = symbols[b];
+        final int sl = sym.length;
+        if (outPos + sl > dst.length) return -1;
+        System.arraycopy(sym, 0, dst, outPos, sl);
+        outPos += sl;
+      } else {
+        return -1;
+      }
+    }
+    final int decLen = outPos - dstOff;
+    if (tmp != null) {
+      if (decLen > out.length - outOff) return -1;
+      System.arraycopy(tmp, 0, out, outOff, decLen);
+    }
+    return decLen;
+  }
+
+  /**
+   * Thread-local staging buffer for FSST-compressed source bytes — one
+   * bulk copy from the MemorySegment into this scratch avoids N byte-
+   * sized {@code sp.get} calls inside {@link #decodeFsstInto}, which
+   * profile-dominated via MemorySegment safety-check overhead
+   * (isAlignedForElement / checkValidStateRaw / VarHandle dispatch).
+   */
+  private static final ThreadLocal<byte[]> FSST_SRC_BUF =
+      ThreadLocal.withInitial(() -> new byte[512]);
+
+  /**
+   * Decode {@code length} FSST-compressed bytes starting at {@code dataOff}
+   * of {@code sp} into {@code scratch}. Mirrors
+   * {@code FSSTCompressor.decodeRawCompressed} but reads from a
+   * MemorySegment and writes into a caller-provided buffer — no allocation.
+   * Returns decoded byte count, or -1 if output overflows.
+   *
+   * <p>Copies the compressed source into a thread-local byte[] via one
+   * {@link MemorySegment#copy} up front so the symbol-dispatch loop reads
+   * plain array bytes instead of paying per-byte MemorySegment safety
+   * checks (alignment/session/bounds). For short FSST payloads — typical
+   * of JSON string columns — the bulk copy is essentially free and the
+   * tight array loop JITs cleanly.
+   */
+  private static int decodeFsstInto(final MemorySegment sp, final long dataOff,
+      final int length, final byte[][] symbols, final byte[] scratch) {
+    byte[] src = FSST_SRC_BUF.get();
+    if (src.length < length) {
+      src = new byte[Math.max(length, src.length * 2)];
+      FSST_SRC_BUF.set(src);
+    }
+    MemorySegment.copy(sp, ValueLayout.JAVA_BYTE, dataOff, src, 0, length);
+    int outPos = 0;
+    final int scratchLen = scratch.length;
+    int pos = 0;
+    while (pos < length) {
+      final int b = src[pos++] & 0xFF;
+      if (b == 0xFF) {
+        if (pos >= length || outPos >= scratchLen) {
+          return -1;
+        }
+        scratch[outPos++] = src[pos++];
+      } else if (b < symbols.length) {
+        final byte[] symbol = symbols[b];
+        final int sl = symbol.length;
+        if (outPos + sl > scratchLen) {
+          return -1;
+        }
+        System.arraycopy(symbol, 0, scratch, outPos, sl);
+        outPos += sl;
+      } else {
+        return -1; // corrupted FSST data
+      }
+    }
+    return outPos;
+  }
+
+  /**
+   * Read the delta-encoded firstChildKey from an OBJECT_KEY slot without
+   * moving any cursor or binding a singleton. Returns the raw nodeKey.
+   *
+   * <p>Caller must verify the slot holds an OBJECT_KEY (kind id 26) first.
+   */
+  public long getObjectKeyFirstChildKeyFromSlot(final int slotNumber, final long objectKeyNodeKey) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJKEY_FIRST_CHILD_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, objectKeyNodeKey);
+  }
+
+  /**
+   * Read the delta-encoded parentKey (enclosing OBJECT's nodeKey) from an
+   * OBJECT_KEY slot without moving any cursor or binding a singleton.
+   * Decoded directly off the slotted page so the vectorized scan can join
+   * sibling fields in Pass 2 by parent-OBJECT nodeKey in O(1) per slot.
+   *
+   * <p>Handles both the dense OBJECT_KEY encoding (kind 26) and the PAX
+   * variant (kind 126 — nameKey hoisted to an external region; field index 0
+   * remains {@code OBJKEY_PARENT_KEY}, only the field count changes).
+   *
+   * <p>Caller must verify the slot holds an OBJECT_KEY (kind 26 or 126); no
+   * validation is performed to keep the hot path branch-free beyond the
+   * kind-id dispatch that selects the field-count constant.
+   *
+   * @param slotNumber       the slot index (assumed populated + OBJECT_KEY kind)
+   * @param objectKeyNodeKey the slot's nodeKey (base + slotNumber) — the
+   *                         delta-decoder reconstructs parentKey against it
+   * @return parentKey (enclosing OBJECT nodeKey); {@code -1L} if the page was
+   *         evicted mid-scan
+   */
+  public long getObjectKeyParentKeyFromSlot(final int slotNumber, final long objectKeyNodeKey) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      return -1L;
+    }
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+    final int fieldCount;
+    if (kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID) {
+      fieldCount = NodeFieldLayout.OBJECT_KEY_PAX_FIELD_COUNT;
+    } else {
+      fieldCount = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+    }
+    // OBJKEY_PARENT_KEY = 0 for both dense and PAX layouts — the PAX variant
+    // only hoists nameKey out of the record, the leading parent/sibling/
+    // firstChild offsets are unchanged.
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJKEY_PARENT_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + fieldCount;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, objectKeyNodeKey);
+  }
+
+  /**
+   * Read the pathNodeKey stored on an OBJECT_KEY slot — the fully-qualified
+   * path identifier pointing into the PathSummary. Decoded directly off the
+   * slotted page without cursor movement or singleton binding, so the
+   * vectorized scan can filter matched slots by scope in O(1) per slot.
+   *
+   * <p>Handles both the dense OBJECT_KEY encoding (kind 26, field index
+   * {@link NodeFieldLayout#OBJKEY_PATH_NODE_KEY}) and the PAX-mode variant
+   * (kind 126, field index {@link NodeFieldLayout#OBJKEY_PAX_PATH_NODE_KEY})
+   * where the nameKey column has been hoisted into an external region.
+   *
+   * <p>Caller must verify the slot holds an OBJECT_KEY (kind 26 or 126); no
+   * validation is performed to keep the per-slot cost down to a single byte
+   * read for the offset and a varint decode for the value.
+   *
+   * @param slotNumber       the slot index (assumed populated + OBJECT_KEY kind)
+   * @param objectKeyNodeKey the slot's nodeKey (base + slotNumber) — the
+   *                         delta-decoder reconstructs pathNodeKey against it
+   * @return the pathNodeKey; {@code 0L} if the slot has no path statistics
+   *         (resource opened without path summary)
+   */
+  public long getObjectKeyPathNodeKeyFromSlot(final int slotNumber, final long objectKeyNodeKey) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      // Page was evicted from the cache while a scan was holding a reference.
+      // Signal unresolvable; callers either skip the slot or retry the page.
+      // At high memory pressure (e.g. 100M-record workloads with a cache
+      // hit-rate near 10%) this can race with concurrent scans; without the
+      // guard we NPE inside PageLayout.getDirHeapOffset.
+      return -1L;
+    }
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+    final int fieldIdx;
+    final int fieldCount;
+    if (kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID) {
+      fieldIdx = NodeFieldLayout.OBJKEY_PAX_PATH_NODE_KEY;
+      fieldCount = NodeFieldLayout.OBJECT_KEY_PAX_FIELD_COUNT;
+    } else {
+      fieldIdx = NodeFieldLayout.OBJKEY_PATH_NODE_KEY;
+      fieldCount = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+    }
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIdx) & 0xFF;
+    final long dataStart = recordBase + 1 + fieldCount;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, objectKeyNodeKey);
+  }
+
+  /**
+   * Bulk-decode the {@code pathNodeKey}, {@code parentKey}, and
+   * {@code firstChildKey} columns for {@code count} OBJECT_KEY slots in one
+   * tight loop. Mirrors the semantics of
+   * {@link #getObjectKeyPathNodeKeyFromSlot},
+   * {@link #getObjectKeyParentKeyFromSlot}, and
+   * {@link #getObjectKeyFirstChildKeyFromSlot}, but:
+   *
+   * <ul>
+   *   <li>Hoists the slotted-page null check + session checks out of the
+   *       per-slot loop so the JIT can peel loop-invariant guards.</li>
+   *   <li>Shares the heap-offset lookup and record base across the three
+   *       varint decodes per slot — dropping two byte reads that each of
+   *       the three getters would pay independently.</li>
+   *   <li>Probes the kind id once per slot so a page that happens to mix
+   *       dense and PAX OBJECT_KEY encodings (same kind family, different
+   *       field layout) stays correct.</li>
+   * </ul>
+   *
+   * <p>If the page has been evicted mid-scan ({@code slottedPage == null}),
+   * the method fills the output arrays with {@code -1L} so callers can skip
+   * the slot via the same sentinel contract as the per-slot getters.
+   *
+   * <p>CPU profile on 10M cold filterCount showed the three per-slot getters
+   * accounting for ~4.5% of the worker thread. A single bulk call in the
+   * scan driver (see {@code SirixVectorizedExecutor.collectColumns}) removes
+   * the per-iteration method-dispatch + per-call MemorySegment session
+   * checks so the JIT can keep the tight inner loop in registers.
+   *
+   * @param slots             slot indices to decode (valid for {@code 0..count})
+   * @param count             number of slots to decode
+   * @param pageBase          base nodeKey for this page (pageKey {@literal <<}
+   *                          {@link Constants#INP_REFERENCE_COUNT_EXPONENT})
+   * @param outPathNodeKeys   result column — pathNodeKey per slot, sized
+   *                          {@code >= count}. Values match
+   *                          {@link #getObjectKeyPathNodeKeyFromSlot}.
+   * @param outParentKeys     result column — parentKey per slot.
+   * @param outFirstChildKeys result column — firstChildKey per slot.
+   */
+  public void bulkDecodeObjectKeyColumns(final int[] slots, final int count, final long pageBase,
+      final long[] outPathNodeKeys, final long[] outParentKeys, final long[] outFirstChildKeys) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null || count == 0) {
+      for (int i = 0; i < count; i++) {
+        outPathNodeKeys[i] = -1L;
+        outParentKeys[i] = -1L;
+        outFirstChildKeys[i] = -1L;
+      }
+      return;
+    }
+    // Probe the kindId once from slot[0]. All OBJECT_KEY slots on a given
+    // page share the same dense-vs-PAX layout (PAX is a page-level choice
+    // driven by whether the page has a KIND_OBJECT_KEY_NAMEKEY region),
+    // so lifting the branch out of the inner loop lets the JIT keep the
+    // three field-offset indices in registers.
+    final int probeHeapOffset = PageLayout.getDirHeapOffset(sp, slots[0]);
+    final long probeRecordBase = PageLayout.HEAP_START + probeHeapOffset;
+    final int probeKindId = sp.get(ValueLayout.JAVA_BYTE, probeRecordBase) & 0xFF;
+    final int pathIdx;
+    final int fieldCount;
+    if (probeKindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID) {
+      pathIdx = NodeFieldLayout.OBJKEY_PAX_PATH_NODE_KEY;
+      fieldCount = NodeFieldLayout.OBJECT_KEY_PAX_FIELD_COUNT;
+    } else {
+      pathIdx = NodeFieldLayout.OBJKEY_PATH_NODE_KEY;
+      fieldCount = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+    }
+    for (int i = 0; i < count; i++) {
+      final int slot = slots[i];
+      final long nodeKey = pageBase + slot;
+      final int heapOffset = PageLayout.getDirHeapOffset(sp, slot);
+      final long recordBase = PageLayout.HEAP_START + heapOffset;
+      final long offsetTable = recordBase + 1;
+      final long dataStart = offsetTable + fieldCount;
+      final int parentFieldOff =
+          sp.get(ValueLayout.JAVA_BYTE, offsetTable + NodeFieldLayout.OBJKEY_PARENT_KEY) & 0xFF;
+      final int firstChildFieldOff =
+          sp.get(ValueLayout.JAVA_BYTE, offsetTable + NodeFieldLayout.OBJKEY_FIRST_CHILD_KEY) & 0xFF;
+      final int pathFieldOff = sp.get(ValueLayout.JAVA_BYTE, offsetTable + pathIdx) & 0xFF;
+      outParentKeys[i] =
+          DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + parentFieldOff, nodeKey);
+      outFirstChildKeys[i] =
+          DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + firstChildFieldOff, nodeKey);
+      outPathNodeKeys[i] =
+          DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + pathFieldOff, nodeKey);
+    }
+  }
+
+  /**
+   * Two-column variant of {@link #bulkDecodeObjectKeyColumns} that skips the
+   * {@code pathNodeKey} decode — used by {@code collectColumns} pass 2,
+   * which only needs {@code parentKey} (for the batch parent-row join) and
+   * {@code firstChildKey} (for the sibling value read). Decoding the
+   * third column there would waste one varint read per sibling slot per
+   * field per page.
+   */
+  public void bulkDecodeObjectKeyParentAndChildKeys(final int[] slots, final int count,
+      final long pageBase, final long[] outParentKeys, final long[] outFirstChildKeys) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null || count == 0) {
+      for (int i = 0; i < count; i++) {
+        outParentKeys[i] = -1L;
+        outFirstChildKeys[i] = -1L;
+      }
+      return;
+    }
+    // Probe kindId once — see bulkDecodeObjectKeyColumns for rationale.
+    final int probeHeapOffset = PageLayout.getDirHeapOffset(sp, slots[0]);
+    final long probeRecordBase = PageLayout.HEAP_START + probeHeapOffset;
+    final int probeKindId = sp.get(ValueLayout.JAVA_BYTE, probeRecordBase) & 0xFF;
+    final int fieldCount = (probeKindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID)
+        ? NodeFieldLayout.OBJECT_KEY_PAX_FIELD_COUNT
+        : NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+    for (int i = 0; i < count; i++) {
+      final int slot = slots[i];
+      final long nodeKey = pageBase + slot;
+      final int heapOffset = PageLayout.getDirHeapOffset(sp, slot);
+      final long recordBase = PageLayout.HEAP_START + heapOffset;
+      final long offsetTable = recordBase + 1;
+      final long dataStart = offsetTable + fieldCount;
+      final int parentFieldOff =
+          sp.get(ValueLayout.JAVA_BYTE, offsetTable + NodeFieldLayout.OBJKEY_PARENT_KEY) & 0xFF;
+      final int firstChildFieldOff =
+          sp.get(ValueLayout.JAVA_BYTE, offsetTable + NodeFieldLayout.OBJKEY_FIRST_CHILD_KEY) & 0xFF;
+      outParentKeys[i] =
+          DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + parentFieldOff, nodeKey);
+      outFirstChildKeys[i] =
+          DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + firstChildFieldOff, nodeKey);
+    }
+  }
+
+  /**
+   * Decode a numeric value from an OBJECT_NUMBER_VALUE slot directly off the
+   * slotted page — no moveTo, no singleton binding, no Number boxing. Returns
+   * {@code Long.MIN_VALUE} if the payload's number type isn't Integer or Long
+   * (i.e. float/double/BigDecimal — caller should fall back to the full
+   * cursor path).
+   *
+   * <p>Caller must verify the slot holds an OBJECT_NUMBER_VALUE (kind id 42).
+   */
+  public long getNumberValueLongFromSlot(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNUMVAL_PAYLOAD) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_NUMBER_VALUE_FIELD_COUNT;
+    final long payloadStart = dataStart + fieldOff;
+    final byte numberType = sp.get(ValueLayout.JAVA_BYTE, payloadStart);
+    if (numberType == NUMBER_TYPE_INTEGER) {
+      return DeltaVarIntCodec.decodeSignedFromSegment(sp, payloadStart + 1);
+    }
+    if (numberType == NUMBER_TYPE_LONG) {
+      return DeltaVarIntCodec.decodeSignedLongFromSegment(sp, payloadStart + 1);
+    }
+    return Long.MIN_VALUE; // Sentinel: caller falls back to full path
+  }
+
+  /**
+   * Read the boolean payload of an OBJECT_BOOLEAN_VALUE slot directly off the
+   * slotted page without going through rtx / node materialisation. Two byte
+   * reads: the offset-table entry for the value field, then the value byte
+   * itself. Caller is responsible for verifying the slot holds an
+   * OBJECT_BOOLEAN_VALUE (e.g. via {@link #getSlotNodeKindId}); this method
+   * does not double-check to keep the hot path branchless.
+   */
+  public boolean getObjectBooleanValueFromSlot(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    // Offset table lives at recordBase+1..recordBase+FIELD_COUNT, one byte per field.
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJBOOLVAL_VALUE) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_BOOLEAN_VALUE_FIELD_COUNT;
+    return sp.get(ValueLayout.JAVA_BYTE, dataStart + fieldOff) != 0;
+  }
+
+  /** Node kind id for OBJECT_NUMBER_VALUE. */
+  public static int objectNumberValueKindId() {
+    return OBJECT_NUMBER_VALUE_KIND_ID;
+  }
+
+  /** Node kind id for OBJECT_KEY. */
+  public static int objectKeyKindId() {
+    return OBJECT_KEY_KIND_ID;
+  }
+
+  /** Node kind id for OBJECT_STRING_VALUE. */
+  public static int objectStringValueKindId() {
+    return OBJECT_STRING_VALUE_KIND_ID;
+  }
+
+  /**
+   * Package-private view of {@link #readObjectStringValueBytesForRegionBuild} exposed
+   * so {@code PageKind}'s slotted-page writer can pre-encode the StringRegion at
+   * commit time (moving the cost off the scan hot path).
+   */
+  byte[] readObjectStringValueBytesForRegionBuildPkg(final int slotNumber) {
+    return readObjectStringValueBytesForRegionBuild(slotNumber);
+  }
+
+  /**
+   * Read the delta-encoded parent nodeKey from an OBJECT_NUMBER_VALUE slot
+   * directly off the slotted page. Used by the writer to tag each numeric
+   * region entry with its parent OBJECT_KEY's nameKey.
+   *
+   * <p>Caller must verify the slot holds an OBJECT_NUMBER_VALUE (kind id 42).
+   */
+  public long getObjectNumberValueParentKeyFromSlot(final int slotNumber, final long valueNodeKey) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJNUMVAL_PARENT_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_NUMBER_VALUE_FIELD_COUNT;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, valueNodeKey);
+  }
+
+  /**
+   * Read the delta-encoded parent nodeKey from an OBJECT_STRING_VALUE slot. Used by
+   * {@link #tryBuildStringRegionFromSlottedPage} to group each string under its parent
+   * OBJECT_KEY's nameKey (the {@code StringRegion} tag).
+   *
+   * <p>Caller must verify the slot holds an OBJECT_STRING_VALUE (kind id 40).
+   */
+  public long getObjectStringValueParentKeyFromSlot(final int slotNumber, final long valueNodeKey) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJSTRVAL_PARENT_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_STRING_VALUE_FIELD_COUNT;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, valueNodeKey);
+  }
+
+  /**
+   * Read the delta-encoded parent nodeKey from an OBJECT_BOOLEAN_VALUE slot. Used by
+   * {@link #tryBuildBooleanRegionFromSlottedPage} to group each boolean under its
+   * parent OBJECT_KEY's nameKey (or pathNodeKey), enabling the columnar filter path.
+   *
+   * <p>Caller must verify the slot holds an OBJECT_BOOLEAN_VALUE (kind id 41).
+   */
+  public long getObjectBooleanValueParentKeyFromSlot(final int slotNumber, final long valueNodeKey) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.OBJBOOLVAL_PARENT_KEY) & 0xFF;
+    final long dataStart = recordBase + 1 + NodeFieldLayout.OBJECT_BOOLEAN_VALUE_FIELD_COUNT;
+    return DeltaVarIntCodec.decodeDeltaFromSegment(sp, dataStart + fieldOff, valueNodeKey);
+  }
+
+  /**
+   * Cache of matching-slot arrays keyed by nameKey (primitive int → int[], no
+   * Integer boxing). Built lazily the first time a vectorized scan asks for a
+   * given field, reused by every subsequent query on the same page. Memory:
+   * one int[] per distinct queried nameKey; for a JSON-array workload that's
+   * typically ~5 arrays of ~150 entries each.
+   *
+   * <p>Immutable once built. For a read-only resource session the page's
+   * content doesn't change, so invalidation isn't needed.
+   */
+  private volatile Int2ObjectOpenHashMap<int[]> objectKeySlotsByName;
+  private static final int[] EMPTY_INT_ARRAY = new int[0];
+  private static final int OBJECT_KEY_KIND_ID = 26;
+
+  /** Thread-local scratch for SIMD findMatchingSlots output. Avoids per-page int[] alloc. */
+  private static final ThreadLocal<int[]> MATCHING_SLOTS_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[256]);
+
+  static boolean isObjectKeyKindId(final int kindId) {
+    return kindId == OBJECT_KEY_KIND_ID || kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID;
+  }
+
+  /**
+   * Return the slot indices whose OBJECT_KEY has the given nameKey. Single-pass
+   * bitmap walk the first time; array reuse thereafter. Borrowed from DuckDB /
+   * ClickHouse column pre-scan: pay the per-slot decode cost once, amortize
+   * across the many scans any realistic analytical query does.
+   *
+   * <p>Zero-allocation on the hot path once built — all subsequent calls just
+   * return the cached int[].
+   */
+  public int[] getObjectKeySlotsForNameKey(final int fieldKey) {
+    Int2ObjectOpenHashMap<int[]> cache = objectKeySlotsByName;
+    if (cache == null) {
+      synchronized (this) {
+        cache = objectKeySlotsByName;
+        if (cache == null) {
+          cache = new Int2ObjectOpenHashMap<>(8);
+          objectKeySlotsByName = cache;
+        }
+      }
+    }
+    final int[] cached = cache.get(fieldKey);
+    if (cached != null) return cached;
+    return buildObjectKeySlotsForNameKey(cache, fieldKey);
+  }
+
+  private int[] buildObjectKeySlotsForNameKey(final Int2ObjectOpenHashMap<int[]> cache,
+      final int fieldKey) {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) return EMPTY_INT_ARRAY;
+
+    // Fast path: ObjectKeyNameKeyRegion lets us SIMD-scan the dict-encoded nameKey
+    // column instead of walking every populated slot, decoding kind-id, and decoding
+    // the per-record nameKey via varint. Profile (Temurin 25, 100M records) showed
+    // ObjectKeyNameKeyRegion.nameKeyForSlot at ~8% CPU on the slot-walk path; the
+    // findMatchingSlots SIMD scan replaces all of that with one tight ByteVector loop.
+    final byte[] nameKeyPayload = regionPayload(RegionTable.KIND_OBJECT_KEY_NAMEKEY);
+    if (nameKeyPayload != null) {
+      final int upperBound = io.sirix.page.pax.ObjectKeyNameKeyRegion.count(nameKeyPayload);
+      if (upperBound == 0) {
+        return cachePut(cache, fieldKey, EMPTY_INT_ARRAY);
+      }
+      // Thread-local scratch — avoids per-page int[] alloc during cache rebuild.
+      // Alloc-profile at 100M records showed ~76K samples from this site before
+      // the scratch was introduced.
+      int[] tmp = MATCHING_SLOTS_SCRATCH.get();
+      if (tmp.length < upperBound) {
+        tmp = new int[Math.max(upperBound, tmp.length * 2)];
+        MATCHING_SLOTS_SCRATCH.set(tmp);
+      }
+      final int matched = io.sirix.page.pax.ObjectKeyNameKeyRegion.findMatchingSlots(
+          nameKeyPayload, fieldKey, tmp);
+      if (matched == 0) return cachePut(cache, fieldKey, EMPTY_INT_ARRAY);
+      final int[] result = Arrays.copyOf(tmp, matched);
+      return cachePut(cache, fieldKey, result);
+    }
+
+    // Slow path (region absent): walk populated-slot bitmap in-line. Avoids
+    // forEachPopulatedSlot's lambda — direct bit scan inlines cleanly.
+    int[] buf = new int[32];
+    int count = 0;
+    for (int wordIndex = 0; wordIndex < PageLayout.BITMAP_WORDS; wordIndex++) {
+      long word = PageLayout.getBitmapWord(sp, wordIndex);
+      final int baseSlot = wordIndex << 6;
+      while (word != 0) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        final int slot = baseSlot + bit;
+        if (isObjectKeyKindId(PageLayout.getDirNodeKindId(sp, slot))
+            && getObjectKeyNameKeyFromSlot(slot) == fieldKey) {
+          if (count == buf.length) {
+            final int[] grown = new int[buf.length << 1];
+            System.arraycopy(buf, 0, grown, 0, count);
+            buf = grown;
+          }
+          buf[count++] = slot;
+        }
+        word &= word - 1;
+      }
+    }
+    final int[] result = (count == buf.length) ? buf : Arrays.copyOf(buf, count);
+    return cachePut(cache, fieldKey, result);
+  }
+
+  private static int[] cachePut(final Int2ObjectOpenHashMap<int[]> cache, final int fieldKey,
+      final int[] result) {
+    synchronized (cache) {
+      final int[] existing = cache.get(fieldKey);
+      if (existing != null) return existing;
+      cache.put(fieldKey, result);
+    }
+    return result;
   }
 
   /**
@@ -1683,6 +2610,11 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   @Override
   public byte[] getDeweyIdAsByteArray(int slotNumber) {
+    // Fast path: skip segment lookup + flag read if DeweyIDs aren't stored
+    // for this resource. Hot during shred — called on every bindWriteSingleton.
+    if (!areDeweyIDsStored) {
+      return null;
+    }
     var memorySegment = getDeweyId(slotNumber);
 
     if (memorySegment == null) {
@@ -1900,11 +2832,604 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
   /**
    * Set the FSST symbol table for string compression.
-   * 
+   *
    * @param symbolTable the symbol table bytes
    */
   public void setFsstSymbolTable(byte[] symbolTable) {
     this.fsstSymbolTable = symbolTable;
+  }
+
+  /**
+   * Returns the PAX region table. {@code null} indicates V0 format or that no
+   * regions have been attached. Callers on the hot path should prefer
+   * {@link #regionPayload(byte)} to avoid a nullcheck at each slot read.
+   */
+  public RegionTable getRegionTable() {
+    return regionTable;
+  }
+
+  public void setRegionTable(final RegionTable table) {
+    this.regionTable = table;
+  }
+
+  /**
+   * Direct payload lookup for a region kind. Returns {@code null} when no table
+   * is present or the region is absent. Inlineable one-branch hot-path shim.
+   */
+  public byte[] regionPayload(final byte kind) {
+    final RegionTable t = regionTable;
+    return t == null ? null : t.payload(kind);
+  }
+
+  /**
+   * Lazily parsed number-region header. {@code null} if the page has no number
+   * region (e.g. path-summary pages, index pages, pages with no numeric values).
+   * Cached after first parse — zero allocation on subsequent calls.
+   */
+  private volatile NumberRegion.Header cachedNumberHeader;
+
+  /**
+   * Cached {@link MemorySegment} view over the {@link RegionTable#KIND_NUMBER} payload.
+   * Wrapping a {@code byte[]} via {@code MemorySegment.ofArray} allocates a small
+   * {@code HeapMemorySegmentImpl} instance per call (~24 B). On the SIMD scan hot path
+   * that fires once per page per query, which compounds into real GC pressure on
+   * 100M-record workloads. Caching the view alongside the parsed header collapses the
+   * per-page cost to one volatile read.
+   *
+   * <p>Lifecycle: populated by {@link #getNumberRegionPayloadSegment()} on first call,
+   * cleared by {@link #invalidateNumberRegion()} together with the parsed header.
+   */
+  private volatile MemorySegment cachedNumberPayloadSegment;
+
+  /**
+   * Drop the cached {@link NumberRegion.Header} and the {@link RegionTable#KIND_NUMBER}
+   * payload so the next reader rebuilds from the slotted page. Called from every mutation
+   * path that adds, modifies, or removes an OBJECT_NUMBER_VALUE / NUMBER_VALUE record.
+   *
+   * <h2>HFT cost model</h2>
+   * Steady-state cost when no region is currently cached: one volatile read + one branch.
+   * On the first invalidation per page after a region was built: one volatile write +
+   * one {@code byte[][]} slot store. After that, calls collapse to the fast-path until
+   * the next reader rebuilds.
+   *
+   * <p>Package-private so unit tests can verify the contract without reflection.
+   */
+  void invalidateNumberRegion() {
+    if (cachedNumberHeader == null && cachedNumberPayloadSegment == null) {
+      return;
+    }
+    cachedNumberHeader = null;
+    cachedNumberPayloadSegment = null;
+    final RegionTable rt = regionTable;
+    if (rt != null) {
+      rt.set(RegionTable.KIND_NUMBER, null);
+    }
+  }
+
+  /**
+   * Invalidate the cached number region iff the slot at {@code slotOffset} currently
+   * holds a number-typed record. Called from {@link #setRecord} and {@link #setNewRecord}
+   * before mutation, so deletion or replacement of an existing number record is detected
+   * even when the new record kind is something else (e.g. {@code DeletedNode}).
+   *
+   * <p>The "new record IS a number" case is handled separately by {@link #serializeToHeap}
+   * and {@link #completeDirectWrite} which already know the kind id being written.
+   */
+  private void maybeInvalidateNumberRegionForExistingSlot(final int slotOffset) {
+    if (cachedNumberHeader == null) {
+      return;
+    }
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotOffset)) {
+      return;
+    }
+    if (isNumberValueKindId(PageLayout.getDirNodeKindId(sp, slotOffset))) {
+      invalidateNumberRegion();
+    }
+  }
+
+  public NumberRegion.Header getNumberRegionHeader() {
+    NumberRegion.Header h = cachedNumberHeader;
+    if (h != null) {
+      return h;
+    }
+    byte[] payload = regionPayload(RegionTable.KIND_NUMBER);
+    if (payload == null) {
+      // VersioningType.combineRecordPages produces a fresh KVLP whose slotted
+      // page is reconstructed from multiple fragments — no region travels with
+      // it. Build the region lazily from the combined slots. Idempotent: the
+      // payload is cached via setRegionTable so subsequent queries skip this.
+      payload = tryBuildNumberRegionFromSlottedPage();
+      if (payload == null) {
+        return null;
+      }
+    }
+    synchronized (this) {
+      h = cachedNumberHeader;
+      if (h == null) {
+        h = new NumberRegion.Header().parseInto(payload);
+        cachedNumberHeader = h;
+      }
+    }
+    return h;
+  }
+
+  /**
+   * Ensure the number region is attached. Called from the versioning layer's
+   * {@code combineRecordPages} after a new KVLP has been reconstructed from
+   * one or more fragments. The argument carries the donor page's region —
+   * typically the first (or only) fragment.
+   *
+   * <p><b>Caller contract.</b> The donor shortcut — copying
+   * {@code donor.regionTable} by reference — is only correct when the target
+   * is a byte-identical copy of the donor (i.e. single-fragment combine). For
+   * multi-fragment combines the caller <b>must</b> pass {@code null} (or use
+   * {@link #ensureNumberRegion()}) so the region is rebuilt from the combined
+   * slotted heap. Passing a donor in a multi-fragment context silently
+   * corrupts aggregates that lean on the PAX number region (zone maps, sum,
+   * min/max), so a fail-fast assertion guards the invariant in debug builds.
+   */
+  public void ensureNumberRegion(final KeyValueLeafPage donor) {
+    if (regionTable != null && regionTable.payload(RegionTable.KIND_NUMBER) != null) {
+      return;
+    }
+    if (donor != null) {
+      final RegionTable donorTable = donor.regionTable;
+      if (donorTable != null && donorTable.payload(RegionTable.KIND_NUMBER) != null) {
+        assert donor.getCachedPopulatedCount() == this.getCachedPopulatedCount()
+            : "ensureNumberRegion(donor) called with a multi-fragment target: donor slots="
+                + donor.getCachedPopulatedCount() + ", target slots=" + this.getCachedPopulatedCount()
+                + ". Caller must pass null in multi-fragment combines.";
+        this.regionTable = donorTable;
+        return;
+      }
+    }
+    tryBuildNumberRegionFromSlottedPage();
+  }
+
+  /** Backward-compat overload that builds from the slotted page only. */
+  public void ensureNumberRegion() {
+    ensureNumberRegion(null);
+  }
+
+  /**
+   * Walk the slotted page, collect each OBJECT_NUMBER_VALUE slot's value + its
+   * parent OBJECT_KEY's nameKey, encode into a NumberRegion payload. Returns
+   * {@code null} when the page has no numeric values or no slotted page yet.
+   *
+   * <p>Side-effect: on success, attaches the region to the page so subsequent
+   * lookups skip this build.
+   */
+  private byte[] tryBuildNumberRegionFromSlottedPage() {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      return null;
+    }
+    final int numberKindId = OBJECT_NUMBER_VALUE_KIND_ID;
+    final long pageKeyBase = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
+    long[] valBuf = new long[64];
+    int[] nameBuf = new int[64];
+    int[] pathBuf = new int[64];
+    int count = 0;
+    boolean allPathNodeKeysValid = resourceConfig != null && resourceConfig.withPathSummary;
+    for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+      long word = PageLayout.getBitmapWord(sp, w);
+      final int baseSlot = w << 6;
+      while (word != 0) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        final int slot = baseSlot + bit;
+        if (PageLayout.getDirNodeKindId(sp, slot) == numberKindId) {
+          final long value = getNumberValueLongFromSlot(slot);
+          if (value != Long.MIN_VALUE) {
+            final long valueNodeKey = pageKeyBase + slot;
+            final long parentKey = getObjectNumberValueParentKeyFromSlot(slot, valueNodeKey);
+            int parentNameKey = -1;
+            int parentPathNodeKeyInt = -1;
+            if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == recordPageKey) {
+              final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
+              if (isObjectKeyKindId(PageLayout.getDirNodeKindId(sp, parentSlot))) {
+                parentNameKey = getObjectKeyNameKeyFromSlot(parentSlot);
+                if (allPathNodeKeysValid) {
+                  final long pnk = getObjectKeyPathNodeKeyFromSlot(parentSlot, parentKey);
+                  if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                    parentPathNodeKeyInt = (int) pnk;
+                  } else {
+                    allPathNodeKeysValid = false;
+                  }
+                }
+              } else {
+                allPathNodeKeysValid = false;
+              }
+            } else {
+              allPathNodeKeysValid = false;
+            }
+            if (count == valBuf.length) {
+              final long[] grownV = new long[valBuf.length << 1];
+              System.arraycopy(valBuf, 0, grownV, 0, count);
+              valBuf = grownV;
+              final int[] grownN = new int[nameBuf.length << 1];
+              System.arraycopy(nameBuf, 0, grownN, 0, count);
+              nameBuf = grownN;
+              final int[] grownPath = new int[pathBuf.length << 1];
+              System.arraycopy(pathBuf, 0, grownPath, 0, count);
+              pathBuf = grownPath;
+            }
+            valBuf[count] = value;
+            nameBuf[count] = parentNameKey;
+            pathBuf[count] = parentPathNodeKeyInt;
+            count++;
+          }
+        }
+        word &= word - 1;
+      }
+    }
+    if (count == 0) {
+      return null;
+    }
+    final byte tagKind = allPathNodeKeysValid ? NumberRegion.TAG_KIND_PATH_NODE : NumberRegion.TAG_KIND_NAME;
+    final int[] tagBuf = allPathNodeKeysValid ? pathBuf : nameBuf;
+    final byte[] payload = NumberRegion.encode(valBuf, tagBuf, count, tagKind);
+    // Preserve any existing regionTable (e.g. KIND_OBJECT_KEY_NAMEKEY) — overwriting
+    // with a fresh RegionTable would silently drop other regions on this page.
+    RegionTable table = this.regionTable;
+    if (table == null) {
+      table = new RegionTable();
+      this.regionTable = table;
+    }
+    table.set(RegionTable.KIND_NUMBER, payload);
+    return payload;
+  }
+
+  /**
+   * Returns the raw number-region payload bytes or {@code null}. Paired with
+   * {@link #getNumberRegionHeader()} for scan operators that decode inline.
+   */
+  public byte[] getNumberRegionPayload() {
+    return regionPayload(RegionTable.KIND_NUMBER);
+  }
+
+  // ============================================================
+  // KIND_STRING region — dictionary-encoded OBJECT_STRING_VALUE column.
+  // ============================================================
+
+  /**
+   * Lazily parsed {@link StringRegion.Header} for the page's
+   * dictionary-encoded string column. {@code null} if the page has no
+   * OBJECT_STRING_VALUE records or the region hasn't been built yet.
+   */
+  private volatile StringRegion.Header cachedStringHeader;
+
+  /** Cached {@link MemorySegment} view over the {@link RegionTable#KIND_STRING} payload. */
+  private volatile MemorySegment cachedStringPayloadSegment;
+
+  /**
+   * Drop the cached string-region parsed header + payload-segment view so the next
+   * reader rebuilds. Called from every mutation path that adds, modifies, or removes
+   * an OBJECT_STRING_VALUE / STRING_VALUE record.
+   */
+  void invalidateStringRegion() {
+    if (cachedStringHeader == null && cachedStringPayloadSegment == null) {
+      return;
+    }
+    cachedStringHeader = null;
+    cachedStringPayloadSegment = null;
+    final RegionTable rt = regionTable;
+    if (rt != null) {
+      rt.set(RegionTable.KIND_STRING, null);
+    }
+  }
+
+  /**
+   * Invalidate the cached string region iff the slot at {@code slotOffset} currently
+   * holds a string-typed record (same pattern as number variant).
+   */
+  private void maybeInvalidateStringRegionForExistingSlot(final int slotOffset) {
+    if (cachedStringHeader == null) {
+      return;
+    }
+    final MemorySegment sp = slottedPage;
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotOffset)) {
+      return;
+    }
+    if (isStringValueKindId(PageLayout.getDirNodeKindId(sp, slotOffset))) {
+      invalidateStringRegion();
+    }
+  }
+
+  /**
+   * Thread-local scratch for {@link #readObjectStringValueBytesForRegionBuild}.
+   * One array per worker thread, reused for every value read during a region build.
+   * 1 KiB matches typical OBJECT_STRING_VALUE max length on JSON-like workloads;
+   * grows on first oversize.
+   */
+  private static final ThreadLocal<byte[]> STRING_REGION_BUILD_SCRATCH =
+      ThreadLocal.withInitial(() -> new byte[1024]);
+
+  /**
+   * Read the OBJECT_STRING_VALUE payload at {@code slotNumber} as raw UTF-8 bytes,
+   * decompressing the FSST-encoded form when the value is compressed.
+   *
+   * <p>Used only by {@link #tryBuildStringRegionFromSlottedPage} (called once per
+   * page-cache miss). Allocates a fresh trimmed {@code byte[]} for the value
+   * because the {@code StringRegion.Encoder} retains references to keep them
+   * stable through {@code finish()}; the returned array's lifetime matches the
+   * region payload's lifetime.
+   */
+  private byte[] readObjectStringValueBytesForRegionBuild(final int slotNumber) {
+    byte[] scratch = STRING_REGION_BUILD_SCRATCH.get();
+    int n = readObjectStringValueBytesFromSlot(slotNumber, scratch);
+    if (n == -1) {
+      // Returned -1 means scratch too small or other read failure — try once with
+      // a larger scratch (grow + retry) before giving up.
+      if (scratch.length < (64 * 1024)) {
+        scratch = new byte[scratch.length * 4];
+        STRING_REGION_BUILD_SCRATCH.set(scratch);
+        n = readObjectStringValueBytesFromSlot(slotNumber, scratch);
+      }
+    }
+    if (n <= 0) return null;
+    // Trimmed copy is required: the encoder keeps the reference until finish().
+    final byte[] out = new byte[n];
+    System.arraycopy(scratch, 0, out, 0, n);
+    return out;
+  }
+
+  /**
+   * Walk the slotted page, collect each OBJECT_STRING_VALUE slot's value + its
+   * parent OBJECT_KEY's nameKey, encode into a StringRegion payload.
+   *
+   * <p>Returns {@code null} when the page has no string values or no slotted page yet.
+   * Side-effect: on success, attaches the region to the page so subsequent lookups
+   * skip this build.
+   */
+  private byte[] tryBuildStringRegionFromSlottedPage() {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      return null;
+    }
+    final long pageKeyBase = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
+    final boolean withPathSummary = resourceConfig != null && resourceConfig.withPathSummary;
+    // Build two encoders in parallel so the final tagKind decision is a pure
+    // pick — avoids a second pass. Path-tagged encoder only gets populated
+    // while {@code allPathNodeKeysValid} holds.
+    final StringRegion.Encoder nameEnc = new StringRegion.Encoder();
+    final StringRegion.Encoder pathEnc = withPathSummary ? new StringRegion.Encoder() : null;
+    boolean allPathNodeKeysValid = withPathSummary;
+    int count = 0;
+    for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+      long word = PageLayout.getBitmapWord(sp, w);
+      final int baseSlot = w << 6;
+      while (word != 0) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        final int slot = baseSlot + bit;
+        word &= word - 1;
+        if (PageLayout.getDirNodeKindId(sp, slot) != OBJECT_STRING_VALUE_KIND_ID) {
+          continue;
+        }
+        final byte[] value = readObjectStringValueBytesForRegionBuild(slot);
+        if (value == null) continue;
+        final long valueNodeKey = pageKeyBase + slot;
+        final long parentKey = getObjectStringValueParentKeyFromSlot(slot, valueNodeKey);
+        int parentNameKey = -1;
+        int parentPathNodeKeyInt = -1;
+        if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == recordPageKey) {
+          final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
+          if (isObjectKeyKindId(PageLayout.getDirNodeKindId(sp, parentSlot))) {
+            parentNameKey = getObjectKeyNameKeyFromSlot(parentSlot);
+            if (allPathNodeKeysValid) {
+              final long pnk = getObjectKeyPathNodeKeyFromSlot(parentSlot, parentKey);
+              if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                parentPathNodeKeyInt = (int) pnk;
+              } else {
+                allPathNodeKeysValid = false;
+              }
+            }
+          } else {
+            allPathNodeKeysValid = false;
+          }
+        } else {
+          allPathNodeKeysValid = false;
+        }
+        nameEnc.addValue(parentNameKey, value);
+        if (pathEnc != null && allPathNodeKeysValid) {
+          pathEnc.addValue(parentPathNodeKeyInt, value);
+        }
+        count++;
+      }
+    }
+    if (count == 0) {
+      return null;
+    }
+    final byte[] payload;
+    if (allPathNodeKeysValid && pathEnc != null) {
+      payload = pathEnc.finish(StringRegion.TAG_KIND_PATH_NODE);
+    } else {
+      payload = nameEnc.finish(StringRegion.TAG_KIND_NAME);
+    }
+    RegionTable table = this.regionTable;
+    if (table == null) {
+      table = new RegionTable();
+      this.regionTable = table;
+    }
+    table.set(RegionTable.KIND_STRING, payload);
+    return payload;
+  }
+
+  public StringRegion.Header getStringRegionHeader() {
+    StringRegion.Header h = cachedStringHeader;
+    if (h != null) {
+      return h;
+    }
+    byte[] payload = regionPayload(RegionTable.KIND_STRING);
+    if (payload == null) {
+      payload = tryBuildStringRegionFromSlottedPage();
+      if (payload == null) {
+        return null;
+      }
+    }
+    synchronized (this) {
+      h = cachedStringHeader;
+      if (h == null) {
+        h = new StringRegion.Header().parseInto(payload);
+        cachedStringHeader = h;
+      }
+    }
+    return h;
+  }
+
+  /** Raw string-region payload bytes, or {@code null}. */
+  public byte[] getStringRegionPayload() {
+    return regionPayload(RegionTable.KIND_STRING);
+  }
+
+  /**
+   * Build (and cache) the page's BooleanRegion by walking all populated
+   * OBJECT_BOOLEAN_VALUE slots and collecting each slot's value + parent
+   * OBJECT_KEY tag. Returns {@code null} when the page has no booleans.
+   * See {@link #tryBuildNumberRegionFromSlottedPage} for the template —
+   * this method mirrors it for the boolean column.
+   */
+  private byte[] tryBuildBooleanRegionFromSlottedPage() {
+    final MemorySegment sp = slottedPage;
+    if (sp == null) {
+      return null;
+    }
+    final int boolKindId = 41;  // OBJECT_BOOLEAN_VALUE — see NodeKind.OBJECT_BOOLEAN_VALUE
+    final long pageKeyBase = recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT;
+    boolean[] valBuf = new boolean[64];
+    int[] nameBuf = new int[64];
+    int[] pathBuf = new int[64];
+    int count = 0;
+    boolean allPathNodeKeysValid = resourceConfig != null && resourceConfig.withPathSummary;
+    for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+      long word = PageLayout.getBitmapWord(sp, w);
+      final int baseSlot = w << 6;
+      while (word != 0) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        final int slot = baseSlot + bit;
+        if (PageLayout.getDirNodeKindId(sp, slot) == boolKindId) {
+          final boolean value = getObjectBooleanValueFromSlot(slot);
+          final long valueNodeKey = pageKeyBase + slot;
+          final long parentKey = getObjectBooleanValueParentKeyFromSlot(slot, valueNodeKey);
+          int parentNameKey = -1;
+          int parentPathNodeKeyInt = -1;
+          if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == recordPageKey) {
+            final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
+            if (isObjectKeyKindId(PageLayout.getDirNodeKindId(sp, parentSlot))) {
+              parentNameKey = getObjectKeyNameKeyFromSlot(parentSlot);
+              if (allPathNodeKeysValid) {
+                final long pnk = getObjectKeyPathNodeKeyFromSlot(parentSlot, parentKey);
+                if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                  parentPathNodeKeyInt = (int) pnk;
+                } else {
+                  allPathNodeKeysValid = false;
+                }
+              }
+            } else {
+              allPathNodeKeysValid = false;
+            }
+          } else {
+            allPathNodeKeysValid = false;
+          }
+          if (count == valBuf.length) {
+            final boolean[] grownV = new boolean[valBuf.length << 1];
+            System.arraycopy(valBuf, 0, grownV, 0, count);
+            valBuf = grownV;
+            final int[] grownN = new int[nameBuf.length << 1];
+            System.arraycopy(nameBuf, 0, grownN, 0, count);
+            nameBuf = grownN;
+            final int[] grownPath = new int[pathBuf.length << 1];
+            System.arraycopy(pathBuf, 0, grownPath, 0, count);
+            pathBuf = grownPath;
+          }
+          valBuf[count] = value;
+          nameBuf[count] = parentNameKey;
+          pathBuf[count] = parentPathNodeKeyInt;
+          count++;
+        }
+        word &= word - 1;
+      }
+    }
+    if (count == 0) {
+      return null;
+    }
+    final byte tagKind = allPathNodeKeysValid
+        ? io.sirix.page.pax.BooleanRegion.TAG_KIND_PATH_NODE
+        : io.sirix.page.pax.BooleanRegion.TAG_KIND_NAME;
+    final int[] tagBuf = allPathNodeKeysValid ? pathBuf : nameBuf;
+    final byte[] payload = io.sirix.page.pax.BooleanRegion.encode(valBuf, tagBuf, count, tagKind);
+    if (payload == null) {
+      return null;  // BooleanRegion.encode returns null when dictionary overflows 256
+    }
+    RegionTable table = this.regionTable;
+    if (table == null) {
+      table = new RegionTable();
+      this.regionTable = table;
+    }
+    table.set(RegionTable.KIND_BOOLEAN, payload);
+    return payload;
+  }
+
+  /**
+   * Parsed header for the page's BooleanRegion, building and caching on
+   * first call. Returns {@code null} when the page has no booleans.
+   */
+  public io.sirix.page.pax.BooleanRegion.Header getBooleanRegionHeader() {
+    byte[] payload = regionPayload(RegionTable.KIND_BOOLEAN);
+    if (payload == null) {
+      payload = tryBuildBooleanRegionFromSlottedPage();
+      if (payload == null) {
+        return null;
+      }
+    }
+    return new io.sirix.page.pax.BooleanRegion.Header().parseInto(payload);
+  }
+
+  /** Raw boolean-region payload bytes, or {@code null}. */
+  public byte[] getBooleanRegionPayload() {
+    byte[] payload = regionPayload(RegionTable.KIND_BOOLEAN);
+    if (payload == null) {
+      payload = tryBuildBooleanRegionFromSlottedPage();
+    }
+    return payload;
+  }
+
+  /** Cached {@link MemorySegment} view over the string-region payload. */
+  public MemorySegment getStringRegionPayloadSegment() {
+    MemorySegment seg = cachedStringPayloadSegment;
+    if (seg != null) return seg;
+    final byte[] payload = regionPayload(RegionTable.KIND_STRING);
+    if (payload == null) return null;
+    seg = MemorySegment.ofArray(payload);
+    cachedStringPayloadSegment = seg;
+    return seg;
+  }
+
+  /**
+   * Returns a cached {@link MemorySegment} view over the number-region payload, or
+   * {@code null} when the page has no number region. The view is built once per page
+   * (on first call after the region is materialised) and reused across every scan.
+   *
+   * <p>HFT motivation: {@code MemorySegment.ofArray(byte[])} allocates a fresh
+   * {@code HeapMemorySegmentImpl} wrapper on every call. On a 100M-record scan that
+   * touches ~6K pages, paying that allocation per query is GC pressure we don't need.
+   * Caching collapses it to one read of a volatile reference.
+   */
+  public MemorySegment getNumberRegionPayloadSegment() {
+    MemorySegment seg = cachedNumberPayloadSegment;
+    if (seg != null) {
+      return seg;
+    }
+    final byte[] payload = regionPayload(RegionTable.KIND_NUMBER);
+    if (payload == null) {
+      return null;
+    }
+    // Benign race: parallel callers may build duplicate views, but the resulting
+    // segment is identical and the last write wins. Avoids synchronised block on
+    // the hot read path.
+    seg = MemorySegment.ofArray(payload);
+    cachedNumberPayloadSegment = seg;
+    return seg;
   }
 
   @Override
@@ -2320,20 +3845,20 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
           final long recordBase = PageLayout.heapAbsoluteOffset(heapOff);
           final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + i;
           if (nodeKindId == stringValueId) {
-            fsstStringFlyweight.bind(slottedPage, recordBase, nodeKey, i);
+            fsstStringFlyweight().bind(slottedPage, recordBase, nodeKey, i);
             try {
-              byte[] value = fsstStringFlyweight.getRawValueWithoutDecompression();
+              byte[] value = fsstStringFlyweight().getRawValueWithoutDecompression();
               if (value != null && value.length > 0) stringSamples.add(value);
             } finally {
-              fsstStringFlyweight.clearBinding();
+              fsstStringFlyweight().clearBinding();
             }
           } else {
-            fsstObjStringFlyweight.bind(slottedPage, recordBase, nodeKey, i);
+            fsstObjStringFlyweight().bind(slottedPage, recordBase, nodeKey, i);
             try {
-              byte[] value = fsstObjStringFlyweight.getRawValueWithoutDecompression();
+              byte[] value = fsstObjStringFlyweight().getRawValueWithoutDecompression();
               if (value != null && value.length > 0) stringSamples.add(value);
             } finally {
-              fsstObjStringFlyweight.clearBinding();
+              fsstObjStringFlyweight().clearBinding();
             }
           }
         }
@@ -2412,34 +3937,34 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
         final long nodeKey = (recordPageKey << Constants.NDP_NODE_COUNT_EXPONENT) + i;
 
         if (nodeKindId == stringValueId) {
-          fsstStringFlyweight.bind(slottedPage, recordBase, nodeKey, i);
-          fsstStringFlyweight.setOwnerPage(this); // Enable write-through
+          fsstStringFlyweight().bind(slottedPage, recordBase, nodeKey, i);
+          fsstStringFlyweight().setOwnerPage(this); // Enable write-through
           try {
-            byte[] originalValue = fsstStringFlyweight.getRawValueWithoutDecompression();
-            if (originalValue != null && originalValue.length > 0 && !fsstStringFlyweight.isCompressed()) {
+            byte[] originalValue = fsstStringFlyweight().getRawValueWithoutDecompression();
+            if (originalValue != null && originalValue.length > 0 && !fsstStringFlyweight().isCompressed()) {
               byte[] compressed = FSSTCompressor.encode(originalValue, fsstSymbolTable);
               if (compressed.length < originalValue.length) {
-                fsstStringFlyweight.setRawValue(compressed, true, fsstSymbolTable);
+                fsstStringFlyweight().setRawValue(compressed, true, fsstSymbolTable);
               }
             }
           } finally {
-            fsstStringFlyweight.setOwnerPage(null);
-            fsstStringFlyweight.clearBinding();
+            fsstStringFlyweight().setOwnerPage(null);
+            fsstStringFlyweight().clearBinding();
           }
         } else {
-          fsstObjStringFlyweight.bind(slottedPage, recordBase, nodeKey, i);
-          fsstObjStringFlyweight.setOwnerPage(this); // Enable write-through
+          fsstObjStringFlyweight().bind(slottedPage, recordBase, nodeKey, i);
+          fsstObjStringFlyweight().setOwnerPage(this); // Enable write-through
           try {
-            byte[] originalValue = fsstObjStringFlyweight.getRawValueWithoutDecompression();
-            if (originalValue != null && originalValue.length > 0 && !fsstObjStringFlyweight.isCompressed()) {
+            byte[] originalValue = fsstObjStringFlyweight().getRawValueWithoutDecompression();
+            if (originalValue != null && originalValue.length > 0 && !fsstObjStringFlyweight().isCompressed()) {
               byte[] compressed = FSSTCompressor.encode(originalValue, fsstSymbolTable);
               if (compressed.length < originalValue.length) {
-                fsstObjStringFlyweight.setRawValue(compressed, true, fsstSymbolTable);
+                fsstObjStringFlyweight().setRawValue(compressed, true, fsstSymbolTable);
               }
             }
           } finally {
-            fsstObjStringFlyweight.setOwnerPage(null);
-            fsstObjStringFlyweight.clearBinding();
+            fsstObjStringFlyweight().setOwnerPage(null);
+            fsstObjStringFlyweight().clearBinding();
           }
         }
       }

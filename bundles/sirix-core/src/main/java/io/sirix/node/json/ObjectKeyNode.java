@@ -51,6 +51,8 @@ import io.sirix.node.interfaces.immutable.ImmutableJsonNode;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NodeFieldLayout;
 import io.sirix.page.PageLayout;
+import io.sirix.page.pax.ObjectKeyNameKeyRegion;
+import io.sirix.page.pax.RegionTable;
 import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
 import org.jspecify.annotations.Nullable;
@@ -202,8 +204,10 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     this.recordBase = recordBase;
     this.nodeKey = nodeKey;
     this.slotIndex = slotIndex;
-    this.dataRegionStart = recordBase + 1 + FIELD_COUNT;
-    this.lazyFieldsParsed = true; // No lazy state when bound
+    final int kindId = page.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+    final int fc = kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID ? PAX_FIELD_COUNT : FIELD_COUNT;
+    this.dataRegionStart = recordBase + 1 + fc;
+    this.lazyFieldsParsed = true;
     this.lazySource = null;
   }
 
@@ -215,18 +219,27 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     if (page == null) {
       return;
     }
-    // Materialize all fields from page to Java primitives
     final long nk = this.nodeKey;
+    final int kindId = page.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
     this.parentKey = readDeltaField(NodeFieldLayout.OBJKEY_PARENT_KEY, nk);
     this.rightSiblingKey = readDeltaField(NodeFieldLayout.OBJKEY_RIGHT_SIB_KEY, nk);
     this.leftSiblingKey = readDeltaField(NodeFieldLayout.OBJKEY_LEFT_SIB_KEY, nk);
     this.firstChildKey = readDeltaField(NodeFieldLayout.OBJKEY_FIRST_CHILD_KEY, nk);
-    this.nameKey = readSignedField(NodeFieldLayout.OBJKEY_NAME_KEY);
-    this.pathNodeKey = readDeltaField(NodeFieldLayout.OBJKEY_PATH_NODE_KEY, nk);
-    this.previousRevision = readSignedField(NodeFieldLayout.OBJKEY_PREV_REVISION);
-    this.lastModifiedRevision = readSignedField(NodeFieldLayout.OBJKEY_LAST_MOD_REVISION);
-    this.hash = readLongField(NodeFieldLayout.OBJKEY_HASH);
-    this.descendantCount = readSignedLongField(NodeFieldLayout.OBJKEY_DESCENDANT_COUNT);
+    if (kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID) {
+      this.nameKey = ownerPage.getObjectKeyNameKeyFromRegion(slotIndex);
+      this.pathNodeKey = readDeltaField(NodeFieldLayout.OBJKEY_PAX_PATH_NODE_KEY, nk);
+      this.previousRevision = readSignedField(NodeFieldLayout.OBJKEY_PAX_PREV_REVISION);
+      this.lastModifiedRevision = readSignedField(NodeFieldLayout.OBJKEY_PAX_LAST_MOD_REVISION);
+      this.hash = readLongField(NodeFieldLayout.OBJKEY_PAX_HASH);
+      this.descendantCount = readSignedLongField(NodeFieldLayout.OBJKEY_PAX_DESCENDANT_COUNT);
+    } else {
+      this.nameKey = readSignedField(NodeFieldLayout.OBJKEY_NAME_KEY);
+      this.pathNodeKey = readDeltaField(NodeFieldLayout.OBJKEY_PATH_NODE_KEY, nk);
+      this.previousRevision = readSignedField(NodeFieldLayout.OBJKEY_PREV_REVISION);
+      this.lastModifiedRevision = readSignedField(NodeFieldLayout.OBJKEY_LAST_MOD_REVISION);
+      this.hash = readLongField(NodeFieldLayout.OBJKEY_HASH);
+      this.descendantCount = readSignedLongField(NodeFieldLayout.OBJKEY_DESCENDANT_COUNT);
+    }
     this.page = null;
     this.ownerPage = null;
   }
@@ -253,6 +266,14 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   }
 
   // ==================== FLYWEIGHT FIELD READ HELPERS ====================
+
+  private boolean isPaxRecord() {
+    return (page.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF) == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID;
+  }
+
+  private int fieldCount() {
+    return isPaxRecord() ? PAX_FIELD_COUNT : FIELD_COUNT;
+  }
 
   private long readDeltaField(final int fieldIndex, final long baseKey) {
     final int fieldOff = page.get(ValueLayout.JAVA_BYTE, recordBase + 1 + fieldIndex) & 0xFF;
@@ -376,12 +397,81 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
     return (int) (pos - offset);
   }
 
+  private static final int PAX_FIELD_COUNT = NodeFieldLayout.OBJECT_KEY_PAX_FIELD_COUNT;
+
+  /**
+   * PAX variant: same as writeNewRecord but skips the nameKey field (stored in region table).
+   * Uses kindId 126 and a 9-field offset table.
+   */
+  public static int writeNewRecordPax(final MemorySegment target, final long offset,
+      final int[] heapOffsets, final long nodeKey,
+      final long parentKey, final long rightSibKey, final long leftSibKey,
+      final long firstChildKey, final long pathNodeKey,
+      final int prevRev, final int lastModRev, final long hash,
+      final long descendantCount) {
+    long pos = offset;
+
+    target.set(ValueLayout.JAVA_BYTE, pos, (byte) NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID);
+    pos++;
+
+    final long offsetTableStart = pos;
+    pos += PAX_FIELD_COUNT;
+
+    final long dataStart = pos;
+
+    heapOffsets[NodeFieldLayout.OBJKEY_PARENT_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, parentKey, nodeKey);
+
+    heapOffsets[NodeFieldLayout.OBJKEY_RIGHT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, rightSibKey, nodeKey);
+
+    heapOffsets[NodeFieldLayout.OBJKEY_LEFT_SIB_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, leftSibKey, nodeKey);
+
+    heapOffsets[NodeFieldLayout.OBJKEY_FIRST_CHILD_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, firstChildKey, nodeKey);
+
+    // nameKey skipped — stored in PAX region
+
+    heapOffsets[NodeFieldLayout.OBJKEY_PAX_PATH_NODE_KEY] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeDeltaToSegment(target, pos, pathNodeKey, nodeKey);
+
+    heapOffsets[NodeFieldLayout.OBJKEY_PAX_PREV_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, prevRev);
+
+    heapOffsets[NodeFieldLayout.OBJKEY_PAX_LAST_MOD_REVISION] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedToSegment(target, pos, lastModRev);
+
+    heapOffsets[NodeFieldLayout.OBJKEY_PAX_HASH] = (int) (pos - dataStart);
+    DeltaVarIntCodec.writeLongToSegment(target, pos, hash);
+    pos += Long.BYTES;
+
+    heapOffsets[NodeFieldLayout.OBJKEY_PAX_DESCENDANT_COUNT] = (int) (pos - dataStart);
+    pos += DeltaVarIntCodec.writeSignedLongToSegment(target, pos, descendantCount);
+
+    for (int i = 0; i < PAX_FIELD_COUNT; i++) {
+      target.set(ValueLayout.JAVA_BYTE, offsetTableStart + i, (byte) heapOffsets[i]);
+    }
+
+    return (int) (pos - offset);
+  }
+
   /**
    * Serialize this node from Java fields. Delegates to static writeNewRecord.
    */
   public int serializeToHeap(final MemorySegment target, final long offset) {
     if (!lazyFieldsParsed) {
       parseLazyFields();
+    }
+    if (ownerPage != null) {
+      final RegionTable rt = ownerPage.getRegionTable();
+      if (rt != null && rt.payload(RegionTable.KIND_OBJECT_KEY_NAMEKEY) != null) {
+        return writeNewRecordPax(target, offset, heapOffsets, nodeKey,
+            parentKey, rightSiblingKey, leftSiblingKey,
+            firstChildKey, pathNodeKey,
+            previousRevision, lastModifiedRevision,
+            hash, descendantCount);
+      }
     }
     return writeNewRecord(target, offset, heapOffsets, nodeKey,
         parentKey, rightSiblingKey, leftSiblingKey,
@@ -487,8 +577,9 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   @Override
   public void setPreviousRevision(final int revision) {
     if (page != null) {
+      final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_PREV_REVISION : NodeFieldLayout.OBJKEY_PREV_REVISION;
       final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJKEY_PREV_REVISION) & 0xFF;
+          recordBase + 1 + fi) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -503,16 +594,18 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   }
 
   private void resizePreviousRevision(final int revision) {
+    final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_PREV_REVISION : NodeFieldLayout.OBJKEY_PREV_REVISION;
     ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.OBJKEY_PREV_REVISION, NodeFieldLayout.OBJECT_KEY_FIELD_COUNT,
+        fi, fieldCount(),
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
   public void setLastModifiedRevision(final int revision) {
     if (page != null) {
+      final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_LAST_MOD_REVISION : NodeFieldLayout.OBJKEY_LAST_MOD_REVISION;
       final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJKEY_LAST_MOD_REVISION) & 0xFF;
+          recordBase + 1 + fi) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedEncodedWidth(revision);
@@ -527,15 +620,17 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   }
 
   private void resizeLastModifiedRevision(final int revision) {
+    final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_LAST_MOD_REVISION : NodeFieldLayout.OBJKEY_LAST_MOD_REVISION;
     ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.OBJKEY_LAST_MOD_REVISION, NodeFieldLayout.OBJECT_KEY_FIELD_COUNT,
+        fi, fieldCount(),
         (target, off) -> DeltaVarIntCodec.writeSignedToSegment(target, off, revision));
   }
 
   @Override
   public long getHash() {
     if (page != null) {
-      return readLongField(NodeFieldLayout.OBJKEY_HASH);
+      final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_HASH : NodeFieldLayout.OBJKEY_HASH;
+      return readLongField(fi);
     }
     if (!lazyFieldsParsed) {
       parseLazyFields();
@@ -546,9 +641,9 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   @Override
   public void setHash(final long hash) {
     if (page != null) {
-      // Hash is ALWAYS in-place (fixed 8 bytes)
+      final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_HASH : NodeFieldLayout.OBJKEY_HASH;
       final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJKEY_HASH) & 0xFF;
+          recordBase + 1 + fi) & 0xFF;
       DeltaVarIntCodec.writeLongToSegment(page, dataRegionStart + fieldOff, hash);
       return;
     }
@@ -578,6 +673,10 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   public int getNameKey() {
     if (page != null) {
+      final int kindId = page.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+      if (kindId == NodeFieldLayout.OBJECT_KEY_PAX_KIND_ID) {
+        return ownerPage.getObjectKeyNameKeyFromRegion(slotIndex);
+      }
       return readSignedField(NodeFieldLayout.OBJKEY_NAME_KEY);
     }
     if (!lazyFieldsParsed) {
@@ -588,6 +687,10 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   public void setNameKey(final int nameKey) {
     if (page != null) {
+      if (isPaxRecord()) {
+        this.nameKey = nameKey;
+        return;
+      }
       final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
           recordBase + 1 + NodeFieldLayout.OBJKEY_NAME_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
@@ -640,6 +743,10 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   public void setLocalNameKey(final int localNameKey) {
     if (page != null) {
+      if (isPaxRecord()) {
+        this.nameKey = localNameKey;
+        return;
+      }
       final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
           recordBase + 1 + NodeFieldLayout.OBJKEY_NAME_KEY) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
@@ -663,7 +770,8 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   public long getPathNodeKey() {
     if (page != null) {
-      return readDeltaField(NodeFieldLayout.OBJKEY_PATH_NODE_KEY, nodeKey);
+      final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_PATH_NODE_KEY : NodeFieldLayout.OBJKEY_PATH_NODE_KEY;
+      return readDeltaField(fi, nodeKey);
     }
     if (!lazyFieldsParsed) {
       parseLazyFields();
@@ -673,8 +781,9 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
 
   public void setPathNodeKey(final long pathNodeKey) {
     if (page != null) {
+      final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_PATH_NODE_KEY : NodeFieldLayout.OBJKEY_PATH_NODE_KEY;
       final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJKEY_PATH_NODE_KEY) & 0xFF;
+          recordBase + 1 + fi) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readDeltaEncodedWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeDeltaEncodedWidth(pathNodeKey, nodeKey);
@@ -689,8 +798,9 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   }
 
   private void resizePathNodeKey(final long value) {
+    final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_PATH_NODE_KEY : NodeFieldLayout.OBJKEY_PATH_NODE_KEY;
     ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.OBJKEY_PATH_NODE_KEY, NodeFieldLayout.OBJECT_KEY_FIELD_COUNT,
+        fi, fieldCount(),
         (target, off) -> DeltaVarIntCodec.writeDeltaToSegment(target, off, value, nodeKey));
   }
 
@@ -820,7 +930,8 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   @Override
   public long getDescendantCount() {
     if (page != null) {
-      return readSignedLongField(NodeFieldLayout.OBJKEY_DESCENDANT_COUNT);
+      final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_DESCENDANT_COUNT : NodeFieldLayout.OBJKEY_DESCENDANT_COUNT;
+      return readSignedLongField(fi);
     }
     if (!lazyFieldsParsed) {
       parseLazyFields();
@@ -831,8 +942,9 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   @Override
   public void setDescendantCount(final long descendantCount) {
     if (page != null) {
+      final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_DESCENDANT_COUNT : NodeFieldLayout.OBJKEY_DESCENDANT_COUNT;
       final int fieldOff = page.get(ValueLayout.JAVA_BYTE,
-          recordBase + 1 + NodeFieldLayout.OBJKEY_DESCENDANT_COUNT) & 0xFF;
+          recordBase + 1 + fi) & 0xFF;
       final long absOff = dataRegionStart + fieldOff;
       final int currentWidth = DeltaVarIntCodec.readSignedVarintWidth(page, absOff);
       final int newWidth = DeltaVarIntCodec.computeSignedLongEncodedWidth(descendantCount);
@@ -847,8 +959,9 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   }
 
   private void resizeDescendantCount(final long value) {
+    final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_DESCENDANT_COUNT : NodeFieldLayout.OBJKEY_DESCENDANT_COUNT;
     ownerPage.resizeRecordField(this, nodeKey, slotIndex,
-        NodeFieldLayout.OBJKEY_DESCENDANT_COUNT, NodeFieldLayout.OBJECT_KEY_FIELD_COUNT,
+        fi, fieldCount(),
         (target, off) -> DeltaVarIntCodec.writeSignedLongToSegment(target, off, value));
   }
 
@@ -865,7 +978,8 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   @Override
   public int getPreviousRevisionNumber() {
     if (page != null) {
-      return readSignedField(NodeFieldLayout.OBJKEY_PREV_REVISION);
+      final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_PREV_REVISION : NodeFieldLayout.OBJKEY_PREV_REVISION;
+      return readSignedField(fi);
     }
     if (!lazyFieldsParsed) {
       parseLazyFields();
@@ -876,7 +990,8 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
   @Override
   public int getLastModifiedRevisionNumber() {
     if (page != null) {
-      return readSignedField(NodeFieldLayout.OBJKEY_LAST_MOD_REVISION);
+      final int fi = isPaxRecord() ? NodeFieldLayout.OBJKEY_PAX_LAST_MOD_REVISION : NodeFieldLayout.OBJKEY_LAST_MOD_REVISION;
+      return readSignedField(fi);
     }
     if (!lazyFieldsParsed) {
       parseLazyFields();
@@ -1020,18 +1135,17 @@ public final class ObjectKeyNode implements StructNode, NameNode, ImmutableJsonN
    */
   public ObjectKeyNode toSnapshot() {
     if (page != null) {
-      // Bound mode: read all fields from page
       return new ObjectKeyNode(nodeKey,
-          readDeltaField(NodeFieldLayout.OBJKEY_PARENT_KEY, nodeKey),
-          readDeltaField(NodeFieldLayout.OBJKEY_PATH_NODE_KEY, nodeKey),
-          readSignedField(NodeFieldLayout.OBJKEY_PREV_REVISION),
-          readSignedField(NodeFieldLayout.OBJKEY_LAST_MOD_REVISION),
-          readDeltaField(NodeFieldLayout.OBJKEY_RIGHT_SIB_KEY, nodeKey),
-          readDeltaField(NodeFieldLayout.OBJKEY_LEFT_SIB_KEY, nodeKey),
-          readDeltaField(NodeFieldLayout.OBJKEY_FIRST_CHILD_KEY, nodeKey),
-          readSignedField(NodeFieldLayout.OBJKEY_NAME_KEY),
-          readSignedLongField(NodeFieldLayout.OBJKEY_DESCENDANT_COUNT),
-          readLongField(NodeFieldLayout.OBJKEY_HASH),
+          getParentKey(),
+          getPathNodeKey(),
+          getPreviousRevisionNumber(),
+          getLastModifiedRevisionNumber(),
+          getRightSiblingKey(),
+          getLeftSiblingKey(),
+          getFirstChildKey(),
+          getNameKey(),
+          getDescendantCount(),
+          getHash(),
           hashFunction,
           getDeweyIDAsBytes() != null ? getDeweyIDAsBytes().clone() : null);
     }

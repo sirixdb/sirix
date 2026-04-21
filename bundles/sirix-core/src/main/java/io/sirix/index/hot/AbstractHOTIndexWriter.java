@@ -39,6 +39,7 @@ import io.sirix.page.HOTLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
 import io.sirix.page.PathPage;
+import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
@@ -152,6 +153,10 @@ public abstract class AbstractHOTIndexWriter<K> {
         final RevisionRootPage rrp = writer.getActualRevisionRootPage();
         return writer.getNamePage(rrp).incrementAndGetMaxHotPageKey(indexNo);
       };
+      case PROJECTION -> () -> {
+        final RevisionRootPage rrp = writer.getActualRevisionRootPage();
+        return writer.getProjectionIndexPage(rrp).incrementAndGetMaxHotPageKey(indexNo);
+      };
       default -> throw new IllegalArgumentException("Unsupported index type for HOT: " + type);
     };
   }
@@ -232,6 +237,10 @@ public abstract class AbstractHOTIndexWriter<K> {
         final NamePage namePage = storageEngineWriter.getNamePage(revisionRootPage);
         yield namePage.getOrCreateReference(indexNumber);
       }
+      case PROJECTION -> {
+        final ProjectionIndexPage projPage = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
+        yield projPage.getOrCreateReference(indexNumber);
+      }
       default -> throw new IllegalStateException("Unsupported index type for HOT: " + indexType);
     };
   }
@@ -266,6 +275,14 @@ public abstract class AbstractHOTIndexWriter<K> {
           storageEngineWriter.appendLogRecord(namePageRef, PageContainer.getInstance(namePage, namePage));
         }
       }
+      case PROJECTION -> {
+        final PageReference projPageRef = revisionRootPage.getProjectionIndexPageReference();
+        PageContainer container = storageEngineWriter.getLog().get(projPageRef);
+        if (container == null) {
+          ProjectionIndexPage projPage = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
+          storageEngineWriter.appendLogRecord(projPageRef, PageContainer.getInstance(projPage, projPage));
+        }
+      }
       default -> {
         /* ignore */ }
     }
@@ -292,6 +309,10 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (rootRef == null) {
       throw new IllegalStateException("HOT index not initialized");
     }
+    // Any write-path navigation invalidates the read-side leaf cache —
+    // splits/merges change key ranges and leaf identities, so the cached
+    // firstKey/lastKey may no longer match the resident page.
+    invalidateLeafCache();
 
     // Reset path depth counter — no allocation
     int pathDepth = 0;
@@ -428,32 +449,31 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @return the HOT leaf page, or null if not found
    */
   protected @Nullable HOTLeafPage getLeafForRead(byte[] keyBuf) {
-    // Get fresh reference from the index page to ensure consistency
+    // NOTE: min/max-range leaf caching is UNSAFE for HOT. Leaves partition
+    // by PEXT of disc bits, not by total key order — two distinct leaves
+    // can have overlapping [firstKey, lastKey]. A key K matching cached
+    // leaf's range may actually belong to a different leaf. The HOT tree
+    // is log_K-shallow so re-navigation is cheap; no cache needed.
+
     PageReference currentRef = getRootReference();
-    if (currentRef == null) {
-      return null;
-    }
+    if (currentRef == null) return null;
 
     Page page = resolveHOTPageForTraversal(currentRef);
     while (page instanceof HOTIndirectPage indirectPage) {
       int childIndex = indirectPage.findChildIndex(keyBuf);
-      if (childIndex < 0) {
-        childIndex = 0;
-      }
-
+      if (childIndex < 0) childIndex = 0;
       final PageReference childRef = indirectPage.getChildReference(childIndex);
-      if (childRef == null) {
-        return null;
-      }
-
+      if (childRef == null) return null;
       currentRef = childRef;
       page = resolveHOTPageForTraversal(currentRef);
-      if (page == null) {
-        return null;
-      }
+      if (page == null) return null;
     }
-
     return page instanceof HOTLeafPage hotLeaf ? hotLeaf : null;
+  }
+
+  /** No-op: leaf cache was removed (unsafe for HOT's PEXT-based partitioning). */
+  protected final void invalidateLeafCache() {
+    // kept as a public hook in case callers rely on it; nothing to invalidate.
   }
 
   /**

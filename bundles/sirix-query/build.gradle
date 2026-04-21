@@ -86,6 +86,36 @@ test {
     jvmArgs = baseArgs
 }
 
+// Correctness-validation runner: prints each scale-bench query's actual
+// result against an existing shredded DB so we can diff against DuckDB /
+// other reference engines. Usage:
+//   ./gradlew :sirix-query:validateScaleResults \
+//       -Pvalidate.args="" \
+//       -Pvalidate.jvmArgs="-Dsirix.db=/tmp/sirix-scale-bench14464799191471130103"
+tasks.register('validateScaleResults', JavaExec) {
+    group = 'verification'
+    description = 'Print actual scale-bench query results from a pre-shredded DB.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'io.sirix.query.bench.ValidateScaleResults'
+    def argsStr = (findProperty('validate.args') ?: '').toString()
+    args = argsStr.isEmpty() ? [] : argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms4g',
+        '-Xmx12g'
+    ]
+    def extraJvmArgs = (findProperty('validate.jvmArgs') ?: '').toString().trim()
+    if (!extraJvmArgs.isEmpty()) {
+        jvmArgs = baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+    } else {
+        jvmArgs = baseJvmArgs
+    }
+}
+
 // Task to run only native-image smoke tests on JVM (for validation before native compilation)
 tasks.register('nativeImageSmokeTest', Test) {
     description = 'Run native-image smoke tests on JVM'
@@ -147,8 +177,8 @@ graalvmNative {
             jvmArgs.add('-XX:MaxRAMPercentage=80')
         }
         main {
-            imageName = 'sirix-shell'
-            mainClass = 'io.sirix.query.Main'
+            imageName = 'sirix-bench'
+            mainClass = 'io.sirix.query.bench.ScaleBenchMain'
             sharedLibrary = false
             // Preview features and vector API
             buildArgs.add('--enable-preview')
@@ -156,6 +186,13 @@ graalvmNative {
             buildArgs.add('--add-modules=jdk.incubator.vector')
             buildArgs.add('-H:+ForeignAPISupport')
             buildArgs.add('-H:+UnlockExperimentalVMOptions')
+            // NB: MMStorage currently uses Arena.ofShared which the native-image
+            // runtime rejects without -H:+SharedArenaSupport, but that flag is
+            // internally incompatible with jdk.incubator.vector in GraalVM 25 —
+            // combining them triggers GraalError in
+            // SubstrateOptimizeSharedArenaAccessPhase.cleanupClusterNodes. To
+            // produce a runnable native sirix-bench, MMStorage has to switch to
+            // Arena.global() or Arena.ofConfined() (see NATIVE_IMAGE.md).
             buildArgs.add('--no-fallback')
             // Module exports for JNA/JNR/JNI
             buildArgs.add('--add-exports=java.base/jdk.internal.ref=ALL-UNNAMED')
@@ -192,6 +229,9 @@ graalvmNative {
             buildArgs.add('--gc=G1')
             // Set max heap for the native image runtime
             buildArgs.add('-R:MaxHeapSize=4g')
+            // Optimization level 3 + native-CPU codegen so AVX-512 / AVX2 intrinsics fire
+            buildArgs.add('-O3')
+            buildArgs.add('-march=native')
 
             // Profile-Guided Optimization (PGO) support
             // Step 1: Build instrumented binary: ./gradlew :sirix-query:nativeCompile -Ppgo-instrument
@@ -206,9 +246,13 @@ graalvmNative {
 
             // Enable verbose output for debugging
             verbose = true
-            quickBuild = false
-            // Allocate more memory to the native-image compiler (use 80% of available RAM)
-            jvmArgs.add('-XX:MaxRAMPercentage=80')
+            // quickBuild bypasses the full -O3 graph optimization stack and
+            // builds in ~1-2 min vs ~15 min for a full build. Opt out via
+            // -Pquick-build=false when you want the final PGO-tuned image.
+            quickBuild = !"false".equalsIgnoreCase((String) project.findProperty('quick-build'))
+            // Allocate more memory to the native-image compiler. 65% so a fresh
+            // Gradle daemon + a live Sirix JVM can coexist on a 31 GB host.
+            jvmArgs.add('-XX:MaxRAMPercentage=65')
         }
     }
     toolchainDetection = false

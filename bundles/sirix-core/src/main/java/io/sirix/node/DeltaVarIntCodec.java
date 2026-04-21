@@ -504,35 +504,63 @@ public final class DeltaVarIntCodec {
    * @return the decoded unsigned long value
    */
   public static long readVarLongFromSegment(MemorySegment segment, int offset) {
+    // Fast path: load up to 8 bytes in one unaligned long when safe. Single
+    // cache line access + shifts replaces 1-8 byte-wise MemorySegment.get
+    // calls (each with its own bounds check). Profile showed this method at
+    // 12% leaf CPU during analytical scans.
+    final long segSize = segment.byteSize();
+    if (offset + 8 <= segSize) {
+      final long w = segment.get(ValueLayout.JAVA_LONG_UNALIGNED, offset);
+      final int b0 = (int) (w & 0xFF);
+      if ((b0 & 0x80) == 0) return b0;
+      final int b1 = (int) ((w >>> 8) & 0xFF);
+      if ((b1 & 0x80) == 0) return (b0 & 0x7FL) | ((long) b1 << 7);
+      final int b2 = (int) ((w >>> 16) & 0xFF);
+      if ((b2 & 0x80) == 0) {
+        return (b0 & 0x7FL) | ((b1 & 0x7FL) << 7) | ((long) b2 << 14);
+      }
+      final int b3 = (int) ((w >>> 24) & 0xFF);
+      if ((b3 & 0x80) == 0) {
+        return (b0 & 0x7FL) | ((b1 & 0x7FL) << 7) | ((b2 & 0x7FL) << 14) | ((long) b3 << 21);
+      }
+      final int b4 = (int) ((w >>> 32) & 0xFF);
+      if ((b4 & 0x80) == 0) {
+        return (b0 & 0x7FL) | ((b1 & 0x7FL) << 7) | ((b2 & 0x7FL) << 14)
+            | ((b3 & 0x7FL) << 21) | ((long) b4 << 28);
+      }
+      // Longer varints (rare) fall through to byte-wise tail below.
+      long result = (b0 & 0x7FL) | ((b1 & 0x7FL) << 7) | ((b2 & 0x7FL) << 14)
+          | ((b3 & 0x7FL) << 21) | ((b4 & 0x7FL) << 28);
+      int pos = offset + 5;
+      int shift = 35;
+      byte b;
+      do {
+        b = segment.get(ValueLayout.JAVA_BYTE, pos++);
+        result |= (long) (b & 0x7F) << shift;
+        shift += 7;
+        if (shift > 70) {
+          throw new IllegalStateException("Varint too long (more than 10 bytes)");
+        }
+      } while ((b & 0x80) != 0);
+      return result;
+    }
+
+    // Tail: unsafe 8-byte read would overflow segment. Byte-wise fallback.
     byte b = segment.get(ValueLayout.JAVA_BYTE, offset);
-    
-    // Fast path: 1 byte (0-127) - most common case for small deltas
     if ((b & 0x80) == 0) {
       return b;
     }
-    
     long result = b & 0x7F;
-    b = segment.get(ValueLayout.JAVA_BYTE, offset + 1);
-    
-    // Fast path: 2 bytes (128-16383) - second most common
-    if ((b & 0x80) == 0) {
-      return result | ((long) b << 7);
-    }
-    
-    // General case for larger values (rare for structural keys)
-    result |= (long) (b & 0x7F) << 7;
-    int pos = offset + 2;
-    int shift = 14;
+    int pos = offset + 1;
+    int shift = 7;
     do {
       b = segment.get(ValueLayout.JAVA_BYTE, pos++);
       result |= (long) (b & 0x7F) << shift;
       shift += 7;
-
       if (shift > 70) {
         throw new IllegalStateException("Varint too long (more than 10 bytes)");
       }
     } while ((b & 0x80) != 0);
-
     return result;
   }
   

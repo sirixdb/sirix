@@ -79,6 +79,13 @@ public final class BasicXmlDBStore implements XmlDBStore {
   private final boolean buildPathSummary;
 
   /**
+   * Determines if per-path value statistics (count, sum, min, max, HLL) should be
+   * maintained on PathSummary nodes for this store's resources. Requires
+   * {@link #buildPathSummary} to be {@code true}.
+   */
+  private final boolean buildPathStatistics;
+
+  /**
    * Thread pool.
    */
   private final ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
@@ -98,6 +105,12 @@ public final class BasicXmlDBStore implements XmlDBStore {
    * issued.
    */
   private final int numberOfNodesBeforeAutoCommit;
+
+  /**
+   * Whether the record-to-revisions index should be maintained on insert.
+   * Off by default only matters for write-heavy, single-revision workloads.
+   */
+  private final boolean storeNodeHistory;
 
   /**
    * Determines the versioning type.
@@ -142,6 +155,14 @@ public final class BasicXmlDBStore implements XmlDBStore {
         System.getProperty("buildPathSummary") == null || Boolean.parseBoolean(System.getProperty("buildPathSummary"));
 
     /**
+     * Determines if per-path value statistics should be maintained. Opt-in (default
+     * {@code false}); requires {@link #buildPathSummary} to be {@code true}.
+     */
+    private boolean buildPathStatistics =
+        System.getProperty("buildPathStatistics") != null
+            && Boolean.parseBoolean(System.getProperty("buildPathStatistics"));
+
+    /**
      * Determines if DeweyIDs should be generated for resources.
      */
     private boolean storeDeweyIds =
@@ -167,6 +188,24 @@ public final class BasicXmlDBStore implements XmlDBStore {
     private int numberOfNodesBeforeAutoCommit = System.getProperty("numberOfNodesBeforeAutoCommit") != null
         ? Integer.parseInt(System.getProperty("numberOfNodesBeforeAutoCommit"))
         : 262_144 << 2;
+
+    /**
+     * Whether to maintain the per-insert record-to-revisions index.
+     * Overridable via {@code -DstoreNodeHistory=false}.
+     */
+    private boolean storeNodeHistory = System.getProperty("storeNodeHistory") == null
+        || Boolean.parseBoolean(System.getProperty("storeNodeHistory"));
+
+    /**
+     * Toggle the record-to-revisions index.
+     *
+     * @param storeNodeHistory {@code true} to enable, {@code false} to skip the per-insert index entry
+     * @return this builder instance
+     */
+    public Builder storeNodeHistory(final boolean storeNodeHistory) {
+      this.storeNodeHistory = storeNodeHistory;
+      return this;
+    }
 
     /**
      * Determines if DeweyIDs should be stored or not.
@@ -224,6 +263,20 @@ public final class BasicXmlDBStore implements XmlDBStore {
     }
 
     /**
+     * Set whether per-path value statistics should be maintained on PathSummary nodes.
+     * Enables the aggregate short-circuit for {@code sum / avg / min / max / count}
+     * queries at the cost of some write-path overhead. Requires
+     * {@link #buildPathSummary(boolean)} to be {@code true}.
+     *
+     * @param buildPathStatistics {@code true} to enable per-path statistics
+     * @return this builder instance
+     */
+    public Builder buildPathStatistics(final boolean buildPathStatistics) {
+      this.buildPathStatistics = buildPathStatistics;
+      return this;
+    }
+
+    /**
      * Sets the versioning type of the storage.
      *
      * @param versioningType the versioning type to set
@@ -266,9 +319,11 @@ public final class BasicXmlDBStore implements XmlDBStore {
     storageType = builder.storageType;
     location = builder.location;
     buildPathSummary = builder.buildPathSummary;
+    buildPathStatistics = builder.buildPathStatistics;
     hashType = builder.hashType;
     storeDeweyIds = builder.storeDeweyIds;
     numberOfNodesBeforeAutoCommit = builder.numberOfNodesBeforeAutoCommit;
+    storeNodeHistory = builder.storeNodeHistory;
     versioningType = builder.versioningType;
   }
 
@@ -364,10 +419,12 @@ public final class BasicXmlDBStore implements XmlDBStore {
                                                    .useDeweyIDs(storeDeweyIds)
                                                    .useTextCompression(false)
                                                    .buildPathSummary(buildPathSummary)
+                                                   .buildPathStatistics(buildPathStatistics)
                                                    .storageType(storageType)
                                                    .customCommitTimestamps(commitTimestamp != null)
                                                    .hashKind(hashType)
                                                    .versioningApproach(versioningType)
+                                                   .storeNodeHistory(storeNodeHistory)
                                                    .build());
       final XmlDBCollection collection = new XmlDBCollection(collName, database);
       collections.put(database, collection);
@@ -404,9 +461,11 @@ public final class BasicXmlDBStore implements XmlDBStore {
                                                            .useDeweyIDs(storeDeweyIds)
                                                            .useTextCompression(false)
                                                            .buildPathSummary(buildPathSummary)
+                                                           .buildPathStatistics(buildPathStatistics)
                                                            .storageType(storageType)
                                                            .hashKind(hashType)
                                                            .versioningApproach(versioningType)
+                                                           .storeNodeHistory(storeNodeHistory)
                                                            .build());
               try (final XmlResourceSession resourceSession = database.beginResourceSession(resourceName);
                   final XmlNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {

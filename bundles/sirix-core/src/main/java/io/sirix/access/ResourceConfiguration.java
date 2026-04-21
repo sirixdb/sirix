@@ -247,6 +247,15 @@ public final class ResourceConfiguration {
   public final boolean withPathSummary;
 
   /**
+   * Determines if per-path value statistics (count, nullCount, sum, min, max, HLL) are
+   * maintained on the PathSummary nodes. Requires {@link #withPathSummary} to be true.
+   * When enabled, aggregate queries over unfiltered paths ({@code sum/avg/min/max},
+   * {@code countDistinct}) can short-circuit via the PathSummary without scanning data
+   * pages — typically microseconds instead of seconds.
+   */
+  public final boolean withPathStatistics;
+
+  /**
    * Persistents records / commonly nodes.
    */
   public final RecordSerializer recordPersister;
@@ -391,6 +400,7 @@ public final class ResourceConfiguration {
     maxNumberOfRevisionsToRestore = builder.maxNumberOfRevisionsToRestore;
     useTextCompression = builder.useTextCompression;
     withPathSummary = builder.pathSummary;
+    withPathStatistics = builder.pathStatistics;
     areDeweyIDsStored = builder.useDeweyIDs;
     deweyIdSiblingDistance = builder.deweyIdSiblingDistance;
     recordPersister = builder.persistenter;
@@ -554,7 +564,8 @@ public final class ResourceConfiguration {
       "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind", "hashKind", "hashFunction", "compression",
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
       "storeNodeHistory", "storeChildCount", "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance",
-      "verifyChecksumsOnRead", "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath"};
+      "verifyChecksumsOnRead", "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath",
+      "pathStatistics"};
 
   /**
    * Serialize the configuration.
@@ -624,6 +635,8 @@ public final class ResourceConfiguration {
         jsonWriter.name(JSONNAMES[24]).value(config.validTimeConfig.getValidToPath());
         jsonWriter.endObject();
       }
+      // Path statistics.
+      jsonWriter.name(JSONNAMES[25]).value(config.withPathStatistics);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -768,7 +781,9 @@ public final class ResourceConfiguration {
 
       // Valid time configuration (optional for backward compatibility with older configs)
       ValidTimeConfig validTimeConfig = null;
-      if (jsonReader.hasNext()) {
+      // Path statistics flag (optional for backward compatibility with older configs)
+      boolean pathStatistics = false;
+      while (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[22])) {
           jsonReader.beginObject();
@@ -786,6 +801,8 @@ public final class ResourceConfiguration {
           if (validFromPath != null && validToPath != null) {
             validTimeConfig = new ValidTimeConfig(validFromPath, validToPath);
           }
+        } else if (name.equals(JSONNAMES[25])) {
+          pathStatistics = jsonReader.nextBoolean();
         }
       }
 
@@ -817,7 +834,8 @@ public final class ResourceConfiguration {
              .deweyIdSiblingDistance(deweyIdSiblingDistance)
              .verifyChecksumsOnRead(verifyChecksumsOnRead)
              .hashAlgorithm(hashAlgorithm)
-             .validTimeConfig(validTimeConfig);
+             .validTimeConfig(validTimeConfig)
+             .buildPathStatistics(pathStatistics);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -901,6 +919,12 @@ public final class ResourceConfiguration {
     private boolean pathSummary;
 
     /**
+     * Determines if per-path value statistics are maintained on PathSummary nodes.
+     * Requires {@link #pathSummary} to be {@code true}.
+     */
+    private boolean pathStatistics;
+
+    /**
      * Determines whether child count should be tracked or not.
      */
     private boolean storeChildCount;
@@ -968,10 +992,35 @@ public final class ResourceConfiguration {
     }
 
     private ByteHandlerPipeline selectDefaultByteHandler() {
-      if (!FFILz4Compressor.isNativeAvailable()) {
-        throw new IllegalStateException("Native LZ4 library not available — install liblz4");
+      // -Dsirix.compression={none|lz4}. Default is "lz4" — measured on
+      // 1M-record JSON datasets: 455 MB → 74 MB (6.1× reduction) with <5%
+      // scan-throughput impact. PAX regions (NumberRegion, StringRegion)
+      // compress column bodies well but leave structural overhead
+      // (pathNodeKeys, slot tables, delimiters) uncompressed; LZ4 mops
+      // that up at ~2 GB/s decode throughput. Storage-size ballpark vs
+      // Umbra/CedarDB is a load-bearing contract (README §structural
+      // sharing / ARCHITECTURE.md §Problem 7), so LZ4 is on by default.
+      // Override with -Dsirix.compression=none when measuring raw
+      // page-write CPU in isolation.
+      final String choice = System.getProperty("sirix.compression", "lz4").toLowerCase();
+      switch (choice) {
+        case "none":
+          return new ByteHandlerPipeline();
+        case "lz4":
+          if (!FFILz4Compressor.isNativeAvailable()) {
+            // Graceful degrade: LZ4 native missing → fall through to no
+            // compression rather than crash the resource open. Operator
+            // sees the warning; correctness is preserved.
+            System.err.println(
+                "[sirix] WARN: liblz4 not available, falling back to uncompressed pages. "
+                + "Storage size will be ~6x larger than with LZ4.");
+            return new ByteHandlerPipeline();
+          }
+          return new ByteHandlerPipeline(new FFILz4Compressor());
+        default:
+          throw new IllegalArgumentException(
+              "Unknown sirix.compression value: '" + choice + "' (expected: none, lz4)");
       }
-      return new ByteHandlerPipeline(new FFILz4Compressor());
     }
 
     /**
@@ -1094,6 +1143,27 @@ public final class ResourceConfiguration {
      */
     public Builder buildPathSummary(final boolean buildPathSummary) {
       pathSummary = buildPathSummary;
+      return this;
+    }
+
+    /**
+     * Determines if per-path value statistics (count, nullCount, sum, min, max, HLL)
+     * are maintained on PathSummary nodes. Requires {@code buildPathSummary(true)}.
+     *
+     * <p>When enabled, aggregate queries ({@code sum/avg/min/max}, {@code countDistinct})
+     * over unfiltered paths short-circuit through the PathSummary — microseconds instead
+     * of a full scan. Costs ~10-20% write-path overhead on top of plain PathSummary
+     * maintenance.
+     *
+     * @return reference to the builder object
+     * @throws IllegalStateException if enabled without a path summary
+     */
+    public Builder buildPathStatistics(final boolean buildPathStatistics) {
+      if (buildPathStatistics && !pathSummary) {
+        throw new IllegalStateException(
+            "buildPathStatistics requires buildPathSummary(true) — enable the path summary first");
+      }
+      this.pathStatistics = buildPathStatistics;
       return this;
     }
 

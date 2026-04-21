@@ -76,6 +76,7 @@ public final class FlyweightNodeFactory {
       case 24 -> new ObjectNode(nodeKey, hashFunction);           // OBJECT
       case 25 -> new ArrayNode(nodeKey, hashFunction);            // ARRAY
       case 26 -> new ObjectKeyNode(nodeKey, hashFunction);        // OBJECT_KEY
+      case 126 -> new ObjectKeyNode(nodeKey, hashFunction);       // OBJECT_KEY (PAX)
       case 27 -> new BooleanNode(nodeKey, hashFunction);          // BOOLEAN_VALUE
       case 28 -> new NumberNode(nodeKey, hashFunction);           // NUMBER_VALUE
       case 29 -> new NullNode(nodeKey, hashFunction);             // NULL_VALUE

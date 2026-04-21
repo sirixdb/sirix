@@ -1,9 +1,7 @@
 package io.sirix.io.bytepipe;
 
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
-import io.sirix.utils.OS;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -104,9 +102,19 @@ public final class ByteHandlerPipeline implements ByteHandler {
 
   @Override
   public MemorySegment compress(MemorySegment source) {
-    // Empty pipeline = identity (Umbra-style: no transformation needed)
+    // Empty pipeline = identity, but we MUST return an owned copy. Callers
+    // (e.g. KeyValueLeafPage.setCompressedSegment) retain the returned
+    // segment beyond the current serialization, while `source` is typically
+    // a slice into the serializer's reused output buffer. Aliasing that
+    // buffer lets the next page's serialization overwrite the bytes the
+    // previous page's compressedSegment claims to hold — a silent data
+    // corruption that LZ4 accidentally hid by always returning a fresh
+    // allocation.
     if (byteHandlers.isEmpty()) {
-      return source;
+      final int size = (int) source.byteSize();
+      final byte[] copy = new byte[size];
+      MemorySegment.copy(source, java.lang.foreign.ValueLayout.JAVA_BYTE, 0, copy, 0, size);
+      return MemorySegment.ofArray(copy);
     }
 
     if (!memorySegmentSupport) {
@@ -151,9 +159,7 @@ public final class ByteHandlerPipeline implements ByteHandler {
       int size = (int) compressed.byteSize();
 
       // Try to use pooled allocator if available, otherwise fall back to heap
-      MemorySegmentAllocator allocator = OS.isWindows()
-          ? WindowsMemorySegmentAllocator.getInstance()
-          : LinuxMemorySegmentAllocator.getInstance();
+      MemorySegmentAllocator allocator = Allocators.getInstance();
 
       if (allocator.isInitialized()) {
         // Use pooled buffer - optimal path

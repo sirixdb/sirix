@@ -32,9 +32,8 @@ import io.sirix.BinaryEncodingVersion;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.User;
 import io.sirix.api.StorageEngineReader;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
@@ -49,8 +48,11 @@ import io.sirix.page.delegates.BitmapReferencesPage;
 import io.sirix.page.delegates.FullReferencesPage;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
+import io.sirix.page.pax.NumberRegion;
+import io.sirix.page.pax.ObjectKeyNameKeyRegion;
+import io.sirix.page.pax.RegionTable;
+import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
-import io.sirix.utils.OS;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
@@ -81,15 +83,32 @@ public enum PageKind {
    * {@link KeyValueLeafPage}.
    */
   KEYVALUELEAFPAGE((byte) 1, KeyValueLeafPage.class) {
+    /**
+     * Thread-local scratch for the compact directory read during slotted-page
+     * deserialization. Allocating a fresh int[populatedCount] per page at
+     * ~1M pages per scan × 20 threads showed up as 30% of all allocation
+     * samples (async-profiler alloc mode). Capacity is NDP_NODE_COUNT so
+     * it covers the worst case and never needs to grow.
+     */
+    private final ThreadLocal<int[]> compactDirScratch =
+        ThreadLocal.withInitial(() -> new int[Constants.NDP_NODE_COUNT]);
+
+    /**
+     * Thread-local 160-byte scratch for reading the on-disk header + bitmap
+     * section. Avoids a fresh new byte[160] on every page deserialize; at
+     * 1M pages × 20 threads × N iters that was ~10% of byte[] allocation
+     * samples.
+     */
+    private final ThreadLocal<byte[]> headerBitmapScratch =
+        ThreadLocal.withInitial(() -> new byte[PageLayout.DISK_HEADER_BITMAP_SIZE]);
+
     @Override
     public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
         final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
       final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
 
       switch (binaryVersion) {
-        case V0 -> {
-          return deserializeSlottedPage(resourceConfig, source);
-        }
+        case V0 -> { return deserializeSlottedPage(resourceConfig, source); }
         default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
       }
     }
@@ -99,36 +118,53 @@ public enum PageKind {
       final int revision = source.readInt();
       final IndexType indexType = IndexType.getType(source.readByte());
 
-      final MemorySegmentAllocator memorySegmentAllocator =
-          OS.isWindows() ? WindowsMemorySegmentAllocator.getInstance() : LinuxMemorySegmentAllocator.getInstance();
+      final MemorySegmentAllocator memorySegmentAllocator = Allocators.getInstance();
 
       // 1. Read header (32B) + bitmap (128B) — 160 bytes (on-disk format, never changes)
-      final byte[] headerBitmapBytes = new byte[PageLayout.DISK_HEADER_BITMAP_SIZE];
+      final byte[] headerBitmapBytes = headerBitmapScratch.get();
       source.read(headerBitmapBytes);
       final MemorySegment headerBitmapSeg = MemorySegment.ofArray(headerBitmapBytes);
       final int populatedCount = PageLayout.getPopulatedCount(headerBitmapSeg);
 
-      // 2. Read compact dir entries: populatedCount × 4 bytes
-      final int[] compactDir = new int[populatedCount];
-      for (int i = 0; i < populatedCount; i++) {
-        compactDir[i] = source.readInt();
-      }
+      // 2. Read compact dir entries into thread-local scratch (reused across
+      // pages to avoid the per-page int[populatedCount] allocation). Bulk
+      // readInts collapses populatedCount separate VarHandle-dispatched
+      // readInt calls into a single native MemorySegment.copy when the source
+      // is segment-backed (the common path at cold-cache scan time).
+      final int[] compactDir = compactDirScratch.get();
+      source.readInts(compactDir, 0, populatedCount);
 
       // 3. Read heap size
       final int heapSize = source.readInt();
 
-      // 4. Allocate slotted page MemorySegment
-      final int allocSize = Math.max(PageLayout.HEAP_START + heapSize, PageLayout.INITIAL_PAGE_SIZE);
+      // 4. Allocate slotted page MemorySegment — size to actual heap content.
+      // The allocator rounds up to its next power-of-two size class (4/8/16/32/
+      // 64/128/256 KiB), so we don't need to pre-round. Dropping the legacy
+      // INITIAL_PAGE_SIZE floor lets pages with small heaps (e.g. path-summary
+      // pages, sparsely-populated data pages) fall into smaller size classes —
+      // 32 KiB instead of 64 KiB — doubling effective cache capacity for those
+      // pages. Growth via growSlottedPage handles any later writes that exceed
+      // the initial class. At 100M records the working set shrinks from ~68 GB
+      // to ~35-40 GB at 64 KiB → 32 KiB splits, dramatically reducing LZ4
+      // decompress calls on cache-miss paths (was 21% CPU in the v3 profile).
+      final int allocSize = PageLayout.HEAP_START + heapSize;
       final MemorySegment slottedPage = memorySegmentAllocator.allocate(allocSize);
 
       // 5. Copy header + bitmap into page (first 160 bytes)
       MemorySegment.copy(headerBitmapSeg, 0, slottedPage, 0, PageLayout.DISK_HEADER_BITMAP_SIZE);
 
-      // 6. Zero-fill preservation bitmap region (runtime-only, never on disk)
+      // 6. Zero-fill preservation bitmap region (runtime-only, never on disk).
+      // Kept — isSlotPreserved() reads this region by slot index regardless of
+      // whether the bit is set, so stale bytes would read as true.
       slottedPage.asSlice(PageLayout.PRESERVATION_BITMAP_OFF, PageLayout.PRESERVATION_BITMAP_SIZE).fill((byte) 0);
 
-      // 7. Zero-fill directory region (will be rebuilt from compact dir)
-      slottedPage.asSlice(PageLayout.DIR_OFF, PageLayout.DIR_SIZE).fill((byte) 0);
+      // 7. Directory region: skip zero-fill. Every populated slot gets its
+      // dir entry written in step 10 below (packed setDirEntry). Non-populated
+      // slots' dir entries are never read — all readers gate on
+      // isSlotPopulated (bitmap check) before touching the directory.
+      // Saves ~8 KB memset per cache-miss page; at 30% miss × 1M pages × 27
+      // query runs that's ~65 GB of memset eliminated.
+      // (unsafe_setmemory was ~1.7% CPU before this.)
 
       // 8. Read heap data into page at HEAP_START
       if (source instanceof MemorySegmentBytesIn msSource) {
@@ -140,11 +176,14 @@ public enum PageKind {
         MemorySegment.copy(heapData, 0, slottedPage, ValueLayout.JAVA_BYTE, PageLayout.HEAP_START, heapData.length);
       }
 
-      // 9. Zero-fill remainder of allocated page
-      final long usedEnd = PageLayout.HEAP_START + heapSize;
-      if (allocSize > usedEnd) {
-        slottedPage.asSlice(usedEnd, allocSize - usedEnd).fill((byte) 0);
-      }
+      // 9. No tail zero-fill: bytes past heapEnd are never read. Slot access
+      // is bounded by the directory (heap offsets < heapSize); header and
+      // bitmap live at fixed addresses in [0, HEAP_START). Skipping the
+      // fill saves ~60 KiB memset per page (large scans: 1M pages × ~60 KiB
+      // = 60 GB of memset per iteration, ~4% of CPU in unsafe_setmemory).
+      // If the page later grows via growSlottedPage, the new allocation is
+      // copied in full and subsequent writes go through bump-allocation
+      // from heapEnd, overwriting stale bytes before any read sees them.
 
       // 10. Rebuild full directory via prefix sums from compact dir entries
       int entryIdx = 0;
@@ -154,10 +193,10 @@ public enum PageKind {
         while (word != 0) {
           final int bit = Long.numberOfTrailingZeros(word);
           final int slot = (w << 6) | bit;
-          if (entryIdx >= compactDir.length) {
+          if (entryIdx >= populatedCount) {
             throw new SirixIOException(
                 "Bitmap has more set bits than compact directory entries: entryIdx="
-                    + entryIdx + ", compactDir.length=" + compactDir.length);
+                    + entryIdx + ", populatedCount=" + populatedCount);
           }
           final int packed = compactDir[entryIdx++];
           final int dataLength = packed >>> 8;
@@ -174,6 +213,10 @@ public enum PageKind {
 
       final boolean areDeweyIDsStored = resourceConfig.areDeweyIDsStored;
       final RecordSerializer recordPersister = resourceConfig.recordPersister;
+
+      // PAX region table appended after the heap. Empty on writes produced by
+      // the Phase-1 scaffold (4 bytes: int regionCount=0); later tasks populate it.
+      final RegionTable regionTable = RegionTable.read(source);
 
       // Read overlong entries
       final var overlongEntriesBitmap = SerializationType.deserializeBitSet(source);
@@ -208,6 +251,10 @@ public enum PageKind {
 
       if (fsstSymbolTable != null) {
         page.setFsstSymbolTable(fsstSymbolTable);
+      }
+
+      if (regionTable != null) {
+        page.setRegionTable(regionTable);
       }
 
       return page;
@@ -294,6 +341,18 @@ public enum PageKind {
         sink.writeSegment(slottedPage, PageLayout.HEAP_START + scratch[i], scratch[i + 1]);
       }
 
+      // PAX region table after the heap. Writer populates the number region
+      // (OBJECT_NUMBER_VALUE slot values + parent OBJECT_KEY nameKeys) so the
+      // vectorized scan path can filter by logical field in a tight loop,
+      // skipping both moveTo and varint decode.
+      final RegionTable regionTable = buildRegionTable(keyValueLeafPage, slottedPage, resourceConfig);
+      if (regionTable == null) {
+        sink.writeInt(0);
+      } else {
+        keyValueLeafPage.setRegionTable(regionTable);
+        regionTable.write(sink);
+      }
+
       // Write overlong entries
       writeOverlongEntries(sink, references);
 
@@ -321,6 +380,177 @@ public enum PageKind {
       for (final var entry : overlongEntriesSortedByKey) {
         sink.writeLong(entry.getValue().getKey());
       }
+    }
+
+    /**
+     * Build the PAX {@link RegionTable} for {@code page} by walking the
+     * populated-slot bitmap once, collecting each OBJECT_NUMBER_VALUE slot's
+     * value (long) and its parent OBJECT_KEY's nameKey, and encoding them via
+     * {@link NumberRegion}.
+     *
+     * <p>Values whose payload type is not int/long (BigDecimal, double, float)
+     * are skipped — the slow-path {@code getNumberValueLongFromSlot} returns
+     * {@link Long#MIN_VALUE} as a sentinel, and the caller still sees the
+     * correct answer via the inline-slot fallback path.
+     *
+     * <p>Values whose parent OBJECT_KEY is not on the same page are tagged
+     * with {@code -1} — the scan operator's fallback branch handles them.
+     *
+     * <p>Returns {@code null} when the page has no numeric values (common for
+     * path-summary and index pages).
+     */
+    private static RegionTable buildRegionTable(final KeyValueLeafPage page,
+        final MemorySegment slottedPage, final ResourceConfiguration resourceConfig) {
+      final long[] valBuf = NUMBER_VALUE_SCRATCH.get();
+      final int[] parBuf = NUMBER_PARENT_SCRATCH.get();
+      final int[] numberPathBuf = NUMBER_PATH_SCRATCH.get();
+      final int[] okNameKeys = OBJECT_KEY_NAMEKEY_SCRATCH.get();
+      final int[] okSlots = OBJECT_KEY_SLOT_SCRATCH.get();
+      int count = 0;
+      int okCount = 0;
+      final int numberKindId = KeyValueLeafPage.objectNumberValueKindId();
+      final int stringKindId = KeyValueLeafPage.objectStringValueKindId();
+      final long pageKeyBase = page.getPageKey() << Constants.NDP_NODE_COUNT_EXPONENT;
+
+      // Path-tagged region emission is gated by the resource config's path-summary
+      // flag — without it the pathNodeKey column is absent, so nameKey is the
+      // only tag we can derive.
+      final boolean withPathSummary = resourceConfig != null && resourceConfig.withPathSummary;
+      // Both flags flip to false permanently on the first parent-outside-page /
+      // missing-pathNodeKey observation, forcing fallback to TAG_KIND_NAME.
+      boolean numberAllPathNodeKeysValid = withPathSummary;
+      boolean stringAllPathNodeKeysValid = withPathSummary;
+
+      // Reuse a per-thread StringRegion.Encoder so the common path (every
+      // KVL page in a large ingest) allocates nothing for the encoder itself.
+      // It's reset() lazily — only if we actually encounter a string slot,
+      // keeping pages without OBJECT_STRING_VALUE slots at zero touch.
+      //
+      // We may need TWO encoders: {@code stringEncName} for the legacy
+      // nameKey-tagged fallback, and {@code stringEncPath} for the SIMD-safe
+      // pathNodeKey-tagged variant. We populate both in lockstep until we
+      // observe the first invalid pathNodeKey on the page; after that
+      // {@code stringEncPath} is no longer touched and we keep going with
+      // nameKey only. The final pick is a single-if branch.
+      StringRegion.Encoder stringEncName = null;
+      StringRegion.Encoder stringEncPath = null;
+      int stringCount = 0;
+
+      for (int w = 0; w < PageLayout.BITMAP_WORDS; w++) {
+        long word = PageLayout.getBitmapWord(slottedPage, w);
+        final int baseSlot = w << 6;
+        while (word != 0) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          final int slot = baseSlot + bit;
+          final int kindId = PageLayout.getDirNodeKindId(slottedPage, slot);
+          if (KeyValueLeafPage.isObjectKeyKindId(kindId)) {
+            okNameKeys[okCount] = page.getObjectKeyNameKeyFromSlot(slot);
+            okSlots[okCount] = slot;
+            okCount++;
+          } else if (kindId == numberKindId) {
+            final long value = page.getNumberValueLongFromSlot(slot);
+            if (value != Long.MIN_VALUE) {
+              final long valueNodeKey = pageKeyBase + slot;
+              final long parentKey = page.getObjectNumberValueParentKeyFromSlot(slot, valueNodeKey);
+              int parentNameKey = -1;
+              int parentPathNodeKeyInt = -1;
+              if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == page.getPageKey()) {
+                final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
+                if (KeyValueLeafPage.isObjectKeyKindId(PageLayout.getDirNodeKindId(slottedPage, parentSlot))) {
+                  parentNameKey = page.getObjectKeyNameKeyFromSlot(parentSlot);
+                  if (numberAllPathNodeKeysValid) {
+                    final long pnk = page.getObjectKeyPathNodeKeyFromSlot(parentSlot, parentKey);
+                    if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                      parentPathNodeKeyInt = (int) pnk;
+                    } else {
+                      numberAllPathNodeKeysValid = false;
+                    }
+                  }
+                } else {
+                  numberAllPathNodeKeysValid = false;
+                }
+              } else {
+                numberAllPathNodeKeysValid = false;
+              }
+              valBuf[count] = value;
+              parBuf[count] = parentNameKey;
+              numberPathBuf[count] = parentPathNodeKeyInt;
+              count++;
+            }
+          } else if (kindId == stringKindId) {
+            final byte[] value = page.readObjectStringValueBytesForRegionBuildPkg(slot);
+            if (value != null) {
+              final long valueNodeKey = pageKeyBase + slot;
+              final long parentKey = page.getObjectStringValueParentKeyFromSlot(slot, valueNodeKey);
+              int parentNameKey = -1;
+              int parentPathNodeKeyInt = -1;
+              if ((parentKey >>> Constants.NDP_NODE_COUNT_EXPONENT) == page.getPageKey()) {
+                final int parentSlot = (int) (parentKey & (PageLayout.SLOT_COUNT - 1));
+                if (KeyValueLeafPage.isObjectKeyKindId(PageLayout.getDirNodeKindId(slottedPage, parentSlot))) {
+                  parentNameKey = page.getObjectKeyNameKeyFromSlot(parentSlot);
+                  if (stringAllPathNodeKeysValid) {
+                    final long pnk = page.getObjectKeyPathNodeKeyFromSlot(parentSlot, parentKey);
+                    if (pnk > 0L && pnk <= (long) Integer.MAX_VALUE) {
+                      parentPathNodeKeyInt = (int) pnk;
+                    } else {
+                      stringAllPathNodeKeysValid = false;
+                    }
+                  }
+                } else {
+                  stringAllPathNodeKeysValid = false;
+                }
+              } else {
+                stringAllPathNodeKeysValid = false;
+              }
+              if (stringEncName == null) {
+                stringEncName = STRING_REGION_ENCODER.get();
+                stringEncName.reset();
+                if (withPathSummary) {
+                  stringEncPath = STRING_REGION_ENCODER_PATH.get();
+                  stringEncPath.reset();
+                }
+              }
+              stringEncName.addValue(parentNameKey, value);
+              if (stringEncPath != null && stringAllPathNodeKeysValid) {
+                stringEncPath.addValue(parentPathNodeKeyInt, value);
+              }
+              stringCount++;
+            }
+          }
+          word &= word - 1;
+        }
+      }
+
+      if (count == 0 && okCount == 0 && stringCount == 0) {
+        return null;
+      }
+      final RegionTable table = new RegionTable();
+      if (count > 0) {
+        final byte numberTagKind = numberAllPathNodeKeysValid
+            ? NumberRegion.TAG_KIND_PATH_NODE
+            : NumberRegion.TAG_KIND_NAME;
+        final int[] numberTagBuf = numberAllPathNodeKeysValid ? numberPathBuf : parBuf;
+        final byte[] payload = NumberRegion.encode(valBuf, numberTagBuf, count, numberTagKind);
+        table.set(RegionTable.KIND_NUMBER, payload);
+      }
+      if (okCount > 0) {
+        final byte[] nameKeyPayload = ObjectKeyNameKeyRegion.encode(okNameKeys, okSlots, okCount);
+        if (nameKeyPayload != null) {
+          table.set(RegionTable.KIND_OBJECT_KEY_NAMEKEY, nameKeyPayload);
+        }
+      }
+      if (stringCount > 0) {
+        final byte[] stringPayload;
+        if (stringAllPathNodeKeysValid && stringEncPath != null) {
+          stringPayload = stringEncPath.finish(StringRegion.TAG_KIND_PATH_NODE);
+        } else {
+          stringPayload = stringEncName.finish(StringRegion.TAG_KIND_NAME);
+        }
+        if (stringPayload != null && stringPayload.length > 0) {
+          table.set(RegionTable.KIND_STRING, stringPayload);
+        }
+      }
+      return table.isEmpty() ? null : table;
     }
 
     private static void writeFsstSymbolTable(final BytesOut<?> sink, final KeyValueLeafPage page) {
@@ -483,7 +713,7 @@ public enum PageKind {
 
       switch (binaryVersion) {
         case V0 -> {
-          Page delegate = new BitmapReferencesPage(9, source, type);
+          Page delegate = new BitmapReferencesPage(10, source, type);
           final int revision = source.readInt();
           final long maxNodeKeyInDocumentIndex = source.readLong();
           final long maxNodeKeyInChangedNodesIndex = source.readLong();
@@ -846,9 +1076,7 @@ public enum PageKind {
       }
 
       // Read slot memory (zero-copy when possible)
-      MemorySegmentAllocator allocator = OS.isWindows()
-          ? WindowsMemorySegmentAllocator.getInstance()
-          : LinuxMemorySegmentAllocator.getInstance();
+      MemorySegmentAllocator allocator = Allocators.getInstance();
 
       final MemorySegment slotMemory;
       final Runnable releaser;
@@ -999,8 +1227,9 @@ public enum PageKind {
       }
 
       // Create appropriate node type and layout
+      final HOTIndirectPage created;
       if (layoutType == HOTIndirectPage.LayoutType.MULTI_MASK) {
-        return switch (nodeType) {
+        created = switch (nodeType) {
           case SPAN_NODE -> HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision,
               extractionPositions, extractionMasks, numExtractionBytes,
               partialKeys, children, height, mostSignificantBitIndex);
@@ -1009,7 +1238,7 @@ public enum PageKind {
               partialKeys, children, height, mostSignificantBitIndex);
         };
       } else {
-        return switch (nodeType) {
+        created = switch (nodeType) {
           case SPAN_NODE -> HOTIndirectPage.createSpanNode(pageKey, revision, initialBytePos, bitMask,
               partialKeys, children, height);
           case MULTI_NODE -> {
@@ -1021,6 +1250,8 @@ public enum PageKind {
           }
         };
       }
+
+      return created;
     }
 
     @Override
@@ -1096,6 +1327,7 @@ public enum PageKind {
           sink.write(new byte[256]);
         }
       }
+
     }
   },
 
@@ -1192,6 +1424,61 @@ public enum PageKind {
         sink.writeByte((byte) vectorPage.getCurrentMaxLevelOfIndirectPages(i));
       }
     }
+  },
+
+  /**
+   * {@link ProjectionIndexPage}.
+   */
+  PROJECTIONPAGE((byte) 16, ProjectionIndexPage.class) {
+    @Override
+    public Page deserializePage(final ResourceConfiguration resourceConfig, final BytesIn<?> source,
+        final SerializationType type, final ByteHandler.DecompressionResult decompressionResult) {
+      final BinaryEncodingVersion binaryVersion = BinaryEncodingVersion.fromByte(source.readByte());
+
+      switch (binaryVersion) {
+        case V0 -> {
+          final Page delegate = PageUtils.createDelegate(source, type);
+
+          final Int2LongMap maxNodeKeys = PageKind.deserializeMaxNodeKeys(source);
+          final Int2LongMap maxHotPageKeys = PageKind.deserializeMaxNodeKeys(source);
+          final Int2IntMap currentMaxLevelsOfIndirectPages =
+              PageKind.deserializeCurrentMaxLevelsOfIndirectPages(source);
+
+          return new ProjectionIndexPage(delegate, maxNodeKeys, maxHotPageKeys, currentMaxLevelsOfIndirectPages);
+        }
+        default -> throw new IllegalStateException("Unknown binary encoding version: " + binaryVersion);
+      }
+    }
+
+    @Override
+    public void serializePage(final ResourceConfiguration resourceConfig, final BytesOut<?> sink, final Page page,
+        final SerializationType type) {
+      final ProjectionIndexPage projectionPage = (ProjectionIndexPage) page;
+      final Page delegate = projectionPage.delegate();
+      sink.writeByte(PROJECTIONPAGE.id);
+      sink.writeByte(resourceConfig.getBinaryEncodingVersion().byteVersion());
+
+      PageKind.writeDelegateType(delegate, sink);
+      PageKind.serializeDelegate(sink, delegate, type);
+
+      final int maxNodeKeySize = projectionPage.getMaxNodeKeySize();
+      sink.writeInt(maxNodeKeySize);
+      for (int i = 0; i < maxNodeKeySize; i++) {
+        sink.writeLong(projectionPage.getMaxNodeKey(i));
+      }
+
+      final int maxHotPageKeysSize = projectionPage.getMaxHotPageKeySize();
+      sink.writeInt(maxHotPageKeysSize);
+      for (int i = 0; i < maxHotPageKeysSize; i++) {
+        sink.writeLong(projectionPage.getMaxHotPageKey(i));
+      }
+
+      final int currentMaxLevelOfIndirectPagesSize = projectionPage.getCurrentMaxLevelOfIndirectPagesSize();
+      sink.writeInt(currentMaxLevelOfIndirectPagesSize);
+      for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
+        sink.writeByte((byte) projectionPage.getCurrentMaxLevelOfIndirectPages(i));
+      }
+    }
   };
 
   private static void writeDelegateType(Page delegate, BytesOut<?> sink) {
@@ -1252,6 +1539,50 @@ public enum PageKind {
    */
   private static final ThreadLocal<int[]> SERIALIZE_SCRATCH =
       ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT * 2]);
+
+  /** Per-thread reusable buffer for number-region value collection at seal time. */
+  private static final ThreadLocal<long[]> NUMBER_VALUE_SCRATCH =
+      ThreadLocal.withInitial(() -> new long[PageLayout.SLOT_COUNT]);
+
+  /** Per-thread reusable buffer for number-region parent-nameKey collection at seal time. */
+  private static final ThreadLocal<int[]> NUMBER_PARENT_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /**
+   * Per-thread reusable buffer for number-region parent-pathNodeKey (int-truncated)
+   * collection at seal time. Populated in parallel with {@link #NUMBER_PARENT_SCRATCH};
+   * the final encoder call picks one buffer based on the resolved tagKind.
+   */
+  private static final ThreadLocal<int[]> NUMBER_PATH_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /** Per-thread reusable buffer for OBJECT_KEY nameKey values at seal time. */
+  private static final ThreadLocal<int[]> OBJECT_KEY_NAMEKEY_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /** Per-thread reusable buffer for OBJECT_KEY slot indices at seal time. */
+  private static final ThreadLocal<int[]> OBJECT_KEY_SLOT_SCRATCH =
+      ThreadLocal.withInitial(() -> new int[PageLayout.SLOT_COUNT]);
+
+  /**
+   * Per-thread reusable {@link StringRegion.Encoder}. The encoder's internal
+   * fastutil maps and per-tag arrays are retained across pages; only per-page
+   * counts and value-byte references are cleared via {@link
+   * StringRegion.Encoder#reset()}. Writer threads therefore pay at most one
+   * encoder allocation in their lifetime instead of one per committed page.
+   */
+  private static final ThreadLocal<StringRegion.Encoder> STRING_REGION_ENCODER =
+      ThreadLocal.withInitial(StringRegion.Encoder::new);
+
+  /**
+   * Second per-thread {@link StringRegion.Encoder} used for the path-tagged
+   * variant when the resource runs with path-summary enabled. Populated in
+   * lockstep with {@link #STRING_REGION_ENCODER} until an invalid pathNodeKey
+   * is observed; the final {@code finish()} chooses between the two based on
+   * the resolved tagKind.
+   */
+  private static final ThreadLocal<StringRegion.Encoder> STRING_REGION_ENCODER_PATH =
+      ThreadLocal.withInitial(StringRegion.Encoder::new);
 
   static {
     for (final PageKind page : values()) {

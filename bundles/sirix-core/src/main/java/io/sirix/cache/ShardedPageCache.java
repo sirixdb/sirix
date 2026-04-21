@@ -199,22 +199,12 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
 
   @Override
   public KeyValueLeafPage getAndGuard(PageReference key) {
-    // OPTIMIZATION: Lock-free fast path for cache hits
-    // Strategy: get() -> acquireGuard() -> verify still valid
-    // If page was evicted between get() and acquireGuard(), we detect via isClosed()
+    // Atomic tryAcquireGuard avoids the close/acquire race that surfaces as
+    // FrameReusedException under severe-pressure eviction.
     KeyValueLeafPage existing = map.get(key);
-    if (existing != null && !existing.isClosed()) {
-      // Try to acquire guard on the page we found
-      existing.acquireGuard();
-      // Verify page is still valid after acquiring guard
-      // (another thread may have evicted it between get() and acquireGuard())
-      if (!existing.isClosed()) {
-        existing.markAccessed();
-        return existing;
-      }
-      // Race detected: page was closed after we acquired guard
-      // Release our guard (harmless since page is closed) and fall back to compute()
-      existing.releaseGuard();
+    if (existing != null && existing.tryAcquireGuard()) {
+      existing.markAccessed();
+      return existing;
     }
 
     // Cache miss or race condition - use compute() for guaranteed atomicity
@@ -232,23 +222,18 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
 
   @Override
   public KeyValueLeafPage getOrLoadAndGuard(PageReference key, Function<PageReference, KeyValueLeafPage> loader) {
-    // OPTIMIZATION: Lock-free fast path for cache hits (the common case)
-    // Strategy: get() -> acquireGuard() -> verify still valid
-    // This avoids compute() lock contention for reads, which dominate the workload
+    // OPTIMIZATION: Lock-free fast path for cache hits (the common case).
+    // Uses tryAcquireGuard (synchronized, atomic check+increment) rather than
+    // the split acquireGuard + isClosed pattern, because the split pattern
+    // races with close(): close() reads guardCount unsynchronized from the
+    // reader's incrementAndGet, so both can see 0 / set CLOSED_BIT while the
+    // reader slips through the post-check. That leaves the reader holding a
+    // guard on a soon-to-be-recycled frame → FrameReusedException at release.
     KeyValueLeafPage existing = map.get(key);
-    if (existing != null && !existing.isClosed()) {
-      // Try to acquire guard on the page we found
-      existing.acquireGuard();
-      // Verify page is still valid after acquiring guard
-      // (ClockSweeper may have evicted it between get() and acquireGuard())
-      if (!existing.isClosed()) {
-        existing.markAccessed();
-        CACHE_HITS.increment();
-        return existing;
-      }
-      // Race detected: page was closed after we acquired guard
-      // Release our guard (harmless since page is closed) and fall back to compute()
-      existing.releaseGuard();
+    if (existing != null && existing.tryAcquireGuard()) {
+      existing.markAccessed();
+      CACHE_HITS.increment();
+      return existing;
     }
 
     // Cache miss or race condition - use compute() for atomic load-and-store
@@ -494,22 +479,45 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   }
 
   /**
-   * Evict cold, unguarded pages until the cache is within the configured memory budget. Uses a simple
-   * two-pass approach per page: first clears HOT bit, then evicts on the next pass. This keeps
-   * enforcement cheap and virtual-thread friendly.
+   * Evict cold, unguarded pages until the cache is within the configured memory budget.
+   *
+   * <h2>Two modes of pressure</h2>
+   *
+   * <ul>
+   *   <li><b>Normal over-budget (&lt; 110% of limit):</b> non-blocking {@code tryLock},
+   *       two-pass HOT-bit algorithm. Lets concurrent writers through and delegates
+   *       to the background {@link ClockSweeper}.</li>
+   *   <li><b>Severe over-budget (&ge; 110% of limit):</b> blocking {@code lock},
+   *       single-pass eviction — HOT bit is ignored since at high concurrency the
+   *       two-pass approach never catches up (bit gets re-set between sweeps).</li>
+   * </ul>
+   *
+   * <p>Why the split: at 20 parallel readers, tryLock succeeds only intermittently
+   * and the two-pass HOT logic leaves every page permanently hot during a scan.
+   * That starves the allocator budget and surfaces as {@code OutOfMemoryError} in
+   * {@code MemorySegmentAllocator.allocate} 10+ seconds later. Forcing a blocking
+   * one-pass eviction when we're significantly over budget makes eviction keep up
+   * with allocation pressure.
    */
   private void evictIfOverBudget() {
     if (maxWeightBytes <= 0) {
       return;
     }
 
-    // Fast path without locking
-    if (currentWeightBytes.get() <= maxWeightBytes) {
+    final long currentWeight = currentWeightBytes.get();
+    if (currentWeight <= maxWeightBytes) {
       return;
     }
 
-    if (!evictionLock.tryLock()) {
-      return; // Avoid blocking writers; ClockSweeper will also evict
+    // Pressure level: normal = two-pass HOT-bit; severe = blocking one-pass.
+    // 10% over-budget threshold matches the retry budget we allow the allocator
+    // before it bubbles OOM — eviction must finish before that fires.
+    final boolean severe = currentWeight > (maxWeightBytes + maxWeightBytes / 10);
+
+    if (severe) {
+      evictionLock.lock();
+    } else if (!evictionLock.tryLock()) {
+      return; // Let the ClockSweeper handle the transient case.
     }
 
     try {
@@ -524,8 +532,9 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
             return null;
           }
 
-          // First pass: clear HOT bit
-          if (page.isHot()) {
+          // Two-pass HOT-bit only in the non-severe path; in severe mode we
+          // evict cold-or-hot unguarded pages in a single pass.
+          if (!severe && page.isHot()) {
             page.clearHot();
             return page;
           }
@@ -541,13 +550,19 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
 
           long pageWeight = weightOf(page);
           try {
+            // close() first — it's a no-op if guards are held. Only bump
+            // version and break the back-reference AFTER we know the page
+            // is dead. Previously these mutations happened before close(),
+            // so a concurrent reader with a snapshotted version (PageGuard)
+            // would see a drifted version on release and throw
+            // FrameReusedException even though the eviction never happened.
+            page.close();
+            if (!page.isClosed()) {
+              return page; // Guard acquired concurrently — no mutations applied.
+            }
+
             page.incrementVersion();
             ref.setPage(null);
-            page.close();
-
-            if (!page.isClosed()) {
-              return page; // Could not close (guard acquired concurrently)
-            }
 
             if (pageWeight > 0) {
               currentWeightBytes.addAndGet(-pageWeight);
@@ -564,6 +579,49 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
       // If we still exceed budget and diagnostics enabled, log a small sample of guarded pages.
       if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && currentWeightBytes.get() > maxWeightBytes && LOGGER.isWarnEnabled()) {
         logGuardedPagesSample();
+      }
+    } finally {
+      evictionLock.unlock();
+    }
+  }
+
+  /**
+   * Force eviction down to {@code maxWeightBytes}. Called by the allocator under
+   * memory pressure when it cannot satisfy an allocation. Blocking single-pass
+   * eviction — the caller is already parked, so blocking briefly is cheap compared
+   * to OOMing the query.
+   */
+  public void evictUnderPressure() {
+    if (maxWeightBytes <= 0 || currentWeightBytes.get() <= maxWeightBytes) {
+      return;
+    }
+    evictionLock.lock();
+    try {
+      var iterator = map.entrySet().iterator();
+      while (currentWeightBytes.get() > maxWeightBytes && iterator.hasNext()) {
+        var entry = iterator.next();
+        final PageReference ref = entry.getKey();
+        map.compute(ref, (k, page) -> {
+          if (page == null || page.getGuardCount() > 0) {
+            return page;
+          }
+          final long pageWeight = weightOf(page);
+          try {
+            page.close();
+            if (!page.isClosed()) {
+              return page;
+            }
+            page.incrementVersion();
+            ref.setPage(null);
+            if (pageWeight > 0) {
+              currentWeightBytes.addAndGet(-pageWeight);
+            }
+            return null;
+          } catch (Exception e) {
+            LOGGER.debug("evictUnderPressure failed for page {}: {}", page.getPageKey(), e.getMessage());
+            return page;
+          }
+        });
       }
     } finally {
       evictionLock.unlock();
