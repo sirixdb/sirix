@@ -30,7 +30,6 @@ import org.slf4j.LoggerFactory;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
-import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -159,6 +158,24 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
   public static final int CHUNK_SIZE =
       Integer.parseInt(System.getProperty("sirix.projection.chunkSize",
           String.valueOf(4096)));
+
+  /**
+   * iter#08 — expected per-leaf serialised size used to pre-size the
+   * hydrate-side accumulator buffer. Override with
+   * {@code -Dsirix.projection.hydrate.expectedLeafBytes=N}. Default
+   * 24 KB matches a 1024-row / 3-column numeric+boolean+string-dict
+   * leaf (≈ 20.8 KB) with a small headroom margin so the typical leaf
+   * never triggers the geometric-growth {@code Arrays.copyOf} path in
+   * {@link #collectSubtreeChunks}. Oversized leaves still grow as
+   * before — the pre-size is a floor, not a cap.
+   *
+   * <p>Setting this back to {@link #CHUNK_SIZE} reproduces the
+   * pre-iter#08 behaviour (one copyOf per chunk after the first).
+   */
+  public static final int EXPECTED_LEAF_BYTES =
+      Math.max(CHUNK_SIZE, Integer.parseInt(System.getProperty(
+          "sirix.projection.hydrate.expectedLeafBytes",
+          String.valueOf(24 * 1024))));
 
   /**
    * Max chunks per leaf. Enforced by the composite-key encoding: {@code
@@ -915,25 +932,42 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final LongOpenHashSet tombstoned =
         new LongOpenHashSet();
 
+    // iter#08 zero-alloc cursor path — consumes positional accessors
+    // instead of {@code cursor.next()} which materialises a fresh Entry
+    // record plus two {@link MemorySegment} slice wrappers per step.
+    // Composite key decoded directly from leaf storage via
+    // {@link HOTLeafPage#decodeKey8BE} — skips the
+    // MemorySegment.ofArray(key byte[]) wrapper allocation.
     try (HOTTrieReader trieReader = new HOTTrieReader(reader);
          HOTRangeCursor cursor = trieReader.range(subRootRef, minKey, maxKey)) {
       while (cursor.hasNext()) {
-        final var entry = cursor.next();
-        final long composite = decodeCompositeKeySegment(entry.key());
+        final HOTLeafPage leaf = cursor.currentLeafPage();
+        final int entryIdx = cursor.currentEntryIndex();
+        final long signFlipped = leaf.decodeKey8BE(entryIdx);
+        final long composite = signFlipped ^ 0x8000_0000_0000_0000L;
         final long leafIndex = composite >> 8;
-        if (tombstoned.contains(leafIndex)) continue;
-        final MemorySegment value = entry.value();
+        if (tombstoned.contains(leafIndex)) {
+          cursor.advance();
+          continue;
+        }
+        final MemorySegment value = cursor.currentValueSlice();
         final int valueSize = (int) value.byteSize();
         if (valueSize == 0) {
           tombstoned.add(leafIndex);
           bufs.remove(leafIndex);
           lens.remove(leafIndex);
+          cursor.advance();
           continue;
         }
         byte[] buf = bufs.get(leafIndex);
         int len = lens.get(leafIndex);
         if (buf == null) {
-          buf = new byte[Math.max(valueSize, CHUNK_SIZE)];
+          // iter#08: pre-size to EXPECTED_LEAF_BYTES so the typical
+          // 20 KB leaf finishes without any Arrays.copyOf — the
+          // geometric-growth path below only fires on oversized leaves.
+          // Floor at valueSize so a giant first chunk still fits
+          // without immediate resize.
+          buf = new byte[Math.max(valueSize, EXPECTED_LEAF_BYTES)];
           bufs.put(leafIndex, buf);
           len = 0;
         } else if (len + valueSize > buf.length) {
@@ -945,6 +979,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         MemorySegment.copy(value, ValueLayout.JAVA_BYTE, 0,
             buf, len, valueSize);
         lens.put(leafIndex, len + valueSize);
+        cursor.advance();
       }
     }
   }
@@ -1213,14 +1248,21 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final LongOpenHashSet tombstoned =
         new LongOpenHashSet();
 
+    // iter#08 zero-alloc cursor path — matches the parallel impl in
+    // {@link #collectSubtreeChunks}.
     try (HOTTrieReader trieReader = new HOTTrieReader(reader);
          HOTRangeCursor cursor = trieReader.range(rootRef, minKey, maxKey)) {
       while (cursor.hasNext()) {
-        final HOTRangeCursor.Entry entry = cursor.next();
-        final long composite = decodeCompositeKeySegment(entry.key());
+        final HOTLeafPage leaf = cursor.currentLeafPage();
+        final int entryIdx = cursor.currentEntryIndex();
+        final long signFlipped = leaf.decodeKey8BE(entryIdx);
+        final long composite = signFlipped ^ 0x8000_0000_0000_0000L;
         final long leafIndex = composite >> 8;
-        if (tombstoned.contains(leafIndex)) continue;
-        final MemorySegment value = entry.value();
+        if (tombstoned.contains(leafIndex)) {
+          cursor.advance();
+          continue;
+        }
+        final MemorySegment value = cursor.currentValueSlice();
         final int valueSize = (int) value.byteSize();
         if (valueSize == 0) {
           tombstoned.add(leafIndex);
@@ -1228,13 +1270,16 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
           // we had already accumulated out of sort-quirk ordering.
           buffers.remove(leafIndex);
           lengths.remove(leafIndex);
+          cursor.advance();
           continue;
         }
 
         byte[] buf = buffers.get(leafIndex);
         int len = lengths.get(leafIndex);
         if (buf == null) {
-          buf = new byte[Math.max(valueSize, CHUNK_SIZE)];
+          // iter#08: same pre-size as parallel path — see
+          // {@link #EXPECTED_LEAF_BYTES} javadoc.
+          buf = new byte[Math.max(valueSize, EXPECTED_LEAF_BYTES)];
           buffers.put(leafIndex, buf);
           len = 0;
         } else if (len + valueSize > buf.length) {
@@ -1246,6 +1291,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         MemorySegment.copy(value, ValueLayout.JAVA_BYTE, 0,
             buf, len, valueSize);
         lengths.put(leafIndex, len + valueSize);
+        cursor.advance();
       }
     }
 
@@ -1259,16 +1305,11 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     return out;
   }
 
-  /**
-   * Decode the composite key directly from its {@link MemorySegment} form
-   * — skips the {@code keyBytes()} {@code byte[]} allocation. Called in
-   * the cursor-hot loop inside {@link #readAll}.
-   */
-  private static long decodeCompositeKeySegment(final MemorySegment key) {
-    final long signFlipped = key.get(
-        ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.BIG_ENDIAN), 0);
-    return signFlipped ^ 0x8000_0000_0000_0000L;
-  }
+  // iter#08: decodeCompositeKeySegment(MemorySegment) removed — replaced
+  // by the fully zero-alloc {@link HOTLeafPage#decodeKey8BE(int)} which
+  // reads bytes directly from the leaf's on/off-heap storage without a
+  // MemorySegment wrapper. Cursor hot loop now decodes via:
+  //   leaf.decodeKey8BE(entryIdx) ^ 0x8000_0000_0000_0000L
 
   /**
    * Legacy single-key encode used by tests and by the cursor range bounds

@@ -65,6 +65,13 @@ public final class ScaleBenchMain {
       System.err.println("Usage: ScaleBenchMain <recordCount> [vectorized=true|false] [iters=N]");
       System.exit(1);
     }
+    // iter#08 phase-timing instrumentation (gated by -Dsirix.bench.phaseTiming=true).
+    // Emits wall-clock ms deltas between phases so we can attribute the 3 s cold
+    // wall to DB-open vs hydrate vs query-run. Zero cost when the flag is off.
+    final boolean phaseTiming = Boolean.getBoolean("sirix.bench.phaseTiming");
+    final long t0 = System.nanoTime();
+    long tPhase = t0;
+
     long recordCount = Long.parseLong(args[0]);
     boolean vectorized = args.length < 2 || Boolean.parseBoolean(args[1]);
     int iters = args.length < 3 ? 3 : Integer.parseInt(args[2]);
@@ -81,6 +88,12 @@ public final class ScaleBenchMain {
     System.out.printf("# Allocator: %s   maxBufferSize = %d MB (initialized=%s)%n",
                       alloc.getClass().getSimpleName(),
                       alloc.getMaxBufferSize() / (1L << 20), alloc.isInitialized());
+    if (phaseTiming) {
+      final long now = System.nanoTime();
+      System.out.printf("# PHASE allocInit: %,d ms (t=%,d ms)%n",
+          (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+      tPhase = now;
+    }
 
     // Re-use an existing shredded database when -Dsirix.db=/path is supplied —
     // shredding 100 M records takes ~7 minutes, and we want to iterate on
@@ -142,8 +155,20 @@ public final class ScaleBenchMain {
         .hashType(hash)
         .build();
     System.out.printf("# pathSummary=%s  pathStatistics=%s%n", pathSummary, pathStatistics);
+    if (phaseTiming) {
+      final long now = System.nanoTime();
+      System.out.printf("# PHASE storeBuild: %,d ms (t=%,d ms)%n",
+          (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+      tPhase = now;
+    }
     SirixQueryContext ctx = SirixQueryContext.createWithJsonStore(store);
     SirixCompileChain chain = SirixCompileChain.createWithJsonStore(store);
+    if (phaseTiming) {
+      final long now = System.nanoTime();
+      System.out.printf("# PHASE ctxChain: %,d ms (t=%,d ms)%n",
+          (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+      tPhase = now;
+    }
 
     if (shredNeeded) {
       long shredStart = System.nanoTime();
@@ -162,7 +187,19 @@ public final class ScaleBenchMain {
     SirixVectorizedExecutor vec = null;
     if (vectorized) {
       JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);
+      if (phaseTiming) {
+        final long now = System.nanoTime();
+        System.out.printf("# PHASE lookup: %,d ms (t=%,d ms)%n",
+            (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+        tPhase = now;
+      }
       session = coll.getDatabase().beginResourceSession(JSON_RESOURCE);
+      if (phaseTiming) {
+        final long now = System.nanoTime();
+        System.out.printf("# PHASE beginSession: %,d ms (t=%,d ms)%n",
+            (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+        tPhase = now;
+      }
       // Default = all cores. Overridable via -Dsirix.vec.threads=N — useful
       // when a concurrency bug in Sirix's JVMCI-compiled allocator / page
       // combiner path triggers at high fan-out.
@@ -172,6 +209,12 @@ public final class ScaleBenchMain {
       vec = new SirixVectorizedExecutor(session, session.getMostRecentRevisionNumber(), vecThreads);
       SequentialPipelineStrategy.setVectorizedExecutor(vec);
       System.out.printf("# Vec threads: %d%n", vecThreads);
+      if (phaseTiming) {
+        final long now = System.nanoTime();
+        System.out.printf("# PHASE vecExecutor: %,d ms (t=%,d ms)%n",
+            (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+        tPhase = now;
+      }
     }
 
     // -Dprojection=true installs a covering projection index on
@@ -185,11 +228,18 @@ public final class ScaleBenchMain {
       final int leafCount = ScaleBenchProjectionSetup.installWildcard(session);
       System.out.printf("# Projection index: %,d leaves, built in %,d ms%n",
           leafCount, (System.nanoTime() - tBuild) / 1_000_000L);
+      if (phaseTiming) tPhase = System.nanoTime();
     }
 
     JsonDBCollection coll = (JsonDBCollection) store.lookup(JSON_DB);
     JsonDBItem docItem = (JsonDBItem) coll.getDocument();
     ctx.bind(DOC_VAR, (Sequence) docItem);
+    if (phaseTiming) {
+      final long now = System.nanoTime();
+      System.out.printf("# PHASE docBind: %,d ms (t=%,d ms)%n",
+          (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+      tPhase = now;
+    }
 
     // iters <= 0 skips the query-running phase entirely. Useful when we
     // only care about the shred-side DB size / encoder diagnostics and
@@ -204,6 +254,12 @@ public final class ScaleBenchMain {
       for (Map.Entry<String, String> e : QUERIES.entrySet()) {
         runQueryRepeated(chain, ctx, e.getKey(), e.getValue(), iters);
       }
+    }
+    if (phaseTiming) {
+      final long now = System.nanoTime();
+      System.out.printf("# PHASE queries: %,d ms (t=%,d ms)%n",
+          (now - tPhase) / 1_000_000L, (now - t0) / 1_000_000L);
+      tPhase = now;
     }
 
     SequentialPipelineStrategy.setVectorizedExecutor(null);

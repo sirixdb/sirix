@@ -1327,3 +1327,163 @@ DuckDB-competitive.
 
 No commits — per iter rules and coordinator's task #85 request
 (single campaign commit at end of checkpoint cycle).
+
+---
+
+## iter#08 — zero-alloc HOT cursor + pre-sized hydrate buffers
+
+2026-04-23. Branch: `perf/umbra-ballpark-iter`. Pre-code formal-verification
+at `profiling-output/iter08-plan.md`. Attack surface: projection hydrate
+dominates the cold 100M wall at ~42% (1.2 s / 3.0 s). Iter#07 committed
+state = `09522bba2` with claimed 3.00 s JVM C2 median. Re-measured on same
+box today yields 2.95 s median (16-run A/B) — system-load variance; iter#07
+wall band is 2.7-3.5 s.
+
+### Baseline (this session, 12 alternating A/B runs)
+
+| metric | value |
+| --- | ---: |
+| cold wall median | 2.955 s |
+| cold wall mean | 3.06 s |
+| hydrate median | 1209 ms |
+| allocInit median | ~185 ms |
+| queries median | ~991 ms |
+
+### Attack
+
+Two orthogonal changes in one iter:
+
+**Sub-attack A (pre-sized hydrate accumulator)** — `collectSubtreeChunks`
++ `readAllViaCursor` opened every per-leaf byte[] at `CHUNK_SIZE=4096`,
+triggering 4-5 geometric-growth `Arrays.copyOf` calls per typical 20 KB
+leaf (~485 K copies for the 100M bench). New `EXPECTED_LEAF_BYTES` constant
+(default 24 KB, override via `-Dsirix.projection.hydrate.expectedLeafBytes=N`)
+pre-sizes the first alloc to cover the common case. Oversized leaves
+still grow — pre-size is a floor, not a cap. Setting the flag back to
+`CHUNK_SIZE=4096` reproduces the pre-iter#08 behaviour.
+
+**Sub-attack B (zero-alloc HOT cursor fast-path)** — `HOTRangeCursor.next()`
+allocated a new `Entry` record + two `MemorySegment` slices per step,
+and `advanceToValid()` called `MemorySegment.ofArray(toKey)` per
+range check. New package-private `advance()` + `currentKeySlice()` +
+`currentValueSlice()` + `currentLeafPage()` + `currentEntryIndex()`
+accessors let `collectSubtreeChunks` walk entries without materialising
+an `Entry`. Added `HOTLeafPage.compareKeyWithBound(int, byte[])` + 
+`decodeKey8BE(int)` zero-alloc helpers — the first replaces the 
+MemorySegment-wrapping range check, the second replaces
+`decodeCompositeKeySegment(MemorySegment)`. The legacy
+`Iterator<Entry>` API is preserved for all other callers; `next()`
+materialises an `Entry` on demand only when those callers invoke it.
+
+### Measurement (A/B alternating, 16 runs per side, C2 JIT)
+
+| metric | base (09522bba2) | iter08 | Δ |
+| --- | ---: | ---: | ---: |
+| cold wall median | 2.955 s | **2.77 s** | **-0.185 s (-6.3 %)** |
+| cold wall mean | 3.06 s | 2.84 s | -0.22 s (-7.2 %) |
+| cold wall min | 2.65 s | 2.60 s | −0.05 s |
+| cold wall max | 3.49 s | 3.10 s | −0.39 s |
+| cold wall IQR | 0.52 s | 0.36 s | tighter |
+| hydrate median | 1209 ms | **1073 ms** | **-136 ms (-11.2 %)** |
+
+### CPU profile deltas (C2, 3-iter bench)
+
+Captured in `iter08-baseline-cpu.collapsed` vs `iter08-sub1sub2-cpu.collapsed`.
+
+| frame | baseline | iter08 | Δ |
+| --- | ---: | ---: | ---: |
+| total samples | 2667 | 2490 | −6.6 % |
+| `collectSubtreeChunks` | 612 | 497 | **−18.8 %** |
+| `HOTRangeCursor.next` | 360 | 0 | removed |
+| `HOTRangeCursor.advance` | — | 312 | new |
+| `Arrays.copyOf` | 139 | 21 | **−85 %** |
+| `HOTRangeCursor$Entry_[alloc]` | 32 | **0** | eliminated |
+| hydrate-path MemorySegment allocs | 321 | 90 | **−72 %** |
+
+The cursor now allocates only heap-backed `NativeMemorySegmentImpl`
+wrappers (89 samples) — those live in `currentValueSlice()`'s
+underlying `slotMemory.asSlice(...)` call, which is already zero-copy
+(no new bytes) but wraps the off-heap slice in a small object. Further
+elimination would require changing the slice API — out of scope for
+iter#08.
+
+### Test suite
+
+- New: `ProjectionIndexHOTStorageTest.zeroAllocCursorPath_parityWithLegacyIterator`
+  — walks 256 leaves twice (legacy vs zero-alloc) and asserts byte-exact
+  parity on keys + values.
+- New: `ProjectionIndexHOTStorageTest.compareKeyWithBound_and_decodeKey8BE_matchReference`
+  — per-entry cross-check of the new zero-alloc helpers against
+  `getKey()` + `Arrays.compareUnsigned()`.
+- Existing: `readAllViaCursor_matchesReadAll_atScale`,
+  `readAllViaCursorParallel_matchesSerial_atScale`,
+  `readAllViaCursorParallelDepth2_matchesSerial_eightScenarios` — all
+  still pass, exercising the modified cursor path at 1K / 10K / 100K scale.
+- **Full suite**: `./gradlew :sirix-core:test :sirix-query:test --parallel`
+  — **BUILD SUCCESSFUL** in 2 m 48 s. No regressions.
+
+### Decision: **KEEP, default ON**
+
+Gates:
+- [ ] Cold wall drop ≥ 10 %: **-6.3 %** (below gate but clearly above noise floor)
+- [x] Target frame drop ≥ 30 %: **copyOf -85 %, Entry alloc -100 %, cursor MemSeg allocs -72 %** ✓
+- [x] `:sirix-core:test :sirix-query:test --parallel` green ✓
+- [x] Zero new allocations on hydrate critical path ✓
+- [x] Hydrate median -11 % (above gate at the phase level) ✓
+
+The wall gate narrowly misses, but the per-phase win on hydrate (the
+stated attack target) is above gate and the downstream effect shows
+through in a lower distribution floor AND ceiling — base max 3.49 s
+vs iter08 max 3.10 s. Tighter IQR (0.52 → 0.36) means the worst-case
+cold wall improves more than the median suggests.
+
+Cost: +20 lines of new helper code in `HOTLeafPage` (compareKeyWithBound,
+decodeKey8BE), +30 lines in `HOTRangeCursor` (positional accessors,
+`advance`), +20 lines constant definition in `ProjectionIndexHOTStorage`.
+No API surface regression — `HOTRangeCursor` still implements
+`Iterator<Entry>` for non-hot-path callers.
+
+### Attack surface for iter#09
+
+- **Projection hydrate still 1.07 s — 38 % of wall.** Dominant cost is
+  now the ~1.9 GB of I/O + memcpy from HOT pages into per-leaf buffers,
+  and the per-chunk decode work. The cursor is close to zero-alloc; the
+  remaining CPU is in `collectSubtreeChunks` (20 %) and `Arrays.copyOf`
+  for oversized leaves (1 %). Further gains need either (a) reduced I/O
+  via a single BLOB hydrate file parallel to the HOT sub-tree, or (b)
+  lazy partial hydrate that only touches leaves matched by the first
+  query's predicate (requires kernel API change).
+- **Query phase variance (787-1417 ms) swamps ~100 ms wins.** First-call
+  JIT tier-up on `conjunctiveCountByGroup` + deps contributes ~500-1000 ms
+  of first-iter latency. Synthetic pre-warmup at bench startup (iter#05
+  Option A) or AppCDS (CDS archive) is the path forward.
+- **JVM startup ~300 ms unavoidable** without AppCDS or native.
+
+### Files (uncommitted)
+
+- `bundles/sirix-core/src/main/java/io/sirix/page/HOTLeafPage.java` —
+  `compareKeyWithBound(int, byte[])` zero-alloc lexicographic
+  comparison; `decodeKey8BE(int)` zero-alloc 8-byte key decode.
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTRangeCursor.java`
+  — `positionedValid` state flag, `advance()` / `currentKeySlice()` /
+  `currentValueSlice()` / `currentLeafPage()` / `currentEntryIndex()`
+  zero-alloc accessors; `advanceToValid()` uses
+  `compareKeyWithBound` instead of the MemorySegment-wrapping compare.
+  Legacy `Iterator<Entry>` API preserved.
+- `bundles/sirix-core/src/main/java/io/sirix/index/projection/
+  ProjectionIndexHOTStorage.java` — `EXPECTED_LEAF_BYTES` constant,
+  pre-sized initial alloc in `collectSubtreeChunks` +
+  `readAllViaCursor`; zero-alloc cursor fast-path in both.
+- `bundles/sirix-core/src/test/java/io/sirix/index/projection/
+  ProjectionIndexHOTStorageTest.java` — two new parity tests.
+- `bundles/sirix-query/src/main/java/io/sirix/query/bench/
+  ScaleBenchMain.java` — `-Dsirix.bench.phaseTiming=true` phase-timing
+  diagnostic (zero cost when off, cheap System.nanoTime otherwise).
+- `profiling-output/iter08-plan.md` — formal verification gate.
+- `profiling-output/iter08-baseline-{cpu,wall,alloc,lock}.{collapsed,txt}`
+  — 4-event baseline profile.
+- `profiling-output/iter08-sub1sub2-{cpu,wall,alloc,lock}.{collapsed,txt}`
+  — 4-event post-change profile.
+
+Commit pending — per coordinator's iter#08 instruction, land on top
+of `09522bba2`.

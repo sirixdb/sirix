@@ -7,7 +7,9 @@ import io.sirix.JsonTestHelper;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.Databases;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.access.trx.page.HOTRangeCursor;
 import io.sirix.access.trx.page.HOTTrieReader;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.api.Database;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.api.json.JsonResourceSession;
@@ -973,6 +975,193 @@ final class ProjectionIndexHOTStorageTest {
     } finally {
       // Restore the pre-test permit count so downstream tests see the default.
       HOTTrieReader.setPrefetchParallelismForTest(savedPermits);
+    }
+  }
+
+  /**
+   * iter#08 — zero-alloc cursor fast-path parity. Walks the same data twice:
+   * once via the legacy {@link HOTRangeCursor#hasNext} /
+   * {@link HOTRangeCursor#next} {@link HOTRangeCursor.Entry} pattern, and
+   * once via the zero-alloc {@link HOTRangeCursor#currentLeafPage} +
+   * {@link HOTLeafPage#decodeKey8BE} + {@link HOTRangeCursor#currentValueSlice}
+   * + {@link HOTRangeCursor#advance} pattern. Composite keys must decode
+   * identically, values must be byte-exact.
+   */
+  @Test
+  void zeroAllocCursorPath_parityWithLegacyIterator() throws IOException {
+    final int numLeaves = 256;
+    final int payloadSize = 96;
+    final long seed = 0xF00D_BEEFL;
+
+    // Write
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+         JsonNodeTrx wtx = session.beginNodeTrx()) {
+      final ProjectionIndexHOTStorage storage =
+          new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+      for (int i = 0; i < numLeaves; i++) {
+        storage.put(i, payloadFor(i, payloadSize, seed));
+      }
+      wtx.commit();
+    }
+
+    // Read via legacy iterator API
+    final java.util.ArrayList<Long> legacyKeys = new java.util.ArrayList<>();
+    final java.util.ArrayList<byte[]> legacyValues = new java.util.ArrayList<>();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      final var rtx = session.beginNodeReadOnlyTrx();
+      try {
+        final PageReference rootRef =
+            ProjectionIndexHOTStorage.rootReference(rtx.getStorageEngineReader(), INDEX_NUMBER);
+        assertNotNull(rootRef);
+        final byte[] minKey = new byte[] { 0, 0, 0, 0, 0, 0, 0, 0 };
+        final byte[] maxKey = new byte[] {
+            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF };
+        try (HOTTrieReader trieReader = new HOTTrieReader(rtx.getStorageEngineReader());
+             HOTRangeCursor cursor = trieReader.range(rootRef, minKey, maxKey)) {
+          while (cursor.hasNext()) {
+            final HOTRangeCursor.Entry entry = cursor.next();
+            final byte[] keyBytes = entry.keyBytes();
+            final long signFlipped =
+                ((long) (keyBytes[0] & 0xFF) << 56) | ((long) (keyBytes[1] & 0xFF) << 48)
+                    | ((long) (keyBytes[2] & 0xFF) << 40) | ((long) (keyBytes[3] & 0xFF) << 32)
+                    | ((long) (keyBytes[4] & 0xFF) << 24) | ((long) (keyBytes[5] & 0xFF) << 16)
+                    | ((long) (keyBytes[6] & 0xFF) << 8) | ((long) (keyBytes[7] & 0xFF));
+            legacyKeys.add(signFlipped);
+            legacyValues.add(entry.valueBytes());
+          }
+        }
+      } finally {
+        rtx.close();
+      }
+    }
+
+    // Read via zero-alloc fast-path API
+    final java.util.ArrayList<Long> fastKeys = new java.util.ArrayList<>();
+    final java.util.ArrayList<byte[]> fastValues = new java.util.ArrayList<>();
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      final var rtx = session.beginNodeReadOnlyTrx();
+      try {
+        final PageReference rootRef =
+            ProjectionIndexHOTStorage.rootReference(rtx.getStorageEngineReader(), INDEX_NUMBER);
+        assertNotNull(rootRef);
+        final byte[] minKey = new byte[] { 0, 0, 0, 0, 0, 0, 0, 0 };
+        final byte[] maxKey = new byte[] {
+            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF };
+        try (HOTTrieReader trieReader = new HOTTrieReader(rtx.getStorageEngineReader());
+             HOTRangeCursor cursor = trieReader.range(rootRef, minKey, maxKey)) {
+          while (cursor.hasNext()) {
+            final HOTLeafPage leaf = cursor.currentLeafPage();
+            final int entryIdx = cursor.currentEntryIndex();
+            final long signFlipped = leaf.decodeKey8BE(entryIdx);
+            final MemorySegment valSlice = cursor.currentValueSlice();
+            final byte[] val = new byte[(int) valSlice.byteSize()];
+            MemorySegment.copy(valSlice, ValueLayout.JAVA_BYTE, 0, val, 0, val.length);
+            fastKeys.add(signFlipped);
+            fastValues.add(val);
+            cursor.advance();
+          }
+        }
+      } finally {
+        rtx.close();
+      }
+    }
+
+    assertEquals(legacyKeys.size(), fastKeys.size(),
+        "zero-alloc cursor must visit the same number of entries as legacy iterator");
+    for (int i = 0; i < legacyKeys.size(); i++) {
+      assertEquals(legacyKeys.get(i), fastKeys.get(i),
+          "entry " + i + ": decoded key must match between legacy and fast paths");
+      assertArrayEquals(legacyValues.get(i), fastValues.get(i),
+          "entry " + i + ": value bytes must match between legacy and fast paths");
+    }
+  }
+
+  /**
+   * iter#08 — {@link HOTLeafPage#compareKeyWithBound} + {@link HOTLeafPage#decodeKey8BE}
+   * byte-level correctness against the legacy allocating path for a leaf
+   * populated with composite keys covering boundaries. The composite keys
+   * are 8-byte big-endian sign-flipped (see
+   * {@link io.sirix.index.hot.PathKeySerializer}).
+   *
+   * <p>Writes N composite keys, then asserts that for every entry and every
+   * bound candidate (min, mid, max, N+1, exact-match):
+   * <ul>
+   *   <li>{@code compareKeyWithBound} returns the sign of a byte-array
+   *       {@code Arrays.compareUnsigned} against the reconstructed key;</li>
+   *   <li>{@code decodeKey8BE} returns exactly the big-endian unsigned long
+   *       interpretation of the reconstructed key.</li>
+   * </ul>
+   */
+  @Test
+  void compareKeyWithBound_and_decodeKey8BE_matchReference() throws IOException {
+    final int numLeaves = 256;
+    final int payloadSize = 16;
+    final long seed = 0xBABE_5EEDL;
+
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME);
+         JsonNodeTrx wtx = session.beginNodeTrx()) {
+      final ProjectionIndexHOTStorage storage =
+          new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
+      for (int i = 0; i < numLeaves; i++) {
+        storage.put(i, payloadFor(i, payloadSize, seed));
+      }
+      wtx.commit();
+    }
+
+    try (Database<JsonResourceSession> db = Databases.openJsonDatabase(DATABASE_PATH);
+         JsonResourceSession session = db.beginResourceSession(RESOURCE_NAME)) {
+      final var rtx = session.beginNodeReadOnlyTrx();
+      try {
+        final PageReference rootRef =
+            ProjectionIndexHOTStorage.rootReference(rtx.getStorageEngineReader(), INDEX_NUMBER);
+        assertNotNull(rootRef);
+        final byte[] minKey = new byte[] { 0, 0, 0, 0, 0, 0, 0, 0 };
+        final byte[] maxKey = new byte[] {
+            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF };
+        // Pick a couple of bound candidates per entry.
+        final byte[][] bounds = new byte[][] {
+            minKey,
+            maxKey,
+            ProjectionIndexHOTStorage.encodeCompositeKey(numLeaves / 2, 0),
+            ProjectionIndexHOTStorage.encodeCompositeKey(numLeaves, 0),   // past last
+        };
+
+        try (HOTTrieReader trieReader = new HOTTrieReader(rtx.getStorageEngineReader());
+             HOTRangeCursor cursor = trieReader.range(rootRef, minKey, maxKey)) {
+          while (cursor.hasNext()) {
+            final HOTLeafPage leaf = cursor.currentLeafPage();
+            final int entryIdx = cursor.currentEntryIndex();
+
+            // Reference: reconstruct the full 8-byte key and assert decode.
+            final byte[] refKey = leaf.getKey(entryIdx);
+            assertEquals(8, refKey.length, "composite keys must be 8 bytes");
+            long refLong = 0L;
+            for (int b = 0; b < 8; b++) refLong = (refLong << 8) | (refKey[b] & 0xFFL);
+            assertEquals(refLong, leaf.decodeKey8BE(entryIdx),
+                "decodeKey8BE must equal BE-long interpretation of getKey()");
+
+            // Reference: compare against each bound via Arrays.compareUnsigned.
+            for (final byte[] bound : bounds) {
+              final int refCmp = Arrays.compareUnsigned(refKey, bound);
+              final int fastCmp = leaf.compareKeyWithBound(entryIdx, bound);
+              // We don't require equal magnitudes — only equal signs.
+              assertEquals(Integer.signum(refCmp), Integer.signum(fastCmp),
+                  "compareKeyWithBound sign mismatch at entryIdx=" + entryIdx
+                      + " bound.length=" + bound.length);
+            }
+            cursor.advance();
+          }
+        }
+      } finally {
+        rtx.close();
+      }
     }
   }
 }

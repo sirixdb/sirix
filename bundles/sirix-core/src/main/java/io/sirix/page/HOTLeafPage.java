@@ -756,6 +756,101 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Zero-alloc lexicographic comparison of the key at {@code index} against
+   * {@code bound} (treated as an unsigned byte sequence). Returns the usual
+   * tri-value: {@code <0} if key&lt;bound, {@code 0} if equal, {@code >0} if
+   * key&gt;bound. Avoids the {@code byte[]} allocation that {@link #getKey}
+   * and the subsequent {@code MemorySegment.ofArray} wrap incur.
+   *
+   * <p>Reads the {@code commonPrefix} on-heap bytes first, then the
+   * per-entry suffix bytes from off-heap {@code slotMemory}. Lengths use
+   * the same {@code suffixLen}-prefix encoding as {@link #getKey}.
+   *
+   * <p>HFT: used by {@link io.sirix.access.trx.page.HOTRangeCursor} during
+   * its per-entry range check to stay allocation-free. The caller holds
+   * the leaf guard; the off-heap slot memory is guaranteed live.
+   *
+   * @param index the entry index (checked)
+   * @param bound the upper-bound key (not null)
+   * @return a negative, zero, or positive int as specified above
+   */
+  public int compareKeyWithBound(final int index, final byte[] bound) {
+    Objects.checkIndex(index, entryCount);
+    Objects.requireNonNull(bound, "bound");
+    final int offset = slotOffsets[index];
+    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
+    final int keyLen = commonPrefixLen + suffixLen;
+    final int minLen = Math.min(keyLen, bound.length);
+
+    // Phase 1: commonPrefix (on-heap byte[]) vs bound[0..commonPrefixLen)
+    int p = 0;
+    final int commonMin = Math.min(commonPrefixLen, bound.length);
+    while (p < commonMin) {
+      final int a = commonPrefix[p] & 0xFF;
+      final int b = bound[p] & 0xFF;
+      if (a != b) return a - b;
+      p++;
+    }
+    // If bound ended within the commonPrefix, the key (which extends via
+    // its suffix) is strictly longer → key > bound.
+    if (bound.length == commonPrefixLen && suffixLen > 0) return 1;
+    if (p == keyLen) {
+      // key fully consumed; equal up to keyLen → key < bound if bound longer
+      return keyLen - bound.length;
+    }
+
+    // Phase 2: suffix (off-heap) vs bound[commonPrefixLen..minLen)
+    final int suffixStart = offset + 2;
+    while (p < minLen) {
+      final int a = slotMemory.get(ValueLayout.JAVA_BYTE, suffixStart + (p - commonPrefixLen)) & 0xFF;
+      final int b = bound[p] & 0xFF;
+      if (a != b) return a - b;
+      p++;
+    }
+    // Length tie-breaker: longer wins (unsigned lex).
+    return keyLen - bound.length;
+  }
+
+  /**
+   * Zero-alloc little-endian eight-byte decode of the key at {@code index}.
+   * Reconstructs the 8-byte composite key from {@code commonPrefix} +
+   * {@code slotMemory} suffix bytes in big-endian form, then returns it as
+   * a single {@code long}. The projection HOT index uses 8-byte composite
+   * keys encoded via {@link io.sirix.index.hot.PathKeySerializer} (sign-flip
+   * big-endian), so this method lets callers decode the logical composite
+   * without allocating a {@code MemorySegment} wrapper.
+   *
+   * <p>Caller MUST ensure the key is exactly 8 bytes long (i.e.
+   * {@code commonPrefixLen + suffixLen == 8}) before calling — the helper
+   * is designed for the projection index's invariant key length and does
+   * not defend against shorter/longer keys.
+   *
+   * @param index the entry index (checked)
+   * @return the 8-byte key as an unsigned big-endian long
+   */
+  public long decodeKey8BE(final int index) {
+    Objects.checkIndex(index, entryCount);
+    final int offset = slotOffsets[index];
+    final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
+    final int keyLen = commonPrefixLen + suffixLen;
+    if (keyLen != 8) {
+      throw new IllegalStateException(
+          "decodeKey8BE requires 8-byte keys, got " + keyLen + " (commonPrefixLen="
+              + commonPrefixLen + ", suffixLen=" + suffixLen + ") at index=" + index);
+    }
+    // Assemble high-bytes from commonPrefix, low-bytes from slotMemory suffix.
+    long v = 0L;
+    for (int i = 0; i < commonPrefixLen; i++) {
+      v = (v << 8) | (commonPrefix[i] & 0xFFL);
+    }
+    final int suffixStart = offset + 2;
+    for (int i = 0; i < suffixLen; i++) {
+      v = (v << 8) | (slotMemory.get(ValueLayout.JAVA_BYTE, suffixStart + i) & 0xFFL);
+    }
+    return v;
+  }
+
+  /**
    * Get value as byte array (copies data).
    *
    * @param index the entry index
