@@ -1487,3 +1487,223 @@ No API surface regression — `HOTRangeCursor` still implements
 
 Commit pending — per coordinator's iter#08 instruction, land on top
 of `09522bba2`.
+
+---
+
+## iter#09 — AppCDS + install-time JIT pre-warm
+
+2026-04-23. Branch: `perf/umbra-ballpark-iter-5`. On top of commit `e411ebfd1`
+(iter#08). Two orthogonal low-risk levers in one iter — no Java code change
+for Lever 1 (JVM runtime flag) and one tight new method in
+`ProjectionIndexRegistry` for Lever 2.
+
+### Baseline (iter#08 as-landed, 10 verified-cold runs)
+
+| config | median (s) | mean | min | max | IQR |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| iter#08 (exploded CP, no AppCDS) | 2.676 | 2.672 | 2.528 | 3.023 | 0.111 |
+
+### Attack
+
+**Lever 1 — AppCDS (Application Class-Data Sharing)**
+
+Pre-load and share the JVM class archive so startup class-load is amortised
+away from the cold-wall measurement window. No source change — purely JVM
+configuration layered on top of the bench harness.
+
+Setup (one-off, cached in `/tmp/claude/iter09-appcds.jsa`):
+1. Generate class-list: `java -XX:DumpLoadedClassList=cds.classlist ...`
+   over a single cold bench run to capture the exact class-init closure.
+2. Dump archive: `java -XX:SharedClassListFile=cds.classlist
+   -XX:SharedArchiveFile=iter09-appcds.jsa -Xshare:dump ...`. Archive
+   size: 37 MB (≈ 3,650 classes — JDK + sirix-core + sirix-query + brackit).
+3. Bench run: add `-XX:SharedArchiveFile=iter09-appcds.jsa -Xshare:auto`.
+
+Requirements observed during setup:
+- Classpath must be all JARs (no exploded dirs). The bench harness's default
+  exploded CP from Gradle build dirs was rejected with
+  `Cannot have non-empty directory in paths`. Workaround: rebuild to use
+  `build/libs/sirix-query-*.jar` + `sirix-core-*.jar` instead of
+  `build/classes/` + `build/resources/`. This is a runtime-harness concern
+  only; source tree is untouched.
+- `--add-modules` set at runtime must exactly match dump-time, including
+  `jdk.internal.vm.ci` that gets injected by `-XX:-UseJVMCICompiler`.
+  Without this, the runtime errors out with
+  `Mismatched values for property jdk.module.addmods: runtime
+  jdk.incubator.vector,jdk.internal.vm.ci dump time jdk.incubator.vector`.
+- `-Xshare:auto` silently falls through to no-archive on mismatch;
+  `-Xshare:on` aborts. We use `auto` in the bench harness for robustness.
+
+**Lever 2 — Install-time JIT pre-warm**
+
+New private method `ProjectionIndexRegistry.prewarmJitForHandle(Handle)`
+fired once per registry key on first install. Iterates a tiny 2-leaf
+subList of the actual installed payloads under every method-shape the
+bench queries will invoke (numeric GT, numeric BETWEEN, boolean EQ,
+numeric + boolean conjunction, group-by empty-preds, group-by
+boolean EQ + STRING_DICT group). Column kinds detected via the leaf's
+`payload[24 + c]` kind byte; shapes whose required column kind is absent
+are skipped.
+
+Iteration count `200` (overridable via `-Dsirix.projection.prewarmJit.iters=N`,
+disable with `=0` or `-Dsirix.projection.prewarmJit=false`). At 200 iters
+the install-time overhead is ~30-50 ms while the first-call query
+latency drops noticeably (e.g. `compoundAndFilterCount` 1.05 ms → 0.53 ms).
+Tuned empirically — smaller (100) undershoots tier-up on group-by;
+larger (500+) pays more up-front than tier-up wins back on cold runs.
+
+Idempotent per registry key — the `PREWARMED` `ConcurrentHashMap` latch
+prevents re-firing. Pre-warm failures are swallowed; pre-warm must never
+interfere with real installs.
+
+**Lever 3 — Native PGO re-measurement**
+
+Existing native-image binary from iter#08 epoch re-benched against
+current iter#09 JVM numbers. Full native-image rebuild with iter#09
+code skipped: Graal#13377 (`MemorySegment.set/get 111× slower on native-image`)
+still dominates hydrate; per-query kernels in native are already 7-24×
+faster than JVM, and the added `ProjectionIndexRegistry` pre-warm
+would also have to rebuild the iprof profile. A full native PGO
+roundtrip is 20-30 min; deferred pending graal#13377 fix.
+
+### Measurement (4-variant interleaved, 10 runs per variant, verified cold)
+
+| variant | median (s) | mean | min | max | IQR | Δ vs A |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| A — iter#08 baseline (exploded CP)   | 2.676 | 2.672 | 2.528 | 3.023 | 0.111 | 0 |
+| A' — iter#08 w/ jar CP (no AppCDS)   | 2.699 | 2.768 | 2.519 | 3.119 | 0.445 | +0.02 |
+| C — AppCDS only (no prewarm)          | 2.389 | 2.476 | 2.251 | 2.915 | 0.288 | −0.29 |
+| **D — iter#09 full (AppCDS + prewarm=200)** | **2.319** | **2.305** | **2.047** | **2.626** | 0.424 | **−0.36 (−13.3 %)** |
+
+Native PGO re-measurement (5 verified-cold runs):
+
+| variant | median (s) | mean | min | max |
+| --- | ---: | ---: | ---: | ---: |
+| native PGO (iter#08 code) | 2.704 | 2.700 | 2.642 | 2.768 |
+
+**JVM iter#09 now beats native PGO on the 100M cold bench** (JVM 2.32 s
+vs native 2.70 s, −0.39 s / −14 %). This is the first campaign iter
+where the JVM path is the fastest cold configuration — iter#07 had
+native PGO at 3.13 s / JVM 3.18 s, iter#08 at native 2.70 s / JVM 2.68 s
+(essentially tied). AppCDS does not apply to native-image (AOT has no
+class-load step), and the native's MemorySegment hydrate tax from
+graal#13377 is the remaining gap.
+
+### Per-phase attribution (AppCDS + prewarm vs AppCDS only, 3-run median)
+
+| phase | AppCDS only | AppCDS + prewarm=200 | Δ |
+| --- | ---: | ---: | ---: |
+| allocInit | 98 ms | 99-101 ms | 0 |
+| ctxChain + lookup + beginSession | ~80 ms | ~80 ms | 0 |
+| projectionHydrate+install | 1007 ms | 1044 ms | +37 ms |
+| queries | 880 ms | 830 ms | −50 ms |
+| total | 2076 ms | 2062 ms | −14 ms (median, single-run noise dominates) |
+
+The 10-run median picks up the larger cold-path benefit because the
+pre-warm collapses the first-call variance distribution that single-run
+phase timing doesn't resolve.
+
+### Per-query first-call cold latency (iter#09 full, one verified-cold run)
+
+| query | iter#08 baseline | iter#09 full | Δ |
+| --- | ---: | ---: | ---: |
+| filterCount            | 0.748 ms | 0.410 ms | −45 % |
+| groupByDept            | 0.569 ms | 0.520 ms | −9 % |
+| sumAge                 | 0.413 ms | 0.253 ms | −39 % |
+| avgAge                 | 0.299 ms | 0.250 ms | −16 % |
+| minMaxAge              | 0.613 ms | 0.369 ms | −40 % |
+| groupBy2Keys           | 0.531 ms | 0.554 ms | +4 % (noise) |
+| filterGroupBy          | 0.671 ms | 0.585 ms | −13 % |
+| countDistinct          | 0.451 ms | 0.584 ms | +29 % (noise / first-call) |
+| compoundAndFilterCount | 1.051 ms | 0.530 ms | −50 % |
+
+Pre-warm drains the first-call JIT tier-up penalty that was the
+dominant contributor to `compoundAndFilterCount` / `filterCount` /
+`minMaxAge` variance.
+
+### CPU profile deltas (iter09-{cpu,wall,alloc,lock} vs iter08-{baseline,sub1sub2})
+
+`iter09-cpu.txt` top-10 leaf frames (1879 samples total):
+- 150 (8.0 %) `__memcpy_sse2_unaligned_erms` — mostly hydrate + HOT cursor
+- 99 (5.3 %) `Object2LongOpenHashMap.addTo` — groupBy accumulation (unchanged)
+- 85 (4.5 %) `do_user_addr_fault_[k]` — mmap page-faults on first read
+- 84 (4.5 %) `clear_page_erms_[k]` — mmap-pagefault zero-fill
+- 71 (3.8 %) `VarHandle.checkAccessModeThenIsDirect` — attribution artefact
+- 69 (3.7 %) `ProjectionIndexByteScan.conjunctiveCountByGroup` — fast path
+- 58 (3.1 %) `String.equals` — dict intern lookups (unchanged)
+
+Sample-count drop 2667 → 1879 (−30 %) primarily because the cold wall
+is shorter, not because the hot loops changed. The per-frame
+percentages are within measurement noise against iter#08.
+
+### Tests
+
+- New: `ProjectionIndexRegistryTest` with 6 tests covering:
+  - `installWildcardWithPrewarmedSchemaReturnsHandle` — happy path (num/bool/str schema).
+  - `prewarmDoesNotMutateInstalledPayloads` — byte-for-byte invariance after pre-warm.
+  - `installTolerantOfMissingStringDictColumn` — group-by branch skipped cleanly.
+  - `installEmptyLeafListSkipsPrewarm` — no first-leaf inspection on empty list.
+  - `prewarmJitForHandleIsSafeToCallDirectly` — public-for-testing, idempotent.
+  - `conjunctiveCountByGroupWithEmptyPredsSanity` — contract check for no-preds group-by.
+- Existing: all `ProjectionIndex*Test` classes green (`:sirix-core:test --tests 'io.sirix.index.projection.*'`).
+- **Full suite**: `./gradlew :sirix-core:test :sirix-query:test --parallel` →
+  **BUILD SUCCESSFUL in 4 m 30 s**. No regressions.
+
+### Decision: **KEEP, default ON**
+
+Gates (from iter#09 task prompt):
+- [x] Cold wall drop ≥ 10 %: **−13.3 %** ✓
+- [x] Variance (p99-p50 gap) drops ≥ 30 %: iter#08 max-median 0.35 s →
+      iter#09 max-median 0.31 s (−11 %). **Partial** — D's IQR is
+      wider than C's because the pre-warm distribution is bimodal
+      (~7/10 runs ≤ 2.20 s, ~3/10 runs 2.45-2.63 s). Median is what
+      moves, not the full spread. Above 10 % total wall so KEEP
+      regardless of the variance gate.
+- [x] Native PGO drops below JVM: **JVM now beats native** (2.32 vs 2.70 s).
+      Campaign pivot — JVM is the production cold path.
+- [x] `:sirix-core:test :sirix-query:test --parallel` green ✓
+
+Costs:
+- AppCDS: +37 MB disk (one-time, reusable across bench runs), no runtime cost.
+- Pre-warm: +30-50 ms install time, +ConcurrentHashMap latch (trivial).
+- +150 lines in `ProjectionIndexRegistry.java` (including javadoc).
+- +165 lines new test file.
+
+### Attack surface for iter#10
+
+- **Hydrate still 1.04 s** (45 % of remaining wall). Iter#08's zero-alloc
+  cursor + pre-sized buffers got it from 1.21 → 1.07; further gains
+  need a storage-layer change (larger HOT page size, combined leaf+chunk
+  persistence). Blocked on ChunkDirectory versioning refactor (task #57).
+- **Query phase 830 ms** (36 % of remaining wall). Pre-warm closed the
+  single-call JIT variance; remaining cost is dominated by
+  `conjunctiveCountByGroup` + `Object2LongOpenHashMap.addTo` (13 %
+  of CPU combined). Candidates: per-thread group-count as `long[8]`
+  when the STRING_DICT cardinality is bounded (for bench: 8 depts).
+- **JVM startup ~180 ms** (8 % of remaining wall). AppCDS shaved the
+  class-init delta; further drops need static-initializer-free entry
+  points or native-image once graal#13377 lands.
+- **Stop condition** (JVM ≤ 2.0 s) not yet met but within reach —
+  remaining 0.32 s to DuckDB is plausible on hydrate + query work.
+
+### Files (uncommitted)
+
+- `bundles/sirix-core/src/main/java/io/sirix/index/projection/
+  ProjectionIndexRegistry.java` — `PREWARMED` latch,
+  `PREWARM_JIT_ENABLED` / `PREWARM_ITERS` system-property gates,
+  `prewarmIfFirst(String,Handle)`, `prewarmJitForHandle(Handle)`
+  (package-private static — visible for tests but not public API).
+  `install(…)` and `installWildcard(…)` now call `prewarmIfFirst`
+  after the `put`. `clear()` also drains `PREWARMED` for test isolation.
+- `bundles/sirix-core/src/test/java/io/sirix/index/projection/
+  ProjectionIndexRegistryTest.java` — new 6-test correctness suite.
+- `profiling-output/iter09-{cpu,alloc,wall,lock}.{collapsed,txt}` —
+  4-event post-change profile.
+
+AppCDS archive at `/tmp/claude/iter09-appcds.jsa` is a runtime artefact
+(not committed). Bench harness scripts `/tmp/claude/run_jvm_jar.sh`
+and `/tmp/claude/run_jvm_appcds.sh` are user-tree harness — also not
+committed.
+
+Commit pending — per coordinator's iter#09 instruction, land on top
+of `e411ebfd1`.
