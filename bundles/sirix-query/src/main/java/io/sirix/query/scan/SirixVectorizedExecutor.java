@@ -165,6 +165,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   private static final boolean STRING_REGION_FAST_OFF = Boolean.getBoolean("sirix.scan.stringRegion.off");
 
   /**
+   * iter#07 range-fusion — when the same column has one {@code GT}/{@code GE}
+   * predicate and one {@code LT}/{@code LE} predicate in the same conjunctive
+   * projection-scan, fuse them into a single {@code BETWEEN_*} op that shares
+   * one scalar-to-scratch load and one zone-map probe. Toggle via
+   * {@code -Dsirix.projection.rangeFusion=false} to disable (defaults
+   * <b>on</b>). See {@code profiling-output/iter07-range-fusion-analysis.md}
+   * for the correctness derivation and measurement plan.
+   */
+  private static final boolean RANGE_FUSION_ENABLED =
+      !"false".equalsIgnoreCase(System.getProperty("sirix.projection.rangeFusion", "true"));
+
+  /**
    * Per-query scan counters — attributes where the hot loop spent its pages and
    * records. Only populated when {@link #DIAGNOSTICS_ENABLED} is {@code true}.
    * Per-thread slots are contiguous in a single array; no contention, no
@@ -415,6 +427,18 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final String cacheKey = pathCacheKey(sourcePath, groupField);
       Sequence cached = groupByCountCache.get(cacheKey);
       if (cached == null) {
+        // Projection fast-path: if a covering projection index is installed
+        // AND it carries `groupField` as a STRING_DICT column, answer the
+        // unpredicated groupBy-count entirely from the in-memory projection
+        // bytes — no per-page page load, no slot-walk, no PageSummary lookup.
+        // At cold 100 M this is the difference between ~27 s (slot-walk) and
+        // ~1 ms (in-memory SIMD scan).
+        final Sequence projected = tryProjectionIndexGroupByCountOnly(sourcePath, groupField);
+        if (projected != null) {
+          cached = groupByCountCache.putIfAbsent(cacheKey, projected);
+          if (cached == null) cached = projected;
+          return cached;
+        }
         final long targetPathNodeKey = resolveTargetPathNodeKey(sourcePath, groupField);
         final Sequence fresh = parallelGroupByCount(groupField, targetPathNodeKey);
         cached = groupByCountCache.putIfAbsent(cacheKey, fresh);
@@ -427,6 +451,46 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                "Sirix vectorized group-by-count failed: %s",
                                e.getMessage());
     }
+  }
+
+  /**
+   * Unpredicated group-by-count via the projection index — no filter, just
+   * aggregate the {@code groupField} column across all rows. Returns
+   * {@code null} when the projection isn't usable (no handle, group column
+   * not STRING_DICT, etc.) so the caller falls back to the generic slot-walk.
+   *
+   * <p>The zero-predicate path re-uses {@link ProjectionIndexByteScan#conjunctiveCountByGroup}
+   * with an empty {@code ColumnPredicate[]}: the evaluator fills an
+   * all-true mask and the grouping loop immediately bumps every row. That
+   * makes it a pure columnar read over 100 M dict-ids with no per-leaf
+   * predicate tree to evaluate.
+   */
+  private Sequence tryProjectionIndexGroupByCountOnly(final String[] sourcePath, final String groupField) {
+    final String resourceKey = projectionRegistryKey;
+    if (resourceKey == null) return null;
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
+    if (handle == null) return null;
+    final int groupColumn = handle.columnOf(groupField);
+    if (groupColumn < 0) return null;
+    final ProjectionIndexScan.ColumnPredicate[] emptyPreds = new ProjectionIndexScan.ColumnPredicate[0];
+    final Object2LongOpenHashMap<String> agg;
+    try {
+      agg = parallelConjunctiveCountByGroup(handle.leafPayloads(), emptyPreds, groupColumn);
+    } catch (final IllegalStateException ise) {
+      return null;
+    }
+    if (agg == null) return null;
+    final ArrayList<Item> outItems = new ArrayList<>(agg.size());
+    final QNm keyQnm = new QNm(groupField);
+    final QNm cntQnm = new QNm("count");
+    final ObjectIterator<Object2LongMap.Entry<String>> it = agg.object2LongEntrySet().fastIterator();
+    while (it.hasNext()) {
+      final Object2LongMap.Entry<String> e = it.next();
+      final QNm[] keys = { keyQnm, cntQnm };
+      final Sequence[] vals = { new Str(e.getKey()), new Int64(e.getLongValue()) };
+      outItems.add(new ArrayObject(keys, vals));
+    }
+    return new DArray(outItems);
   }
 
   /**
@@ -1290,11 +1354,16 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       if (PROJ_DIAG) System.err.println("[proj] not covered: fields=" + java.util.Arrays.toString(cp.fieldNames));
       return null;
     }
-    final ProjectionIndexScan.ColumnPredicate[] preds = extractConjunctivePredicates(cp, handle);
-    if (preds == null) {
+    final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+    if (extracted == null) {
       if (PROJ_DIAG) System.err.println("[proj] unsupported shape");
       return null;
     }
+    // iter#07 range fusion: collapse same-column (GT|GE, LT|LE) pairs
+    // into one BETWEEN_* predicate so the evaluator only loads the
+    // column once. Defaults on; disable with
+    // -Dsirix.projection.rangeFusion=false.
+    final ProjectionIndexScan.ColumnPredicate[] preds = fuseRangePredicates(extracted);
     if (preds.length == 0) return ProjectionIndexByteScan.countRows(handle.leafPayloads());
     return parallelConjunctiveCount(handle.leafPayloads(), preds);
   }
@@ -1427,8 +1496,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (!ProjectionIndexRegistry.covers(handle, cp.fieldNames)) return null;
     final int groupColumn = handle.columnOf(groupField);
     if (groupColumn < 0) return null;
-    final ProjectionIndexScan.ColumnPredicate[] preds = extractConjunctivePredicates(cp, handle);
-    if (preds == null) return null;
+    final ProjectionIndexScan.ColumnPredicate[] extracted = extractConjunctivePredicates(cp, handle);
+    if (extracted == null) return null;
+    // iter#07 range fusion — same policy as tryProjectionIndexFastPath.
+    final ProjectionIndexScan.ColumnPredicate[] preds = fuseRangePredicates(extracted);
     final Object2LongOpenHashMap<String> agg;
     try {
       agg = parallelConjunctiveCountByGroup(handle.leafPayloads(), preds, groupColumn);
@@ -1633,6 +1704,124 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       out[i] = pred;
     }
     return out;
+  }
+
+  /**
+   * Range-fusion pass: detect same-column conjunctive pairs of the shape
+   * {@code (GT|GE, lowLit) AND (LT|LE, highLit)} and rewrite into a
+   * single fused {@link ProjectionIndexScan.Op#BETWEEN_GT_LT}
+   * (or sibling BETWEEN_*) predicate. Eliminates the redundant
+   * scalar-to-scratch load in
+   * {@link ProjectionIndexByteScan#evalNumericBytes} that the un-fused
+   * path runs twice on the same column.
+   *
+   * <p>Conservative fusion policy: at most one pair per column is
+   * fused in a single pass. Extra predicates (a third GT, or an EQ,
+   * or a BOOL_REF on the same column) are left unchanged — correct by
+   * construction because AND is associative and the un-fused
+   * predicates still get AND'd into the final mask.
+   *
+   * <p>Zero allocation when no fusion is possible: the method returns
+   * the input array unchanged. One fresh array is allocated when at
+   * least one fusion fires — amortised across the whole query
+   * execution, not per-leaf.
+   *
+   * <p>Toggle: {@code -Dsirix.projection.rangeFusion=false} disables
+   * the pass (also used as the rollback switch for benchmarking).
+   */
+  static ProjectionIndexScan.ColumnPredicate[] fuseRangePredicates(
+      final ProjectionIndexScan.ColumnPredicate[] preds) {
+    if (!RANGE_FUSION_ENABLED || preds == null || preds.length < 2) {
+      return preds;
+    }
+    // Two-pass scan: (1) find fusible pairs per column, (2) rewrite.
+    // The array is tiny (tens of entries max), so O(n) per-column
+    // lookup is fine without a hash structure — the branch predictor
+    // handles the column-equality loop well on short predicates.
+    // Per-predicate role: -1 = keep, -2 = drop (fused into another),
+    // -3 = low-bound of a pair, -4 = high-bound of a pair.
+    final int n = preds.length;
+    final int[] role = new int[n];
+    java.util.Arrays.fill(role, -1);
+    // Pair indices: lowIdx[i] = index of the low-bound predicate that
+    // pairs with high-bound at i; symmetric for highIdx. -1 = no pair.
+    final int[] pairLow = new int[n];
+    final int[] pairHigh = new int[n];
+    java.util.Arrays.fill(pairLow, -1);
+    java.util.Arrays.fill(pairHigh, -1);
+    int fusedPairs = 0;
+    for (int i = 0; i < n; i++) {
+      if (role[i] != -1) continue;
+      final ProjectionIndexScan.ColumnPredicate pi = preds[i];
+      if (!isLowBound(pi.op) && !isHighBound(pi.op)) continue;
+      for (int j = i + 1; j < n; j++) {
+        if (role[j] != -1) continue;
+        final ProjectionIndexScan.ColumnPredicate pj = preds[j];
+        if (pj.column != pi.column) continue;
+        // String literal + numeric compare can never clash — both must
+        // be NumCmp to even be comparable. isLowBound/isHighBound
+        // already excludes EQ / non-numeric ops.
+        final boolean iLow = isLowBound(pi.op);
+        final boolean jHigh = isHighBound(pj.op);
+        final boolean iHigh = isHighBound(pi.op);
+        final boolean jLow = isLowBound(pj.op);
+        if (iLow && jHigh) {
+          role[i] = -3; pairLow[j] = i;
+          role[j] = -4; pairHigh[i] = j;
+          fusedPairs++;
+          break;
+        } else if (iHigh && jLow) {
+          role[j] = -3; pairLow[i] = j;
+          role[i] = -4; pairHigh[j] = i;
+          fusedPairs++;
+          break;
+        }
+        // Same-direction same-column (e.g. two GT) or any other shape:
+        // leave both as-is and move on.
+      }
+    }
+    if (fusedPairs == 0) return preds;
+    // Build the output array. Policy: emit each fused BETWEEN at the
+    // FIRST occurrence of its pair in the input order; skip at the
+    // second occurrence. Non-fused predicates pass through unchanged.
+    // This preserves overall ordering: relative positions of non-fused
+    // predicates are stable, and the fused predicate takes the slot of
+    // whichever bound appeared earlier.
+    final ProjectionIndexScan.ColumnPredicate[] out =
+        new ProjectionIndexScan.ColumnPredicate[n - fusedPairs];
+    int w = 0;
+    for (int i = 0; i < n; i++) {
+      if (role[i] == -1) {
+        out[w++] = preds[i];
+        continue;
+      }
+      // Fused bound — find the partner.
+      final int partnerIdx = role[i] == -3 ? pairHigh[i] : pairLow[i];
+      if (partnerIdx < i) {
+        // Partner came earlier → fused predicate was already emitted
+        // at partnerIdx. Drop this one.
+        continue;
+      }
+      // We're at the earlier of the two bounds → emit the fused pred.
+      // Sort out which index holds which role so (lowOp, lowLit) comes
+      // from the -3 slot and (highOp, highLit) from the -4 slot
+      // regardless of input order.
+      final int lowIdx  = role[i] == -3 ? i : partnerIdx;
+      final int highIdx = role[i] == -4 ? i : partnerIdx;
+      final ProjectionIndexScan.ColumnPredicate lo = preds[lowIdx];
+      final ProjectionIndexScan.ColumnPredicate hi = preds[highIdx];
+      out[w++] = ProjectionIndexScan.ColumnPredicate.numericBetween(
+          lo.column, lo.op, lo.longLit, hi.op, hi.longLit);
+    }
+    return out;
+  }
+
+  private static boolean isLowBound(final ProjectionIndexScan.Op op) {
+    return op == ProjectionIndexScan.Op.GT || op == ProjectionIndexScan.Op.GE;
+  }
+
+  private static boolean isHighBound(final ProjectionIndexScan.Op op) {
+    return op == ProjectionIndexScan.Op.LT || op == ProjectionIndexScan.Op.LE;
   }
 
   /**
@@ -2767,6 +2956,17 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       final String cdKey = pathCacheKey(sourcePath, field);
       final Sequence cached = countDistinctResultCache.get(cdKey);
       if (cached != null) return cached;
+      // Projection fast path: if a covering projection index is installed
+      // and carries {@code field} as a STRING_DICT column, count the global
+      // dict via the in-memory projection rather than walking record pages.
+      // This elides the per-page StringRegion probe + 100 M-slot walk that
+      // the generic {@link #parallelCountDistinct} does. Sub-ms vs ~10 s
+      // at cold 100 M.
+      final Sequence projected = tryProjectionIndexCountDistinct(sourcePath, field);
+      if (projected != null) {
+        countDistinctResultCache.putIfAbsent(cdKey, projected);
+        return projected;
+      }
       // Exact count-distinct (task #66). The prior HLL-based fast path
       // returned approximate answers above the ~2 K linear-counting
       // threshold (2.3% std error at precision P=11) — not acceptable
@@ -2796,6 +2996,37 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
                                "Sirix vectorized count-distinct failed: %s",
                                e.getMessage());
     }
+  }
+
+  /**
+   * Count-distinct via the projection index: reuses
+   * {@link ProjectionIndexByteScan#conjunctiveCountByGroup} with an empty
+   * predicate set, then returns the size of the resulting group map. The
+   * aggregator already de-duplicates the group values with a long-hash
+   * intern map, so the map's {@code size()} is the exact distinct count.
+   *
+   * <p>Returns {@code null} when the projection isn't usable for this
+   * field — caller falls back to the generic page-walk kernel.
+   */
+  private Sequence tryProjectionIndexCountDistinct(final String[] sourcePath, final String field) {
+    final String resourceKey = projectionRegistryKey;
+    if (resourceKey == null) return null;
+    final ProjectionIndexRegistry.Handle handle = ProjectionIndexRegistry.lookup(resourceKey, sourcePath);
+    if (handle == null) return null;
+    final int groupColumn = handle.columnOf(field);
+    if (groupColumn < 0) return null;
+    final ProjectionIndexScan.ColumnPredicate[] emptyPreds = new ProjectionIndexScan.ColumnPredicate[0];
+    final Object2LongOpenHashMap<String> agg;
+    try {
+      agg = parallelConjunctiveCountByGroup(handle.leafPayloads(), emptyPreds, groupColumn);
+    } catch (final IllegalStateException ise) {
+      // Group column kind mismatch (e.g. numeric column — count-distinct on
+      // numerics is supported by the generic path but not by the string-dict
+      // kernel here).
+      return null;
+    }
+    if (agg == null) return null;
+    return new Int64(agg.size());
   }
 
   /**
@@ -3091,30 +3322,91 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     synchronized (fieldKeyCache) {
       cached = fieldKeyCache.get(field);
       if (cached != null) return cached;
-      int[] found = { -1 };
-      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
-        var reader = rtx.getStorageEngineReader();
-        long totalPages = (getMaxNodeKey() >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
-        for (long pk = 0; pk < totalPages && found[0] < 0; pk++) {
-          var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
-          if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
-          long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
-          kv.forEachPopulatedSlot(slot -> {
-            if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
-            if (!rtx.moveTo(base + slot)) return true;
-            var name = rtx.getName();
-            if (name != null && field.equals(name.getLocalName())) {
-              found[0] = rtx.getNameKey();
-              return false;  // stop iterating
-            }
-            return true;
-          });
-        }
+
+      // Fast path: the nameKey is {@code name.hashCode()} — a pure
+      // deterministic function of the field string (see
+      // {@link io.sirix.utils.NamePageHash#generateHashForString}). When we
+      // *know* the field exists in the document we don't need to walk pages
+      // to discover its key.
+      //
+      // When to trust the fast path:
+      //   - If a projection index is registered for this executor and the
+      //     field is a column of that index, the field definitionally
+      //     exists in the document.
+      //   - If a PathSummary is available (standard configuration), probe
+      //     it via {@code findPathsByLocalName}; a match means the field
+      //     exists with a node bearing its hash as nameKey.
+      //
+      // Otherwise we fall back to the legacy page-walk, which correctly
+      // returns -1 for missing fields. At cold 100 M the projection/path-
+      // summary fast paths collapse what used to be a 40 s filterCount
+      // cold-warmup (triggered by the walk itself) into a sub-ms probe.
+      int foundKey = resolveFieldKeyFast(field);
+      if (foundKey == Integer.MIN_VALUE) {
+        foundKey = resolveFieldKeyByWalk(field);
       }
-      int foundKey = found[0];
       fieldKeyCache.put(field, foundKey);
       return foundKey;
     }
+  }
+
+  /**
+   * Fast path for {@link #resolveFieldKey}: returns {@code rtx.keyForName(field)}
+   * when we have proof the field exists in the document (without a scan), or
+   * {@link Integer#MIN_VALUE} to signal "couldn't prove — use the walk".
+   */
+  private int resolveFieldKeyFast(final String field) {
+    // Projection-registry probe: if a projection covers this field, it
+    // exists.
+    final String resourceKey = projectionRegistryKey;
+    if (resourceKey != null) {
+      // Probe all registered handles for this resource — the sourcePath
+      // doesn't matter here; we just need to know if any projection
+      // carries the field.
+      if (ProjectionIndexRegistry.anyHandleCoversField(resourceKey, field)) {
+        try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+          return rtx.keyForName(field);
+        }
+      }
+    }
+    // PathSummary probe: the summary is much smaller than the document and
+    // enumerates every path. If the field appears there, it exists.
+    if (session.getResourceConfig().withPathSummary) {
+      try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision);
+           var summary = rtx.getResourceSession().openPathSummary(revision)) {
+        if (summary != null && !summary.findPathsByLocalName(field).isEmpty()) {
+          return rtx.keyForName(field);
+        }
+      } catch (final Exception ignored) {
+        // Fall through to the walk.
+      }
+    }
+    return Integer.MIN_VALUE;
+  }
+
+  /** Legacy full-document walk used when the fast path can't prove existence. */
+  private int resolveFieldKeyByWalk(final String field) {
+    int[] found = { -1 };
+    try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision)) {
+      var reader = rtx.getStorageEngineReader();
+      long totalPages = (getMaxNodeKey() >>> Constants.INP_REFERENCE_COUNT_EXPONENT) + 1;
+      for (long pk = 0; pk < totalPages && found[0] < 0; pk++) {
+        var res = reader.getRecordPage(new IndexLogKey(IndexType.DOCUMENT, pk, 0, revision));
+        if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
+        long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
+        kv.forEachPopulatedSlot(slot -> {
+          if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
+          if (!rtx.moveTo(base + slot)) return true;
+          var name = rtx.getName();
+          if (name != null && field.equals(name.getLocalName())) {
+            found[0] = rtx.getNameKey();
+            return false;  // stop iterating
+          }
+          return true;
+        });
+      }
+    }
+    return found[0];
   }
 
   /**

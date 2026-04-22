@@ -4,8 +4,7 @@ import io.sirix.node.BytesIn;
 import io.sirix.node.BytesOut;
 
 /**
- * Length-prefixed list of PAX regions appended to a {@link io.sirix.page.KeyValueLeafPage}
- * in {@link io.sirix.BinaryEncodingVersion#V1}.
+ * Length-prefixed list of PAX regions appended to a {@link io.sirix.page.KeyValueLeafPage}.
  *
  * <p>Wire format:
  * <pre>

@@ -1,0 +1,56 @@
+--- Execution profile ---
+Total samples       : 32323
+skipped             : 1 (0.00%)
+
+       bytes  percent  samples  top
+  ----------  -------  -------  ---
+  7945448248   46.78%    15153  byte[]
+  4954512340   29.17%     9379  long[]
+  1569715278    9.24%     2994  jdk.incubator.vector.Long256Vector
+  1229453015    7.24%     2345  boolean[]
+   805829119    4.74%     1537  jdk.incubator.vector.Long256Vector$Long256Mask
+   176684744    1.04%      337  int[]
+    33554368    0.20%       64  jdk.internal.foreign.NativeMemorySegmentImpl
+    33030081    0.19%       63  java.lang.VirtualThread
+    25165776    0.15%       48  jdk.internal.foreign.layout.ValueLayouts$OfLongImpl
+    24117202    0.14%       46  jdk.internal.foreign.HeapMemorySegmentImpl$OfByte
+    23068628    0.14%       44  java.lang.Object[]
+    21495767    0.13%       41  jdk.internal.foreign.GlobalSession$HeapSession
+    18350045    0.11%       35  io.sirix.access.trx.page.HOTRangeCursor$Entry
+    14155749    0.08%       27  java.lang.VirtualThread$VThreadContinuation
+    12582888    0.07%       24  io.sirix.page.HOTLeafPage
+     8912879    0.05%       17  java.util.concurrent.ConcurrentHashMap$Node
+     7864305    0.05%       15  java.util.concurrent.ForkJoinTask$RunnableExecuteAction
+     6291444    0.04%       12  java.lang.VirtualThread$$Lambda.0x000000007e17a418
+     5242870    0.03%       10  it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap$Entry
+     4718583    0.03%        9  io.sirix.access.trx.page.HOTTrieReader$$Lambda.0x000000007e205b20
+     4718583    0.03%        9  io.sirix.page.PageReference
+     4194296    0.02%        8  it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap
+     3145722    0.02%        6  java.util.concurrent.atomic.AtomicBoolean
+     3145722    0.02%        6  java.lang.Long
+     2621435    0.02%        5  java.lang.VirtualThread$VThreadContinuation$1
+     2621435    0.02%        5  jdk.incubator.vector.LongVector$LongSpecies$$Lambda.0x000000007e254ba8
+     2621435    0.02%        5  java.util.ArrayList
+     2621435    0.02%        5  io.sirix.io.bytepipe.ByteHandlerPipeline$$Lambda.0x000000007e198230
+     2097148    0.01%        4  java.lang.Object
+     2097148    0.01%        4  java.lang.String
+     2097148    0.01%        4  io.sirix.cache.FrameSlotAllocator$FrameSlot
+     2097148    0.01%        4  java.lang.classfile.constantpool.PoolEntry[]
+     2097148    0.01%        4  java.util.ArrayList$Itr
+     1572861    0.01%        3  char[]
+     1572861    0.01%        3  io.sirix.io.bytepipe.ByteHandler$DecompressionResult
+     1572861    0.01%        3  io.sirix.node.MemorySegmentBytesIn
+     1572861    0.01%        3  jdk.internal.classfile.impl.StackMapGenerator$Type
+     1048574    0.01%        2  java.util.HashMap$Node
+     1048574    0.01%        2  jdk.internal.ref.Cleaner
+     1048574    0.01%        2  java.lang.invoke.MemberName
+     1048574    0.01%        2  jdk.internal.classfile.impl.StackMapGenerator$Type[]
+     1048574    0.01%        2  io.sirix.page.HOTIndirectPage$LayoutType[]
+     1048574    0.01%        2  jdk.incubator.vector.LongVector$$Lambda.0x000000007e25a1c8
+     1048574    0.01%        2  io.sirix.BinaryEncodingVersion[]
+     1048574    0.01%        2  io.sirix.page.PageReference[]
+     1048574    0.01%        2  java.io.File
+     1048574    0.01%        2  java.util.LinkedHashMap$Entry
+     1048574    0.01%        2  it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap$ValueIterator
+      524287    0.00%        1  java.nio.DirectByteBuffer$Deallocator
+      524287    0.00%        1  java.lang.Integer

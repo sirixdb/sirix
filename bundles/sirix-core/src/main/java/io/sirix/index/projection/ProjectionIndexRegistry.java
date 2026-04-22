@@ -152,6 +152,25 @@ public final class ProjectionIndexRegistry {
     return true;
   }
 
+  /**
+   * True if any projection registered under {@code resourceKey} (exact or
+   * wildcard) carries {@code field} as a column. Used as a proof-of-existence
+   * by the query executor's name-key resolver so it can skip an expensive
+   * full-document walk when a covering projection is already installed.
+   *
+   * <p>Lookup is a prefix scan over the registry — O(N) in the number of
+   * entries per resource, which is bounded to a small constant in practice.
+   */
+  public static boolean anyHandleCoversField(final String resourceKey, final String field) {
+    if (resourceKey == null || field == null) return false;
+    final String prefix = resourceKey + "\0";
+    for (final var entry : REGISTRY.entrySet()) {
+      if (!entry.getKey().startsWith(prefix)) continue;
+      if (entry.getValue().columnOf(field) >= 0) return true;
+    }
+    return false;
+  }
+
   // Package-private helper for diagnostic toString in tests.
   static int size() {
     return REGISTRY.size();

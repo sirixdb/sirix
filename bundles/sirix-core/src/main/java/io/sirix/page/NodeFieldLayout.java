@@ -349,4 +349,71 @@ public final class NodeFieldLayout {
   public static int fieldCountForKind(final NodeKind kind) {
     return fieldCountForKind(kind.getId());
   }
+
+  /**
+   * Returns the field-table index of the PARENT_KEY field for a given NodeKind,
+   * or {@code -1} if the kind has no parent key (JSON_DOCUMENT_ROOT, XML_DOCUMENT_ROOT).
+   *
+   * <p>Used by the columnar structural-key extractor to locate the per-record
+   * parentKey varint on the slotted-page heap without a full record parse.
+   */
+  public static int parentKeyFieldIndexForKind(final int kindId) {
+    return switch (kindId) {
+      case 1 -> ELEM_PARENT_KEY;                 // ELEMENT
+      case 2 -> ATTR_PARENT_KEY;                 // ATTRIBUTE
+      case 3 -> TEXT_PARENT_KEY;                 // TEXT
+      case 7 -> PI_PARENT_KEY;                   // PROCESSING_INSTRUCTION
+      case 8 -> COMMENT_PARENT_KEY;              // COMMENT
+      case 9 -> -1;                              // XML_DOCUMENT_ROOT (no parent)
+      case 13 -> NS_PARENT_KEY;                  // NAMESPACE
+      case 24 -> OBJECT_PARENT_KEY;              // OBJECT
+      case 25 -> ARRAY_PARENT_KEY;               // ARRAY
+      case 26 -> OBJKEY_PARENT_KEY;              // OBJECT_KEY
+      case 126 -> OBJKEY_PARENT_KEY;             // OBJECT_KEY_PAX (same index 0)
+      case 27 -> BOOLVAL_PARENT_KEY;             // BOOLEAN_VALUE
+      case 28 -> NUMVAL_PARENT_KEY;              // NUMBER_VALUE
+      case 29 -> NULLVAL_PARENT_KEY;             // NULL_VALUE
+      case 30 -> STRVAL_PARENT_KEY;              // STRING_VALUE
+      case 31 -> -1;                             // JSON_DOCUMENT_ROOT (no parent)
+      case 40 -> OBJSTRVAL_PARENT_KEY;           // OBJECT_STRING_VALUE
+      case 41 -> OBJBOOLVAL_PARENT_KEY;          // OBJECT_BOOLEAN_VALUE
+      case 42 -> OBJNUMVAL_PARENT_KEY;           // OBJECT_NUMBER_VALUE
+      case 43 -> OBJNULLVAL_PARENT_KEY;          // OBJECT_NULL_VALUE
+      default -> -1;
+    };
+  }
+
+  /**
+   * Returns the field-table index of the HASH field for a given NodeKind, or
+   * {@code -1} if the kind stores no hash (records that aren't part of the
+   * rolling hash tree — e.g. child values of an object key).
+   *
+   * <p>Used by the columnar structural-key extractor to locate the per-record
+   * fixed-width hash bytes on the slotted-page heap without a full record parse.
+   */
+  public static int hashFieldIndexForKind(final int kindId) {
+    return switch (kindId) {
+      case 1 -> ELEM_HASH;                       // ELEMENT
+      case 2 -> -1;                              // ATTRIBUTE (no hash field)
+      case 3 -> -1;                              // TEXT (no hash field in offset table)
+      case 7 -> -1;                              // PROCESSING_INSTRUCTION (no hash field)
+      case 8 -> -1;                              // COMMENT (no hash field)
+      case 9 -> XDOCROOT_HASH;                   // XML_DOCUMENT_ROOT
+      case 13 -> NS_HASH;                        // NAMESPACE
+      case 24 -> OBJECT_HASH;                    // OBJECT
+      case 25 -> ARRAY_HASH;                     // ARRAY
+      case 26 -> OBJKEY_HASH;                    // OBJECT_KEY
+      case 126 -> OBJKEY_PAX_HASH;               // OBJECT_KEY_PAX
+      case 27 -> -1;                             // BOOLEAN_VALUE (no hash field)
+      case 28 -> -1;                             // NUMBER_VALUE (no hash field)
+      case 29 -> -1;                             // NULL_VALUE (no hash field)
+      case 30 -> -1;                             // STRING_VALUE (no hash field)
+      case 31 -> JDOCROOT_HASH;                  // JSON_DOCUMENT_ROOT
+      case 40 -> -1;                             // OBJECT_STRING_VALUE (no hash)
+      case 41 -> -1;                             // OBJECT_BOOLEAN_VALUE (no hash)
+      case 42 -> -1;                             // OBJECT_NUMBER_VALUE (no hash)
+      case 43 -> -1;                             // OBJECT_NULL_VALUE (no hash)
+      default -> -1;
+    };
+  }
 }

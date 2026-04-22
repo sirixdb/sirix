@@ -31,22 +31,47 @@ package io.sirix;
 /**
  * Determines the binary encoding version.
  *
+ * <p>Currently a single version ({@link #V0}) — kept as an enum only so the
+ * version byte in the page header reserves space for future format bumps.
+ * The prior {@code V1} structural-encoder variant has been folded into V0;
+ * there is no on-disk compatibility shim because the Sirix storage format
+ * has no deployed users yet.
+ *
  * @author Johannes Lichtenberger
  */
 public enum BinaryEncodingVersion {
 
   /**
-   * Unified page format: Header(32B) + Bitmap(128B) + Directory(8KB) + Heap.
-   * FlyweightNode records bind directly to page memory for zero-copy reads.
-   * Non-FlyweightNode records are serialized to the heap at commit time.
+   * Unified slotted page format with structural encoders for no-LZ4 storage
+   * parity. Produced and consumed by every serializer/deserializer in the
+   * codebase.
    *
-   * <p>KeyValueLeafPage additionally carries a PAX
-   * {@link io.sirix.page.pax.RegionTable} appended after the heap. Regions
-   * hold payload-type-segregated data (numeric values, string values, struct
-   * pointers, DeweyIDs) so scan operators can read a contiguous buffer
-   * instead of decoding varints per slot. The table is a length-prefixed list
-   * of {@code (kind, size, bytes)} triples, so new region kinds can be added
-   * without a format bump.
+   * <p>KeyValueLeafPage layout (in-memory):
+   * <pre>
+   * Header(32B) + Bitmap(128B) + Directory(8KB) + Heap
+   * </pre>
+   *
+   * <p>KeyValueLeafPage layout (on disk):
+   * <ul>
+   *   <li>{@code compactDir}: one {@code int} per populated slot — {@code
+   *       (onDiskDataLength << 8) | nodeKindId}.</li>
+   *   <li>{@code onDiskHeapSize}: pre-compression size of the packed heap.</li>
+   *   <li><b>Offset-table template pool</b> ({@link io.sirix.page.OffsetTableTemplatePool}):
+   *       per-record {@code FIELD_COUNT} offset-table bytes collapse to a 1-byte
+   *       {@code templateId}. Dedup is per-page and aborts gracefully when more
+   *       than 255 distinct templates exist or when records have no offset-table
+   *       structure (raw slot bytes).</li>
+   *   <li><b>Heap codec</b>: the heap body (records minus the expanded offset
+   *       tables) runs through LZ4 (when the FFI native library is available)
+   *       or the {@link io.sirix.page.ZeroRunByteCodec} RLE fallback.</li>
+   *   <li><b>PAX {@link io.sirix.page.pax.RegionTable}</b>: appended after the
+   *       heap; holds payload-type-segregated data (numeric values, string
+   *       dictionary, struct pointers, DeweyIDs) so scan operators read a
+   *       contiguous buffer instead of decoding varints per slot.</li>
+   * </ul>
+   *
+   * <p>FlyweightNode records bind directly to page memory for zero-copy reads;
+   * non-FlyweightNode records are serialized to the heap at commit time.
    */
   V0((byte) 0);
 

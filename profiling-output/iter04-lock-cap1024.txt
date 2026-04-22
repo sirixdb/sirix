@@ -1,0 +1,11 @@
+--- Execution profile ---
+Total samples       : 28433
+
+          ns  percent  samples  top
+  ----------  -------  -------  ---
+ 38220499654   98.73%    28042  sun.nio.ch.NativeThreadSet
+   161181290    0.42%      197  int[]
+   137832340    0.36%       21  java.lang.Class
+    91405421    0.24%      105  java.lang.Object
+    76754918    0.20%       13  java.util.concurrent.ConcurrentHashMap$Node
+    26224739    0.07%       55  java.util.concurrent.locks.ReentrantLock$NonfairSync

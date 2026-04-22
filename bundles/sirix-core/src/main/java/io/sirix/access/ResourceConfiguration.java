@@ -194,7 +194,9 @@ public final class ResourceConfiguration {
   private static final RecordSerializer NODE_SERIALIZER = new NodeSerializerImpl();
 
   /**
-   * The current binary encoding version.
+   * The current binary encoding version. Single version (V0) — the on-disk
+   * format includes a version byte to reserve room for future bumps, but
+   * there are no alternative encodings to select at runtime.
    */
   public static final BinaryEncodingVersion BINARY_ENCODING_VERSION = BinaryEncodingVersion.V0;
 

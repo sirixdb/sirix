@@ -1,0 +1,28 @@
+total_samples=8558
+
+TOP 25 LEAF FRAMES:
+1325	15.4826	io/sirix/index/projection/ProjectionIndexByteScan.conjunctiveCountByGroup
+1097	12.8184	java/lang/invoke/VarHandle.checkAccessModeThenIsDirect
+936	10.9371	java/lang/invoke/VarHandleByteArrayAsInts$ArrayHandle.get
+681	7.95747	java/lang/invoke/VarForm.getMemberName
+537	6.27483	it/unimi/dsi/fastutil/objects/Object2LongOpenHashMap.addTo
+476	5.56205	java/lang/invoke/VarHandleByteArrayAsInts$ArrayHandle.index
+331	3.86773	java/lang/invoke/VarHandleGuards.guard_LI_I
+176	2.05656	__memcpy_sse2_unaligned_erms
+126	1.47231	do_user_addr_fault_[k]
+112	1.30872	it/unimi/dsi/fastutil/objects/Object2LongOpenHashMap.addToValue
+106	1.23861	java/lang/String.equals
+95	1.11007	clear_page_erms_[k]
+94	1.09839	io/sirix/index/projection/ProjectionIndexByteScan.evalNumericBytes
+92	1.07502	jdk/incubator/vector/LongVector$LongSpecies.rvOp
+91	1.06333	jdk/internal/vm/vector/VectorSupport.compare
+86	1.00491	java/util/Arrays.copyOf
+65	0.759523	jdk/internal/vm/vector/VectorSupport.load
+61	0.712783	native_queued_spin_lock_slowpath_[k]
+49	0.572564	_raw_spin_unlock_irqrestore_[k]
+48	0.560879	_copy_to_iter_[k]
+43	0.502454	jdk/incubator/vector/AbstractMask.toLongHelper
+39	0.455714	io/sirix/index/projection/ProjectionIndexByteScan.countLeaf
+35	0.408974	jdk/incubator/vector/LongVector.bTest
+33	0.385604	it/unimi/dsi/fastutil/HashCommon.mix
+31	0.362234	jdk/internal/vm/vector/VectorSupport.maskReductionCoerced

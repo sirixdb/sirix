@@ -85,9 +85,25 @@ public final class ScaleBenchMain {
     // Re-use an existing shredded database when -Dsirix.db=/path is supplied —
     // shredding 100 M records takes ~7 minutes, and we want to iterate on
     // query-side optimizations without paying that cost each time.
+    //
+    // Force a fresh shred at a specific location via -Dsirix.shredDbPath=/path
+    // (the path is created if it doesn't exist). This is the counterpart to
+    // -Dsirix.db=/path which triggers reuse.
     String reuseDb = System.getProperty("sirix.db");
-    final boolean shredNeeded = reuseDb == null;
-    Path dbDir = reuseDb != null ? Path.of(reuseDb) : Files.createTempDirectory("sirix-scale-bench");
+    String forceShredPath = System.getProperty("sirix.shredDbPath");
+    final Path dbDir;
+    final boolean shredNeeded;
+    if (reuseDb != null) {
+      dbDir = Path.of(reuseDb);
+      shredNeeded = false;
+    } else if (forceShredPath != null) {
+      dbDir = Path.of(forceShredPath);
+      Files.createDirectories(dbDir);
+      shredNeeded = true;
+    } else {
+      dbDir = Files.createTempDirectory("sirix-scale-bench");
+      shredNeeded = true;
+    }
     System.out.printf("# Records: %,d   Vectorized: %s   Iters: %d   DB: %s   Offheap: %d MB   Reuse: %s%n",
                       recordCount, vectorized, iters, dbDir, offheap / (1L << 20), !shredNeeded);
 
@@ -106,6 +122,16 @@ public final class ScaleBenchMain {
       // Force pathSummary on if stats requested, otherwise the store builder throws.
       pathSummary = true;
       System.out.println("# buildPathStatistics=true implies buildPathSummary=true");
+    }
+    // When the projection index is requested but we're shredding a fresh DB
+    // (not reusing one), the slow-path builder in ScaleBenchProjectionSetup
+    // walks the PathSummary to resolve the projected paths. Without a
+    // pathSummary the whole projection=true run dies with an opaque
+    // `openPathSummary failed` error during install. Auto-force pathSummary
+    // on just like we do for pathStatistics so the common combo Just Works.
+    if (Boolean.getBoolean("projection") && !pathSummary) {
+      pathSummary = true;
+      System.out.println("# projection=true implies buildPathSummary=true");
     }
     HashType hash = HashType.fromString(System.getProperty("hashType", "NONE"));
     BasicJsonDBStore store = BasicJsonDBStore.newBuilder()
@@ -151,7 +177,10 @@ public final class ScaleBenchMain {
     // -Dprojection=true installs a covering projection index on
     // (age, active, dept) so filterCount / compoundAndFilterCount route
     // through ProjectionIndexByteScan instead of the generic predicate path.
-    if (Boolean.getBoolean("projection") && session != null) {
+    // Projection install is expensive (walks the whole DB to build path-scoped
+    // index). Skip it when we're only shredding for DB-size measurement
+    // (iters <= 0) — queries aren't going to run anyway.
+    if (Boolean.getBoolean("projection") && session != null && iters > 0) {
       final long tBuild = System.nanoTime();
       final int leafCount = ScaleBenchProjectionSetup.installWildcard(session);
       System.out.printf("# Projection index: %,d leaves, built in %,d ms%n",
@@ -162,12 +191,19 @@ public final class ScaleBenchMain {
     JsonDBItem docItem = (JsonDBItem) coll.getDocument();
     ctx.bind(DOC_VAR, (Sequence) docItem);
 
-    System.out.printf("%-26s | %10s | %10s | %10s | %10s%n", "query", "min(ms)", "avg(ms)", "max(ms)", "result_bytes");
-    System.out.printf("%-26s + %10s + %10s + %10s + %10s%n", "--------------------------",
-                      "----------", "----------", "----------", "------------");
+    // iters <= 0 skips the query-running phase entirely. Useful when we
+    // only care about the shred-side DB size / encoder diagnostics and
+    // don't want to pay the projection-index + per-query cost.
+    if (iters <= 0) {
+      System.out.println("# Iters <= 0: skipping query phase.");
+    } else {
+      System.out.printf("%-26s | %10s | %10s | %10s | %10s%n", "query", "min(ms)", "avg(ms)", "max(ms)", "result_bytes");
+      System.out.printf("%-26s + %10s + %10s + %10s + %10s%n", "--------------------------",
+                        "----------", "----------", "----------", "------------");
 
-    for (Map.Entry<String, String> e : QUERIES.entrySet()) {
-      runQueryRepeated(chain, ctx, e.getKey(), e.getValue(), iters);
+      for (Map.Entry<String, String> e : QUERIES.entrySet()) {
+        runQueryRepeated(chain, ctx, e.getKey(), e.getValue(), iters);
+      }
     }
 
     SequentialPipelineStrategy.setVectorizedExecutor(null);

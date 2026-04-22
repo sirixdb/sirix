@@ -225,11 +225,10 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   private byte[] fsstSymbolTable;
 
   /**
-   * PAX region table appended in {@link io.sirix.BinaryEncodingVersion#V1}. Null
-   * when the page was written in V0 format or when no regions have been populated.
-   * Later tasks populate this with number / string / struct / DeweyID regions;
-   * scan operators read contiguous payload buffers from it instead of decoding
-   * varints per slot.
+   * PAX region table appended to every KVL page. Null when no regions have
+   * been populated. Populated with number / string / struct / DeweyID
+   * regions; scan operators read contiguous payload buffers from it instead
+   * of decoding varints per slot.
    */
   private io.sirix.page.pax.RegionTable regionTable;
 

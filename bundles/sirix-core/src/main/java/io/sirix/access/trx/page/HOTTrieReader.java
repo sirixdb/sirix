@@ -38,6 +38,7 @@ import org.jspecify.annotations.Nullable;
 import java.lang.foreign.MemorySegment;
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.concurrent.Semaphore;
 
 /**
  * HOT trie reader for HOT (Height Optimized Trie) navigation.
@@ -86,6 +87,75 @@ public final class HOTTrieReader implements AutoCloseable {
    * a bug in split/merge logic or index corruption.</p>
    */
   private static final int MAX_TREE_HEIGHT = 64;
+
+  /**
+   * Cursor sibling-prefetch window. Tunable via {@code -Dsirix.hot.prefetch.window=N}.
+   * Default 16 matches NVMe command-queue sweet spot; too-small starves the I/O
+   * scheduler; too-large bloats the virtual-thread carrier pool without further
+   * gain once the device is saturated.
+   */
+  private static final int PREFETCH_WINDOW =
+      Integer.getInteger("sirix.hot.prefetch.window", 16);
+
+  /**
+   * Maximum concurrent in-flight prefetch virtual threads across the whole JVM.
+   *
+   * <p><b>iter#04 measurement finding (see
+   * {@code profiling-output/iter04-prefetcher-analysis.md} and
+   * {@code profiling-output/iteration-log.md} iter#04 section):</b> on the cold
+   * 100 M brackit-scale bench, any non-zero cap is a net loss versus disabling
+   * prefetching entirely. Concrete 5-round alternating A/B medians:</p>
+   *
+   * <table>
+   *   <caption>Cold-wall medians by prefetch cap</caption>
+   *   <tr><th>cap</th><th>median wall</th><th>hydrate median</th></tr>
+   *   <tr><td>0 (disabled)</td><td>5.10 s</td><td>1,178 ms</td></tr>
+   *   <tr><td>40 (= {@code 2 × cores})</td><td>5.59 s</td><td>1,362 ms</td></tr>
+   *   <tr><td>1024 (unbounded)</td><td>5.68 s</td><td>1,395 ms</td></tr>
+   * </table>
+   *
+   * <p>The lock-profile evidence: with prefetch unbounded,
+   * {@code sun.nio.ch.NativeThreadSet} accumulates <b>6× more contention-time</b>
+   * (38.2 billion ns vs 6.7 billion ns) because every concurrent
+   * {@code FileChannel.read} acquires this lock. Hundreds of prefetch virtual
+   * threads hammer it in parallel with the synchronous reader, starving the
+   * sync path of NVMe command-queue slots and direct-buffer pool entries.</p>
+   *
+   * <p>Default: <b>0 (prefetching disabled)</b>. The Semaphore machinery is
+   * retained as an opt-in rollback ({@code -Dsirix.hot.prefetch.parallelism=N>0})
+   * in case a different workload (deeper tree, higher-latency storage) makes
+   * prefetching net-positive.</p>
+   *
+   * <p>Tunable via {@code -Dsirix.hot.prefetch.parallelism=N}:</p>
+   * <ul>
+   * <li>{@code N == 0}: Prefetching disabled entirely (default).</li>
+   * <li>{@code N > 0}: Semaphore cap = {@code N}. At most {@code N} concurrent
+   *   prefetch virtual threads are in flight JVM-wide; additional requests are
+   *   silently dropped (the synchronous reader loads on demand).</li>
+   * </ul>
+   *
+   * <p>HFT-grade properties: {@code tryAcquire()} is lock-free on the fast path
+   * (AQS CAS on the permit counter). No caller ever parks on this Semaphore —
+   * {@link #prefetchPage} uses {@code tryAcquire → skip} so a full-to-capacity
+   * prefetcher simply drops the hint rather than serializing the descent. With
+   * the default of 0 permits, every {@code tryAcquire} returns {@code false}
+   * on a single CAS with no allocation.</p>
+   */
+  private static final int PREFETCH_PARALLELISM_DEFAULT = 0;
+
+  /** Current prefetch-parallelism cap. Volatile because the test hook
+   *  {@link #setPrefetchParallelismForTest(int)} rebuilds the limiter on another
+   *  thread and we want readers to see the latest reference. */
+  private static volatile Semaphore PREFETCH_LIMIT = initialPrefetchLimit();
+
+  private static Semaphore initialPrefetchLimit() {
+    final int configured =
+        Integer.getInteger("sirix.hot.prefetch.parallelism", PREFETCH_PARALLELISM_DEFAULT);
+    // N == 0 → disable prefetching. Represent by a zero-permit Semaphore so the
+    // tryAcquire branch always returns false without allocating or branching on
+    // a second flag.
+    return new Semaphore(Math.max(0, configured));
+  }
 
   /** The storage engine reader. */
   private final StorageEngineReader storageEngineReader;
@@ -321,14 +391,11 @@ public final class HOTTrieReader implements AutoCloseable {
 
         final PageReference nextChildRef = parent.getChildReference(nextChildIdx);
         if (nextChildRef != null) {
-          // Async SSD prefetch: fire-and-forget load of next-next sibling on a virtual thread.
-          final int prefetchIdx = nextChildIdx + 1;
-          if (prefetchIdx < numChildren) {
-            final PageReference prefetchRef = parent.getChildReference(prefetchIdx);
-            if (prefetchRef != null && prefetchRef.getPage() == null && prefetchRef.getKey() >= 0) {
-              prefetchPage(prefetchRef);
-            }
-          }
+          // Prefetch-batch: issue PREFETCH_WINDOW in-flight reads for the upcoming
+          // siblings. Deepens NVMe/io_uring queue depth — on FFM-io_uring storage
+          // these coalesce into a single submit; on FILE_CHANNEL each fires on
+          // a separate virtual thread and kernel I/O scheduler interleaves them.
+          prefetchSiblingWindow(parent, nextChildIdx + 1, numChildren);
 
           final HOTLeafPage result = descendToLeftmostLeaf(nextChildRef);
           if (result != null) {
@@ -373,16 +440,37 @@ public final class HOTTrieReader implements AutoCloseable {
         return null;
       }
 
-      // Async SSD prefetch: fire-and-forget load of next sibling on a virtual thread
-      if (hotNode.getNumChildren() > 1) {
-        final PageReference siblingRef = hotNode.getChildReference(1);
-        if (siblingRef != null && siblingRef.getPage() == null && siblingRef.getKey() >= 0) {
-          prefetchPage(siblingRef);
-        }
-      }
+      // Prefetch-batch at descent: schedule PREFETCH_WINDOW in-flight reads for
+      // the current inner node's first N children. Saturates queue depth on the
+      // way down — the cursor will visit all of them in order anyway.
+      prefetchSiblingWindow(hotNode, 1, hotNode.getNumChildren());
 
       pushPath(currentRef, hotNode, childIndex);
       currentRef = childRef;
+    }
+  }
+
+  /**
+   * Prefetch up to {@link #PREFETCH_WINDOW} consecutive child references of
+   * {@code parent} starting at index {@code startIdx} (inclusive) up to
+   * {@code numChildren} (exclusive). Each eligible reference (not already
+   * swizzled, with a valid disk key) fires a fire-and-forget async load.
+   *
+   * <p>Why a window rather than a single sibling: the kernel I/O scheduler and
+   * NVMe command queue benefit from queue depths in the 8-32 range. A single
+   * one-ahead prefetch leaves the device idle between reads on cold cache. A
+   * window of {@value #PREFETCH_WINDOW} matches typical NVMe QD sweet spots
+   * and, on FFM-io_uring storage, the individual reads can be batched into a
+   * single {@code io_uring_enter} submit on the underlying reader.
+   */
+  private void prefetchSiblingWindow(final HOTIndirectPage parent, final int startIdx,
+      final int numChildren) {
+    final int end = Math.min(startIdx + PREFETCH_WINDOW, numChildren);
+    for (int i = startIdx; i < end; i++) {
+      final PageReference ref = parent.getChildReference(i);
+      if (ref != null && ref.getPage() == null && ref.getKey() >= 0) {
+        prefetchPage(ref);
+      }
     }
   }
 
@@ -484,14 +572,70 @@ public final class HOTTrieReader implements AutoCloseable {
    * it will not find a swizzled page and will load synchronously. The duplicate load
    * is benign — both paths produce the same immutable page and {@code setPage} on
    * the volatile field is idempotent.</p>
+   *
+   * <p><b>Concurrency cap:</b> Gated by {@link #PREFETCH_LIMIT}. When the Semaphore
+   * is drained (prefetcher already saturating the kernel I/O queue), the call
+   * returns immediately without starting a virtual thread — the hint is dropped
+   * and the synchronous {@link #loadPage} path will load on demand. See
+   * {@code iter04-prefetcher-analysis.md} for the formal-verification argument
+   * that skipping prefetch never affects correctness of the returned
+   * {@code MemorySegment} values.</p>
    */
   private void prefetchPage(PageReference ref) {
+    final Semaphore limit = PREFETCH_LIMIT;
+    if (!limit.tryAcquire()) {
+      // Either (a) prefetching disabled (N=0 permits) or (b) cap reached.
+      // Skip-on-contention is safe: the synchronous reader will load the page
+      // on demand when it reaches this ref.
+      return;
+    }
+    // IMPORTANT: release path is try/finally inside the virtual thread body so
+    // any Throwable from loadHOTPage/setPage does not leak a permit.
     Thread.startVirtualThread(() -> {
-      final Page loaded = storageEngineReader.loadHOTPage(ref);
-      if (loaded != null) {
-        ref.setPage(loaded);
+      try {
+        final Page loaded = storageEngineReader.loadHOTPage(ref);
+        if (loaded != null) {
+          ref.setPage(loaded);
+        }
+      } catch (Throwable t) {
+        // Prefetch is a hint — swallow failures. The synchronous read path
+        // will re-attempt the load and propagate the error to the caller if
+        // it's a real IO error (not a benign race with concurrent eviction).
+      } finally {
+        limit.release();
       }
     });
+  }
+
+  /**
+   * Test-only hook: rebuild the static {@link #PREFETCH_LIMIT} with a new
+   * permit cap. Needed because the default cap is computed at class-load
+   * time. Declared {@code public} only so cross-package tests
+   * ({@code io.sirix.index.projection.ProjectionIndexHOTStorageTest}) can
+   * sweep permit values without reflection.
+   *
+   * <p><b>Do not call from production code.</b> Use the JVM property
+   * {@code -Dsirix.hot.prefetch.parallelism=N} instead.</p>
+   *
+   * <p>Caller must ensure no prefetch virtual threads are outstanding against
+   * the previous {@code PREFETCH_LIMIT} (otherwise the release on the old
+   * Semaphore is harmless — the old instance is GC'd once all tasks complete).</p>
+   */
+  public static void setPrefetchParallelismForTest(int permits) {
+    if (permits < 0) {
+      throw new IllegalArgumentException("permits must be >= 0");
+    }
+    PREFETCH_LIMIT = new Semaphore(permits);
+  }
+
+  /**
+   * Test-only accessor for the current Semaphore's available-permit count.
+   * Declared {@code public} for the same reason as
+   * {@link #setPrefetchParallelismForTest(int)}. <b>Do not call from production
+   * code.</b>
+   */
+  public static int getPrefetchAvailablePermitsForTest() {
+    return PREFETCH_LIMIT.availablePermits();
   }
 
   /**

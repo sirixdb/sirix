@@ -514,6 +514,16 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
     // before it bubbles OOM — eviction must finish before that fires.
     final boolean severe = currentWeight > (maxWeightBytes + maxWeightBytes / 10);
 
+    // Fast path: if we're not severely over budget, skip synchronous eviction
+    // entirely on the put-path and let the background {@link ClockSweeper}
+    // handle the trickle. Walking the full CHM entry set on every put was
+    // ~9% of cold-cache on-CPU time at 100M scale (profiled). The sweeper
+    // runs periodically, so a transient few-percent overshoot is fine —
+    // the allocator only OOMs when >10% over, which is the severe branch.
+    if (!severe) {
+      return;
+    }
+
     if (severe) {
       evictionLock.lock();
     } else if (!evictionLock.tryLock()) {

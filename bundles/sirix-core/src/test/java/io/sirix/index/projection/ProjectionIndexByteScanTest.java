@@ -206,4 +206,226 @@ final class ProjectionIndexByteScanTest {
         () -> ProjectionIndexByteScan.conjunctiveCountByGroup(
             leaves, new ProjectionIndexScan.ColumnPredicate[0], 0, out));
   }
+
+  // ---------------------------------------------------------------------
+  // iter#07 range-fusion parity tests.
+  //
+  // For every BETWEEN op combination, the fused predicate must produce
+  // byte-for-byte the same row count as two independent predicates
+  // evaluated in conjunction. Tests cover the four op combos plus edge
+  // cases (empty range, single-value range, all-match, no-match, mixed
+  // with non-numeric predicates).
+  // ---------------------------------------------------------------------
+
+  /**
+   * Build a wider synthetic leaf so between-tests can hit a variety of
+   * numeric values. {@code values[i] = baseKey + i * 3 % 100} — covers
+   * 0..99 with a stride that stresses the zone-map boundary.
+   */
+  private static byte[] buildLeafBetween(final long baseKey, final int rowCount) {
+    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(KINDS_NUM_BOOL_STR);
+    final String[] depts = {"Eng", "Sales", "Ops"};
+    for (int i = 0; i < rowCount; i++) {
+      final long[] nums = {(long) ((i * 17) % 100), 0L, 0L};
+      final boolean[] bools = {false, (i & 1) == 0, false};
+      final String[] strs = {null, null, depts[i % depts.length]};
+      p.appendRow(baseKey + i, nums, bools, strs);
+    }
+    return p.serialize();
+  }
+
+  private static long countUnfused(final List<byte[]> leaves, final int column,
+      final ProjectionIndexScan.Op lowOp, final long lowLit,
+      final ProjectionIndexScan.Op highOp, final long highLit) {
+    final ProjectionIndexScan.ColumnPredicate[] unfused = {
+        ProjectionIndexScan.ColumnPredicate.numeric(column, lowOp, lowLit),
+        ProjectionIndexScan.ColumnPredicate.numeric(column, highOp, highLit)
+    };
+    return ProjectionIndexByteScan.conjunctiveCount(leaves, unfused);
+  }
+
+  private static long countFused(final List<byte[]> leaves, final int column,
+      final ProjectionIndexScan.Op lowOp, final long lowLit,
+      final ProjectionIndexScan.Op highOp, final long highLit) {
+    final ProjectionIndexScan.ColumnPredicate[] fused = {
+        ProjectionIndexScan.ColumnPredicate.numericBetween(column, lowOp, lowLit, highOp, highLit)
+    };
+    return ProjectionIndexByteScan.conjunctiveCount(leaves, fused);
+  }
+
+  @Test
+  void betweenGtLtParity() {
+    final List<byte[]> leaves = List.of(buildLeafBetween(0L, 1024));
+    for (final long lo : new long[]{-10L, 0L, 10L, 25L, 50L, 99L, 110L}) {
+      for (final long hi : new long[]{-5L, 5L, 30L, 60L, 99L, 200L}) {
+        assertEquals(
+            countUnfused(leaves, 0, ProjectionIndexScan.Op.GT, lo, ProjectionIndexScan.Op.LT, hi),
+            countFused(leaves, 0, ProjectionIndexScan.Op.GT, lo, ProjectionIndexScan.Op.LT, hi),
+            "GT_LT lo=" + lo + " hi=" + hi);
+      }
+    }
+  }
+
+  @Test
+  void betweenGtLeParity() {
+    final List<byte[]> leaves = List.of(buildLeafBetween(0L, 1024));
+    for (final long lo : new long[]{0L, 25L, 49L, 99L}) {
+      for (final long hi : new long[]{0L, 30L, 50L, 99L}) {
+        assertEquals(
+            countUnfused(leaves, 0, ProjectionIndexScan.Op.GT, lo, ProjectionIndexScan.Op.LE, hi),
+            countFused(leaves, 0, ProjectionIndexScan.Op.GT, lo, ProjectionIndexScan.Op.LE, hi),
+            "GT_LE lo=" + lo + " hi=" + hi);
+      }
+    }
+  }
+
+  @Test
+  void betweenGeLtParity() {
+    final List<byte[]> leaves = List.of(buildLeafBetween(0L, 1024));
+    for (final long lo : new long[]{0L, 1L, 50L, 99L, 100L}) {
+      for (final long hi : new long[]{0L, 2L, 50L, 99L, 100L}) {
+        assertEquals(
+            countUnfused(leaves, 0, ProjectionIndexScan.Op.GE, lo, ProjectionIndexScan.Op.LT, hi),
+            countFused(leaves, 0, ProjectionIndexScan.Op.GE, lo, ProjectionIndexScan.Op.LT, hi),
+            "GE_LT lo=" + lo + " hi=" + hi);
+      }
+    }
+  }
+
+  @Test
+  void betweenGeLeParity() {
+    final List<byte[]> leaves = List.of(buildLeafBetween(0L, 1024));
+    for (final long lo : new long[]{-5L, 0L, 50L, 99L, 100L}) {
+      for (final long hi : new long[]{-5L, 0L, 50L, 99L, 100L}) {
+        assertEquals(
+            countUnfused(leaves, 0, ProjectionIndexScan.Op.GE, lo, ProjectionIndexScan.Op.LE, hi),
+            countFused(leaves, 0, ProjectionIndexScan.Op.GE, lo, ProjectionIndexScan.Op.LE, hi),
+            "GE_LE lo=" + lo + " hi=" + hi);
+      }
+    }
+  }
+
+  @Test
+  void betweenEmptyRangeYieldsZero() {
+    final List<byte[]> leaves = List.of(buildLeafBetween(0L, 1024));
+    // lo > hi → no row can satisfy.
+    final long unfused = countUnfused(leaves, 0, ProjectionIndexScan.Op.GT, 60L,
+        ProjectionIndexScan.Op.LT, 30L);
+    final long fused = countFused(leaves, 0, ProjectionIndexScan.Op.GT, 60L,
+        ProjectionIndexScan.Op.LT, 30L);
+    assertEquals(0L, unfused);
+    assertEquals(0L, fused);
+  }
+
+  @Test
+  void betweenSingleValueRangeGeLe() {
+    // GE 50 AND LE 50 ⇒ v == 50
+    final List<byte[]> leaves = List.of(buildLeafBetween(0L, 1024));
+    final long unfused = countUnfused(leaves, 0, ProjectionIndexScan.Op.GE, 50L,
+        ProjectionIndexScan.Op.LE, 50L);
+    final long fused = countFused(leaves, 0, ProjectionIndexScan.Op.GE, 50L,
+        ProjectionIndexScan.Op.LE, 50L);
+    assertEquals(unfused, fused);
+    // Also assert it matches a direct EQ predicate.
+    final ProjectionIndexScan.ColumnPredicate[] eqPred = {
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.EQ, 50L)
+    };
+    assertEquals(ProjectionIndexByteScan.conjunctiveCount(leaves, eqPred), fused);
+  }
+
+  @Test
+  void betweenAllMatchWidth() {
+    // lo < min, hi > max ⇒ every row matches.
+    final List<byte[]> leaves = List.of(buildLeafBetween(0L, 1024));
+    final long unfused = countUnfused(leaves, 0, ProjectionIndexScan.Op.GE, -1000L,
+        ProjectionIndexScan.Op.LE, 1000L);
+    final long fused = countFused(leaves, 0, ProjectionIndexScan.Op.GE, -1000L,
+        ProjectionIndexScan.Op.LE, 1000L);
+    assertEquals(1024L, unfused);
+    assertEquals(1024L, fused);
+  }
+
+  @Test
+  void betweenNoMatchByZoneMap() {
+    // hi < min ⇒ zone-map rules out the whole leaf.
+    final List<byte[]> leaves = List.of(buildLeafBetween(0L, 1024));
+    // values are (i*17)%100 ∈ [0, 99]. A BETWEEN(200, 300) excludes all.
+    final long unfused = countUnfused(leaves, 0, ProjectionIndexScan.Op.GT, 200L,
+        ProjectionIndexScan.Op.LT, 300L);
+    final long fused = countFused(leaves, 0, ProjectionIndexScan.Op.GT, 200L,
+        ProjectionIndexScan.Op.LT, 300L);
+    assertEquals(0L, unfused);
+    assertEquals(0L, fused);
+  }
+
+  @Test
+  void betweenMixedWithBooleanParity() {
+    // age BETWEEN 30 AND 70 AND active == true.
+    final List<byte[]> leaves = List.of(buildLeafBetween(0L, 1024));
+    final ProjectionIndexScan.ColumnPredicate[] unfused = {
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GT, 30L),
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.LT, 70L),
+        ProjectionIndexScan.ColumnPredicate.booleanEq(1, true)
+    };
+    final ProjectionIndexScan.ColumnPredicate[] fused = {
+        ProjectionIndexScan.ColumnPredicate.numericBetween(0,
+            ProjectionIndexScan.Op.GT, 30L, ProjectionIndexScan.Op.LT, 70L),
+        ProjectionIndexScan.ColumnPredicate.booleanEq(1, true)
+    };
+    assertEquals(
+        ProjectionIndexByteScan.conjunctiveCount(leaves, unfused),
+        ProjectionIndexByteScan.conjunctiveCount(leaves, fused));
+  }
+
+  @Test
+  void betweenMixedWithStringEqParity() {
+    // age BETWEEN 25 AND 75 AND dept == "Eng".
+    final List<byte[]> leaves = List.of(buildLeafBetween(0L, 1024));
+    final ProjectionIndexScan.ColumnPredicate[] unfused = {
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GE, 25L),
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.LE, 75L),
+        ProjectionIndexScan.ColumnPredicate.stringEq(2, "Eng".getBytes(StandardCharsets.UTF_8))
+    };
+    final ProjectionIndexScan.ColumnPredicate[] fused = {
+        ProjectionIndexScan.ColumnPredicate.numericBetween(0,
+            ProjectionIndexScan.Op.GE, 25L, ProjectionIndexScan.Op.LE, 75L),
+        ProjectionIndexScan.ColumnPredicate.stringEq(2, "Eng".getBytes(StandardCharsets.UTF_8))
+    };
+    assertEquals(
+        ProjectionIndexByteScan.conjunctiveCount(leaves, unfused),
+        ProjectionIndexByteScan.conjunctiveCount(leaves, fused));
+  }
+
+  @Test
+  void betweenMultiLeafParity() {
+    // Zone-map kicks in on some leaves and not others — verify we don't
+    // short-circuit wrong.
+    final List<byte[]> leaves = new ArrayList<>();
+    leaves.add(buildLeafBetween(0L, 1024));
+    leaves.add(buildLeafBetween(1024L, 1024));
+    leaves.add(buildLeafBetween(2048L, 512));  // partial leaf
+    for (final long lo : new long[]{0L, 40L, 99L}) {
+      for (final long hi : new long[]{50L, 99L, 500L}) {
+        assertEquals(
+            countUnfused(leaves, 0, ProjectionIndexScan.Op.GT, lo, ProjectionIndexScan.Op.LT, hi),
+            countFused(leaves, 0, ProjectionIndexScan.Op.GT, lo, ProjectionIndexScan.Op.LT, hi),
+            "multi-leaf GT_LT lo=" + lo + " hi=" + hi);
+      }
+    }
+  }
+
+  @Test
+  void betweenMaterializingScanParity() {
+    // Cross-check the materialising ProjectionIndexScan (not the byte
+    // scan) handles BETWEEN correctly too — both paths share the
+    // test discipline.
+    final List<byte[]> leaves = List.of(buildLeafBetween(0L, 256));
+    final ProjectionIndexScan.ColumnPredicate[] fused = {
+        ProjectionIndexScan.ColumnPredicate.numericBetween(0,
+            ProjectionIndexScan.Op.GT, 20L, ProjectionIndexScan.Op.LE, 70L)
+    };
+    assertEquals(
+        ProjectionIndexScan.conjunctiveCount(leaves, fused),
+        ProjectionIndexByteScan.conjunctiveCount(leaves, fused));
+  }
 }

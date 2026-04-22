@@ -1,5 +1,6 @@
 package io.sirix.page.pax;
 
+import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
@@ -49,6 +50,42 @@ public final class NumberRegion {
   public static final byte ENC_PLAIN_LONG_ZM = 2;
   /** BIT_PACKED with per-tag zone maps appended (tagMin[], tagMax[]). */
   public static final byte ENC_BIT_PACKED_ZM = 3;
+  /**
+   * Value-bytes encoded via {@link NumberRegionCompact} (FOR+BP with its own
+   * embedded header: version + bitWidth + varint count + minValue + body).
+   * Outer tag dict + zone maps remain intact. Written when wiring is enabled;
+   * reader supports all four encoding kinds for backward compatibility.
+   */
+  public static final byte ENC_COMPACT_ZM = 4;
+
+  /**
+   * Write {@link #ENC_COMPACT_ZM} instead of {@link #ENC_BIT_PACKED_ZM} on the
+   * bit-packed path when enabled. Off by default because the compact codec
+   * adds ~2-7 bytes/region of framing overhead (version + varint) without a
+   * proportional speedup on Sirix's cold-path. Flip to test.
+   *
+   * <p>Read volatile-per-call so tests can toggle without class reload. The
+   * system property fallback lets production JVMs pin a value at startup.
+   */
+  private static volatile Boolean COMPACT_WRITE_OVERRIDE = null;
+
+  /** Test hook: enable/disable compact-ZM writes without restarting the JVM. */
+  public static void setCompactWriteEnabled(final boolean enabled) {
+    COMPACT_WRITE_OVERRIDE = enabled;
+  }
+
+  /** Test hook: clear the override and fall back to the system property. */
+  public static void clearCompactWriteOverride() {
+    COMPACT_WRITE_OVERRIDE = null;
+  }
+
+  private static boolean compactWriteEnabled() {
+    final Boolean ov = COMPACT_WRITE_OVERRIDE;
+    if (ov != null) {
+      return ov;
+    }
+    return Boolean.getBoolean("sirix.numberRegion.compactWrite");
+  }
 
   /**
    * {@code tagKind} classifier for the region's tag dictionary. Determines the
@@ -72,9 +109,18 @@ public final class NumberRegion {
     return encodingKind >= ENC_PLAIN_LONG_ZM;
   }
 
-  /** @return the "plain vs bit-packed" flag without the zone-map bit. */
+  /**
+   * @return the "plain vs bit-packed" flag without the zone-map bit. Treats
+   *         {@link #ENC_COMPACT_ZM} as bit-packed (the compact codec is a
+   *         bit-packed encoding under the hood, just with embedded header).
+   */
   public static boolean isBitPacked(final byte encodingKind) {
-    return (encodingKind & 1) != 0;
+    return (encodingKind & 1) != 0 || encodingKind == ENC_COMPACT_ZM;
+  }
+
+  /** @return true iff {@code encodingKind == ENC_COMPACT_ZM}. */
+  public static boolean isCompact(final byte encodingKind) {
+    return encodingKind == ENC_COMPACT_ZM;
   }
 
   private NumberRegion() {}
@@ -89,7 +135,17 @@ public final class NumberRegion {
     public int count;
     public long valueMin;
     public long valueMax;
+    /**
+     * Frame-of-reference base for bit-packed encodings. Populated from the
+     * outer header for {@link #ENC_BIT_PACKED_ZM}; populated from the nested
+     * compact header for {@link #ENC_COMPACT_ZM}.
+     */
     public long valueBase;
+    /**
+     * Bits per value for bit-packed encodings. For {@link #ENC_PLAIN_LONG_ZM}
+     * this is 64. For {@link #ENC_COMPACT_ZM} this is taken from the nested
+     * compact header (so constant-run encodings surface as 0 here too).
+     */
     public byte valueBitWidth;
     public int dictSize;
     public int[] dict;       // length ≥ dictSize
@@ -109,8 +165,15 @@ public final class NumberRegion {
       count = bb.getInt();
       valueMin = bb.getLong();
       valueMax = bb.getLong();
-      valueBase = bb.getLong();
-      valueBitWidth = bb.get();
+      if (encodingKind == ENC_COMPACT_ZM) {
+        // Compact-ZM: no outer valueBase/valueBitWidth — those live inside
+        // the nested compact header which precedes the body.
+        valueBase = 0L;
+        valueBitWidth = 0;
+      } else {
+        valueBase = bb.getLong();
+        valueBitWidth = bb.get();
+      }
       dictSize = bb.getInt();
       if (dict == null || dict.length < dictSize) dict = new int[Math.max(4, dictSize)];
       if (tagStart == null || tagStart.length < dictSize) tagStart = new int[Math.max(4, dictSize)];
@@ -127,8 +190,24 @@ public final class NumberRegion {
         tagMin = null;
         tagMax = null;
       }
-      valueBytesOffset = bb.position();
-      valueBytesLength = bitsToBytes((long) count * (isBitPacked(encodingKind) ? valueBitWidth : 64));
+      if (encodingKind == ENC_COMPACT_ZM) {
+        // Parse the nested compact header. Populate valueBase/valueBitWidth
+        // so existing decoders can treat compact-ZM uniformly. Set
+        // valueBytesOffset to point at the compact body (not the compact
+        // header) — decodeValueAt adjusts via the compact codec's bit
+        // arithmetic.
+        final int compactHeaderOff = bb.position();
+        final MemorySegment segView = MemorySegment.ofArray(payload);
+        final NumberRegionCompact.Header compactH = new NumberRegionCompact.Header();
+        NumberRegionCompact.readHeader(segView, compactHeaderOff, compactH);
+        valueBase = compactH.minValue;
+        valueBitWidth = compactH.bitWidth;
+        valueBytesOffset = (int) compactH.bodyOffset;
+        valueBytesLength = (int) compactH.bodyBytes;
+      } else {
+        valueBytesOffset = bb.position();
+        valueBytesLength = bitsToBytes((long) count * (isBitPacked(encodingKind) ? valueBitWidth : 64));
+      }
       return this;
     }
 
@@ -231,6 +310,10 @@ public final class NumberRegion {
     }
     final long spread = count == 0 ? 0 : (max - min);
     final boolean bitPacked = count > 0 && spread >= 0 && spread < (1L << 48);
+    if (bitPacked && compactWriteEnabled()) {
+      return encodeCompactZM(sortedValues, count, dict, dictSize, tagStart, tagCount,
+          tagMin, tagMax, min, max, tagKind);
+    }
     // Zone-map-carrying encoding kinds (2/3). The non-ZM kinds (0/1) remain legacy-
     // readable but are no longer written.
     final byte encodingKind = bitPacked ? ENC_BIT_PACKED_ZM : ENC_PLAIN_LONG_ZM;
@@ -273,12 +356,76 @@ public final class NumberRegion {
     return out;
   }
 
+  /**
+   * Build an {@link #ENC_COMPACT_ZM} payload. Outer layout is:
+   * <pre>
+   * byte encodingKind(4), byte tagKind, int count,
+   * long valueMin, long valueMax,
+   * int dictSize, int[dictSize] dict, int[dictSize] tagStart,
+   * int[dictSize] tagCount, long[dictSize] tagMin, long[dictSize] tagMax,
+   * NumberRegionCompact payload (its own header: version, bitWidth,
+   * varint count, minValue, bit-packed body).
+   * </pre>
+   *
+   * <p>Trade-off vs {@link #ENC_BIT_PACKED_ZM}: saves 8 B (no outer valueBase)
+   * + 1 B (no outer valueBitWidth) = 9 B. Adds compact header: 1 (version) +
+   * 1 (bitWidth) + varint(count) + 8 (minValue) = ~11 B. Net: ~+2 B per
+   * region. Potential win is a cleaner scan decoder that handles constant-run
+   * ({@code bitWidth == 0}) branchlessly via the compact API, which matters
+   * when value scans dominate cold CPU.
+   */
+  private static byte[] encodeCompactZM(final long[] sortedValues, final int count,
+      final int[] dict, final int dictSize, final int[] tagStart, final int[] tagCount,
+      final long[] tagMin, final long[] tagMax, final long min, final long max,
+      final byte tagKind) {
+    // Pre-size: outer (no valueBase/valueBitWidth) + compact size.
+    final int outerHeaderBytes = 1 /* encodingKind */ + 1 /* tagKind */ + 4 /* count */
+        + 8 /* valueMin */ + 8 /* valueMax */ + 4 /* dictSize */
+        + (4 * dictSize)   // dict
+        + (4 * dictSize)   // tagStart
+        + (4 * dictSize);  // tagCount
+    final int zoneMapBytes = (8 + 8) * dictSize;
+    final long compactSize = NumberRegionCompact.maxEncodedSize(sortedValues, count);
+    final int totalBytes = outerHeaderBytes + zoneMapBytes + (int) compactSize;
+    final byte[] out = new byte[totalBytes];
+    final ByteBuffer bb = ByteBuffer.wrap(out).order(ByteOrder.LITTLE_ENDIAN);
+    bb.put(ENC_COMPACT_ZM);
+    bb.put(tagKind);
+    bb.putInt(count);
+    bb.putLong(min);
+    bb.putLong(max);
+    bb.putInt(dictSize);
+    for (int i = 0; i < dictSize; i++) bb.putInt(dict[i]);
+    for (int i = 0; i < dictSize; i++) bb.putInt(tagStart[i]);
+    for (int i = 0; i < dictSize; i++) bb.putInt(tagCount[i]);
+    for (int i = 0; i < dictSize; i++) bb.putLong(tagMin[i]);
+    for (int i = 0; i < dictSize; i++) bb.putLong(tagMax[i]);
+
+    final int compactStart = bb.position();
+    final MemorySegment view = MemorySegment.ofArray(out);
+    final long written = NumberRegionCompact.writeCompact(view, compactStart, sortedValues, count);
+    // The compact writer returns actual bytes; if we over-sized the byte[]
+    // we must trim. maxEncodedSize is exact for the bit-packed body size so
+    // this should always equal compactSize, but be defensive.
+    final int actualTotal = compactStart + (int) written;
+    if (actualTotal == out.length) {
+      return out;
+    }
+    final byte[] trimmed = new byte[actualTotal];
+    System.arraycopy(out, 0, trimmed, 0, actualTotal);
+    return trimmed;
+  }
+
   // ───────────────────────────────────────────────────────────── decoding
 
   /** Decode the value at {@code index} (absolute within the sorted payload). O(1). */
   public static long decodeValueAt(final byte[] payload, final Header h, final int index) {
     if (!isBitPacked(h.encodingKind)) {
       return readLittleEndianLong(payload, h.valueBytesOffset + (index << 3));
+    }
+    if (h.valueBitWidth == 0) {
+      // Constant-run (compact codec) — every value equals valueBase.
+      return h.valueBase;
     }
     return h.valueBase + bitUnpackLong(payload, h.valueBytesOffset, h.valueBitWidth, index);
   }
@@ -305,6 +452,12 @@ public final class NumberRegion {
       int off = h.valueBytesOffset;
       for (int i = 0; i < count; i++, off += 8) {
         out[i] = readLittleEndianLong(payload, off);
+      }
+    } else if (h.valueBitWidth == 0) {
+      // Constant-run — compact-ZM shortcut.
+      final long base = h.valueBase;
+      for (int i = 0; i < count; i++) {
+        out[i] = base;
       }
     } else {
       final long base = h.valueBase;

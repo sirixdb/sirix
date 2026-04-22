@@ -1,0 +1,8 @@
+total_samples=44619
+
+TOP 25 LEAF FRAMES:
+44221	99.108	java.util.concurrent.ConcurrentHashMap$Node_[i]
+182	0.407898	int[]_[i]
+121	0.271185	java.lang.Object_[i]
+93	0.208431	java.util.concurrent.locks.ReentrantLock$NonfairSync_[i]
+2	0.0044824	java.util.concurrent.ConcurrentHashMap$TreeBin_[i]

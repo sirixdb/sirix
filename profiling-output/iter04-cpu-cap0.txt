@@ -1,0 +1,55 @@
+--- Execution profile ---
+Total samples       : 8204
+
+          ns  percent  samples  top
+  ----------  -------  -------  ---
+ 12350491628   15.05%     1235  io.sirix.index.projection.ProjectionIndexByteScan.conjunctiveCountByGroup
+  9870170902   12.03%      987  java.lang.invoke.VarHandle.checkAccessModeThenIsDirect
+  8140421521    9.92%      814  java.lang.invoke.VarHandleByteArrayAsInts$ArrayHandle.get
+  6140248470    7.48%      614  java.lang.invoke.VarForm.getMemberName
+  5120305274    6.24%      512  it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap.addTo
+  4910051191    5.98%      491  java.lang.invoke.VarHandleByteArrayAsInts$ArrayHandle.index
+  3360086033    4.10%      336  java.lang.invoke.VarHandleGuards.guard_LI_I
+  1839958402    2.24%      184  __memcpy_sse2_unaligned_erms
+  1369976899    1.67%      137  do_user_addr_fault_[k]
+  1060325802    1.29%      106  clear_page_erms_[k]
+  1050174386    1.28%      105  jdk.incubator.vector.LongVector$LongSpecies.rvOp
+   980069147    1.19%       98  it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap.addToValue
+   830080938    1.01%       83  jdk.incubator.vector.AbstractMask.toLongHelper
+   790041715    0.96%       79  java.lang.String.equals
+   770053321    0.94%       77  io.sirix.index.projection.ProjectionIndexByteScan.evalNumericBytes
+   760017224    0.93%       76  native_queued_spin_lock_slowpath_[k]
+   693449259    0.85%       69  _raw_spin_unlock_irqrestore_[k]
+   669530139    0.82%       67  java.util.Arrays.copyOf
+   560027487    0.68%       56  jdk.internal.vm.vector.VectorSupport.compare
+   499871221    0.61%       50  _copy_to_iter_[k]
+   490012003    0.60%       49  io.sirix.index.projection.ProjectionIndexByteScan.countLeaf
+   450038956    0.55%       45  it.unimi.dsi.fastutil.HashCommon.mix
+   440022377    0.54%       44  io.sirix.index.projection.ProjectionIndexByteScan.evaluateLeafMask
+   440019724    0.54%       44  jdk.internal.misc.Unsafe.getIntUnaligned
+   360035493    0.44%       36  jdk.internal.vm.vector.VectorSupport.load
+   300028907    0.37%       30  java.lang.Long.numberOfTrailingZeros
+   290001802    0.35%       29  jdk.internal.vm.vector.VectorSupport.maskReductionCoerced
+   270009907    0.33%       27  void com.oracle.svm.core.genscavenge.GreyToBlackObjRefVisitor::visitObjectReferences
+   260068112    0.32%       26  java.lang.invoke.VarHandleByteArrayAsLongs$ArrayHandle.get
+   250042433    0.30%       25  java.lang.invoke.VarHandleByteArrayAsLongs$ArrayHandle.index
+   250033088    0.30%       25  down_read_trylock_[k]
+   240022132    0.29%       24  jdk.incubator.vector.LongVector.bTest
+   240007398    0.29%       24  G1ParScanThreadState::trim_queue_to_threshold
+   220082544    0.27%       22  get_mem_cgroup_from_mm_[k]
+   220079677    0.27%       22  mem_cgroup_commit_charge_[k]
+   210032259    0.26%       21  __handle_mm_fault_[k]
+   209987571    0.26%       21  jdk.internal.vm.vector.VectorSupport.fromBitsCoerced
+   180037655    0.22%       18  io.sirix.index.projection.ProjectionIndexHOTStorage.collectSubtreeChunks
+   180001379    0.22%       18  up_read_[k]
+   170007495    0.21%       17  void LibGraalClassLoader_69504ae9::jdk.graal.compiler.nodes.loop.LoopFragment::markFloating
+   159996511    0.19%       16  void LibGraalClassLoader_69504ae9::jdk.graal.compiler.nodes.cfg.ControlFlowGraph::identifyBlocks
+   150061331    0.18%       15  jlong_disjoint_arraycopy
+   150030783    0.18%       15  void LibGraalClassLoader_69504ae9::jdk.graal.compiler.graph.iterators.PredicatedProxyNodeIterator::forward
+   150025276    0.18%       15  jdk.incubator.vector.LongVector.fromArray0Template
+   150021560    0.18%       15  jdk.incubator.vector.LongVector.compareWithOp
+   150013717    0.18%       15  void LibGraalClassLoader_69504ae9::jdk.graal.compiler.nodes.loop.LoopFragment::computeNodes
+   149996742    0.18%       15  jdk.incubator.vector.LongVector.lambda$fromArray0Template$1
+   149707887    0.18%       15  jbyte_disjoint_arraycopy
+   140047634    0.17%       14  jdk.incubator.vector.Long256Vector.vectorFactory
+   140000605    0.17%       14  jdk.incubator.vector.Long256Vector.maskFromArray

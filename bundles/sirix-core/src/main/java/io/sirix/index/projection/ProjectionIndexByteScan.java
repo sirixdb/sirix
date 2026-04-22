@@ -29,6 +29,28 @@ import jdk.incubator.vector.VectorSpecies;
  * long[] per scan-thread (reused across leaves), otherwise zero allocs
  * on the hot path.
  *
+ * <h2>Iter#02 note — why {@link VarHandle} beat {@code sun.misc.Unsafe}</h2>
+ *
+ * An early iter#02 attempt replaced the {@code byteArrayViewVarHandle} reads
+ * with {@code sun.misc.Unsafe.getInt/getLong(byte[], base+off)} on the
+ * hypothesis that the {@code VarHandleGuards.guard_LI_I} / access-mode checks
+ * visible in a contaminated CPU profile were real per-call overhead. A clean
+ * A/B/C comparison (3 runs each of varhandle, MemorySegment via FFM, Unsafe
+ * direct — cold 100M scale bench, load ≤ 2) found:
+ * <ul>
+ *   <li>varhandle median wall <b>5.29 s</b>, projection build 2,567 ms</li>
+ *   <li>msegment median wall 5.53 s (+4.5%), build 2,659 ms</li>
+ *   <li>unsafe   median wall 5.56 s (+5.1%), build 2,729 ms</li>
+ * </ul>
+ * HotSpot's C2 already inlines and intrinsifies {@code VarHandle.get} on
+ * static-final byte-array view handles to the same raw MOVL/MOVQ that
+ * {@code Unsafe} emits; the "guard" frames only appear when the VarHandle
+ * is not proven monomorphic at the call site. Swapping to Unsafe also meant
+ * an {@code --add-exports=jdk.unsupported/sun.misc=ALL-UNNAMED} dependency
+ * that would have pulled a deprecated-for-removal API onto the hot path for
+ * zero measured benefit, so the swap was reverted. This javadoc records the
+ * result so future attempts know to skip the detour.
+ *
  * <h2>Layout decoded</h2>
  * The format is defined by {@link ProjectionIndexLeafPage#serialize}:
  * <pre>
@@ -63,6 +85,25 @@ public final class ProjectionIndexByteScan {
    */
   private static final VectorSpecies<Long> LONG_SPECIES = LongVector.SPECIES_PREFERRED;
   private static final int LANES = LONG_SPECIES.length();
+
+  /**
+   * Read a little-endian {@code int} from {@code b} at byte offset {@code off}.
+   * Forwards to {@link #INT_LE} — wrapped in a named helper so call-sites are
+   * easier to grep and the small unchecked-cast-from-Object boilerplate lives
+   * in one place. HotSpot intrinsifies the VarHandle call to a single
+   * {@code MOVL} after warm-up.
+   */
+  private static int getIntLE(final byte[] b, final int off) {
+    return (int) INT_LE.get(b, off);
+  }
+
+  /**
+   * Read a little-endian {@code long} from {@code b} at byte offset {@code off}.
+   * Intrinsified to a single {@code MOVQ} by HotSpot.
+   */
+  private static long getLongLE(final byte[] b, final int off) {
+    return (long) LONG_LE.get(b, off);
+  }
 
   /**
    * Thread-local scan scratch. Hoisted out of {@link #conjunctiveCount} and
@@ -101,7 +142,7 @@ public final class ProjectionIndexByteScan {
   public static long countRows(final Iterable<byte[]> leafPayloads) {
     long total = 0;
     for (final byte[] payload : leafPayloads) {
-      total += (int) INT_LE.get(payload, 0);
+      total += getIntLE(payload, 0);
     }
     return total;
   }
@@ -186,7 +227,7 @@ public final class ProjectionIndexByteScan {
             + " is not STRING_DICT (kind=" + groupKind + ")");
       }
       final int groupBase = s.columnDataOff[groupColumn];
-      final int dictSize = (int) INT_LE.get(payload, groupBase);
+      final int dictSize = getIntLE(payload, groupBase);
       if (dictCache.length < dictSize) {
         final int newSize = Math.max(dictCache.length * 2, dictSize);
         dictCache = new String[newSize];
@@ -204,7 +245,7 @@ public final class ProjectionIndexByteScan {
       int running = concatOff;
       for (int i = 0; i < dictSize; i++) {
         dictByteOff[i] = running;
-        running += (int) INT_LE.get(payload, lenHeaderOff + i * 4);
+        running += getIntLE(payload, lenHeaderOff + i * 4);
       }
       final int idsOff = running;
 
@@ -217,11 +258,11 @@ public final class ProjectionIndexByteScan {
           word &= word - 1L;
           final int rowIdx = (w << 6) + bit;
           if (rowIdx >= rowCount) break;
-          final int dictId = (int) INT_LE.get(payload, idsOff + rowIdx * 4);
+          final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
           String gv = dictCache[dictId];
           if (gv == null) {
             final int byteOff = dictByteOff[dictId];
-            final int len = (int) INT_LE.get(payload, lenHeaderOff + dictId * 4);
+            final int len = getIntLE(payload, lenHeaderOff + dictId * 4);
             // Lookup by 64-bit FNV-1a hash — zero-alloc hit path.
             // Collision rate at N=10^7 distinct values ≈ 10⁻¹⁹.
             final long h = fnv1a64(payload, byteOff, len);
@@ -239,7 +280,7 @@ public final class ProjectionIndexByteScan {
   }
 
   private static int columnCountOf(final byte[] payload) {
-    return (int) INT_LE.get(payload, 4);
+    return getIntLE(payload, 4);
   }
 
   private static long countLeaf(final byte[] payload,
@@ -269,9 +310,9 @@ public final class ProjectionIndexByteScan {
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int[] columnDataOff, final int[] columnMinMaxOff,
       final long[] numericScratch, final long[] mask, final long[] colMask) {
-    final int rowCount = (int) INT_LE.get(payload, 0);
+    final int rowCount = getIntLE(payload, 0);
     if (rowCount == 0) return 0;
-    final int columnCount = (int) INT_LE.get(payload, 4);
+    final int columnCount = getIntLE(payload, 4);
     final int kindsOff = 24;
     final int recordKeysOff = kindsOff + columnCount;
 
@@ -287,10 +328,10 @@ public final class ProjectionIndexByteScan {
         case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> cursor += rowCount * 8;
         case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
-          final int dictSize = (int) INT_LE.get(payload, cursor);
+          final int dictSize = getIntLE(payload, cursor);
           int lenTotal = 0;
           for (int i = 0; i < dictSize; i++) {
-            lenTotal += (int) INT_LE.get(payload, cursor + 4 + i * 4);
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
           }
           cursor += 4 + dictSize * 4 + lenTotal + rowCount * 4;
         }
@@ -303,8 +344,8 @@ public final class ProjectionIndexByteScan {
     for (final var p : predicates) {
       final byte kind = payload[kindsOff + p.column];
       if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) continue;
-      final long min = (long) LONG_LE.get(payload, columnMinMaxOff[p.column]);
-      final long max = (long) LONG_LE.get(payload, columnMinMaxOff[p.column] + 8);
+      final long min = getLongLE(payload, columnMinMaxOff[p.column]);
+      final long max = getLongLE(payload, columnMinMaxOff[p.column] + 8);
       if (zoneSkip(p, min, max)) return 0;
     }
 
@@ -318,7 +359,7 @@ public final class ProjectionIndexByteScan {
       final byte kind = payload[kindsOff + p.column];
       switch (kind) {
         case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> evalNumericBytes(
-            payload, columnDataOff[p.column], rowCount, p.op, p.longLit, numericScratch, colMask);
+            payload, columnDataOff[p.column], rowCount, p.op, p.longLit, p.highLit, numericScratch, colMask);
         case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> evalBooleanBytes(
             payload, columnDataOff[p.column], rowCount, p.boolLit, colMask);
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> evalStringEqBytes(
@@ -338,6 +379,13 @@ public final class ProjectionIndexByteScan {
       case GE -> max < p.longLit;
       case LE -> min > p.longLit;
       case EQ -> p.longLit < min || p.longLit > max;
+      // BETWEEN zone-skip: OR of the two single-bound zone-skip conditions.
+      // Strictly no more pessimistic than two independent predicates — see
+      // iter07-range-fusion-analysis.md for the semantics derivation.
+      case BETWEEN_GT_LT -> max <= p.longLit || min >= p.highLit;
+      case BETWEEN_GT_LE -> max <= p.longLit || min > p.highLit;
+      case BETWEEN_GE_LT -> max < p.longLit || min >= p.highLit;
+      case BETWEEN_GE_LE -> max < p.longLit || min > p.highLit;
     };
   }
 
@@ -375,46 +423,107 @@ public final class ProjectionIndexByteScan {
    */
   private static void evalNumericBytes(final byte[] payload,
       final int baseOff, final int rowCount, final ProjectionIndexScan.Op op,
-      final long lit, final long[] scratch, final long[] out) {
+      final long lit, final long highLit, final long[] scratch, final long[] out) {
     // 1) Load column into scratch — fully intrinsified (MOVQ per lane).
+    //    Shared between single-bound and BETWEEN paths: the fused range
+    //    eliminates the *second* load that the un-fused pair would do,
+    //    which is the dominant saving (~8 KB/leaf × 97,657 leaves).
     for (int k = 0; k < rowCount; k++) {
-      scratch[k] = (long) LONG_LE.get(payload, baseOff + k * 8);
+      scratch[k] = getLongLE(payload, baseOff + k * 8);
     }
-    final VectorOperators.Comparison cmp = switch (op) {
-      case GT -> VectorOperators.GT;
-      case LT -> VectorOperators.LT;
-      case GE -> VectorOperators.GE;
-      case LE -> VectorOperators.LE;
-      case EQ -> VectorOperators.EQ;
-    };
-    // 2) SIMD-eval over scratch. LongVector.fromArray(long[]) is a
-    // pure intrinsic — no scope checks, bounds folds into the trip
-    // count test.
+    // BETWEEN range ops fuse two opposing-direction compares into one
+    // SIMD pass. Kept as a distinct branch so the single-bound op arm
+    // stays a single MOVM (one compare + mask store).
+    switch (op) {
+      case BETWEEN_GT_LT -> evalBetween(scratch, rowCount, VectorOperators.GT, lit,
+          VectorOperators.LT, highLit, out);
+      case BETWEEN_GT_LE -> evalBetween(scratch, rowCount, VectorOperators.GT, lit,
+          VectorOperators.LE, highLit, out);
+      case BETWEEN_GE_LT -> evalBetween(scratch, rowCount, VectorOperators.GE, lit,
+          VectorOperators.LT, highLit, out);
+      case BETWEEN_GE_LE -> evalBetween(scratch, rowCount, VectorOperators.GE, lit,
+          VectorOperators.LE, highLit, out);
+      default -> {
+        final VectorOperators.Comparison cmp = switch (op) {
+          case GT -> VectorOperators.GT;
+          case LT -> VectorOperators.LT;
+          case GE -> VectorOperators.GE;
+          case LE -> VectorOperators.LE;
+          case EQ -> VectorOperators.EQ;
+          default -> throw new IllegalStateException("unreachable: BETWEEN handled above");
+        };
+        // 2) SIMD-eval over scratch. LongVector.fromArray(long[]) is a
+        // pure intrinsic — no scope checks, bounds folds into the trip
+        // count test.
+        int i = 0;
+        final int simdEnd = rowCount - (rowCount % LANES);
+        for (; i < simdEnd; i += LANES) {
+          final LongVector v = LongVector.fromArray(LONG_SPECIES, scratch, i);
+          final VectorMask<Long> m = v.compare(cmp, lit);
+          final long bits = m.toLong();
+          if (bits != 0L) {
+            final int wordIdx = i >>> 6;
+            final int bitOffset = i & 63;
+            // LANES ∈ {2,4,8} divides 64, so bits never straddle two output
+            // words — one shift + OR is sufficient.
+            out[wordIdx] |= bits << bitOffset;
+          }
+        }
+        // Scalar tail — 0..LANES-1 values remain.
+        for (; i < rowCount; i++) {
+          final long v = scratch[i];
+          final boolean match = switch (op) {
+            case GT -> v > lit;
+            case LT -> v < lit;
+            case GE -> v >= lit;
+            case LE -> v <= lit;
+            case EQ -> v == lit;
+            default -> throw new IllegalStateException("unreachable: BETWEEN handled above");
+          };
+          if (match) out[i >>> 6] |= 1L << (i & 63);
+        }
+      }
+    }
+  }
+
+  /**
+   * Fused BETWEEN evaluator: one SIMD-load pass produces the
+   * {@code (lowCmp, lowLit) AND (highCmp, highLit)} bitmap. The scratch
+   * buffer is expected to hold the column values (caller populates).
+   *
+   * <p>Cost-per-leaf (AVX-512, LANES=8, 1024 rows):
+   * 128 iters × {2 vector compares, 1 AND, 1 OR-into-mask} ≈ 300 ns
+   * compute + ~1 µs scratch-load shared with the single-bound path.
+   * The un-fused pair would pay <b>two</b> scratch loads (~2 µs) for
+   * the same result.
+   *
+   * <p>HFT invariants: no allocation, no virtual dispatch, {@code final}
+   * on all parameters, tableswitch folded by C2 at the call site.
+   */
+  private static void evalBetween(final long[] scratch, final int rowCount,
+      final VectorOperators.Comparison lowCmp, final long lowLit,
+      final VectorOperators.Comparison highCmp, final long highLit, final long[] out) {
     int i = 0;
     final int simdEnd = rowCount - (rowCount % LANES);
     for (; i < simdEnd; i += LANES) {
       final LongVector v = LongVector.fromArray(LONG_SPECIES, scratch, i);
-      final VectorMask<Long> m = v.compare(cmp, lit);
-      final long bits = m.toLong();
+      final VectorMask<Long> mLo = v.compare(lowCmp, lowLit);
+      final VectorMask<Long> mHi = v.compare(highCmp, highLit);
+      final long bits = mLo.and(mHi).toLong();
       if (bits != 0L) {
         final int wordIdx = i >>> 6;
         final int bitOffset = i & 63;
-        // LANES ∈ {2,4,8} divides 64, so bits never straddle two output
-        // words — one shift + OR is sufficient.
         out[wordIdx] |= bits << bitOffset;
       }
     }
     // Scalar tail — 0..LANES-1 values remain.
+    final boolean lowIncl = lowCmp == VectorOperators.GE;
+    final boolean highIncl = highCmp == VectorOperators.LE;
     for (; i < rowCount; i++) {
       final long v = scratch[i];
-      final boolean match = switch (op) {
-        case GT -> v > lit;
-        case LT -> v < lit;
-        case GE -> v >= lit;
-        case LE -> v <= lit;
-        case EQ -> v == lit;
-      };
-      if (match) out[i >>> 6] |= 1L << (i & 63);
+      final boolean loOk = lowIncl ? (v >= lowLit) : (v > lowLit);
+      final boolean hiOk = highIncl ? (v <= highLit) : (v < highLit);
+      if (loOk && hiOk) out[i >>> 6] |= 1L << (i & 63);
     }
   }
 
@@ -423,11 +532,11 @@ public final class ProjectionIndexByteScan {
     final int stride = (rowCount + 63) >>> 6;
     if (wantTrue) {
       for (int i = 0; i < stride; i++) {
-        out[i] = (long) LONG_LE.get(payload, baseOff + i * 8);
+        out[i] = getLongLE(payload, baseOff + i * 8);
       }
     } else {
       for (int i = 0; i < stride; i++) {
-        out[i] = ~(long) LONG_LE.get(payload, baseOff + i * 8);
+        out[i] = ~getLongLE(payload, baseOff + i * 8);
       }
       final int tail = rowCount & 63;
       if (tail != 0) out[stride - 1] &= (1L << tail) - 1L;
@@ -437,11 +546,11 @@ public final class ProjectionIndexByteScan {
   private static void evalStringEqBytes(final byte[] payload, final int baseOff,
       final int rowCount, final byte[] literal, final long[] out) {
     // Dict header: [int dictSize][int[dictSize] lengths][concat bytes][int[rowCount] ids]
-    final int dictSize = (int) INT_LE.get(payload, baseOff);
+    final int dictSize = getIntLE(payload, baseOff);
     int concatOff = baseOff + 4 + dictSize * 4;
     int targetDictId = -1;
     for (int i = 0; i < dictSize; i++) {
-      final int len = (int) INT_LE.get(payload, baseOff + 4 + i * 4);
+      final int len = getIntLE(payload, baseOff + 4 + i * 4);
       if (bytesEqualAt(payload, concatOff, len, literal)) {
         targetDictId = i;
         // Don't break — still need concatOff to advance past all dict entries
@@ -453,7 +562,7 @@ public final class ProjectionIndexByteScan {
     if (targetDictId < 0) return;
     final int idsOff = concatOff;
     for (int i = 0; i < rowCount; i++) {
-      if ((int) INT_LE.get(payload, idsOff + i * 4) == targetDictId) {
+      if (getIntLE(payload, idsOff + i * 4) == targetDictId) {
         out[i >>> 6] |= 1L << (i & 63);
       }
     }
