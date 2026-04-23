@@ -635,4 +635,156 @@ final class ProjectionIndexByteScanTest {
         List.of(), 2, 16, 256);
     org.junit.jupiter.api.Assertions.assertNull(canonical);
   }
+
+  // ---------------------------------------------------------------------
+  // iter#22 FOR-BP parity tests. Serialisation upgrades every numeric
+  // column to COLUMN_KIND_NUMERIC_LONG_FOR_BP; the scan's dispatch must
+  // produce identical row counts to the materialising scan, regardless
+  // of the value-range spread (which drives the encoder's bitWidth).
+  // ---------------------------------------------------------------------
+
+  @Test
+  void forBpNumericGtParityNarrowRange() {
+    // Values in [40, 49] → bitWidth 4, fast-path gate mixed.
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 10));
+    // Sanity: the serialised wire kind for column 0 should be FOR-BP.
+    assertEquals(ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG_FOR_BP, leaves.get(0)[24]);
+    final ProjectionIndexScan.ColumnPredicate[] preds = {
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GT, 43L)
+    };
+    assertEquals(
+        ProjectionIndexScan.conjunctiveCount(leaves, preds),
+        ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+  }
+
+  @Test
+  void forBpNumericEqParity() {
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 10));
+    final ProjectionIndexScan.ColumnPredicate[] preds = {
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.EQ, 42L)
+    };
+    assertEquals(
+        ProjectionIndexScan.conjunctiveCount(leaves, preds),
+        ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+  }
+
+  @Test
+  void forBpNumericBetweenParity() {
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 100));
+    final ProjectionIndexScan.ColumnPredicate[] preds = {
+        ProjectionIndexScan.ColumnPredicate.numericBetween(
+            0, ProjectionIndexScan.Op.GE, 45L, ProjectionIndexScan.Op.LT, 80L)
+    };
+    assertEquals(
+        ProjectionIndexScan.conjunctiveCount(leaves, preds),
+        ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+  }
+
+  @Test
+  void forBpZoneMapPruneAllNone() {
+    // Predicate outside [40, 49] — zone-skip triggers both on the 16-byte
+    // column min/max prefix (unchanged from raw) and on the FOR-BP
+    // bit-width gate.
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 10));
+    final ProjectionIndexScan.ColumnPredicate[] preds = {
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GT, 10000L)
+    };
+    assertEquals(0L, ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+    assertEquals(0L, ProjectionIndexScan.conjunctiveCount(leaves, preds));
+  }
+
+  @Test
+  void forBpZoneMapPruneAllMatch() {
+    // Predicate covers entire range — both scans should return rowCount.
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 10));
+    final ProjectionIndexScan.ColumnPredicate[] preds = {
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GT, -100L)
+    };
+    assertEquals(10L, ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+    assertEquals(10L, ProjectionIndexScan.conjunctiveCount(leaves, preds));
+  }
+
+  @Test
+  void forBpConstantRunParity() {
+    // All rows share the same numeric value → bitWidth == 0 constant-run fast path.
+    final byte[] kinds = {
+        ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
+        ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
+        ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+    };
+    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(kinds);
+    for (int i = 0; i < 50; i++) {
+      final long[] nums = {42L, 0L, 0L};
+      final boolean[] bools = {false, false, false};
+      final String[] strs = {null, null, "X"};
+      p.appendRow(1000L + i, nums, bools, strs);
+    }
+    final List<byte[]> leaves = List.of(p.serialize());
+    // EQ 42 — constant-run all-match.
+    final ProjectionIndexScan.ColumnPredicate[] eq = {
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.EQ, 42L)
+    };
+    assertEquals(50L, ProjectionIndexByteScan.conjunctiveCount(leaves, eq));
+    // EQ 41 — constant-run no-match.
+    final ProjectionIndexScan.ColumnPredicate[] ne = {
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.EQ, 41L)
+    };
+    assertEquals(0L, ProjectionIndexByteScan.conjunctiveCount(leaves, ne));
+  }
+
+  @Test
+  void forBpWideRangeParity() {
+    // Values with moderate spread (0..1023) → bitWidth 10.
+    final byte[] kinds = {ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG};
+    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(kinds);
+    for (int i = 0; i < 1024; i++) {
+      final long[] nums = {(long) i};
+      p.appendRow(i, nums, new boolean[]{false}, new String[]{null});
+    }
+    final List<byte[]> leaves = List.of(p.serialize());
+    for (final long threshold : new long[]{0L, 100L, 500L, 1000L, 1024L}) {
+      final ProjectionIndexScan.ColumnPredicate[] preds = {
+          ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.LT, threshold)
+      };
+      assertEquals(
+          ProjectionIndexScan.conjunctiveCount(leaves, preds),
+          ProjectionIndexByteScan.conjunctiveCount(leaves, preds),
+          "threshold=" + threshold);
+    }
+  }
+
+  @Test
+  void forBpCombinedPredicatesParity() {
+    // Tri-column predicate on FOR-BP numeric + raw boolean + string-dict
+    // exercises the full evaluateLeafMask path.
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 100));
+    final ProjectionIndexScan.ColumnPredicate[] preds = {
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GE, 50L),
+        ProjectionIndexScan.ColumnPredicate.booleanEq(1, true),
+        ProjectionIndexScan.ColumnPredicate.stringEq(2, "Eng".getBytes(StandardCharsets.UTF_8))
+    };
+    assertEquals(
+        ProjectionIndexScan.conjunctiveCount(leaves, preds),
+        ProjectionIndexByteScan.conjunctiveCount(leaves, preds));
+  }
+
+  @Test
+  void forBpGroupByParity() {
+    // Group by STRING_DICT column (col 2) while filtering on FOR-BP
+    // numeric column (col 0). Validates that the group-by dispatch
+    // walks past a FOR-BP-encoded column correctly.
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 100));
+    final ProjectionIndexScan.ColumnPredicate[] preds = {
+        ProjectionIndexScan.ColumnPredicate.numeric(0, ProjectionIndexScan.Op.GE, 50L)
+    };
+    final Object2LongOpenHashMap<String> out = new Object2LongOpenHashMap<>();
+    out.defaultReturnValue(0L);
+    ProjectionIndexByteScan.conjunctiveCountByGroup(leaves, preds, 2, out);
+    long total = 0L;
+    for (final String k : new String[]{"Eng", "Sales", "Ops"}) {
+      total += out.getLong(k);
+    }
+    // 90 rows match (i where 40+i ≥ 50 ⇒ i ≥ 10 ⇒ rows 10..99) across 3 depts.
+    assertEquals(90L, total);
+  }
 }

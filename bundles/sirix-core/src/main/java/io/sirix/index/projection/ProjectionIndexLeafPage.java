@@ -3,7 +3,11 @@
  */
 package io.sirix.index.projection;
 
+import io.sirix.page.pax.NumberRegionCompact;
+
 import java.io.ByteArrayOutputStream;
+import java.lang.foreign.MemorySegment;
+import java.lang.foreign.ValueLayout;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -145,6 +149,26 @@ public final class ProjectionIndexLeafPage {
   public static final byte COLUMN_KIND_NUMERIC_LONG = 0;
   public static final byte COLUMN_KIND_BOOLEAN = 1;
   public static final byte COLUMN_KIND_STRING_DICT = 2;
+  /**
+   * iter#22 — persist-time Frame-of-Reference + Bit-Packing encoded numeric-long column.
+   * In-memory representation is identical to {@link #COLUMN_KIND_NUMERIC_LONG}
+   * (a {@code long[]} in {@link #numericCols}); the kind diverges only at
+   * serialize time so bandwidth on the install hydrate path shrinks without
+   * changing the writer, reader (materialising path), or builder.
+   *
+   * <p>Wire format per column:
+   * <pre>
+   *   long min                 // zone-map lower bound (identical to NUMERIC_LONG)
+   *   long max                 // zone-map upper bound
+   *   [NumberRegionCompact body]  // version + bitWidth + varint(count) + minValue + packed body
+   * </pre>
+   * The 16-byte min/max prefix is carried verbatim so the zone-skip scan
+   * arm is oblivious to whether the column is FOR-BP or raw. The SIMD
+   * scan branch decodes the packed body into caller-owned scratch on
+   * demand, then falls through to the shared scalar-broadword predicate
+   * evaluator.
+   */
+  public static final byte COLUMN_KIND_NUMERIC_LONG_FOR_BP = 3;
 
   /** Number of populated rows on this page, {@code 0..MAX_ROWS}. */
   private int rowCount;
@@ -278,7 +302,11 @@ public final class ProjectionIndexLeafPage {
       recordKeys = new long[MAX_ROWS];
       for (int c = 0; c < columnCount; c++) {
         switch (columnKinds[c]) {
-          case COLUMN_KIND_NUMERIC_LONG -> numericCols[c] = new long[MAX_ROWS];
+          // FOR-BP shares the in-memory shape of NUMERIC_LONG — the codec
+          // branch activates only at serialise/deserialise time. Callers
+          // continue to append via long[] rowLongs.
+          case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_LONG_FOR_BP ->
+              numericCols[c] = new long[MAX_ROWS];
           case COLUMN_KIND_BOOLEAN -> booleanCols[c] = new long[(MAX_ROWS + 63) >>> 6];
           case COLUMN_KIND_STRING_DICT -> {
             stringDictIdCols[c] = new int[MAX_ROWS];
@@ -311,7 +339,7 @@ public final class ProjectionIndexLeafPage {
     if (recordKey > lastRecordKey) lastRecordKey = recordKey;
     for (int c = 0; c < columnCount; c++) {
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG -> {
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_LONG_FOR_BP -> {
           final long v = longValues[c];
           numericCols[c][row] = v;
           if (v < columnMin[c]) columnMin[c] = v;
@@ -367,6 +395,11 @@ public final class ProjectionIndexLeafPage {
   /**
    * Parse a serialised leaf byte[] back into a live
    * {@link ProjectionIndexLeafPage}. Inverse of {@link #serialize}.
+   * Both raw {@link #COLUMN_KIND_NUMERIC_LONG} and FOR-BP encoded
+   * {@link #COLUMN_KIND_NUMERIC_LONG_FOR_BP} numeric columns decode into
+   * the same in-memory {@code long[]} — callers see an indistinguishable
+   * materialised view regardless of wire format. Scan hot paths bypass
+   * this method via {@link ProjectionIndexByteScan}.
    */
   public static ProjectionIndexLeafPage deserialize(final byte[] payload) {
     final ByteBuffer bb = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
@@ -383,6 +416,11 @@ public final class ProjectionIndexLeafPage {
     if (rowCount == 0) return page;
     page.ensureCapacity();
     for (int i = 0; i < rowCount; i++) page.recordKeys[i] = bb.getLong();
+    // MemorySegment view is computed lazily on first FOR-BP column. It's a
+    // zero-copy on-heap view — cheap — but skipping it for all-raw leaves
+    // keeps the cold path free of any MemorySegment machinery.
+    MemorySegment payloadSegment = null;
+    final NumberRegionCompact.Header tmpHeader = new NumberRegionCompact.Header();
     for (int c = 0; c < columnCount; c++) {
       page.columnMin[c] = bb.getLong();
       page.columnMax[c] = bb.getLong();
@@ -390,6 +428,25 @@ public final class ProjectionIndexLeafPage {
         case COLUMN_KIND_NUMERIC_LONG -> {
           final long[] col = page.numericCols[c];
           for (int i = 0; i < rowCount; i++) col[i] = bb.getLong();
+        }
+        case COLUMN_KIND_NUMERIC_LONG_FOR_BP -> {
+          if (payloadSegment == null) payloadSegment = MemorySegment.ofArray(payload);
+          final int bodyStart = bb.position();
+          NumberRegionCompact.readHeader(payloadSegment, bodyStart, tmpHeader);
+          if (tmpHeader.count != rowCount) {
+            throw new IllegalStateException(
+                "FOR-BP count=" + tmpHeader.count + " != rowCount=" + rowCount);
+          }
+          NumberRegionCompact.decodeAll(payloadSegment, tmpHeader, page.numericCols[c]);
+          bb.position(bodyStart + tmpHeader.headerBytes + (int) tmpHeader.bodyBytes);
+          // Flip the deserialised page's in-memory kind to NUMERIC_LONG so
+          // the materialising scan path (ProjectionIndexScan) — which
+          // dispatches on kind — treats the decoded long[] as a raw numeric
+          // column. A subsequent serialize() upgrades it back to FOR-BP via
+          // wireKinds(). Round-trip through ProjectionIndexByteScan is byte
+          // stable; round-trip through the materialising scan produces
+          // identical results (in-memory representation is kind-agnostic).
+          page.columnKinds[c] = COLUMN_KIND_NUMERIC_LONG;
         }
         case COLUMN_KIND_BOOLEAN -> {
           final int wordCount = (rowCount + 63) >>> 6;
@@ -416,6 +473,30 @@ public final class ProjectionIndexLeafPage {
   }
 
   /**
+   * iter#22 — compute the on-disk column-kind bytes. For now each
+   * in-memory {@link #COLUMN_KIND_NUMERIC_LONG} column is upgraded to
+   * {@link #COLUMN_KIND_NUMERIC_LONG_FOR_BP} at the wire boundary —
+   * the encoder then emits Frame-of-Reference + Bit-Packed body bytes.
+   * All other kinds pass through unchanged.
+   *
+   * <p>This kept the builder, the scanner, and the reader oblivious to
+   * the switch: in-memory state is identical, serialise chooses the
+   * encoding, deserialise inverts it transparently. Because this
+   * method is only invoked at serialise time (cold path per leaf), the
+   * small {@code byte[]} allocation here has no steady-state cost; it
+   * remains outside the HFT hot-path contract which only covers the
+   * scan + hydrate loops.
+   */
+  public byte[] wireKinds() {
+    final byte[] w = new byte[columnCount];
+    for (int c = 0; c < columnCount; c++) {
+      final byte k = columnKinds[c];
+      w[c] = (k == COLUMN_KIND_NUMERIC_LONG) ? COLUMN_KIND_NUMERIC_LONG_FOR_BP : k;
+    }
+    return w;
+  }
+
+  /**
    * Serialise the current page state to a byte[] matching the on-disk
    * shape documented in the class javadoc. Zero-allocation on the hot
    * scan path is preserved by the reader — ser is a cold path used only
@@ -437,40 +518,46 @@ public final class ProjectionIndexLeafPage {
    * @param dstOff  starting byte offset within {@code dst}
    * @return bytes written
    */
-  public int serializeIntoSegment(final java.lang.foreign.MemorySegment dst, final long dstOff) {
-    final java.lang.foreign.ValueLayout.OfInt I =
-        java.lang.foreign.ValueLayout.JAVA_INT_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
-    final java.lang.foreign.ValueLayout.OfLong L =
-        java.lang.foreign.ValueLayout.JAVA_LONG_UNALIGNED.withOrder(java.nio.ByteOrder.LITTLE_ENDIAN);
+  public int serializeIntoSegment(final MemorySegment dst, final long dstOff) {
+    final ValueLayout.OfInt I =
+        ValueLayout.JAVA_INT_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
+    final ValueLayout.OfLong L =
+        ValueLayout.JAVA_LONG_UNALIGNED.withOrder(ByteOrder.LITTLE_ENDIAN);
+    final byte[] wireKinds = wireKinds();
     long off = dstOff;
     dst.set(I, off, rowCount);                          off += 4;
     dst.set(I, off, columnCount);                       off += 4;
     dst.set(L, off, firstRecordKey);                    off += 8;
     dst.set(L, off, lastRecordKey);                     off += 8;
-    // columnKinds — bulk-copy on-heap bytes to segment.
+    // columnKinds — bulk-copy on-heap bytes to segment (wire kinds).
     if (columnCount > 0) {
-      java.lang.foreign.MemorySegment.copy(
-          columnKinds, 0, dst, java.lang.foreign.ValueLayout.JAVA_BYTE, off, columnCount);
+      MemorySegment.copy(wireKinds, 0, dst, ValueLayout.JAVA_BYTE, off, columnCount);
       off += columnCount;
     }
     if (rowCount == 0) {
       return (int) (off - dstOff);
     }
     // recordKeys: bulk copy long[]
-    java.lang.foreign.MemorySegment.copy(recordKeys, 0, dst, L, off, rowCount);
+    MemorySegment.copy(recordKeys, 0, dst, L, off, rowCount);
     off += rowCount * 8L;
     // per-column
     for (int c = 0; c < columnCount; c++) {
       dst.set(L, off, columnMin[c]); off += 8;
       dst.set(L, off, columnMax[c]); off += 8;
-      switch (columnKinds[c]) {
+      switch (wireKinds[c]) {
         case COLUMN_KIND_NUMERIC_LONG -> {
-          java.lang.foreign.MemorySegment.copy(numericCols[c], 0, dst, L, off, rowCount);
+          MemorySegment.copy(numericCols[c], 0, dst, L, off, rowCount);
           off += rowCount * 8L;
+        }
+        case COLUMN_KIND_NUMERIC_LONG_FOR_BP -> {
+          // FOR-BP body: header + packed body written straight into dst.
+          // writeCompact requires a segment of at least maxEncodedSize —
+          // caller pre-sized dst via serializedSize().
+          off += NumberRegionCompact.writeCompact(dst, off, numericCols[c], rowCount);
         }
         case COLUMN_KIND_BOOLEAN -> {
           final int wordCount = (rowCount + 63) >>> 6;
-          java.lang.foreign.MemorySegment.copy(booleanCols[c], 0, dst, L, off, wordCount);
+          MemorySegment.copy(booleanCols[c], 0, dst, L, off, wordCount);
           off += wordCount * 8L;
         }
         case COLUMN_KIND_STRING_DICT -> {
@@ -484,15 +571,14 @@ public final class ProjectionIndexLeafPage {
           for (int i = 0; i < dictSize; i++) {
             final int n = dict[i].length;
             if (n > 0) {
-              java.lang.foreign.MemorySegment.copy(
-                  dict[i], 0, dst, java.lang.foreign.ValueLayout.JAVA_BYTE, off, n);
+              MemorySegment.copy(dict[i], 0, dst, ValueLayout.JAVA_BYTE, off, n);
               off += n;
             }
           }
-          java.lang.foreign.MemorySegment.copy(stringDictIdCols[c], 0, dst, I, off, rowCount);
+          MemorySegment.copy(stringDictIdCols[c], 0, dst, I, off, rowCount);
           off += rowCount * 4L;
         }
-        default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
+        default -> throw new IllegalStateException("Unknown column kind " + wireKinds[c]);
       }
     }
     return (int) (off - dstOff);
@@ -502,6 +588,12 @@ public final class ProjectionIndexLeafPage {
    * Compute the exact byte count {@link #serializeIntoSegment} will write
    * for the current leaf state. Callers pre-size the scratch segment to
    * this before the call.
+   *
+   * <p>For numeric-long columns the encoder emits FOR-BP bytes on the
+   * wire — the body size depends on the per-column spread, so this
+   * method recomputes bitWidth for each numeric column (pure O(rowCount)
+   * scan; identical to the one the encoder does later — still cheap vs
+   * the encode write-bytes cost). Boolean / string-dict sizes unchanged.
    */
   public int serializedSize() {
     int size = 4 + 4 + 8 + 8 + columnCount;            // header
@@ -510,7 +602,11 @@ public final class ProjectionIndexLeafPage {
     for (int c = 0; c < columnCount; c++) {
       size += 16;                                      // columnMin/Max
       switch (columnKinds[c]) {
-        case COLUMN_KIND_NUMERIC_LONG -> size += rowCount * 8;
+        case COLUMN_KIND_NUMERIC_LONG, COLUMN_KIND_NUMERIC_LONG_FOR_BP -> {
+          // FOR-BP encoded body. maxEncodedSize returns the exact size
+          // (header + body) for this column's values.
+          size += (int) NumberRegionCompact.maxEncodedSize(numericCols[c], rowCount);
+        }
         case COLUMN_KIND_BOOLEAN      -> size += ((rowCount + 63) >>> 6) * 8;
         case COLUMN_KIND_STRING_DICT  -> {
           final byte[][] dict = stringDicts[c];
@@ -528,34 +624,62 @@ public final class ProjectionIndexLeafPage {
   }
 
   public byte[] serialize() {
+    // iter#22 — we now need a single contiguous buffer for FOR-BP writes
+    // (NumberRegionCompact takes a MemorySegment, not a streaming sink).
+    // Route through serializeIntoSegment on a pre-sized on-heap byte[] —
+    // zero-alloc in steady state if callers reuse buffers, but here we
+    // return a fresh byte[] (serialize is cold-path commit anyway).
+    final int size = serializedSize();
+    final byte[] buf = new byte[size];
+    final MemorySegment seg = MemorySegment.ofArray(buf);
+    final int written = serializeIntoSegment(seg, 0L);
+    if (written != size) {
+      throw new IllegalStateException("serialize mismatch: wrote " + written + " expected " + size);
+    }
+    return buf;
+  }
+
+  /**
+   * Legacy byte-stream serialise kept for compatibility with anyone
+   * wiring the builder through the original {@link ByteArrayOutputStream}
+   * path. Now a thin wrapper over {@link #serialize()} — same output.
+   * Kept package-private to make the unused-method warning loud if a
+   * caller is relying on the copy-heavy path.
+   */
+  @SuppressWarnings("unused")
+  private byte[] serializeLegacy() {
     final ByteArrayOutputStream baos = new ByteArrayOutputStream(4096);
     final ByteBuffer header = ByteBuffer.allocate(8 + 16 + columnCount).order(ByteOrder.LITTLE_ENDIAN);
     header.putInt(rowCount);
     header.putInt(columnCount);
     header.putLong(firstRecordKey);
     header.putLong(lastRecordKey);
-    for (int c = 0; c < columnCount; c++) header.put(columnKinds[c]);
+    final byte[] wireKinds = wireKinds();
+    for (int c = 0; c < columnCount; c++) header.put(wireKinds[c]);
     baos.write(header.array(), 0, header.position());
     if (rowCount == 0) {
-      // Empty page — no row or column data to append.
       return baos.toByteArray();
     }
-    // recordKeys
     final ByteBuffer recBuf = ByteBuffer.allocate(rowCount * 8).order(ByteOrder.LITTLE_ENDIAN);
     for (int i = 0; i < rowCount; i++) recBuf.putLong(recordKeys[i]);
     baos.write(recBuf.array(), 0, recBuf.position());
-    // per-column
     for (int c = 0; c < columnCount; c++) {
       final ByteBuffer colHdr = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN);
       colHdr.putLong(columnMin[c]);
       colHdr.putLong(columnMax[c]);
       baos.write(colHdr.array(), 0, colHdr.position());
-      switch (columnKinds[c]) {
+      switch (wireKinds[c]) {
         case COLUMN_KIND_NUMERIC_LONG -> {
           final ByteBuffer b = ByteBuffer.allocate(rowCount * 8).order(ByteOrder.LITTLE_ENDIAN);
           final long[] col = numericCols[c];
           for (int i = 0; i < rowCount; i++) b.putLong(col[i]);
           baos.write(b.array(), 0, b.position());
+        }
+        case COLUMN_KIND_NUMERIC_LONG_FOR_BP -> {
+          final int bodySize = (int) NumberRegionCompact.maxEncodedSize(numericCols[c], rowCount);
+          final byte[] body = new byte[bodySize];
+          NumberRegionCompact.writeCompact(MemorySegment.ofArray(body), 0L, numericCols[c], rowCount);
+          baos.write(body, 0, bodySize);
         }
         case COLUMN_KIND_BOOLEAN -> {
           final int wordCount = (rowCount + 63) >>> 6;
@@ -571,22 +695,19 @@ public final class ProjectionIndexLeafPage {
           final ByteBuffer dh = ByteBuffer.allocate(4).order(ByteOrder.LITTLE_ENDIAN).putInt(dictSize);
           baos.write(dh.array(), 0, dh.position());
           final ByteBuffer dl = ByteBuffer.allocate(dictSize * 4).order(ByteOrder.LITTLE_ENDIAN);
-          int totalBytes = 0;
           for (int i = 0; i < dictSize; i++) {
             dl.putInt(dict[i].length);
-            totalBytes += dict[i].length;
           }
           baos.write(dl.array(), 0, dl.position());
           for (int i = 0; i < dictSize; i++) {
             baos.write(dict[i], 0, dict[i].length);
           }
-          // dict-ids — packed 32-bit per entry for now; bit-packing is a later codec refinement.
           final ByteBuffer idBuf = ByteBuffer.allocate(rowCount * 4).order(ByteOrder.LITTLE_ENDIAN);
           final int[] ids = stringDictIdCols[c];
           for (int i = 0; i < rowCount; i++) idBuf.putInt(ids[i]);
           baos.write(idBuf.array(), 0, idBuf.position());
         }
-        default -> throw new IllegalStateException("Unknown column kind " + columnKinds[c]);
+        default -> throw new IllegalStateException("Unknown column kind " + wireKinds[c]);
       }
     }
     return baos.toByteArray();

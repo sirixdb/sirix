@@ -3,12 +3,17 @@
  */
 package io.sirix.index.projection;
 
+import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
+import io.sirix.page.pax.NumberRegionCompact;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap;
 import jdk.incubator.vector.LongVector;
 import jdk.incubator.vector.VectorMask;
@@ -130,10 +135,13 @@ public final class ProjectionIndexByteScan {
     // String decode per distinct group value per thread per scan.
     // 64-bit hash collision probability at 10M distinct values ~10⁻¹⁹ —
     // negligible for analytical groupby cardinalities.
-    it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String> stringIntern;
+    Long2ObjectOpenHashMap<String> stringIntern;
     // iter#10 dense group-by remap: per-leaf dictId -> canonId.
     // Pre-allocated to 64, grown on demand for leaves with larger dicts.
     int[] dictRemap;
+    // iter#22 — reusable FOR-BP header. No allocation per leaf parse;
+    // NumberRegionCompact.readHeader populates in place.
+    final NumberRegionCompact.Header forBpHeader = new NumberRegionCompact.Header();
   }
 
   private static final ThreadLocal<ScanScratch> SCRATCH = ThreadLocal.withInitial(ScanScratch::new);
@@ -174,7 +182,7 @@ public final class ProjectionIndexByteScan {
         s.columnMinMaxOff = new int[columnCount];
       }
       total += countLeaf(payload, predicates, s.columnDataOff, s.columnMinMaxOff,
-          s.numericScratch, s.mask, s.colMask);
+          s.numericScratch, s.mask, s.colMask, s.forBpHeader);
     }
     return total;
   }
@@ -211,7 +219,7 @@ public final class ProjectionIndexByteScan {
    * @return immutable canonical dict (caller must not mutate), or
    *         {@code null} if ineligible.
    */
-  public static byte[][] probeCanonicalDict(final java.util.List<byte[]> leafPayloads,
+  public static byte[][] probeCanonicalDict(final List<byte[]> leafPayloads,
       final int groupColumn, final int probeLeaves, final int cardLimit) {
     if (leafPayloads == null || leafPayloads.isEmpty()) return null;
     if (probeLeaves <= 0 || cardLimit <= 0) return null;
@@ -222,7 +230,7 @@ public final class ProjectionIndexByteScan {
     if (firstLeaf[24 + groupColumn] != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) return null;
 
     // Seed the canonical dict from the first leaf's dict.
-    final java.util.ArrayList<byte[]> canon = new java.util.ArrayList<>(Math.min(cardLimit, 64));
+    final ArrayList<byte[]> canon = new ArrayList<>(Math.min(cardLimit, 64));
     final int scanUpTo = Math.min(probeLeaves, leafPayloads.size());
     for (int li = 0; li < scanUpTo; li++) {
       final byte[] payload = leafPayloads.get(li);
@@ -269,12 +277,22 @@ public final class ProjectionIndexByteScan {
     if (groupColumn < 0 || groupColumn >= columnCount) return -1;
     final int kindsOff = 24;
     int cursor = kindsOff + columnCount + rowCount * 8;  // recordKeysOff + rowCount*8
+    MemorySegment payloadSegment = null;
+    // Local scratch header — columnDataOffFor is invoked at probe time
+    // (once per handle, not per-leaf at scan time), so a lightweight
+    // allocation here is fine and avoids contaminating the ScanScratch.
+    final NumberRegionCompact.Header tmp = new NumberRegionCompact.Header();
     for (int c = 0; c < columnCount; c++) {
       cursor += 16;  // per-column min/max
       if (c == groupColumn) return cursor;
       final byte kind = payload[kindsOff + c];
       switch (kind) {
         case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> cursor += rowCount * 8;
+        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG_FOR_BP -> {
+          if (payloadSegment == null) payloadSegment = MemorySegment.ofArray(payload);
+          NumberRegionCompact.readHeader(payloadSegment, cursor, tmp);
+          cursor += tmp.headerBytes + (int) tmp.bodyBytes;
+        }
         case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
           final int dictSize = getIntLE(payload, cursor);
@@ -351,7 +369,7 @@ public final class ProjectionIndexByteScan {
         s.columnMinMaxOff = new int[columnCount];
       }
       final int rowCount = evaluateLeafMask(payload, predicates,
-          s.columnDataOff, s.columnMinMaxOff, s.numericScratch, s.mask, s.colMask);
+          s.columnDataOff, s.columnMinMaxOff, s.numericScratch, s.mask, s.colMask, s.forBpHeader);
       if (rowCount <= 0) continue;
       final byte groupKind = payload[24 + groupColumn];
       if (groupKind != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
@@ -435,7 +453,7 @@ public final class ProjectionIndexByteScan {
       for (int i = 0; i < dictSize; i++) s.dictCache[i] = null;
     }
     if (s.stringIntern == null) {
-      s.stringIntern = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>(32);
+      s.stringIntern = new Long2ObjectOpenHashMap<>(32);
     }
     final String[] dictCache = s.dictCache;
     final int[] dictByteOff = s.dictByteOff;
@@ -502,11 +520,11 @@ public final class ProjectionIndexByteScan {
       s.dictByteOff = new int[64];
     }
     if (s.stringIntern == null) {
-      s.stringIntern = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>(32);
+      s.stringIntern = new Long2ObjectOpenHashMap<>(32);
     }
     String[] dictCache = s.dictCache;
     int[] dictByteOff = s.dictByteOff;
-    final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String> intern = s.stringIntern;
+    final Long2ObjectOpenHashMap<String> intern = s.stringIntern;
     for (final byte[] payload : leafPayloads) {
       final int columnCount = columnCountOf(payload);
       if (s.columnDataOff.length < columnCount) {
@@ -514,7 +532,7 @@ public final class ProjectionIndexByteScan {
         s.columnMinMaxOff = new int[columnCount];
       }
       final int rowCount = evaluateLeafMask(payload, predicates,
-          s.columnDataOff, s.columnMinMaxOff, s.numericScratch, s.mask, s.colMask);
+          s.columnDataOff, s.columnMinMaxOff, s.numericScratch, s.mask, s.colMask, s.forBpHeader);
       if (rowCount <= 0) continue;
       final byte groupKind = payload[24 + groupColumn];
       if (groupKind != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
@@ -581,9 +599,10 @@ public final class ProjectionIndexByteScan {
   private static long countLeaf(final byte[] payload,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int[] columnDataOff, final int[] columnMinMaxOff,
-      final long[] numericScratch, final long[] mask, final long[] colMask) {
+      final long[] numericScratch, final long[] mask, final long[] colMask,
+      final NumberRegionCompact.Header forBpHeader) {
     final int rowCount = evaluateLeafMask(payload, predicates,
-        columnDataOff, columnMinMaxOff, numericScratch, mask, colMask);
+        columnDataOff, columnMinMaxOff, numericScratch, mask, colMask, forBpHeader);
     if (rowCount <= 0) return 0L;
     final int stride = (rowCount + 63) >>> 6;
     long result = 0;
@@ -600,16 +619,27 @@ public final class ProjectionIndexByteScan {
    *
    * <p>The mask is sized by the caller to {@code ceil(MAX_ROWS/64)};
    * only the first {@code ceil(rowCount/64)} words are populated.
+   *
+   * <p>{@code forBpHeader} is a caller-owned reusable
+   * {@link NumberRegionCompact.Header} scratch used to parse FOR-BP
+   * encoded numeric columns without per-call allocation. Callers pass
+   * the thread-local one from {@link ScanScratch}.
    */
   private static int evaluateLeafMask(final byte[] payload,
       final ProjectionIndexScan.ColumnPredicate[] predicates,
       final int[] columnDataOff, final int[] columnMinMaxOff,
-      final long[] numericScratch, final long[] mask, final long[] colMask) {
+      final long[] numericScratch, final long[] mask, final long[] colMask,
+      final NumberRegionCompact.Header forBpHeader) {
     final int rowCount = getIntLE(payload, 0);
     if (rowCount == 0) return 0;
     final int columnCount = getIntLE(payload, 4);
     final int kindsOff = 24;
     final int recordKeysOff = kindsOff + columnCount;
+
+    // iter#22 — Single on-heap view, reused across every FOR-BP column
+    // parse on this payload. ofArray is zero-copy. Lazily allocated only
+    // when at least one FOR-BP column is actually present.
+    MemorySegment payloadSegment = null;
 
     // Compute column offsets in one pass. Each column starts with
     // (min, max) 16 bytes, then its kind-specific data.
@@ -621,6 +651,14 @@ public final class ProjectionIndexByteScan {
       final byte kind = payload[kindsOff + c];
       switch (kind) {
         case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> cursor += rowCount * 8;
+        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG_FOR_BP -> {
+          // Parse header once to advance the cursor. The body is decoded
+          // only on demand when the column is referenced by a predicate —
+          // header parse is ~10 ns, trivial vs the decode+predicate cost.
+          if (payloadSegment == null) payloadSegment = MemorySegment.ofArray(payload);
+          NumberRegionCompact.readHeader(payloadSegment, cursor, forBpHeader);
+          cursor += forBpHeader.headerBytes + (int) forBpHeader.bodyBytes;
+        }
         case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
           final int dictSize = getIntLE(payload, cursor);
@@ -635,10 +673,15 @@ public final class ProjectionIndexByteScan {
     }
 
     // Zone-map prune — numeric columns only (same policy as the
-    // materialising variant).
+    // materialising variant). Applies to both raw NUMERIC_LONG and
+    // FOR-BP encoded columns since both carry the identical 16-byte
+    // (min, max) prefix.
     for (final var p : predicates) {
       final byte kind = payload[kindsOff + p.column];
-      if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) continue;
+      if (kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG
+          && kind != ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG_FOR_BP) {
+        continue;
+      }
       final long min = getLongLE(payload, columnMinMaxOff[p.column]);
       final long max = getLongLE(payload, columnMinMaxOff[p.column] + 8);
       if (zoneSkip(p, min, max)) return 0;
@@ -655,6 +698,11 @@ public final class ProjectionIndexByteScan {
       switch (kind) {
         case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> evalNumericBytes(
             payload, columnDataOff[p.column], rowCount, p.op, p.longLit, p.highLit, numericScratch, colMask);
+        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG_FOR_BP -> {
+          if (payloadSegment == null) payloadSegment = MemorySegment.ofArray(payload);
+          evalNumericBytesForBp(payloadSegment, columnDataOff[p.column], rowCount,
+              p.op, p.longLit, p.highLit, numericScratch, colMask, forBpHeader);
+        }
         case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> evalBooleanBytes(
             payload, columnDataOff[p.column], rowCount, p.boolLit, colMask);
         case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> evalStringEqBytes(
@@ -726,9 +774,155 @@ public final class ProjectionIndexByteScan {
     for (int k = 0; k < rowCount; k++) {
       scratch[k] = getLongLE(payload, baseOff + k * 8);
     }
+    // 2) Delegate to the shared predicate evaluator — same shape whether
+    // the scratch was populated from a raw-long column or a FOR-BP
+    // decode. Keeps one C2 compile shape for every numeric eval path.
+    evalNumericScratch(scratch, rowCount, op, lit, highLit, out);
+  }
+
+  /**
+   * iter#22 — numeric compare over a FOR-BP (Frame of Reference + Bit
+   * Packing) encoded column. Two short-circuit fast paths run before
+   * any decode:
+   *
+   * <ol>
+   *   <li><b>Constant-run</b>: when {@code bitWidth == 0}, every value
+   *       equals {@code header.minValue}. A single scalar compare
+   *       decides the whole leaf — no decode required.</li>
+   *   <li><b>Bit-width gate</b>: the predicate literal is tested against
+   *       the effective column range {@code [min, min + (1<<bitWidth) - 1]}.
+   *       If the predicate is provably all-match or all-none across
+   *       that range, {@code out} gets the all-ones prefix or stays
+   *       empty and we skip the decode+SIMD entirely. This is a
+   *       "zone-map within zone-map" that helps any leaf whose
+   *       column range is narrower than the literal-span.</li>
+   * </ol>
+   *
+   * <p>Otherwise, decodes the bit-packed body into {@code scratch} via
+   * {@link NumberRegionCompact#decodeAll} (zero-alloc, right-shift +
+   * mask per value) and falls through to the shared scalar-broadword
+   * predicate evaluator {@link #evalNumericScratch}. Only the source
+   * of scratch differs from the raw-long path (decode vs direct MOVQ),
+   * so C2 pre-warm covers both.
+   *
+   * <p>HFT invariants: {@code forBpHeader} is caller-owned (thread-local
+   * {@link ScanScratch}); scratch is caller-owned too; no allocation
+   * in this method.
+   */
+  private static void evalNumericBytesForBp(final MemorySegment payload,
+      final int baseOff, final int rowCount, final ProjectionIndexScan.Op op,
+      final long lit, final long highLit, final long[] scratch, final long[] out,
+      final NumberRegionCompact.Header forBpHeader) {
+    NumberRegionCompact.readHeader(payload, baseOff, forBpHeader);
+    if (forBpHeader.count != rowCount) {
+      throw new IllegalStateException(
+          "FOR-BP column count=" + forBpHeader.count + " != leaf rowCount=" + rowCount);
+    }
+    final int bitWidth = forBpHeader.bitWidth;
+    final long base = forBpHeader.minValue;
+
+    // Fast-path 1 — constant-run. One scalar compare decides the whole leaf.
+    if (bitWidth == 0) {
+      if (evalScalarOp(base, op, lit, highLit)) fillAllTrue(out, rowCount);
+      return;
+    }
+
+    // Fast-path 2 — bit-width gate. Value range is [base, base + (1<<bitWidth) - 1]
+    // for widths ≤ 63; width 64 means raw storage (base forced to 0 by
+    // the encoder) — skip the gate there. For widths 1..63 we compute
+    // absMax from the encoded space; this is tighter or equal to the
+    // column's min/max range (which is already the full observed span).
+    if (bitWidth < 64) {
+      final long maxPacked = (1L << bitWidth) - 1L;
+      final long absMax = base + maxPacked;
+      final int decision = evalRangeDecision(op, lit, highLit, base, absMax);
+      if (decision == DECISION_ALL) {
+        fillAllTrue(out, rowCount);
+        return;
+      }
+      if (decision == DECISION_NONE) {
+        return;
+      }
+      // DECISION_MIXED — fall through to decode + evaluate.
+    }
+
+    // Slow path: decode body into scratch (zero-alloc — caller-owned
+    // long[]), then reuse the shared predicate evaluator.
+    NumberRegionCompact.decodeAll(payload, forBpHeader, scratch);
+    evalNumericScratch(scratch, rowCount, op, lit, highLit, out);
+  }
+
+  /** Decision codes for {@link #evalRangeDecision}. */
+  private static final int DECISION_ALL = 1;
+  private static final int DECISION_NONE = 2;
+  private static final int DECISION_MIXED = 0;
+
+  /**
+   * Decide whether a predicate {@code op(lit, highLit)} over a column
+   * whose value range is {@code [minInclusive, maxInclusive]} is
+   * guaranteed to match all rows, no rows, or requires per-row
+   * evaluation. Pure scalar, no allocation.
+   */
+  private static int evalRangeDecision(final ProjectionIndexScan.Op op,
+      final long lit, final long highLit, final long minInclusive, final long maxInclusive) {
+    return switch (op) {
+      case GT -> (minInclusive > lit) ? DECISION_ALL : (maxInclusive <= lit ? DECISION_NONE : DECISION_MIXED);
+      case GE -> (minInclusive >= lit) ? DECISION_ALL : (maxInclusive < lit ? DECISION_NONE : DECISION_MIXED);
+      case LT -> (maxInclusive < lit) ? DECISION_ALL : (minInclusive >= lit ? DECISION_NONE : DECISION_MIXED);
+      case LE -> (maxInclusive <= lit) ? DECISION_ALL : (minInclusive > lit ? DECISION_NONE : DECISION_MIXED);
+      case EQ -> (minInclusive == maxInclusive && minInclusive == lit) ? DECISION_ALL
+          : (lit < minInclusive || lit > maxInclusive ? DECISION_NONE : DECISION_MIXED);
+      case BETWEEN_GT_LT -> rangeDecisionBetween(minInclusive, maxInclusive, lit, false, highLit, false);
+      case BETWEEN_GT_LE -> rangeDecisionBetween(minInclusive, maxInclusive, lit, false, highLit, true);
+      case BETWEEN_GE_LT -> rangeDecisionBetween(minInclusive, maxInclusive, lit, true,  highLit, false);
+      case BETWEEN_GE_LE -> rangeDecisionBetween(minInclusive, maxInclusive, lit, true,  highLit, true);
+    };
+  }
+
+  /**
+   * BETWEEN range decision: all rows match iff {@code min ≥ lo} AND
+   * {@code max ≤ hi}; no rows match iff {@code max ≤ lo} OR
+   * {@code min ≥ hi} (applying the open/closed semantics per flag).
+   */
+  private static int rangeDecisionBetween(final long minInclusive, final long maxInclusive,
+      final long lo, final boolean lowIncl, final long hi, final boolean highIncl) {
+    final boolean allLo = lowIncl ? (minInclusive >= lo) : (minInclusive > lo);
+    final boolean allHi = highIncl ? (maxInclusive <= hi) : (maxInclusive < hi);
+    if (allLo && allHi) return DECISION_ALL;
+    final boolean noLo = lowIncl ? (maxInclusive < lo) : (maxInclusive <= lo);
+    final boolean noHi = highIncl ? (minInclusive > hi) : (minInclusive >= hi);
+    if (noLo || noHi) return DECISION_NONE;
+    return DECISION_MIXED;
+  }
+
+  /** Scalar evaluation of a predicate against a single value. Used by the constant-run FOR-BP shortcut. */
+  private static boolean evalScalarOp(final long v, final ProjectionIndexScan.Op op,
+      final long lit, final long highLit) {
+    return switch (op) {
+      case GT -> v > lit;
+      case LT -> v < lit;
+      case GE -> v >= lit;
+      case LE -> v <= lit;
+      case EQ -> v == lit;
+      case BETWEEN_GT_LT -> v > lit && v < highLit;
+      case BETWEEN_GT_LE -> v > lit && v <= highLit;
+      case BETWEEN_GE_LT -> v >= lit && v < highLit;
+      case BETWEEN_GE_LE -> v >= lit && v <= highLit;
+    };
+  }
+
+  /**
+   * Shared predicate evaluator that takes a populated {@code long[]}
+   * scratch and writes per-row outcome bits into {@code out}. Extracted
+   * so both the raw-long and the FOR-BP paths share one evaluator —
+   * guarantees C2 treats them identically at the compare level and
+   * avoids shape-divergence penalties.
+   */
+  private static void evalNumericScratch(final long[] scratch, final int rowCount,
+      final ProjectionIndexScan.Op op, final long lit, final long highLit, final long[] out) {
     // BETWEEN range ops fuse two opposing-direction compares into one
-    // SIMD pass. Kept as a distinct branch so the single-bound op arm
-    // stays a single MOVM (one compare + mask store).
+    // pass. Kept as a distinct branch so the single-bound op arm stays
+    // a single MOVM-shaped loop.
     switch (op) {
       case BETWEEN_GT_LT -> evalBetween(scratch, rowCount, VectorOperators.GT, lit,
           VectorOperators.LT, highLit, out);
