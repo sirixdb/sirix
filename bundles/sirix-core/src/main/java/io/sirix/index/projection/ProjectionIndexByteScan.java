@@ -739,43 +739,42 @@ public final class ProjectionIndexByteScan {
       case BETWEEN_GE_LE -> evalBetween(scratch, rowCount, VectorOperators.GE, lit,
           VectorOperators.LE, highLit, out);
       default -> {
-        final VectorOperators.Comparison cmp = switch (op) {
-          case GT -> VectorOperators.GT;
-          case LT -> VectorOperators.LT;
-          case GE -> VectorOperators.GE;
-          case LE -> VectorOperators.LE;
-          case EQ -> VectorOperators.EQ;
-          default -> throw new IllegalStateException("unreachable: BETWEEN handled above");
-        };
-        // 2) SIMD-eval over scratch. LongVector.fromArray(long[]) is a
-        // pure intrinsic — no scope checks, bounds folds into the trip
-        // count test.
-        int i = 0;
-        final int simdEnd = rowCount - (rowCount % LANES);
-        for (; i < simdEnd; i += LANES) {
-          final LongVector v = LongVector.fromArray(LONG_SPECIES, scratch, i);
-          final VectorMask<Long> m = v.compare(cmp, lit);
-          final long bits = m.toLong();
-          if (bits != 0L) {
-            final int wordIdx = i >>> 6;
-            final int bitOffset = i & 63;
-            // LANES ∈ {2,4,8} divides 64, so bits never straddle two output
-            // words — one shift + OR is sufficient.
-            out[wordIdx] |= bits << bitOffset;
+        // iter#15: scalar broadword loop replaces the Vector-API SIMD body.
+        // Same rationale as evalBetween: on Oracle GraalVM 25.0.2 with
+        // -XX:-UseJVMCICompiler, Long256Vector/Long256Mask and their
+        // long[]/boolean[] backings do not escape-analyse even after
+        // 200 prewarm iters × 1.9M tier-4 invocations, producing a large
+        // fraction of the total cold-100M allocation budget.
+        // Dispatch on op kind once, outside the tight loop — the switch
+        // is hoisted by C2 at tier-4 and each arm becomes a pure numeric
+        // predicate-into-bitmask loop with no virtual dispatch.
+        switch (op) {
+          case GT -> {
+            for (int k = 0; k < rowCount; k++) {
+              if (scratch[k] > lit) out[k >>> 6] |= 1L << (k & 63);
+            }
           }
-        }
-        // Scalar tail — 0..LANES-1 values remain.
-        for (; i < rowCount; i++) {
-          final long v = scratch[i];
-          final boolean match = switch (op) {
-            case GT -> v > lit;
-            case LT -> v < lit;
-            case GE -> v >= lit;
-            case LE -> v <= lit;
-            case EQ -> v == lit;
-            default -> throw new IllegalStateException("unreachable: BETWEEN handled above");
-          };
-          if (match) out[i >>> 6] |= 1L << (i & 63);
+          case LT -> {
+            for (int k = 0; k < rowCount; k++) {
+              if (scratch[k] < lit) out[k >>> 6] |= 1L << (k & 63);
+            }
+          }
+          case GE -> {
+            for (int k = 0; k < rowCount; k++) {
+              if (scratch[k] >= lit) out[k >>> 6] |= 1L << (k & 63);
+            }
+          }
+          case LE -> {
+            for (int k = 0; k < rowCount; k++) {
+              if (scratch[k] <= lit) out[k >>> 6] |= 1L << (k & 63);
+            }
+          }
+          case EQ -> {
+            for (int k = 0; k < rowCount; k++) {
+              if (scratch[k] == lit) out[k >>> 6] |= 1L << (k & 63);
+            }
+          }
+          default -> throw new IllegalStateException("unreachable: BETWEEN handled above");
         }
       }
     }
@@ -798,27 +797,23 @@ public final class ProjectionIndexByteScan {
   private static void evalBetween(final long[] scratch, final int rowCount,
       final VectorOperators.Comparison lowCmp, final long lowLit,
       final VectorOperators.Comparison highCmp, final long highLit, final long[] out) {
-    int i = 0;
-    final int simdEnd = rowCount - (rowCount % LANES);
-    for (; i < simdEnd; i += LANES) {
-      final LongVector v = LongVector.fromArray(LONG_SPECIES, scratch, i);
-      final VectorMask<Long> mLo = v.compare(lowCmp, lowLit);
-      final VectorMask<Long> mHi = v.compare(highCmp, highLit);
-      final long bits = mLo.and(mHi).toLong();
-      if (bits != 0L) {
-        final int wordIdx = i >>> 6;
-        final int bitOffset = i & 63;
-        out[wordIdx] |= bits << bitOffset;
-      }
-    }
-    // Scalar tail — 0..LANES-1 values remain.
+    // iter#15: scalar broadword loop replaces the Vector-API SIMD body. The
+    // jdk.incubator.vector path allocated Long256Vector, Long256Mask plus
+    // backing long[]/boolean[] per call (7.72 GB / 62.9% of total alloc per
+    // cold-100M run, per iter#14 alloc profile) because escape-analysis fails
+    // on Oracle GraalVM 25.0.2 with -XX:-UseJVMCICompiler. HotSpot C2
+    // auto-vectorises this predicate-into-bitmask pattern at tier-4; even
+    // if it doesn't, the per-cell cost is amortised by the elimination of
+    // ~7.72 GB of allocation over the bench.
     final boolean lowIncl = lowCmp == VectorOperators.GE;
     final boolean highIncl = highCmp == VectorOperators.LE;
-    for (; i < rowCount; i++) {
-      final long v = scratch[i];
+    for (int k = 0; k < rowCount; k++) {
+      final long v = scratch[k];
       final boolean loOk = lowIncl ? (v >= lowLit) : (v > lowLit);
       final boolean hiOk = highIncl ? (v <= highLit) : (v < highLit);
-      if (loOk && hiOk) out[i >>> 6] |= 1L << (i & 63);
+      if (loOk & hiOk) {
+        out[k >>> 6] |= 1L << (k & 63);
+      }
     }
   }
 
