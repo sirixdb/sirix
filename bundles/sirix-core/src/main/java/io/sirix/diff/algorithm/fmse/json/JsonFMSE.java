@@ -443,6 +443,14 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
       case STRING_VALUE, OBJECT_STRING_VALUE -> wtx.setStringValue(rtx.getValue());
       case NUMBER_VALUE, OBJECT_NUMBER_VALUE -> wtx.setNumberValue(rtx.getNumberValue());
       case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE -> wtx.setBooleanValue(rtx.getBooleanValue());
+      // Fused OBJECT_NAMED_* — setter routes through replaceObjectRecordValue to update
+      // the inline primitive and re-insert under the OBJECT_KEY anchor (iter#30).
+      case OBJECT_NAMED_STRING -> wtx.setStringValue(rtx.getValue());
+      case OBJECT_NAMED_NUMBER -> wtx.setNumberValue(rtx.getNumberValue());
+      case OBJECT_NAMED_BOOLEAN -> wtx.setBooleanValue(rtx.getBooleanValue());
+      case OBJECT_NAMED_NULL -> {
+        // Fused null = fused null, no value change possible.
+      }
       case NULL_VALUE, OBJECT_NULL_VALUE -> {
         // null = null, no-op
       }
@@ -514,6 +522,11 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   private static long insertAsFirstChild(final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx) {
     return switch (rtx.getKind()) {
       case OBJECT, ARRAY, OBJECT_KEY -> wtx.copySubtreeAsFirstChild(rtx).getNodeKey();
+      // Fused OBJECT_NAMED_* records structurally play the OBJECT_KEY role and are a
+      // leaf subtree (key + inline primitive). copySubtreeAsFirstChild delegates to
+      // copyNode() which has explicit fused-kind handling (iter#30).
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL ->
+          wtx.copySubtreeAsFirstChild(rtx).getNodeKey();
       case STRING_VALUE, OBJECT_STRING_VALUE ->
           wtx.insertStringValueAsFirstChild(rtx.getValue()).getNodeKey();
       case NUMBER_VALUE, OBJECT_NUMBER_VALUE ->
@@ -533,6 +546,9 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
       final JsonNodeReadOnlyTrx rtx) {
     return switch (rtx.getKind()) {
       case OBJECT, ARRAY, OBJECT_KEY -> wtx.copySubtreeAsRightSibling(rtx).getNodeKey();
+      // Fused OBJECT_NAMED_* — see insertAsFirstChild.
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL ->
+          wtx.copySubtreeAsRightSibling(rtx).getNodeKey();
       case STRING_VALUE, OBJECT_STRING_VALUE ->
           wtx.insertStringValueAsRightSibling(rtx.getValue()).getNodeKey();
       case NUMBER_VALUE, OBJECT_NUMBER_VALUE ->

@@ -58,6 +58,10 @@ import io.sirix.node.json.NullNode;
 import io.sirix.node.json.NumberNode;
 import io.sirix.node.json.ObjectBooleanNode;
 import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.ObjectNode;
 import io.sirix.node.json.ObjectNullNode;
 import io.sirix.node.json.ObjectNumberNode;
@@ -1349,6 +1353,230 @@ public enum NodeKind implements DeweyIdSerializer {
       // LAZY FIELDS (metadata)
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /**
+   * JSON fused object-key + boolean value (single record per {@code {"name": true|false}}).
+   * On-wire layout mirrors {@link ObjectNamedBooleanNode}'s flyweight serialization:
+   * structural fields first (parent, siblings), then nameKey + pathNodeKey, then
+   * revisions + hash + value.
+   */
+  OBJECT_NAMED_BOOLEAN((byte) 48) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int nameKey = DeltaVarIntCodec.decodeSigned(source);
+      long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long hash = 0;
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        hash = source.readLong();
+      }
+      boolean value = source.readBoolean();
+      return new ObjectNamedBooleanNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
+          nameKey, pathNodeKey, prevRev, lastModRev, hash, value,
+          resourceConfiguration.nodeHashFunction, deweyID);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ObjectNamedBooleanNode node = (ObjectNamedBooleanNode) record;
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getNameKey());
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
+      sink.writeBoolean(node.getValue());
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /**
+   * JSON fused object-key + number value (single record per {@code {"name": 42}}).
+   */
+  OBJECT_NAMED_NUMBER((byte) 49) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int nameKey = DeltaVarIntCodec.decodeSigned(source);
+      long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long hash = 0;
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        hash = source.readLong();
+      }
+      Number value = deserializeNumber(source);
+      return new ObjectNamedNumberNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
+          nameKey, pathNodeKey, prevRev, lastModRev, hash, value,
+          resourceConfiguration.nodeHashFunction, deweyID);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ObjectNamedNumberNode node = (ObjectNamedNumberNode) record;
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getNameKey());
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
+      serializeNumber(node.getValue(), sink);
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /**
+   * JSON fused object-key + string value (single record per {@code {"name": "value"}}).
+   */
+  OBJECT_NAMED_STRING((byte) 50) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int nameKey = DeltaVarIntCodec.decodeSigned(source);
+      long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long hash = 0;
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        hash = source.readLong();
+      }
+      boolean isCompressed = source.readByte() == 1;
+      int length = DeltaVarIntCodec.decodeSigned(source);
+      byte[] value = new byte[length];
+      source.read(value);
+      return new ObjectNamedStringNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
+          nameKey, pathNodeKey, prevRev, lastModRev, hash, value,
+          resourceConfiguration.nodeHashFunction, deweyID, isCompressed, null);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ObjectNamedStringNode node = (ObjectNamedStringNode) record;
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getNameKey());
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
+      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      final byte[] value = node.getRawValueWithoutDecompression();
+      final byte[] actual = value != null ? value : new byte[0];
+      DeltaVarIntCodec.encodeSigned(sink, actual.length);
+      sink.write(actual);
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /**
+   * JSON fused object-key + null value (single record per {@code {"name": null}}).
+   */
+  OBJECT_NAMED_NULL((byte) 51) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int nameKey = DeltaVarIntCodec.decodeSigned(source);
+      long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long hash = 0;
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        hash = source.readLong();
+      }
+      return new ObjectNamedNullNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
+          nameKey, pathNodeKey, prevRev, lastModRev, hash,
+          resourceConfiguration.nodeHashFunction, deweyID);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ObjectNamedNullNode node = (ObjectNamedNullNode) record;
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getNameKey());
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
     }
 
     @Override

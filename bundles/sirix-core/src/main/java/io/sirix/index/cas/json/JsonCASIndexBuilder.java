@@ -13,6 +13,9 @@ import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 
 /**
  * Builds a content-and-structure (CAS) index.
@@ -70,6 +73,25 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
     final long PCR = getPathClassRecord(node);
 
     return indexBuilderDelegate.process(node, PCR);
+  }
+
+  // Fused OBJECT_NAMED_* — the pathNodeKey lives ON the fused node itself (not on the
+  // parent) because the fused record plays the OBJECT_KEY structural role. CAS index
+  // needs (nodeKey, pathNodeKey, value).
+
+  @Override
+  public VisitResult visit(final ObjectNamedStringNode node) {
+    return indexBuilderDelegate.process(node, node.getPathNodeKey());
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedNumberNode node) {
+    return indexBuilderDelegate.process(node, node.getPathNodeKey());
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedBooleanNode node) {
+    return indexBuilderDelegate.process(node, node.getPathNodeKey());
   }
 
   private long getPathClassRecord(ImmutableNode node) {

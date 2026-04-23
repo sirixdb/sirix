@@ -9,6 +9,10 @@ import io.sirix.node.json.NullNode;
 import io.sirix.node.json.NumberNode;
 import io.sirix.node.json.ObjectBooleanNode;
 import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.ObjectNode;
 import io.sirix.node.json.ObjectNullNode;
 import io.sirix.node.json.ObjectNumberNode;
@@ -136,6 +140,37 @@ public interface JsonNodeFactory extends NodeFactory {
    * @param parentKey parent node key
    */
   ObjectNullNode createJsonObjectNullNode(long parentKey, SirixDeweyID id);
+
+  /**
+   * Create a {@link ObjectNamedBooleanNode} — fused OBJECT_KEY + BOOLEAN value.
+   *
+   * @param parentKey   parent node key
+   * @param leftSibKey  left sibling key
+   * @param rightSibKey right sibling key
+   * @param pathNodeKey path node key of node
+   * @param name        the name of the key
+   * @param value       the boolean value
+   */
+  ObjectNamedBooleanNode createJsonObjectNamedBooleanNode(long parentKey, long leftSibKey,
+      long rightSibKey, long pathNodeKey, String name, boolean value, SirixDeweyID id);
+
+  /**
+   * Create a {@link ObjectNamedNumberNode} — fused OBJECT_KEY + NUMBER value.
+   */
+  ObjectNamedNumberNode createJsonObjectNamedNumberNode(long parentKey, long leftSibKey,
+      long rightSibKey, long pathNodeKey, String name, Number value, SirixDeweyID id);
+
+  /**
+   * Create a {@link ObjectNamedStringNode} — fused OBJECT_KEY + STRING value.
+   */
+  ObjectNamedStringNode createJsonObjectNamedStringNode(long parentKey, long leftSibKey,
+      long rightSibKey, long pathNodeKey, String name, byte[] value, SirixDeweyID id);
+
+  /**
+   * Create a {@link ObjectNamedNullNode} — fused OBJECT_KEY + NULL value.
+   */
+  ObjectNamedNullNode createJsonObjectNamedNullNode(long parentKey, long leftSibKey,
+      long rightSibKey, long pathNodeKey, String name, SirixDeweyID id);
 
   /**
    * Create a {@link DeweyIDNode}.

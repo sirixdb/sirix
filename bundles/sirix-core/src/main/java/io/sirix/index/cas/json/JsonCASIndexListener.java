@@ -43,7 +43,9 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
       return;
     }
     switch (nodeKind) {
-      case STRING_VALUE, OBJECT_STRING_VALUE, BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE, NUMBER_VALUE, OBJECT_NUMBER_VALUE ->
+      case STRING_VALUE, OBJECT_STRING_VALUE, BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE, NUMBER_VALUE, OBJECT_NUMBER_VALUE,
+          // Fused kinds carry primitive value inline — extractValue upstream produced the Str.
+          OBJECT_NAMED_STRING, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER ->
         indexListenerDelegate.listen(type, nodeKey, pathNodeKey, value);
       default -> {
       }

@@ -354,31 +354,43 @@ public final class JsonDBObject extends AbstractItem
       return;
     }
 
-    // After findField(), trx is positioned at OBJECT_KEY
-    // Move to child value node to check if we can do in-place update
-    trx.moveToFirstChild();
+    // iter#31 Option B: after findField(), trx is positioned on OBJECT_KEY (legacy) or
+    // OBJECT_NAMED_* (fused). For legacy, descend to the primitive child; for fused, the
+    // value is inline — trx is already on the "value" position for setters that accept
+    // fused kinds.
+    final var currentOrAnchorKind = trx.getKind();
+    final boolean isLegacyObjectKey = currentOrAnchorKind == NodeKind.OBJECT_KEY;
+    if (isLegacyObjectKey) {
+      trx.moveToFirstChild();
+    }
     final var currentKind = trx.getKind();
 
     // Check if we can do an in-place update (same type) to preserve node identity
-    if (currentKind == NodeKind.OBJECT_STRING_VALUE && value instanceof Str str) {
+    if ((currentKind == NodeKind.OBJECT_STRING_VALUE || currentKind == NodeKind.OBJECT_NAMED_STRING)
+        && value instanceof Str str) {
       trx.setStringValue(str.stringValue());
       return;
     }
-    if (currentKind == NodeKind.OBJECT_NUMBER_VALUE && value instanceof Numeric) {
+    if ((currentKind == NodeKind.OBJECT_NUMBER_VALUE || currentKind == NodeKind.OBJECT_NAMED_NUMBER)
+        && value instanceof Numeric) {
       setNumericValue(trx, value);
       return;
     }
-    if (currentKind == NodeKind.OBJECT_BOOLEAN_VALUE && value instanceof Bool bool) {
+    if ((currentKind == NodeKind.OBJECT_BOOLEAN_VALUE || currentKind == NodeKind.OBJECT_NAMED_BOOLEAN)
+        && value instanceof Bool bool) {
       trx.setBooleanValue(bool.booleanValue());
       return;
     }
-    if (currentKind == NodeKind.OBJECT_NULL_VALUE && value instanceof Null) {
+    if ((currentKind == NodeKind.OBJECT_NULL_VALUE || currentKind == NodeKind.OBJECT_NAMED_NULL)
+        && value instanceof Null) {
       // Null to null - no change needed
       return;
     }
 
-    // Types differ - move back to parent OBJECT_KEY and do full replacement
-    trx.moveToParent();
+    // Types differ - move back to parent OBJECT_KEY (legacy) or stay on fused anchor.
+    if (isLegacyObjectKey) {
+      trx.moveToParent();
+    }
 
     if (value instanceof Array) {
       trx.replaceObjectRecordValue(new ArrayValue());
@@ -557,8 +569,12 @@ public final class JsonDBObject extends AbstractItem
 
       if (axis.hasNext()) {
         axis.nextLong();
-        rtx.moveToFirstChild();
-
+        // iter#31 Option B: OBJECT_KEY has a primitive child (moveToFirstChild); fused
+        // OBJECT_NAMED_* carries the inline value directly — no descent. JsonItemFactory
+        // dispatches on kind and returns the correct primitive item either way.
+        if (rtx.getKind() == io.sirix.node.NodeKind.OBJECT_KEY) {
+          rtx.moveToFirstChild();
+        }
         return jsonItemFactory.getSequence(rtx, collection);
       }
 
@@ -606,7 +622,11 @@ public final class JsonDBObject extends AbstractItem
     if (axis.hasNext()) {
       axis.nextLong();
 
-      rtx.moveToFirstChild();
+      // iter#31 Option B: only descend for the legacy OBJECT_KEY → primitive pair;
+      // fused OBJECT_NAMED_* carries the value inline.
+      if (rtx.getKind() == io.sirix.node.NodeKind.OBJECT_KEY) {
+        rtx.moveToFirstChild();
+      }
 
       return jsonItemFactory.getSequence(rtx, collection);
     }

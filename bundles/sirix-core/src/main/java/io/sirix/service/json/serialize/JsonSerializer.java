@@ -319,6 +319,48 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           }
           printCommaIfNeeded(rtx);
           break;
+        case OBJECT_NAMED_BOOLEAN:
+        case OBJECT_NAMED_NUMBER:
+        case OBJECT_NAMED_STRING:
+        case OBJECT_NAMED_NULL:
+          // Fused OBJECT_NAMED_* emits "name":value inline — there is no separate
+          // primitive-value child record to walk to. Metadata/with-metadata tree shape
+          // mirrors the legacy OBJECT_KEY path so downstream assertions keep holding.
+          if (withMetaDataField()) {
+            if (rtx.hasLeftSibling()) {
+              appendObjectStart(true);
+            }
+            appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue()))
+                .appendSeparator()
+                .appendObjectKey(quote("metadata"))
+                .appendObjectStart(true);
+            if (withNodeKeyMetaData || withNodeKeyAndChildNodeKeyMetaData) {
+              appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
+            }
+            if (withMetaData) {
+              appendSeparator();
+              if (rtx.getHash() != 0L) {
+                appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
+                appendSeparator();
+              }
+              appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
+            }
+            appendObjectEnd(true).appendSeparator();
+            appendObjectKey(quote("value"));
+          } else {
+            appendObjectKey(quote(rtx.getName().stringValue()));
+          }
+          if (rtx.getKind() == NodeKind.OBJECT_NAMED_STRING) {
+            appendObjectValue(quote(StringValue.escape(rtx.getValue())));
+          } else {
+            // boolean, number, null — raw stringified form via getValue()
+            appendObjectValue(rtx.getValue());
+          }
+          if (withMetaDataField()) {
+            appendObjectEnd(true);
+          }
+          printCommaIfNeeded(rtx);
+          break;
         // $CASES-OMITTED$
         default:
           throw new IllegalStateException("Node kind not known!");

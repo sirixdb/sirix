@@ -16,6 +16,10 @@ import io.sirix.node.immutable.json.ImmutableObjectNullNode;
 import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 
 import java.util.EnumMap;
@@ -114,6 +118,33 @@ public final class JsonLabelFMSEVisitor extends AbstractJsonNodeVisitor {
   @Override
   public VisitResultType visit(final ImmutableObjectNullNode node) {
     addLeafLabel(node.getNodeKey(), NodeKind.OBJECT_NULL_VALUE);
+    return VisitResultType.CONTINUE;
+  }
+
+  // Fused OBJECT_NAMED_* kinds: labeled as their fused kind so the matcher can pair
+  // fused-old <-> fused-new without collision against legacy primitive-value labels.
+
+  @Override
+  public VisitResultType visit(final ObjectNamedNumberNode node) {
+    addLeafLabel(node.getNodeKey(), NodeKind.OBJECT_NAMED_NUMBER);
+    return VisitResultType.CONTINUE;
+  }
+
+  @Override
+  public VisitResultType visit(final ObjectNamedStringNode node) {
+    addLeafLabel(node.getNodeKey(), NodeKind.OBJECT_NAMED_STRING);
+    return VisitResultType.CONTINUE;
+  }
+
+  @Override
+  public VisitResultType visit(final ObjectNamedBooleanNode node) {
+    addLeafLabel(node.getNodeKey(), NodeKind.OBJECT_NAMED_BOOLEAN);
+    return VisitResultType.CONTINUE;
+  }
+
+  @Override
+  public VisitResultType visit(final ObjectNamedNullNode node) {
+    addLeafLabel(node.getNodeKey(), NodeKind.OBJECT_NAMED_NULL);
     return VisitResultType.CONTINUE;
   }
 

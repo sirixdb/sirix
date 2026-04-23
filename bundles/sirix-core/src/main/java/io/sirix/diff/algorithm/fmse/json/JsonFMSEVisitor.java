@@ -17,6 +17,10 @@ import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 
@@ -110,6 +114,29 @@ public final class JsonFMSEVisitor extends AbstractJsonNodeVisitor {
     return visitLeafNode(node);
   }
 
+  // Fused OBJECT_NAMED_* kinds: structurally leaves (no children) but they play the
+  // OBJECT_KEY role for descendant-count bookkeeping. We treat them as leaves here.
+
+  @Override
+  public VisitResultType visit(final ObjectNamedNumberNode node) {
+    return visitLeafNode(node);
+  }
+
+  @Override
+  public VisitResultType visit(final ObjectNamedStringNode node) {
+    return visitLeafNode(node);
+  }
+
+  @Override
+  public VisitResultType visit(final ObjectNamedBooleanNode node) {
+    return visitLeafNode(node);
+  }
+
+  @Override
+  public VisitResultType visit(final ObjectNamedNullNode node) {
+    return visitLeafNode(node);
+  }
+
   // ==================== Internal methods ====================
 
   private VisitResultType visitInnerNode(final ImmutableNode node) {
@@ -137,7 +164,9 @@ public final class JsonFMSEVisitor extends AbstractJsonNodeVisitor {
       do {
         desc += descendants.get(rtx.getNodeKey());
         final NodeKind kind = rtx.getKind();
-        if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY || kind == NodeKind.OBJECT_KEY) {
+        if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY || kind == NodeKind.OBJECT_KEY
+            || kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
+            || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL) {
           desc += 1;
         }
       } while (rtx.hasRightSibling() && rtx.moveToRightSibling());

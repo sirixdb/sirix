@@ -18,6 +18,10 @@ import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.utils.LogWrapper;
 import org.slf4j.LoggerFactory;
 
@@ -101,6 +105,28 @@ public final class DeleteJsonFMSEVisitor extends AbstractJsonNodeVisitor {
 
   @Override
   public VisitResult visit(final ImmutableObjectNullNode node) {
+    return deleteIfUnmatched(node);
+  }
+
+  // Fused OBJECT_NAMED_* — same delete semantics as OBJECT_KEY + primitive.
+
+  @Override
+  public VisitResult visit(final ObjectNamedNumberNode node) {
+    return deleteIfUnmatched(node);
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedStringNode node) {
+    return deleteIfUnmatched(node);
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedBooleanNode node) {
+    return deleteIfUnmatched(node);
+  }
+
+  @Override
+  public VisitResult visit(final ObjectNamedNullNode node) {
     return deleteIfUnmatched(node);
   }
 

@@ -33,6 +33,10 @@ import io.sirix.node.immutable.json.ImmutableObjectNullNode;
 import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 
 /**
  * Interface which must be implemented from visitors to implement functionality based on the visitor
@@ -159,6 +163,43 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * @return the result of visiting the {@link ImmutableJsonDocumentRootNode}
    */
   default VisitResult visit(ImmutableJsonDocumentRootNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  // ==================== Fused OBJECT_NAMED_* visit methods (iter#30) ====================
+  //
+  // Fused nodes carry an OBJECT_KEY role + primitive value in a single record. A visitor
+  // that treats the two as distinct entities (e.g. the CAS/PATH/NAME index builders) can
+  // override these to emit the equivalent index entries. The default returns CONTINUE
+  // so passive visitors (the majority) transparently skip fused records — same as they
+  // would have skipped the legacy primitive-value child when they only cared about
+  // OBJECT_KEY navigation.
+
+  /**
+   * Visit a fused {@link ObjectNamedBooleanNode}. Default returns CONTINUE.
+   */
+  default VisitResult visit(ObjectNamedBooleanNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  /**
+   * Visit a fused {@link ObjectNamedNumberNode}. Default returns CONTINUE.
+   */
+  default VisitResult visit(ObjectNamedNumberNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  /**
+   * Visit a fused {@link ObjectNamedStringNode}. Default returns CONTINUE.
+   */
+  default VisitResult visit(ObjectNamedStringNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  /**
+   * Visit a fused {@link ObjectNamedNullNode}. Default returns CONTINUE.
+   */
+  default VisitResult visit(ObjectNamedNullNode node) {
     return VisitResultType.CONTINUE;
   }
 }

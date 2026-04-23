@@ -115,11 +115,11 @@ public final class JsonDiffEdgeCaseTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       // Rev 1: object with string value (auto-commits)
-      // Tree: doc(0) -> OBJECT(1) -> OBJECT_KEY "name"(2) -> OBJECT_STRING_VALUE "alice"(3)
+      // iter#30: fused tree: doc(0) -> OBJECT(1) -> OBJECT_NAMED_STRING "name"="alice" (2)
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"name\":\"alice\"}"));
 
-      // Rev 2: update the string value in-place
-      wtx.moveTo(3); // OBJECT_STRING_VALUE node
+      // Rev 2: update the string value in-place — cursor on fused node at key 2.
+      wtx.moveTo(2);
       wtx.setStringValue("bob");
       wtx.commit();
 
@@ -144,11 +144,11 @@ public final class JsonDiffEdgeCaseTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       // Rev 1: object with number value (auto-commits)
-      // Tree: doc(0) -> OBJECT(1) -> OBJECT_KEY "count"(2) -> OBJECT_NUMBER_VALUE 10(3)
+      // iter#30: fused tree: doc(0) -> OBJECT(1) -> OBJECT_NAMED_NUMBER "count"=10 (2)
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"count\":10}"));
 
-      // Rev 2: update the number value in-place
-      wtx.moveTo(3); // OBJECT_NUMBER_VALUE node
+      // Rev 2: update the number value in-place — cursor on fused OBJECT_NAMED_NUMBER at key 2.
+      wtx.moveTo(2);
       wtx.setNumberValue(99);
       wtx.commit();
 
@@ -173,11 +173,11 @@ public final class JsonDiffEdgeCaseTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       // Rev 1: object with boolean value (auto-commits)
-      // Tree: doc(0) -> OBJECT(1) -> OBJECT_KEY "active"(2) -> OBJECT_BOOLEAN_VALUE true(3)
+      // iter#30: fused tree: doc(0) -> OBJECT(1) -> OBJECT_NAMED_BOOLEAN "active"=true (2)
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"active\":true}"));
 
-      // Rev 2: update the boolean value in-place
-      wtx.moveTo(3); // OBJECT_BOOLEAN_VALUE node
+      // Rev 2: update the boolean value in-place — cursor on fused OBJECT_NAMED_BOOLEAN at key 2.
+      wtx.moveTo(2);
       wtx.setBooleanValue(false);
       wtx.commit();
 
@@ -238,16 +238,18 @@ public final class JsonDiffEdgeCaseTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       // Rev 1: deeply nested structure (auto-commits)
-      // Tree: doc(0) -> OBJECT(1)
-      //   -> OBJECT_KEY "a"(2) -> OBJECT(3)
-      //     -> OBJECT_KEY "b"(4) -> OBJECT(5)
-      //       -> OBJECT_KEY "c"(6) -> OBJECT(7)
-      //         -> OBJECT_KEY "d"(8) -> OBJECT_STRING_VALUE "deep"(9)
+      // iter#30: fused tree: intermediate OBJECT_KEY levels stay unfused (value is OBJECT),
+      // only the leaf {"d":"deep"} is fused into one OBJECT_NAMED_STRING record.
+      //   doc(0) -> OBJECT(1)
+      //     -> OBJECT_KEY "a"(2) -> OBJECT(3)
+      //       -> OBJECT_KEY "b"(4) -> OBJECT(5)
+      //         -> OBJECT_KEY "c"(6) -> OBJECT(7)
+      //           -> OBJECT_NAMED_STRING "d"="deep" (8)
       wtx.insertSubtreeAsFirstChild(
           JsonShredder.createStringReader("{\"a\":{\"b\":{\"c\":{\"d\":\"deep\"}}}}"));
 
-      // Rev 2: update deepest value
-      wtx.moveTo(9); // OBJECT_STRING_VALUE "deep"
+      // Rev 2: update deepest value — cursor on fused OBJECT_NAMED_STRING at key 8.
+      wtx.moveTo(8);
       wtx.setStringValue("deeper");
       wtx.commit();
 
@@ -324,11 +326,11 @@ public final class JsonDiffEdgeCaseTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       // Rev 1: initial document (auto-commits)
-      // Tree: doc(0) -> OBJECT(1) -> OBJECT_KEY "step"(2) -> OBJECT_STRING_VALUE "one"(3)
+      // iter#30: fused tree: doc(0) -> OBJECT(1) -> OBJECT_NAMED_STRING "step"="one" (2)
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"step\":\"one\"}"));
 
-      // Rev 2: update value
-      wtx.moveTo(3); // OBJECT_STRING_VALUE "one"
+      // Rev 2: update value — cursor on fused node at key 2.
+      wtx.moveTo(2);
       wtx.setStringValue("two");
       wtx.commit();
 

@@ -29,6 +29,7 @@ import io.brackit.query.atomic.Str;
 import io.brackit.query.jdm.Item;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.AbstractNodeHashing;
+import io.sirix.access.trx.node.AbstractNodeReadOnlyTrx;
 import io.sirix.access.trx.node.AbstractNodeTrxImpl;
 import io.sirix.access.trx.node.AfterCommitState;
 import io.sirix.access.trx.node.IndexController;
@@ -79,6 +80,10 @@ import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.NumberNode;
 import io.sirix.node.json.ObjectBooleanNode;
 import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.ObjectNode;
 import io.sirix.node.json.ObjectNumberNode;
 import io.sirix.page.NamePage;
@@ -163,6 +168,17 @@ final class JsonNodeTrxImpl extends
    * Determines if a value can be replaced, used for replacing an object record.
    */
   private boolean canRemoveValue;
+
+  /**
+   * @return {@code true} if the cursor is currently positioned on the synthetic primitive-value
+   *         child of a fused {@code OBJECT_NAMED_*} record (iter#30 Option A virtual navigation).
+   *         The check uses the concrete read-only-trx class because the narrower interface does
+   *         not expose the flag.
+   */
+  private boolean isFusedSyntheticChildCursor() {
+    return nodeReadOnlyTrx instanceof AbstractNodeReadOnlyTrx<?, ?, ?> anrt
+        && anrt.isFusedSyntheticChild();
+  }
 
   /**
    * {@code true}, if transaction is auto-committing, {@code false} if not.
@@ -1025,7 +1041,11 @@ final class JsonNodeTrxImpl extends
     try {
       final NodeKind kind = getKind();
 
-      if (kind != NodeKind.OBJECT_KEY)
+      if (kind != NodeKind.OBJECT_KEY
+          && kind != NodeKind.OBJECT_NAMED_BOOLEAN
+          && kind != NodeKind.OBJECT_NAMED_NUMBER
+          && kind != NodeKind.OBJECT_NAMED_STRING
+          && kind != NodeKind.OBJECT_NAMED_NULL)
         throw new SirixUsageException("Insert is not allowed if current node is not an object key node!");
 
       checkAccessAndCommit();
@@ -1078,7 +1098,11 @@ final class JsonNodeTrxImpl extends
     try {
       final NodeKind kind = getKind();
 
-      if (kind != NodeKind.OBJECT_KEY)
+      if (kind != NodeKind.OBJECT_KEY
+          && kind != NodeKind.OBJECT_NAMED_BOOLEAN
+          && kind != NodeKind.OBJECT_NAMED_NUMBER
+          && kind != NodeKind.OBJECT_NAMED_STRING
+          && kind != NodeKind.OBJECT_NAMED_NULL)
         throw new SirixUsageException("Insert is not allowed if current node is not an object key node!");
 
       checkAccessAndCommit();
@@ -1119,6 +1143,153 @@ final class JsonNodeTrxImpl extends
         lock.unlock();
       }
     }
+  }
+
+  @Override
+  public JsonNodeTrx insertObjectRecordWithPrimitiveAsFirstChild(final String key,
+      final ObjectRecordValue<?> value) {
+    requireNonNull(key);
+    requireNonNull(value);
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
+      final NodeKind kind = getKind();
+
+      if (kind != NodeKind.OBJECT) {
+        throw new SirixUsageException("Insert is not allowed if current node is not an object node!");
+      }
+
+      checkAccessAndCommit();
+
+      final StructNode structNode = nodeReadOnlyTrx.getStructuralNodeView();
+
+      final long parentKey = structNode.getNodeKey();
+      final long leftSibKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+      final long rightSibKey = structNode.getFirstChildKey();
+
+      final long pathNodeKey = getPathNodeKey(parentKey, key, NodeKind.OBJECT_KEY);
+
+      final SirixDeweyID id = deweyIDManager.newFirstChildID();
+
+      final long nodeKey = createFusedObjectNamedNode(key, value, parentKey, leftSibKey, rightSibKey,
+          pathNodeKey, id);
+
+      adaptNodesAndHashesForInsertAsChild(nodeKey, parentKey, leftSibKey, rightSibKey);
+
+      if (indexController.hasAnyPrimitiveIndex()) {
+        notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT,
+            (ImmutableNode) nodeReadOnlyTrx.getStructuralNodeView(), pathNodeKey);
+      }
+
+      if (!nodeHashing.isBulkInsert()) {
+        adaptUpdateOperationsForInsert(id, nodeKey);
+      }
+
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
+      }
+
+      return this;
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
+  @Override
+  public JsonNodeTrx insertObjectRecordWithPrimitiveAsRightSibling(final String key,
+      final ObjectRecordValue<?> value) {
+    requireNonNull(key);
+    requireNonNull(value);
+    if (lock != null) {
+      lock.lock();
+    }
+
+    try {
+      final NodeKind kind = getKind();
+
+      if (kind != NodeKind.OBJECT_KEY
+          && kind != NodeKind.OBJECT_NAMED_BOOLEAN
+          && kind != NodeKind.OBJECT_NAMED_NUMBER
+          && kind != NodeKind.OBJECT_NAMED_STRING
+          && kind != NodeKind.OBJECT_NAMED_NULL) {
+        throw new SirixUsageException(
+            "Insert is not allowed if current node is not an object-key or named object-primitive node!");
+      }
+
+      checkAccessAndCommit();
+
+      final StructNode currentNode = nodeReadOnlyTrx.getStructuralNodeView();
+
+      final long parentKey = currentNode.getParentKey();
+      final long leftSibKey = currentNode.getNodeKey();
+      final long rightSibKey = currentNode.getRightSiblingKey();
+
+      moveToParent();
+      final long pathNodeKey = getPathNodeKey(leftSibKey, key, NodeKind.OBJECT_KEY);
+      moveTo(leftSibKey);
+
+      final SirixDeweyID id = deweyIDManager.newRightSiblingID();
+
+      final long nodeKey = createFusedObjectNamedNode(key, value, parentKey, leftSibKey, rightSibKey,
+          pathNodeKey, id);
+
+      insertAsSibling(nodeKey, parentKey, leftSibKey, rightSibKey);
+
+      if (!nodeHashing.isBulkInsert()) {
+        adaptUpdateOperationsForInsert(id, nodeKey);
+      }
+
+      if (storeNodeHistory) {
+        nodeToRevisionsIndex.addToRecordToRevisionsIndex(nodeKey);
+      }
+
+      return this;
+    } finally {
+      if (lock != null) {
+        lock.unlock();
+      }
+    }
+  }
+
+  /**
+   * Create a fused OBJECT_NAMED_* node based on the primitive value kind.
+   *
+   * @return the new node's key
+   * @throws IllegalArgumentException if the value wraps a non-primitive (object / array)
+   */
+  private long createFusedObjectNamedNode(final String key, final ObjectRecordValue<?> value,
+      final long parentKey, final long leftSibKey, final long rightSibKey, final long pathNodeKey,
+      final SirixDeweyID id) {
+    final NodeKind valueKind = value.getKind();
+    return switch (valueKind) {
+      case BOOLEAN_VALUE -> nodeFactory.createJsonObjectNamedBooleanNode(parentKey, leftSibKey,
+          rightSibKey, pathNodeKey, key, (Boolean) value.getValue(), id).getNodeKey();
+      case NUMBER_VALUE -> nodeFactory.createJsonObjectNamedNumberNode(parentKey, leftSibKey,
+          rightSibKey, pathNodeKey, key, (Number) value.getValue(), id).getNodeKey();
+      case STRING_VALUE -> {
+        final byte[] rawValue;
+        final Object raw = value.getValue();
+        if (raw instanceof byte[] utf8) {
+          rawValue = utf8;
+        } else if (raw instanceof String s) {
+          rawValue = s.getBytes(Constants.DEFAULT_ENCODING);
+        } else {
+          throw new IllegalStateException(
+              "STRING_VALUE payload must be String or byte[], got: "
+                  + (raw == null ? "null" : raw.getClass().getName()));
+        }
+        yield nodeFactory.createJsonObjectNamedStringNode(parentKey, leftSibKey, rightSibKey,
+            pathNodeKey, key, rawValue, id).getNodeKey();
+      }
+      case NULL_VALUE -> nodeFactory.createJsonObjectNamedNullNode(parentKey, leftSibKey, rightSibKey,
+          pathNodeKey, key, id).getNodeKey();
+      default -> throw new IllegalArgumentException(
+          "Fused OBJECT_NAMED_* insert requires a primitive value kind, got: " + valueKind);
+    };
   }
 
   @Override
@@ -1343,11 +1514,42 @@ final class JsonNodeTrxImpl extends
     try {
       final NodeKind kind = getKind();
 
-      if (kind != NodeKind.OBJECT_KEY)
+      if (kind != NodeKind.OBJECT_KEY
+          && kind != NodeKind.OBJECT_NAMED_BOOLEAN
+          && kind != NodeKind.OBJECT_NAMED_NUMBER
+          && kind != NodeKind.OBJECT_NAMED_STRING
+          && kind != NodeKind.OBJECT_NAMED_NULL)
         throw new SirixUsageException("Replacing is only permitted for record object key nodes.");
 
       checkAccessAndCommit();
       final long nodeKey = getNodeKey();
+
+      // iter#30: when the cursor is on a fused OBJECT_NAMED_* record, there is no
+      // physical primitive child to remove — the value lives on the fused record itself.
+      // Extract the name + insert position, remove the fused record, and re-emit an
+      // equivalent OBJECT_KEY + primitive-value pair (or a new fused record if the
+      // new value is also primitive and fusion is enabled).
+      final boolean onFused = kind != NodeKind.OBJECT_KEY;
+      if (onFused) {
+        final String keyName = getName().getLocalName();
+        final long oldValueNodeKey = nodeKey; // fused record IS the value holder
+        final boolean hasLeft = hasLeftSibling();
+        final long anchorKey = hasLeft ? getLeftSiblingKey() : getParentKey();
+        final InsertPosition insertPos = hasLeft
+            ? InsertPosition.AS_RIGHT_SIBLING
+            : InsertPosition.AS_FIRST_CHILD;
+        canRemoveValue = true;
+        remove();
+        moveTo(anchorKey);
+        if (insertPos == InsertPosition.AS_FIRST_CHILD) {
+          insertObjectRecordAsFirstChild(keyName, value);
+        } else {
+          insertObjectRecordAsRightSibling(keyName, value);
+        }
+        adaptUpdateOperationsForReplace(getDeweyID(), oldValueNodeKey, getNodeKey());
+        return this;
+      }
+
       moveToFirstChild();
 
       canRemoveValue = true;
@@ -2371,18 +2573,27 @@ final class JsonNodeTrxImpl extends
     final long nodeKey = node.getNodeKey();
 
     final QNm name;
-    if (kind == NodeKind.OBJECT_KEY && indexController.hasNameIndex() && node instanceof ObjectKeyNode objectKeyNode) {
-      // getName() may be null for flyweight-bound nodes (cachedName is a Java field, not in MemorySegment).
-      // Fall back to resolving the name from the name key via the storage engine.
-      QNm resolvedName = objectKeyNode.getName();
-      if (resolvedName == null) {
-        final int nameKey = objectKeyNode.getNameKey();
-        final String localName = storageEngineWriter.getName(nameKey, NodeKind.OBJECT_KEY);
-        if (localName != null) {
-          resolvedName = new QNm(localName);
+    if (indexController.hasNameIndex()) {
+      if (kind == NodeKind.OBJECT_KEY && node instanceof ObjectKeyNode objectKeyNode) {
+        // getName() may be null for flyweight-bound nodes (cachedName is a Java field, not in MemorySegment).
+        // Fall back to resolving the name from the name key via the storage engine.
+        QNm resolvedName = objectKeyNode.getName();
+        if (resolvedName == null) {
+          final int nameKey = objectKeyNode.getNameKey();
+          final String localName = storageEngineWriter.getName(nameKey, NodeKind.OBJECT_KEY);
+          if (localName != null) {
+            resolvedName = new QNm(localName);
+          }
         }
+        name = resolvedName;
+      } else if (kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
+          || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL) {
+        // Fused OBJECT_NAMED_* plays the OBJECT_KEY role — resolve its name via the
+        // stored nameKey using the OBJECT_KEY namespace (createNameKey used OBJECT_KEY).
+        name = resolveFusedName(node);
+      } else {
+        name = null;
       }
-      name = resolvedName;
     } else {
       name = null;
     }
@@ -2409,6 +2620,17 @@ final class JsonNodeTrxImpl extends
         case OBJECT_NUMBER_VALUE -> node instanceof ObjectNumberNode numberNode
             ? new Str(String.valueOf(numberNode.getValue()))
             : null;
+        // Fused OBJECT_NAMED_* — value is inline on the fused record.
+        case OBJECT_NAMED_STRING -> node instanceof ObjectNamedStringNode namedStr
+            ? new Str(new String(namedStr.getRawValue(), Constants.DEFAULT_ENCODING))
+            : null;
+        case OBJECT_NAMED_BOOLEAN -> node instanceof ObjectNamedBooleanNode namedBool
+            ? (namedBool.getValue() ? STR_TRUE : STR_FALSE)
+            : null;
+        case OBJECT_NAMED_NUMBER -> node instanceof ObjectNamedNumberNode namedNum
+            ? new Str(String.valueOf(namedNum.getValue()))
+            : null;
+        case OBJECT_NAMED_NULL -> null;
         default -> null;
       };
     } else {
@@ -2416,6 +2638,28 @@ final class JsonNodeTrxImpl extends
     }
 
     indexController.notifyChange(type, nodeKey, kind, pathNodeKey, name, value);
+  }
+
+  /**
+   * Resolve the {@link QNm} for a fused {@code OBJECT_NAMED_*} record via the storage
+   * engine's name index (the nameKey was created under {@link NodeKind#OBJECT_KEY} at
+   * shred time).
+   */
+  private QNm resolveFusedName(final ImmutableNode node) {
+    final int nameKey;
+    if (node instanceof ObjectNamedNumberNode n) {
+      nameKey = n.getNameKey();
+    } else if (node instanceof ObjectNamedStringNode n) {
+      nameKey = n.getNameKey();
+    } else if (node instanceof ObjectNamedBooleanNode n) {
+      nameKey = n.getNameKey();
+    } else if (node instanceof ObjectNamedNullNode n) {
+      nameKey = n.getNameKey();
+    } else {
+      return null;
+    }
+    final String localName = storageEngineWriter.getName(nameKey, NodeKind.OBJECT_KEY);
+    return localName == null ? null : new QNm(localName);
   }
 
   private void removeValue() {
@@ -2586,9 +2830,16 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      if (getKind() != NodeKind.STRING_VALUE && getKind() != NodeKind.OBJECT_STRING_VALUE) {
+      final NodeKind kind = getKind();
+      if (kind != NodeKind.STRING_VALUE && kind != NodeKind.OBJECT_STRING_VALUE
+          && kind != NodeKind.OBJECT_NAMED_STRING) {
         throw new SirixUsageException(
             "Not allowed if current node is not a string value and not an object string value node!");
+      }
+      if (kind == NodeKind.OBJECT_NAMED_STRING) {
+        // iter#31 Option B: fused record is a leaf — replace the value via the
+        // replace-then-insert path which handles the anchor correctly.
+        return replaceObjectRecordValue(new StringValue(value));
       }
 
       checkAccessAndCommit();
@@ -2642,8 +2893,13 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      if (getKind() != NodeKind.BOOLEAN_VALUE && getKind() != NodeKind.OBJECT_BOOLEAN_VALUE) {
+      final NodeKind kind = getKind();
+      if (kind != NodeKind.BOOLEAN_VALUE && kind != NodeKind.OBJECT_BOOLEAN_VALUE
+          && kind != NodeKind.OBJECT_NAMED_BOOLEAN) {
         throw new SirixUsageException("Not allowed if current node is not a boolean value node!");
+      }
+      if (kind == NodeKind.OBJECT_NAMED_BOOLEAN) {
+        return replaceObjectRecordValue(BooleanValue.of(value));
       }
 
       checkAccessAndCommit();
@@ -2696,9 +2952,14 @@ final class JsonNodeTrxImpl extends
     }
 
     try {
-      if (getKind() != NodeKind.NUMBER_VALUE && getKind() != NodeKind.OBJECT_NUMBER_VALUE) {
+      final NodeKind kind = getKind();
+      if (kind != NodeKind.NUMBER_VALUE && kind != NodeKind.OBJECT_NUMBER_VALUE
+          && kind != NodeKind.OBJECT_NAMED_NUMBER) {
         throw new SirixUsageException(
             "Not allowed if current node is not a number value and not an object number value node!");
+      }
+      if (kind == NodeKind.OBJECT_NAMED_NUMBER) {
+        return replaceObjectRecordValue(new NumberValue(value));
       }
       checkAccessAndCommit();
 
@@ -3078,9 +3339,35 @@ final class JsonNodeTrxImpl extends
         copyChildren(rtx);
       }
       case OBJECT_KEY -> copyObjectKey(rtx, insert);
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL ->
+          copyFusedObjectRecord(rtx, insert, kind);
       // $CASES-OMITTED$
       default -> throw new UnsupportedOperationException(
           "Copying node kind " + kind + " is not supported.");
+    }
+  }
+
+  /**
+   * Copy a fused OBJECT_NAMED_* record by emitting an equivalent fused record in the
+   * destination transaction. The destination's shredder default (fusion on) will re-fuse
+   * when the name + primitive pair are inserted via
+   * {@link #insertObjectRecordWithPrimitiveAsFirstChild(String, ObjectRecordValue)} /
+   * {@link #insertObjectRecordWithPrimitiveAsRightSibling(String, ObjectRecordValue)}.
+   */
+  private void copyFusedObjectRecord(final JsonNodeReadOnlyTrx rtx, final InsertPosition insert,
+      final NodeKind kind) {
+    final String keyName = rtx.getName().getLocalName();
+    final ObjectRecordValue<?> value = switch (kind) {
+      case OBJECT_NAMED_BOOLEAN -> BooleanValue.of(rtx.getBooleanValue());
+      case OBJECT_NAMED_NUMBER -> new NumberValue(rtx.getNumberValue());
+      case OBJECT_NAMED_STRING -> new StringValue(rtx.getValue());
+      case OBJECT_NAMED_NULL -> NullValue.INSTANCE;
+      default -> throw new IllegalStateException("unexpected fused kind: " + kind);
+    };
+    switch (insert) {
+      case AS_FIRST_CHILD -> insertObjectRecordWithPrimitiveAsFirstChild(keyName, value);
+      case AS_LEFT_SIBLING, AS_RIGHT_SIBLING -> insertObjectRecordWithPrimitiveAsRightSibling(keyName, value);
+      default -> throw new IllegalStateException("unsupported copy insert position: " + insert);
     }
   }
 

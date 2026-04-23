@@ -1433,6 +1433,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Read the inline nameKey from a fused {@code OBJECT_NAMED_*} slot (kindIds 48-51).
+   * Same varint layout as {@link #getObjectKeyNameKeyFromSlot} but different field count
+   * (offset-table size varies between 8 and 9 across the four kinds). The accessor picks
+   * up the correct field-count for the slot's kind from {@link NodeFieldLayout}.
+   */
+  public int getFusedObjectNamedNameKeyFromSlot(final int slotNumber) {
+    final MemorySegment sp = slottedPage;
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotNumber);
+    final long recordBase = PageLayout.HEAP_START + heapOffset;
+    final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
+    final int fieldCount = NodeFieldLayout.fieldCountForKind(kindId);
+    // NAME_KEY is field index 3 for all four fused kinds.
+    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + 3) & 0xFF;
+    final long dataStart = recordBase + 1 + fieldCount;
+    return DeltaVarIntCodec.decodeSignedFromSegment(sp, dataStart + fieldOff);
+  }
+
+  /**
    * Return the distinct OBJECT_KEY {@code nameKey}s present on this page.
    * Fast path: reads directly from the PAX dictKeys header (one VarHandle
    * load per distinct nameKey — typically 3 to 10 entries). Slow path
@@ -2106,6 +2124,16 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * {@code true} when the slot kind is a fused {@code OBJECT_NAMED_*} record (kindIds 48-51
+   * per iter#30 assignment). Fused records play the structural OBJECT_KEY role and carry the
+   * nameKey inline, so {@link #getObjectKeySlotsForNameKey} includes them when searching by
+   * name.
+   */
+  static boolean isFusedObjectNamedKindId(final int kindId) {
+    return kindId >= 48 && kindId <= 51;
+  }
+
+  /**
    * Return the slot indices whose OBJECT_KEY has the given nameKey. Single-pass
    * bitmap walk the first time; array reuse thereafter. Borrowed from DuckDB /
    * ClickHouse column pre-scan: pay the per-slot decode cost once, amortize
@@ -2163,6 +2191,9 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
 
     // Slow path (region absent): walk populated-slot bitmap in-line. Avoids
     // forEachPopulatedSlot's lambda — direct bit scan inlines cleanly.
+    // iter#31 Option B: fused OBJECT_NAMED_* records carry inline nameKey and play the
+    // OBJECT_KEY role; include them in the name-lookup result set so SIMD scan paths
+    // (ProjectionIndexByteScan, SirixVectorizedExecutor) see fused slots too.
     int[] buf = new int[32];
     int count = 0;
     for (int wordIndex = 0; wordIndex < PageLayout.BITMAP_WORDS; wordIndex++) {
@@ -2171,8 +2202,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       while (word != 0) {
         final int bit = Long.numberOfTrailingZeros(word);
         final int slot = baseSlot + bit;
-        if (isObjectKeyKindId(PageLayout.getDirNodeKindId(sp, slot))
-            && getObjectKeyNameKeyFromSlot(slot) == fieldKey) {
+        final int kindId = PageLayout.getDirNodeKindId(sp, slot);
+        boolean matches = false;
+        if (isObjectKeyKindId(kindId)) {
+          matches = getObjectKeyNameKeyFromSlot(slot) == fieldKey;
+        } else if (isFusedObjectNamedKindId(kindId)) {
+          matches = getFusedObjectNamedNameKeyFromSlot(slot) == fieldKey;
+        }
+        if (matches) {
           if (count == buf.length) {
             final int[] grown = new int[buf.length << 1];
             System.arraycopy(buf, 0, grown, 0, count);

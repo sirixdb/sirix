@@ -38,10 +38,11 @@ public final class JsonFMSENodeComparisonUtils {
     rtx.moveTo(nodeKey);
     return switch (rtx.getKind()) {
       case OBJECT_KEY -> rtx.getName().getLocalName();
-      case STRING_VALUE, OBJECT_STRING_VALUE -> rtx.getValue();
-      case NUMBER_VALUE, OBJECT_NUMBER_VALUE -> rtx.getValue();
-      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE -> String.valueOf(rtx.getBooleanValue());
-      case NULL_VALUE, OBJECT_NULL_VALUE -> "null";
+      case STRING_VALUE, OBJECT_STRING_VALUE, OBJECT_NAMED_STRING -> rtx.getValue();
+      case NUMBER_VALUE, OBJECT_NUMBER_VALUE, OBJECT_NAMED_NUMBER -> rtx.getValue();
+      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN ->
+          String.valueOf(rtx.getBooleanValue());
+      case NULL_VALUE, OBJECT_NULL_VALUE, OBJECT_NAMED_NULL -> "null";
       case OBJECT, ARRAY, JSON_DOCUMENT -> "";
       default -> "";
     };
@@ -66,12 +67,34 @@ public final class JsonFMSENodeComparisonUtils {
     }
 
     return switch (oldRtx.getKind()) {
-      case NULL_VALUE, OBJECT_NULL_VALUE -> true;
+      case NULL_VALUE, OBJECT_NULL_VALUE, OBJECT_NAMED_NULL -> true;
       case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE -> oldRtx.getBooleanValue() == newRtx.getBooleanValue();
       case NUMBER_VALUE, OBJECT_NUMBER_VALUE ->
           oldRtx.getNumberValue().doubleValue() == newRtx.getNumberValue().doubleValue();
       case STRING_VALUE, OBJECT_STRING_VALUE -> oldRtx.getValue().equals(newRtx.getValue());
       case OBJECT_KEY -> oldRtx.getName().getLocalName().equals(newRtx.getName().getLocalName());
+      // Fused OBJECT_NAMED_* — equal iff BOTH name AND inline primitive value match.
+      case OBJECT_NAMED_NUMBER -> {
+        final var oldName = oldRtx.getName();
+        final var newName = newRtx.getName();
+        yield oldName != null && newName != null
+            && oldName.getLocalName().equals(newName.getLocalName())
+            && oldRtx.getNumberValue().doubleValue() == newRtx.getNumberValue().doubleValue();
+      }
+      case OBJECT_NAMED_STRING -> {
+        final var oldName = oldRtx.getName();
+        final var newName = newRtx.getName();
+        yield oldName != null && newName != null
+            && oldName.getLocalName().equals(newName.getLocalName())
+            && oldRtx.getValue().equals(newRtx.getValue());
+      }
+      case OBJECT_NAMED_BOOLEAN -> {
+        final var oldName = oldRtx.getName();
+        final var newName = newRtx.getName();
+        yield oldName != null && newName != null
+            && oldName.getLocalName().equals(newName.getLocalName())
+            && oldRtx.getBooleanValue() == newRtx.getBooleanValue();
+      }
       default -> false;
     };
   }

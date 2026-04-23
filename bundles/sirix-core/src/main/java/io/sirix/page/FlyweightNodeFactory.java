@@ -8,6 +8,10 @@ import io.sirix.node.json.NullNode;
 import io.sirix.node.json.NumberNode;
 import io.sirix.node.json.ObjectBooleanNode;
 import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.ObjectNode;
 import io.sirix.node.json.ObjectNullNode;
 import io.sirix.node.json.ObjectNumberNode;
@@ -86,6 +90,10 @@ public final class FlyweightNodeFactory {
       case 41 -> new ObjectBooleanNode(nodeKey, hashFunction);    // OBJECT_BOOLEAN_VALUE
       case 42 -> new ObjectNumberNode(nodeKey, hashFunction);     // OBJECT_NUMBER_VALUE
       case 43 -> new ObjectNullNode(nodeKey, hashFunction);       // OBJECT_NULL_VALUE
+      case 48 -> new ObjectNamedBooleanNode(nodeKey, hashFunction); // OBJECT_NAMED_BOOLEAN
+      case 49 -> new ObjectNamedNumberNode(nodeKey, hashFunction);  // OBJECT_NAMED_NUMBER
+      case 50 -> new ObjectNamedStringNode(nodeKey, hashFunction);  // OBJECT_NAMED_STRING
+      case 51 -> new ObjectNamedNullNode(nodeKey, hashFunction);    // OBJECT_NAMED_NULL
       default -> throw new IllegalArgumentException(
           "Unknown flyweight node kind ID: " + nodeKindId);
     };

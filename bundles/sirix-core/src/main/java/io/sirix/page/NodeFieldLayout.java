@@ -182,6 +182,117 @@ public final class NodeFieldLayout {
   public static final int OBJNULLVAL_PREV_REVISION = 1;
   public static final int OBJNULLVAL_LAST_MOD_REVISION = 2;
 
+  // ==================== OBJECT_NAMED_BOOLEAN NODE (fused OBJECT_KEY + OBJECT_BOOLEAN_VALUE) ====================
+  //
+  // Layout rationale: OBJECT_NAMED_* fuses the parent OBJECT_KEY and its primitive-typed
+  // child into a single slotted record. Structural navigation fields match OBJECT_KEY
+  // (parent + siblings + path) so the node sits in the parent OBJECT's child list, and
+  // also carries the primitive value payload. No firstChild/lastChild: fused nodes are leaves.
+  //
+  // Wire layout per slot:
+  //   [kindByte][offsetTable: FIELD_COUNT x 1 byte][data region]
+  //   data region order matches writeNewRecord:
+  //     0 parentKey (delta-varint)
+  //     1 rightSiblingKey (delta-varint)
+  //     2 leftSiblingKey (delta-varint)
+  //     3 nameKey (signed varint)
+  //     4 pathNodeKey (delta-varint)
+  //     5 previousRevision (signed varint)
+  //     6 lastModifiedRevision (signed varint)
+  //     7 hash (fixed 8 bytes)
+  //     8 value (boolean: 1 byte)
+
+  /** Total field count for OBJECT_NAMED_BOOLEAN nodes. */
+  public static final int OBJECT_NAMED_BOOLEAN_FIELD_COUNT = 9;
+
+  public static final int OBJNAMEDBOOL_PARENT_KEY = 0;
+  public static final int OBJNAMEDBOOL_RIGHT_SIB_KEY = 1;
+  public static final int OBJNAMEDBOOL_LEFT_SIB_KEY = 2;
+  public static final int OBJNAMEDBOOL_NAME_KEY = 3;
+  public static final int OBJNAMEDBOOL_PATH_NODE_KEY = 4;
+  public static final int OBJNAMEDBOOL_PREV_REVISION = 5;
+  public static final int OBJNAMEDBOOL_LAST_MOD_REVISION = 6;
+  public static final int OBJNAMEDBOOL_HASH = 7;
+  public static final int OBJNAMEDBOOL_VALUE = 8;
+
+  // ==================== OBJECT_NAMED_NUMBER NODE (fused OBJECT_KEY + OBJECT_NUMBER_VALUE) ====================
+  //
+  // Wire layout per slot (9 fields + variable payload):
+  //     0 parentKey (delta-varint)
+  //     1 rightSiblingKey (delta-varint)
+  //     2 leftSiblingKey (delta-varint)
+  //     3 nameKey (signed varint)
+  //     4 pathNodeKey (delta-varint)
+  //     5 previousRevision (signed varint)
+  //     6 lastModifiedRevision (signed varint)
+  //     7 hash (fixed 8 bytes)
+  //     8 payload [numberType:1][numberData:variable]
+
+  /** Total field count for OBJECT_NAMED_NUMBER nodes (excluding variable-length payload). */
+  public static final int OBJECT_NAMED_NUMBER_FIELD_COUNT = 9;
+
+  public static final int OBJNAMEDNUM_PARENT_KEY = 0;
+  public static final int OBJNAMEDNUM_RIGHT_SIB_KEY = 1;
+  public static final int OBJNAMEDNUM_LEFT_SIB_KEY = 2;
+  public static final int OBJNAMEDNUM_NAME_KEY = 3;
+  public static final int OBJNAMEDNUM_PATH_NODE_KEY = 4;
+  public static final int OBJNAMEDNUM_PREV_REVISION = 5;
+  public static final int OBJNAMEDNUM_LAST_MOD_REVISION = 6;
+  public static final int OBJNAMEDNUM_HASH = 7;
+  /** Points to the start of [numberType:1][numberData:variable]. */
+  public static final int OBJNAMEDNUM_PAYLOAD = 8;
+
+  // ==================== OBJECT_NAMED_STRING NODE (fused OBJECT_KEY + OBJECT_STRING_VALUE) ====================
+  //
+  // Wire layout per slot (9 fields + variable payload):
+  //     0 parentKey (delta-varint)
+  //     1 rightSiblingKey (delta-varint)
+  //     2 leftSiblingKey (delta-varint)
+  //     3 nameKey (signed varint)
+  //     4 pathNodeKey (delta-varint)
+  //     5 previousRevision (signed varint)
+  //     6 lastModifiedRevision (signed varint)
+  //     7 hash (fixed 8 bytes)
+  //     8 payload [isCompressed:1][valueLength:varint][value:bytes]
+
+  /** Total field count for OBJECT_NAMED_STRING nodes (excluding variable-length payload). */
+  public static final int OBJECT_NAMED_STRING_FIELD_COUNT = 9;
+
+  public static final int OBJNAMEDSTR_PARENT_KEY = 0;
+  public static final int OBJNAMEDSTR_RIGHT_SIB_KEY = 1;
+  public static final int OBJNAMEDSTR_LEFT_SIB_KEY = 2;
+  public static final int OBJNAMEDSTR_NAME_KEY = 3;
+  public static final int OBJNAMEDSTR_PATH_NODE_KEY = 4;
+  public static final int OBJNAMEDSTR_PREV_REVISION = 5;
+  public static final int OBJNAMEDSTR_LAST_MOD_REVISION = 6;
+  public static final int OBJNAMEDSTR_HASH = 7;
+  /** Points to the start of [isCompressed:1][valueLength:varint][value:bytes]. */
+  public static final int OBJNAMEDSTR_PAYLOAD = 8;
+
+  // ==================== OBJECT_NAMED_NULL NODE (fused OBJECT_KEY + OBJECT_NULL_VALUE) ====================
+  //
+  // Wire layout per slot (8 fields, no value payload):
+  //     0 parentKey (delta-varint)
+  //     1 rightSiblingKey (delta-varint)
+  //     2 leftSiblingKey (delta-varint)
+  //     3 nameKey (signed varint)
+  //     4 pathNodeKey (delta-varint)
+  //     5 previousRevision (signed varint)
+  //     6 lastModifiedRevision (signed varint)
+  //     7 hash (fixed 8 bytes)
+
+  /** Total field count for OBJECT_NAMED_NULL nodes. */
+  public static final int OBJECT_NAMED_NULL_FIELD_COUNT = 8;
+
+  public static final int OBJNAMEDNULL_PARENT_KEY = 0;
+  public static final int OBJNAMEDNULL_RIGHT_SIB_KEY = 1;
+  public static final int OBJNAMEDNULL_LEFT_SIB_KEY = 2;
+  public static final int OBJNAMEDNULL_NAME_KEY = 3;
+  public static final int OBJNAMEDNULL_PATH_NODE_KEY = 4;
+  public static final int OBJNAMEDNULL_PREV_REVISION = 5;
+  public static final int OBJNAMEDNULL_LAST_MOD_REVISION = 6;
+  public static final int OBJNAMEDNULL_HASH = 7;
+
   // ==================== JSON_DOCUMENT_ROOT (7 fields) ====================
 
   /** Total field count for JSON_DOCUMENT_ROOT nodes. */
@@ -336,6 +447,10 @@ public final class NodeFieldLayout {
       case 41 -> OBJECT_BOOLEAN_VALUE_FIELD_COUNT;  // OBJECT_BOOLEAN_VALUE
       case 42 -> OBJECT_NUMBER_VALUE_FIELD_COUNT;   // OBJECT_NUMBER_VALUE
       case 43 -> OBJECT_NULL_VALUE_FIELD_COUNT;     // OBJECT_NULL_VALUE
+      case 48 -> OBJECT_NAMED_BOOLEAN_FIELD_COUNT;  // OBJECT_NAMED_BOOLEAN
+      case 49 -> OBJECT_NAMED_NUMBER_FIELD_COUNT;   // OBJECT_NAMED_NUMBER
+      case 50 -> OBJECT_NAMED_STRING_FIELD_COUNT;   // OBJECT_NAMED_STRING
+      case 51 -> OBJECT_NAMED_NULL_FIELD_COUNT;     // OBJECT_NAMED_NULL
       default -> -1;
     };
   }

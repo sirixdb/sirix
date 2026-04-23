@@ -37,9 +37,19 @@ final class JsonLeafNodeComparator implements NodeComparator<Long> {
     double ratio = computeValueRatio();
 
     if (ratio > FMESF) {
-      // Check parent context (for OBJECT_* values, parent is OBJECT_KEY).
+      // Check parent context: for OBJECT_* values, parent is OBJECT_KEY; for fused kinds
+      // the NODE ITSELF carries the name so we use its name directly (parent is OBJECT).
       // Cursors already at firstNode/secondNode — computeValueRatio() does not move them.
-      if (oldRtx.hasParent() && newRtx.hasParent()) {
+      final NodeKind oldKind = oldRtx.getKind();
+      if (oldKind == NodeKind.OBJECT_NAMED_BOOLEAN || oldKind == NodeKind.OBJECT_NAMED_NUMBER
+          || oldKind == NodeKind.OBJECT_NAMED_STRING || oldKind == NodeKind.OBJECT_NAMED_NULL) {
+        final var oldName = oldRtx.getName();
+        final var newName = newRtx.getName();
+        if (oldName != null && newName != null) {
+          ratio = JsonFMSENodeComparisonUtils.calculateRatio(
+              oldName.getLocalName(), newName.getLocalName());
+        }
+      } else if (oldRtx.hasParent() && newRtx.hasParent()) {
         oldRtx.moveToParent();
         newRtx.moveToParent();
 
@@ -72,12 +82,12 @@ final class JsonLeafNodeComparator implements NodeComparator<Long> {
   private double computeValueRatio() {
     final NodeKind kind = oldRtx.getKind();
     return switch (kind) {
-      case NULL_VALUE, OBJECT_NULL_VALUE -> 1.0;
-      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE ->
+      case NULL_VALUE, OBJECT_NULL_VALUE, OBJECT_NAMED_NULL -> 1.0;
+      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN ->
           oldRtx.getBooleanValue() == newRtx.getBooleanValue() ? 1.0 : 0.0;
-      case NUMBER_VALUE, OBJECT_NUMBER_VALUE ->
+      case NUMBER_VALUE, OBJECT_NUMBER_VALUE, OBJECT_NAMED_NUMBER ->
           oldRtx.getNumberValue().doubleValue() == newRtx.getNumberValue().doubleValue() ? 1.0 : 0.0;
-      case STRING_VALUE, OBJECT_STRING_VALUE ->
+      case STRING_VALUE, OBJECT_STRING_VALUE, OBJECT_NAMED_STRING ->
           JsonFMSENodeComparisonUtils.calculateRatio(oldRtx.getValue(), newRtx.getValue());
       default -> 0.0;
     };

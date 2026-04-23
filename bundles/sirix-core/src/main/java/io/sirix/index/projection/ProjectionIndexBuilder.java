@@ -286,9 +286,12 @@ public final class ProjectionIndexBuilder {
     // Only structured-kind nodes carry a pathNodeKey; primitives (value
     // nodes) live under an OBJECT_KEY so they return their parent's key
     // via the rtx node API. We consult the current node's kind and
-    // dispatch accordingly.
+    // dispatch accordingly. Fused OBJECT_NAMED_* records also carry a
+    // pathNodeKey because they play the OBJECT_KEY role structurally.
     final NodeKind kind = rtx.getKind();
-    if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY || kind == NodeKind.OBJECT_KEY) {
+    if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY || kind == NodeKind.OBJECT_KEY
+        || kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
+        || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL) {
       return rtx.getPathNodeKey();
     }
     return -1L;
@@ -341,6 +344,19 @@ public final class ProjectionIndexBuilder {
             // Non-matching OBJECT_KEY — descend in case nested objects hold matching fields.
             pushFirstChild(rtx, cur);
           }
+        } else if (kind == NodeKind.OBJECT_NAMED_BOOLEAN
+            || kind == NodeKind.OBJECT_NAMED_NUMBER
+            || kind == NodeKind.OBJECT_NAMED_STRING
+            || kind == NodeKind.OBJECT_NAMED_NULL) {
+          // Fused OBJECT_NAMED_* record — value lives inline on this node. Zero-alloc
+          // direct extraction, no synthetic-child navigation.
+          final long pk = rtx.getPathNodeKey();
+          final int col = findField(pk);
+          if (col >= 0) {
+            readFusedValueIntoRow(rtx, kind, col);
+          }
+          // Fused nodes have no children (synthetic child is virtual and would only
+          // round-trip to the same value we just read). No descent.
         } else if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY) {
           // Structured — descend.
           pushFirstChild(rtx, cur);
@@ -399,6 +415,42 @@ public final class ProjectionIndexBuilder {
         }
       }
       default -> { /* unknown — leave defaults */ }
+    }
+  }
+
+  /**
+   * Read the primitive value off a fused {@code OBJECT_NAMED_*} record directly into
+   * the current row. Avoids the synthetic-child navigation hop so we stay zero-alloc
+   * and free the rtx from holding virtual-child state across the inner loop.
+   *
+   * <p>The rtx's {@code isNumberValue()} / {@code isBooleanValue()} / {@code isStringValue()}
+   * already return true on a fused record, so the legacy-shaped predicates handle the
+   * value-kind check. Dispatch is by record kind: fused-number → numeric column,
+   * fused-boolean → boolean column, fused-string → string column, fused-null → no write
+   * (row stays at default — matches how legacy null primitives contribute).
+   */
+  private void readFusedValueIntoRow(final JsonNodeReadOnlyTrx rtx, final NodeKind fusedKind,
+      final int col) {
+    final byte columnKind = columnKinds[col];
+    switch (fusedKind) {
+      case OBJECT_NAMED_NUMBER -> {
+        if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG) {
+          final Number n = rtx.getNumberValue();
+          if (n != null) rowLongs[col] = n.longValue();
+        }
+      }
+      case OBJECT_NAMED_BOOLEAN -> {
+        if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN) {
+          rowBools[col] = rtx.getBooleanValue();
+        }
+      }
+      case OBJECT_NAMED_STRING -> {
+        if (columnKind == ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+          final String v = rtx.getValue();
+          rowStrings[col] = v == null ? "" : v;
+        }
+      }
+      default -> { /* OBJECT_NAMED_NULL → defaults already in place */ }
     }
   }
 

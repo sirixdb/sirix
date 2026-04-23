@@ -439,6 +439,54 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         }
         break;
 
+      case OBJECT_NAMED_BOOLEAN:
+      case OBJECT_NAMED_NUMBER:
+      case OBJECT_NAMED_STRING:
+      case OBJECT_NAMED_NULL:
+        // iter#30: fused OBJECT_NAMED_* — emit as if it were OBJECT_KEY + primitive-value.
+        // Write the key-object open, then the primitive value, then close the key-object.
+        if (withMetaDataField()) {
+          if (rtx.hasLeftSibling()
+              && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey)) {
+            appendObjectStart(true);
+          }
+          appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue())).appendSeparator()
+              .appendObjectKey(quote("metadata"))
+              .appendObjectStart(true);
+          if (withNodeKeyMetaData || withNodeKeyAndChildCountMetaData) {
+            appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
+          }
+          if (withMetaData) {
+            appendSeparator();
+            if (rtx.getHash() != 0L) {
+              appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
+              appendSeparator();
+            }
+            // Present fused record externally as OBJECT_KEY so downstream consumers keep the
+            // logical JSON-envelope view.
+            appendObjectKeyValue(quote("type"), quote(NodeKind.OBJECT_KEY.toString()));
+          }
+          appendObjectEnd(true).appendSeparator();
+          appendObjectKey(quote("value"));
+        } else {
+          appendObjectKey(quote(rtx.getName().stringValue()));
+        }
+        // Now emit the primitive value. Use getValue() / dispatch by kind.
+        switch (rtx.getKind()) {
+          case OBJECT_NAMED_BOOLEAN -> appendObjectValue(String.valueOf(rtx.getBooleanValue()));
+          case OBJECT_NAMED_NUMBER -> appendObjectValue(String.valueOf(rtx.getNumberValue()));
+          case OBJECT_NAMED_STRING -> appendObjectValue(quote(rtx.getValue()));
+          case OBJECT_NAMED_NULL -> appendObjectValue("null");
+          default -> throw new IllegalStateException("unexpected fused kind: " + rtx.getKind());
+        }
+        if (withMetaDataField()) {
+          appendObjectEnd(true);
+        }
+        if (printTrailingComma) {
+          printCommaIfNeeded(rtx);
+        }
+        break;
+
       case OBJECT_KEY:
         if (startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey
             && serializeStartNodeWithBrackets) {

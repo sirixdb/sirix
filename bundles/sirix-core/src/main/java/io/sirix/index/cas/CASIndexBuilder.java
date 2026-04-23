@@ -17,6 +17,10 @@ import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
 import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.interfaces.immutable.ImmutableValueNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedStringNode;
+import io.sirix.settings.Constants;
 import io.sirix.utils.LogWrapper;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.atomic.Str;
@@ -84,6 +88,13 @@ public final class CASIndexBuilder {
           case ImmutableObjectBooleanNode immutableObjectBooleanNode ->
             new Str(String.valueOf(immutableObjectBooleanNode.getValue()));
           case ImmutableBooleanNode immutableBooleanNode -> new Str(String.valueOf(immutableBooleanNode.getValue()));
+          // Fused kinds carry primitive values inline.
+          case ObjectNamedNumberNode namedNum ->
+            new Str(String.valueOf(namedNum.getValue()));
+          case ObjectNamedBooleanNode namedBool ->
+            new Str(String.valueOf(namedBool.getValue()));
+          case ObjectNamedStringNode namedStr ->
+            new Str(new String(namedStr.getRawValue(), Constants.DEFAULT_ENCODING));
           case null, default -> throw new IllegalStateException("Value not supported.");
         };
 

@@ -22,6 +22,32 @@ public final class JsonItemFactory {
         return new JsonDBObject(rtx, collection);
       case OBJECT_KEY:
         return new AtomicStrJsonDBItem(rtx, collection, rtx.getName().getLocalName());
+      // iter#31 Option B: fused OBJECT_NAMED_* is a LEAF carrying BOTH name and inline
+      // primitive value. When the factory is asked to turn the current cursor position
+      // into a JsonItem, it's being asked for the VALUE — the caller has already resolved
+      // the name (via filter axes or direct lookup). Return the inline primitive as its
+      // typed JSON atomic item.
+      case OBJECT_NAMED_STRING:
+        return new AtomicStrJsonDBItem(rtx, collection, rtx.getValue());
+      case OBJECT_NAMED_BOOLEAN:
+        return new AtomicBooleanJsonDBItem(rtx, collection, new Bool(rtx.getBooleanValue()));
+      case OBJECT_NAMED_NULL:
+        return new AtomicNullJsonDBItem(rtx, collection);
+      case OBJECT_NAMED_NUMBER: {
+        final Number fusedNumber = rtx.getNumberValue();
+        if (fusedNumber instanceof Integer) {
+          return new NumericJsonDBItem(rtx, collection, new Int32(fusedNumber.intValue()));
+        } else if (fusedNumber instanceof Long) {
+          return new NumericJsonDBItem(rtx, collection, new Int64(fusedNumber.longValue()));
+        } else if (fusedNumber instanceof Float) {
+          return new NumericJsonDBItem(rtx, collection, new Flt(fusedNumber.floatValue()));
+        } else if (fusedNumber instanceof Double) {
+          return new NumericJsonDBItem(rtx, collection, new Dbl(fusedNumber.doubleValue()));
+        } else if (fusedNumber instanceof BigDecimal bd) {
+          return new NumericJsonDBItem(rtx, collection, new Dec(bd));
+        }
+        throw new AssertionError();
+      }
       case STRING_VALUE:
       case OBJECT_STRING_VALUE:
         return new AtomicStrJsonDBItem(rtx, collection, rtx.getValue());

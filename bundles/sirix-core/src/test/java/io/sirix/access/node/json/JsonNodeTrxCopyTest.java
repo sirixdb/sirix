@@ -281,16 +281,20 @@ public final class JsonNodeTrxCopyTest {
         wtx.moveToFirstChild(); // copied object
 
         assertEquals(NodeKind.OBJECT, wtx.getKind());
-        wtx.moveToFirstChild(); // first key "name"
-        assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
+        wtx.moveToFirstChild(); // first key "name" — fused OBJECT_NAMED_STRING by default
+        final NodeKind firstKeyKind = wtx.getKind();
+        assertTrue(firstKeyKind == NodeKind.OBJECT_KEY || firstKeyKind == NodeKind.OBJECT_NAMED_STRING,
+            "expected OBJECT_KEY or fused OBJECT_NAMED_STRING but was: " + firstKeyKind);
         assertEquals("name", wtx.getName().getLocalName());
 
-        wtx.moveToFirstChild(); // "Alice"
+        wtx.moveToFirstChild(); // "Alice" — on fused cursor, synthetic child of OBJECT_NAMED_STRING
         assertEquals("Alice", wtx.getValue());
 
         wtx.moveToParent(); // back to "name" key
-        wtx.moveToRightSibling(); // "age" key
-        assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
+        wtx.moveToRightSibling(); // "age" key — fused OBJECT_NAMED_NUMBER
+        final NodeKind secondKeyKind = wtx.getKind();
+        assertTrue(secondKeyKind == NodeKind.OBJECT_KEY || secondKeyKind == NodeKind.OBJECT_NAMED_NUMBER,
+            "expected OBJECT_KEY or fused OBJECT_NAMED_NUMBER but was: " + secondKeyKind);
         assertEquals("age", wtx.getName().getLocalName());
 
         wtx.moveToFirstChild(); // 30
@@ -547,12 +551,14 @@ public final class JsonNodeTrxCopyTest {
 
         // Verify the copied object's internal structure: key "key" -> value "value"
         wtx.moveTo(copiedObjKey);
-        wtx.moveToFirstChild(); // "key" object key
-        assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
+        wtx.moveToFirstChild(); // "key" field record — fused by default
+        final NodeKind fieldKind = wtx.getKind();
+        assertTrue(fieldKind == NodeKind.OBJECT_KEY || fieldKind == NodeKind.OBJECT_NAMED_STRING,
+            "expected OBJECT_KEY or fused OBJECT_NAMED_STRING but was: " + fieldKind);
         assertEquals("key", wtx.getName().getLocalName());
         assertEquals(copiedObjKey, wtx.getParentKey());
 
-        wtx.moveToFirstChild(); // "value"
+        wtx.moveToFirstChild(); // "value" — synthetic child of fused, or real OBJECT_STRING_VALUE
         assertEquals(NodeKind.OBJECT_STRING_VALUE, wtx.getKind());
         assertEquals("value", wtx.getValue());
       }
@@ -603,8 +609,10 @@ public final class JsonNodeTrxCopyTest {
         rtx.moveToFirstChild(); // first object (the copy)
         assertEquals(NodeKind.OBJECT, rtx.getKind());
 
-        rtx.moveToFirstChild(); // "x" key
-        assertEquals(NodeKind.OBJECT_KEY, rtx.getKind());
+        rtx.moveToFirstChild(); // "x" field record — fused OBJECT_NAMED_NUMBER by default
+        final NodeKind xKind = rtx.getKind();
+        assertTrue(xKind == NodeKind.OBJECT_KEY || xKind == NodeKind.OBJECT_NAMED_NUMBER,
+            "expected OBJECT_KEY or fused OBJECT_NAMED_NUMBER but was: " + xKind);
         assertEquals("x", rtx.getName().getLocalName());
 
         rtx.moveToFirstChild(); // 10

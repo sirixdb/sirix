@@ -25,6 +25,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.axis.ChildAxis;
 import io.sirix.axis.DescendantAxis;
+import io.sirix.axis.FieldValueAxis;
 import io.sirix.axis.NestedAxis;
 import io.sirix.axis.SelfAxis;
 import io.sirix.axis.concurrent.ConcurrentAxis;
@@ -152,12 +153,13 @@ class DerefDescendantExpr implements Expr {
                 return getLazySequence(new SirixJsonStream(new ChildAxis(rtx), jsonDBItem.getCollection()));
               }
               if (nodeKind == NodeKind.ARRAY) {
+                // iter#31 Option B: FieldValueAxis unifies legacy + fused value extraction.
                 var axis = new NestedAxis(new FilterAxis<>(new NestedAxis(new ChildAxis(rtx), new ChildAxis(rtx)),
-                    new ObjectKeyFilter(rtx), new JsonNameFilter(rtx, recordFieldAsString)), new ChildAxis(rtx));
+                    new ObjectKeyFilter(rtx), new JsonNameFilter(rtx, recordFieldAsString)), new FieldValueAxis(rtx));
                 return getLazySequence(new SirixJsonStream(axis, jsonDBItem.getCollection()));
               }
               var axis = new NestedAxis(new FilterAxis<>(new ChildAxis(rtx), new ObjectKeyFilter(rtx),
-                  new JsonNameFilter(rtx, recordFieldAsString)), new ChildAxis(rtx));
+                  new JsonNameFilter(rtx, recordFieldAsString)), new FieldValueAxis(rtx));
               return getLazySequence(new SirixJsonStream(axis, jsonDBItem.getCollection()));
             }
             // Match at a level below the child level.
@@ -231,7 +233,8 @@ class DerefDescendantExpr implements Expr {
                   }
                 }
 
-                axis = new NestedAxis(axis, new ChildAxis(newRtx));
+                // iter#31 Option B: value extraction step unifies legacy + fused.
+                axis = new NestedAxis(axis, new FieldValueAxis(newRtx));
               }
 
               axisQueue.push(axis);
@@ -277,15 +280,16 @@ class DerefDescendantExpr implements Expr {
                         new ObjectKeyFilter(newConcurrentRtx),
                         new JsonNameFilter(newConcurrentRtx, recordFieldAsString));
 
+                    // iter#31 Option B: FieldValueAxis — legacy OBJECT_KEY descent OR fused direct read.
                     axisQueue.addLast(new NestedAxis(new ConcurrentAxis<>(newConcurrentRtx1, filterAxis),
-                        new ChildAxis(newConcurrentRtx1)));
+                        new FieldValueAxis(newConcurrentRtx1)));
                   } else {
                     filterAxis =
                         new FilterAxis<>(new ChildAxis(newConcurrentRtx), new ObjectKeyFilter(newConcurrentRtx),
                             new JsonNameFilter(newConcurrentRtx, recordFieldAsString));
 
                     axisQueue.addLast(new NestedAxis(new ConcurrentAxis<>(newConcurrentRtx1, filterAxis),
-                        new ChildAxis(newConcurrentRtx1)));
+                        new FieldValueAxis(newConcurrentRtx1)));
                   }
                 }
               }
@@ -312,8 +316,9 @@ class DerefDescendantExpr implements Expr {
     } else if (rtx.getChildCount() == 0) {
       return null;
     } else {
+      // iter#31 Option B: fallback descendant-deref path — FieldValueAxis unifies legacy + fused.
       final var filterAxis = new NestedAxis(
-          new FilterAxis<>(new DescendantAxis(rtx), new JsonNameFilter(rtx, recordFieldAsString)), new ChildAxis(rtx));
+          new FilterAxis<>(new DescendantAxis(rtx), new JsonNameFilter(rtx, recordFieldAsString)), new FieldValueAxis(rtx));
       return getLazySequence(new SirixJsonStream(filterAxis, jsonDBItem.getCollection()));
     }
   }
@@ -351,11 +356,13 @@ class DerefDescendantExpr implements Expr {
         if (concurrentRtx.getKind() == NodeKind.ARRAY) {
           axis = new FilterAxis<>(new NestedAxis(new ChildAxis(concurrentRtx), new ChildAxis(concurrentRtx)),
               new ObjectKeyFilter(concurrentRtx), new JsonNameFilter(concurrentRtx, pathSegment.name));
-          axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new ChildAxis(concurrentRtx1));
+          // iter#31 Option B: FieldValueAxis yields fused nodes as-self (they ARE the value)
+          // and legacy OBJECT_KEY's primitive child.
+          axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new FieldValueAxis(concurrentRtx1));
         } else {
           axis = new FilterAxis<>(new ChildAxis(concurrentRtx), new ObjectKeyFilter(concurrentRtx),
               new JsonNameFilter(concurrentRtx, pathSegment.name));
-          axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new ChildAxis(concurrentRtx1));
+          axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new FieldValueAxis(concurrentRtx1));
         }
       }
     } else {
@@ -365,11 +372,11 @@ class DerefDescendantExpr implements Expr {
         if (concurrentRtx.getKind() == NodeKind.ARRAY) {
           axis = new FilterAxis<>(new NestedAxis(new ChildAxis(concurrentRtx), new ChildAxis(concurrentRtx)),
               new ObjectKeyFilter(concurrentRtx), new JsonNameFilter(concurrentRtx, pathSegment.name));
-          axis = new NestedAxis(axis, new ChildAxis(concurrentRtx));
+          axis = new NestedAxis(axis, new FieldValueAxis(concurrentRtx));
         } else {
           axis = new FilterAxis<>(new ChildAxis(concurrentRtx), new ObjectKeyFilter(concurrentRtx),
               new JsonNameFilter(concurrentRtx, pathSegment.name));
-          axis = new NestedAxis(axis, new ChildAxis(concurrentRtx));
+          axis = new NestedAxis(axis, new FieldValueAxis(concurrentRtx));
         }
       }
     }
@@ -390,7 +397,7 @@ class DerefDescendantExpr implements Expr {
       }
 
       if (i == size - 1) {
-        axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new ChildAxis(concurrentRtx1));
+        axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new FieldValueAxis(concurrentRtx1));
       } else {
         axis = new NestedAxis(axis, new ChildAxis(concurrentRtx));
       }

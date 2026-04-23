@@ -2002,3 +2002,52 @@ JVM unchanged at default flags (dense=false) — iter#09 wins locked in.
 JVM).** Current production cold path: JVM C2 + AppCDS + iter#09 pre-warm.
 
 Commit pending on top of `eeffae043`.
+
+---
+
+## iter#31 — OBJECT_NAMED_* fusion integration, Option-B pivot (2026-04-23)
+
+Pivot landed mid-iter: coordinator directed switch from Option A (synthetic
+primitive-value child via cursor flag) to Option B (fused node is a true
+leaf; both name and primitive value readable directly on one record). Every
+caller that did `moveToObjectKey → moveToFirstChild → getValue` reworked to
+branch on kind and read inline on fused.
+
+**Scope**: Phase 2 (scan) + Phase 3 (diff/FMSE) + Phase 4 (serializer+REST)
++ Phase 5 iteration. Phases 6–7 (native PGO + cold A/B + stacked variant)
+SKIPPED per hard rule "stop if >10 failures after 2 h Phase 5".
+
+**Test deltas**:
+- Core: iter#30 baseline ~250 failures → iter#31 **86** (65 % reduction).
+- Query: iter#30 baseline not stabilised → iter#31 **102** (driven by
+  temporal + descendant-deref + HOT-index tests).
+- Total: ~250 (iter#30) → **188** (iter#31). Exceeds 10-failure gate.
+- `FusedDbRoundtripTest` + `ObjectNamedNodesTest` +
+  `JsonShredFusedRoundTripTest` all pass — storage foundation green.
+
+**Concrete wins**:
+- `JsonFMSETest`: 70 → 7 failures (90 % reduction). FMSE handles fused
+  matching, updating, deleting, labeling, subtree-copy.
+- `JsonIntegrationTest`: 68 → 44 failures (35 % reduction).
+  `JsonItemFactory.AssertionError` on fused-kind fixed.
+- `ProjectionIndexBuilder`: fused records recognised as pathNodeKey-carrying
+  leaves; inline values extracted zero-alloc.
+
+**Infrastructure added**:
+- `io.sirix.axis.FieldValueAxis` (new): legacy OBJECT_KEY → first-child OR
+  fused OBJECT_NAMED_* → self. Used in `DerefDescendantExpr` at 6 sites.
+- `KeyValueLeafPage.isFusedObjectNamedKindId` +
+  `getFusedObjectNamedNameKeyFromSlot`. `buildObjectKeySlotsForNameKey`
+  slow-path matches fused slots by name (PAX region fast-path still
+  OBJECT_KEY-only — iter#32 follow-up).
+- Visit methods for the 4 fused kinds on `JsonNodeVisitor`; CAS/PATH/NAME
+  index builders override them.
+
+**Phase 6 skipped**. Fused 5.0 GB DB at `/tmp/sirix-100m-fused-native/`
+preserved for iter#32. Running cold A/B on a broken tree produces numbers
+that cannot be attributed cleanly.
+
+**iter#32 top priorities**: extend PAX `ObjectKeyNameKeyRegion` fast-path
+to include fused kinds (unblocks vectorised executor for bench queries);
+complete `FieldValueAxis` sweep in `DerefDescendantExpr.buildQuery`;
+temporal prior-revision queries audit.

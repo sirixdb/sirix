@@ -25,7 +25,10 @@ final class JsonPathIndexListener implements PathNodeKeyChangeListener {
   @Override
   public void listen(IndexController.ChangeType type, long nodeKey, NodeKind nodeKind, long pathNodeKey,
       @Nullable QNm name, @Nullable Str value) {
-    if (nodeKind == NodeKind.OBJECT_KEY || nodeKind == NodeKind.ARRAY) {
+    // Fused OBJECT_NAMED_* records play the OBJECT_KEY structural role — same PATH-index entry.
+    if (nodeKind == NodeKind.OBJECT_KEY || nodeKind == NodeKind.ARRAY
+        || nodeKind == NodeKind.OBJECT_NAMED_BOOLEAN || nodeKind == NodeKind.OBJECT_NAMED_NUMBER
+        || nodeKind == NodeKind.OBJECT_NAMED_STRING || nodeKind == NodeKind.OBJECT_NAMED_NULL) {
       pathIndexListener.listen(type, nodeKey, pathNodeKey);
     }
   }
