@@ -51,6 +51,15 @@ public final class ProjectionIndexRegistry {
   public static final class Handle {
     private final String[] fieldNames;
     private final List<byte[]> leafPayloads;
+    /**
+     * iter#10 dense group-by: per-column canonical dictionary cache.
+     * Sentinel value {@link #CANON_DICT_INELIGIBLE} flags
+     * "probe determined {@code groupColumn} is not eligible for the
+     * dense path" so we don't re-probe on subsequent lookups.
+     * Array indexed by {@code groupColumn}; {@code null} slot = not yet
+     * computed.
+     */
+    private volatile byte[][][] canonicalDicts;
 
     public Handle(final String[] fieldNames, final List<byte[]> leafPayloads) {
       this.fieldNames = Objects.requireNonNull(fieldNames, "fieldNames").clone();
@@ -72,7 +81,52 @@ public final class ProjectionIndexRegistry {
       }
       return -1;
     }
+
+    /**
+     * Return the canonical dictionary for the {@code groupColumn}'s
+     * STRING_DICT values, or {@code null} if dense group-by is not
+     * eligible (cardinality exceeds {@code cardLimit}, column is not
+     * STRING_DICT, or leafPayloads is empty).
+     *
+     * <p>Result is cached per-column under a CAS so subsequent calls
+     * are zero-cost. {@link #CANON_DICT_INELIGIBLE} caches "probe
+     * established ineligible" so we don't re-probe.
+     *
+     * <p>HFT-grade: volatile read on fast path; one probe (bounded
+     * to {@code probeLeaves} leaves) on first call per column.
+     */
+    public byte[][] canonicalDict(final int groupColumn,
+        final int probeLeaves, final int cardLimit) {
+      if (groupColumn < 0) return null;
+      byte[][][] cache = canonicalDicts;
+      if (cache != null && groupColumn < cache.length) {
+        final byte[][] cached = cache[groupColumn];
+        if (cached == CANON_DICT_INELIGIBLE) return null;
+        if (cached != null) return cached;
+      }
+      // Compute outside the monitor — probe can be several ms; then
+      // publish under the monitor to avoid lost wake-ups.
+      final byte[][] probed =
+          ProjectionIndexByteScan.probeCanonicalDict(leafPayloads, groupColumn, probeLeaves, cardLimit);
+      synchronized (this) {
+        cache = canonicalDicts;
+        // Grow the array if needed (rare — first access usually pre-sizes).
+        if (cache == null || cache.length <= groupColumn) {
+          final byte[][][] grown = new byte[Math.max(groupColumn + 1, fieldNames.length)][][];
+          if (cache != null) System.arraycopy(cache, 0, grown, 0, cache.length);
+          cache = grown;
+          canonicalDicts = cache;
+        }
+        final byte[][] existing = cache[groupColumn];
+        if (existing != null && existing != CANON_DICT_INELIGIBLE) return existing;
+        cache[groupColumn] = probed != null ? probed : CANON_DICT_INELIGIBLE;
+        return probed;
+      }
+    }
   }
+
+  /** Sentinel for "probe found ineligible for dense group-by" — see {@link Handle#canonicalDict}. */
+  private static final byte[][] CANON_DICT_INELIGIBLE = new byte[0][];
 
   private static final ConcurrentMap<String, Handle> REGISTRY = new ConcurrentHashMap<>();
 
@@ -119,6 +173,15 @@ public final class ProjectionIndexRegistry {
    */
   private static final int PREWARM_ITERS =
       Integer.parseInt(System.getProperty("sirix.projection.prewarmJit.iters", "200"));
+
+  /**
+   * iter#10 — pre-warm the dense group-by method only when it's enabled
+   * (opt-in). Default off aligns with {@link #PREWARM_DENSE_DEFAULT_OFF}
+   * so we don't pay the install-time cost for a feature that's not being
+   * used. Tune via {@code -Dsirix.projection.denseGroupBy=true}.
+   */
+  private static final boolean PREWARM_DENSE_GROUPBY_ENABLED =
+      Boolean.parseBoolean(System.getProperty("sirix.projection.denseGroupBy", "false"));
 
   private ProjectionIndexRegistry() {
   }
@@ -330,6 +393,43 @@ public final class ProjectionIndexRegistry {
         for (int i = 0; i < PREWARM_ITERS; i++) {
           sink.clear();
           ProjectionIndexByteScan.conjunctiveCountByGroup(sub, boolEqGroup, stringDictCol, sink);
+        }
+      }
+
+      // iter#10: also pre-warm the dense group-by path. Same shape,
+      // different accumulator. Skip if the dense path cannot be probed
+      // (canonicalDict == null, meaning cardinality exceeded or other).
+      // Call via handle.canonicalDict(...) so the per-column cache is
+      // populated once; subsequent query-path lookups are zero-cost.
+      //
+      // Gated on PREWARM_DENSE_GROUPBY_ENABLED — off by default on the
+      // iter#09 C2 baseline because dense doesn't beat the hashmap here
+      // (see SirixVectorizedExecutor.DENSE_GROUPBY_ENABLED javadoc). Flip
+      // on for workloads with larger STRING_DICT cardinality or non-C2
+      // JIT where the hashmap path isn't as heavily intrinsified.
+      final byte[][] canonical = PREWARM_DENSE_GROUPBY_ENABLED
+          ? handle.canonicalDict(stringDictCol, 16, 256)
+          : null;
+      if (canonical != null) {
+        final long[] denseCounts = new long[canonical.length];
+        final Object2LongOpenHashMap<String> denseFallback = new Object2LongOpenHashMap<>();
+        denseFallback.defaultReturnValue(0L);
+        for (int i = 0; i < PREWARM_ITERS; i++) {
+          java.util.Arrays.fill(denseCounts, 0L);
+          denseFallback.clear();
+          ProjectionIndexByteScan.conjunctiveCountByGroupDense(
+              sub, noPreds, stringDictCol, canonical, denseCounts, denseFallback);
+        }
+        if (booleanCol >= 0) {
+          final ProjectionIndexScan.ColumnPredicate[] boolEqGroup = {
+              ProjectionIndexScan.ColumnPredicate.booleanEq(booleanCol, true)
+          };
+          for (int i = 0; i < PREWARM_ITERS; i++) {
+            java.util.Arrays.fill(denseCounts, 0L);
+            denseFallback.clear();
+            ProjectionIndexByteScan.conjunctiveCountByGroupDense(
+                sub, boolEqGroup, stringDictCol, canonical, denseCounts, denseFallback);
+          }
         }
       }
     }

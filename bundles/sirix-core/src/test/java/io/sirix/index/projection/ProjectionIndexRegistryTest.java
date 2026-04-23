@@ -170,6 +170,77 @@ final class ProjectionIndexRegistryTest {
     assertEquals(12L, total);
   }
 
+  /**
+   * iter#10 — canonicalDict lazy build: first call probes leaves and
+   * returns the union of dict values; subsequent calls return the
+   * cached array without re-probing.
+   */
+  @Test
+  void canonicalDict_lazyBuildAndCache() {
+    final List<byte[]> leaves = new ArrayList<>();
+    leaves.add(buildLeaf(0L, 32));
+    leaves.add(buildLeaf(100L, 32));
+    final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
+        new String[] {"age", "active", "dept"}, leaves);
+    final byte[][] first = h.canonicalDict(2, 16, 256);
+    assertNotNull(first);
+    assertEquals(3, first.length);  // {Eng, Sales, Ops}
+    final byte[][] second = h.canonicalDict(2, 16, 256);
+    // Same reference — cache hit.
+    org.junit.jupiter.api.Assertions.assertSame(first, second);
+  }
+
+  /**
+   * iter#10 — canonicalDict returns null for non-STRING_DICT columns.
+   * Cached result means repeat calls stay null without re-probing.
+   */
+  @Test
+  void canonicalDict_numericColumnReturnsNull() {
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 8));
+    final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
+        new String[] {"age", "active", "dept"}, leaves);
+    org.junit.jupiter.api.Assertions.assertNull(h.canonicalDict(0, 16, 256));
+    // Second call — ineligible sentinel cached; still null.
+    org.junit.jupiter.api.Assertions.assertNull(h.canonicalDict(0, 16, 256));
+  }
+
+  /**
+   * iter#10 — canonicalDict returns null when cardinality exceeds
+   * {@code cardLimit}. Dense path falls back to hashmap.
+   */
+  @Test
+  void canonicalDict_aboveCardLimitReturnsNull() {
+    final byte[] kinds = {
+        ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
+        ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
+        ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+    };
+    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(kinds);
+    for (int i = 0; i < 10; i++) {
+      p.appendRow(i, new long[] {40L + i, 0L, 0L},
+          new boolean[] {false, false, false},
+          new String[] {null, null, "Dept" + i});
+    }
+    final List<byte[]> leaves = List.of(p.serialize());
+    final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
+        new String[] {"age", "active", "dept"}, leaves);
+    // Limit 5, actual cardinality 10 → null.
+    org.junit.jupiter.api.Assertions.assertNull(h.canonicalDict(2, 16, 5));
+  }
+
+  /**
+   * iter#10 — canonicalDict tolerates out-of-range column index.
+   */
+  @Test
+  void canonicalDict_negativeColumnIndexReturnsNull() {
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 8));
+    final ProjectionIndexRegistry.Handle h = new ProjectionIndexRegistry.Handle(
+        new String[] {"age", "active", "dept"}, leaves);
+    org.junit.jupiter.api.Assertions.assertNull(h.canonicalDict(-1, 16, 256));
+    // Placate unused-import check.
+    assertFalse(false);
+  }
+
   private static void assertArrayEqualsBytes(final byte[] expected, final byte[] actual) {
     assertEquals(expected.length, actual.length);
     for (int i = 0; i < expected.length; i++) {

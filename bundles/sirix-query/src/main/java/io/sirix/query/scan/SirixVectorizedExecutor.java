@@ -475,7 +475,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ProjectionIndexScan.ColumnPredicate[] emptyPreds = new ProjectionIndexScan.ColumnPredicate[0];
     final Object2LongOpenHashMap<String> agg;
     try {
-      agg = parallelConjunctiveCountByGroup(handle.leafPayloads(), emptyPreds, groupColumn);
+      agg = parallelConjunctiveCountByGroup(handle, emptyPreds, groupColumn);
     } catch (final IllegalStateException ise) {
       return null;
     }
@@ -1419,13 +1419,113 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
+   * iter#10 feature flag: route the group-by accumulator through a dense
+   * {@code long[N]} indexed by canonical-dict position instead of an
+   * {@code Object2LongOpenHashMap<String>} when the group column's
+   * cardinality is bounded.
+   *
+   * <h2>Why it's <em>not</em> the default</h2>
+   *
+   * On the iter#09 post-commit JVM (C2 + {@code -XX:-UseJVMCICompiler} +
+   * AppCDS + install-time JIT pre-warm of
+   * {@code conjunctiveCountByGroup}), the hashmap path under C2 is
+   * already near-optimal: pre-warm + stable type profile collapse the
+   * theoretical {@code Object2LongOpenHashMap.addTo + String.equals +
+   * String.hashCode} cost (iter#09 measured ~11 % of cold CPU) to a
+   * ~7-8 % steady-state frame.
+   *
+   * <p>The dense path trades that 7-8 % for a per-leaf {@code dictId → canonId}
+   * remap (8×8 byte-compares per bench leaf × 97,657 leaves), which
+   * consumes ~7-8 % of CPU on its own. Net-even CPU-wise. And the
+   * dense-path method requires its own JIT tier-up; even with
+   * install-time pre-warm the per-call cost is marginally higher than
+   * the fully-intrinsified hashmap path.
+   *
+   * <p>Measurement from 16-run 8×8 A/B (iter#10 validation):
+   * <ul>
+   *   <li>dense=true median 2.32 s; hashmap=false median 2.07 s
+   *       (dense +12 % slower);</li>
+   *   <li>{@code groupByDept} min: dense 0.46 ms vs hashmap 0.42 ms;</li>
+   *   <li>CPU profile: dense path eliminates the ~180 samples of
+   *       addTo/String.equals but absorbs the same ~180 samples in
+   *       {@code conjunctiveCountByGroupDense} self-time.</li>
+   * </ul>
+   *
+   * <p><b>Kept as opt-in</b> because future workloads may benefit:
+   * workloads with much higher cardinality on canonical dict (where the
+   * hashmap hit rate falls and {@code String.equals} collision chains
+   * grow); runtimes where {@code String.equals} is not aggressively
+   * intrinsified (e.g. GraalVM native-image with graal#13377 unresolved,
+   * where all {@link java.lang.foreign.MemorySegment} paths are slower
+   * than their byte[]-based dense equivalents); or future rewrites of
+   * the dense path that eliminate the per-leaf remap via a cached
+   * {@code leafRemaps: int[][]} on the Handle (the dict is stable per
+   * leaf, so the remap need only be computed once).
+   *
+   * <p>Enable with {@code -Dsirix.projection.denseGroupBy=true}.
+   */
+  private static final boolean DENSE_GROUPBY_ENABLED =
+      Boolean.parseBoolean(System.getProperty("sirix.projection.denseGroupBy", "false"));
+
+  /**
+   * Probe-leaf cap for canonical-dict cardinality estimation. Default 16
+   * leaves is enough for the bench's 8-way uniform {dept, city}
+   * distribution (by row 100 on the first 1024-row leaf each distinct
+   * value has typically already appeared); larger installs tolerate a
+   * bigger probe without re-scanning the full 97K-leaf index.
+   *
+   * <p>Tune via {@code -Dsirix.projection.denseGroupBy.probeLeaves=N}.
+   */
+  private static final int DENSE_GROUPBY_PROBE_LEAVES =
+      Integer.parseInt(System.getProperty("sirix.projection.denseGroupBy.probeLeaves", "16"));
+
+  /**
+   * Hard cap on dense group-by cardinality. Each worker pays
+   * {@code N * 8 bytes} per scan for the {@code long[N]} accumulator;
+   * at the default 256 that's 2 KB per worker — negligible vs the
+   * per-thread scratch buffers already in
+   * {@link ProjectionIndexByteScan.ScanScratch}.
+   *
+   * <p>Values above this limit fall back to the existing hashmap path.
+   * Tune via {@code -Dsirix.projection.denseGroupBy.cardLimit=N}.
+   */
+  private static final int DENSE_GROUPBY_CARD_LIMIT =
+      Integer.parseInt(System.getProperty("sirix.projection.denseGroupBy.cardLimit", "256"));
+
+  /**
    * Parallel wrapper around {@link ProjectionIndexByteScan#conjunctiveCountByGroup}.
    * Same rationale as {@link #parallelConjunctiveCount} — the per-leaf
    * work is dominated by header decode + predicate eval, and a
    * single-thread scan over 100K leaves leaves ~19 cores idle. Per-worker
    * partial group-count maps are merged at the end.
+   *
+   * <p>iter#10: when {@link #DENSE_GROUPBY_ENABLED} is {@code true} and
+   * the handle's canonical dict for {@code groupColumn} is known (built
+   * on first access via {@link ProjectionIndexRegistry.Handle#canonicalDict}),
+   * route through the dense accumulator via
+   * {@link ProjectionIndexByteScan#conjunctiveCountByGroupDense}; otherwise
+   * fall through to the legacy hashmap path.
    */
   private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroup(
+      final ProjectionIndexRegistry.Handle handle,
+      final ProjectionIndexScan.ColumnPredicate[] preds,
+      final int groupColumn) {
+    final java.util.List<byte[]> leafPayloads = handle.leafPayloads();
+    final byte[][] canonicalDict = DENSE_GROUPBY_ENABLED
+        ? handle.canonicalDict(groupColumn, DENSE_GROUPBY_PROBE_LEAVES, DENSE_GROUPBY_CARD_LIMIT)
+        : null;
+    if (canonicalDict != null) {
+      return parallelConjunctiveCountByGroupDense(leafPayloads, preds, groupColumn, canonicalDict);
+    }
+    return parallelConjunctiveCountByGroupHashMap(leafPayloads, preds, groupColumn);
+  }
+
+  /**
+   * Legacy hashmap-based group-by accumulator. Kept as the fallback when
+   * (a) dense group-by is disabled by flag, (b) canonical dict exceeds
+   * the cardinality limit, or (c) group column is not STRING_DICT.
+   */
+  private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroupHashMap(
       final java.util.List<byte[]> leafPayloads,
       final ProjectionIndexScan.ColumnPredicate[] preds,
       final int groupColumn) {
@@ -1469,6 +1569,110 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
+   * Dense parallel group-by accumulator: per-worker {@code long[N]}
+   * indexed by canonical-dict position. Replaces the
+   * {@link Object2LongOpenHashMap#addTo} CPU cost (~5-11 % of cold CPU
+   * on the 100M bench's group-by queries) with a pure array-indexed
+   * increment on the per-matching-row hot path.
+   *
+   * <p>A per-worker {@link Object2LongOpenHashMap} fallback catches any
+   * leaf whose dict contains a value NOT in {@code canonicalDict} (late-
+   * arriving value beyond what the probe found). The dense + fallback
+   * counts are merged together at the end.
+   */
+  private Object2LongOpenHashMap<String> parallelConjunctiveCountByGroupDense(
+      final java.util.List<byte[]> leafPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] preds,
+      final int groupColumn,
+      final byte[][] canonicalDict) {
+    final int leafCount = leafPayloads.size();
+    final int canonLen = canonicalDict.length;
+    final Object2LongOpenHashMap<String> merged = new Object2LongOpenHashMap<>();
+    merged.defaultReturnValue(0L);
+    if (leafCount == 0) return merged;
+
+    if (leafCount < 64) {
+      // Serial dense path — small enough that parallelism overhead dominates.
+      final long[] counts = new long[canonLen];
+      final Object2LongOpenHashMap<String> fallback = new Object2LongOpenHashMap<>();
+      fallback.defaultReturnValue(0L);
+      ProjectionIndexByteScan.conjunctiveCountByGroupDense(
+          leafPayloads, preds, groupColumn, canonicalDict, counts, fallback);
+      mergeDense(merged, canonicalDict, counts, fallback);
+      return merged;
+    }
+
+    final int eff = Math.min(threads, Math.max(1, (leafCount + 63) / 64));
+    final long[][] perThreadCounts = new long[eff][];
+    @SuppressWarnings("unchecked")
+    final Object2LongOpenHashMap<String>[] perThreadFallback = new Object2LongOpenHashMap[eff];
+    final int chunkSize = (leafCount + eff - 1) / eff;
+
+    try {
+      parallel(eff, idx -> {
+        final int from = idx * chunkSize;
+        final int to = Math.min(from + chunkSize, leafCount);
+        if (from >= to) return;
+        final long[] counts = new long[canonLen];
+        final Object2LongOpenHashMap<String> fallback = new Object2LongOpenHashMap<>();
+        fallback.defaultReturnValue(0L);
+        ProjectionIndexByteScan.conjunctiveCountByGroupDense(
+            leafPayloads.subList(from, to), preds, groupColumn, canonicalDict, counts, fallback);
+        perThreadCounts[idx] = counts;
+        perThreadFallback[idx] = fallback;
+      });
+    } catch (final Exception e) {
+      throw new RuntimeException("parallel projection conjunctiveCountByGroupDense failed", e);
+    }
+
+    // Reduce per-thread dense counts into the merged hashmap. The merged
+    // output needs to use the same canonical String keys as the legacy
+    // path for API parity — decode each canonical dict entry once here.
+    final long[] totals = new long[canonLen];
+    for (final long[] tc : perThreadCounts) {
+      if (tc == null) continue;
+      for (int i = 0; i < canonLen; i++) totals[i] += tc[i];
+    }
+    for (int i = 0; i < canonLen; i++) {
+      if (totals[i] != 0L) {
+        merged.put(new String(canonicalDict[i], StandardCharsets.UTF_8), totals[i]);
+      }
+    }
+    // Accumulate per-thread fallback maps (values not in canonical dict).
+    for (final var m : perThreadFallback) {
+      if (m == null) continue;
+      final ObjectIterator<Object2LongMap.Entry<String>> it = m.object2LongEntrySet().fastIterator();
+      while (it.hasNext()) {
+        final Object2LongMap.Entry<String> e = it.next();
+        merged.addTo(e.getKey(), e.getLongValue());
+      }
+    }
+    return merged;
+  }
+
+  /**
+   * Merge helper used by the serial ({@code leafCount < 64}) dense path:
+   * accumulate {@code counts[i]} against the canonical dict keys and
+   * union any fallback entries.
+   */
+  private static void mergeDense(final Object2LongOpenHashMap<String> merged,
+      final byte[][] canonicalDict, final long[] counts,
+      final Object2LongOpenHashMap<String> fallback) {
+    for (int i = 0; i < canonicalDict.length; i++) {
+      if (counts[i] != 0L) {
+        merged.put(new String(canonicalDict[i], StandardCharsets.UTF_8), counts[i]);
+      }
+    }
+    if (fallback != null) {
+      final ObjectIterator<Object2LongMap.Entry<String>> it = fallback.object2LongEntrySet().fastIterator();
+      while (it.hasNext()) {
+        final Object2LongMap.Entry<String> e = it.next();
+        merged.addTo(e.getKey(), e.getLongValue());
+      }
+    }
+  }
+
+  /**
    * Group-by-count analogue of {@link #tryProjectionIndexFastPath}. Returns
    * a Brackit {@link Sequence} of {@code {"<groupField>": value, "count": n}}
    * objects when the query can be answered entirely from a projection index;
@@ -1502,7 +1706,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ProjectionIndexScan.ColumnPredicate[] preds = fuseRangePredicates(extracted);
     final Object2LongOpenHashMap<String> agg;
     try {
-      agg = parallelConjunctiveCountByGroup(handle.leafPayloads(), preds, groupColumn);
+      agg = parallelConjunctiveCountByGroup(handle, preds, groupColumn);
     } catch (final IllegalStateException ise) {
       // Group column kind mismatch (e.g. numeric group). Fall back to the
       // generic scan path rather than raise an executor-level error.
@@ -3018,7 +3222,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     final ProjectionIndexScan.ColumnPredicate[] emptyPreds = new ProjectionIndexScan.ColumnPredicate[0];
     final Object2LongOpenHashMap<String> agg;
     try {
-      agg = parallelConjunctiveCountByGroup(handle.leafPayloads(), emptyPreds, groupColumn);
+      agg = parallelConjunctiveCountByGroup(handle, emptyPreds, groupColumn);
     } catch (final IllegalStateException ise) {
       // Group column kind mismatch (e.g. numeric column — count-distinct on
       // numerics is supported by the generic path but not by the string-dict

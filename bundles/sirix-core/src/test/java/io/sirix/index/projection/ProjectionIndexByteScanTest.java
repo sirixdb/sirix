@@ -428,4 +428,211 @@ final class ProjectionIndexByteScanTest {
         ProjectionIndexScan.conjunctiveCount(leaves, fused),
         ProjectionIndexByteScan.conjunctiveCount(leaves, fused));
   }
+
+  // ---------------------------------------------------------------------
+  // iter#10 dense group-by parity tests.
+  //
+  // For every supported input shape, the dense long[N] accumulator path
+  // must produce the same Object2LongOpenHashMap<String> counts as the
+  // legacy hashmap path. The dense path is an optimization — never a
+  // semantic change.
+  // ---------------------------------------------------------------------
+
+  /**
+   * Build a leaf with a caller-specified dept/city dictionary. Columns:
+   * [numeric age, boolean active, STRING_DICT dept, STRING_DICT city].
+   * Row {@code i} gets {@code depts[i % depts.length]} and
+   * {@code cities[(i * 3) % cities.length]} — stride-3 on city keeps the
+   * two dicts from moving in lock-step so fallback cases actually exercise
+   * per-leaf dict divergence.
+   */
+  private static byte[] buildLeafWithDepts(final long baseKey, final int rowCount,
+      final String[] depts, final String[] cities) {
+    final byte[] kinds = {
+        ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG,
+        ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN,
+        ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT,
+        ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT
+    };
+    final ProjectionIndexLeafPage p = new ProjectionIndexLeafPage(kinds);
+    for (int i = 0; i < rowCount; i++) {
+      final long[] nums = {20L + (i % 50), 0L, 0L, 0L};
+      final boolean[] bools = {false, (i & 1) == 0, false, false};
+      final String[] strs = {null, null, depts[i % depts.length],
+          cities[(i * 3) % cities.length]};
+      p.appendRow(baseKey + i, nums, bools, strs);
+    }
+    return p.serialize();
+  }
+
+  /**
+   * Run both dense and hashmap paths and assert the resulting
+   * Object2LongOpenHashMap<String> are byte-for-byte equal.
+   */
+  private static void assertDenseParity(final List<byte[]> leaves,
+      final ProjectionIndexScan.ColumnPredicate[] preds, final int groupColumn,
+      final byte[][] canonicalDict) {
+    // Hashmap (legacy) path — ground truth.
+    final Object2LongOpenHashMap<String> hash = new Object2LongOpenHashMap<>();
+    hash.defaultReturnValue(0L);
+    ProjectionIndexByteScan.conjunctiveCountByGroup(leaves, preds, groupColumn, hash);
+
+    // Dense path — counts + fallback accumulator.
+    final long[] counts = new long[canonicalDict.length];
+    final Object2LongOpenHashMap<String> fallback = new Object2LongOpenHashMap<>();
+    fallback.defaultReturnValue(0L);
+    ProjectionIndexByteScan.conjunctiveCountByGroupDense(
+        leaves, preds, groupColumn, canonicalDict, counts, fallback);
+    // Merge dense counts + fallback into a single map to compare.
+    final Object2LongOpenHashMap<String> dense = new Object2LongOpenHashMap<>();
+    dense.defaultReturnValue(0L);
+    for (int i = 0; i < canonicalDict.length; i++) {
+      if (counts[i] != 0L) {
+        dense.put(new String(canonicalDict[i], StandardCharsets.UTF_8), counts[i]);
+      }
+    }
+    final var it = fallback.object2LongEntrySet().fastIterator();
+    while (it.hasNext()) {
+      final var e = it.next();
+      dense.addTo(e.getKey(), e.getLongValue());
+    }
+
+    assertEquals(hash, dense, "dense vs hashmap group-by counts must match");
+  }
+
+  @Test
+  void denseGroupBy_emptyPreds_8Depts() {
+    final String[] depts = {"D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7"};
+    final String[] cities = {"C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7"};
+    final List<byte[]> leaves = List.of(buildLeafWithDepts(0L, 1024, depts, cities));
+    final byte[][] canonical = ProjectionIndexByteScan.probeCanonicalDict(
+        leaves, 2, 16, 256);
+    assertEquals(8, canonical.length);
+    assertDenseParity(leaves, new ProjectionIndexScan.ColumnPredicate[0], 2, canonical);
+  }
+
+  @Test
+  void denseGroupBy_boolEq_8Depts() {
+    final String[] depts = {"D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7"};
+    final String[] cities = {"C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7"};
+    final List<byte[]> leaves = List.of(buildLeafWithDepts(0L, 1024, depts, cities));
+    final byte[][] canonical = ProjectionIndexByteScan.probeCanonicalDict(
+        leaves, 2, 16, 256);
+    final ProjectionIndexScan.ColumnPredicate[] preds = {
+        ProjectionIndexScan.ColumnPredicate.booleanEq(1, true)
+    };
+    assertDenseParity(leaves, preds, 2, canonical);
+  }
+
+  @Test
+  void denseGroupBy_numericBetween_8Depts() {
+    final String[] depts = {"D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7"};
+    final String[] cities = {"C0", "C1", "C2", "C3", "C4", "C5", "C6", "C7"};
+    final List<byte[]> leaves = List.of(buildLeafWithDepts(0L, 1024, depts, cities));
+    final byte[][] canonical = ProjectionIndexByteScan.probeCanonicalDict(
+        leaves, 2, 16, 256);
+    final ProjectionIndexScan.ColumnPredicate[] preds = {
+        ProjectionIndexScan.ColumnPredicate.numericBetween(0,
+            ProjectionIndexScan.Op.GE, 30L, ProjectionIndexScan.Op.LE, 50L)
+    };
+    assertDenseParity(leaves, preds, 2, canonical);
+  }
+
+  @Test
+  void denseGroupBy_n256_boundaryAccepted() {
+    // 256 distinct strings — right at the limit.
+    final String[] depts = new String[256];
+    for (int i = 0; i < 256; i++) depts[i] = "D" + i;
+    final String[] cities = {"C0"};
+    final List<byte[]> leaves = List.of(buildLeafWithDepts(0L, 1024, depts, cities));
+    final byte[][] canonical = ProjectionIndexByteScan.probeCanonicalDict(
+        leaves, 2, 16, 256);
+    assertEquals(256, canonical.length);
+    assertDenseParity(leaves, new ProjectionIndexScan.ColumnPredicate[0], 2, canonical);
+  }
+
+  @Test
+  void denseGroupBy_n257_aboveThresholdReturnsNull() {
+    // 257 distinct strings — above the limit of 256.
+    final String[] depts = new String[257];
+    for (int i = 0; i < 257; i++) depts[i] = "D" + i;
+    final String[] cities = {"C0"};
+    final List<byte[]> leaves = List.of(buildLeafWithDepts(0L, 1024, depts, cities));
+    final byte[][] canonical = ProjectionIndexByteScan.probeCanonicalDict(
+        leaves, 2, 16, 256);
+    org.junit.jupiter.api.Assertions.assertNull(canonical,
+        "probe should return null when cardinality > cardLimit");
+  }
+
+  @Test
+  void denseGroupBy_crossLeafDictVariation() {
+    // Two leaves with the SAME 4 values but in different dict positions.
+    // Leaf 1: D0, D1, D2, D3. Leaf 2: D3, D2, D1, D0 (rotated).
+    final List<byte[]> leaves = new ArrayList<>();
+    final String[] cities = {"C0"};
+    leaves.add(buildLeafWithDepts(0L, 12, new String[]{"D0", "D1", "D2", "D3"}, cities));
+    leaves.add(buildLeafWithDepts(1000L, 12, new String[]{"D3", "D2", "D1", "D0"}, cities));
+    // Canonical dict built from probing — union is {D0,D1,D2,D3}.
+    final byte[][] canonical = ProjectionIndexByteScan.probeCanonicalDict(
+        leaves, 2, 16, 256);
+    assertEquals(4, canonical.length);
+    assertDenseParity(leaves, new ProjectionIndexScan.ColumnPredicate[0], 2, canonical);
+  }
+
+  @Test
+  void denseGroupBy_missingDictValueTriggersFallback() {
+    // Probe sees only 2 leaves (D0, D1). A third leaf introduces D99.
+    final List<byte[]> leaves = new ArrayList<>();
+    final String[] cities = {"C0"};
+    leaves.add(buildLeafWithDepts(0L, 8, new String[]{"D0", "D1"}, cities));
+    leaves.add(buildLeafWithDepts(100L, 8, new String[]{"D0", "D1"}, cities));
+    // Build canonical from the first 2 leaves only — probeLeaves=2.
+    final byte[][] canonical = ProjectionIndexByteScan.probeCanonicalDict(
+        leaves, 2, 2, 256);
+    assertEquals(2, canonical.length);
+    // NOW add a third leaf with a new value.
+    leaves.add(buildLeafWithDepts(200L, 8, new String[]{"D99"}, cities));
+    // Dense path must fall back for the third leaf. Parity holds.
+    assertDenseParity(leaves, new ProjectionIndexScan.ColumnPredicate[0], 2, canonical);
+  }
+
+  @Test
+  void denseGroupBy_singleValueN1() {
+    final List<byte[]> leaves = List.of(
+        buildLeafWithDepts(0L, 16, new String[]{"OnlyOne"}, new String[]{"C0"}));
+    final byte[][] canonical = ProjectionIndexByteScan.probeCanonicalDict(
+        leaves, 2, 16, 256);
+    assertEquals(1, canonical.length);
+    assertDenseParity(leaves, new ProjectionIndexScan.ColumnPredicate[0], 2, canonical);
+  }
+
+  @Test
+  void denseGroupBy_multiLeafAccumulates() {
+    final String[] depts = {"D0", "D1", "D2", "D3", "D4", "D5", "D6", "D7"};
+    final String[] cities = {"C0"};
+    final List<byte[]> leaves = new ArrayList<>();
+    leaves.add(buildLeafWithDepts(0L, 1024, depts, cities));
+    leaves.add(buildLeafWithDepts(1024L, 1024, depts, cities));
+    leaves.add(buildLeafWithDepts(2048L, 512, depts, cities));  // partial
+    final byte[][] canonical = ProjectionIndexByteScan.probeCanonicalDict(
+        leaves, 2, 16, 256);
+    assertEquals(8, canonical.length);
+    assertDenseParity(leaves, new ProjectionIndexScan.ColumnPredicate[0], 2, canonical);
+  }
+
+  @Test
+  void probeCanonicalDict_ineligibleForNumericColumn() {
+    // Group column 0 is numeric — not STRING_DICT; probe returns null.
+    final List<byte[]> leaves = List.of(buildLeaf(0L, 10));
+    final byte[][] canonical = ProjectionIndexByteScan.probeCanonicalDict(
+        leaves, 0, 16, 256);
+    org.junit.jupiter.api.Assertions.assertNull(canonical);
+  }
+
+  @Test
+  void probeCanonicalDict_emptyListReturnsNull() {
+    final byte[][] canonical = ProjectionIndexByteScan.probeCanonicalDict(
+        List.of(), 2, 16, 256);
+    org.junit.jupiter.api.Assertions.assertNull(canonical);
+  }
 }

@@ -131,6 +131,9 @@ public final class ProjectionIndexByteScan {
     // 64-bit hash collision probability at 10M distinct values ~10⁻¹⁹ —
     // negligible for analytical groupby cardinalities.
     it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<String> stringIntern;
+    // iter#10 dense group-by remap: per-leaf dictId -> canonId.
+    // Pre-allocated to 64, grown on demand for leaves with larger dicts.
+    int[] dictRemap;
   }
 
   private static final ThreadLocal<ScanScratch> SCRATCH = ThreadLocal.withInitial(ScanScratch::new);
@@ -174,6 +177,298 @@ public final class ProjectionIndexByteScan {
           s.numericScratch, s.mask, s.colMask);
     }
     return total;
+  }
+
+  /**
+   * Probe the first {@code probeLeaves} leaves to collect the union of
+   * UTF-8 byte-slices present in the {@code groupColumn} dictionary.
+   * Returns the resulting canonical dictionary ({@code byte[][]}, one
+   * entry per distinct UTF-8 value in insertion order), or {@code null}
+   * when any of the following hold:
+   *
+   * <ul>
+   *   <li>{@code leafPayloads} is empty,</li>
+   *   <li>{@code groupColumn} is out of range on the first leaf,</li>
+   *   <li>the group column's kind is not
+   *       {@link ProjectionIndexLeafPage#COLUMN_KIND_STRING_DICT},</li>
+   *   <li>the observed cardinality exceeds {@code cardLimit}.</li>
+   * </ul>
+   *
+   * <p>Used by {@link ProjectionIndexRegistry.Handle#canonicalDict} to
+   * decide eligibility for the dense group-by path
+   * ({@link #conjunctiveCountByGroupDense}).
+   *
+   * <p>HFT-grade: bounded scan depth; one {@code ArrayList<byte[]>} for
+   * the probe result; no per-leaf dict string allocation (values are
+   * carried as slices copied into fresh {@code byte[]}).
+   *
+   * @param leafPayloads ordered leaf byte[] list — typically
+   *                     {@link ProjectionIndexRegistry.Handle#leafPayloads}.
+   * @param groupColumn  target column index.
+   * @param probeLeaves  max number of leaves to probe, {@code > 0}.
+   * @param cardLimit    max tolerable cardinality; caller-specific
+   *                     bound (e.g. {@code long[]} budget per worker).
+   * @return immutable canonical dict (caller must not mutate), or
+   *         {@code null} if ineligible.
+   */
+  public static byte[][] probeCanonicalDict(final java.util.List<byte[]> leafPayloads,
+      final int groupColumn, final int probeLeaves, final int cardLimit) {
+    if (leafPayloads == null || leafPayloads.isEmpty()) return null;
+    if (probeLeaves <= 0 || cardLimit <= 0) return null;
+    final byte[] firstLeaf = leafPayloads.get(0);
+    if (firstLeaf == null) return null;
+    final int columnCount = columnCountOf(firstLeaf);
+    if (groupColumn < 0 || groupColumn >= columnCount) return null;
+    if (firstLeaf[24 + groupColumn] != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) return null;
+
+    // Seed the canonical dict from the first leaf's dict.
+    final java.util.ArrayList<byte[]> canon = new java.util.ArrayList<>(Math.min(cardLimit, 64));
+    final int scanUpTo = Math.min(probeLeaves, leafPayloads.size());
+    for (int li = 0; li < scanUpTo; li++) {
+      final byte[] payload = leafPayloads.get(li);
+      if (payload == null) continue;
+      if (columnCountOf(payload) != columnCount) continue;
+      if (payload[24 + groupColumn] != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) return null;
+      final int groupBase = columnDataOffFor(payload, groupColumn);
+      if (groupBase < 0) return null;
+      final int dictSize = getIntLE(payload, groupBase);
+      final int lenHeaderOff = groupBase + 4;
+      final int concatOff = lenHeaderOff + dictSize * 4;
+      int running = concatOff;
+      for (int i = 0; i < dictSize; i++) {
+        final int len = getIntLE(payload, lenHeaderOff + i * 4);
+        // Dedup against canonical dict (linear probe, small N in practice).
+        final int canonSize = canon.size();
+        boolean present = false;
+        for (int c = 0; c < canonSize; c++) {
+          if (bytesEqualAt(payload, running, len, canon.get(c))) { present = true; break; }
+        }
+        if (!present) {
+          if (canonSize >= cardLimit) return null;   // cardinality exceeded
+          final byte[] copy = new byte[len];
+          if (len > 0) System.arraycopy(payload, running, copy, 0, len);
+          canon.add(copy);
+        }
+        running += len;
+      }
+    }
+    return canon.toArray(new byte[0][]);
+  }
+
+  /**
+   * Compute the starting byte-offset of {@code groupColumn}'s data block
+   * inside {@code payload} without populating the full per-column offset
+   * cache. Returns {@code -1} on any structural inconsistency (caller
+   * falls back to the hashmap path). Mirrors the offset-walk logic in
+   * {@link #evaluateLeafMask} but stops at the target column.
+   */
+  private static int columnDataOffFor(final byte[] payload, final int groupColumn) {
+    final int rowCount = getIntLE(payload, 0);
+    if (rowCount == 0) return -1;
+    final int columnCount = getIntLE(payload, 4);
+    if (groupColumn < 0 || groupColumn >= columnCount) return -1;
+    final int kindsOff = 24;
+    int cursor = kindsOff + columnCount + rowCount * 8;  // recordKeysOff + rowCount*8
+    for (int c = 0; c < columnCount; c++) {
+      cursor += 16;  // per-column min/max
+      if (c == groupColumn) return cursor;
+      final byte kind = payload[kindsOff + c];
+      switch (kind) {
+        case ProjectionIndexLeafPage.COLUMN_KIND_NUMERIC_LONG -> cursor += rowCount * 8;
+        case ProjectionIndexLeafPage.COLUMN_KIND_BOOLEAN -> cursor += ((rowCount + 63) >>> 6) * 8;
+        case ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT -> {
+          final int dictSize = getIntLE(payload, cursor);
+          int lenTotal = 0;
+          for (int i = 0; i < dictSize; i++) {
+            lenTotal += getIntLE(payload, cursor + 4 + i * 4);
+          }
+          cursor += 4 + dictSize * 4 + lenTotal + rowCount * 4;
+        }
+        default -> { return -1; }
+      }
+    }
+    return -1;  // not found (shouldn't happen — guarded by columnCount check)
+  }
+
+  /**
+   * Dense group-by-count: per matching row, increments
+   * {@code counts[canonId]} where {@code canonId} is the position of the
+   * leaf's dict-value in {@code canonicalDict}. Values NOT in
+   * {@code canonicalDict} fall back to the hashmap path
+   * ({@link #conjunctiveCountByGroup}) for the offending leaf only.
+   *
+   * <p>Hot path: one {@code int[]} dictId→canonId remap per leaf (cost:
+   * {@code dictSize} × {@code canonLen} byte comparisons; both tiny for
+   * bounded-cardinality group columns), then a single {@code counts[remap[dictId]]++}
+   * per matching row. Zero hashmap ops, zero String.equals, zero
+   * FNV-1a hashing on the per-row path.
+   *
+   * <p>HFT-grade: caller-allocated {@code counts}; per-leaf remap uses a
+   * thread-local scratch {@code int[]}; no boxing, no virtual dispatch.
+   *
+   * @param leafPayloads   leaves to scan.
+   * @param predicates     conjunctive predicate list (may be empty).
+   * @param groupColumn    STRING_DICT column index.
+   * @param canonicalDict  immutable canonical dict (length = count array size).
+   * @param counts         output array, pre-zeroed by caller, length ≥ canonicalDict.length.
+   * @param fallbackOut    optional hashmap that receives counts for any
+   *                       leaf whose dict contains a value NOT in
+   *                       {@code canonicalDict}. Non-null required when
+   *                       a full fallback may happen (i.e. when caller
+   *                       did not prove the canonical dict is complete).
+   *                       Pass a non-null empty map and merge it back on
+   *                       the caller side.
+   */
+  public static void conjunctiveCountByGroupDense(final Iterable<byte[]> leafPayloads,
+      final ProjectionIndexScan.ColumnPredicate[] predicates,
+      final int groupColumn,
+      final byte[][] canonicalDict,
+      final long[] counts,
+      final Object2LongOpenHashMap<String> fallbackOut) {
+    if (predicates == null) {
+      throw new IllegalArgumentException("predicates must not be null");
+    }
+    if (canonicalDict == null) {
+      throw new IllegalArgumentException("canonicalDict must not be null");
+    }
+    if (counts == null || counts.length < canonicalDict.length) {
+      throw new IllegalArgumentException("counts[] too small for canonicalDict");
+    }
+    final int canonLen = canonicalDict.length;
+    final ScanScratch s = SCRATCH.get();
+    // Reuse the per-thread dict remap scratch. Legacy field
+    // dictByteOff is a per-leaf byte-offset cache; we co-opt
+    // dictCache's sibling slot by adding a new scratch field.
+    int[] remap = s.dictRemap;
+    if (remap == null || remap.length < 64) {
+      remap = new int[64];
+      s.dictRemap = remap;
+    }
+    for (final byte[] payload : leafPayloads) {
+      final int columnCount = columnCountOf(payload);
+      if (s.columnDataOff.length < columnCount) {
+        s.columnDataOff = new int[columnCount];
+        s.columnMinMaxOff = new int[columnCount];
+      }
+      final int rowCount = evaluateLeafMask(payload, predicates,
+          s.columnDataOff, s.columnMinMaxOff, s.numericScratch, s.mask, s.colMask);
+      if (rowCount <= 0) continue;
+      final byte groupKind = payload[24 + groupColumn];
+      if (groupKind != ProjectionIndexLeafPage.COLUMN_KIND_STRING_DICT) {
+        throw new IllegalStateException("groupColumn " + groupColumn
+            + " is not STRING_DICT (kind=" + groupKind + ")");
+      }
+      final int groupBase = s.columnDataOff[groupColumn];
+      final int dictSize = getIntLE(payload, groupBase);
+      if (remap.length < dictSize) {
+        remap = new int[Math.max(remap.length * 2, dictSize)];
+        s.dictRemap = remap;
+      }
+      // Per-leaf dictId → canonId remap. -1 marks "not in canonical
+      // dict", forcing fallback for this leaf.
+      final int lenHeaderOff = groupBase + 4;
+      final int concatOff = lenHeaderOff + dictSize * 4;
+      int running = concatOff;
+      boolean needsFallback = false;
+      for (int i = 0; i < dictSize; i++) {
+        final int len = getIntLE(payload, lenHeaderOff + i * 4);
+        int hit = -1;
+        for (int c = 0; c < canonLen; c++) {
+          if (bytesEqualAt(payload, running, len, canonicalDict[c])) { hit = c; break; }
+        }
+        remap[i] = hit;
+        if (hit < 0) needsFallback = true;
+        running += len;
+      }
+      final int idsOff = running;
+
+      if (needsFallback) {
+        // Fallback: run the standard hashmap path on this single leaf.
+        // The caller merges fallbackOut back into the final aggregate.
+        if (fallbackOut == null) {
+          throw new IllegalStateException(
+              "canonical dict missing value and no fallback provided for leaf with dictSize=" + dictSize);
+        }
+        conjunctiveCountByGroupSingleLeaf(payload, rowCount, s.mask,
+            groupBase, dictSize, lenHeaderOff, concatOff, idsOff, s, fallbackOut);
+        continue;
+      }
+
+      // Dense hot loop: counts[remap[dictId]]++ per matching row.
+      final int stride = (rowCount + 63) >>> 6;
+      final long[] scanMask = s.mask;
+      for (int w = 0; w < stride; w++) {
+        long word = scanMask[w];
+        while (word != 0L) {
+          final int bit = Long.numberOfTrailingZeros(word);
+          word &= word - 1L;
+          final int rowIdx = (w << 6) + bit;
+          if (rowIdx >= rowCount) break;
+          final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
+          counts[remap[dictId]]++;
+        }
+      }
+    }
+  }
+
+  /**
+   * Per-leaf fallback path for {@link #conjunctiveCountByGroupDense}:
+   * when a leaf's dict contains a value NOT in the canonical dict, we
+   * fall back to the original hashmap accumulator for that one leaf.
+   *
+   * <p>This is structurally the same as the inner loop of
+   * {@link #conjunctiveCountByGroup} (intern by FNV-1a64 hash, bump
+   * {@link Object2LongOpenHashMap#addTo} per row), hoisted into a
+   * helper so the dense path can invoke it without duplicating the
+   * mask-iteration state. Payload offsets are passed in pre-computed
+   * since the dense path already walked them.
+   */
+  private static void conjunctiveCountByGroupSingleLeaf(final byte[] payload,
+      final int rowCount, final long[] scanMask, final int groupBase,
+      final int dictSize, final int lenHeaderOff, final int concatOff, final int idsOff,
+      final ScanScratch s, final Object2LongOpenHashMap<String> out) {
+    if (s.dictCache == null || s.dictCache.length < dictSize) {
+      s.dictCache = new String[Math.max(64, dictSize)];
+      s.dictByteOff = new int[s.dictCache.length];
+    } else {
+      // Clear the prefix we'll populate.
+      for (int i = 0; i < dictSize; i++) s.dictCache[i] = null;
+    }
+    if (s.stringIntern == null) {
+      s.stringIntern = new it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<>(32);
+    }
+    final String[] dictCache = s.dictCache;
+    final int[] dictByteOff = s.dictByteOff;
+    int running = concatOff;
+    for (int i = 0; i < dictSize; i++) {
+      dictByteOff[i] = running;
+      running += getIntLE(payload, lenHeaderOff + i * 4);
+    }
+    final var intern = s.stringIntern;
+    final int stride = (rowCount + 63) >>> 6;
+    for (int w = 0; w < stride; w++) {
+      long word = scanMask[w];
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        word &= word - 1L;
+        final int rowIdx = (w << 6) + bit;
+        if (rowIdx >= rowCount) break;
+        final int dictId = getIntLE(payload, idsOff + rowIdx * 4);
+        String gv = dictCache[dictId];
+        if (gv == null) {
+          final int byteOff = dictByteOff[dictId];
+          final int len = getIntLE(payload, lenHeaderOff + dictId * 4);
+          final long h = fnv1a64(payload, byteOff, len);
+          gv = intern.get(h);
+          if (gv == null) {
+            gv = new String(payload, byteOff, len, StandardCharsets.UTF_8);
+            intern.put(h, gv);
+          }
+          dictCache[dictId] = gv;
+        }
+        out.addTo(gv, 1L);
+      }
+    }
   }
 
   /**
