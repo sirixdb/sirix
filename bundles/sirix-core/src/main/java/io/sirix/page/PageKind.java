@@ -35,6 +35,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.index.IndexType;
+import io.sirix.index.path.summary.PathStatsRegistry;
 import io.sirix.io.bytepipe.ByteHandler;
 import io.sirix.io.bytepipe.ByteHandlerPipeline;
 import io.sirix.io.bytepipe.FFILz4Compressor;
@@ -3426,7 +3427,9 @@ public enum PageKind {
           for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
             currentMaxLevelsOfIndirectPages.put(i, source.readByte() & 0xFF);
           }
-          return new PathSummaryPage(delegate, maxNodeKeys, currentMaxLevelsOfIndirectPages);
+          // Optional PathStatsRegistry trailer — 0 = absent, 1 = present + serialized payload.
+          final PathStatsRegistry registry = source.readByte() == 0 ? null : PathStatsRegistry.deserialize(source);
+          return new PathSummaryPage(delegate, maxNodeKeys, currentMaxLevelsOfIndirectPages, registry);
         }
         default -> throw new IllegalStateException();
       }
@@ -3454,6 +3457,14 @@ public enum PageKind {
       sink.writeInt(currentMaxLevelOfIndirectPagesSize);
       for (int i = 0; i < currentMaxLevelOfIndirectPagesSize; i++) {
         sink.writeByte((byte) pathSummaryPage.getCurrentMaxLevelOfIndirectPages(i));
+      }
+      // Optional PathStatsRegistry trailer.
+      final PathStatsRegistry registry = pathSummaryPage.getPathStatsRegistry();
+      if (registry == null || registry.isEmpty()) {
+        sink.writeByte((byte) 0);
+      } else {
+        sink.writeByte((byte) 1);
+        registry.serialize(sink);
       }
     }
   },
