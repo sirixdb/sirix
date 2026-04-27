@@ -416,7 +416,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         deweyIdBytes);
     reusableObjectNamedObjectNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableObjectNamedObjectNode.setOwnerPage(kvl);
-    reusableObjectNamedObjectNode.setName(name);
+    reusableObjectNamedObjectNode.setName(new QNm(name));
     reusableObjectNamedObjectNode.setDeweyIDAfterCreation(id, deweyIdBytes);
     return reusableObjectNamedObjectNode;
   }
@@ -443,7 +443,7 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         deweyIdBytes);
     reusableObjectNamedArrayNode.bind(kvl.getSlottedPage(), absOffset, nodeKey, slotOffset);
     reusableObjectNamedArrayNode.setOwnerPage(kvl);
-    reusableObjectNamedArrayNode.setName(name);
+    reusableObjectNamedArrayNode.setName(new QNm(name));
     reusableObjectNamedArrayNode.setDeweyIDAfterCreation(id, deweyIdBytes);
     return reusableObjectNamedArrayNode;
   }

@@ -567,8 +567,8 @@ public final class ObjectNamedStringNode
     return cachedName;
   }
 
-  public void setName(final String name) {
-    this.cachedName = new QNm(name);
+  public void setName(final QNm name) {
+    this.cachedName = name;
   }
 
   public int getLocalNameKey() {

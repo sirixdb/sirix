@@ -3044,47 +3044,10 @@ final class JsonNodeTrxImpl extends
 
       final int newNameKey = storageEngineWriter.createNameKey(key, nameNamespaceKind);
 
-      // Per-kind setters are not on a shared interface — routing through concrete casts keeps
-      // the call monomorphic. playsObjectKeyRole() has already admitted exactly the 6 fused kinds.
-      switch (currentKind) {
-        case OBJECT_NAMED_BOOLEAN -> {
-          final ObjectNamedBooleanNode n = (ObjectNamedBooleanNode) node;
-          n.setNameKey(newNameKey);
-          n.setName(key);
-          n.setPreviousRevision(storageEngineWriter.getRevisionToRepresent());
-        }
-        case OBJECT_NAMED_NUMBER -> {
-          final ObjectNamedNumberNode n = (ObjectNamedNumberNode) node;
-          n.setNameKey(newNameKey);
-          n.setName(key);
-          n.setPreviousRevision(storageEngineWriter.getRevisionToRepresent());
-        }
-        case OBJECT_NAMED_STRING -> {
-          final ObjectNamedStringNode n = (ObjectNamedStringNode) node;
-          n.setNameKey(newNameKey);
-          n.setName(key);
-          n.setPreviousRevision(storageEngineWriter.getRevisionToRepresent());
-        }
-        case OBJECT_NAMED_NULL -> {
-          final ObjectNamedNullNode n = (ObjectNamedNullNode) node;
-          n.setNameKey(newNameKey);
-          n.setName(key);
-          n.setPreviousRevision(storageEngineWriter.getRevisionToRepresent());
-        }
-        case OBJECT_NAMED_OBJECT -> {
-          final ObjectNamedObjectNode n = (ObjectNamedObjectNode) node;
-          n.setNameKey(newNameKey);
-          n.setName(key);
-          n.setPreviousRevision(storageEngineWriter.getRevisionToRepresent());
-        }
-        case OBJECT_NAMED_ARRAY -> {
-          final ObjectNamedArrayNode n = (ObjectNamedArrayNode) node;
-          n.setNameKey(newNameKey);
-          n.setName(key);
-          n.setPreviousRevision(storageEngineWriter.getRevisionToRepresent());
-        }
-        default -> throw new AssertionError("unreachable");
-      }
+      final QNm renamed = new QNm(key);
+      nameNode.setLocalNameKey(newNameKey);
+      nameNode.setName(renamed);
+      nameNode.setPreviousRevision(storageEngineWriter.getRevisionToRepresent());
 
       // Adapt path summary.
       if (buildPathSummary) {
@@ -3097,11 +3060,10 @@ final class JsonNodeTrxImpl extends
           final long objectKeyPathParent =
               pathSummaryWriter.lookupArrayPathParentKey(arrayPathNodeKey);
           if (objectKeyPathParent >= 0) {
-            pathSummaryWriter.renameObjectKeyPathEntry(objectKeyPathParent, new QNm(key),
-                newNameKey);
+            pathSummaryWriter.renameObjectKeyPathEntry(objectKeyPathParent, renamed, newNameKey);
           }
         } else {
-          pathSummaryWriter.adaptPathForChangedNode((ImmutableNameNode) nameNode, new QNm(key), -1, -1, newNameKey,
+          pathSummaryWriter.adaptPathForChangedNode((ImmutableNameNode) nameNode, renamed, -1, -1, newNameKey,
               OPType.SETNAME);
         }
       }

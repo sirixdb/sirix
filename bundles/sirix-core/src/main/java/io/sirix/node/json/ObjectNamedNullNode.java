@@ -508,8 +508,8 @@ public final class ObjectNamedNullNode implements StructNode, NameNode, Immutabl
     return cachedName;
   }
 
-  public void setName(final String name) {
-    this.cachedName = new QNm(name);
+  public void setName(final QNm name) {
+    this.cachedName = name;
   }
 
   // NameNode interface methods

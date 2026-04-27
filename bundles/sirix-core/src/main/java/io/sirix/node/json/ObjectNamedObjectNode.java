@@ -579,8 +579,8 @@ public final class ObjectNamedObjectNode implements StructNode, NameNode, Immuta
     return cachedName;
   }
 
-  public void setName(final String name) {
-    this.cachedName = new QNm(name);
+  public void setName(final QNm name) {
+    this.cachedName = name;
   }
 
   public int getLocalNameKey() {

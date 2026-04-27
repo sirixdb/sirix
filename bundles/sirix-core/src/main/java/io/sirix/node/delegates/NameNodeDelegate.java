@@ -32,6 +32,7 @@ import io.sirix.utils.ToStringHelper;
 import java.util.Objects;
 import io.brackit.query.atomic.QNm;
 import io.sirix.node.AbstractForwardingNode;
+import io.brackit.query.atomic.QNm;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.NameNode;
@@ -137,6 +138,22 @@ public class NameNodeDelegate extends AbstractForwardingNode implements NameNode
   @Override
   public void setLocalNameKey(final int localNameKey) {
     this.localNameKey = localNameKey;
+  }
+
+  /**
+   * Composing nodes (e.g. {@code ElementNode}) own the QNm cache and the previous-revision
+   * stamp directly on themselves; the delegate forwards only the per-component name keys.
+   * These setters are part of the {@link NameNode} contract but never reach a delegate
+   * instance in practice.
+   */
+  @Override
+  public void setName(final QNm name) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setPreviousRevision(final int revision) {
+    throw new UnsupportedOperationException();
   }
 
   @Override
