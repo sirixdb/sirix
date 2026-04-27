@@ -119,6 +119,14 @@ test {
 // processResources should rebuild the .so if the .c source changed.
 processResources.dependsOn 'buildNativeLz77'
 
+// Detect gcc availability at configuration time. The Docker deploy image has no
+// gcc; runtime degrades gracefully to the pure-Java LZ77 decoder when the .so is
+// absent, so the native compile is best-effort.
+def gccAvailable = providers.exec {
+    commandLine 'sh', '-c', 'command -v gcc'
+    ignoreExitValue = true
+}.result.get().exitValue == 0
+
 task buildNativeLz77(type: Exec) {
     description = 'Compile libsirix_lz77.so (native LZ77 decoder)'
     group = 'build'
@@ -129,6 +137,14 @@ task buildNativeLz77(type: Exec) {
 
     inputs.file srcFile
     outputs.file destFile
+
+    onlyIf {
+        if (!gccAvailable) {
+            logger.lifecycle("buildNativeLz77 skipped: gcc not on PATH (runtime falls back to pure-Java LZ77).")
+            return false
+        }
+        return true
+    }
 
     doFirst {
         destDir.mkdirs()
