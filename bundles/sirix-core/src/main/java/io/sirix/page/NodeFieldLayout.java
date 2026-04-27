@@ -29,6 +29,12 @@ public final class NodeFieldLayout {
   /** Fixed width of hash field in bytes (always 8). */
   public static final int HASH_WIDTH = Long.BYTES;
 
+  /** NAME_KEY field index for primitive-fused {@code OBJECT_NAMED_*} (kindIds 48-51). */
+  public static final int FUSED_PRIMITIVE_NAME_KEY_FIELD = 3;
+
+  /** NAME_KEY field index for structural-fused {@code OBJECT_NAMED_OBJECT/ARRAY} (kindIds 52-53). */
+  public static final int FUSED_STRUCTURAL_NAME_KEY_FIELD = 5;
+
   // ==================== OBJECT NODE (10 fields) ====================
 
   /** Total field count for OBJECT nodes. */

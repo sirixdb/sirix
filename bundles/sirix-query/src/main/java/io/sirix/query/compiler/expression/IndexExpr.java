@@ -235,7 +235,7 @@ public final class IndexExpr implements Expr {
               }
             }
             if (predicateLeafNode != null && predicateLeafNode.getParent().getType() != XQ.ArrayAccess) {
-              // iter#32 P2 fusion: the legacy "skip OBJECT_KEY layer to its containing OBJECT"
+              // the legacy "skip OBJECT_KEY layer to its containing OBJECT"
               // hop becomes a no-op when the predicate target is itself a fused
               // OBJECT_NAMED_OBJECT — the named-OBJECT pair is already represented by the same
               // record. Skip the FINAL hop to avoid over-shooting into the parent OBJECT.
@@ -319,7 +319,7 @@ public final class IndexExpr implements Expr {
             assert path != null;
             final var steps = path.steps();
 
-            // iter#32 P2 fusion: OBJECT_NAMED_ARRAY anchors its pathNodeKey at the
+            // OBJECT_NAMED_ARRAY anchors its pathNodeKey at the
             // {@code __array__/ARRAY} layer (so child fields nest correctly), but its OWN
             // identity is the OBJECT_KEY-layer field (e.g. "tada"). The path summary path
             // therefore ends with a trailing {@code []}; the query segment's name ("tada")
@@ -412,7 +412,7 @@ public final class IndexExpr implements Expr {
 
               // if not the last step is an array unboxing
               if (moveToParent) {
-                // iter#32 P2 fusion: OBJECT_NAMED_ARRAY collapses the ARRAY+OBJECT_KEY
+                // OBJECT_NAMED_ARRAY collapses the ARRAY+OBJECT_KEY
                 // pair into one record. After a CHILD_ARRAY step's inner-loop landed
                 // on the ARRAY-equivalent (the fused record itself), the outer
                 // moveToParent here would skip over the OBJECT_KEY layer too — but under

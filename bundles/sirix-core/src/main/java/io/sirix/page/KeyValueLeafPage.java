@@ -1421,8 +1421,8 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
     final int fieldCount = NodeFieldLayout.fieldCountForKind(kindId);
-    // NAME_KEY is field index 3 for all four primitive-fused kinds (48-51).
-    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + 3) & 0xFF;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.FUSED_PRIMITIVE_NAME_KEY_FIELD) & 0xFF;
     final long dataStart = recordBase + 1 + fieldCount;
     return DeltaVarIntCodec.decodeSignedFromSegment(sp, dataStart + fieldOff);
   }
@@ -1438,14 +1438,14 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     final long recordBase = PageLayout.HEAP_START + heapOffset;
     final int kindId = sp.get(ValueLayout.JAVA_BYTE, recordBase) & 0xFF;
     final int fieldCount = NodeFieldLayout.fieldCountForKind(kindId);
-    // NAME_KEY is field index 5 for both structural-fused kinds (52, 53).
-    final int fieldOff = sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + 5) & 0xFF;
+    final int fieldOff =
+        sp.get(ValueLayout.JAVA_BYTE, recordBase + 1 + NodeFieldLayout.FUSED_STRUCTURAL_NAME_KEY_FIELD) & 0xFF;
     final long dataStart = recordBase + 1 + fieldCount;
     return DeltaVarIntCodec.decodeSignedFromSegment(sp, dataStart + fieldOff);
   }
 
   /**
-   * True for the Phase 2 fused structural kinds (52, 53). Layout-dependent — these have a
+   * True for the kinds (52, 53). Layout-dependent — these have a
    * 12-field offset table with NAME_KEY at index 5; do NOT use them on hot paths that assume
    * the primitive-fused layout (kindIds 48-51).
    */

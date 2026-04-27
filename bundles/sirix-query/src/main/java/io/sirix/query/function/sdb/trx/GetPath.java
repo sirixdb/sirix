@@ -72,7 +72,7 @@ public final class GetPath extends AbstractFunction {
         final var steps = path.steps();
         final var positions = new ArrayDeque<Integer>();
 
-        // iter#32 P2 fusion: track when the previous step's moveToParent landed on a fused
+        // track when the previous step's moveToParent landed on a fused
         // OBJECT_NAMED_* — its single tree level represents BOTH the OBJECT_KEY axis-layer
         // AND its inner OBJECT/ARRAY value. The next FIELD step's moveToParent would then
         // overshoot the containing OBJECT, dropping us at its parent. Skip the FIELD-step
@@ -120,7 +120,7 @@ public final class GetPath extends AbstractFunction {
   }
 
   private int addArrayPosition(JsonNodeReadOnlyTrx rtx) {
-    // iter#32 P2 fusion: legacy OBJECT_KEY+ARRAY pair → check `parent==OBJECT_KEY && isArray`.
+    // legacy OBJECT_KEY+ARRAY pair → check `parent==OBJECT_KEY && isArray`.
     // Fused OBJECT_NAMED_ARRAY collapses both layers into one record — when we're sitting on
     // a fused named array, semantically it IS the named-field layer (not an array element).
     // Return -1 to render as "/[]" in both modes; it preserves the "no specific element index"

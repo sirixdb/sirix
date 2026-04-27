@@ -281,7 +281,7 @@ public final class JsonResourceCopy implements Callable<Void> {
       insertPosition = "asFirstChild";
     }
 
-    // iter#32 P2 fusion: OBJECT_NAMED_* records play the OBJECT_KEY+VALUE role themselves —
+    // OBJECT_NAMED_* records play the OBJECT_KEY+VALUE role themselves —
     // there is no parent OBJECT_KEY to walk to. Detect that the cursor is already on a
     // fused field record and call replaceObjectRecordValue in place. Legacy OBJECT_KEY parent
     // path is preserved for backward-compatible diffs that still reference the two-record

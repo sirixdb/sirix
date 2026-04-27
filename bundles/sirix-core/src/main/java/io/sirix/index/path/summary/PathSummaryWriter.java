@@ -435,7 +435,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     NodeKind currentKind = nodeRtx.getKind();
     // Bare OBJECT/ARRAY containers don't carry a pathNodeKey of their own — the OBJECT_KEY
     // (or fused OBJECT_NAMED_OBJECT/ARRAY) anchor does. Hop up so the path-summary cursor
-    // can reuse the parent's pathNodeKey. Phase 2 fused-structural records DO carry their
+    // can reuse the parent's pathNodeKey. DO carry their
     // own pathNodeKey, so do not hop past them.
     if (currentKind == NodeKind.OBJECT) {
       nodeRtx.moveToParent();

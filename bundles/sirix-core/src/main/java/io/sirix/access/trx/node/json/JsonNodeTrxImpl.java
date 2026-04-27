@@ -553,7 +553,7 @@ final class JsonNodeTrxImpl extends
         // $CASES-OMITTED$
         switch (insertionPosition) {
           case AS_FIRST_CHILD, AS_LAST_CHILD -> {
-            // Phase 2 fused-structural records (OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY) play
+            // play
             // the OBJECT/ARRAY role under fusion, so admit them as valid first/last-child
             // anchor points alongside their non-fused counterparts.
             if (nodeKind != NodeKind.JSON_DOCUMENT && nodeKind != NodeKind.ARRAY && nodeKind != NodeKind.OBJECT
@@ -897,7 +897,7 @@ final class JsonNodeTrxImpl extends
       final long rightSibKey = structNode.getFirstChildKey();
 
       final long objectKeyPathNodeKey = getPathNodeKey(parentKey, key, NodeKind.OBJECT_NAMED_OBJECT);
-      // iter#32 P2 fusion: OBJECT_NAMED_ARRAY plays both OBJECT_KEY and ARRAY roles.
+      // OBJECT_NAMED_ARRAY plays both OBJECT_KEY and ARRAY roles.
       // The path summary still needs the anonymous-array (`__array__/ARRAY`) layer so user paths
       // like `/features/[]/...` resolve. Anchor the fused node's pathNodeKey at the ARRAY layer
       // so child fields nest below it correctly.
@@ -1033,7 +1033,7 @@ final class JsonNodeTrxImpl extends
 
   private void moveToParentObjectKeyArrayOrDocumentRoot() {
     var nodeKind = nodeReadOnlyTrx.getKind();
-    // Phase 2 fused-structural records (OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY) play the
+    // play the
     // OBJECT_KEY+OBJECT (or ARRAY) role under fusion — stop walking up at them so the
     // path-summary writer anchors child path nodes at the correct ancestor.
     while (nodeKind != NodeKind.OBJECT_NAMED_OBJECT
@@ -1098,7 +1098,7 @@ final class JsonNodeTrxImpl extends
 
       moveToParent();
       final long objectKeyPathNodeKey = getPathNodeKey(rightSibKey, key, NodeKind.OBJECT_NAMED_OBJECT);
-      // iter#32 P2 fusion: array-valued field needs the `__array__/ARRAY` path-summary layer
+      // array-valued field needs the `__array__/ARRAY` path-summary layer
       // anchored under the OBJECT_KEY layer the field name created. Anchor the fused node's
       // pathNodeKey at the ARRAY layer so child fields (`/foo/[]/bar`) resolve correctly.
       final long pathNodeKey = (valueKind == NodeKind.ARRAY && buildPathSummary)
@@ -1166,7 +1166,7 @@ final class JsonNodeTrxImpl extends
 
       moveToParent();
       final long objectKeyPathNodeKey = getPathNodeKey(leftSibKey, key, NodeKind.OBJECT_NAMED_OBJECT);
-      // iter#32 P2 fusion: array-valued field needs the `__array__/ARRAY` path-summary layer
+      // array-valued field needs the `__array__/ARRAY` path-summary layer
       // anchored under the OBJECT_KEY layer the field name created.
       final long pathNodeKey = (valueKind == NodeKind.ARRAY && buildPathSummary)
           ? pathSummaryWriter.getArrayChildPathNodeKey(objectKeyPathNodeKey)
@@ -1544,7 +1544,7 @@ final class JsonNodeTrxImpl extends
 
     try {
       final NodeKind kind = getKind();
-      // OBJECT_NAMED_ARRAY (Phase 2 fused structural) plays the ARRAY role under fusion — its
+      // OBJECT_NAMED_ARRAY plays the ARRAY role under fusion — its
       // first/last-child slot is the array body, exactly like ARRAY. Accept it.
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_NAMED_OBJECT && kind != NodeKind.ARRAY
           && kind != NodeKind.OBJECT_NAMED_ARRAY)
@@ -1604,7 +1604,7 @@ final class JsonNodeTrxImpl extends
 
     try {
       final NodeKind kind = getKind();
-      // OBJECT_NAMED_ARRAY (Phase 2 fused structural) plays the ARRAY role under fusion — its
+      // OBJECT_NAMED_ARRAY plays the ARRAY role under fusion — its
       // first/last-child slot is the array body, exactly like ARRAY. Accept it.
       if (kind != NodeKind.JSON_DOCUMENT && kind != NodeKind.OBJECT_NAMED_OBJECT && kind != NodeKind.ARRAY
           && kind != NodeKind.OBJECT_NAMED_ARRAY)
@@ -2298,7 +2298,7 @@ final class JsonNodeTrxImpl extends
 
       if (node instanceof StructNode toMove) {
         final NodeKind anchorKind = getKind();
-        // Phase 2 fused-structural records (OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY) play the
+        // play the
         // OBJECT/ARRAY role under fusion, so admit them as valid move anchors.
         if (anchorKind != NodeKind.OBJECT && anchorKind != NodeKind.ARRAY
             && anchorKind != NodeKind.OBJECT_NAMED_OBJECT && anchorKind != NodeKind.JSON_DOCUMENT
@@ -2735,7 +2735,7 @@ final class JsonNodeTrxImpl extends
 
       final var parentNodeKind = getParentKind();
 
-      // OBJECT_NAMED_OBJECT and OBJECT_NAMED_ARRAY (Phase 2 fused structural records) play the
+      // OBJECT_NAMED_OBJECT and OBJECT_NAMED_ARRAY (records) play the
       // OBJECT/ARRAY role under fusion — their direct children are full object-fields, removable
       // exactly the same way as legacy OBJECT/ARRAY children. Accept them as valid removable-
       // child parents alongside the legacy kinds.
@@ -3088,7 +3088,7 @@ final class JsonNodeTrxImpl extends
 
       // Adapt path summary.
       if (buildPathSummary) {
-        // iter#32 P2 fusion: OBJECT_NAMED_ARRAY's pathNodeKey points at the `__array__/ARRAY`
+        // OBJECT_NAMED_ARRAY's pathNodeKey points at the `__array__/ARRAY`
         // layer (one level deeper than the field-name OBJECT_KEY entry). Renaming the field
         // means renaming the OBJECT_KEY parent of that ARRAY entry — the ARRAY entry itself
         // continues to carry the `__array__` synthetic name.

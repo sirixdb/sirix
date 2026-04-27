@@ -96,7 +96,7 @@ class DerefDescendantExpr implements Expr {
     return getLazySequence(recordFieldAsString, jsonDBItem, rtx);
   }
 
-  /** iter#32 P2 fusion gate: re-enabled. The path-summary-driven descendant-deref fast-path
+  /** gate: re-enabled. The path-summary-driven descendant-deref fast-path
    *  walks path-summary candidates and reuses the same {@link FilterAxis}+{@link FieldValueAxis}
    *  pattern that powers {@link DerefExpr}. Under structural fusion every path-summary level
    *  still maps to exactly one data-tree level on the corresponding axis chain — the legacy
@@ -365,7 +365,7 @@ class DerefDescendantExpr implements Expr {
     final var concurrentRtx = resourceSession.beginNodeReadOnlyTrx(revisionNumber);
     concurrentRtx.moveTo(nodeKey);
     final var concurrentRtx1 = resourceSession.beginNodeReadOnlyTrx(revisionNumber);
-    // iter#32 P2 fusion: a JsonDBArray cursor can sit on either a plain {@link NodeKind#ARRAY}
+    // a JsonDBArray cursor can sit on either a plain {@link NodeKind#ARRAY}
     // (legacy or anonymous nested arrays) or a fused {@link NodeKind#OBJECT_NAMED_ARRAY} (which
     // simultaneously plays the OBJECT_KEY name role and the ARRAY structural role). Both share
     // the same descend-into-elements topology — anonymous OBJECT children carrying the field
@@ -407,7 +407,7 @@ class DerefDescendantExpr implements Expr {
         }
       }
     }
-    // iter#32 P2 fusion: between two consecutive non-array path segments the previous step
+    // between two consecutive non-array path segments the previous step
     // already lands the cursor on a fused {@code OBJECT_NAMED_*} record (which under fusion
     // IS the value), so we need a "step into the value" that is a no-op for fused records and
     // a first-child descent for legacy {@code OBJECT_KEY}. {@link FieldValueAxis} unifies both.

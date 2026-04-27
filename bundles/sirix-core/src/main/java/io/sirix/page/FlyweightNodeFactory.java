@@ -85,8 +85,8 @@ public final class FlyweightNodeFactory {
       case 49 -> new ObjectNamedNumberNode(nodeKey, hashFunction);  // OBJECT_NAMED_NUMBER
       case 50 -> new ObjectNamedStringNode(nodeKey, hashFunction);  // OBJECT_NAMED_STRING
       case 51 -> new ObjectNamedNullNode(nodeKey, hashFunction);    // OBJECT_NAMED_NULL
-      case 52 -> new ObjectNamedObjectNode(nodeKey, hashFunction);  // OBJECT_NAMED_OBJECT (Phase 2 fused structural)
-      case 53 -> new ObjectNamedArrayNode(nodeKey, hashFunction);   // OBJECT_NAMED_ARRAY (Phase 2 fused structural)
+      case 52 -> new ObjectNamedObjectNode(nodeKey, hashFunction);  // OBJECT_NAMED_OBJECT
+      case 53 -> new ObjectNamedArrayNode(nodeKey, hashFunction);   // OBJECT_NAMED_ARRAY
       default -> throw new IllegalArgumentException(
           "Unknown flyweight node kind ID: " + nodeKindId);
     };

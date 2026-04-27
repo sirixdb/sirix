@@ -36,7 +36,7 @@ public class Paths {
         if (indexesDeque == null) {
           return true;
         } else if (indexesDeque.isEmpty()) {
-          // iter#32 P2 fusion: OBJECT_NAMED_ARRAY anchors its pathNodeKey at the trailing
+          // OBJECT_NAMED_ARRAY anchors its pathNodeKey at the trailing
           // {@code []} ARRAY layer. A query that references the array by name only (no
           // array index) lands on this same path; permit the trailing {@code []} to be
           // consumed without an explicit index. Other CHILD_ARRAY steps still require a
