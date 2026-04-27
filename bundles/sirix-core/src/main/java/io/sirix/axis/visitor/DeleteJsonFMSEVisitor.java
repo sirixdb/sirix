@@ -10,12 +10,7 @@ import io.sirix.node.immutable.json.ImmutableArrayNode;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableNullNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.immutable.json.ImmutableObjectNode;
-import io.sirix.node.immutable.json.ImmutableObjectNullNode;
-import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
 import io.sirix.node.json.ObjectNamedBooleanNode;
@@ -61,11 +56,6 @@ public final class DeleteJsonFMSEVisitor extends AbstractJsonNodeVisitor {
     return deleteIfUnmatched(node);
   }
 
-  @Override
-  public VisitResult visit(final ImmutableObjectKeyNode node) {
-    return deleteIfUnmatched(node);
-  }
-
   // ==================== Leaf node visitors ====================
 
   @Override
@@ -85,26 +75,6 @@ public final class DeleteJsonFMSEVisitor extends AbstractJsonNodeVisitor {
 
   @Override
   public VisitResult visit(final ImmutableNullNode node) {
-    return deleteIfUnmatched(node);
-  }
-
-  @Override
-  public VisitResult visit(final ImmutableObjectStringNode node) {
-    return deleteIfUnmatched(node);
-  }
-
-  @Override
-  public VisitResult visit(final ImmutableObjectNumberNode node) {
-    return deleteIfUnmatched(node);
-  }
-
-  @Override
-  public VisitResult visit(final ImmutableObjectBooleanNode node) {
-    return deleteIfUnmatched(node);
-  }
-
-  @Override
-  public VisitResult visit(final ImmutableObjectNullNode node) {
     return deleteIfUnmatched(node);
   }
 

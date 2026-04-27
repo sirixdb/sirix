@@ -1,43 +1,43 @@
 {
   "key": "tada",
   "metadata": {
-    "nodeKey": 15,
+    "nodeKey": 12,
     "hash": "0000000000000000",
     "type": "OBJECT_KEY",
-    "descendantCount": 10
+    "descendantCount": 8
   },
   "value": {
     "metadata": {
-      "nodeKey": 16,
+      "nodeKey": 13,
       "hash": "0000000000000000",
       "type": "ARRAY",
-      "descendantCount": 9,
+      "descendantCount": 7,
       "childCount": 5
     },
     "value": [
       {
         "metadata": {
-          "nodeKey": 17,
+          "nodeKey": 14,
           "hash": "0000000000000000",
           "type": "OBJECT",
-          "descendantCount": 2,
+          "descendantCount": 1,
           "childCount": 1
         },
         "value": {}
       },
       {
         "metadata": {
-          "nodeKey": 20,
+          "nodeKey": 16,
           "hash": "0000000000000000",
           "type": "OBJECT",
-          "descendantCount": 2,
+          "descendantCount": 1,
           "childCount": 1
         },
         "value": {}
       },
       {
         "metadata": {
-          "nodeKey": 23,
+          "nodeKey": 18,
           "hash": "0000000000000000",
           "type": "STRING_VALUE"
         },
@@ -45,7 +45,7 @@
       },
       {
         "metadata": {
-          "nodeKey": 24,
+          "nodeKey": 19,
           "hash": "0000000000000000",
           "type": "OBJECT",
           "descendantCount": 0,
@@ -55,7 +55,7 @@
       },
       {
         "metadata": {
-          "nodeKey": 25,
+          "nodeKey": 20,
           "hash": "0000000000000000",
           "type": "ARRAY",
           "descendantCount": 0,

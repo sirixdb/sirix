@@ -783,12 +783,46 @@ class KotlinJsonStreamingShredder(
             InsertPosition.AS_LEFT_SIBLING -> wtx.insertObjectRecordAsLeftSibling(name, value).nodeKey
             InsertPosition.AS_RIGHT_SIBLING -> wtx.insertObjectRecordAsRightSibling(name, value).nodeKey
         }
+
+        val cursorKind = wtx.kind
+
+        // iter#32 P2 fused-structural emission: a single OBJECT_NAMED_OBJECT/ARRAY record now
+        // carries both the field-name and the structural value start. Cursor lands ON the fused
+        // parent (NOT on a separate OBJECT/ARRAY child). The fused record collapses the legacy
+        // OBJECT_KEY+OBJECT (or +ARRAY) pair, but END_OBJECT/END_ARRAY handling must still pop two
+        // levels — mirror legacy stack arithmetic by pushing the fused key TWICE plus NULL anchor.
+        // Mirrors JsonShredder.addObjectRecord (lines 601-606).
+        if (cursorKind === NodeKind.OBJECT_NAMED_OBJECT || cursorKind === NodeKind.OBJECT_NAMED_ARRAY) {
+            if (!parents.isEmpty) {
+                parents.popLong()
+            }
+            parents.push(key)
+            parents.push(key)
+            parents.push(Fixed.NULL_NODE_KEY.standardProperty)
+            return
+        }
+
+        // iter#32 fused-primitive emission: when value is primitive AND insert is FIRST/LAST CHILD,
+        // the OBJECT_NAMED_* leaf carries both name+value inline. Cursor lands on the leaf. The
+        // leaf takes the slot formerly occupied by OBJECT_KEY as left-sibling anchor for the next
+        // sibling field. Mirrors JsonShredder.addObjectRecordFused (lines 633-655).
+        if (cursorKind.isFusedObjectNamed()) {
+            if (!parents.isEmpty) {
+                parents.popLong()
+            }
+            parents.push(key)
+            if (isNextTokenParentToken) {
+                wtx.moveTo(key)
+            }
+            return
+        }
+
         if (!parents.isEmpty) {
             parents.popLong()
         }
         parents.push(wtx.parentKey)
         parents.push(Fixed.NULL_NODE_KEY.standardProperty)
-        if (wtx.kind === NodeKind.OBJECT || wtx.kind === NodeKind.ARRAY) {
+        if (cursorKind === NodeKind.OBJECT || cursorKind === NodeKind.ARRAY) {
             if (!parents.isEmpty) {
                 parents.popLong()
             }

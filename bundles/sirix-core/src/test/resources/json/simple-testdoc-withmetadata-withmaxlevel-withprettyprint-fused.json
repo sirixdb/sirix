@@ -1,0 +1,55 @@
+{
+  "metadata": {
+    "nodeKey": 1,
+    "hash": "0000000000000000",
+    "type": "ARRAY",
+    "descendantCount": 10,
+    "childCount": 2
+  },
+  "value": [
+    {
+      "metadata": {
+        "nodeKey": 2,
+        "hash": "0000000000000000",
+        "type": "OBJECT",
+        "descendantCount": 5,
+        "childCount": 1
+      },
+      "value": [
+        {
+          "key": "head",
+          "metadata": {
+            "nodeKey": 3,
+            "hash": "0000000000000000",
+            "type": "OBJECT_KEY",
+            "descendantCount": 4,
+            "childCount": 2
+          },
+          "value": {}
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "nodeKey": 8,
+        "hash": "0000000000000000",
+        "type": "OBJECT",
+        "descendantCount": 3,
+        "childCount": 1
+      },
+      "value": [
+        {
+          "key": "body",
+          "metadata": {
+            "nodeKey": 9,
+            "hash": "0000000000000000",
+            "type": "OBJECT_KEY",
+            "descendantCount": 2,
+            "childCount": 2
+          },
+          "value": []
+        }
+      ]
+    }
+  ]
+}

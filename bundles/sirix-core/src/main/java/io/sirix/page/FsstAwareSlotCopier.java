@@ -54,29 +54,17 @@ public final class FsstAwareSlotCopier {
   /** NodeKind.STRING_VALUE id. Duplicated to avoid a dependency cycle. */
   private static final int STRING_VALUE_KIND_ID = 30;
 
-  /** NodeKind.OBJECT_STRING_VALUE id. */
-  private static final int OBJECT_STRING_VALUE_KIND_ID = 40;
-
   /** Field count of the STRING_VALUE flyweight offset table. */
   private static final int STRING_VALUE_FIELD_COUNT = 6;
 
-  /** Field count of the OBJECT_STRING_VALUE flyweight offset table. */
-  private static final int OBJECT_STRING_VALUE_FIELD_COUNT = 4;
-
   /** Payload field index within STRING_VALUE's offset table. */
   private static final int STRING_VALUE_PAYLOAD_FIELD = 5;
-
-  /** Payload field index within OBJECT_STRING_VALUE's offset table. */
-  private static final int OBJECT_STRING_VALUE_PAYLOAD_FIELD = 3;
 
   /**
    * Structural delta-varints preceding {@code prevRev} in the STRING_VALUE
    * legacy wire format (parent, rightSib, leftSib).
    */
   private static final int STRING_VALUE_STRUCTURAL_VARINTS = 3;
-
-  /** Structural delta-varint preceding {@code prevRev} for OBJECT_STRING_VALUE (parent only). */
-  private static final int OBJECT_STRING_VALUE_STRUCTURAL_VARINTS = 1;
 
   /** Parsed symbol table — {@code null} when the source fragment has no FSST table. */
   private final byte[][] parsedSymbols;
@@ -142,17 +130,10 @@ public final class FsstAwareSlotCopier {
     if (dirNodeKindId == STRING_VALUE_KIND_ID) {
       return decompressFlyweight(slot, slotLen, STRING_VALUE_FIELD_COUNT, STRING_VALUE_PAYLOAD_FIELD);
     }
-    if (dirNodeKindId == OBJECT_STRING_VALUE_KIND_ID) {
-      return decompressFlyweight(slot, slotLen, OBJECT_STRING_VALUE_FIELD_COUNT,
-          OBJECT_STRING_VALUE_PAYLOAD_FIELD);
-    }
     if (dirNodeKindId == 0 && slotLen > 0) {
       final int kindByte = slot.get(ValueLayout.JAVA_BYTE, 0) & 0xFF;
       if (kindByte == STRING_VALUE_KIND_ID) {
         return decompressLegacy(slot, slotLen, STRING_VALUE_STRUCTURAL_VARINTS);
-      }
-      if (kindByte == OBJECT_STRING_VALUE_KIND_ID) {
-        return decompressLegacy(slot, slotLen, OBJECT_STRING_VALUE_STRUCTURAL_VARINTS);
       }
     }
     return null;

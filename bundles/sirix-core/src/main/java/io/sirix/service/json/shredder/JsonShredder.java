@@ -71,19 +71,6 @@ public final class JsonShredder implements Callable<Long> {
   private final boolean skipRootJson;
 
   /**
-   * When {@code true}, primitive-valued object fields are emitted as a single
-   * fused {@code OBJECT_NAMED_*} record instead of the legacy
-   * {@code OBJECT_KEY + primitive-value} pair (task #62).
-   */
-  private final boolean fuseNamedPrimitives;
-
-  /** iter#30 flip: fusion is the DEFAULT storage shape. Primitive-valued object fields are
-   * emitted as a single {@code OBJECT_NAMED_*} record, cutting the bench DB ~4.5x on disk.
-   * Legacy callers that need the old {@code OBJECT_KEY + primitive-value} pair (diff walkers,
-   * a couple of internal round-trip tests) opt OUT via {@link Builder#fuseNamedPrimitives(boolean)}. */
-  private static final boolean DEFAULT_FUSE_NAMED_PRIMITIVES = true;
-
-  /**
    * Builder to build an {@link JsonShredder} instance.
    */
   public static class Builder {
@@ -103,9 +90,6 @@ public final class JsonShredder implements Callable<Long> {
     private ShredderCommit commit = ShredderCommit.NOCOMMIT;
 
     private boolean skipRootJsonToken;
-
-    /** Opt-in fused OBJECT_NAMED_* emission for primitive-valued object fields (task #62). */
-    private boolean fuseNamedPrimitives = DEFAULT_FUSE_NAMED_PRIMITIVES;
 
     /**
      * Constructor.
@@ -138,29 +122,6 @@ public final class JsonShredder implements Callable<Long> {
     }
 
     /**
-     * Enable fused OBJECT_NAMED_* emission. When on, any {@code "key": primitive}
-     * pair becomes a single slotted-page record instead of the legacy OBJECT_KEY +
-     * primitive-value child pair.
-     *
-     * <p>Since iter#30 fusion is the default; calling this method without an argument is
-     * retained as a no-op convenience for call-sites that want to be explicit.
-     */
-    public Builder fuseNamedPrimitives() {
-      this.fuseNamedPrimitives = true;
-      return this;
-    }
-
-    /**
-     * Explicit toggle of fused OBJECT_NAMED_* emission. Pass {@code false} to opt OUT
-     * of fusion and stay on the legacy OBJECT_KEY + primitive-value-child shape — used
-     * by tests / diff walkers / FMSE that rely on the two-event preorder.
-     */
-    public Builder fuseNamedPrimitives(final boolean on) {
-      this.fuseNamedPrimitives = on;
-      return this;
-    }
-
-    /**
      * Build an instance.
      *
      * @return {@link JsonShredder} instance
@@ -181,7 +142,6 @@ public final class JsonShredder implements Callable<Long> {
     insert = builder.insert;
     commit = builder.commit;
     skipRootJson = builder.skipRootJsonToken;
-    fuseNamedPrimitives = builder.fuseNamedPrimitives;
 
     parents = new LongArrayList();
     parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
@@ -588,11 +548,11 @@ public final class JsonShredder implements Callable<Long> {
 
     final ObjectRecordValue<?> value = getObjectRecordValue();
 
-    // Detect primitive-value case so we can emit a single fused OBJECT_NAMED_* record instead of
-    // the legacy OBJECT_KEY + primitive-value pair. Gated behind an opt-in flag — legacy shred
-    // remains the default so ~4600 existing tests still pass unmodified.
-    final boolean isFusedCandidate = fuseNamedPrimitives
-        && isPrimitiveValueKind(value.getKind())
+    // Primitive-value object fields are always emitted as a single fused OBJECT_NAMED_* record
+    // when the insertion position permits sibling insertion below the parent. Otherwise (left/right
+    // sibling insertion of an object record), fall through to the generic OBJECT_KEY path so the
+    // value subtree (object or array) gets its own OBJECT_KEY anchor.
+    final boolean isFusedCandidate = isPrimitiveValueKind(value.getKind())
         && (insert == InsertPosition.AS_FIRST_CHILD || insert == InsertPosition.AS_LAST_CHILD);
 
     if (isFusedCandidate) {
@@ -627,11 +587,30 @@ public final class JsonShredder implements Callable<Long> {
         throw new AssertionError();// Should not happen
     }
 
+    final NodeKind cursorKind = wtx.getKind();
+
+    // P2: object/array-valued fields emit a single fused OBJECT_NAMED_OBJECT/ARRAY record. The
+    // cursor lands ON the fused parent (NOT on a separate OBJECT/ARRAY child). The fused record
+    // collapses the legacy OBJECT_KEY + OBJECT/ARRAY pair, but the parents stack arithmetic must
+    // still match legacy expectations: processTrxMovement on END_OBJECT/END_ARRAY pops TWO levels
+    // (one for the inner-field anchor, one for the OBJECT_KEY-equivalent). Mirror that by
+    // pushing the fused key TWICE plus the NULL anchor — net +2 stack levels matching legacy's
+    // [..., parent, key, NULL] → [..., fused, fused, NULL]. Both fused-key pops moveTo the same
+    // (legitimate) cursor target, which is correct: under fusion the OBJECT_KEY level is
+    // collapsed into the same record.
+    if (cursorKind == NodeKind.OBJECT_NAMED_OBJECT || cursorKind == NodeKind.OBJECT_NAMED_ARRAY) {
+      parents.popLong();
+      parents.push(key);
+      parents.push(key);
+      parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
+      return;
+    }
+
     parents.popLong();
     parents.push(wtx.getParentKey());
     parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
 
-    if (wtx.getKind() == NodeKind.OBJECT || wtx.getKind() == NodeKind.ARRAY) {
+    if (cursorKind == NodeKind.OBJECT || cursorKind == NodeKind.ARRAY) {
       parents.popLong();
       parents.push(key);
       parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
@@ -659,11 +638,9 @@ public final class JsonShredder implements Callable<Long> {
       fusedKey = wtx.insertObjectRecordWithPrimitiveAsRightSibling(name, value).getNodeKey();
     }
 
-    // Replace the left-sibling anchor on the stack with the new fused key. In legacy, after
-    // primitive-child insertion, adaptTrxPosAndStack pops the sentinel + moves to the parent
-    // OBJECT_KEY. The stack's new top is OBJECT_KEY (the anchor for the next NAME). In fused,
-    // the fused node plays the OBJECT_KEY role, so we pop the previous anchor + push the
-    // fused key and move the cursor there.
+    // Replace the left-sibling anchor on the stack with the new fused key. The fused node plays
+    // the OBJECT_KEY role, so we pop the previous anchor + push the fused key and move the cursor
+    // there. After cursor placement, downstream NAME / END_OBJECT handling stays unchanged.
     parents.popLong();
     parents.push(fusedKey);
 
@@ -673,7 +650,7 @@ public final class JsonShredder implements Callable<Long> {
     if (isNextTokenParentToken) {
       // Next token is NAME/END_OBJECT: cursor needs to be on the anchor for right-sibling insert
       // (OBJECT_NAMED_* accepted by insertObjectRecordWithPrimitiveAsRightSibling). It already
-      // is, but moveTo is idempotent-cheap and mirrors the legacy explicit move.
+      // is, but moveTo is idempotent-cheap.
       wtx.moveTo(fusedKey);
     }
   }

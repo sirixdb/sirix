@@ -160,12 +160,12 @@ public final class BatchedHashTest {
           rtx.moveToFirstChild(); // outer object
           long outerHash = rtx.getHash();
 
-          rtx.moveToFirstChild(); // "parent" key
-          rtx.moveToFirstChild(); // inner object
+          // iter#32 fusion: "parent":{...} is one fused OBJECT_NAMED_OBJECT record,
+          // and the inner "child":"value" is one fused OBJECT_NAMED_STRING record.
+          rtx.moveToFirstChild(); // fused "parent" + inner object
           long innerHash = rtx.getHash();
 
-          rtx.moveToFirstChild(); // "child" key
-          rtx.moveToFirstChild(); // "value" string
+          rtx.moveToFirstChild(); // fused "child":"value" leaf
           long leafHash = rtx.getHash();
 
           // All hashes should be non-zero

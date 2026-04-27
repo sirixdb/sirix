@@ -1,11 +1,11 @@
 package io.sirix.axis.filter.json;
 
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
-import io.sirix.node.NodeKind;
 import io.sirix.axis.filter.AbstractFilter;
 
 /**
- * Only match OBJECT_KEY nodes.
+ * Match object-field records — any fused {@code OBJECT_NAMED_*} that plays the field-name
+ * role for name-lookup and path-summary scoping.
  *
  * @author Johannes Lichtenberger
  */
@@ -22,7 +22,7 @@ public final class ObjectKeyFilter extends AbstractFilter<JsonNodeReadOnlyTrx> {
 
   @Override
   public boolean filter() {
-    return getTrx().getKind() == NodeKind.OBJECT_KEY;
+    return getTrx().getKind().playsObjectKeyRole();
   }
 
 }

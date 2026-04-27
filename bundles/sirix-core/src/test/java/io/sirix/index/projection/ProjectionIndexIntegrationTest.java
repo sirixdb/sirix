@@ -146,12 +146,20 @@ final class ProjectionIndexIntegrationTest {
       while (axis.hasNext()) {
         axis.nextLong();
         final NodeKind kind = rtx.getKind();
-        if ((kind != NodeKind.OBJECT && kind != NodeKind.ARRAY && kind != NodeKind.OBJECT_KEY)
-            || rtx.getPathNodeKey() != rootPathNodeKey) {
+        // iter#32 fusion: include OBJECT_NAMED_OBJECT/ARRAY (kindIds 52/53) which play
+        // the OBJECT_KEY role and hence carry a path-node-key.
+        final boolean structural = kind == NodeKind.OBJECT
+            || kind == NodeKind.ARRAY
+            || kind == NodeKind.OBJECT_NAMED_OBJECT
+            || kind == NodeKind.OBJECT_NAMED_OBJECT
+            || kind == NodeKind.OBJECT_NAMED_ARRAY;
+        if (!structural || rtx.getPathNodeKey() != rootPathNodeKey) {
           continue;
         }
         final long matchKey = rtx.getNodeKey();
-        if (kind == NodeKind.ARRAY && rtx.moveToFirstChild()) {
+        // Both legacy ARRAY and fused OBJECT_NAMED_ARRAY iterate their children.
+        final boolean arrayLike = kind == NodeKind.ARRAY || kind == NodeKind.OBJECT_NAMED_ARRAY;
+        if (arrayLike && rtx.moveToFirstChild()) {
           do { count++; } while (rtx.moveToRightSibling());
         } else {
           count++;

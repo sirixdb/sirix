@@ -1,0 +1,80 @@
+{
+  "key": "tada",
+  "metadata": {
+    "nodeKey": 10,
+    "hash": "0000000000000000",
+    "type": "OBJECT_KEY",
+    "descendantCount": 7,
+    "childCount": 5
+  },
+  "value": [
+    {
+      "metadata": {
+        "nodeKey": 11,
+        "hash": "0000000000000000",
+        "type": "OBJECT",
+        "descendantCount": 1,
+        "childCount": 1
+      },
+      "value": [
+        {
+          "key": "foo",
+          "metadata": {
+            "nodeKey": 12,
+            "hash": "0000000000000000",
+            "type": "OBJECT_KEY"
+          },
+          "value": "bar"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "nodeKey": 13,
+        "hash": "0000000000000000",
+        "type": "OBJECT",
+        "descendantCount": 1,
+        "childCount": 1
+      },
+      "value": [
+        {
+          "key": "baz",
+          "metadata": {
+            "nodeKey": 14,
+            "hash": "0000000000000000",
+            "type": "OBJECT_KEY"
+          },
+          "value": false
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "nodeKey": 15,
+        "hash": "0000000000000000",
+        "type": "STRING_VALUE"
+      },
+      "value": "boo"
+    },
+    {
+      "metadata": {
+        "nodeKey": 16,
+        "hash": "0000000000000000",
+        "type": "OBJECT",
+        "descendantCount": 0,
+        "childCount": 0
+      },
+      "value": {}
+    },
+    {
+      "metadata": {
+        "nodeKey": 17,
+        "hash": "0000000000000000",
+        "type": "ARRAY",
+        "descendantCount": 0,
+        "childCount": 0
+      },
+      "value": []
+    }
+  ]
+}

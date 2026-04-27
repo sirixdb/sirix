@@ -53,7 +53,7 @@ final class JsonLeafNodeComparator implements NodeComparator<Long> {
         oldRtx.moveToParent();
         newRtx.moveToParent();
 
-        if (oldRtx.getKind() == NodeKind.OBJECT_KEY && newRtx.getKind() == NodeKind.OBJECT_KEY) {
+        if (oldRtx.getKind().playsObjectKeyRole() && newRtx.getKind().playsObjectKeyRole()) {
           ratio = JsonFMSENodeComparisonUtils.calculateRatio(
               oldRtx.getName().getLocalName(), newRtx.getName().getLocalName());
         }
@@ -82,12 +82,12 @@ final class JsonLeafNodeComparator implements NodeComparator<Long> {
   private double computeValueRatio() {
     final NodeKind kind = oldRtx.getKind();
     return switch (kind) {
-      case NULL_VALUE, OBJECT_NULL_VALUE, OBJECT_NAMED_NULL -> 1.0;
-      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN ->
+      case NULL_VALUE, OBJECT_NAMED_NULL -> 1.0;
+      case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN ->
           oldRtx.getBooleanValue() == newRtx.getBooleanValue() ? 1.0 : 0.0;
-      case NUMBER_VALUE, OBJECT_NUMBER_VALUE, OBJECT_NAMED_NUMBER ->
+      case NUMBER_VALUE, OBJECT_NAMED_NUMBER ->
           oldRtx.getNumberValue().doubleValue() == newRtx.getNumberValue().doubleValue() ? 1.0 : 0.0;
-      case STRING_VALUE, OBJECT_STRING_VALUE, OBJECT_NAMED_STRING ->
+      case STRING_VALUE, OBJECT_NAMED_STRING ->
           JsonFMSENodeComparisonUtils.calculateRatio(oldRtx.getValue(), newRtx.getValue());
       default -> 0.0;
     };

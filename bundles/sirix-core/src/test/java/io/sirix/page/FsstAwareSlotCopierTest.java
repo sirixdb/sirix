@@ -4,7 +4,6 @@
 package io.sirix.page;
 
 import io.sirix.node.NodeKind;
-import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.utils.FSSTCompressor;
 import org.junit.jupiter.api.Test;
@@ -26,15 +25,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Unit tests for {@link FsstAwareSlotCopier}. Builds slot byte layouts that
  * mirror the production flyweight wire format produced by
- * {@code StringNode.writeNewRecord} and {@code ObjectStringNode.writeNewRecord}
- * so the copier is exercised against real-world inputs — not mocks.
+ * {@code StringNode.writeNewRecord} so the copier is exercised against
+ * real-world inputs — not mocks.
  */
 class FsstAwareSlotCopierTest {
 
   private static final int STRING_VALUE_FIELDS = 6;
-  private static final int OBJECT_STRING_VALUE_FIELDS = 4;
   private static final int STRING_VALUE_PAYLOAD_FIELD = 5;
-  private static final int OBJECT_STRING_VALUE_PAYLOAD_FIELD = 3;
 
   @Test
   void inactiveWhenSymbolTableIsNull() {
@@ -69,24 +66,6 @@ class FsstAwareSlotCopierTest {
     }
   }
 
-  @Test
-  void decompressesObjectStringValueFlyweightSlot() throws Exception {
-    final byte[] symbolTable = buildSymbolTableFromSimilarStrings();
-    final byte[] original = "{\"value\":\"The quick brown fox jumps over.\"}".getBytes(StandardCharsets.UTF_8);
-    final byte[] compressed = FSSTCompressor.encode(original, symbolTable);
-    assertTrue(compressed.length < original.length);
-
-    try (final Arena arena = Arena.ofConfined()) {
-      final MemorySegment slot = buildObjectStringValueFlyweightSlot(arena, compressed, /*isCompressed=*/true);
-      final FsstAwareSlotCopier copier = new FsstAwareSlotCopier(symbolTable);
-
-      final byte[] rewritten = copier.decompressSlot(slot, NodeKind.OBJECT_STRING_VALUE.getId());
-
-      assertNotNull(rewritten);
-      assertExtractedPayloadEquals(rewritten, OBJECT_STRING_VALUE_FIELDS, OBJECT_STRING_VALUE_PAYLOAD_FIELD, original);
-      assertKindByteUnchanged(rewritten, NodeKind.OBJECT_STRING_VALUE.getId());
-    }
-  }
 
   @Test
   void returnsNullForUncompressedStringValueSlot() {
@@ -110,7 +89,7 @@ class FsstAwareSlotCopierTest {
     final MemorySegment slot = MemorySegment.ofArray(new byte[] { 1, 2, 3, 4 });
     assertNull(copier.decompressSlot(slot, NodeKind.BOOLEAN_VALUE.getId()));
     assertNull(copier.decompressSlot(slot, NodeKind.NUMBER_VALUE.getId()));
-    assertNull(copier.decompressSlot(slot, NodeKind.OBJECT_KEY.getId()));
+    assertNull(copier.decompressSlot(slot, NodeKind.OBJECT_NAMED_OBJECT.getId()));
   }
 
   @Test
@@ -189,15 +168,6 @@ class FsstAwareSlotCopierTest {
     return scratch.asSlice(0, written);
   }
 
-  private static MemorySegment buildObjectStringValueFlyweightSlot(final Arena arena, final byte[] rawValue,
-      final boolean isCompressed) {
-    final MemorySegment scratch = arena.allocate(4096);
-    final int[] heapOffsets = new int[OBJECT_STRING_VALUE_FIELDS];
-    final int written = ObjectStringNode.writeNewRecord(scratch, 0, heapOffsets, /*nodeKey=*/1000,
-        /*parentKey=*/500, /*prevRev=*/-1, /*lastModRev=*/0,
-        rawValue, 0, rawValue.length, isCompressed);
-    return scratch.asSlice(0, written);
-  }
 
   /**
    * Decode the payload of a rewritten flyweight slot and compare against the

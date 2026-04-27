@@ -62,35 +62,9 @@ public final class NodeFieldLayout {
   public static final int ARRAY_CHILD_COUNT = 9;
   public static final int ARRAY_DESCENDANT_COUNT = 10;
 
-  // ==================== OBJECT_KEY NODE (10 fields) ====================
-
-  /** Total field count for OBJECT_KEY nodes. */
-  public static final int OBJECT_KEY_FIELD_COUNT = 10;
-
-  public static final int OBJKEY_PARENT_KEY = 0;
-  public static final int OBJKEY_RIGHT_SIB_KEY = 1;
-  public static final int OBJKEY_LEFT_SIB_KEY = 2;
-  public static final int OBJKEY_FIRST_CHILD_KEY = 3;
-  public static final int OBJKEY_NAME_KEY = 4;
-  public static final int OBJKEY_PATH_NODE_KEY = 5;
-  public static final int OBJKEY_PREV_REVISION = 6;
-  public static final int OBJKEY_LAST_MOD_REVISION = 7;
-  public static final int OBJKEY_HASH = 8;
-  public static final int OBJKEY_DESCENDANT_COUNT = 9;
-
-  // ==================== OBJECT_KEY PAX NODE (9 fields, nameKey in region) ====================
-
-  /** Total field count for OBJECT_KEY PAX nodes (nameKey moved to region). */
-  public static final int OBJECT_KEY_PAX_FIELD_COUNT = 9;
-
-  /** Kind ID for the PAX variant of OBJECT_KEY (nameKey stored in region table). */
-  public static final int OBJECT_KEY_PAX_KIND_ID = 126;
-
-  public static final int OBJKEY_PAX_PATH_NODE_KEY = 4;
-  public static final int OBJKEY_PAX_PREV_REVISION = 5;
-  public static final int OBJKEY_PAX_LAST_MOD_REVISION = 6;
-  public static final int OBJKEY_PAX_HASH = 7;
-  public static final int OBJKEY_PAX_DESCENDANT_COUNT = 8;
+  // (Phase 4: legacy OBJECT_KEY (kindId 26) and OBJECT_KEY_PAX (kindId 126)
+  //  field-layout constants deleted — fully replaced by the 6 fused OBJECT_NAMED_*
+  //  kinds 48-53.)
 
   // ==================== STRING_VALUE NODE (7 fields + payload) ====================
 
@@ -141,48 +115,7 @@ public final class NodeFieldLayout {
   public static final int NULLVAL_PREV_REVISION = 3;
   public static final int NULLVAL_LAST_MOD_REVISION = 4;
 
-  // ==================== OBJECT_STRING_VALUE NODE (5 fields + payload) ====================
-
-  /** Total field count for OBJECT_STRING_VALUE nodes (excluding payload). */
-  public static final int OBJECT_STRING_VALUE_FIELD_COUNT = 4;
-
-  public static final int OBJSTRVAL_PARENT_KEY = 0;
-  public static final int OBJSTRVAL_PREV_REVISION = 1;
-  public static final int OBJSTRVAL_LAST_MOD_REVISION = 2;
-  /** Points to the start of [isCompressed:1][valueLength:varint][value:bytes]. */
-  public static final int OBJSTRVAL_PAYLOAD = 3;
-
-  // ==================== OBJECT_NUMBER_VALUE NODE (5 fields + payload) ====================
-
-  /** Total field count for OBJECT_NUMBER_VALUE nodes (excluding payload). */
-  public static final int OBJECT_NUMBER_VALUE_FIELD_COUNT = 4;
-
-  public static final int OBJNUMVAL_PARENT_KEY = 0;
-  public static final int OBJNUMVAL_PREV_REVISION = 1;
-  public static final int OBJNUMVAL_LAST_MOD_REVISION = 2;
-  /** Points to the start of [numberType:1][numberData:variable]. */
-  public static final int OBJNUMVAL_PAYLOAD = 3;
-
-  // ==================== OBJECT_BOOLEAN_VALUE NODE (5 fields) ====================
-
-  /** Total field count for OBJECT_BOOLEAN_VALUE nodes. */
-  public static final int OBJECT_BOOLEAN_VALUE_FIELD_COUNT = 4;
-
-  public static final int OBJBOOLVAL_PARENT_KEY = 0;
-  public static final int OBJBOOLVAL_PREV_REVISION = 1;
-  public static final int OBJBOOLVAL_LAST_MOD_REVISION = 2;
-  public static final int OBJBOOLVAL_VALUE = 3;
-
-  // ==================== OBJECT_NULL_VALUE NODE (4 fields) ====================
-
-  /** Total field count for OBJECT_NULL_VALUE nodes. */
-  public static final int OBJECT_NULL_VALUE_FIELD_COUNT = 3;
-
-  public static final int OBJNULLVAL_PARENT_KEY = 0;
-  public static final int OBJNULLVAL_PREV_REVISION = 1;
-  public static final int OBJNULLVAL_LAST_MOD_REVISION = 2;
-
-  // ==================== OBJECT_NAMED_BOOLEAN NODE (fused OBJECT_KEY + OBJECT_BOOLEAN_VALUE) ====================
+  // ==================== OBJECT_NAMED_BOOLEAN NODE (fused OBJECT_KEY + boolean leaf) ====================
   //
   // Layout rationale: OBJECT_NAMED_* fuses the parent OBJECT_KEY and its primitive-typed
   // child into a single slotted record. Structural navigation fields match OBJECT_KEY
@@ -215,7 +148,7 @@ public final class NodeFieldLayout {
   public static final int OBJNAMEDBOOL_HASH = 7;
   public static final int OBJNAMEDBOOL_VALUE = 8;
 
-  // ==================== OBJECT_NAMED_NUMBER NODE (fused OBJECT_KEY + OBJECT_NUMBER_VALUE) ====================
+  // ==================== OBJECT_NAMED_NUMBER NODE (fused OBJECT_KEY + number leaf) ====================
   //
   // Wire layout per slot (9 fields + variable payload):
   //     0 parentKey (delta-varint)
@@ -242,7 +175,7 @@ public final class NodeFieldLayout {
   /** Points to the start of [numberType:1][numberData:variable]. */
   public static final int OBJNAMEDNUM_PAYLOAD = 8;
 
-  // ==================== OBJECT_NAMED_STRING NODE (fused OBJECT_KEY + OBJECT_STRING_VALUE) ====================
+  // ==================== OBJECT_NAMED_STRING NODE (fused OBJECT_KEY + string leaf) ====================
   //
   // Wire layout per slot (9 fields + variable payload):
   //     0 parentKey (delta-varint)
@@ -269,7 +202,7 @@ public final class NodeFieldLayout {
   /** Points to the start of [isCompressed:1][valueLength:varint][value:bytes]. */
   public static final int OBJNAMEDSTR_PAYLOAD = 8;
 
-  // ==================== OBJECT_NAMED_NULL NODE (fused OBJECT_KEY + OBJECT_NULL_VALUE) ====================
+  // ==================== OBJECT_NAMED_NULL NODE (fused OBJECT_KEY + null leaf) ====================
   //
   // Wire layout per slot (8 fields, no value payload):
   //     0 parentKey (delta-varint)
@@ -292,6 +225,62 @@ public final class NodeFieldLayout {
   public static final int OBJNAMEDNULL_PREV_REVISION = 5;
   public static final int OBJNAMEDNULL_LAST_MOD_REVISION = 6;
   public static final int OBJNAMEDNULL_HASH = 7;
+
+  // ==================== OBJECT_NAMED_OBJECT NODE (Phase 1 — fused OBJECT_KEY + nested OBJECT) ====================
+  //
+  // Internal node carrying both the field-name role (nameKey, pathNodeKey) and the
+  // structural OBJECT shape (firstChild, lastChild, childCount, descendantCount). On-wire
+  // layout (12 fields) — structural keys first, name/path next, hash + counts last:
+  //     0 parentKey         (delta-varint)
+  //     1 rightSiblingKey   (delta-varint)
+  //     2 leftSiblingKey    (delta-varint)
+  //     3 firstChildKey     (delta-varint)
+  //     4 lastChildKey      (delta-varint)
+  //     5 nameKey           (signed varint)
+  //     6 pathNodeKey       (delta-varint)
+  //     7 previousRevision  (signed varint)
+  //     8 lastModifiedRev   (signed varint)
+  //     9 hash              (fixed 8 bytes)
+  //    10 childCount        (signed long varint)
+  //    11 descendantCount   (signed long varint)
+
+  /** Total field count for OBJECT_NAMED_OBJECT nodes. */
+  public static final int OBJECT_NAMED_OBJECT_FIELD_COUNT = 12;
+
+  public static final int OBJNAMEDOBJ_PARENT_KEY = 0;
+  public static final int OBJNAMEDOBJ_RIGHT_SIB_KEY = 1;
+  public static final int OBJNAMEDOBJ_LEFT_SIB_KEY = 2;
+  public static final int OBJNAMEDOBJ_FIRST_CHILD_KEY = 3;
+  public static final int OBJNAMEDOBJ_LAST_CHILD_KEY = 4;
+  public static final int OBJNAMEDOBJ_NAME_KEY = 5;
+  public static final int OBJNAMEDOBJ_PATH_NODE_KEY = 6;
+  public static final int OBJNAMEDOBJ_PREV_REVISION = 7;
+  public static final int OBJNAMEDOBJ_LAST_MOD_REVISION = 8;
+  public static final int OBJNAMEDOBJ_HASH = 9;
+  public static final int OBJNAMEDOBJ_CHILD_COUNT = 10;
+  public static final int OBJNAMEDOBJ_DESCENDANT_COUNT = 11;
+
+  // ==================== OBJECT_NAMED_ARRAY NODE (Phase 1 — fused OBJECT_KEY + nested ARRAY) ====================
+  //
+  // Same field shape and indices as OBJECT_NAMED_OBJECT — name+structural+counts. The kind
+  // distinction lives at the kindId byte (52 vs 53) and in serialization-time semantics
+  // (array vs object descent / output emit).
+
+  /** Total field count for OBJECT_NAMED_ARRAY nodes. */
+  public static final int OBJECT_NAMED_ARRAY_FIELD_COUNT = 12;
+
+  public static final int OBJNAMEDARR_PARENT_KEY = 0;
+  public static final int OBJNAMEDARR_RIGHT_SIB_KEY = 1;
+  public static final int OBJNAMEDARR_LEFT_SIB_KEY = 2;
+  public static final int OBJNAMEDARR_FIRST_CHILD_KEY = 3;
+  public static final int OBJNAMEDARR_LAST_CHILD_KEY = 4;
+  public static final int OBJNAMEDARR_NAME_KEY = 5;
+  public static final int OBJNAMEDARR_PATH_NODE_KEY = 6;
+  public static final int OBJNAMEDARR_PREV_REVISION = 7;
+  public static final int OBJNAMEDARR_LAST_MOD_REVISION = 8;
+  public static final int OBJNAMEDARR_HASH = 9;
+  public static final int OBJNAMEDARR_CHILD_COUNT = 10;
+  public static final int OBJNAMEDARR_DESCENDANT_COUNT = 11;
 
   // ==================== JSON_DOCUMENT_ROOT (7 fields) ====================
 
@@ -436,21 +425,17 @@ public final class NodeFieldLayout {
       case 13 -> NAMESPACE_FIELD_COUNT;          // NAMESPACE
       case 24 -> OBJECT_FIELD_COUNT;             // OBJECT
       case 25 -> ARRAY_FIELD_COUNT;              // ARRAY
-      case 26 -> OBJECT_KEY_FIELD_COUNT;         // OBJECT_KEY
-      case 126 -> OBJECT_KEY_PAX_FIELD_COUNT;    // OBJECT_KEY (PAX, nameKey in region)
       case 27 -> BOOLEAN_VALUE_FIELD_COUNT;      // BOOLEAN_VALUE
       case 28 -> NUMBER_VALUE_FIELD_COUNT;       // NUMBER_VALUE
       case 29 -> NULL_VALUE_FIELD_COUNT;         // NULL_VALUE
       case 30 -> STRING_VALUE_FIELD_COUNT;       // STRING_VALUE
       case 31 -> JSON_DOCUMENT_ROOT_FIELD_COUNT; // JSON_DOCUMENT_ROOT
-      case 40 -> OBJECT_STRING_VALUE_FIELD_COUNT;   // OBJECT_STRING_VALUE
-      case 41 -> OBJECT_BOOLEAN_VALUE_FIELD_COUNT;  // OBJECT_BOOLEAN_VALUE
-      case 42 -> OBJECT_NUMBER_VALUE_FIELD_COUNT;   // OBJECT_NUMBER_VALUE
-      case 43 -> OBJECT_NULL_VALUE_FIELD_COUNT;     // OBJECT_NULL_VALUE
       case 48 -> OBJECT_NAMED_BOOLEAN_FIELD_COUNT;  // OBJECT_NAMED_BOOLEAN
       case 49 -> OBJECT_NAMED_NUMBER_FIELD_COUNT;   // OBJECT_NAMED_NUMBER
       case 50 -> OBJECT_NAMED_STRING_FIELD_COUNT;   // OBJECT_NAMED_STRING
       case 51 -> OBJECT_NAMED_NULL_FIELD_COUNT;     // OBJECT_NAMED_NULL
+      case 52 -> OBJECT_NAMED_OBJECT_FIELD_COUNT;   // OBJECT_NAMED_OBJECT (Phase 1 reserved)
+      case 53 -> OBJECT_NAMED_ARRAY_FIELD_COUNT;    // OBJECT_NAMED_ARRAY  (Phase 1 reserved)
       default -> -1;
     };
   }
@@ -483,17 +468,77 @@ public final class NodeFieldLayout {
       case 13 -> NS_PARENT_KEY;                  // NAMESPACE
       case 24 -> OBJECT_PARENT_KEY;              // OBJECT
       case 25 -> ARRAY_PARENT_KEY;               // ARRAY
-      case 26 -> OBJKEY_PARENT_KEY;              // OBJECT_KEY
-      case 126 -> OBJKEY_PARENT_KEY;             // OBJECT_KEY_PAX (same index 0)
       case 27 -> BOOLVAL_PARENT_KEY;             // BOOLEAN_VALUE
       case 28 -> NUMVAL_PARENT_KEY;              // NUMBER_VALUE
       case 29 -> NULLVAL_PARENT_KEY;             // NULL_VALUE
       case 30 -> STRVAL_PARENT_KEY;              // STRING_VALUE
       case 31 -> -1;                             // JSON_DOCUMENT_ROOT (no parent)
-      case 40 -> OBJSTRVAL_PARENT_KEY;           // OBJECT_STRING_VALUE
-      case 41 -> OBJBOOLVAL_PARENT_KEY;          // OBJECT_BOOLEAN_VALUE
-      case 42 -> OBJNUMVAL_PARENT_KEY;           // OBJECT_NUMBER_VALUE
-      case 43 -> OBJNULLVAL_PARENT_KEY;          // OBJECT_NULL_VALUE
+      case 48 -> OBJNAMEDBOOL_PARENT_KEY;        // OBJECT_NAMED_BOOLEAN (iter#30 fusion)
+      case 49 -> OBJNAMEDNUM_PARENT_KEY;         // OBJECT_NAMED_NUMBER  (iter#30 fusion)
+      case 50 -> OBJNAMEDSTR_PARENT_KEY;         // OBJECT_NAMED_STRING  (iter#30 fusion)
+      case 51 -> OBJNAMEDNULL_PARENT_KEY;        // OBJECT_NAMED_NULL    (iter#30 fusion)
+      case 52 -> OBJNAMEDOBJ_PARENT_KEY;         // OBJECT_NAMED_OBJECT  (Phase 1 reserved)
+      case 53 -> OBJNAMEDARR_PARENT_KEY;         // OBJECT_NAMED_ARRAY   (Phase 1 reserved)
+      default -> -1;
+    };
+  }
+
+  /**
+   * Returns the field-table index of the PATH_NODE_KEY field for a given NodeKind,
+   * or {@code -1} if the kind has no pathNodeKey (primitive VALUE records, OBJECT,
+   * ARRAY w/o pathSummary, document roots where it's absent).
+   *
+   * <p>Used by the pathNodeKey dict region encoder to locate the per-record varint on
+   * the slotted-page heap. In record-shaped workloads each page typically carries
+   * only 3-10 distinct pathNodeKey values across its 1000+ slots, so dict encoding
+   * beats per-record varints by 2-3× on disk.
+   */
+  public static int pathNodeKeyFieldIndexForKind(final int kindId) {
+    return switch (kindId) {
+      case 1 -> ELEM_PATH_NODE_KEY;              // ELEMENT
+      case 2 -> ATTR_PATH_NODE_KEY;              // ATTRIBUTE
+      case 3 -> -1;                              // TEXT (no pathNodeKey)
+      case 7 -> PI_PATH_NODE_KEY;                // PROCESSING_INSTRUCTION
+      case 8 -> -1;                              // COMMENT
+      case 9 -> -1;                              // XML_DOCUMENT_ROOT
+      case 13 -> NS_PATH_NODE_KEY;               // NAMESPACE
+      case 24 -> -1;                             // OBJECT (no pathNodeKey in layout)
+      case 25 -> ARRAY_PATH_NODE_KEY;            // ARRAY
+      case 27 -> -1;                             // BOOLEAN_VALUE
+      case 28 -> -1;                             // NUMBER_VALUE
+      case 29 -> -1;                             // NULL_VALUE
+      case 30 -> -1;                             // STRING_VALUE
+      case 31 -> -1;                             // JSON_DOCUMENT_ROOT
+      case 48 -> OBJNAMEDBOOL_PATH_NODE_KEY;     // OBJECT_NAMED_BOOLEAN (iter#30 fusion)
+      case 49 -> OBJNAMEDNUM_PATH_NODE_KEY;      // OBJECT_NAMED_NUMBER
+      case 50 -> OBJNAMEDSTR_PATH_NODE_KEY;      // OBJECT_NAMED_STRING
+      case 51 -> OBJNAMEDNULL_PATH_NODE_KEY;     // OBJECT_NAMED_NULL
+      case 52 -> OBJNAMEDOBJ_PATH_NODE_KEY;      // OBJECT_NAMED_OBJECT  (Phase 1 reserved)
+      case 53 -> OBJNAMEDARR_PATH_NODE_KEY;      // OBJECT_NAMED_ARRAY   (Phase 1 reserved)
+      default -> -1;
+    };
+  }
+
+  /**
+   * Returns the field-table index of the NAME_KEY field for a fused
+   * {@code OBJECT_NAMED_*} record (kindIds 48-53), or {@code -1} for any other
+   * kind (which has no fused-style nameKey field).
+   *
+   * <p>Used by the Lever 4 nameKey-elision pre-scan to locate each fused slot's
+   * nameKey varint within the data region. Primitive-fused leaves (kindIds 48-51)
+   * place the field at index 3; structural-fused (kindIds 52-53) place it at
+   * index 5 (after firstChild/lastChild keys). Other XML/JSON kinds use distinct
+   * naming fields (LOCAL_NAME / PREFIX / URI) which Lever 4 does not target —
+   * those kinds return {@code -1}.
+   */
+  public static int nameKeyFieldIndexForKind(final int kindId) {
+    return switch (kindId) {
+      case 48 -> OBJNAMEDBOOL_NAME_KEY;          // OBJECT_NAMED_BOOLEAN  (idx 3)
+      case 49 -> OBJNAMEDNUM_NAME_KEY;           // OBJECT_NAMED_NUMBER   (idx 3)
+      case 50 -> OBJNAMEDSTR_NAME_KEY;           // OBJECT_NAMED_STRING   (idx 3)
+      case 51 -> OBJNAMEDNULL_NAME_KEY;          // OBJECT_NAMED_NULL     (idx 3)
+      case 52 -> OBJNAMEDOBJ_NAME_KEY;           // OBJECT_NAMED_OBJECT   (idx 5, Phase 1 reserved)
+      case 53 -> OBJNAMEDARR_NAME_KEY;           // OBJECT_NAMED_ARRAY    (idx 5, Phase 1 reserved)
       default -> -1;
     };
   }
@@ -517,17 +562,17 @@ public final class NodeFieldLayout {
       case 13 -> NS_HASH;                        // NAMESPACE
       case 24 -> OBJECT_HASH;                    // OBJECT
       case 25 -> ARRAY_HASH;                     // ARRAY
-      case 26 -> OBJKEY_HASH;                    // OBJECT_KEY
-      case 126 -> OBJKEY_PAX_HASH;               // OBJECT_KEY_PAX
       case 27 -> -1;                             // BOOLEAN_VALUE (no hash field)
       case 28 -> -1;                             // NUMBER_VALUE (no hash field)
       case 29 -> -1;                             // NULL_VALUE (no hash field)
       case 30 -> -1;                             // STRING_VALUE (no hash field)
       case 31 -> JDOCROOT_HASH;                  // JSON_DOCUMENT_ROOT
-      case 40 -> -1;                             // OBJECT_STRING_VALUE (no hash)
-      case 41 -> -1;                             // OBJECT_BOOLEAN_VALUE (no hash)
-      case 42 -> -1;                             // OBJECT_NUMBER_VALUE (no hash)
-      case 43 -> -1;                             // OBJECT_NULL_VALUE (no hash)
+      // Note: kindIds 48-51 (iter#30 fused primitives) are intentionally NOT enumerated
+      // here even though their on-disk record DOES carry a hash field — their on-page hash
+      // elision is currently disabled by design. Adding them here would silently enable
+      // elision for iter#30 records and is out of scope for Phase 1.
+      case 52 -> OBJNAMEDOBJ_HASH;               // OBJECT_NAMED_OBJECT (Phase 1 reserved)
+      case 53 -> OBJNAMEDARR_HASH;               // OBJECT_NAMED_ARRAY  (Phase 1 reserved)
       default -> -1;
     };
   }

@@ -354,42 +354,31 @@ public final class JsonDBObject extends AbstractItem
       return;
     }
 
-    // iter#31 Option B: after findField(), trx is positioned on OBJECT_KEY (legacy) or
-    // OBJECT_NAMED_* (fused). For legacy, descend to the primitive child; for fused, the
-    // value is inline — trx is already on the "value" position for setters that accept
-    // fused kinds.
-    final var currentOrAnchorKind = trx.getKind();
-    final boolean isLegacyObjectKey = currentOrAnchorKind == NodeKind.OBJECT_KEY;
-    if (isLegacyObjectKey) {
-      trx.moveToFirstChild();
-    }
+    // iter#32 Phase 4: legacy OBJECT_KEY has been deleted; after findField() the cursor sits
+    // on a fused OBJECT_NAMED_* record that IS the field. For LEAF kinds (BOOLEAN/NUMBER/
+    // STRING/NULL) the inline primitive can be updated in-place via the setters. For the
+    // STRUCTURAL kinds (OBJECT_NAMED_OBJECT / OBJECT_NAMED_ARRAY) the existing value is a
+    // container — every replacement is a type-mismatch and must go through
+    // replaceObjectRecordValue (no descent: descending into OBJECT_NAMED_OBJECT would land
+    // on a FIELD of the inner object, not on a primitive value slot).
     final var currentKind = trx.getKind();
 
     // Check if we can do an in-place update (same type) to preserve node identity
-    if ((currentKind == NodeKind.OBJECT_STRING_VALUE || currentKind == NodeKind.OBJECT_NAMED_STRING)
-        && value instanceof Str str) {
+    if (currentKind == NodeKind.OBJECT_NAMED_STRING && value instanceof Str str) {
       trx.setStringValue(str.stringValue());
       return;
     }
-    if ((currentKind == NodeKind.OBJECT_NUMBER_VALUE || currentKind == NodeKind.OBJECT_NAMED_NUMBER)
-        && value instanceof Numeric) {
+    if (currentKind == NodeKind.OBJECT_NAMED_NUMBER && value instanceof Numeric) {
       setNumericValue(trx, value);
       return;
     }
-    if ((currentKind == NodeKind.OBJECT_BOOLEAN_VALUE || currentKind == NodeKind.OBJECT_NAMED_BOOLEAN)
-        && value instanceof Bool bool) {
+    if (currentKind == NodeKind.OBJECT_NAMED_BOOLEAN && value instanceof Bool bool) {
       trx.setBooleanValue(bool.booleanValue());
       return;
     }
-    if ((currentKind == NodeKind.OBJECT_NULL_VALUE || currentKind == NodeKind.OBJECT_NAMED_NULL)
-        && value instanceof Null) {
+    if (currentKind == NodeKind.OBJECT_NAMED_NULL && value instanceof Null) {
       // Null to null - no change needed
       return;
-    }
-
-    // Types differ - move back to parent OBJECT_KEY (legacy) or stay on fused anchor.
-    if (isLegacyObjectKey) {
-      trx.moveToParent();
     }
 
     if (value instanceof Array) {
@@ -472,7 +461,11 @@ public final class JsonDBObject extends AbstractItem
       if (foundField) {
         trx.setObjectKeyName(newFieldName.getLocalName());
         fields.remove(field);
-        trx.moveToFirstChild();
+        // iter#32 Phase 4: legacy OBJECT_KEY has been deleted; the cursor sits on the fused
+        // OBJECT_NAMED_* record itself, which IS the value (inline primitive for leaf kinds
+        // or the OBJECT/ARRAY pair for the structural kinds). JsonItemFactory dispatches on
+        // the fused kind — descending into the first child here would collapse a structural
+        // value to its first inner field.
         fields.put(newFieldName, jsonItemFactory.getSequence(trx, collection));
       }
     }
@@ -522,8 +515,8 @@ public final class JsonDBObject extends AbstractItem
       } else if (item.itemType() == ObjectType.OBJECT) {
         trx.insertObjectRecordAsLastChild(fieldName, new ObjectValue());
       }
-
-      trx.moveToFirstChild();
+      // The fused OBJECT_NAMED_OBJECT/ARRAY IS the container — cursor already lands on it after
+      // insertObjectRecordAsLastChild. Insert inner contents directly as first child.
       trx.insertSubtreeAsFirstChild(item, JsonNodeTrx.Commit.NO, JsonNodeTrx.CheckParentNode.YES,
           JsonNodeTrx.SkipRootToken.YES);
     }
@@ -569,12 +562,14 @@ public final class JsonDBObject extends AbstractItem
 
       if (axis.hasNext()) {
         axis.nextLong();
-        // iter#31 Option B: OBJECT_KEY has a primitive child (moveToFirstChild); fused
-        // OBJECT_NAMED_* carries the inline value directly — no descent. JsonItemFactory
-        // dispatches on kind and returns the correct primitive item either way.
-        if (rtx.getKind() == io.sirix.node.NodeKind.OBJECT_KEY) {
-          rtx.moveToFirstChild();
-        }
+        // iter#32 Phase 4: legacy OBJECT_KEY has been deleted; the cursor lands on a fused
+        // OBJECT_NAMED_* record which carries either the inline primitive value (LEAF kinds)
+        // or the structural-value role (OBJECT_NAMED_OBJECT / OBJECT_NAMED_ARRAY = the inner
+        // OBJECT/ARRAY itself). In every case the cursor IS the value — JsonItemFactory
+        // dispatches on the fused kind and returns the right typed item (atomic for primitive
+        // leaves, JsonDBObject/JsonDBArray for the structural pair). Do NOT descend into the
+        // first child here — that would unwrap a structural value to its first inner field
+        // (the historical "nested object collapses to its first primitive" bug).
         return jsonItemFactory.getSequence(rtx, collection);
       }
 
@@ -583,11 +578,22 @@ public final class JsonDBObject extends AbstractItem
   }
 
   private boolean hasNoMatchingPathNode(QNm field) {
-    rtx.moveToParent();
-    final long pcr = rtx.isDocumentRoot()
-        ? 0
-        : rtx.getPathNodeKey();
-    rtx.moveTo(nodeKey);
+    // iter#32 P2: under fusion the cursor may sit on OBJECT_NAMED_OBJECT (kind 52) — that fused
+    // record carries the OBJECT_KEY-level pathNodeKey ON ITSELF (the legacy two-level pattern
+    // had a pathless inner OBJECT whose parent was OBJECT_KEY). Use OUR pathNodeKey directly so
+    // pathSummary.match runs at the right pivot. For legacy bare OBJECT, the original behaviour
+    // (move to parent OBJECT_KEY for its pathNodeKey) still applies.
+    final long pcr;
+    final NodeKind kind = rtx.getKind();
+    if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
+      pcr = rtx.getPathNodeKey();
+    } else {
+      rtx.moveToParent();
+      pcr = rtx.isDocumentRoot()
+          ? 0
+          : rtx.getPathNodeKey();
+      rtx.moveTo(nodeKey);
+    }
     BitSet matches = filterMap.get(pcr);
     if (matches == null) {
       try (final PathSummaryReader reader = rtx.getResourceSession().openPathSummary(rtx.getRevisionNumber())) {
@@ -622,12 +628,11 @@ public final class JsonDBObject extends AbstractItem
     if (axis.hasNext()) {
       axis.nextLong();
 
-      // iter#31 Option B: only descend for the legacy OBJECT_KEY → primitive pair;
-      // fused OBJECT_NAMED_* carries the value inline.
-      if (rtx.getKind() == io.sirix.node.NodeKind.OBJECT_KEY) {
-        rtx.moveToFirstChild();
-      }
-
+      // iter#32 Phase 4 — same rule as {@link #get(QNm)} above: legacy OBJECT_KEY has been
+      // deleted, the cursor sits on a fused OBJECT_NAMED_* record that IS the value (inline
+      // primitive for leaf kinds or the OBJECT/ARRAY pair itself for the structural kinds).
+      // JsonItemFactory handles the dispatch — descending into the first child here would
+      // collapse a structural value to its first inner field.
       return jsonItemFactory.getSequence(rtx, collection);
     }
 

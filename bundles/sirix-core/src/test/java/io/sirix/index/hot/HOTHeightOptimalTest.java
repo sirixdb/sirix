@@ -205,7 +205,7 @@ class HOTHeightOptimalTest {
           wtx.moveTo(wtx.getNodeKey());
           if (wtx.moveToFirstChild()) {
             do {
-              if (wtx.getKind() == NodeKind.OBJECT_KEY) {
+              if (wtx.getKind().playsObjectKeyRole()) {
                 keyCount++;
               }
             } while (wtx.moveToRightSibling());

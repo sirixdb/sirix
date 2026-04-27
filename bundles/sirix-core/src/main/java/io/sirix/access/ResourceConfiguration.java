@@ -179,9 +179,18 @@ public final class ResourceConfiguration {
   private static final VersioningType VERSIONING = VersioningType.SLIDING_SNAPSHOT;
 
   /**
-   * Type of hashing.
+   * Type of hashing. Default is {@link HashType#ROLLING} (incremental Merkle-tree
+   * hash maintained on structural mutations). Override at JVM level via
+   * {@code -Dsirix.hashType=NONE} when you want to elide per-record hash bytes
+   * entirely (bench workloads); legacy tests rely on the ROLLING default.
+   *
+   * <p>The per-record hash field is stored as a signed-varint (1 byte for hash=0,
+   * up to 10 for a real 64-bit ROLLING hash) — when the resource is configured
+   * {@code HashType.NONE} the bench writer pays only 1 byte per record for the
+   * field, vs. 8 bytes under the previous fixed-width layout.
    */
-  private static final HashType HASH_TYPE = HashType.ROLLING;
+  private static final HashType HASH_TYPE =
+      HashType.fromString(System.getProperty("sirix.hashType", "ROLLING"));
 
   /**
    * Versions to restore.
@@ -993,29 +1002,18 @@ public final class ResourceConfiguration {
       return this;
     }
 
+    // White-box per-region encoders keep scans SARGable, so outer block compression is off by
+    // default; set -Dsirix.compression=lz4 for storage-size A/Bs that re-enable the legacy pipeline.
     private ByteHandlerPipeline selectDefaultByteHandler() {
-      // -Dsirix.compression={none|lz4}. Default is "lz4" — measured on
-      // 1M-record JSON datasets: 455 MB → 74 MB (6.1× reduction) with <5%
-      // scan-throughput impact. PAX regions (NumberRegion, StringRegion)
-      // compress column bodies well but leave structural overhead
-      // (pathNodeKeys, slot tables, delimiters) uncompressed; LZ4 mops
-      // that up at ~2 GB/s decode throughput. Storage-size ballpark vs
-      // Umbra/CedarDB is a load-bearing contract (README §structural
-      // sharing / ARCHITECTURE.md §Problem 7), so LZ4 is on by default.
-      // Override with -Dsirix.compression=none when measuring raw
-      // page-write CPU in isolation.
-      final String choice = System.getProperty("sirix.compression", "lz4").toLowerCase();
+      final String choice = System.getProperty("sirix.compression", "none").toLowerCase();
       switch (choice) {
         case "none":
           return new ByteHandlerPipeline();
         case "lz4":
           if (!FFILz4Compressor.isNativeAvailable()) {
-            // Graceful degrade: LZ4 native missing → fall through to no
-            // compression rather than crash the resource open. Operator
-            // sees the warning; correctness is preserved.
+            // Graceful degrade: missing native → uncompressed pages, operator sees a warning.
             System.err.println(
-                "[sirix] WARN: liblz4 not available, falling back to uncompressed pages. "
-                + "Storage size will be ~6x larger than with LZ4.");
+                "[sirix] WARN: liblz4 not available, falling back to uncompressed pages.");
             return new ByteHandlerPipeline();
           }
           return new ByteHandlerPipeline(new FFILz4Compressor());

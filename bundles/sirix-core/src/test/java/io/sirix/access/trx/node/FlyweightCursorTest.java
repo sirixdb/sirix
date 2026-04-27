@@ -238,8 +238,10 @@ class FlyweightCursorTest {
         count++;
       }
 
-      // Should have: object, key "nested", object, key "deep", number 42
-      assertTrue(count >= 5, "Should have at least 5 descendants, got: " + count);
+      // Legacy (unfused): object, key "nested", object, key "deep", number 42 = 5 descendants.
+      // iter#32 fusion (primitive + structural): object, OBJECT_NAMED_OBJECT "nested", fused
+      // "deep=42" (OBJECT_NAMED_NUMBER) = 3 descendants.
+      assertTrue(count >= 3, "Should have at least 3 descendants, got: " + count);
     }
   }
 
@@ -389,7 +391,10 @@ class FlyweightCursorTest {
 
       // Verify we have a valid snapshot
       assertNotNull(firstSnapshot);
-      assertEquals(NodeKind.OBJECT_KEY, firstKind);
+      // Under legacy mode first is OBJECT_KEY; under fuseNamedPrimitives it becomes an
+      // OBJECT_NAMED_* kind. Both play the "object key" role.
+      assertTrue(firstKind.playsObjectKeyRole(),
+          "Expected OBJECT_KEY or fused OBJECT_NAMED_* kind, got: " + firstKind);
 
       // Move to the next sibling (different node)
       assertTrue(rtx.moveToRightSibling());
@@ -478,13 +483,37 @@ class FlyweightCursorTest {
       // Traverse all descendants
       for (final long key : new DescendantAxis(rtx)) {
         switch (rtx.getKind()) {
-          case OBJECT_KEY -> objectKeyCount++;
-          case OBJECT_STRING_VALUE -> stringCount++;
-          case OBJECT_NUMBER_VALUE -> numberCount++;
-          case OBJECT_BOOLEAN_VALUE -> booleanCount++;
-          case OBJECT_NULL_VALUE -> nullCount++;
+          // (Phase 4: legacy OBJECT_KEY case removed — fused records 48-53 carry the
+          //  field-name role now and are counted in their own arms below.)
           case ARRAY -> arrayCount++;
           case NUMBER_VALUE -> numberCount++;
+          // Fused OBJECT_NAMED_* kinds represent both the OBJECT_KEY and its primitive value.
+          // Count them against BOTH counters so totals match the legacy (unfused) expectations.
+          case OBJECT_NAMED_STRING -> {
+            objectKeyCount++;
+            stringCount++;
+          }
+          case OBJECT_NAMED_NUMBER -> {
+            objectKeyCount++;
+            numberCount++;
+          }
+          case OBJECT_NAMED_BOOLEAN -> {
+            objectKeyCount++;
+            booleanCount++;
+          }
+          case OBJECT_NAMED_NULL -> {
+            objectKeyCount++;
+            nullCount++;
+          }
+          // iter#32 P2 structural fusion: OBJECT_NAMED_ARRAY/OBJECT play both the OBJECT_KEY
+          // and the structural (ARRAY/OBJECT) role.
+          case OBJECT_NAMED_ARRAY -> {
+            objectKeyCount++;
+            arrayCount++;
+          }
+          case OBJECT_NAMED_OBJECT -> {
+            objectKeyCount++;
+          }
           default -> {
             /* other node types */ }
         }
@@ -519,7 +548,8 @@ class FlyweightCursorTest {
       wtx.moveToFirstChild(); // Object
       wtx.moveToFirstChild(); // "a" key
       wtx.moveToRightSibling(); // "b" key
-      assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
+      assertTrue(wtx.getKind().playsObjectKeyRole(),
+          "Expected OBJECT_KEY or fused OBJECT_NAMED_* kind, got: " + wtx.getKind());
       assertEquals("b", wtx.getName().getLocalName());
 
       // This was the buggy operation — the cursor would end up at parent instead of "b"
@@ -558,7 +588,8 @@ class FlyweightCursorTest {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // Object
       wtx.moveToFirstChild(); // "a" key
-      assertEquals(NodeKind.OBJECT_KEY, wtx.getKind());
+      assertTrue(wtx.getKind().playsObjectKeyRole(),
+          "Expected OBJECT_KEY or fused OBJECT_NAMED_* kind, got: " + wtx.getKind());
       assertEquals("a", wtx.getName().getLocalName());
 
       wtx.insertObjectRecordAsRightSibling("inserted", new StringValue("new"));
@@ -597,7 +628,9 @@ class FlyweightCursorTest {
       rtx.moveToDocumentRoot();
       rtx.moveToFirstChild(); // Object
       rtx.moveToFirstChild(); // "first" key
-      assertEquals(NodeKind.OBJECT_KEY, rtx.getKind());
+      // Under legacy mode OBJECT_KEY; under fuseNamedPrimitives it becomes OBJECT_NAMED_STRING.
+      assertTrue(rtx.getKind().playsObjectKeyRole(),
+          "Expected OBJECT_KEY or fused OBJECT_NAMED_* kind, got: " + rtx.getKind());
 
       // Get immutable snapshot at "first"
       final var firstNode = rtx.getNode();
@@ -606,7 +639,8 @@ class FlyweightCursorTest {
 
       // Move cursor to "second" key
       assertTrue(rtx.moveToRightSibling());
-      assertEquals(NodeKind.OBJECT_KEY, rtx.getKind());
+      assertTrue(rtx.getKind().playsObjectKeyRole(),
+          "Expected OBJECT_KEY or fused OBJECT_NAMED_* kind, got: " + rtx.getKind());
 
       // Get immutable snapshot at "second"
       final var secondNode = rtx.getNode();

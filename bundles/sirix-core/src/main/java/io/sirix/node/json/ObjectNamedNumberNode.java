@@ -502,6 +502,15 @@ public final class ObjectNamedNumberNode
          .writeLong(getLeftSiblingKey())
          .writeLong(getRightSiblingKey())
          .writeInt(getNameKey());
+    // The inline number payload MUST participate in the hash — otherwise hash-based diff
+    // cannot distinguish a value change (e.g. 10 → 99) on the same fused record, leading
+    // to an empty diff. Sibling node kinds (String/Boolean) already include the payload.
+    final Number v = getValue();
+    if (v != null) {
+      bytes.writeDouble(v.doubleValue());
+    } else {
+      bytes.writeDouble(Double.NaN);
+    }
     return bytes.hashDirect(hashFunction);
   }
 

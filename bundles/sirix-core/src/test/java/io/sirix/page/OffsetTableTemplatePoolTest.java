@@ -54,12 +54,15 @@ final class OffsetTableTemplatePoolTest {
   }
 
   @Test
-  @DisplayName("all-identical OBJECT_KEY records build to a single template")
+  @DisplayName("all-identical OBJECT_NAMED_OBJECT records build to a single template")
   void uniformObjectKeyPage() {
+    // Phase 4: migrated from legacy OBJECT_KEY (kindId 26, fc=10) to fused OBJECT_NAMED_OBJECT
+    // (kindId 52, fc=12). Cat-1: physical layout shift (kindId + fieldCount) is the direct
+    // logical consequence of the OBJECT_KEY → fused-named refactor.
     try (Arena arena = Arena.ofConfined()) {
       final int slotCount = 50;
-      final int kindId = 26; // OBJECT_KEY
-      final int fc = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT; // 10
+      final int kindId = 52; // OBJECT_NAMED_OBJECT
+      final int fc = NodeFieldLayout.OBJECT_NAMED_OBJECT_FIELD_COUNT; // 12
       final int perRecord = 1 + fc + 5; // nodeKind + offsetTable + 5 bytes data
       final MemorySegment page = arena.allocate(PageLayout.HEAP_START + perRecord * slotCount);
 
@@ -95,16 +98,17 @@ final class OffsetTableTemplatePoolTest {
   }
 
   @Test
-  @DisplayName("mixed OBJECT_KEY / ELEMENT records produce two templates")
+  @DisplayName("mixed OBJECT_NAMED_OBJECT / ELEMENT records produce two templates")
   void mixedKindTwoTemplates() {
+    // Phase 4: migrated from legacy OBJECT_KEY to fused OBJECT_NAMED_OBJECT (Cat-1).
     try (Arena arena = Arena.ofConfined()) {
       final int slotCount = 20;
-      // 10 OBJECT_KEY (fc=10) + 10 ELEMENT (fc=15); ELEMENT exercises the wide-key path.
+      // 10 OBJECT_NAMED_OBJECT (fc=12) + 10 ELEMENT (fc=15); ELEMENT exercises the wide-key path.
       final int[] kindIds = new int[slotCount];
       final int[] heapOffs = new int[slotCount];
-      final int objectKeyId = 26;
+      final int objectKeyId = 52;
       final int elementId = 1;
-      final int fcOk = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+      final int fcOk = NodeFieldLayout.OBJECT_NAMED_OBJECT_FIELD_COUNT;
       final int fcEl = NodeFieldLayout.ELEMENT_FIELD_COUNT;
 
       int off = 0;
@@ -136,7 +140,7 @@ final class OffsetTableTemplatePoolTest {
           OffsetTableTemplatePool.build(page, slotCount, kindIds, heapOffs, templates, slotIds, map);
 
       assertEquals(2, r.templateCount);
-      // First 10 slots → template 0 (ObjectKey), next 10 → template 1 (Element).
+      // First 10 slots → template 0 (OBJECT_NAMED_OBJECT), next 10 → template 1 (ELEMENT).
       for (int i = 0; i < 10; i++) {
         assertEquals(0, slotIds[i] & 0xFF);
       }
@@ -149,10 +153,13 @@ final class OffsetTableTemplatePoolTest {
   @Test
   @DisplayName("expand round-trips every template to its original bytes")
   void expandRoundTrip() {
+    // Phase 4: migrated from legacy OBJECT_KEY (fc=10) to fused OBJECT_NAMED_OBJECT (fc=12).
+    // Patterns extended from 10 to 12 elements (Cat-1 — direct consequence of the field-count
+    // increase, not a relaxation).
     try (Arena arena = Arena.ofConfined()) {
       final int slotCount = 30;
-      final int kindId = 26;
-      final int fc = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+      final int kindId = 52;
+      final int fc = NodeFieldLayout.OBJECT_NAMED_OBJECT_FIELD_COUNT;
       final int perRecord = 1 + fc + 3;
       final MemorySegment page = arena.allocate(PageLayout.HEAP_START + perRecord * slotCount);
 
@@ -160,9 +167,9 @@ final class OffsetTableTemplatePoolTest {
       final int[] heapOffs = new int[slotCount];
       // 3 distinct offset-table patterns, round-robin across slots.
       final int[][] patterns = {
-          { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 },
-          { 0, 2, 4, 6, 8, 10, 12, 14, 16, 18 },
-          { 1, 2, 3, 4, 5, 5, 5, 5, 5, 5 }
+          { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 },
+          { 0, 2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22 },
+          { 1, 2, 3, 4, 5, 5, 5, 5, 5, 5, 5, 5 }
       };
       for (int i = 0; i < slotCount; i++) {
         kindIds[i] = kindId;
@@ -202,10 +209,11 @@ final class OffsetTableTemplatePoolTest {
   @Test
   @DisplayName(">256 unique templates triggers abort")
   void tooManyTemplatesAborts() {
+    // Phase 4: migrated from legacy OBJECT_KEY to fused OBJECT_NAMED_OBJECT (Cat-1).
     try (Arena arena = Arena.ofConfined()) {
       final int slotCount = 300;
-      final int kindId = 26;
-      final int fc = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+      final int kindId = 52;
+      final int fc = NodeFieldLayout.OBJECT_NAMED_OBJECT_FIELD_COUNT;
       final int perRecord = 1 + fc + 0;
       final MemorySegment page = arena.allocate(PageLayout.HEAP_START + perRecord * slotCount);
       final int[] kindIds = new int[slotCount];
@@ -235,9 +243,10 @@ final class OffsetTableTemplatePoolTest {
   @Test
   @DisplayName("single-record page builds one template")
   void singleRecord() {
+    // Phase 4: migrated from legacy OBJECT_KEY to fused OBJECT_NAMED_OBJECT (Cat-1).
     try (Arena arena = Arena.ofConfined()) {
-      final int kindId = 26;
-      final int fc = NodeFieldLayout.OBJECT_KEY_FIELD_COUNT;
+      final int kindId = 52;
+      final int fc = NodeFieldLayout.OBJECT_NAMED_OBJECT_FIELD_COUNT;
       final MemorySegment page = arena.allocate(PageLayout.HEAP_START + 1 + fc);
       writeDummyRecord(page, 0, kindId, fc, 0x7E);
 

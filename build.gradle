@@ -250,5 +250,15 @@ subprojects {
 
         minHeapSize = '5g'
         maxHeapSize = '12g'
+        // Allow override via env TMPDIR for sandboxed test execution
+        if (System.getenv("TMPDIR") != null) {
+            systemProperty 'java.io.tmpdir', System.getenv("TMPDIR")
+        }
+        // Forward all sirix.* system properties from the gradle JVM to the test
+        // JVM so command-line flags like -Dsirix.valueElision.regionLookup.enable=true
+        // reach the page serializer/deserializer under test.
+        System.properties.findAll { it.key.startsWith("sirix.") }.each { k, v ->
+            systemProperty k, v
+        }
     }
 }

@@ -101,8 +101,10 @@ class McpServerE2ETest {
     final var h = buildHandlers(true);
     h.createSnapshot(null, new CallToolRequest("sirix_create_snapshot",
         Map.of("database", DB_NAME, "resource", RESOURCE_NAME, "name", "baseline")));
+    // Cat-1: post-fusion (iter#32) the OBJECT_KEY+STRING_VALUE pair "key":"value" collapses
+    // into one OBJECT_NAMED_STRING at nodeKey=2 (was nodeKey=3 pre-fusion).
     final var update = h.update(null, new CallToolRequest("sirix_update",
-        Map.of("database", DB_NAME, "resource", RESOURCE_NAME, "nodeKey", 3, "value", "modified", "message", "change")));
+        Map.of("database", DB_NAME, "resource", RESOURCE_NAME, "nodeKey", 2, "value", "modified", "message", "change")));
     assertThat(((TextContent) update.content().getFirst()).text()).contains("revision 2");
 
     final var diff = h.diff(null, new CallToolRequest("sirix_diff",

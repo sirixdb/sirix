@@ -97,6 +97,26 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   /** Node kind id for an OBJECT_KEY entry — the named child of an object. */
   private static final int OBJECT_KEY_KIND = 26;
 
+  /** Fused kind ids — each plays the OBJECT_KEY structural role (carries a name). */
+  private static final int OBJECT_NAMED_BOOLEAN_KIND = 48;
+  private static final int OBJECT_NAMED_NUMBER_KIND = 49;
+  private static final int OBJECT_NAMED_STRING_KIND = 50;
+  private static final int OBJECT_NAMED_NULL_KIND = 51;
+  /** iter#32 P2 fused-structural — same OBJECT_KEY role with an inline object/array body. */
+  private static final int OBJECT_NAMED_OBJECT_KIND = 52;
+  private static final int OBJECT_NAMED_ARRAY_KIND = 53;
+
+  /** Returns {@code true} if the kindId plays the OBJECT_KEY role (legacy or fused). */
+  private static boolean playsObjectKeyRole(final int kindId) {
+    return kindId == OBJECT_KEY_KIND
+        || kindId == OBJECT_NAMED_BOOLEAN_KIND
+        || kindId == OBJECT_NAMED_NUMBER_KIND
+        || kindId == OBJECT_NAMED_STRING_KIND
+        || kindId == OBJECT_NAMED_NULL_KIND
+        || kindId == OBJECT_NAMED_OBJECT_KIND
+        || kindId == OBJECT_NAMED_ARRAY_KIND;
+  }
+
   private final JsonResourceSession session;
   private final int revision;
   private final int threads;
@@ -200,7 +220,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     long recordsMatched;       // records that passed the predicate
 
     // GroupBy-specific: which path the value-read took.
-    long groupByDirectSuccess;  // childPk == pk AND readObjectStringValueBytesFromSlot returned > 0
+    long groupByDirectSuccess;  // fused inline read produced > 0 bytes
     long groupByCrossPage;      // childPk != pk (value lives on a different page)
     long groupByDirectNeg;      // direct read returned <= 0 (FSST/oversize/etc.)
     long groupByRtxFallback;    // rtx.moveTo path actually ran
@@ -2208,21 +2228,48 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       int fi = -1;
       for (int i = 0; i < wantKeys.length; i++) if (wantKeys[i] == nk) { fi = i; break; }
       if (fi < 0) continue;
-      if (!rtx.moveToFirstChild()) { rtx.moveToParent(); continue; }
+      // Fused OBJECT_NAMED_* carries the value inline — no descent. Legacy OBJECT_KEY falls through.
+      final NodeKind anchorKind = rtx.getKind();
+      switch (anchorKind) {
+        case OBJECT_NAMED_NUMBER -> {
+          final Number n = rtx.getNumberValue();
+          if (n != null) {
+            scratch.longVals[fi] = n.longValue();
+            scratch.fieldKind[fi] = 1;
+          }
+          continue;
+        }
+        case OBJECT_NAMED_BOOLEAN -> {
+          scratch.boolVals[fi] = rtx.getBooleanValue();
+          scratch.fieldKind[fi] = 2;
+          continue;
+        }
+        case OBJECT_NAMED_STRING -> {
+          scratch.strVals[fi] = rtx.getValue();
+          scratch.fieldKind[fi] = 3;
+          continue;
+        }
+        case OBJECT_NAMED_NULL -> {
+          // Null never satisfies numeric/bool/string-eq ops — leave kind=0 (missing).
+          continue;
+        }
+        default -> { /* OBJECT_KEY — descend */ }
+      }
+      if (!rtx.moveToFirstChild()) { continue; }
       final NodeKind kind = rtx.getKind();
       switch (kind) {
-        case OBJECT_NUMBER_VALUE, NUMBER_VALUE -> {
+        case NUMBER_VALUE -> {
           final Number n = rtx.getNumberValue();
           if (n != null) {
             scratch.longVals[fi] = n.longValue();
             scratch.fieldKind[fi] = 1;
           }
         }
-        case OBJECT_BOOLEAN_VALUE, BOOLEAN_VALUE -> {
+        case BOOLEAN_VALUE -> {
           scratch.boolVals[fi] = rtx.getBooleanValue();
           scratch.fieldKind[fi] = 2;
         }
-        case OBJECT_STRING_VALUE, STRING_VALUE -> {
+        case STRING_VALUE -> {
           scratch.strVals[fi] = rtx.getValue();
           scratch.fieldKind[fi] = 3;
         }
@@ -2502,13 +2549,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       // below; sibling rows default to missing unless pass 2 fills them.)
       for (int f = 0; f < nFields; f++) batch.presentKind[f][row] = 0;
 
-      // Anchor value — direct slot first. Pull the firstChildKey from the
-      // bulk-decoded scratch when available, else decode per-slot.
-      final long anchorValueKey = useBulk
-          ? slotFirstChildKeys[si]
-          : kv.getObjectKeyFirstChildKeyFromSlot(slot, anchorObjectKey);
-      final boolean anchorDirect = readAnchorValueDirect(
-          kv, pageBase, anchorValueKey, anchorPageMask, anchorFieldIdx, row, batch);
+      // Anchor value — direct slot first. Fused OBJECT_NAMED_* slots carry the value inline.
+      // Non-fused legacy slots no longer have a direct-read fast path and defer to rtx.
+      final int anchorKindId = kv.getSlotNodeKindId(slot);
+      final boolean anchorDirect = KeyValueLeafPage.isFusedObjectNamedKindId(anchorKindId)
+          && readFusedAnchorValueDirect(kv, anchorKindId, slot, anchorFieldIdx, row, batch);
       if (!anchorDirect) {
         // Single-field: fall back to rtx right here (legacy behaviour kept).
         if (!multi) {
@@ -2557,12 +2602,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           if (parentKey == -1L) continue;
           final int rowIdx = parentToRow.get(parentKey);
           if (rowIdx < 0) continue;  // not in batch
-          final long valueKey = siblingFirstChildKeys[k];
-          if (!readFieldValueDirect(kv, pageBase, valueKey, anchorPageMask, fi, rowIdx, batch)) {
-            // Cross-page / FSST / unsupported — defer to rtx fallback for
-            // this row. Mark the row so pass 3 picks it up.
-            rowNeedsRtx[rowIdx >>> 6] |= 1L << (rowIdx & 63);
-          }
+          // Non-fused sibling — direct-slot path subsumed by fused; defer to rtx.
+          rowNeedsRtx[rowIdx >>> 6] |= 1L << (rowIdx & 63);
         }
       }
     } else if (multi) {
@@ -2605,44 +2646,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         loadFieldsIntoBatch(rtx, cp, batch, i);
       }
     }
-  }
-
-  /**
-   * Direct-slot value read for an arbitrary sibling field (not just the
-   * anchor). Handles OBJECT_NUMBER_VALUE / OBJECT_BOOLEAN_VALUE / OBJECT_STRING_VALUE
-   * when the value node lives on the same page as its OBJECT_KEY. Returns
-   * {@code false} if the caller must fall back to rtx.
-   */
-  private static boolean readFieldValueDirect(final KeyValueLeafPage kv, final long pageBase,
-      final long valueKey, final int pageMask, final int fieldIdx, final int row, final EvalBatch batch) {
-    // Cross-page? Same shared base means both nodeKeys fall into the same
-    // 1024-slot page → upper bits match.
-    if ((valueKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT)
-        != (pageBase >>> Constants.INP_REFERENCE_COUNT_EXPONENT)) {
-      return false;
-    }
-    final int valueSlot = (int) (valueKey & pageMask);
-    final int kindId = kv.getSlotNodeKindId(valueSlot);
-    if (kindId == 42) {  // OBJECT_NUMBER_VALUE
-      final long v = kv.getNumberValueLongFromSlot(valueSlot);
-      if (v == Long.MIN_VALUE) return false;  // float/double/BigDecimal sentinel
-      batch.longCols[fieldIdx][row] = v;
-      batch.presentKind[fieldIdx][row] = 1;
-      return true;
-    }
-    if (kindId == 41) {  // OBJECT_BOOLEAN_VALUE
-      batch.boolCols[fieldIdx][row] = kv.getObjectBooleanValueFromSlot(valueSlot);
-      batch.presentKind[fieldIdx][row] = 2;
-      return true;
-    }
-    if (kindId == 40) {  // OBJECT_STRING_VALUE
-      final int n = kv.readObjectStringValueBytesFromSlot(valueSlot, batch.strScratch);
-      if (n < 0) return false;  // FSST oversize / unavailable
-      batch.strCols[fieldIdx][row] = canonicalize(batch, batch.strScratch, n);
-      batch.presentKind[fieldIdx][row] = 3;
-      return true;
-    }
-    return false;
   }
 
   /**
@@ -2694,41 +2697,43 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
   }
 
   /**
-   * Direct-slot value read for the anchor field when both the OBJECT_KEY and
-   * its value live on the same page. Returns {@code true} on success, or
-   * {@code false} if caller must fall back to rtx (cross-page, FSST string
-   * too large for scratch, or unsupported number type).
+   * Direct-slot value read for a fused {@code OBJECT_NAMED_*} anchor. The value is
+   * inline on the fused record itself — no child descent — so dispatch on the kind
+   * and pull the primitive via the page's inline-slot getters.
+   *
+   * @return {@code true} on success, {@code false} when the payload encoding falls
+   *         outside the direct-read fast path (e.g. unsupported number subtype),
+   *         forcing the caller to the rtx fallback.
    */
-  private static boolean readAnchorValueDirect(final KeyValueLeafPage kv, final long pageBase,
-      final long valueKey, final int pageMask, final int fieldIdx, final int row, final EvalBatch batch) {
-    // Cross-page? Shared base means (valueKey >>> 10) == (pageBase >>> 10).
-    if ((valueKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT)
-        != (pageBase >>> Constants.INP_REFERENCE_COUNT_EXPONENT)) {
-      return false;
+  private static boolean readFusedAnchorValueDirect(final KeyValueLeafPage kv,
+      final int kindId, final int slot, final int fieldIdx, final int row,
+      final EvalBatch batch) {
+    switch (kindId) {
+      case KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID: {
+        final long v = kv.getFusedObjectNamedNumberValueLongFromSlot(slot);
+        if (v == Long.MIN_VALUE) return false; // float/double/BigDecimal → rtx fallback
+        batch.longCols[fieldIdx][row] = v;
+        batch.presentKind[fieldIdx][row] = 1;
+        return true;
+      }
+      case KeyValueLeafPage.FUSED_OBJECT_NAMED_BOOLEAN_KIND_ID: {
+        batch.boolCols[fieldIdx][row] = kv.getFusedObjectNamedBooleanValueFromSlot(slot);
+        batch.presentKind[fieldIdx][row] = 2;
+        return true;
+      }
+      case KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID: {
+        // String: defer to rtx path — FSST decode + scratch sizing parity with
+        // readAnchorValueDirect. Single-field STR_EQ is not the common hot case.
+        return false;
+      }
+      case KeyValueLeafPage.FUSED_OBJECT_NAMED_NULL_KIND_ID: {
+        // Null: leave presentKind[fieldIdx][row] = 0 (missing). Reported-null never
+        // satisfies the numeric / boolean / string-equality ops the compiler emits.
+        return true;
+      }
+      default:
+        return false;
     }
-    final int valueSlot = (int) (valueKey & pageMask);
-    final int kindId = kv.getSlotNodeKindId(valueSlot);
-    // 42 = OBJECT_NUMBER_VALUE, 40 = OBJECT_STRING_VALUE, 41 = OBJECT_BOOLEAN_VALUE
-    if (kindId == 42) {
-      final long v = kv.getNumberValueLongFromSlot(valueSlot);
-      if (v == Long.MIN_VALUE) return false; // float/double/BigDecimal sentinel
-      batch.longCols[fieldIdx][row] = v;
-      batch.presentKind[fieldIdx][row] = 1;
-      return true;
-    }
-    if (kindId == 41) {
-      batch.boolCols[fieldIdx][row] = kv.getObjectBooleanValueFromSlot(valueSlot);
-      batch.presentKind[fieldIdx][row] = 2;
-      return true;
-    }
-    if (kindId == 40) {
-      // String: go through the rtx path — readObjectStringValueBytesFromSlot
-      // requires a caller-supplied scratch byte[] and FSST decode logic;
-      // keeping parity with the legacy path is safer than duplicating decode
-      // here. Cheap to opt out (single-field STR_EQ isn't the common hot case).
-      return false;
-    }
-    return false;
   }
 
   /**
@@ -2746,21 +2751,48 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       int fi = -1;
       for (int i = 0; i < wantKeys.length; i++) if (wantKeys[i] == nk) { fi = i; break; }
       if (fi < 0) continue;
-      if (!rtx.moveToFirstChild()) { rtx.moveToParent(); continue; }
+      // Fused OBJECT_NAMED_* carries the value inline — no descent. Legacy OBJECT_KEY falls through.
+      final NodeKind anchorKind = rtx.getKind();
+      switch (anchorKind) {
+        case OBJECT_NAMED_NUMBER -> {
+          final Number n = rtx.getNumberValue();
+          if (n != null) {
+            batch.longCols[fi][row] = n.longValue();
+            batch.presentKind[fi][row] = 1;
+          }
+          continue;
+        }
+        case OBJECT_NAMED_BOOLEAN -> {
+          batch.boolCols[fi][row] = rtx.getBooleanValue();
+          batch.presentKind[fi][row] = 2;
+          continue;
+        }
+        case OBJECT_NAMED_STRING -> {
+          batch.strCols[fi][row] = rtx.getValue();
+          batch.presentKind[fi][row] = 3;
+          continue;
+        }
+        case OBJECT_NAMED_NULL -> {
+          // Null never satisfies numeric/bool/string-eq ops — leave presentKind=0 (missing).
+          continue;
+        }
+        default -> { /* OBJECT_KEY — descend */ }
+      }
+      if (!rtx.moveToFirstChild()) { continue; }
       final NodeKind kind = rtx.getKind();
       switch (kind) {
-        case OBJECT_NUMBER_VALUE, NUMBER_VALUE -> {
+        case NUMBER_VALUE -> {
           final Number n = rtx.getNumberValue();
           if (n != null) {
             batch.longCols[fi][row] = n.longValue();
             batch.presentKind[fi][row] = 1;
           }
         }
-        case OBJECT_BOOLEAN_VALUE, BOOLEAN_VALUE -> {
+        case BOOLEAN_VALUE -> {
           batch.boolCols[fi][row] = rtx.getBooleanValue();
           batch.presentKind[fi][row] = 2;
         }
-        case OBJECT_STRING_VALUE, STRING_VALUE -> {
+        case STRING_VALUE -> {
           batch.strCols[fi][row] = rtx.getValue();
           batch.presentKind[fi][row] = 3;
         }
@@ -3322,7 +3354,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         }
         if (fastPathComplete) continue;
 
-        // Slow path: walk OBJECT_KEY slots, read each value's bytes.
+        // Slow path: walk OBJECT_KEY / fused OBJECT_NAMED_* slots; read each value's bytes.
+        // Since legacy OBJECT_*_VALUE kinds are gone, OBJECT_KEY only flags object/array-valued
+        // fields (no string leaf), so the only string-leaf fast read is the fused inline path.
+        // OBJECT_KEY slots accordingly fall through to the rtx fallback.
         final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
         if (matches.length == 0) continue;
         for (final int slot : matches) {
@@ -3331,21 +3366,20 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               && kv.getObjectKeyPathNodeKeyFromSlot(slot, objectKeyNodeKey) != targetPathNodeKey) {
             continue;
           }
-          final long firstChildKey = kv.getObjectKeyFirstChildKeyFromSlot(slot, objectKeyNodeKey);
-          final long childPk = firstChildKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
+          final int slotKindId = kv.getSlotNodeKindId(slot);
           byte[] valueBytes = null;
           int valueLen = 0;
           int valueOff = 0;
-          if (childPk == pk) {
-            final int valueSlot = (int) (firstChildKey & SLOT_MASK);
-            final int n = kv.readObjectStringValueBytesFromSlot(valueSlot, scratch);
-            if (n > 0) {
-              valueBytes = scratch;
-              valueLen = n;
+          if (slotKindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) {
+            final byte[] inline = kv.readFusedObjectNamedStringBytes(slot);
+            if (inline != null && inline.length > 0) {
+              valueBytes = inline;
+              valueLen = inline.length;
             }
           }
           if (valueBytes == null) {
-            // Cross-page or oversized — rtx fallback.
+            // OBJECT_KEY (object/array-valued field — leaf is not on this slot) or
+            // FSST oversize — defer to rtx for the value read.
             if (!rtx.moveTo(objectKeyNodeKey)) continue;
             if (!rtx.moveToFirstChild()) continue;
             final byte[] rawValue = rtx.getValueBytes();
@@ -3599,7 +3633,8 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
         long base = pk << Constants.INP_REFERENCE_COUNT_EXPONENT;
         kv.forEachPopulatedSlot(slot -> {
-          if (kv.getSlotNodeKindId(slot) != OBJECT_KEY_KIND) return true;
+          // Both legacy OBJECT_KEY and fused OBJECT_NAMED_* carry a field name — scan both.
+          if (!playsObjectKeyRole(kv.getSlotNodeKindId(slot))) return true;
           if (!rtx.moveTo(base + slot)) return true;
           var name = rtx.getName();
           if (name != null && field.equals(name.getLocalName())) {
@@ -3649,7 +3684,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
       long e = Math.min(s + ppt, totalPages);
       JsonNodeReadOnlyTrx rtx = workerTrx();
       var reader = rtx.getStorageEngineReader();
-      final int numValKindId = KeyValueLeafPage.objectNumberValueKindId();
       for (long pk = s; pk < e; pk++) {
         var res = reader.getRecordPage(reusableKey.setRecordPageKey(pk));
         if (res == null || !(res.page() instanceof KeyValueLeafPage kv)) continue;
@@ -3708,10 +3742,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
 
-        // Slow path: walk OBJECT_KEY slots matching the nameKey, descend to
-        // firstChild. Used when the page has no number region (e.g. first-time
-        // commit before Phase-1 writer landed) or the target field isn't in
-        // the region's parent-nameKey dictionary.
+        // Slow path: walk OBJECT_KEY / fused OBJECT_NAMED_NUMBER slots matching the nameKey.
+        // Used when the page has no number region (e.g. first-time commit before Phase-1
+        // writer landed) or the target field isn't in the region's parent-nameKey dictionary.
+        // Since legacy OBJECT_NUMBER_VALUE is gone, OBJECT_KEY slots only flag object/array-
+        // valued fields and route through rtx; fused records carry the value inline.
         final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
         for (final int slot : matches) {
           final long objectKeyNodeKey = base + slot;
@@ -3721,28 +3756,25 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               && kv.getObjectKeyPathNodeKeyFromSlot(slot, objectKeyNodeKey) != targetPathNodeKey) {
             continue;
           }
-          // Direct slot path: read firstChild's nodeKey straight off the page
-          // (no cursor), then read the numeric value straight off the firstChild
-          // slot. Skips moveTo + singleton bind + Number boxing per match.
-          // Only works when firstChild is on the same page (common case for
-          // flat JSON-array records where key + value land side-by-side).
-          final long fcKey = kv.getObjectKeyFirstChildKeyFromSlot(slot, objectKeyNodeKey);
-          final long fcPk = fcKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
+          final int slotKindId = kv.getSlotNodeKindId(slot);
           long v;
-          if (fcPk == pk) {
-            final int fcSlot = (int) (fcKey - base);
-            if (kv.getSlotNodeKindId(fcSlot) != numValKindId) continue;
-            v = kv.getNumberValueLongFromSlot(fcSlot);
+          if (slotKindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_NUMBER_KIND_ID) {
+            v = kv.getFusedObjectNamedNumberValueLongFromSlot(slot);
             if (v == Long.MIN_VALUE) {
               // Payload is float/double/BigDecimal — fall back to full path.
-              if (!rtx.moveTo(fcKey)) continue;
+              if (!rtx.moveTo(objectKeyNodeKey)) continue;
               final Number n = rtx.getNumberValue();
               if (n == null) continue;
               v = n.longValue();
             }
           } else {
-            // Cross-page first child — fall back to full cursor path.
-            if (!rtx.moveTo(fcKey)) continue;
+            // OBJECT_KEY (object/array-valued field) — value isn't a primitive on this slot.
+            // The aggregate target is a number field; non-fused matches with this nameKey
+            // would only contain numbers via descent through the rtx, but with fusion
+            // mandatory the only descent that yields a primitive is via the fused path.
+            // Defer to rtx for safety.
+            if (!rtx.moveTo(objectKeyNodeKey)) continue;
+            if (!rtx.moveToFirstChild()) continue;
             final Number n = rtx.getNumberValue();
             if (n == null) continue;
             v = n.longValue();
@@ -3934,7 +3966,10 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
           }
         }
 
-        // Slow path: walk OBJECT_KEY slots, descend to value, hash-insert.
+        // Slow path: walk OBJECT_KEY / fused OBJECT_NAMED_STRING slots, hash-insert
+        // each string value. Since legacy OBJECT_STRING_VALUE is gone, OBJECT_KEY only
+        // flags object/array-valued fields (no string leaf), so the fast inline path is
+        // limited to fused records and OBJECT_KEY slots route through rtx.
         final int[] matches = kv.getObjectKeySlotsForNameKey(fieldKey);
         for (final int slot : matches) {
           if (DIAGNOSTICS_ENABLED) diag.recordsSlowPath++;
@@ -3946,13 +3981,11 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               && kv.getObjectKeyPathNodeKeyFromSlot(slot, objectKeyNodeKey) != targetPathNodeKey) {
             continue;
           }
-          final long firstChildKey = kv.getObjectKeyFirstChildKeyFromSlot(slot, objectKeyNodeKey);
-          final long childPk = firstChildKey >>> Constants.INP_REFERENCE_COUNT_EXPONENT;
-          if (childPk == pk) {
-            final int valueSlot = (int) (firstChildKey & SLOT_MASK);
-            final int n = kv.readObjectStringValueBytesFromSlot(valueSlot, scratch);
-            if (n > 0) {
-              acc.add(scratch, 0, n);
+          final int slotKindId = kv.getSlotNodeKindId(slot);
+          if (slotKindId == KeyValueLeafPage.FUSED_OBJECT_NAMED_STRING_KIND_ID) {
+            final byte[] inline = kv.readFusedObjectNamedStringBytes(slot);
+            if (inline != null && inline.length > 0) {
+              acc.add(inline, 0, inline.length);
               if (DIAGNOSTICS_ENABLED) {
                 diag.groupByDirectSuccess++;
                 diag.recordsMatched++;
@@ -3960,8 +3993,6 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
               continue;
             }
             if (DIAGNOSTICS_ENABLED) diag.groupByDirectNeg++;
-          } else {
-            if (DIAGNOSTICS_ENABLED) diag.groupByCrossPage++;
           }
 
           if (DIAGNOSTICS_ENABLED) diag.groupByRtxFallback++;

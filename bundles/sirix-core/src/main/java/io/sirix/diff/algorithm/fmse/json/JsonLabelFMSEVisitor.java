@@ -9,16 +9,13 @@ import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import io.sirix.node.immutable.json.ImmutableNullNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.immutable.json.ImmutableObjectNode;
-import io.sirix.node.immutable.json.ImmutableObjectNullNode;
-import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
+import io.sirix.node.json.ObjectNamedArrayNode;
 import io.sirix.node.json.ObjectNamedBooleanNode;
 import io.sirix.node.json.ObjectNamedNullNode;
 import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedObjectNode;
 import io.sirix.node.json.ObjectNamedStringNode;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 
@@ -60,12 +57,6 @@ public final class JsonLabelFMSEVisitor extends AbstractJsonNodeVisitor {
   }
 
   @Override
-  public VisitResultType visit(final ImmutableObjectKeyNode node) {
-    addInnerLabel(node.getNodeKey(), NodeKind.OBJECT_KEY);
-    return VisitResultType.CONTINUE;
-  }
-
-  @Override
   public VisitResultType visit(final ImmutableJsonDocumentRootNode node) {
     addInnerLabel(node.getNodeKey(), NodeKind.JSON_DOCUMENT);
     return VisitResultType.CONTINUE;
@@ -97,30 +88,6 @@ public final class JsonLabelFMSEVisitor extends AbstractJsonNodeVisitor {
     return VisitResultType.CONTINUE;
   }
 
-  @Override
-  public VisitResultType visit(final ImmutableObjectStringNode node) {
-    addLeafLabel(node.getNodeKey(), NodeKind.OBJECT_STRING_VALUE);
-    return VisitResultType.CONTINUE;
-  }
-
-  @Override
-  public VisitResultType visit(final ImmutableObjectNumberNode node) {
-    addLeafLabel(node.getNodeKey(), NodeKind.OBJECT_NUMBER_VALUE);
-    return VisitResultType.CONTINUE;
-  }
-
-  @Override
-  public VisitResultType visit(final ImmutableObjectBooleanNode node) {
-    addLeafLabel(node.getNodeKey(), NodeKind.OBJECT_BOOLEAN_VALUE);
-    return VisitResultType.CONTINUE;
-  }
-
-  @Override
-  public VisitResultType visit(final ImmutableObjectNullNode node) {
-    addLeafLabel(node.getNodeKey(), NodeKind.OBJECT_NULL_VALUE);
-    return VisitResultType.CONTINUE;
-  }
-
   // Fused OBJECT_NAMED_* kinds: labeled as their fused kind so the matcher can pair
   // fused-old <-> fused-new without collision against legacy primitive-value labels.
 
@@ -145,6 +112,22 @@ public final class JsonLabelFMSEVisitor extends AbstractJsonNodeVisitor {
   @Override
   public VisitResultType visit(final ObjectNamedNullNode node) {
     addLeafLabel(node.getNodeKey(), NodeKind.OBJECT_NAMED_NULL);
+    return VisitResultType.CONTINUE;
+  }
+
+  // P2 fused-structural records play the OBJECT_KEY+OBJECT/ARRAY role and carry an inner
+  // subtree (children). Treat them as inner nodes so the matcher can pair fused-structural
+  // records by name + descendant-overlap (see JsonInnerNodeComparator.isObjectKeyEqual).
+
+  @Override
+  public VisitResultType visit(final ObjectNamedObjectNode node) {
+    addInnerLabel(node.getNodeKey(), NodeKind.OBJECT_NAMED_OBJECT);
+    return VisitResultType.CONTINUE;
+  }
+
+  @Override
+  public VisitResultType visit(final ObjectNamedArrayNode node) {
+    addInnerLabel(node.getNodeKey(), NodeKind.OBJECT_NAMED_ARRAY);
     return VisitResultType.CONTINUE;
   }
 

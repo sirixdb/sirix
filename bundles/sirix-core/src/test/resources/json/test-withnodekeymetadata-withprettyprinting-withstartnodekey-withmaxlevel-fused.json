@@ -1,0 +1,54 @@
+{
+  "key": "tada",
+  "metadata": {
+    "nodeKey": 10
+  },
+  "value": [
+    {
+      "metadata": {
+        "nodeKey": 11
+      },
+      "value": [
+        {
+          "key": "foo",
+          "metadata": {
+            "nodeKey": 12
+          },
+          "value": "bar"
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "nodeKey": 13
+      },
+      "value": [
+        {
+          "key": "baz",
+          "metadata": {
+            "nodeKey": 14
+          },
+          "value": false
+        }
+      ]
+    },
+    {
+      "metadata": {
+        "nodeKey": 15
+      },
+      "value": "boo"
+    },
+    {
+      "metadata": {
+        "nodeKey": 16
+      },
+      "value": {}
+    },
+    {
+      "metadata": {
+        "nodeKey": 17
+      },
+      "value": []
+    }
+  ]
+}

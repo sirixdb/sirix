@@ -47,7 +47,6 @@ import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.node.interfaces.FlyweightNode;
 import io.sirix.node.interfaces.Node;
-import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
@@ -497,8 +496,6 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
       if (record instanceof StringNode stringNode) {
         stringNode.setFsstSymbolTable(fsstSymbolTable);
-      } else if (record instanceof ObjectStringNode objectStringNode) {
-        objectStringNode.setFsstSymbolTable(fsstSymbolTable);
       }
     }
   }

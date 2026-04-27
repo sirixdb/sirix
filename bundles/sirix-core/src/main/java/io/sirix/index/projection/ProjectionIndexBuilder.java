@@ -214,7 +214,12 @@ public final class ProjectionIndexBuilder {
       if (pk == rootPathNodeKey) {
         // Match — process as record(s).
         final long matchKey = rtx.getNodeKey();
-        if (rtx.getKind() == NodeKind.ARRAY) {
+        final NodeKind matchKind = rtx.getKind();
+        // iter#32 fusion: OBJECT_NAMED_ARRAY plays both the OBJECT_KEY and ARRAY role —
+        // its children are the array elements directly.
+        final boolean arrayLike = matchKind == NodeKind.ARRAY
+            || matchKind == NodeKind.OBJECT_NAMED_ARRAY;
+        if (arrayLike) {
           if (rtx.moveToFirstChild()) {
             do {
               final long elementKey = rtx.getNodeKey();
@@ -246,7 +251,10 @@ public final class ProjectionIndexBuilder {
       axis.nextLong();
       if (!isRecordRoot(rtx)) continue;
       final long matchKey = rtx.getNodeKey();
-      if (rtx.getKind() == NodeKind.ARRAY) {
+      final NodeKind matchKind = rtx.getKind();
+      final boolean arrayLike = matchKind == NodeKind.ARRAY
+          || matchKind == NodeKind.OBJECT_NAMED_ARRAY;
+      if (arrayLike) {
         if (rtx.moveToFirstChild()) {
           do {
             final long elementKey = rtx.getNodeKey();
@@ -289,9 +297,7 @@ public final class ProjectionIndexBuilder {
     // dispatch accordingly. Fused OBJECT_NAMED_* records also carry a
     // pathNodeKey because they play the OBJECT_KEY role structurally.
     final NodeKind kind = rtx.getKind();
-    if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY || kind == NodeKind.OBJECT_KEY
-        || kind == NodeKind.OBJECT_NAMED_BOOLEAN || kind == NodeKind.OBJECT_NAMED_NUMBER
-        || kind == NodeKind.OBJECT_NAMED_STRING || kind == NodeKind.OBJECT_NAMED_NULL) {
+    if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY || kind.playsObjectKeyRole()) {
       return rtx.getPathNodeKey();
     }
     return -1L;
@@ -331,7 +337,7 @@ public final class ProjectionIndexBuilder {
       long cur = top;
       do {
         final NodeKind kind = rtx.getKind();
-        if (kind == NodeKind.OBJECT_KEY) {
+        if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
           final long pk = rtx.getPathNodeKey();
           final int col = findField(pk);
           if (col >= 0) {
@@ -357,8 +363,10 @@ public final class ProjectionIndexBuilder {
           }
           // Fused nodes have no children (synthetic child is virtual and would only
           // round-trip to the same value we just read). No descent.
-        } else if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY) {
-          // Structured — descend.
+        } else if (kind == NodeKind.OBJECT || kind == NodeKind.ARRAY
+            || kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.OBJECT_NAMED_ARRAY) {
+          // Structured — descend. Fused structural records (OBJECT_NAMED_OBJECT/ARRAY)
+          // play the OBJECT/ARRAY role under fusion and have a child subtree.
           pushFirstChild(rtx, cur);
         }
         // Primitives have no children; skip.

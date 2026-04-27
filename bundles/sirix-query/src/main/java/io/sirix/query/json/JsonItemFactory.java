@@ -8,11 +8,28 @@ import io.brackit.query.atomic.Int32;
 import io.brackit.query.atomic.Int64;
 import io.brackit.query.jdm.json.JsonItem;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.node.NodeKind;
 
 import java.math.BigDecimal;
 
 public final class JsonItemFactory {
   public JsonItemFactory() {}
+
+  /**
+   * Build a name-mode item that always represents the OBJECT_KEY (or fused OBJECT_NAMED_*)
+   * field NAME as a string, regardless of whether the underlying record is fused.
+   *
+   * <p>The generic {@link #getSequence(JsonNodeReadOnlyTrx, JsonDBCollection)} method returns
+   * the VALUE for fused records — callers that iterate {@code obj.names()} (e.g. {@code
+   * bit:fields($obj)}) must use this method instead so the iteration yields field names.
+   */
+  public JsonItem getNameSequence(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
+    final NodeKind kind = rtx.getKind();
+    if (kind.playsObjectKeyRole()) {
+      return new AtomicStrJsonDBItem(rtx, collection, rtx.getName().getLocalName());
+    }
+    throw new IllegalStateException("getNameSequence called on a non-object-key node: " + kind);
+  }
 
   public JsonItem getSequence(final JsonNodeReadOnlyTrx rtx, final JsonDBCollection collection) {
     switch (rtx.getKind()) {
@@ -20,8 +37,12 @@ public final class JsonItemFactory {
         return new JsonDBArray(rtx, collection);
       case OBJECT:
         return new JsonDBObject(rtx, collection);
-      case OBJECT_KEY:
-        return new AtomicStrJsonDBItem(rtx, collection, rtx.getName().getLocalName());
+      // iter#32 Phase 2: fused structural OBJECT_NAMED_OBJECT/ARRAY play the OBJECT/ARRAY
+      // role under fusion — return the matching DB view anchored at the fused record.
+      case OBJECT_NAMED_OBJECT:
+        return new JsonDBObject(rtx, collection);
+      case OBJECT_NAMED_ARRAY:
+        return new JsonDBArray(rtx, collection);
       // iter#31 Option B: fused OBJECT_NAMED_* is a LEAF carrying BOTH name and inline
       // primitive value. When the factory is asked to turn the current cursor position
       // into a JsonItem, it's being asked for the VALUE — the caller has already resolved
@@ -49,22 +70,18 @@ public final class JsonItemFactory {
         throw new AssertionError();
       }
       case STRING_VALUE:
-      case OBJECT_STRING_VALUE:
         return new AtomicStrJsonDBItem(rtx, collection, rtx.getValue());
       case BOOLEAN_VALUE:
-      case OBJECT_BOOLEAN_VALUE:
         return new AtomicBooleanJsonDBItem(rtx, collection, new Bool(rtx.getBooleanValue()));
-      case OBJECT_NULL_VALUE:
       case NULL_VALUE:
         return new AtomicNullJsonDBItem(rtx, collection);
-      case OBJECT_NUMBER_VALUE:
       case NUMBER_VALUE:
         final Number number = rtx.getNumberValue();
 
         if (number instanceof Integer) {
           return new NumericJsonDBItem(rtx, collection, new Int32(number.intValue()));
         } else if (number instanceof Long) {
-          return new NumericJsonDBItem(rtx, collection, new Int64(number.intValue()));
+          return new NumericJsonDBItem(rtx, collection, new Int64(number.longValue()));
         } else if (number instanceof Float) {
           return new NumericJsonDBItem(rtx, collection, new Flt(number.floatValue()));
         } else if (number instanceof Double) {

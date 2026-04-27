@@ -2,9 +2,7 @@ package io.sirix.page;
 
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.IndexType;
-import io.sirix.node.json.ObjectKeyNode;
-import io.sirix.node.json.ObjectStringNode;
-import io.sirix.page.pax.RegionTable;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
@@ -25,13 +23,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * End-to-end test for {@link KeyValueLeafPage}'s lazy StringRegion build path.
- * Builds a page with several OBJECT_KEY → OBJECT_STRING_VALUE pairs (same
- * shape as Sirix shreds JSON like {@code {"dept":"Eng","city":"NYC"}}), then
- * calls {@link KeyValueLeafPage#getStringRegionHeader()} and verifies the
+ * Builds a page with several fused OBJECT_NAMED_STRING records (the on-disk
+ * shape produced by Sirix when shredding {@code {"dept":"Eng","city":"NYC"}}),
+ * then calls {@link KeyValueLeafPage#getStringRegionHeader()} and verifies the
  * region is built correctly with parent-grouped tags + dictionaries.
  *
- * <p>Also verifies invalidation: setting a new OBJECT_STRING_VALUE on the
- * page must drop the cached region so the next read rebuilds.
+ * <p>Also verifies invalidation: writing a new OBJECT_NAMED_STRING on the page
+ * must drop the cached region so the next read rebuilds.
  */
 @DisplayName("StringRegion page integration")
 final class StringRegionIntegrationTest {
@@ -56,33 +54,25 @@ final class StringRegionIntegrationTest {
         arena.allocate(SIXTYFOUR_KB), null);
   }
 
-  /** Write an OBJECT_KEY at slot {@code keySlot} with given nameKey + firstChild. */
-  private void writeObjectKey(final KeyValueLeafPage page, final long nodeKey,
-      final long firstChildKey, final int nameKey) {
-    final int slot = (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1));
-    final ObjectKeyNode node = new ObjectKeyNode(nodeKey,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), // parentKey (unused here)
-        /*pathNodeKey*/ -1,
-        /*previousRevision*/ 0,
-        /*lastModifiedRevision*/ 0,
-        Fixed.NULL_NODE_KEY.getStandardProperty(), // rightSibling
-        Fixed.NULL_NODE_KEY.getStandardProperty(), // leftSibling
-        firstChildKey,
-        nameKey,
-        /*descendantCount*/ 0L,
-        /*hash*/ 0L,
-        HASH_FN, (byte[]) null);
-    node.setWriteSingleton(true);
-    page.serializeNewRecord(node, nodeKey, slot);
-  }
-
-  /** Write an OBJECT_STRING_VALUE at slot derived from {@code nodeKey}. */
-  private void writeObjectStringValue(final KeyValueLeafPage page, final long nodeKey,
-      final long parentKey, final String value) {
+  /** Write a fused {@link ObjectNamedStringNode} at the slot derived from {@code nodeKey}. */
+  private void writeObjectNamedString(final KeyValueLeafPage page, final long nodeKey,
+      final int nameKey, final String value) {
     final int slot = (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1));
     final byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-    final ObjectStringNode node = new ObjectStringNode(nodeKey, parentKey, 0, 0,
-        0L, bytes, HASH_FN, (byte[]) null);
+    final ObjectNamedStringNode node = new ObjectNamedStringNode(nodeKey,
+        Fixed.NULL_NODE_KEY.getStandardProperty(),  // parentKey
+        Fixed.NULL_NODE_KEY.getStandardProperty(),  // rightSiblingKey
+        Fixed.NULL_NODE_KEY.getStandardProperty(),  // leftSiblingKey
+        nameKey,
+        /*pathNodeKey*/ -1L,
+        /*previousRevision*/ 0,
+        /*lastModifiedRevision*/ 0,
+        /*hash*/ 0L,
+        bytes,
+        HASH_FN,
+        (byte[]) null,
+        /*isCompressed*/ false,
+        /*fsstSymbolTable*/ null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, slot);
   }
@@ -92,8 +82,7 @@ final class StringRegionIntegrationTest {
   void buildsRegionFromSingleStringPair() {
     final KeyValueLeafPage page = createPage(0);
     final int deptNameKey = 7;
-    writeObjectKey(page, /*okNodeKey*/ 0, /*firstChild*/ 1, deptNameKey);
-    writeObjectStringValue(page, /*svNodeKey*/ 1, /*parent*/ 0, "Eng");
+    writeObjectNamedString(page, /*nodeKey*/ 0, deptNameKey, "Eng");
 
     // Cache should be empty before first call.
     assertNull(page.getStringRegionPayload());
@@ -118,13 +107,10 @@ final class StringRegionIntegrationTest {
   void dedupesPerTagDictionary() {
     final KeyValueLeafPage page = createPage(0);
     final int deptNameKey = 7;
-    // Three OBJECT_KEY/value pairs: Eng, Sales, Eng — the dict should have 2 entries.
-    writeObjectKey(page, 0, 1, deptNameKey);
-    writeObjectStringValue(page, 1, 0, "Eng");
-    writeObjectKey(page, 2, 3, deptNameKey);
-    writeObjectStringValue(page, 3, 2, "Sales");
-    writeObjectKey(page, 4, 5, deptNameKey);
-    writeObjectStringValue(page, 5, 4, "Eng");
+    // Three fused records under the same nameKey: Eng, Sales, Eng — dict should have 2 entries.
+    writeObjectNamedString(page, 0, deptNameKey, "Eng");
+    writeObjectNamedString(page, 1, deptNameKey, "Sales");
+    writeObjectNamedString(page, 2, deptNameKey, "Eng");
 
     final StringRegion.Header h = page.getStringRegionHeader();
     assertNotNull(h);
@@ -151,15 +137,11 @@ final class StringRegionIntegrationTest {
     final KeyValueLeafPage page = createPage(0);
     final int deptKey = 7, cityKey = 9;
     // Object 1: dept=Eng, city=NYC
-    writeObjectKey(page, 0, 1, deptKey);
-    writeObjectStringValue(page, 1, 0, "Eng");
-    writeObjectKey(page, 2, 3, cityKey);
-    writeObjectStringValue(page, 3, 2, "NYC");
+    writeObjectNamedString(page, 0, deptKey, "Eng");
+    writeObjectNamedString(page, 1, cityKey, "NYC");
     // Object 2: dept=Sales, city=NYC
-    writeObjectKey(page, 4, 5, deptKey);
-    writeObjectStringValue(page, 5, 4, "Sales");
-    writeObjectKey(page, 6, 7, cityKey);
-    writeObjectStringValue(page, 7, 6, "NYC");
+    writeObjectNamedString(page, 2, deptKey, "Sales");
+    writeObjectNamedString(page, 3, cityKey, "NYC");
 
     final StringRegion.Header h = page.getStringRegionHeader();
     assertNotNull(h);
@@ -177,12 +159,11 @@ final class StringRegionIntegrationTest {
   }
 
   @Test
-  @DisplayName("invalidation: writing a new OBJECT_STRING_VALUE drops cached region")
+  @DisplayName("invalidation: writing a new OBJECT_NAMED_STRING drops cached region")
   void invalidationOnNewStringWrite() {
     final KeyValueLeafPage page = createPage(0);
     final int deptKey = 7;
-    writeObjectKey(page, 0, 1, deptKey);
-    writeObjectStringValue(page, 1, 0, "Eng");
+    writeObjectNamedString(page, 0, deptKey, "Eng");
 
     final StringRegion.Header h1 = page.getStringRegionHeader();
     assertNotNull(h1);
@@ -190,10 +171,9 @@ final class StringRegionIntegrationTest {
     assertNotNull(page.getStringRegionPayload());
 
     // Add another string value — should invalidate.
-    writeObjectKey(page, 2, 3, deptKey);
-    writeObjectStringValue(page, 3, 2, "Sales");
+    writeObjectNamedString(page, 1, deptKey, "Sales");
     assertNull(page.getStringRegionPayload(),
-        "writing a new OBJECT_STRING_VALUE should invalidate the cached region");
+        "writing a new OBJECT_NAMED_STRING should invalidate the cached region");
 
     final StringRegion.Header h2 = page.getStringRegionHeader();
     assertNotNull(h2);
@@ -213,9 +193,9 @@ final class StringRegionIntegrationTest {
   @Test
   @DisplayName("isStringValueKindId discriminates correctly")
   void kindIdDiscriminator() {
-    assertTrue(KeyValueLeafPage.isStringValueKindId(io.sirix.node.NodeKind.OBJECT_STRING_VALUE.getId()));
+    assertTrue(KeyValueLeafPage.isStringValueKindId(io.sirix.node.NodeKind.OBJECT_NAMED_STRING.getId()));
     assertTrue(KeyValueLeafPage.isStringValueKindId(io.sirix.node.NodeKind.STRING_VALUE.getId()));
-    assertEquals(false, KeyValueLeafPage.isStringValueKindId(io.sirix.node.NodeKind.OBJECT_NUMBER_VALUE.getId()));
-    assertEquals(false, KeyValueLeafPage.isStringValueKindId(io.sirix.node.NodeKind.OBJECT_KEY.getId()));
+    assertEquals(false, KeyValueLeafPage.isStringValueKindId(io.sirix.node.NodeKind.OBJECT_NAMED_NUMBER.getId()));
+    assertEquals(false, KeyValueLeafPage.isStringValueKindId(io.sirix.node.NodeKind.OBJECT_NAMED_OBJECT.getId()));
   }
 }

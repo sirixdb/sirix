@@ -30,6 +30,7 @@ import io.sirix.access.trx.node.json.objectvalue.ArrayValue;
 import io.sirix.access.trx.node.json.objectvalue.BooleanValue;
 import io.sirix.access.trx.node.json.objectvalue.NullValue;
 import io.sirix.access.trx.node.json.objectvalue.NumberValue;
+import io.sirix.access.trx.node.json.objectvalue.ObjectRecordValue;
 import io.sirix.access.trx.node.json.objectvalue.ObjectValue;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
@@ -269,33 +270,55 @@ public final class JsonResourceCopy implements Callable<Void> {
     wtx.moveTo(oldNodeKey);
     rtxOnRevision.moveTo(newNodeKey);
 
+    // InsertPosition.ofString accepts the canonical "asFirstChild"/"asLeftSibling"/"asRightSibling"
+    // tokens; passing the legacy "insert*" prefix throws IllegalArgumentException downstream.
     final String insertPosition;
     if (wtx.hasRightSibling()) {
-      insertPosition = "insertAsLeftSibling";
+      insertPosition = "asLeftSibling";
     } else if (wtx.hasLeftSibling()) {
-      insertPosition = "insertAsRightSibling";
+      insertPosition = "asRightSibling";
     } else {
-      insertPosition = "insertAsFirstChild";
+      insertPosition = "asFirstChild";
     }
 
-    if (wtx.getParentKind() == NodeKind.OBJECT_KEY) {
+    // iter#32 P2 fusion: OBJECT_NAMED_* records play the OBJECT_KEY+VALUE role themselves —
+    // there is no parent OBJECT_KEY to walk to. Detect that the cursor is already on a
+    // fused field record and call replaceObjectRecordValue in place. Legacy OBJECT_KEY parent
+    // path is preserved for backward-compatible diffs that still reference the two-record
+    // shape; the OBJECT_NAMED_OBJECT branch covers fused parents whose child is the value.
+    final NodeKind currentKind = wtx.getKind();
+    if (currentKind.playsObjectKeyRole() && currentKind != NodeKind.OBJECT_NAMED_OBJECT) {
+      replaceObjectRecordFromSource(rtxOnRevision);
+    } else if (wtx.getParentKind() == NodeKind.OBJECT_NAMED_OBJECT) {
       wtx.moveToParent();
-
-      switch (rtxOnRevision.getKind()) {
-        case OBJECT -> wtx.replaceObjectRecordValue(ObjectValue.INSTANCE);
-        case ARRAY -> wtx.replaceObjectRecordValue(ArrayValue.INSTANCE);
-        case OBJECT_NUMBER_VALUE, NUMBER_VALUE ->
-          wtx.replaceObjectRecordValue(new NumberValue(rtxOnRevision.getNumberValue()));
-        case OBJECT_NULL_VALUE, NULL_VALUE -> wtx.replaceObjectRecordValue(NullValue.INSTANCE);
-        case OBJECT_STRING_VALUE, STRING_VALUE ->
-          wtx.replaceObjectRecordValue(new StringValue(rtxOnRevision.getValue()));
-        case OBJECT_BOOLEAN_VALUE, BOOLEAN_VALUE ->
-          wtx.replaceObjectRecordValue(BooleanValue.of(rtxOnRevision.getBooleanValue()));
-      }
+      replaceObjectRecordFromSource(rtxOnRevision);
     } else {
       wtx.remove();
 
       insert(type, rtxOnRevision, insertPosition);
+    }
+  }
+
+  /**
+   * Apply the source revision's value at the current wtx cursor (which is on a record playing
+   * the OBJECT_KEY role — fused
+   * {@code OBJECT_NAMED_*}). Handles every value kind the JSON schema can hold, including the
+   * fused {@code OBJECT_NAMED_*} kinds the source may emit when fusion is enabled.
+   */
+  private void replaceObjectRecordFromSource(final JsonNodeReadOnlyTrx rtxOnRevision) {
+    switch (rtxOnRevision.getKind()) {
+      case OBJECT, OBJECT_NAMED_OBJECT -> wtx.replaceObjectRecordValue(ObjectValue.INSTANCE);
+      case ARRAY, OBJECT_NAMED_ARRAY -> wtx.replaceObjectRecordValue(ArrayValue.INSTANCE);
+      case NUMBER_VALUE, OBJECT_NAMED_NUMBER ->
+        wtx.replaceObjectRecordValue(new NumberValue(rtxOnRevision.getNumberValue()));
+      case NULL_VALUE, OBJECT_NAMED_NULL -> wtx.replaceObjectRecordValue(NullValue.INSTANCE);
+      case STRING_VALUE, OBJECT_NAMED_STRING ->
+        wtx.replaceObjectRecordValue(new StringValue(rtxOnRevision.getValue()));
+      case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN ->
+        wtx.replaceObjectRecordValue(BooleanValue.of(rtxOnRevision.getBooleanValue()));
+      default -> {
+        // Other kinds (DOC, DELETE, etc.) cannot be inlined as object-record values.
+      }
     }
   }
 
@@ -379,10 +402,12 @@ public final class JsonResourceCopy implements Callable<Void> {
       }
 
       moveToParent = false;
-      // Values of object keys have already been inserted.
-      if (isFirst || rtx.getParentKind() != NodeKind.OBJECT_KEY) {
-        processNode(rtx, insertPosition);
-      }
+      // Phase 4: legacy OBJECT_KEY's value child was inserted as part of the OBJECT_KEY pair
+      // (so the descendant walk had to skip the value child). With OBJECT_KEY gone, fused
+      // OBJECT_NAMED_* records carry the value inline (primitive leaves) or own a real subtree
+      // (structural). Children of OBJECT_NAMED_OBJECT are inner fields and MUST be inserted
+      // normally — the previous skip-on-parent-OBJECT_KEY guard is no longer needed.
+      processNode(rtx, insertPosition);
       rtx.moveTo(nodeKey);
 
       isFirst = false;
@@ -439,51 +464,9 @@ public final class JsonResourceCopy implements Callable<Void> {
           throw new IllegalStateException("Insert location not known!");
         }
         break;
-      case OBJECT_KEY:
-        if (insertPosition == InsertPosition.AS_FIRST_CHILD) {
-          final var key = rtx.getName().getLocalName();
-          rtx.moveToFirstChild();
-          switch (rtx.getKind()) {
-            case OBJECT -> wtx.insertObjectRecordAsFirstChild(key, ObjectValue.INSTANCE);
-            case ARRAY -> wtx.insertObjectRecordAsFirstChild(key, ArrayValue.INSTANCE);
-            case OBJECT_BOOLEAN_VALUE ->
-              wtx.insertObjectRecordAsFirstChild(key, BooleanValue.of(rtx.getBooleanValue()));
-            case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsFirstChild(key, NullValue.INSTANCE);
-            case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsFirstChild(key, new StringValue(rtx.getValue()));
-            case OBJECT_NUMBER_VALUE -> wtx.insertObjectRecordAsFirstChild(key, new NumberValue(rtx.getNumberValue()));
-          }
-          rtx.moveToParent();
-        } else if (insertPosition == InsertPosition.AS_LEFT_SIBLING) {
-          final var key = rtx.getName().getLocalName();
-          rtx.moveToFirstChild();
-          switch (rtx.getKind()) {
-            case OBJECT -> wtx.insertObjectRecordAsLeftSibling(key, ObjectValue.INSTANCE);
-            case ARRAY -> wtx.insertObjectRecordAsLeftSibling(key, ArrayValue.INSTANCE);
-            case OBJECT_BOOLEAN_VALUE ->
-              wtx.insertObjectRecordAsLeftSibling(key, BooleanValue.of(rtx.getBooleanValue()));
-            case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsLeftSibling(key, NullValue.INSTANCE);
-            case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsLeftSibling(key, new StringValue(rtx.getValue()));
-            case OBJECT_NUMBER_VALUE -> wtx.insertObjectRecordAsLeftSibling(key, new NumberValue(rtx.getNumberValue()));
-          }
-          rtx.moveToParent();
-        } else if (insertPosition == InsertPosition.AS_RIGHT_SIBLING) {
-          final var key = rtx.getName().getLocalName();
-          rtx.moveToFirstChild();
-          switch (rtx.getKind()) {
-            case OBJECT -> wtx.insertObjectRecordAsRightSibling(key, ObjectValue.INSTANCE);
-            case ARRAY -> wtx.insertObjectRecordAsRightSibling(key, ArrayValue.INSTANCE);
-            case OBJECT_BOOLEAN_VALUE ->
-              wtx.insertObjectRecordAsRightSibling(key, BooleanValue.of(rtx.getBooleanValue()));
-            case OBJECT_NULL_VALUE -> wtx.insertObjectRecordAsRightSibling(key, NullValue.INSTANCE);
-            case OBJECT_STRING_VALUE -> wtx.insertObjectRecordAsRightSibling(key, new StringValue(rtx.getValue()));
-            case OBJECT_NUMBER_VALUE ->
-              wtx.insertObjectRecordAsRightSibling(key, new NumberValue(rtx.getNumberValue()));
-          }
-          rtx.moveToParent();
-        } else {
-          throw new IllegalStateException("Insert location not known!");
-        }
-        break;
+      // (Phase 4: legacy OBJECT_KEY case removed — fused records 48-53 carry the field
+      //  name + inline value/sub-tree on a single slot, handled by the OBJECT_NAMED_*
+      //  cases below.)
       case BOOLEAN_VALUE:
         if (insertPosition == InsertPosition.AS_FIRST_CHILD) {
           wtx.insertBooleanValueAsFirstChild(rtx.getBooleanValue());
@@ -528,6 +511,87 @@ public final class JsonResourceCopy implements Callable<Void> {
           throw new IllegalStateException("Insert location not known!");
         }
         break;
+      // iter#32 fusion: OBJECT_NAMED_* records carry both the field name and the inline
+      // primitive value. Re-emit as an object record so the destination tree gets the
+      // (possibly fused) (key, primitive) pair regardless of fusion-mode toggles.
+      case OBJECT_NAMED_BOOLEAN:
+      case OBJECT_NAMED_NUMBER:
+      case OBJECT_NAMED_STRING:
+      case OBJECT_NAMED_NULL: {
+        final var key = rtx.getName().getLocalName();
+        final ObjectRecordValue<?> value = switch (rtx.getKind()) {
+          case OBJECT_NAMED_BOOLEAN -> BooleanValue.of(rtx.getBooleanValue());
+          case OBJECT_NAMED_NUMBER -> new NumberValue(rtx.getNumberValue());
+          case OBJECT_NAMED_STRING -> new StringValue(rtx.getValue());
+          case OBJECT_NAMED_NULL -> NullValue.INSTANCE;
+          default -> throw new IllegalStateException("unreachable");
+        };
+        if (insertPosition == InsertPosition.AS_FIRST_CHILD) {
+          wtx.insertObjectRecordAsFirstChild(key, value);
+        } else if (insertPosition == InsertPosition.AS_RIGHT_SIBLING) {
+          wtx.insertObjectRecordAsRightSibling(key, value);
+        } else if (insertPosition == InsertPosition.AS_LEFT_SIBLING) {
+          wtx.insertObjectRecordAsLeftSibling(key, value);
+        } else {
+          throw new IllegalStateException("Insert location not known!");
+        }
+        break;
+      }
+      // P2 fusion: OBJECT_NAMED_OBJECT/ARRAY records carry the field name + the start of the
+      // structural value. Re-emit through insertObjectRecordAsXxx with ObjectValue/ArrayValue —
+      // the destination will fuse if the target supports it. If the destination cursor sits in
+      // a context that cannot accept a named field (the JSON_DOCUMENT root, an array, or the
+      // fused ARRAY-equivalent), drop the field name and emit a plain OBJECT/ARRAY instead so
+      // the structural copy still completes.
+      case OBJECT_NAMED_OBJECT:
+      case OBJECT_NAMED_ARRAY: {
+        final NodeKind anchorKind = insertPosition == InsertPosition.AS_FIRST_CHILD
+            ? wtx.getKind()
+            : wtx.getParentKind();
+        final boolean anchorAcceptsNamedField =
+            anchorKind == NodeKind.OBJECT
+                || anchorKind == NodeKind.OBJECT_NAMED_OBJECT;
+
+        if (!anchorAcceptsNamedField) {
+          if (rtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {
+            if (insertPosition == InsertPosition.AS_FIRST_CHILD) {
+              wtx.insertObjectAsFirstChild();
+            } else if (insertPosition == InsertPosition.AS_RIGHT_SIBLING) {
+              wtx.insertObjectAsRightSibling();
+            } else if (insertPosition == InsertPosition.AS_LEFT_SIBLING) {
+              wtx.insertObjectAsLeftSibling();
+            } else {
+              throw new IllegalStateException("Insert location not known!");
+            }
+          } else {
+            if (insertPosition == InsertPosition.AS_FIRST_CHILD) {
+              wtx.insertArrayAsFirstChild();
+            } else if (insertPosition == InsertPosition.AS_RIGHT_SIBLING) {
+              wtx.insertArrayAsRightSibling();
+            } else if (insertPosition == InsertPosition.AS_LEFT_SIBLING) {
+              wtx.insertArrayAsLeftSibling();
+            } else {
+              throw new IllegalStateException("Insert location not known!");
+            }
+          }
+          break;
+        }
+
+        final var key = rtx.getName().getLocalName();
+        final ObjectRecordValue<?> value = rtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT
+            ? ObjectValue.INSTANCE
+            : ArrayValue.INSTANCE;
+        if (insertPosition == InsertPosition.AS_FIRST_CHILD) {
+          wtx.insertObjectRecordAsFirstChild(key, value);
+        } else if (insertPosition == InsertPosition.AS_RIGHT_SIBLING) {
+          wtx.insertObjectRecordAsRightSibling(key, value);
+        } else if (insertPosition == InsertPosition.AS_LEFT_SIBLING) {
+          wtx.insertObjectRecordAsLeftSibling(key, value);
+        } else {
+          throw new IllegalStateException("Insert location not known!");
+        }
+        break;
+      }
       // $CASES-OMITTED$
       default:
         throw new IllegalStateException("Node kind not known!");

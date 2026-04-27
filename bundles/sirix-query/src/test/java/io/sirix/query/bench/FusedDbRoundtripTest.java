@@ -44,7 +44,9 @@ public final class FusedDbRoundtripTest {
                 case OBJECT_NAMED_STRING -> fusedStringCount++;
                 case OBJECT_NAMED_NUMBER -> fusedNumberCount++;
                 case OBJECT_NAMED_BOOLEAN -> fusedBooleanCount++;
-                case OBJECT_KEY -> legacyKeyCount++;
+                // (Phase 4: legacy OBJECT_KEY kind deleted; the assertion below remains active —
+                //  if any legacy record sneaks in, it would surface via NodeKind.getKind(byte 26)
+                //  → null which propagates as a deserialize NPE rather than a count mismatch.)
                 default -> {}
               }
             } while (rtx.hasRightSibling() && rtx.moveToRightSibling());

@@ -32,7 +32,7 @@ final class PathNodeSerializationTest {
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, -1L, -1L, -1L, -1L, 0L, 0L);
     final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, -1, -1, 42, 0);
     return new PathNode(new QNm("age"), nodeDel, structDel, nameDel,
-        NodeKind.OBJECT_KEY, 1, 1);
+        NodeKind.OBJECT_NAMED_OBJECT, 1, 1);
   }
 
   private static ResourceConfiguration config(final boolean withStats) {

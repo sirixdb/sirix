@@ -6,16 +6,13 @@ import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.JsonDocumentRootNode;
 import io.sirix.node.json.NullNode;
 import io.sirix.node.json.NumberNode;
-import io.sirix.node.json.ObjectBooleanNode;
-import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNamedArrayNode;
 import io.sirix.node.json.ObjectNamedBooleanNode;
 import io.sirix.node.json.ObjectNamedNullNode;
 import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedObjectNode;
 import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.ObjectNode;
-import io.sirix.node.json.ObjectNullNode;
-import io.sirix.node.json.ObjectNumberNode;
-import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.node.xml.AttributeNode;
 import io.sirix.node.xml.CommentNode;
@@ -79,21 +76,17 @@ public final class FlyweightNodeFactory {
       case 13 -> new NamespaceNode(nodeKey, hashFunction);        // NAMESPACE
       case 24 -> new ObjectNode(nodeKey, hashFunction);           // OBJECT
       case 25 -> new ArrayNode(nodeKey, hashFunction);            // ARRAY
-      case 26 -> new ObjectKeyNode(nodeKey, hashFunction);        // OBJECT_KEY
-      case 126 -> new ObjectKeyNode(nodeKey, hashFunction);       // OBJECT_KEY (PAX)
       case 27 -> new BooleanNode(nodeKey, hashFunction);          // BOOLEAN_VALUE
       case 28 -> new NumberNode(nodeKey, hashFunction);           // NUMBER_VALUE
       case 29 -> new NullNode(nodeKey, hashFunction);             // NULL_VALUE
       case 30 -> new StringNode(nodeKey, hashFunction);           // STRING_VALUE
       case 31 -> new JsonDocumentRootNode(nodeKey, hashFunction); // JSON_DOCUMENT
-      case 40 -> new ObjectStringNode(nodeKey, hashFunction);     // OBJECT_STRING_VALUE
-      case 41 -> new ObjectBooleanNode(nodeKey, hashFunction);    // OBJECT_BOOLEAN_VALUE
-      case 42 -> new ObjectNumberNode(nodeKey, hashFunction);     // OBJECT_NUMBER_VALUE
-      case 43 -> new ObjectNullNode(nodeKey, hashFunction);       // OBJECT_NULL_VALUE
       case 48 -> new ObjectNamedBooleanNode(nodeKey, hashFunction); // OBJECT_NAMED_BOOLEAN
       case 49 -> new ObjectNamedNumberNode(nodeKey, hashFunction);  // OBJECT_NAMED_NUMBER
       case 50 -> new ObjectNamedStringNode(nodeKey, hashFunction);  // OBJECT_NAMED_STRING
       case 51 -> new ObjectNamedNullNode(nodeKey, hashFunction);    // OBJECT_NAMED_NULL
+      case 52 -> new ObjectNamedObjectNode(nodeKey, hashFunction);  // OBJECT_NAMED_OBJECT (Phase 2 fused structural)
+      case 53 -> new ObjectNamedArrayNode(nodeKey, hashFunction);   // OBJECT_NAMED_ARRAY (Phase 2 fused structural)
       default -> throw new IllegalArgumentException(
           "Unknown flyweight node kind ID: " + nodeKindId);
     };

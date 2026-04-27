@@ -26,7 +26,8 @@ public class Paths {
     assert candidatePath != null;
     final var pathSteps = candidatePath.steps();
 
-    for (int i = pathSteps.size() - 1; i >= 0; i--) {
+    final int lastIdx = pathSteps.size() - 1;
+    for (int i = lastIdx; i >= 0; i--) {
       final var step = pathSteps.get(i);
 
       if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
@@ -35,6 +36,15 @@ public class Paths {
         if (indexesDeque == null) {
           return true;
         } else if (indexesDeque.isEmpty()) {
+          // iter#32 P2 fusion: OBJECT_NAMED_ARRAY anchors its pathNodeKey at the trailing
+          // {@code []} ARRAY layer. A query that references the array by name only (no
+          // array index) lands on this same path; permit the trailing {@code []} to be
+          // consumed without an explicit index. Other CHILD_ARRAY steps still require a
+          // matching index.
+          if (i == lastIdx) {
+            // trailing array layer of fused record — skip without index
+            continue;
+          }
           return true;
         } else {
           indexesDeque.removeLast();
@@ -43,8 +53,18 @@ public class Paths {
         if (currentPathSegmentNames.isEmpty()) {
           pathSegment = null;
         } else {
-          if (!queryPathSegment.arrayIndexes().isEmpty()) {
-            return true;
+          // iter#32 fusion: if this FIELD step is the path's LAST step and the query
+          // segment carries a trailing array index, the indexed record IS the fused
+          // OBJECT_NAMED_ARRAY (kindId 53) — its child element supplies the index. The
+          // post-index walker (IndexExpr#PATH) handles the array indexing directly, so
+          // unconsumed indexes here are fine. Drain them and proceed.
+          final Deque<Integer> remainingIdx = queryPathSegment.arrayIndexes();
+          if (!remainingIdx.isEmpty()) {
+            if (i == lastIdx) {
+              remainingIdx.clear();
+            } else {
+              return true;
+            }
           }
           queryPathSegment = currentPathSegmentNames.removeLast();
           pathSegment = queryPathSegment.pathSegmentName();

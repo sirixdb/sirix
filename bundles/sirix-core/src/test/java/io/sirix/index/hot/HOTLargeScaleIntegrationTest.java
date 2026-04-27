@@ -444,8 +444,8 @@ class HOTLargeScaleIntegrationTest {
             // Navigate to the data array and add number values
             wtx.moveToDocumentRoot();
             wtx.moveToFirstChild(); // object
-            wtx.moveToFirstChild(); // first key (data)
-            wtx.moveToFirstChild(); // array
+            // iter#32 P2 fusion: "data" OBJECT_KEY+ARRAY collapsed into one OBJECT_NAMED_ARRAY record.
+            wtx.moveToFirstChild(); // "data" OBJECT_NAMED_ARRAY (plays both OBJECT_KEY and ARRAY roles)
 
             if (wtx.hasFirstChild()) {
               wtx.moveToLastChild();

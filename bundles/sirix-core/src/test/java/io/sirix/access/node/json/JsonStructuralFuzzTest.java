@@ -183,13 +183,11 @@ class JsonStructuralFuzzTest {
 
       wtx.insertObjectRecordAsFirstChild("str", new StringValue("hello"));
       opLog.add("insertObjectRecordAsFirstChild(str)");
-      wtx.moveToParent();
+      // iter#32: cursor lands directly on the fused OBJECT_NAMED_STRING; no extra moveToParent.
       wtx.insertObjectRecordAsRightSibling("num", new NumberValue(42));
       opLog.add("insertObjectRecordAsRightSibling(num)");
-      wtx.moveToParent();
       wtx.insertObjectRecordAsRightSibling("bool", new BooleanValue(true));
       opLog.add("insertObjectRecordAsRightSibling(bool)");
-      wtx.moveToParent();
       wtx.insertObjectRecordAsRightSibling("arr", new ArrayValue());
       wtx.insertStringValueAsFirstChild("item1");
       wtx.insertNumberValueAsRightSibling(3.14);
@@ -208,26 +206,23 @@ class JsonStructuralFuzzTest {
         final NodeKind kind = wtx.getKind();
 
         switch (kind) {
-          case STRING_VALUE, OBJECT_STRING_VALUE -> {
+          case STRING_VALUE, OBJECT_NAMED_STRING -> {
             final String newVal = "updated_" + rng.nextInt(10000);
             wtx.setStringValue(newVal);
             opLog.add("op#" + op + ": setStringValue(\"" + newVal + "\") at key=" + nodeKey);
           }
-          case NUMBER_VALUE, OBJECT_NUMBER_VALUE -> {
+          case NUMBER_VALUE, OBJECT_NAMED_NUMBER -> {
             final double newVal = rng.nextDouble() * 1000;
             wtx.setNumberValue(newVal);
             opLog.add("op#" + op + ": setNumberValue(" + newVal + ") at key=" + nodeKey);
           }
-          case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE -> {
+          case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN -> {
             final boolean newVal = rng.nextBoolean();
             wtx.setBooleanValue(newVal);
             opLog.add("op#" + op + ": setBooleanValue(" + newVal + ") at key=" + nodeKey);
           }
-          case OBJECT_KEY -> {
-            final String newName = "renamed_" + rng.nextInt(10000);
-            wtx.setObjectKeyName(newName);
-            opLog.add("op#" + op + ": setObjectKeyName(\"" + newName + "\") at key=" + nodeKey);
-          }
+          // (Phase 4: legacy OBJECT_KEY case removed — fused-named records receive setObjectKeyName
+          //  via the OBJECT_NAMED_* branches below.)
           default -> {
             // For structural nodes, do an insert instead
             final String opDesc = performRandomInsert(wtx, rng, kind);
@@ -300,22 +295,20 @@ class JsonStructuralFuzzTest {
         } else {
           // UPDATE (20%)
           switch (kind) {
-            case STRING_VALUE, OBJECT_STRING_VALUE -> {
+            case STRING_VALUE, OBJECT_NAMED_STRING -> {
               wtx.setStringValue("up_" + rng.nextInt(1000));
               opLog.add("op#" + op + ": UPDATE string at key=" + nodeKey);
             }
-            case NUMBER_VALUE, OBJECT_NUMBER_VALUE -> {
+            case NUMBER_VALUE, OBJECT_NAMED_NUMBER -> {
               wtx.setNumberValue(rng.nextInt(1000));
               opLog.add("op#" + op + ": UPDATE number at key=" + nodeKey);
             }
-            case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE -> {
+            case BOOLEAN_VALUE, OBJECT_NAMED_BOOLEAN -> {
               wtx.setBooleanValue(rng.nextBoolean());
               opLog.add("op#" + op + ": UPDATE boolean at key=" + nodeKey);
             }
-            case OBJECT_KEY -> {
-              wtx.setObjectKeyName("k_" + rng.nextInt(1000));
-              opLog.add("op#" + op + ": UPDATE key name at key=" + nodeKey);
-            }
+            // (Phase 4: legacy OBJECT_KEY case removed — setObjectKeyName routes through the
+            //  fused-named branches above when the cursor lands on a fused leaf.)
             default -> opLog.add("op#" + op + ": SKIP update for " + kind);
           }
         }
@@ -533,25 +526,22 @@ class JsonStructuralFuzzTest {
       wtx.insertObjectAsFirstChild();
       final long objKey = wtx.getNodeKey();
 
-      // insertObjectRecordAsFirstChild
+      // insertObjectRecordAsFirstChild — iter#32: cursor lands on the fused OBJECT_NAMED_*
       wtx.insertObjectRecordAsFirstChild("first", new StringValue("1"));
-      wtx.moveToParent(); // VALUE → OBJECT_KEY
       final long firstKey = wtx.getNodeKey();
       opLog.add("record 'first' as firstChild");
       verifyAllInvariants(wtx, 0, opLog);
 
-      // insertObjectRecordAsLastChild
+      // insertObjectRecordAsLastChild — iter#32: cursor lands on the fused OBJECT_NAMED_*
       wtx.moveTo(objKey);
       wtx.insertObjectRecordAsLastChild("last", new NumberValue(99));
-      wtx.moveToParent(); // VALUE → OBJECT_KEY
       final long lastKey = wtx.getNodeKey();
       opLog.add("record 'last' as lastChild");
       verifyAllInvariants(wtx, 0, opLog);
 
-      // insertObjectRecordAsRightSibling of first
+      // insertObjectRecordAsRightSibling of first — iter#32: cursor lands on the fused OBJECT_NAMED_*
       wtx.moveTo(firstKey);
       wtx.insertObjectRecordAsRightSibling("middle", new BooleanValue(true));
-      wtx.moveToParent(); // VALUE → OBJECT_KEY
       final long middleKey = wtx.getNodeKey();
       opLog.add("record 'middle' as rightSibling of first");
       verifyAllInvariants(wtx, 0, opLog);
@@ -673,38 +663,48 @@ class JsonStructuralFuzzTest {
       // { "key": "oldValue" }
       wtx.insertObjectAsFirstChild();
       wtx.insertObjectRecordAsFirstChild("key", new StringValue("oldValue"));
-      wtx.moveToParent(); // VALUE → OBJECT_KEY
-      final long objectKeyNode = wtx.getNodeKey();
+      // iter#32: primitive-valued fields fuse into OBJECT_NAMED_* records — the cursor lands
+      // directly on the fused node (which plays the OBJECT_KEY role), so the legacy
+      // "moveToParent from primitive value child" is no longer needed. Across replace calls
+      // the fused node's nodeKey changes whenever the value type flips (remove+reinsert),
+      // and a non-primitive replace leaves the cursor on the OBJECT/ARRAY value child —
+      // so re-derive the OBJECT_KEY-or-OBJECT_NAMED_* anchor after each replace.
+      long objectKeyNode = wtx.getNodeKey();
       opLog.add("object with key: oldValue");
       verifyAllInvariants(wtx, 0, opLog);
 
       // Replace string value with number value
       wtx.moveTo(objectKeyNode);
       wtx.replaceObjectRecordValue(new NumberValue(42));
+      objectKeyNode = currentObjectKeyAnchor(wtx);
       opLog.add("replaced value with NumberValue(42)");
       verifyAllInvariants(wtx, 0, opLog);
 
       // Replace number value with object value
       wtx.moveTo(objectKeyNode);
       wtx.replaceObjectRecordValue(new ObjectValue());
+      objectKeyNode = currentObjectKeyAnchor(wtx);
       opLog.add("replaced value with ObjectValue");
       verifyAllInvariants(wtx, 0, opLog);
 
       // Replace object value with array value
       wtx.moveTo(objectKeyNode);
       wtx.replaceObjectRecordValue(new ArrayValue());
+      objectKeyNode = currentObjectKeyAnchor(wtx);
       opLog.add("replaced value with ArrayValue");
       verifyAllInvariants(wtx, 0, opLog);
 
       // Replace array value with boolean
       wtx.moveTo(objectKeyNode);
       wtx.replaceObjectRecordValue(new BooleanValue(false));
+      objectKeyNode = currentObjectKeyAnchor(wtx);
       opLog.add("replaced value with BooleanValue(false)");
       verifyAllInvariants(wtx, 0, opLog);
 
       // Replace with null
       wtx.moveTo(objectKeyNode);
       wtx.replaceObjectRecordValue(new NullValue());
+      objectKeyNode = currentObjectKeyAnchor(wtx);
       opLog.add("replaced value with NullValue");
       verifyAllInvariants(wtx, 0, opLog);
 
@@ -714,6 +714,21 @@ class JsonStructuralFuzzTest {
   }
 
   // ==================== INVARIANT VERIFICATION ====================
+
+  /**
+   * After a {@code replaceObjectRecordValue} call the cursor may be on:
+   *   * OBJECT_NAMED_* — fused primitive replacement; the cursor IS the anchor.
+   *   * OBJECT_KEY — same-shape primitive update path (rare with iter#32 fusion).
+   *   * OBJECT/ARRAY — non-primitive (container) replacement; the parent IS the anchor.
+   * Returns the OBJECT_KEY-or-OBJECT_NAMED_* nodeKey for the post-condition cursor.
+   */
+  private static long currentObjectKeyAnchor(final JsonNodeTrx wtx) {
+    final var kind = wtx.getKind();
+    if (kind.playsObjectKeyRole()) {
+      return wtx.getNodeKey();
+    }
+    return wtx.getParentKey();
+  }
 
   private void verifyAllInvariants(final JsonNodeReadOnlyTrx rtx, final long seed,
       final List<String> opLog) {
@@ -905,7 +920,7 @@ class JsonStructuralFuzzTest {
       return insertValueChild(wtx, rng, pos == 0, valueType);
     }
 
-    if (currentKind == NodeKind.OBJECT_KEY) {
+    if (currentKind == NodeKind.OBJECT_NAMED_OBJECT) {
       // Object keys can only have their value child; insert siblings instead
       if (wtx.hasRightSibling() && rng.nextBoolean()) {
         // Nothing to insert here — navigate away
@@ -1036,7 +1051,7 @@ class JsonStructuralFuzzTest {
   private void moveToRemovableNode(final JsonNodeTrx wtx) {
     final long savedKey = wtx.getNodeKey();
     wtx.moveToParent();
-    if (wtx.getKind() == NodeKind.OBJECT_KEY) {
+    if (wtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {
       // Stay on OBJECT_KEY — remove the whole record
       return;
     }

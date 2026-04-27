@@ -329,30 +329,39 @@ public final class JsonLimitedSerializer implements Callable<Void> {
   }
 
   /**
-   * Check if the current node is the value child of an ObjectKey. ObjectKey values don't count as
-   * separate children for maxChildren.
+   * Check if the current node is the value child of a legacy OBJECT_KEY. ObjectKey values don't
+   * count as separate children for maxChildren and don't increment level.
+   * <p>
+   * iter#32 P2 / Phase 4: legacy OBJECT_KEY has been DELETED (see {@link NodeKind} comments).
+   * Under structural fusion, a record can no longer be a "single value of an OBJECT_KEY":
+   * <ul>
+   *   <li>Fused OBJECT_NAMED_OBJECT / OBJECT_NAMED_ARRAY parents are structural containers; their
+   *       children are ARRAY elements or OBJECT_KEY-shaped fused siblings. Commas MUST be emitted
+   *       between them, and they DO occupy a deeper level slot.</li>
+   *   <li>Fused OBJECT_NAMED_BOOLEAN/NUMBER/STRING/NULL records carry both the field name and the
+   *       inline primitive — they ARE leaves, no separate value child exists.</li>
+   * </ul>
+   * The legacy OBJECT_KEY → primitive-VALUE pair simply does not occur on disk anymore, so this
+   * check can never fire and we keep the predicate as a hard {@code false} sentinel rather than
+   * a stale {@code OBJECT_NAMED_OBJECT}-based path that produced the nested-object collapse bug.
    */
   private boolean isObjectKeyValue(JsonNodeReadOnlyTrx rtx) {
-    if (!rtx.hasParent()) {
-      return false;
-    }
-    final long currentKey = rtx.getNodeKey();
-    rtx.moveToParent();
-    boolean isObjectKeyParent = rtx.isObjectKey();
-    rtx.moveTo(currentKey);
-    return isObjectKeyParent;
+    return false;
   }
 
   /**
    * Determine if we should visit the children of the current node.
-   * 
-   * <p>
-   * <b>Rules:</b>
-   * </p>
+   *
+   * <p>iter#32 P2 / Phase 4: legacy OBJECT_KEY (whose single VALUE_* child sat at the same level
+   * as the key) has been deleted. The remaining containers — OBJECT, ARRAY, OBJECT_NAMED_OBJECT,
+   * OBJECT_NAMED_ARRAY — all hold children at {@code currentLevel + 1}, so the rule is uniform:
+   *
    * <ul>
-   * <li>No children → false</li>
-   * <li>ObjectKey → always true (must show value at same level)</li>
-   * <li>Otherwise → check level limit</li>
+   *   <li>No children → false</li>
+   *   <li>{@code maxLevel} unset (== 0) → visit</li>
+   *   <li>Children fit within the limit ({@code currentLevel < maxLevel}) → visit</li>
+   *   <li>Otherwise → suppress descent (the structural close-branch in {@link #emitNode} will
+   *       have already collapsed the bracket pair to {@code {}} / {@code []}).</li>
    * </ul>
    */
   private boolean shouldVisitChildren(JsonNodeReadOnlyTrx rtx) {
@@ -360,13 +369,7 @@ public final class JsonLimitedSerializer implements Callable<Void> {
       return false;
     }
 
-    // ObjectKey always visits its value (same level)
-    if (rtx.isObjectKey()) {
-      return true;
-    }
-
-    // Check level limit: we're AT currentLevel, children would be at currentLevel+1
-    // Allow children if currentLevel < maxLevel (so children at maxLevel are allowed)
+    // Children would be at currentLevel + 1; allow them only if that level still fits.
     if (maxLevel > 0 && currentLevel >= maxLevel) {
       return false;
     }
@@ -439,12 +442,110 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         }
         break;
 
+      case OBJECT_NAMED_OBJECT:
+      case OBJECT_NAMED_ARRAY: {
+        // P2 fused-structural emission: a single OBJECT_NAMED_OBJECT/ARRAY record carries both
+        // the field name and the start of the structural value. Mirror the legacy two-emit path:
+        //   - OBJECT_KEY pre-emit:   "<name>":
+        //   - OBJECT pre-emit:       {  (or [ for ARRAY)
+        // On emitEndNode this same record emits the corresponding `}` / `]`.
+        final boolean innerHasChildren = rtx.hasFirstChild();
+        final boolean isNamedObject = rtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT;
+
+        if (startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey
+            && serializeStartNodeWithBrackets) {
+          appendObjectStart(innerHasChildren);
+          hadToAddBracket = true;
+        }
+
+        if (withMetaDataField()) {
+          if (rtx.hasLeftSibling()
+              && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey)) {
+            appendObjectStart(true);
+          }
+          appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue())).appendSeparator()
+              .appendObjectKey(quote("metadata"))
+              .appendObjectStart(true);
+          if (withNodeKeyMetaData || withNodeKeyAndChildCountMetaData) {
+            appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
+            // Mirror legacy OBJECT/ARRAY emitMetaData: emit the comma after nodeKey if any
+            // further metadata field follows (hash/type/descendantCount via withMetaData, or
+            // childCount via withNodeKeyAndChildCountMetaData). Without this, fused-structural
+            // records emit `"nodeKey":N"childCount":M` without a separator.
+            if (withMetaData || withNodeKeyAndChildCountMetaData) {
+              appendSeparator();
+            }
+          }
+          if (withMetaData) {
+            if (rtx.getHash() != 0L) {
+              appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
+              appendSeparator();
+            }
+            // Present fused structural record externally as OBJECT_KEY so downstream
+            // consumers keep the legacy OBJECT_KEY-shaped contract. Emit the literal string
+            // {@code "OBJECT_KEY"} (the legacy NodeKind name) instead of the new fused enum
+            // name — fixtures and external callers still see the historical metadata shape.
+            appendObjectKeyValue(quote("type"), quote("OBJECT_KEY"));
+            // Mirror legacy OBJECT_KEY: emit descendantCount when a hash is present.
+            // Fused record's descendantCount equals the inner OBJECT/ARRAY's descendantCount —
+            // the fusion collapses one OBJECT_KEY level so the count drops by 1 vs legacy.
+            if (rtx.getHash() != 0L) {
+              appendSeparator().appendObjectKeyValue(quote("descendantCount"),
+                  String.valueOf(rtx.getDescendantCount()));
+            }
+          }
+          // Fused structural record carries the inner OBJECT/ARRAY's childCount: emit it when
+          // childCount-metadata is requested (mirrors the legacy OBJECT/ARRAY emitMetaData).
+          if (withNodeKeyAndChildCountMetaData) {
+            if (withMetaData) {
+              appendSeparator();
+            }
+            appendObjectKeyValue(quote("childCount"), String.valueOf(rtx.getChildCount()));
+          }
+          appendObjectEnd(innerHasChildren).appendSeparator();
+          appendObjectKey(quote("value"));
+        } else {
+          appendObjectKey(quote(rtx.getName().stringValue()));
+        }
+
+        if (isNamedObject) {
+          appendObjectStart(willVisitChildren && innerHasChildren);
+        } else {
+          appendArrayStart(willVisitChildren && innerHasChildren);
+        }
+
+        if (!innerHasChildren || !willVisitChildren) {
+          if (isNamedObject) {
+            appendObjectEnd(false);
+          } else {
+            appendArrayEnd(false);
+          }
+          // Close shape mirrors emitEndNode (above): close the metadata-wrapper `}` when it
+          // exists (either non-startNode siblings, or startNode with hadToAddBracket).
+          final boolean isStartNode =
+              startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey;
+          if (withMetaDataField()) {
+            if (!isStartNode || hadToAddBracket) {
+              appendObjectEnd(true);
+            }
+          } else if (hadToAddBracket && isStartNode) {
+            appendObjectEnd(false);
+          }
+          if (printTrailingComma) {
+            printCommaIfNeeded(rtx);
+          }
+        }
+        break;
+      }
+
       case OBJECT_NAMED_BOOLEAN:
       case OBJECT_NAMED_NUMBER:
       case OBJECT_NAMED_STRING:
       case OBJECT_NAMED_NULL:
         // iter#30: fused OBJECT_NAMED_* — emit as if it were OBJECT_KEY + primitive-value.
-        // Write the key-object open, then the primitive value, then close the key-object.
+        // Per-record `{` is opened by the parent OBJECT body's `appendObjectStart` for the
+        // FIRST child, and by this case for subsequent siblings. Fused records are leaves,
+        // so emitEndNode is not invoked for them — close `}` + emit the inter-sibling `,` here.
         if (withMetaDataField()) {
           if (rtx.hasLeftSibling()
               && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey)) {
@@ -462,9 +563,11 @@ public final class JsonLimitedSerializer implements Callable<Void> {
               appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
               appendSeparator();
             }
-            // Present fused record externally as OBJECT_KEY so downstream consumers keep the
-            // logical JSON-envelope view.
-            appendObjectKeyValue(quote("type"), quote(NodeKind.OBJECT_KEY.toString()));
+            // Present fused leaves externally as OBJECT_KEY so downstream consumers (and the
+            // pagination-style fixtures used by JsonLimitedSerializer / JsonRecordSerializer)
+            // keep the legacy OBJECT_KEY-shaped envelope. The unbounded {@link JsonSerializer}
+            // path keeps the precise fused leaf kind for its own metadata fixture.
+            appendObjectKeyValue(quote("type"), quote("OBJECT_KEY"));
           }
           appendObjectEnd(true).appendSeparator();
           appendObjectKey(quote("value"));
@@ -479,7 +582,10 @@ public final class JsonLimitedSerializer implements Callable<Void> {
           case OBJECT_NAMED_NULL -> appendObjectValue("null");
           default -> throw new IllegalStateException("unexpected fused kind: " + rtx.getKind());
         }
-        if (withMetaDataField()) {
+        // Close the per-record `{` so subsequent commas land outside the wrapper.
+        if (withMetaDataField()
+            && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty()
+                 && rtx.getNodeKey() == startNodeKey)) {
           appendObjectEnd(true);
         }
         if (printTrailingComma) {
@@ -487,49 +593,10 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         }
         break;
 
-      case OBJECT_KEY:
-        if (startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey
-            && serializeStartNodeWithBrackets) {
-          appendObjectStart(rtx.hasFirstChild());
-          hadToAddBracket = true;
-        }
-
-        if (withMetaDataField()) {
-          if (rtx.hasLeftSibling()
-              && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey)) {
-            appendObjectStart(true);
-          }
-
-          appendObjectKeyValue(quote("key"), quote(rtx.getName().stringValue())).appendSeparator()
-                                                                                .appendObjectKey(quote("metadata"))
-                                                                                .appendObjectStart(rtx.hasFirstChild());
-
-          if (withNodeKeyMetaData || withNodeKeyAndChildCountMetaData) {
-            appendObjectKeyValue(quote("nodeKey"), String.valueOf(rtx.getNodeKey()));
-          }
-
-          if (withMetaData) {
-            appendSeparator();
-            if (rtx.getHash() != 0L) {
-              appendObjectKeyValue(quote("hash"), quote(printHashValue(rtx)));
-              appendSeparator();
-            }
-            appendObjectKeyValue(quote("type"), quote(rtx.getKind().toString()));
-            if (rtx.getHash() != 0L) {
-              appendSeparator().appendObjectKeyValue(quote("descendantCount"),
-                  String.valueOf(rtx.getDescendantCount()));
-            }
-          }
-
-          appendObjectEnd(rtx.hasFirstChild()).appendSeparator();
-          appendObjectKey(quote("value"));
-        } else {
-          appendObjectKey(quote(rtx.getName().stringValue()));
-        }
-        break;
+      // (Phase 4: legacy OBJECT_KEY case removed — fused OBJECT_NAMED_* records emit
+      //  through the dedicated cases below.)
 
       case BOOLEAN_VALUE:
-      case OBJECT_BOOLEAN_VALUE:
         emitMetaData(rtx);
         appendObjectValue(rtx.getValue());
         if (withMetaDataField()) {
@@ -540,7 +607,6 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         break;
 
       case NULL_VALUE:
-      case OBJECT_NULL_VALUE:
         emitMetaData(rtx);
         appendObjectValue("null");
         if (withMetaDataField()) {
@@ -551,7 +617,6 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         break;
 
       case NUMBER_VALUE:
-      case OBJECT_NUMBER_VALUE:
         emitMetaData(rtx);
         appendObjectValue(rtx.getValue());
         if (withMetaDataField()) {
@@ -562,7 +627,6 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         break;
 
       case STRING_VALUE:
-      case OBJECT_STRING_VALUE:
         emitMetaData(rtx);
         appendObjectValue(quote(StringValue.escape(rtx.getValue())));
         if (withMetaDataField()) {
@@ -598,14 +662,47 @@ public final class JsonLimitedSerializer implements Callable<Void> {
         }
         // Don't print comma here - handled by visitChildren BEFORE next sibling
       }
-      case OBJECT_KEY -> {
-        if ((withMetaDataField()
-            && !(startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey))
-            || (hadToAddBracket && rtx.getNodeKey() == startNodeKey)) {
+      case OBJECT_NAMED_OBJECT -> {
+        // P2 fused-structural close: same record emitted `<name>:{` on enter; emit matching `}`.
+        // Close shape (with metadata):
+        //   - non-startNode: close `}` (record body) then `}` (outer metadata wrapper).
+        //   - startNode w/o serializeStartNodeWithBrackets: only close `}` (record body) —
+        //     the outer wrapper was supplied by the caller (e.g. JsonRecordSerializer).
+        //   - startNode with serializeStartNodeWithBrackets (hadToAddBracket): close `}` (body)
+        //     then `}` (the start-node bracket itself, which doubles as the metadata wrapper).
+        final boolean isStartNode =
+            startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey;
+        if (withMetaDataField()) {
           appendObjectEnd(true);
+          if (!isStartNode || hadToAddBracket) {
+            appendObjectEnd(true);
+          }
+        } else {
+          appendObjectEnd(rtx.hasFirstChild());
+          if (hadToAddBracket && isStartNode) {
+            appendObjectEnd(false);
+          }
         }
-        // Don't print comma here - handled by visitChildren BEFORE next sibling
       }
+      case OBJECT_NAMED_ARRAY -> {
+        // P2 fused-structural close: same record emitted `<name>:[` on enter; emit matching `]`.
+        // Same logic as OBJECT_NAMED_OBJECT (above) but with ARRAY body.
+        final boolean isStartNode =
+            startNodeKey != Fixed.NULL_NODE_KEY.getStandardProperty() && rtx.getNodeKey() == startNodeKey;
+        if (withMetaDataField()) {
+          appendArrayEnd(true);
+          if (!isStartNode || hadToAddBracket) {
+            appendObjectEnd(true);
+          }
+        } else {
+          appendArrayEnd(rtx.hasFirstChild());
+          if (hadToAddBracket && isStartNode) {
+            appendObjectEnd(false);
+          }
+        }
+      }
+      // iter#32 fusion: primitive OBJECT_NAMED_* records are leaves; emitEndNode is not invoked
+      // for them. The wrapper-close + sibling separator are emitted in emitNode (above) instead.
       default -> {
         // No end tag needed for value nodes
       }

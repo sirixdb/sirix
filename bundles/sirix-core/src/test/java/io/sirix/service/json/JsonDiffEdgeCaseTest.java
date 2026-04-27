@@ -7,6 +7,7 @@ import io.sirix.JsonTestHelper;
 import io.sirix.JsonTestHelper.PATHS;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.json.JsonNodeTrx;
+import io.sirix.node.NodeKind;
 import io.sirix.service.json.shredder.JsonShredder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -115,11 +116,17 @@ public final class JsonDiffEdgeCaseTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       // Rev 1: object with string value (auto-commits)
-      // iter#30: fused tree: doc(0) -> OBJECT(1) -> OBJECT_NAMED_STRING "name"="alice" (2)
+      // Legacy: doc(0) -> OBJECT(1) -> OBJECT_KEY "name"(2) -> OBJECT_STRING_VALUE "alice"(3)
+      // Fused:  doc(0) -> OBJECT(1) -> OBJECT_NAMED_STRING "name":"alice"(2)
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"name\":\"alice\"}"));
 
-      // Rev 2: update the string value in-place — cursor on fused node at key 2.
-      wtx.moveTo(2);
+      // Rev 2: navigate structurally to the string value and update it in-place.
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild(); // OBJECT
+      wtx.moveToFirstChild(); // OBJECT_KEY "name" (legacy) or OBJECT_NAMED_STRING (fused)
+      if (wtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {
+        wtx.moveToFirstChild(); // OBJECT_STRING_VALUE "alice"
+      }
       wtx.setStringValue("bob");
       wtx.commit();
 
@@ -144,11 +151,17 @@ public final class JsonDiffEdgeCaseTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       // Rev 1: object with number value (auto-commits)
-      // iter#30: fused tree: doc(0) -> OBJECT(1) -> OBJECT_NAMED_NUMBER "count"=10 (2)
+      // Legacy: doc(0) -> OBJECT(1) -> OBJECT_KEY "count"(2) -> OBJECT_NUMBER_VALUE 10(3)
+      // Fused:  doc(0) -> OBJECT(1) -> OBJECT_NAMED_NUMBER "count":10(2)
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"count\":10}"));
 
-      // Rev 2: update the number value in-place — cursor on fused OBJECT_NAMED_NUMBER at key 2.
-      wtx.moveTo(2);
+      // Rev 2: navigate structurally to the number value and update it in-place.
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild(); // OBJECT
+      wtx.moveToFirstChild(); // OBJECT_KEY "count" (legacy) or OBJECT_NAMED_NUMBER (fused)
+      if (wtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {
+        wtx.moveToFirstChild(); // OBJECT_NUMBER_VALUE 10
+      }
       wtx.setNumberValue(99);
       wtx.commit();
 
@@ -173,11 +186,17 @@ public final class JsonDiffEdgeCaseTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       // Rev 1: object with boolean value (auto-commits)
-      // iter#30: fused tree: doc(0) -> OBJECT(1) -> OBJECT_NAMED_BOOLEAN "active"=true (2)
+      // Legacy: doc(0) -> OBJECT(1) -> OBJECT_KEY "active"(2) -> OBJECT_BOOLEAN_VALUE true(3)
+      // Fused:  doc(0) -> OBJECT(1) -> OBJECT_NAMED_BOOLEAN "active":true(2)
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"active\":true}"));
 
-      // Rev 2: update the boolean value in-place — cursor on fused OBJECT_NAMED_BOOLEAN at key 2.
-      wtx.moveTo(2);
+      // Rev 2: navigate structurally to the boolean value and update it in-place.
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild(); // OBJECT
+      wtx.moveToFirstChild(); // OBJECT_KEY "active" (legacy) or OBJECT_NAMED_BOOLEAN (fused)
+      if (wtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {
+        wtx.moveToFirstChild(); // OBJECT_BOOLEAN_VALUE true
+      }
       wtx.setBooleanValue(false);
       wtx.commit();
 
@@ -238,18 +257,26 @@ public final class JsonDiffEdgeCaseTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       // Rev 1: deeply nested structure (auto-commits)
-      // iter#30: fused tree: intermediate OBJECT_KEY levels stay unfused (value is OBJECT),
-      // only the leaf {"d":"deep"} is fused into one OBJECT_NAMED_STRING record.
-      //   doc(0) -> OBJECT(1)
-      //     -> OBJECT_KEY "a"(2) -> OBJECT(3)
-      //       -> OBJECT_KEY "b"(4) -> OBJECT(5)
-      //         -> OBJECT_KEY "c"(6) -> OBJECT(7)
-      //           -> OBJECT_NAMED_STRING "d"="deep" (8)
+      // Legacy: doc -> OBJECT -> OBJECT_KEY "a" -> OBJECT -> OBJECT_KEY "b" -> OBJECT
+      //   -> OBJECT_KEY "c" -> OBJECT -> OBJECT_KEY "d" -> OBJECT_STRING_VALUE "deep"
+      // Fused:  parent "a"/"b"/"c" remain OBJECT_KEY (non-primitive children)
+      //   but innermost "d":"deep" becomes OBJECT_NAMED_STRING.
       wtx.insertSubtreeAsFirstChild(
           JsonShredder.createStringReader("{\"a\":{\"b\":{\"c\":{\"d\":\"deep\"}}}}"));
 
-      // Rev 2: update deepest value — cursor on fused OBJECT_NAMED_STRING at key 8.
-      wtx.moveTo(8);
+      // Rev 2: navigate structurally to the innermost value.
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild(); // OBJECT
+      wtx.moveToFirstChild(); // OBJECT_KEY "a"
+      wtx.moveToFirstChild(); // OBJECT
+      wtx.moveToFirstChild(); // OBJECT_KEY "b"
+      wtx.moveToFirstChild(); // OBJECT
+      wtx.moveToFirstChild(); // OBJECT_KEY "c"
+      wtx.moveToFirstChild(); // OBJECT
+      wtx.moveToFirstChild(); // OBJECT_KEY "d" (legacy) or OBJECT_NAMED_STRING (fused)
+      if (wtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {
+        wtx.moveToFirstChild(); // OBJECT_STRING_VALUE "deep"
+      }
       wtx.setStringValue("deeper");
       wtx.commit();
 
@@ -259,9 +286,22 @@ public final class JsonDiffEdgeCaseTest {
       assertNotNull(diffs);
       assertTrue(diffs.size() > 0, "should detect the deep nested value change");
 
-      final var updateObj = getFirstOperationOfType(diffs, "update");
-      assertNotNull(updateObj, "deep nested change should produce an update");
-      assertEquals("deeper", updateObj.get("value").getAsString());
+      // Under fusion the diff emits an "update" entry for each ancestor whose hash changed
+      // (path-only updates) plus a final entry with the new value. Locate the value-bearing
+      // entry rather than the first match.
+      JsonObject valueUpdate = null;
+      for (int i = 0; i < diffs.size(); i++) {
+        final var entry = diffs.get(i).getAsJsonObject();
+        if (entry.has("update")) {
+          final var inner = entry.getAsJsonObject("update");
+          if (inner.has("value")) {
+            valueUpdate = inner;
+            break;
+          }
+        }
+      }
+      assertNotNull(valueUpdate, "deep nested change should produce a value-carrying update");
+      assertEquals("deeper", valueUpdate.get("value").getAsString());
     }
   }
 
@@ -326,16 +366,24 @@ public final class JsonDiffEdgeCaseTest {
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = session.beginNodeTrx()) {
       // Rev 1: initial document (auto-commits)
-      // iter#30: fused tree: doc(0) -> OBJECT(1) -> OBJECT_NAMED_STRING "step"="one" (2)
+      // Legacy: doc(0) -> OBJECT(1) -> OBJECT_KEY "step"(2) -> OBJECT_STRING_VALUE "one"(3)
+      // Fused:  doc(0) -> OBJECT(1) -> OBJECT_NAMED_STRING "step":"one"(2)
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"step\":\"one\"}"));
 
-      // Rev 2: update value — cursor on fused node at key 2.
-      wtx.moveTo(2);
+      // Rev 2: navigate to the value node structurally and update.
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild(); // OBJECT
+      wtx.moveToFirstChild(); // "step" key-role node
+      if (wtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {
+        wtx.moveToFirstChild(); // OBJECT_STRING_VALUE "one"
+      }
       wtx.setStringValue("two");
       wtx.commit();
 
-      // Rev 3: add another key
-      wtx.moveTo(2); // OBJECT_KEY "step"
+      // Rev 3: add another key. Re-position on the "step" key-role node regardless of mode.
+      wtx.moveToDocumentRoot();
+      wtx.moveToFirstChild(); // OBJECT
+      wtx.moveToFirstChild(); // key-role node ("step")
       wtx.insertObjectRecordAsRightSibling("extra", new StringValue("three"));
       wtx.commit();
 

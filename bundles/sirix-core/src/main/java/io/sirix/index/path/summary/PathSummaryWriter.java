@@ -29,7 +29,6 @@ import io.sirix.node.interfaces.Node;
 import io.sirix.node.interfaces.StructNode;
 import io.sirix.node.interfaces.immutable.ImmutableNameNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
-import io.sirix.node.json.ObjectKeyNode;
 import io.sirix.settings.Fixed;
 import io.brackit.query.atomic.QNm;
 import io.sirix.settings.Constants;
@@ -264,6 +263,127 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
+   * Look up or create an {@code __array__/ARRAY} child path node under the path summary entry
+   * identified by {@code parentPathNodeKey}, then return that ARRAY child's path node key.
+   *
+   * <p>iter#32 P2 structural fusion: a single {@code OBJECT_NAMED_ARRAY} record collapses the
+   * legacy {@code OBJECT_KEY + ARRAY} pair. Path-summary semantics still need the {@code []}
+   * (anonymous-array) layer so that user paths like {@code /features/[]/type} resolve. This
+   * helper anchors the ARRAY layer underneath the OBJECT_KEY layer the field name created.</p>
+   *
+   * <p>Idempotent: if an {@code __array__/ARRAY} child already exists, its reference count is
+   * incremented and the existing key is returned.</p>
+   *
+   * @param parentPathNodeKey path node key of the OBJECT_KEY parent (must be a valid path node)
+   * @return path node key of the {@code __array__/ARRAY} child (existing or freshly inserted)
+   */
+  public long getArrayChildPathNodeKey(final long parentPathNodeKey) {
+    if (parentPathNodeKey < 0) {
+      throw new IllegalArgumentException("parentPathNodeKey must be a valid path node key");
+    }
+    final QNm arrayName = ARRAY_PATH_QNM;
+    final long existing = pathSummaryReader.findChild(parentPathNodeKey, arrayName, NodeKind.ARRAY);
+    if (existing >= 0) {
+      final PathNode pathNode =
+          storageEngineWriter.prepareRecordForModification(existing, IndexType.PATH_SUMMARY, 0);
+      pathNode.incrementReferenceCount();
+      persistPathSummaryRecord(pathNode);
+      pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+      return existing;
+    }
+    pathSummaryReader.moveTo(parentPathNodeKey);
+    final int level = pathSummaryReader.getLevel();
+    insertPathAsFirstChild(arrayName, NodeKind.ARRAY, level + 1);
+    return pathSummaryReader.getNodeKey();
+  }
+
+  private static final QNm ARRAY_PATH_QNM = new QNm("__array__");
+
+  /**
+   * Look up the parent path node key (an OBJECT_KEY entry) of an {@code __array__/ARRAY} path
+   * entry — used to balance ref counts when a fused {@code OBJECT_NAMED_ARRAY} record is removed.
+   *
+   * @param arrayPathNodeKey path node key of an {@code __array__/ARRAY} entry
+   * @return parent OBJECT_KEY path node key, or {@code -1L} if not found / not an array entry
+   */
+  public long lookupArrayPathParentKey(final long arrayPathNodeKey) {
+    if (arrayPathNodeKey < 0) {
+      return -1L;
+    }
+    if (!pathSummaryReader.moveTo(arrayPathNodeKey)) {
+      return -1L;
+    }
+    final PathNode arrayPathNode = pathSummaryReader.getPathNode();
+    if (arrayPathNode == null || arrayPathNode.getPathKind() != NodeKind.ARRAY) {
+      return -1L;
+    }
+    final long parent = arrayPathNode.getParentKey();
+    if (parent < 0 || parent == Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+      return -1L;
+    }
+    return parent;
+  }
+
+  /**
+   * Decrement the reference count on the path-summary entry identified by {@code pathNodeKey}.
+   * If the resulting count is zero, the path subtree is removed (matches the {@link
+   * #remove(ImmutableNameNode)} contract). Used to balance the parent OBJECT_KEY ref the fused
+   * {@code OBJECT_NAMED_ARRAY} insertion bumped via {@link #getArrayChildPathNodeKey(long)}.
+   *
+   * @param pathNodeKey path node key whose reference count should be decremented
+   */
+  public void decrementObjectKeyRefByKey(final long pathNodeKey) {
+    if (pathNodeKey < 0) {
+      return;
+    }
+    if (!pathSummaryReader.moveTo(pathNodeKey)) {
+      return;
+    }
+    final PathNode parentPathNode = pathSummaryReader.getPathNode();
+    if (parentPathNode == null) {
+      return;
+    }
+    if (parentPathNode.getReferences() <= 1) {
+      removePathSummaryNode(RemoveSubtreePath.YES);
+    } else {
+      final PathNode owned = storageEngineWriter.prepareRecordForModification(pathNodeKey,
+          IndexType.PATH_SUMMARY, 0);
+      owned.decrementReferenceCount();
+      persistPathSummaryRecord(owned);
+      pathSummaryReader.putMapping(owned.getNodeKey(), owned);
+    }
+  }
+
+  /**
+   * Rename an existing OBJECT_KEY path-summary entry in place (does not move it among siblings).
+   * Used when {@code setObjectKeyName} renames a fused {@link NodeKind#OBJECT_NAMED_ARRAY} field
+   * — the OBJECT_KEY layer that carries the field name lives one level above the fused record's
+   * {@code __array__/ARRAY} pathNodeKey, so the rename targets that parent entry.
+   *
+   * @param objectKeyPathNodeKey path node key of the OBJECT_KEY entry to rename
+   * @param newName              new name for the entry
+   * @param newLocalNameKey      pre-allocated NamePage local-name key for the new name
+   */
+  public void renameObjectKeyPathEntry(final long objectKeyPathNodeKey, final QNm newName,
+      final int newLocalNameKey) {
+    if (objectKeyPathNodeKey < 0) {
+      return;
+    }
+    if (!pathSummaryReader.moveTo(objectKeyPathNodeKey)) {
+      return;
+    }
+    final PathNode pathNode = storageEngineWriter.prepareRecordForModification(objectKeyPathNodeKey,
+        IndexType.PATH_SUMMARY, 0);
+    pathNode.setPrefixKey(-1);
+    pathNode.setLocalNameKey(newLocalNameKey);
+    pathNode.setURIKey(-1);
+    pathNode.setName(newName);
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
+    pathSummaryReader.putQNameMapping(pathNode, newName);
+  }
+
+  /**
    * Insert a new path node or increment the counter of an existing node and return the path node key.
    *
    * @param name the name of the path node to search for
@@ -313,6 +433,10 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    */
   private void movePathSummary() {
     NodeKind currentKind = nodeRtx.getKind();
+    // Bare OBJECT/ARRAY containers don't carry a pathNodeKey of their own — the OBJECT_KEY
+    // (or fused OBJECT_NAMED_OBJECT/ARRAY) anchor does. Hop up so the path-summary cursor
+    // can reuse the parent's pathNodeKey. Phase 2 fused-structural records DO carry their
+    // own pathNodeKey, so do not hop past them.
     if (currentKind == NodeKind.OBJECT) {
       nodeRtx.moveToParent();
       currentKind = nodeRtx.getKind();
@@ -414,12 +538,16 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
 
     // Only one path node is referenced (after a setQName(QName) the
     // reference-counter would be 0).
+    // Fused OBJECT_NAMED_* records are represented as OBJECT_KEY entries in the path summary, so
+    // the filter needs the logical path kind, not the physical record kind.
+    final NodeKind nodeKind = node.getKind();
+    final NodeKind pathFilterKind = nodeKind.isFusedAnyNamed() ? NodeKind.OBJECT_NAMED_OBJECT : nodeKind;
     if (type == OPType.SETNAME && pathSummaryReader.getReferences() == 1) {
       moveSummaryGetLevel(node);
       // Search for new path entry.
       final Axis axis = new FilterAxis<>(new ChildAxis(pathSummaryReader),
           new PathNameFilter(pathSummaryReader, Utils.buildName(name)),
-          new PathKindFilter(pathSummaryReader, node.getKind()));
+          new PathKindFilter(pathSummaryReader, pathFilterKind));
       if (axis.hasNext()) {
         axis.nextLong();
 
@@ -451,7 +579,7 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
       // Search for new path entry.
       final Axis axis = new FilterAxis<>(new ChildAxis(pathSummaryReader),
           new PathNameFilter(pathSummaryReader, Utils.buildName(name)),
-          new PathKindFilter(pathSummaryReader, node.getKind()));
+          new PathKindFilter(pathSummaryReader, pathFilterKind));
       if (axis.hasNext()) {
         axis.nextLong();
 
@@ -471,15 +599,18 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
         boolean firstRun = true;
         for (final Axis descendants = new DescendantAxis(nodeRtx, IncludeSelf.YES); descendants.hasNext();) {
           descendants.nextLong();
-          if (nodeRtx.getKind() == NodeKind.ELEMENT || nodeRtx.getKind() == NodeKind.OBJECT_KEY) {
+          final NodeKind rtxKind = nodeRtx.getKind();
+          if (rtxKind == NodeKind.ELEMENT || rtxKind.playsObjectKeyRole()) {
+            // Fused OBJECT_NAMED_* play the OBJECT_KEY role in the path-summary.
+            final NodeKind pathKind = rtxKind == NodeKind.ELEMENT ? NodeKind.ELEMENT : NodeKind.OBJECT_NAMED_OBJECT;
             // Path Summary : New mapping.
             if (firstRun) {
-              insertPathAsFirstChild(name, nodeRtx.getKind(), ++level);
+              insertPathAsFirstChild(name, pathKind, ++level);
               nodeKey = pathSummaryReader.getNodeKey();
             } else {
-              insertPathAsFirstChild(nodeRtx.getName(), nodeRtx.getKind(), ++level);
+              insertPathAsFirstChild(nodeRtx.getName(), pathKind, ++level);
             }
-            resetPathNodeKey(nodeRtx.getNodeKey(), nodeRtx.getKind());
+            resetPathNodeKey(nodeRtx.getNodeKey(), pathKind);
 
             if (nodeRtx instanceof XmlNodeReadOnlyTrx rtx) {
               // Namespaces.
@@ -637,11 +768,15 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   private void adaptPathSummary(int level, long newPathNodeKey) {
+    // Fused OBJECT_NAMED_* records live in the path summary under the OBJECT_KEY pathKind, so
+    // normalise the physical record kind to the logical path kind for filtering.
+    final NodeKind rtxKind = nodeRtx.getKind();
+    final NodeKind pathFilterKind = rtxKind.isFusedAnyNamed() ? NodeKind.OBJECT_NAMED_OBJECT : rtxKind;
     // Search for new path entry.
     final Axis axis =
         new FilterAxis<>(new LevelOrderAxis.Builder(pathSummaryReader).filterLevel(level).includeSelf().build(),
             new PathNameFilter(pathSummaryReader, Utils.buildName(nodeRtx.getName())),
-            new PathKindFilter(pathSummaryReader, nodeRtx.getKind()));
+            new PathKindFilter(pathSummaryReader, pathFilterKind));
     if (axis.hasNext()) {
       axis.nextLong();
 
@@ -657,8 +792,10 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     // Move to parent path node.
     moveToPathNodeOfParentNode();
 
-    // Insert new node.
-    insertPathAsFirstChild(nodeRtx.getName(), nodeRtx.getKind(), pathSummaryReader.getLevel() + 1);
+    // Insert new node. Fused OBJECT_NAMED_* records share the OBJECT_KEY pathKind slot.
+    final NodeKind rtxKind = nodeRtx.getKind();
+    final NodeKind pathKind = rtxKind.isFusedAnyNamed() ? NodeKind.OBJECT_NAMED_OBJECT : rtxKind;
+    insertPathAsFirstChild(nodeRtx.getName(), pathKind, pathSummaryReader.getLevel() + 1);
 
     // Set reference count to one.
     setReferenceCountToOne();
@@ -743,22 +880,24 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   }
 
   /**
-   * Reset a path node key.
+   * Reset a path node key on a document record.
+   *
+   * <p>Applies to every record that implements {@link NameNode}: XML {@code ELEMENT/ATTRIBUTE/
+   * NAMESPACE}, JSON legacy {@code OBJECT_KEY}, and the iter#30 fused {@code OBJECT_NAMED_*}
+   * kinds. Each of those types stores its own {@code pathNodeKey}; the narrow {@code NameNode}
+   * interface exposes the setter uniformly. A previous implementation cast the else branch to
+   * {@code ObjectKeyNode}, which blew up with a {@code ClassCastException} as soon as
+   * {@code sirix.json.fuseNamedPrimitives=true} moved a primitive-valued field.
    *
    * @param nodeKey the nodeKey of the node to adapt
-   * @param nodeKind the kind of the node to adapt
+   * @param nodeKind reserved for diagnostics; all current callers pass a NameNode-bearing kind
    * @throws SirixException if anything fails
    */
+  @SuppressWarnings("unused")
   private void resetPathNodeKey(final long nodeKey, final NodeKind nodeKind) {
-    if (nodeKind == NodeKind.ATTRIBUTE || nodeKind == NodeKind.ELEMENT || nodeKind == NodeKind.NAMESPACE) {
-      final NameNode currNode = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
-      currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
-      persistDocumentRecord(currNode);
-    } else {
-      final ObjectKeyNode currNode = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
-      currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
-      persistDocumentRecord(currNode);
-    }
+    final NameNode currNode = storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+    currNode.setPathNodeKey(pathSummaryReader.getNodeKey());
+    persistDocumentRecord(currNode);
   }
 
   /**

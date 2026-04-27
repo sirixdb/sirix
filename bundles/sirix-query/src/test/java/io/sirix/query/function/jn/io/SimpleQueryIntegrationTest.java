@@ -374,13 +374,28 @@ public final class SimpleQueryIntegrationTest {
     final var openDocQuery = "jn:doc('json-path1','mydoc.jn')";
     final var object = (JsonDBObject) new Query(chain, openDocQuery).evaluate(ctx);
 
+    // Fusion collapses primitive-valued object fields into a single OBJECT_NAMED_* record AND
+    // also collapses each OBJECT_KEY+OBJECT/ARRAY pair into a single OBJECT_NAMED_OBJECT/ARRAY
+    // record (Phase 2). This halves the physical node count and shifts hardcoded nodeKeys lower.
+    // Legacy mapping: nodeKey 3 = ARRAY (foo's value); nodeKey 11 = OBJECT_KEY "helloo".
+    // Fused mapping (DOCUMENT_NODE_KEY=0):
+    //   0 doc, 1 OBJECT, 2 OBJECT_NAMED_ARRAY foo, 3 STRING bar, 4 NULL, 5 NUMBER 2.33,
+    //   6 OBJECT_NAMED_OBJECT bar, 7 OBJECT_NAMED_STRING hello, 8 OBJECT_NAMED_BOOLEAN helloo,
+    //   9 OBJECT_NAMED_STRING baz, 10 OBJECT_NAMED_ARRAY tada, ...
+    // The "anchor for inserting a new array element" shifts from 3 to 2 because the OBJECT_KEY
+    // layer is fused into the ARRAY record. The "helloo" key shifts from 11 to 8 because the
+    // OBJECT_KEY+BOOLEAN_VALUE pair is fused into a single OBJECT_NAMED_BOOLEAN record.
+    final boolean fused = true;
+    final long fooArrayKey = fused ? 2L : 3L;
+    final long hellooKey = fused ? 8L : 11L;
+
     try (final var wtx = object.getTrx().getResourceSession().beginNodeTrx()) {
-      wtx.moveTo(3);
+      wtx.moveTo(fooArrayKey);
 
       try (final var reader = JsonShredder.createStringReader("{\"foo\":\"bar\"}")) {
         wtx.insertSubtreeAsFirstChild(reader);
 
-        wtx.moveTo(11);
+        wtx.moveTo(hellooKey);
         wtx.remove();
         wtx.commit();
       }

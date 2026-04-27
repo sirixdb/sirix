@@ -1,66 +1,56 @@
 {
   "key": "tada",
   "metadata": {
-    "nodeKey": 15
+    "nodeKey": 12
   },
   "value": {
     "metadata": {
-      "nodeKey": 16
+      "nodeKey": 13
     },
     "value": [
       {
         "metadata": {
-          "nodeKey": 17
+          "nodeKey": 14
         },
         "value": [
           {
             "key": "foo",
             "metadata": {
-              "nodeKey": 18
+              "nodeKey": 15
             },
-            "value": {
-              "metadata": {
-                "nodeKey": 19
-              },
-              "value": "bar"
-            }
+            "value": "bar"
           }
         ]
       },
       {
         "metadata": {
-          "nodeKey": 20
+          "nodeKey": 16
         },
         "value": [
           {
             "key": "baz",
             "metadata": {
-              "nodeKey": 21
+              "nodeKey": 17
             },
-            "value": {
-              "metadata": {
-                "nodeKey": 22
-              },
-              "value": false
-            }
+            "value": false
           }
         ]
       },
       {
         "metadata": {
-          "nodeKey": 23
+          "nodeKey": 18
         },
         "value": "boo"
       },
       {
         "metadata": {
-          "nodeKey": 24
+          "nodeKey": 19
         },
         "value": {}
       },
       {
         "metadata": {
-          "nodeKey": 25
+          "nodeKey": 20
         },
         "value": []
       }

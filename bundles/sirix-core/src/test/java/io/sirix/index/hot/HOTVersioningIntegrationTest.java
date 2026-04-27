@@ -160,7 +160,7 @@ class HOTVersioningIntegrationTest {
       if (rtx.moveToFirstChild()) { // Object
         if (rtx.moveToFirstChild()) { // First key
           do {
-            if (rtx.getKind() == NodeKind.OBJECT_KEY) {
+            if (rtx.getKind().playsObjectKeyRole()) {
               keyCount++;
             }
           } while (rtx.moveToRightSibling());
@@ -320,7 +320,7 @@ class HOTVersioningIntegrationTest {
           if (rtx.moveToFirstChild()) {
             if (rtx.moveToFirstChild()) {
               do {
-                if (rtx.getKind() == NodeKind.OBJECT_KEY) {
+                if (rtx.getKind().playsObjectKeyRole()) {
                   keyCount++;
                 }
               } while (rtx.moveToRightSibling());

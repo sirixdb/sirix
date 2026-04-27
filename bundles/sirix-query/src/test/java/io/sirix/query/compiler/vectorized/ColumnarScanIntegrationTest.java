@@ -4,6 +4,7 @@ import com.google.gson.stream.JsonReader;
 import io.sirix.JsonTestHelper;
 import io.sirix.access.trx.node.json.objectvalue.StringValue;
 import io.sirix.api.StorageEngineReader;
+import io.sirix.node.NodeKind;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageScanIterator;
 import org.junit.jupiter.api.AfterEach;
@@ -142,7 +143,12 @@ final class ColumnarScanIntegrationTest {
       long foundKey = -1;
       do {
         if ("items".equals(wtx.getName().getLocalName())) {
-          wtx.moveToFirstChild(); // array
+          // iter#32 P2 fusion: when "items" is an array, the OBJECT_NAMED_ARRAY itself
+          // IS the array node. Legacy OBJECT_KEY had the ARRAY as its first child — descend
+          // only when the cursor is sitting on a legacy OBJECT_KEY.
+          if (wtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {
+            wtx.moveToFirstChild(); // array
+          }
           foundKey = wtx.getNodeKey();
           break;
         }

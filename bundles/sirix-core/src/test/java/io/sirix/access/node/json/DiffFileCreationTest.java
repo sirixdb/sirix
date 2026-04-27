@@ -63,7 +63,7 @@ public class DiffFileCreationTest {
         final var wtx = manager.beginNodeTrx()) {
 
       // Make a modification
-      wtx.moveTo(4); // Move to a value node
+      wtx.moveTo(3); // iter#32 fusion: STRING_VALUE("bar") shifted from key 4 -> key 3
       wtx.setStringValue("modified value");
       wtx.commit();
 
@@ -124,8 +124,9 @@ public class DiffFileCreationTest {
         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = manager.beginNodeTrx()) {
 
-      // Find the "foo" array (nodeKey 3 based on test document structure)
-      wtx.moveTo(3); // Move to "foo" array
+      // iter#32 P2 fusion: legacy OBJECT_KEY "foo" (key 2) + ARRAY value (key 3) collapse into a
+      // single OBJECT_NAMED_ARRAY at key 2. The fused record IS the foo array under fusion.
+      wtx.moveTo(2); // Move to "foo" OBJECT_NAMED_ARRAY
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader("{\"nested\":\"value\",\"count\":42}"),
           JsonNodeTrx.Commit.NO);
       wtx.commit();
@@ -154,22 +155,23 @@ public class DiffFileCreationTest {
         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
 
       // Second commit - creates revision 2
+      // iter#32 fusion: STRING_VALUE("bar") moved from key 4 -> key 3.
       try (final var wtx = manager.beginNodeTrx()) {
-        wtx.moveTo(4);
+        wtx.moveTo(3);
         wtx.setStringValue("value2");
         wtx.commit();
       }
 
       // Third commit - creates revision 3
       try (final var wtx = manager.beginNodeTrx()) {
-        wtx.moveTo(4);
+        wtx.moveTo(3);
         wtx.setStringValue("value3");
         wtx.commit();
       }
 
       // Fourth commit - creates revision 4
       try (final var wtx = manager.beginNodeTrx()) {
-        wtx.moveTo(4);
+        wtx.moveTo(3);
         wtx.setStringValue("value4");
         wtx.commit();
       }
@@ -198,7 +200,8 @@ public class DiffFileCreationTest {
         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = manager.beginNodeTrx()) {
 
-      wtx.moveTo(4);
+      // iter#32 fusion: STRING_VALUE("bar") moved from key 4 -> key 3.
+      wtx.moveTo(3);
       wtx.setStringValue("modified");
       wtx.commit();
 
@@ -228,7 +231,8 @@ public class DiffFileCreationTest {
 
       // Revision 2: modify value in array
       try (final var wtx = manager.beginNodeTrx()) {
-        wtx.moveTo(4); // "bar" string value in foo array
+        // iter#32 fusion: "bar" STRING_VALUE in foo array shifted from key 4 -> 3.
+        wtx.moveTo(3);
         wtx.setStringValue("modified1");
         wtx.commit();
       }
@@ -308,9 +312,10 @@ public class DiffFileCreationTest {
         wtx.commit();
       }
 
-      // Insert a value into an array
+      // Insert a value into an array. iter#32 P2 fusion: legacy OBJECT_KEY "foo" (key 2) +
+      // ARRAY value (key 3) collapse into a single OBJECT_NAMED_ARRAY at key 2.
       try (final var wtx = manager.beginNodeTrx()) {
-        wtx.moveTo(3); // "foo" array (node 3 is the array under "foo" key)
+        wtx.moveTo(2); // "foo" OBJECT_NAMED_ARRAY
         wtx.insertStringValueAsFirstChild("insertedInArray");
         wtx.commit();
       }

@@ -3,10 +3,11 @@ package io.sirix.page;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.index.IndexType;
 import io.sirix.node.NodeKind;
-import io.sirix.node.json.ObjectNumberNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
 import io.sirix.page.pax.NumberRegion;
 import io.sirix.page.pax.RegionTable;
 import io.sirix.settings.Constants;
+import io.sirix.settings.Fixed;
 import net.openhft.hashing.LongHashFunction;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,15 +59,26 @@ final class NumberRegionInvalidationTest {
   }
 
   /**
-   * Push an OBJECT_NUMBER_VALUE through the same path the production writer uses:
-   * primary constructor → {@code page.serializeNewRecord}, which lands the record on
-   * the slotted-page heap exactly like the live JSON shredder.
+   * Push a fused OBJECT_NAMED_NUMBER record through the production writer path:
+   * primary constructor → {@code page.serializeNewRecord}. Each call writes a unique
+   * nameKey so the encoder produces a fresh tag per record (mirrors a JSON object
+   * with N distinct primitive numeric fields).
    */
   private void writeObjectNumber(final KeyValueLeafPage page, final long nodeKey,
-      final long parentKey, final long value) {
+      final int nameKey, final long value) {
     final int slot = (int) (nodeKey & (Constants.NDP_NODE_COUNT - 1));
-    final ObjectNumberNode node = new ObjectNumberNode(nodeKey, parentKey, 0, 0,
-        0L, value, HASH_FN, (byte[]) null);
+    final ObjectNamedNumberNode node = new ObjectNamedNumberNode(nodeKey,
+        Fixed.NULL_NODE_KEY.getStandardProperty(),  // parentKey
+        Fixed.NULL_NODE_KEY.getStandardProperty(),  // rightSiblingKey
+        Fixed.NULL_NODE_KEY.getStandardProperty(),  // leftSiblingKey
+        nameKey,
+        /*pathNodeKey*/ -1L,
+        /*previousRevision*/ 0,
+        /*lastModifiedRevision*/ 0,
+        /*hash*/ 0L,
+        /*value*/ value,
+        HASH_FN,
+        (byte[]) null);
     node.setWriteSingleton(true);
     page.serializeNewRecord(node, nodeKey, slot);
   }
@@ -185,11 +197,11 @@ final class NumberRegionInvalidationTest {
     // (Direct check on the static helper — exhaustive instrumentation lives in the
     // mutation paths and is exercised by integration tests.)
     org.junit.jupiter.api.Assertions.assertTrue(
-        KeyValueLeafPage.isNumberValueKindId(NodeKind.OBJECT_NUMBER_VALUE.getId()));
+        KeyValueLeafPage.isNumberValueKindId(NodeKind.OBJECT_NAMED_NUMBER.getId()));
     org.junit.jupiter.api.Assertions.assertTrue(
         KeyValueLeafPage.isNumberValueKindId(NodeKind.NUMBER_VALUE.getId()));
     org.junit.jupiter.api.Assertions.assertFalse(
-        KeyValueLeafPage.isNumberValueKindId(NodeKind.OBJECT_KEY.getId()));
+        KeyValueLeafPage.isNumberValueKindId(NodeKind.OBJECT_NAMED_OBJECT.getId()));
     org.junit.jupiter.api.Assertions.assertFalse(
         KeyValueLeafPage.isNumberValueKindId(NodeKind.STRING_VALUE.getId()));
   }

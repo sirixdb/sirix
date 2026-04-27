@@ -24,6 +24,7 @@ dependencies {
     testImplementation testLibraries.junitPlatformRunner
     testImplementation testLibraries.mockitoCore
     testImplementation testLibraries.byteBuddy
+    testImplementation testLibraries.byteBuddyAgent
     testImplementation testLibraries.testng
     testImplementation testLibraries.jsonassert
     testImplementation testLibraries.assertjCore
@@ -57,10 +58,23 @@ test {
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
         '--add-modules', 'jdk.incubator.vector',
         '--enable-native-access=ALL-UNNAMED',
+        '-XX:+EnableDynamicAgentLoading',
         '-XX:+UnlockDiagnosticVMOptions',
         '-XX:+DebugNonSafepoints',
     ]
-    
+
+    // Mockito inline mock-maker requires Byte-Buddy to install a JVM agent. Under JDK 24+
+    // the self-attach is restricted; passing -javaagent at JVM start-up bypasses this.
+    // Resolve at task execution time so the testRuntimeClasspath is fully resolved.
+    doFirst {
+        def byteBuddyAgentJar = configurations.testRuntimeClasspath.find {
+            it.name.startsWith('byte-buddy-agent')
+        }
+        if (byteBuddyAgentJar != null) {
+            jvmArgs += ["-javaagent:${byteBuddyAgentJar.absolutePath}"]
+        }
+    }
+
     if (profilerPath) {
         baseArgs.add("-agentpath:${profilerPath}/lib/libasyncProfiler.so=start,event=${profileEvent},file=${profileOutput}")
         println "Async-profiler enabled: event=${profileEvent}, output=${profileOutput}"

@@ -72,14 +72,34 @@ public final class GetPath extends AbstractFunction {
         final var steps = path.steps();
         final var positions = new ArrayDeque<Integer>();
 
+        // iter#32 P2 fusion: track when the previous step's moveToParent landed on a fused
+        // OBJECT_NAMED_* — its single tree level represents BOTH the OBJECT_KEY axis-layer
+        // AND its inner OBJECT/ARRAY value. The next FIELD step's moveToParent would then
+        // overshoot the containing OBJECT, dropping us at its parent. Skip the FIELD-step
+        // moveToParent in that case.
+        boolean fusedSkipNextFieldMTP = false;
         for (int i = steps.size() - 1; i != -1; i--) {
           final var step = steps.get(i);
 
           if (step.getAxis() == Path.Axis.CHILD_ARRAY) {
             positions.addFirst(addArrayPosition(trx));
             trx.moveToParent();
+            // If after CHILD_ARRAY moveToParent we're at OBJECT (i.e. came from a fused
+            // OBJECT_NAMED_ARRAY whose children are JSON OBJECT array elements), the next
+            // FIELD step has nothing left to do for path-accounting. Same idea covers
+            // OBJECT_NAMED_OBJECT (children are nested fused records).
+            // For LEGACY ARRAY → OBJECT_KEY transition, kind is OBJECT_KEY (not OBJECT) so
+            // the flag stays false and the FIELD step's moveToParent runs as before.
+            final NodeKind postKind = trx.getKind();
+            fusedSkipNextFieldMTP = postKind == NodeKind.OBJECT
+                || postKind == NodeKind.OBJECT_NAMED_OBJECT;
           } else {
-            trx.moveToParent();
+            // CHILD_OBJECT_FIELD step. Skip the moveToParent if we just collapsed the
+            // OBJECT_KEY layer through a fused record (see flag above).
+            if (!fusedSkipNextFieldMTP) {
+              trx.moveToParent();
+            }
+            fusedSkipNextFieldMTP = false;
           }
         }
 
@@ -100,7 +120,15 @@ public final class GetPath extends AbstractFunction {
   }
 
   private int addArrayPosition(JsonNodeReadOnlyTrx rtx) {
-    if (rtx.getParentKind() == NodeKind.OBJECT_KEY && rtx.isArray()) {
+    // iter#32 P2 fusion: legacy OBJECT_KEY+ARRAY pair → check `parent==OBJECT_KEY && isArray`.
+    // Fused OBJECT_NAMED_ARRAY collapses both layers into one record — when we're sitting on
+    // a fused named array, semantically it IS the named-field layer (not an array element).
+    // Return -1 to render as "/[]" in both modes; it preserves the "no specific element index"
+    // intent the legacy check encoded.
+    if (rtx.getKind() == NodeKind.OBJECT_NAMED_ARRAY) {
+      return -1;
+    }
+    if (rtx.getParentKind() == NodeKind.OBJECT_NAMED_OBJECT && rtx.isArray()) {
       return -1;
     }
 

@@ -4,17 +4,16 @@ import io.sirix.access.trx.node.json.AbstractJsonNodeVisitor;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.visitor.VisitResult;
 import io.sirix.index.cas.CASIndexBuilder;
+import io.sirix.node.NodeKind;
 import io.sirix.node.immutable.json.ImmutableArrayNode;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
-import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
 import io.sirix.node.interfaces.immutable.ImmutableNode;
+import io.sirix.node.json.ObjectNamedArrayNode;
 import io.sirix.node.json.ObjectNamedBooleanNode;
 import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedObjectNode;
 import io.sirix.node.json.ObjectNamedStringNode;
 
 /**
@@ -41,13 +40,6 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
   }
 
   @Override
-  public VisitResult visit(ImmutableObjectStringNode node) {
-    final long PCR = getPathClassRecord(node);
-
-    return indexBuilderDelegate.process(node, PCR);
-  }
-
-  @Override
   public VisitResult visit(ImmutableBooleanNode node) {
     final long PCR = getPathClassRecord(node);
 
@@ -55,21 +47,7 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
   }
 
   @Override
-  public VisitResult visit(ImmutableObjectBooleanNode node) {
-    final long PCR = getPathClassRecord(node);
-
-    return indexBuilderDelegate.process(node, PCR);
-  }
-
-  @Override
   public VisitResult visit(ImmutableNumberNode node) {
-    final long PCR = getPathClassRecord(node);
-
-    return indexBuilderDelegate.process(node, PCR);
-  }
-
-  @Override
-  public VisitResult visit(ImmutableObjectNumberNode node) {
     final long PCR = getPathClassRecord(node);
 
     return indexBuilderDelegate.process(node, PCR);
@@ -99,9 +77,15 @@ final class JsonCASIndexBuilder extends AbstractJsonNodeVisitor {
 
     final long pcr;
 
-    if (rtx.isObjectKey()) {
-      pcr = ((ImmutableObjectKeyNode) rtx.getNode()).getPathNodeKey();
-    } else if (rtx.isArray()) {
+    // Phase 4: parent of a primitive value-node is now exclusively one of the fused-named
+    // kinds (52/53) or ARRAY. Dispatch on the concrete NodeKind to pick the right
+    // pathNodeKey accessor without alloc.
+    final NodeKind kind = rtx.getKind();
+    if (kind == NodeKind.OBJECT_NAMED_OBJECT) {
+      pcr = ((ObjectNamedObjectNode) rtx.getNode()).getPathNodeKey();
+    } else if (kind == NodeKind.OBJECT_NAMED_ARRAY) {
+      pcr = ((ObjectNamedArrayNode) rtx.getNode()).getPathNodeKey();
+    } else if (kind == NodeKind.ARRAY) {
       pcr = ((ImmutableArrayNode) rtx.getNode()).getPathNodeKey();
     } else {
       pcr = 0;

@@ -376,9 +376,8 @@ public abstract class AbstractNodeHashing<N extends ImmutableNode, T extends Nod
   }
 
   private static boolean isValueNode(final NodeKind kind) {
-    return kind == NodeKind.STRING_VALUE || kind == NodeKind.OBJECT_STRING_VALUE || kind == NodeKind.BOOLEAN_VALUE
-        || kind == NodeKind.OBJECT_BOOLEAN_VALUE || kind == NodeKind.NUMBER_VALUE
-        || kind == NodeKind.OBJECT_NUMBER_VALUE || kind == NodeKind.NULL_VALUE || kind == NodeKind.OBJECT_NULL_VALUE
+    return kind == NodeKind.STRING_VALUE || kind == NodeKind.BOOLEAN_VALUE
+        || kind == NodeKind.NUMBER_VALUE || kind == NodeKind.NULL_VALUE
         || kind == NodeKind.ATTRIBUTE || kind == NodeKind.TEXT || kind == NodeKind.COMMENT
         || kind == NodeKind.PROCESSING_INSTRUCTION;
   }

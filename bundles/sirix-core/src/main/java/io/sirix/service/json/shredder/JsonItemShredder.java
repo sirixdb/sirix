@@ -510,15 +510,33 @@ public final class JsonItemShredder implements Callable<Long> {
       default -> throw new AssertionError();// Should not happen
     }
 
-    parents.popLong();
-    parents.push(wtx.getParentKey());
-    parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
-
-    if (wtx.getKind() == NodeKind.OBJECT || wtx.getKind() == NodeKind.ARRAY) {
+    final NodeKind cursorKind = wtx.getKind();
+    if (cursorKind == NodeKind.OBJECT_NAMED_OBJECT || cursorKind == NodeKind.OBJECT_NAMED_ARRAY) {
+      // P2: Object/Array-valued fields emit a single fused OBJECT_NAMED_OBJECT/ARRAY record.
+      // Cursor is on the fused parent. Stack arithmetic mirrors legacy two-level pattern: push
+      // fused_key twice + NULL anchor so processTrxMovement's 2-pop on END_OBJECT/END_ARRAY
+      // returns the cursor to the outer container correctly.
+      parents.popLong();
+      parents.push(key);
+      parents.push(key);
+      parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
+    } else if (cursorKind == NodeKind.OBJECT || cursorKind == NodeKind.ARRAY) {
+      // Container value: cursor is on the OBJECT/ARRAY child of the new OBJECT_KEY anchor —
+      // wtx.getParentKey() == OBJECT_KEY (== `key`), preserved from the legacy shape.
+      parents.popLong();
+      parents.push(wtx.getParentKey());
+      parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
       parents.popLong();
       parents.push(key);
       parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
     } else {
+      // iter#32 fusion: primitive-valued field is now a single OBJECT_NAMED_* record (cursor on it).
+      // The fused node IS the OBJECT_KEY-equivalent — push `key` as the left-sibling anchor so
+      // that subsequent insertObjectRecordAsRightSibling calls see a valid OBJECT_KEY-or-fused
+      // anchor instead of the parent OBJECT/ARRAY (= wtx.getParentKey()).
+      parents.popLong();
+      parents.push(key);
+      parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
       adaptTrxPosAndStack(isNextTokenParentToken, key);
     }
   }

@@ -25,16 +25,13 @@ import io.sirix.node.json.ArrayNode;
 import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.JsonDocumentRootNode;
 import io.sirix.node.json.NumberNode;
-import io.sirix.node.json.ObjectBooleanNode;
-import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNamedArrayNode;
 import io.sirix.node.json.ObjectNamedBooleanNode;
 import io.sirix.node.json.ObjectNamedNullNode;
 import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedObjectNode;
 import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.ObjectNode;
-import io.sirix.node.json.ObjectNullNode;
-import io.sirix.node.json.ObjectNumberNode;
-import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.NullNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.node.interfaces.FlyweightNode;
@@ -209,19 +206,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     return switch (currentNodeKind) {
       case OBJECT -> (N) ((ObjectNode) currentSingleton).toSnapshot();
       case ARRAY -> (N) ((ArrayNode) currentSingleton).toSnapshot();
-      case OBJECT_KEY -> (N) ((ObjectKeyNode) currentSingleton).toSnapshot();
       case STRING_VALUE -> (N) ((StringNode) currentSingleton).toSnapshot();
       case NUMBER_VALUE -> (N) ((NumberNode) currentSingleton).toSnapshot();
       case BOOLEAN_VALUE -> (N) ((BooleanNode) currentSingleton).toSnapshot();
       case NULL_VALUE -> (N) ((NullNode) currentSingleton).toSnapshot();
-      case OBJECT_STRING_VALUE -> (N) ((ObjectStringNode) currentSingleton).toSnapshot();
-      case OBJECT_NUMBER_VALUE -> (N) ((ObjectNumberNode) currentSingleton).toSnapshot();
-      case OBJECT_BOOLEAN_VALUE -> (N) ((ObjectBooleanNode) currentSingleton).toSnapshot();
-      case OBJECT_NULL_VALUE -> (N) ((ObjectNullNode) currentSingleton).toSnapshot();
       case OBJECT_NAMED_BOOLEAN -> (N) ((ObjectNamedBooleanNode) currentSingleton).toSnapshot();
       case OBJECT_NAMED_NUMBER -> (N) ((ObjectNamedNumberNode) currentSingleton).toSnapshot();
       case OBJECT_NAMED_STRING -> (N) ((ObjectNamedStringNode) currentSingleton).toSnapshot();
       case OBJECT_NAMED_NULL -> (N) ((ObjectNamedNullNode) currentSingleton).toSnapshot();
+      case OBJECT_NAMED_OBJECT -> (N) ((ObjectNamedObjectNode) currentSingleton).toSnapshot();
+      case OBJECT_NAMED_ARRAY -> (N) ((ObjectNamedArrayNode) currentSingleton).toSnapshot();
       case JSON_DOCUMENT -> (N) ((JsonDocumentRootNode) currentSingleton).toSnapshot();
       case ELEMENT -> (N) ((ElementNode) currentSingleton).toSnapshot();
       case ATTRIBUTE -> (N) ((AttributeNode) currentSingleton).toSnapshot();
@@ -348,9 +342,6 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       if (currentSingleton instanceof NameNode nameNode) {
         return nameNode.getPathNodeKey();
       }
-      if (currentSingleton instanceof ObjectKeyNode objectKeyNode) {
-        return objectKeyNode.getPathNodeKey();
-      }
       if (currentSingleton instanceof ArrayNode arrayNode) {
         return arrayNode.getPathNodeKey();
       }
@@ -363,9 +354,6 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     final ImmutableNode node = getCurrentNode();
     if (node instanceof NameNode) {
       return ((NameNode) node).getPathNodeKey();
-    }
-    if (node instanceof ObjectKeyNode objectKeyNode) {
-      return objectKeyNode.getPathNodeKey();
     }
     if (node instanceof ArrayNode arrayNode) {
       return arrayNode.getPathNodeKey();
@@ -869,8 +857,6 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (fsstTable != null && fsstTable.length > 0) {
       if (fn instanceof StringNode sn) {
         sn.setFsstSymbolTable(fsstTable);
-      } else if (fn instanceof ObjectStringNode osn) {
-        osn.setFsstSymbolTable(fsstTable);
       } else if (fn instanceof ObjectNamedStringNode ons) {
         ons.setFsstSymbolTable(fsstTable);
       }
@@ -909,8 +895,6 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           resourceConfig.nodeHashFunction, (byte[]) null);
       case ARRAY -> new ArrayNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
           resourceConfig.nodeHashFunction, (byte[]) null);
-      case OBJECT_KEY -> new ObjectKeyNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-          resourceConfig.nodeHashFunction, (byte[]) null);
       case STRING_VALUE -> new StringNode(0, 0, 0, 0, 0, 0, 0, null,
           resourceConfig.nodeHashFunction, (byte[]) null);
       case NUMBER_VALUE -> new NumberNode(0, 0, 0, 0, 0, 0, 0, 0,
@@ -919,18 +903,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           resourceConfig.nodeHashFunction, (byte[]) null);
       case NULL_VALUE -> new NullNode(0, 0, 0, 0, 0, 0, 0,
           resourceConfig.nodeHashFunction, (byte[]) null);
-      case OBJECT_STRING_VALUE -> new ObjectStringNode(0, 0, 0, 0, 0, null,
-          resourceConfig.nodeHashFunction, (byte[]) null);
-      case OBJECT_NUMBER_VALUE -> new ObjectNumberNode(0, 0, 0, 0, 0, 0,
-          resourceConfig.nodeHashFunction, (byte[]) null);
-      case OBJECT_BOOLEAN_VALUE -> new ObjectBooleanNode(0, 0, 0, 0, 0, false,
-          resourceConfig.nodeHashFunction, (byte[]) null);
-      case OBJECT_NULL_VALUE -> new ObjectNullNode(0, 0, 0, 0, 0,
-          resourceConfig.nodeHashFunction, (byte[]) null);
       case OBJECT_NAMED_BOOLEAN -> new ObjectNamedBooleanNode(0, resourceConfig.nodeHashFunction);
       case OBJECT_NAMED_NUMBER -> new ObjectNamedNumberNode(0, resourceConfig.nodeHashFunction);
       case OBJECT_NAMED_STRING -> new ObjectNamedStringNode(0, resourceConfig.nodeHashFunction);
       case OBJECT_NAMED_NULL -> new ObjectNamedNullNode(0, resourceConfig.nodeHashFunction);
+      case OBJECT_NAMED_OBJECT -> new ObjectNamedObjectNode(0, resourceConfig.nodeHashFunction);
+      case OBJECT_NAMED_ARRAY -> new ObjectNamedArrayNode(0, resourceConfig.nodeHashFunction);
       case JSON_DOCUMENT -> new JsonDocumentRootNode(0, resourceConfig.nodeHashFunction);
       case ELEMENT -> new ElementNode(0, resourceConfig.nodeHashFunction);
       case ATTRIBUTE -> new AttributeNode(0, resourceConfig.nodeHashFunction);
@@ -960,8 +938,6 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           resourceConfig.nodeHashFunction, resourceConfig);
       case ARRAY -> ((ArrayNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
-      case OBJECT_KEY -> ((ObjectKeyNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
       case STRING_VALUE -> {
         StringNode stringNode = (StringNode) singleton;
         stringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
@@ -977,21 +953,6 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           resourceConfig.nodeHashFunction, resourceConfig);
       case NULL_VALUE -> ((NullNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
-      case OBJECT_STRING_VALUE -> {
-        ObjectStringNode objectStringNode = (ObjectStringNode) singleton;
-        objectStringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-        // Propagate FSST symbol table for decompression
-        byte[] fsstSymbolTable = page.getFsstSymbolTable();
-        if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
-          objectStringNode.setFsstSymbolTable(fsstSymbolTable);
-        }
-      }
-      case OBJECT_NUMBER_VALUE -> ((ObjectNumberNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case OBJECT_BOOLEAN_VALUE -> ((ObjectBooleanNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
-      case OBJECT_NULL_VALUE -> ((ObjectNullNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
       case OBJECT_NAMED_BOOLEAN -> ((ObjectNamedBooleanNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
       case OBJECT_NAMED_NUMBER -> ((ObjectNamedNumberNode) singleton).readFrom(source, nodeKey, deweyId,
@@ -1005,6 +966,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
         }
       }
       case OBJECT_NAMED_NULL -> ((ObjectNamedNullNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT_NAMED_OBJECT -> ((ObjectNamedObjectNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT_NAMED_ARRAY -> ((ObjectNamedArrayNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
       case JSON_DOCUMENT -> ((JsonDocumentRootNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);

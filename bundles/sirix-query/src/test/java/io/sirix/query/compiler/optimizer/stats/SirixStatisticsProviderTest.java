@@ -25,6 +25,15 @@ final class SirixStatisticsProviderTest {
   private static final String DB_NAME = "json-path1";
   private static final String RESOURCE_NAME = "mydoc.jn";
 
+  /**
+   * Reflects the {@code sirix.json.fuseNamedPrimitives} system property at class-load time.
+   * When fusion is on, each primitive-valued object field collapses from {@code OBJECT_KEY + VALUE}
+   * (two physical nodes) into a single {@code OBJECT_NAMED_*} record, halving the total node count
+   * for documents dominated by primitive fields.
+   */
+  private static final boolean FUSE_NAMED_PRIMITIVES =
+      true;
+
   @BeforeEach
   void setUp() {
     JsonTestHelper.deleteEverything();
@@ -73,9 +82,16 @@ final class SirixStatisticsProviderTest {
          final var statsProvider = new SirixStatisticsProvider(store)) {
 
       final long totalNodes = statsProvider.getTotalNodeCount(DB_NAME, RESOURCE_NAME, -1);
-      // Array(1) + Object(2) + name(2) + "Alice"/"Bob"(2) + age(2) + 30/25(2) = 11
+      // Legacy shred — Array(1) + Object(2) + name OBJECT_KEY+VALUE (4) + age OBJECT_KEY+VALUE (4)
+      //   = 11 physical nodes.
+      // Fused shred — each primitive field is one OBJECT_NAMED_* record, so name (2) + age (2)
+      //   collapse to 4, giving Array(1) + Object(2) + 4 fused fields = 7 physical nodes.
+      // The threshold is therefore 7 under fusion and 10 under legacy.
       assertTrue(totalNodes > 0, "Total node count should be positive, got " + totalNodes);
-      assertTrue(totalNodes >= 10, "Should have at least 10 nodes for 2 objects with 2 fields each");
+      final long minExpected = FUSE_NAMED_PRIMITIVES ? 7L : 10L;
+      assertTrue(totalNodes >= minExpected,
+          "Should have at least " + minExpected + " nodes for 2 objects with 2 fields each (got "
+              + totalNodes + ")");
     }
   }
 
