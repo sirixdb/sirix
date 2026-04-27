@@ -29,7 +29,11 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         order by sdb:revision($node), sdb:nodekey($node)
         return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
         """;
-    test(storeQuery, indexQuery, openQuery, """
+    // Output embeds sdb:nodekey(...) — under fusion primitive-valued object fields collapse
+    // into a single record, which shifts every subsequent nodeKey lower. The JSON shape,
+    // values, path string and record identity are identical in both modes; only the integer
+    // surfaces differ. testIgnoreNodeKeys compares after replacing concrete nodeKey numerics.
+    testIgnoreNodeKeys(storeQuery, indexQuery, openQuery, """
         {"nodeKey":14,"node":"b","path":"/[2]/test/[]"}
         """.strip());
   }
@@ -610,7 +614,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         """
               {"generic":1,"location":{"state":"CA","city":"Los Angeles"},"nodeKey":2} {"generic":1,"location":{"state":"NY","city":"New York"},"nodeKey":11}
             """.strip();
-    test(storeQuery, query, assertion);
+    testIgnoreNodeKeys(storeQuery, query, assertion);
   }
 
   @Test
@@ -815,7 +819,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "jn:store('json-path1','mydoc.jn','[{\"key\":0},{\"value\":{\"key\":true}},{\"key\":\"hey\",\"value\":false}]')";
     final String openQuery =
         "for $i in jn:doc('json-path1','mydoc.jn')[].value where $i instance of object() and $i.key eq true() return { $i, \"nodekey\": sdb:nodekey($i) }";
-    test(storeQuery, openQuery, "{\"key\":true,\"nodekey\":7}");
+    testIgnoreNodeKeys(storeQuery, openQuery, "{\"key\":true,\"nodekey\":7}");
   }
 
   // Path index.
@@ -827,7 +831,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, ('//*', '//[]')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "for $i in jn:doc('json-path1','mydoc.jn')[].value[].key[?$$.boolean] return { $i, \"nodekey\": sdb:nodekey($i) }";
-    test(storeQuery, indexQuery, openQuery, "{\"boolean\":true,\"nodekey\":10}");
+    testIgnoreNodeKeys(storeQuery, indexQuery, openQuery, "{\"boolean\":true,\"nodekey\":10}");
   }
 
   // CAS index.
@@ -839,7 +843,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:integer', '/[]/value/[]/key/boolean') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "for $i in jn:doc('json-path1','mydoc.jn')[1].value[].key[?$$.boolean gt 3] return { $i, \"nodekey\": sdb:nodekey($i) }";
-    test(storeQuery, indexQuery, openQuery, "{\"boolean\":5,\"nodekey\":10}");
+    testIgnoreNodeKeys(storeQuery, indexQuery, openQuery, "{\"boolean\":5,\"nodekey\":10}");
   }
 
   @Test
@@ -850,7 +854,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/statuses/[]/user/entities/url/urls/[]/url') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "for $i in jn:doc('json-path1','mydoc.jn').statuses[].user.entities.url[?$$.urls[].url eq 'https://t.co/TcEE6NS8nD'] order by sdb:nodekey($i) return {\"result\": $i, \"nodekey\": sdb:nodekey($i) }";
-    test(storeQuery, indexQuery, openQuery,
+    testIgnoreNodeKeys(storeQuery, indexQuery, openQuery,
         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting4").resolve("expectedOutput")));
   }
 
@@ -862,7 +866,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-path-index($doc, ('/paths/\\/consolidated_screening_list\\/search/get/tags/[]', '/paths/\\/consolidated_screening_list\\/search/get/tags')) return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').paths.\"/consolidated_screening_list/search\".get.parameters return { \"result\": $result, \"nodekey\": sdb:nodekey($result) }";
-    test(storeQuery, indexQuery, openQuery,
+    testIgnoreNodeKeys(storeQuery, indexQuery, openQuery,
         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting5").resolve("expectedOutput")));
   }
 
@@ -879,7 +883,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
                """.stripIndent();
-    test(storeQuery, indexQuery, openQuery,
+    testIgnoreNodeKeys(storeQuery, indexQuery, openQuery,
         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting6").resolve("expectedOutput")));
   }
 
@@ -891,7 +895,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         "let $doc := jn:doc('json-path1','mydoc.jn') let $stats := jn:create-cas-index($doc, 'xs:string', '/paths/\\/consolidated_screening_list\\/search/get/parameters/[]/name') return {\"revision\": sdb:commit($doc)}";
     final String openQuery =
         "let $result := jn:doc('json-path1','mydoc.jn').paths.\"/consolidated_screening_list/search\".get[?$$.parameters[].name = 'keyword'] return { \"result\": $result, \"nodekey\": sdb:nodekey($result) }";
-    test(storeQuery, indexQuery, openQuery,
+    testIgnoreNodeKeys(storeQuery, indexQuery, openQuery,
         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting7").resolve("expectedOutput")));
   }
 
@@ -1015,7 +1019,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
                """.stripIndent();
-    test(storeQuery, indexQuery, openQuery,
+    testIgnoreNodeKeys(storeQuery, indexQuery, openQuery,
         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting17").resolve("expectedOutput")));
   }
 
@@ -1033,7 +1037,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
                """.stripIndent();
-    test(storeQuery, indexQuery, openQuery,
+    testIgnoreNodeKeys(storeQuery, indexQuery, openQuery,
         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting18").resolve("expectedOutput")));
   }
 
@@ -1051,7 +1055,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
                """.stripIndent();
-    test(storeQuery, indexQuery, openQuery,
+    testIgnoreNodeKeys(storeQuery, indexQuery, openQuery,
         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting19").resolve("expectedOutput")));
   }
 
@@ -1069,7 +1073,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
                where $k eq 'keyword'
                return { "result": $i, "nodekey": sdb:nodekey($i) }
                """.stripIndent();
-    test(storeQuery, indexQuery, openQuery,
+    testIgnoreNodeKeys(storeQuery, indexQuery, openQuery,
         Files.readString(JSON_RESOURCE_PATH.resolve("testNesting20").resolve("expectedOutput")));
   }
 
@@ -1249,7 +1253,9 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         order by sdb:revision($node), sdb:nodekey($node)
         return {"nodeKey": sdb:nodekey($node), "path": sdb:path($node), "revision": sdb:revision($node)}
         """.strip();
-    test(storeQuery, indexQuery, findAndScanNameIndexQuery,
+    // Output embeds sdb:nodekey(...) — fused primitives shift nodeKey integers but the path,
+    // revision and identity are identical in both modes.
+    testIgnoreNodeKeys(storeQuery, indexQuery, findAndScanNameIndexQuery,
         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanNameIndex").resolve("expectedOutput")));
   }
 
@@ -1270,7 +1276,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         order by sdb:revision($node), sdb:nodekey($node)
         return {"nodeKey": sdb:nodekey($node), "path": sdb:path($node)}
         """.strip();
-    test(storeQuery, indexQuery, findAndScanPathIndexQuery,
+    testIgnoreNodeKeys(storeQuery, indexQuery, findAndScanPathIndexQuery,
         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanPathIndex").resolve("expectedOutput")));
   }
 
@@ -1291,7 +1297,7 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         order by sdb:revision($node), sdb:nodekey($node)
         return {"nodeKey": sdb:nodekey($node), "node": $node}
         """.strip();
-    test(storeQuery, indexQuery, findAndScanPathIndexQuery,
+    testIgnoreNodeKeys(storeQuery, indexQuery, findAndScanPathIndexQuery,
         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex").resolve("expectedOutput")));
   }
 
@@ -1305,14 +1311,24 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         let $stats := jn:create-cas-index($doc,'xs:string',('//*','//[]'))
         return {"revision": sdb:commit($doc)}
         """.strip();
+    // Under legacy the CAS hits on object-fields are primitive OBJECT_STRING_VALUE records whose
+    // parent OBJECT_KEY carries the path, so {@code select-parent} is required. Under fusion
+    // object-field hits are the fused OBJECT_NAMED_STRING itself, which IS the path-carrier —
+    // {@code select-parent} would walk too far up to the OBJECT (no pathNodeKey) and return a
+    // null path. Array-item hits (STRING_VALUE under an ARRAY) still require {@code
+    // select-parent} in both modes because array values never fuse. The conditional lookup
+    // below tries the node's own path first (works for fused records) and falls back to the
+    // parent's path (works for both STRING_VALUE array items and legacy OBJECT_STRING_VALUE).
     final String findAndScanPathIndexQuery = """
         let $doc := jn:doc('json-path1','mydoc.jn')
         let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//*')
         for $node in jn:scan-cas-index($doc, $casIndexNumber, 'bar', '==', ())
         order by sdb:revision($node), sdb:nodekey($node)
-        return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
+        let $self := sdb:path($node)
+        let $path := if (exists($self)) then $self else sdb:path(sdb:select-parent($node))
+        return {"nodeKey": sdb:nodekey($node), "node": $node, "path": $path}
         """.strip();
-    test(storeQuery, indexQuery, findAndScanPathIndexQuery,
+    testIgnoreNodeKeys(storeQuery, indexQuery, findAndScanPathIndexQuery,
         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex2").resolve("expectedOutput")));
   }
 
@@ -1326,14 +1342,19 @@ public final class JsonIntegrationTest extends AbstractJsonTest {
         let $stats := jn:create-cas-index($doc,'xs:string',('//*','//[]'))
         return {"revision": sdb:commit($doc)}
         """.strip();
+    // Conditional path: fused records are themselves the path-carrier; legacy primitives need
+    // a {@code select-parent} hop to reach their OBJECT_KEY. Array items always require the
+    // hop. Prefer the self path and fall back to the parent — works in both modes.
     final String findAndScanPathIndexQuery = """
         let $doc := jn:doc('json-path1','mydoc.jn')
         let $casIndexNumber := jn:find-cas-index($doc, 'xs:string', '//@context')
         for $node in jn:scan-cas-index($doc, $casIndexNumber, 'http://iiif.io/api/search/0/context.json', '==', ())
         order by sdb:revision($node), sdb:nodekey($node)
-        return {"nodeKey": sdb:nodekey($node), "node": $node, "path": sdb:path(sdb:select-parent($node))}
+        let $self := sdb:path($node)
+        let $path := if (exists($self)) then $self else sdb:path(sdb:select-parent($node))
+        return {"nodeKey": sdb:nodekey($node), "node": $node, "path": $path}
         """.strip();
-    test(storeQuery, indexQuery, findAndScanPathIndexQuery,
+    testIgnoreNodeKeys(storeQuery, indexQuery, findAndScanPathIndexQuery,
         Files.readString(JSON_RESOURCE_PATH.resolve("testCreateAndScanCASIndex3").resolve("expectedOutput")));
   }
 }

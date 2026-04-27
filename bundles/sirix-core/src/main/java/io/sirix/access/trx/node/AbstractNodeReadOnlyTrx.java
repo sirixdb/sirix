@@ -25,12 +25,13 @@ import io.sirix.node.json.ArrayNode;
 import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.JsonDocumentRootNode;
 import io.sirix.node.json.NumberNode;
-import io.sirix.node.json.ObjectBooleanNode;
-import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNamedArrayNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedObjectNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.ObjectNode;
-import io.sirix.node.json.ObjectNullNode;
-import io.sirix.node.json.ObjectNumberNode;
-import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.NullNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.node.interfaces.FlyweightNode;
@@ -205,15 +206,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     return switch (currentNodeKind) {
       case OBJECT -> (N) ((ObjectNode) currentSingleton).toSnapshot();
       case ARRAY -> (N) ((ArrayNode) currentSingleton).toSnapshot();
-      case OBJECT_KEY -> (N) ((ObjectKeyNode) currentSingleton).toSnapshot();
       case STRING_VALUE -> (N) ((StringNode) currentSingleton).toSnapshot();
       case NUMBER_VALUE -> (N) ((NumberNode) currentSingleton).toSnapshot();
       case BOOLEAN_VALUE -> (N) ((BooleanNode) currentSingleton).toSnapshot();
       case NULL_VALUE -> (N) ((NullNode) currentSingleton).toSnapshot();
-      case OBJECT_STRING_VALUE -> (N) ((ObjectStringNode) currentSingleton).toSnapshot();
-      case OBJECT_NUMBER_VALUE -> (N) ((ObjectNumberNode) currentSingleton).toSnapshot();
-      case OBJECT_BOOLEAN_VALUE -> (N) ((ObjectBooleanNode) currentSingleton).toSnapshot();
-      case OBJECT_NULL_VALUE -> (N) ((ObjectNullNode) currentSingleton).toSnapshot();
+      case OBJECT_NAMED_BOOLEAN -> (N) ((ObjectNamedBooleanNode) currentSingleton).toSnapshot();
+      case OBJECT_NAMED_NUMBER -> (N) ((ObjectNamedNumberNode) currentSingleton).toSnapshot();
+      case OBJECT_NAMED_STRING -> (N) ((ObjectNamedStringNode) currentSingleton).toSnapshot();
+      case OBJECT_NAMED_NULL -> (N) ((ObjectNamedNullNode) currentSingleton).toSnapshot();
+      case OBJECT_NAMED_OBJECT -> (N) ((ObjectNamedObjectNode) currentSingleton).toSnapshot();
+      case OBJECT_NAMED_ARRAY -> (N) ((ObjectNamedArrayNode) currentSingleton).toSnapshot();
       case JSON_DOCUMENT -> (N) ((JsonDocumentRootNode) currentSingleton).toSnapshot();
       case ELEMENT -> (N) ((ElementNode) currentSingleton).toSnapshot();
       case ATTRIBUTE -> (N) ((AttributeNode) currentSingleton).toSnapshot();
@@ -290,6 +292,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getLeftSiblingKey() {
     assertNotClosed();
+    if (fusedSyntheticChildMode) {
+      return Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
     if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getLeftSiblingKey();
     }
@@ -299,6 +304,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasLeftSibling() {
     assertNotClosed();
+    if (fusedSyntheticChildMode) {
+      return false;
+    }
     if (SINGLETON_ENABLED && singletonMode) {
       return getLeftSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
@@ -334,9 +342,6 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       if (currentSingleton instanceof NameNode nameNode) {
         return nameNode.getPathNodeKey();
       }
-      if (currentSingleton instanceof ObjectKeyNode objectKeyNode) {
-        return objectKeyNode.getPathNodeKey();
-      }
       if (currentSingleton instanceof ArrayNode arrayNode) {
         return arrayNode.getPathNodeKey();
       }
@@ -349,9 +354,6 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     final ImmutableNode node = getCurrentNode();
     if (node instanceof NameNode) {
       return ((NameNode) node).getPathNodeKey();
-    }
-    if (node instanceof ObjectKeyNode objectKeyNode) {
-      return objectKeyNode.getPathNodeKey();
     }
     if (node instanceof ArrayNode arrayNode) {
       return arrayNode.getPathNodeKey();
@@ -395,6 +397,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean moveToFirstChild() {
     assertNotClosed();
+
+    // iter#31 pivot to Option B: fused OBJECT_NAMED_* records are leaves. No synthetic
+    // child is emitted. Callers read the inline primitive value directly via
+    // rtx.getValue() / getNumberValue() / etc.
+
     // Use flyweight getter if available to avoid node materialization
     if (!hasFirstChild()) {
       return false;
@@ -402,9 +409,49 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     return moveTo(getFirstChildKey());
   }
 
+  /**
+   * @return true if the cursor currently targets a fused {@code OBJECT_NAMED_*} record
+   *         (and we are NOT already descended into its synthetic child).
+   */
+  private boolean isOnFusedNamedPrimitive() {
+    if (fusedSyntheticChildMode) {
+      return false;
+    }
+    final NodeKind kind = SINGLETON_ENABLED && singletonMode ? currentNodeKind
+        : getCurrentNode() != null ? (NodeKind) getCurrentNode().getKind() : null;
+    return kind == NodeKind.OBJECT_NAMED_BOOLEAN
+        || kind == NodeKind.OBJECT_NAMED_NUMBER
+        || kind == NodeKind.OBJECT_NAMED_STRING
+        || kind == NodeKind.OBJECT_NAMED_NULL;
+  }
+
+  /**
+   * @return the underlying (non-synthetic) kind of the cursor, regardless of whether we are
+   *         in fused synthetic-child mode.
+   */
+  protected NodeKind getFusedParentKind() {
+    if (SINGLETON_ENABLED && singletonMode) {
+      return currentNodeKind;
+    }
+    final N node = getCurrentNode();
+    return node != null ? (NodeKind) node.getKind() : null;
+  }
+
+  /**
+   * @return true if we are currently viewing the synthetic primitive-value child of a
+   *         fused {@code OBJECT_NAMED_*} record (Option A virtual navigation).
+   */
+  public boolean isFusedSyntheticChild() {
+    return fusedSyntheticChildMode;
+  }
+
   @Override
   public boolean moveTo(final long nodeKey) {
     assertNotClosed();
+
+    // Any moveTo implicitly exits fused synthetic-child mode — the caller is redirecting the
+    // cursor so the virtual-child state does not survive.
+    fusedSyntheticChildMode = false;
 
     // Handle negative keys (item list) - fall back to object mode
     if (nodeKey < 0) {
@@ -447,9 +494,26 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   /**
    * Array-based singleton lookup indexed by NodeKind.getId().
    * Replaces the 19-case switch in getSingletonForKind with O(1) array access.
-   * Lazily populated on first access per kind. Max NodeKind ID is 55.
+   * Lazily populated on first access per kind. Max NodeKind ID is 58 (VECTOR_INDEX_METADATA);
+   * sized to 64 so iter#30 OBJECT_NAMED_* IDs (48-51) fit headroom.
    */
-  private final ImmutableNode[] singletonByKindId = new ImmutableNode[56];
+  private final ImmutableNode[] singletonByKindId = new ImmutableNode[64];
+
+  /**
+   * Option-A virtual-child mode for fused {@code OBJECT_NAMED_*} kinds.
+   *
+   * <p>When {@code true}, the cursor is conceptually positioned on the synthetic primitive
+   * value child of a fused node, while physically still bound to the fused record. In this
+   * mode: {@code getKind()} returns the corresponding {@code OBJECT_*_VALUE} kind,
+   * {@code getValue()} / {@code getBooleanValue()} / {@code getNumberValue()} report the
+   * primitive payload, {@code hasFirstChild()} / {@code hasLeftSibling()} /
+   * {@code hasRightSibling()} return false (synthetic child is a leaf), and
+   * {@code moveToParent()} clears the flag so we "return" to the fused node proper.
+   *
+   * <p>The flag is cleared on every call to {@link #moveTo(long)} entry as well as on
+   * {@link #close()} / {@link #releaseCurrentPageGuard()}.
+   */
+  private boolean fusedSyntheticChildMode = false;
   
   /**
    * Move to a node using singleton mode (zero allocation).
@@ -730,15 +794,16 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       return true;
     }
 
-    // Check slot data on modified page
-    final MemorySegment data = page.getSlot(slotOffset);
-    if (data == null) {
-      // Not in modified page heap either — fall back to legacy
+    // Inline slot lookup: avoid KeyValueLeafPage.getSlot's asSlice allocation,
+    // which is hot on shred (every moveTo allocates a MemorySegment view just
+    // to read one byte). Read the kind byte directly from the slotted page.
+    final MemorySegment sp = page.getSlottedPage();
+    if (sp == null || !PageLayout.isSlotPopulated(sp, slotOffset)) {
       return moveToLegacy(nodeKey);
     }
-
-    // Read node kind from first byte
-    final byte kindByte = data.get(java.lang.foreign.ValueLayout.JAVA_BYTE, 0);
+    final int heapOffset = PageLayout.getDirHeapOffset(sp, slotOffset);
+    final int recordAbs = PageLayout.HEAP_START + heapOffset;
+    final byte kindByte = sp.get(java.lang.foreign.ValueLayout.JAVA_BYTE, recordAbs);
     final NodeKind kind = NodeKind.getKind(kindByte);
 
     if (kind == NodeKind.DELETE) {
@@ -752,10 +817,7 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     }
 
     // Bind singleton to page data (zero allocation)
-    // Cache slottedPage locally to avoid repeated virtual calls to getSlottedPage()
-    final MemorySegment sp = page.getSlottedPage();
-    if (sp != null && singleton instanceof FlyweightNode fn) {
-      final int heapOffset = PageLayout.getDirHeapOffset(sp, slotOffset);
+    if (singleton instanceof FlyweightNode fn) {
       final long recordBase = PageLayout.heapAbsoluteOffset(heapOffset);
       fn.bind(sp, recordBase, nodeKey, slotOffset);
       // Propagate DeweyID lazily — no SirixDeweyID parsing until getDeweyID() called.
@@ -765,7 +827,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
       }
     } else {
       // Legacy format: populate singleton from serialized data (NO ALLOCATION)
-      reusableBytesIn.reset(data, 1);
+      // Size the view from the record length (skip kind byte).
+      final int recordLength = PageLayout.getRecordOnlyLength(sp, slotOffset);
+      if (recordLength <= 0) {
+        return moveToLegacy(nodeKey);
+      }
+      reusableBytesIn.reset(sp.asSlice(recordAbs, recordLength), 1);
       final byte[] deweyId = resourceConfig.areDeweyIDsStored
           ? page.getDeweyIdAsByteArray(slotOffset) : null;
       populateSingleton(singleton, reusableBytesIn, nodeKey, deweyId, kind, page);
@@ -790,8 +857,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (fsstTable != null && fsstTable.length > 0) {
       if (fn instanceof StringNode sn) {
         sn.setFsstSymbolTable(fsstTable);
-      } else if (fn instanceof ObjectStringNode osn) {
-        osn.setFsstSymbolTable(fsstTable);
+      } else if (fn instanceof ObjectNamedStringNode ons) {
+        ons.setFsstSymbolTable(fsstTable);
       }
     }
   }
@@ -828,8 +895,6 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           resourceConfig.nodeHashFunction, (byte[]) null);
       case ARRAY -> new ArrayNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
           resourceConfig.nodeHashFunction, (byte[]) null);
-      case OBJECT_KEY -> new ObjectKeyNode(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-          resourceConfig.nodeHashFunction, (byte[]) null);
       case STRING_VALUE -> new StringNode(0, 0, 0, 0, 0, 0, 0, null,
           resourceConfig.nodeHashFunction, (byte[]) null);
       case NUMBER_VALUE -> new NumberNode(0, 0, 0, 0, 0, 0, 0, 0,
@@ -838,14 +903,12 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           resourceConfig.nodeHashFunction, (byte[]) null);
       case NULL_VALUE -> new NullNode(0, 0, 0, 0, 0, 0, 0,
           resourceConfig.nodeHashFunction, (byte[]) null);
-      case OBJECT_STRING_VALUE -> new ObjectStringNode(0, 0, 0, 0, 0, null,
-          resourceConfig.nodeHashFunction, (byte[]) null);
-      case OBJECT_NUMBER_VALUE -> new ObjectNumberNode(0, 0, 0, 0, 0, 0,
-          resourceConfig.nodeHashFunction, (byte[]) null);
-      case OBJECT_BOOLEAN_VALUE -> new ObjectBooleanNode(0, 0, 0, 0, 0, false,
-          resourceConfig.nodeHashFunction, (byte[]) null);
-      case OBJECT_NULL_VALUE -> new ObjectNullNode(0, 0, 0, 0, 0,
-          resourceConfig.nodeHashFunction, (byte[]) null);
+      case OBJECT_NAMED_BOOLEAN -> new ObjectNamedBooleanNode(0, resourceConfig.nodeHashFunction);
+      case OBJECT_NAMED_NUMBER -> new ObjectNamedNumberNode(0, resourceConfig.nodeHashFunction);
+      case OBJECT_NAMED_STRING -> new ObjectNamedStringNode(0, resourceConfig.nodeHashFunction);
+      case OBJECT_NAMED_NULL -> new ObjectNamedNullNode(0, resourceConfig.nodeHashFunction);
+      case OBJECT_NAMED_OBJECT -> new ObjectNamedObjectNode(0, resourceConfig.nodeHashFunction);
+      case OBJECT_NAMED_ARRAY -> new ObjectNamedArrayNode(0, resourceConfig.nodeHashFunction);
       case JSON_DOCUMENT -> new JsonDocumentRootNode(0, resourceConfig.nodeHashFunction);
       case ELEMENT -> new ElementNode(0, resourceConfig.nodeHashFunction);
       case ATTRIBUTE -> new AttributeNode(0, resourceConfig.nodeHashFunction);
@@ -875,8 +938,6 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           resourceConfig.nodeHashFunction, resourceConfig);
       case ARRAY -> ((ArrayNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
-      case OBJECT_KEY -> ((ObjectKeyNode) singleton).readFrom(source, nodeKey, deweyId,
-          resourceConfig.nodeHashFunction, resourceConfig);
       case STRING_VALUE -> {
         StringNode stringNode = (StringNode) singleton;
         stringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
@@ -892,20 +953,23 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
           resourceConfig.nodeHashFunction, resourceConfig);
       case NULL_VALUE -> ((NullNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
-      case OBJECT_STRING_VALUE -> {
-        ObjectStringNode objectStringNode = (ObjectStringNode) singleton;
-        objectStringNode.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
-        // Propagate FSST symbol table for decompression
+      case OBJECT_NAMED_BOOLEAN -> ((ObjectNamedBooleanNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT_NAMED_NUMBER -> ((ObjectNamedNumberNode) singleton).readFrom(source, nodeKey, deweyId,
+          resourceConfig.nodeHashFunction, resourceConfig);
+      case OBJECT_NAMED_STRING -> {
+        ObjectNamedStringNode namedStr = (ObjectNamedStringNode) singleton;
+        namedStr.readFrom(source, nodeKey, deweyId, resourceConfig.nodeHashFunction, resourceConfig);
         byte[] fsstSymbolTable = page.getFsstSymbolTable();
         if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
-          objectStringNode.setFsstSymbolTable(fsstSymbolTable);
+          namedStr.setFsstSymbolTable(fsstSymbolTable);
         }
       }
-      case OBJECT_NUMBER_VALUE -> ((ObjectNumberNode) singleton).readFrom(source, nodeKey, deweyId,
+      case OBJECT_NAMED_NULL -> ((ObjectNamedNullNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
-      case OBJECT_BOOLEAN_VALUE -> ((ObjectBooleanNode) singleton).readFrom(source, nodeKey, deweyId,
+      case OBJECT_NAMED_OBJECT -> ((ObjectNamedObjectNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
-      case OBJECT_NULL_VALUE -> ((ObjectNullNode) singleton).readFrom(source, nodeKey, deweyId,
+      case OBJECT_NAMED_ARRAY -> ((ObjectNamedArrayNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
       case JSON_DOCUMENT -> ((JsonDocumentRootNode) singleton).readFrom(source, nodeKey, deweyId,
           resourceConfig.nodeHashFunction, resourceConfig);
@@ -1026,7 +1090,8 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (SINGLETON_ENABLED && singletonMode) {
       return currentNodeKind;
     }
-    return getCurrentNode().getKind();
+    final N node = getCurrentNode();
+    return node != null ? (NodeKind) node.getKind() : null;
   }
 
   /**
@@ -1137,6 +1202,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasFirstChild() {
     assertNotClosed();
+    // Synthetic child of a fused record is a leaf — no further descent.
+    if (fusedSyntheticChildMode) {
+      return false;
+    }
     if (SINGLETON_ENABLED && singletonMode) {
       return getFirstChildKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
@@ -1146,6 +1215,10 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public boolean hasRightSibling() {
     assertNotClosed();
+    // Synthetic child has no siblings; real siblings live on the fused parent.
+    if (fusedSyntheticChildMode) {
+      return false;
+    }
     if (SINGLETON_ENABLED && singletonMode) {
       return getRightSiblingKey() != Fixed.NULL_NODE_KEY.getStandardProperty();
     }
@@ -1155,6 +1228,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getRightSiblingKey() {
     assertNotClosed();
+    if (fusedSyntheticChildMode) {
+      return Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
     if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getRightSiblingKey();
     }
@@ -1164,6 +1240,9 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getFirstChildKey() {
     assertNotClosed();
+    if (fusedSyntheticChildMode) {
+      return Fixed.NULL_NODE_KEY.getStandardProperty();
+    }
     if (SINGLETON_ENABLED && singletonMode && currentSingleton instanceof StructNode sn) {
       return sn.getFirstChildKey();
     }
@@ -1173,6 +1252,11 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
   @Override
   public long getParentKey() {
     assertNotClosed();
+    // From the synthetic primitive child, parent is the fused node's own nodeKey (we are still
+    // physically bound to it). Callers use this to navigate back up.
+    if (fusedSyntheticChildMode) {
+      return currentNodeKey;
+    }
     if (SINGLETON_ENABLED && singletonMode && currentSingleton != null) {
       return currentSingleton.getParentKey();
     }

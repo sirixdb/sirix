@@ -103,7 +103,33 @@ public final class FileChannelStorage implements IOStorage {
   }
 
   private FileChannel createDataFileChannel(Path dataFilePath) throws IOException {
-    return FileChannel.open(dataFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.SPARSE);
+    final FileChannel channel =
+        FileChannel.open(dataFilePath, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.SPARSE);
+    // Optional per-channel {@code posix_fadvise} hint. Default is
+    // {@code none} (no hint → Linux autotunes readahead based on observed
+    // access pattern), which is the right choice for mixed workloads:
+    // point queries only need the 8–32 KB page they request, whereas
+    // {@code POSIX_FADV_SEQUENTIAL} triggers 128–512 KB readahead on
+    // every read and wastes I/O bandwidth + page cache on the surrounding
+    // pages the point query never touches.
+    //
+    // Bulk-scan workloads (cold projection hydration, PathSummary /
+    // PathStatistics load on open) can opt in via
+    // {@code -Dsirix.fadvise=sequential} — we measured ~10 % cold-wall
+    // win under that hint on the 100 M brackit-scale bench.
+    //
+    // Override with {@code -Dsirix.fadvise=random} — suppress readahead
+    // entirely (for seek-heavy workloads where the kernel's autotune
+    // still over-reads).
+    final String mode = System.getProperty("sirix.fadvise", "none").toLowerCase();
+    switch (mode) {
+      case "sequential" -> PosixFadvise.adviseSequential(channel);
+      case "random" -> PosixFadvise.adviseRandom(channel);
+      default -> {
+        // no hint — kernel autotunes
+      }
+    }
+    return channel;
   }
 
   private FileChannel createRevisionsOffsetFileChannel(Path revisionsOffsetFilePath) throws IOException {

@@ -24,6 +24,7 @@ dependencies {
     testImplementation testLibraries.junitPlatformRunner
     testImplementation testLibraries.mockitoCore
     testImplementation testLibraries.byteBuddy
+    testImplementation testLibraries.byteBuddyAgent
     testImplementation testLibraries.testng
     testImplementation testLibraries.jsonassert
     testImplementation testLibraries.assertjCore
@@ -57,10 +58,23 @@ test {
         '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
         '--add-modules', 'jdk.incubator.vector',
         '--enable-native-access=ALL-UNNAMED',
+        '-XX:+EnableDynamicAgentLoading',
         '-XX:+UnlockDiagnosticVMOptions',
         '-XX:+DebugNonSafepoints',
     ]
-    
+
+    // Mockito inline mock-maker requires Byte-Buddy to install a JVM agent. Under JDK 24+
+    // the self-attach is restricted; passing -javaagent at JVM start-up bypasses this.
+    // Resolve at task execution time so the testRuntimeClasspath is fully resolved.
+    doFirst {
+        def byteBuddyAgentJar = configurations.testRuntimeClasspath.find {
+            it.name.startsWith('byte-buddy-agent')
+        }
+        if (byteBuddyAgentJar != null) {
+            jvmArgs += ["-javaagent:${byteBuddyAgentJar.absolutePath}"]
+        }
+    }
+
     if (profilerPath) {
         baseArgs.add("-agentpath:${profilerPath}/lib/libasyncProfiler.so=start,event=${profileEvent},file=${profileOutput}")
         println "Async-profiler enabled: event=${profileEvent}, output=${profileOutput}"
@@ -83,10 +97,51 @@ test {
     // Enable fast mode (for testing only): ./gradlew test -Plz4.fast=true
     def useFastLz4 = project.hasProperty('lz4.fast')
     systemProperty "sirix.lz4.fast.decompress", useFastLz4.toString()
+    systemProperty "sirix.lz77Codec.native.disable", System.getProperty("sirix.lz77Codec.native.disable", "false")
+    systemProperty "sirix.lz77Codec.diag.counters", System.getProperty("sirix.lz77Codec.diag.counters", "false")
     
     // Show test output for diagnostics
     testLogging {
         showStandardStreams = true
         exceptionFormat = 'full'
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Native library build — libsirix_lz77.so
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Builds the native LZ77 decoder shim used by SirixLZ77NativeDecoder.
+// Output is placed under src/main/resources so it's embedded in the JAR
+// and extracted at first use.
+//
+// Run manually: ./gradlew :sirix-core:buildNativeLz77
+// processResources should rebuild the .so if the .c source changed.
+processResources.dependsOn 'buildNativeLz77'
+
+task buildNativeLz77(type: Exec) {
+    description = 'Compile libsirix_lz77.so (native LZ77 decoder)'
+    group = 'build'
+
+    def srcFile = file('src/main/native/sirix_lz77.c')
+    def destDir = file('src/main/resources/native/linux-x86_64')
+    def destFile = file("${destDir}/libsirix_lz77.so")
+
+    inputs.file srcFile
+    outputs.file destFile
+
+    doFirst {
+        destDir.mkdirs()
+    }
+
+    commandLine 'gcc',
+            '-O3', '-march=native', '-mavx2',
+            '-funroll-loops',
+            '-falign-functions=64', '-falign-loops=64',
+            '-flto',
+            '-fvisibility=hidden',
+            '-fPIC', '-shared',
+            '-o', destFile.absolutePath,
+            srcFile.absolutePath
+    ignoreExitValue = true
 }

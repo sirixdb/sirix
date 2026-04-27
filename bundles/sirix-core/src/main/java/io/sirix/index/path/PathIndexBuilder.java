@@ -81,6 +81,15 @@ public final class PathIndexBuilder {
     return VisitResultType.CONTINUE;
   }
 
+  /**
+   * Returns the {@link PathSummaryReader} backing this builder. Used by JSON-specific dispatch
+   * (e.g. fused {@code OBJECT_NAMED_ARRAY} which must index its host record at both the
+   * OBJECT_KEY layer and the {@code __array__/ARRAY} layer) to navigate path-summary parents.
+   */
+  public PathSummaryReader getPathSummaryReader() {
+    return pathSummaryReader;
+  }
+
   private void processRBTree(final ImmutableNode node, final long PCR) throws SirixIOException {
     assert rbTreeWriter != null;
     final Optional<NodeReferences> textReferences = rbTreeWriter.get(PCR, SearchMode.EQUAL);

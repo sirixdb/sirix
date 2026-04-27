@@ -953,6 +953,7 @@ final class XmlNodeTrxImpl extends
 
       // Index text value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
+      recordXmlValueStat(pathNodeKey, textValue, nodeKey);
 
       return this;
     } finally {
@@ -1029,6 +1030,7 @@ final class XmlNodeTrxImpl extends
 
       // Index text value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
+      recordXmlValueStat(pathNodeKey, textValue, nodeKey);
 
       return this;
     } finally {
@@ -1107,6 +1109,7 @@ final class XmlNodeTrxImpl extends
 
       // Index text value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
+      recordXmlValueStat(pathNodeKey, textValue, nodeKey);
 
       return this;
     } finally {
@@ -1197,6 +1200,7 @@ final class XmlNodeTrxImpl extends
 
       // Index text value.
       notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, nodeReadOnlyTrx.getCurrentNode(), pathNodeKey);
+      recordXmlValueStat(pathNodeKey, attValue, nodeKey);
 
       if (move == Movement.TOPARENT) {
         moveToParent();
@@ -1400,6 +1404,34 @@ final class XmlNodeTrxImpl extends
     }
   }
 
+  /**
+   * Record a value observation in PathSummary statistics for the path identified by
+   * {@code pathNodeKey}. No-op when stats are disabled or {@code pathNodeKey <= 0}.
+   */
+  private void recordXmlValueStat(final long pathNodeKey, final byte[] bytesValue) {
+    recordXmlValueStat(pathNodeKey, bytesValue, -1L);
+  }
+
+  /** Variant threading the value node's key so the PathNode's presence bitmap can be updated. */
+  private void recordXmlValueStat(final long pathNodeKey, final byte[] bytesValue, final long valueNodeKey) {
+    if (pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled()
+        && pathNodeKey > 0 && bytesValue != null) {
+      pathSummaryWriter.recordValue(pathNodeKey, bytesValue, valueNodeKey);
+    }
+  }
+
+  /**
+   * Decrement a value observation in PathSummary statistics. No-op when stats are
+   * disabled or the key is not positive. The bound itself rebounds lazily — see
+   * {@code PathNode#isStatsMinDirty()}.
+   */
+  private void removeXmlValueStat(final long pathNodeKey, final byte[] bytesValue) {
+    if (pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled()
+        && pathNodeKey > 0 && bytesValue != null) {
+      pathSummaryWriter.removeValue(pathNodeKey, bytesValue);
+    }
+  }
+
   private void removeValue() throws SirixIOException {
     final NodeKind kind = getKind();
     final ValueNode valueNode;
@@ -1417,6 +1449,7 @@ final class XmlNodeTrxImpl extends
         : -1;
     moveTo(nodeKey);
     notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) valueNode, pathNodeKey);
+    removeXmlValueStat(pathNodeKey, valueNode.getRawValue());
   }
 
   /**
@@ -1581,6 +1614,8 @@ final class XmlNodeTrxImpl extends
         // the same cached page reference.
         final ValueNode node =
             (ValueNode) storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.DOCUMENT, -1);
+        final boolean statsOn = pathSummaryWriter != null && pathSummaryWriter.isPathStatisticsEnabled();
+        final byte[] oldBytes = statsOn ? node.getRawValue().clone() : null;
         // Remove old value from indexes before mutating the node.
         notifyPrimitiveIndexChange(IndexController.ChangeType.DELETE, (ImmutableNode) node, pathNodeKey);
         final long oldHash = node.computeHash(bytes);
@@ -1595,6 +1630,10 @@ final class XmlNodeTrxImpl extends
 
         // Index new value.
         notifyPrimitiveIndexChange(IndexController.ChangeType.INSERT, (ImmutableNode) node, pathNodeKey);
+        if (statsOn) {
+          removeXmlValueStat(pathNodeKey, oldBytes);
+          recordXmlValueStat(pathNodeKey, byteVal, node.getNodeKey());
+        }
 
         return this;
       } else {

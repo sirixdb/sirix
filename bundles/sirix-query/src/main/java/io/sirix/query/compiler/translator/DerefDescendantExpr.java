@@ -25,6 +25,7 @@ import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.api.json.JsonNodeTrx;
 import io.sirix.axis.ChildAxis;
 import io.sirix.axis.DescendantAxis;
+import io.sirix.axis.FieldValueAxis;
 import io.sirix.axis.NestedAxis;
 import io.sirix.axis.SelfAxis;
 import io.sirix.axis.concurrent.ConcurrentAxis;
@@ -95,12 +96,22 @@ class DerefDescendantExpr implements Expr {
     return getLazySequence(recordFieldAsString, jsonDBItem, rtx);
   }
 
-  @SuppressWarnings("ConstantConditions")
+  /** gate: re-enabled. The path-summary-driven descendant-deref fast-path
+   *  walks path-summary candidates and reuses the same {@link FilterAxis}+{@link FieldValueAxis}
+   *  pattern that powers {@link DerefExpr}. Under structural fusion every path-summary level
+   *  still maps to exactly one data-tree level on the corresponding axis chain — the legacy
+   *  {@code OBJECT_KEY → OBJECT/ARRAY} pair collapses into a single fused {@code
+   *  OBJECT_NAMED_OBJECT}/{@code OBJECT_NAMED_ARRAY} record whose {@code FieldValueAxis} step
+   *  is a self-emit, so the legacy axis topology continues to land on the right node. The
+   *  fallback ({@code DescendantAxis + JsonNameFilter + FieldValueAxis}) is kept for resources
+   *  built without a path summary and for empty cursors. */
+  private static final boolean USE_PATH_SUMMARY_DESCENDANT_DEREF = true;
+
   @Nullable
   private SirixJsonLazySequence getLazySequence(String recordFieldAsString, JsonDBItem jsonDBItem,
       JsonNodeReadOnlyTrx rtx) {
     final var resourceSession = rtx.getResourceSession();
-    if (resourceSession.getResourceConfig().withPathSummary && rtx.hasChildren()) {
+    if (USE_PATH_SUMMARY_DESCENDANT_DEREF && resourceSession.getResourceConfig().withPathSummary && rtx.hasChildren()) {
       try {
         final int revisionNumber = rtx.getRevisionNumber();
         final var nodeKey = jsonDBItem.getNodeKey();
@@ -109,11 +120,20 @@ class DerefDescendantExpr implements Expr {
             : NodeKind.ARRAY;
         final long pcr;
         if (nodeKind == NodeKind.OBJECT) {
-          rtx.moveToParent();
-          pcr = rtx.isDocumentRoot()
-              ? 0
-              : rtx.getPathNodeKey();
-          rtx.moveTo(jsonDBItem.getNodeKey());
+          // iter#32 P2: under structural fusion the JsonDBObject may anchor on
+          // OBJECT_NAMED_OBJECT (kind 52) — the fused record IS the OBJECT_KEY+OBJECT pair, so
+          // its own pathNodeKey already points at the OBJECT_KEY-level path-summary entry.
+          // Walking up to the parent would skip past that entry and place pcr at the wrong
+          // level, causing the descendant match to bottom-out empty.
+          if (rtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {
+            pcr = rtx.getPathNodeKey();
+          } else {
+            rtx.moveToParent();
+            pcr = rtx.isDocumentRoot()
+                ? 0
+                : rtx.getPathNodeKey();
+            rtx.moveTo(jsonDBItem.getNodeKey());
+          }
         } else {
           pcr = rtx.getPathNodeKey();
         }
@@ -152,12 +172,13 @@ class DerefDescendantExpr implements Expr {
                 return getLazySequence(new SirixJsonStream(new ChildAxis(rtx), jsonDBItem.getCollection()));
               }
               if (nodeKind == NodeKind.ARRAY) {
+                // iter#31 Option B: FieldValueAxis unifies legacy + fused value extraction.
                 var axis = new NestedAxis(new FilterAxis<>(new NestedAxis(new ChildAxis(rtx), new ChildAxis(rtx)),
-                    new ObjectKeyFilter(rtx), new JsonNameFilter(rtx, recordFieldAsString)), new ChildAxis(rtx));
+                    new ObjectKeyFilter(rtx), new JsonNameFilter(rtx, recordFieldAsString)), new FieldValueAxis(rtx));
                 return getLazySequence(new SirixJsonStream(axis, jsonDBItem.getCollection()));
               }
               var axis = new NestedAxis(new FilterAxis<>(new ChildAxis(rtx), new ObjectKeyFilter(rtx),
-                  new JsonNameFilter(rtx, recordFieldAsString)), new ChildAxis(rtx));
+                  new JsonNameFilter(rtx, recordFieldAsString)), new FieldValueAxis(rtx));
               return getLazySequence(new SirixJsonStream(axis, jsonDBItem.getCollection()));
             }
             // Match at a level below the child level.
@@ -231,7 +252,8 @@ class DerefDescendantExpr implements Expr {
                   }
                 }
 
-                axis = new NestedAxis(axis, new ChildAxis(newRtx));
+                // iter#31 Option B: value extraction step unifies legacy + fused.
+                axis = new NestedAxis(axis, new FieldValueAxis(newRtx));
               }
 
               axisQueue.push(axis);
@@ -277,15 +299,16 @@ class DerefDescendantExpr implements Expr {
                         new ObjectKeyFilter(newConcurrentRtx),
                         new JsonNameFilter(newConcurrentRtx, recordFieldAsString));
 
+                    // iter#31 Option B: FieldValueAxis — legacy OBJECT_KEY descent OR fused direct read.
                     axisQueue.addLast(new NestedAxis(new ConcurrentAxis<>(newConcurrentRtx1, filterAxis),
-                        new ChildAxis(newConcurrentRtx1)));
+                        new FieldValueAxis(newConcurrentRtx1)));
                   } else {
                     filterAxis =
                         new FilterAxis<>(new ChildAxis(newConcurrentRtx), new ObjectKeyFilter(newConcurrentRtx),
                             new JsonNameFilter(newConcurrentRtx, recordFieldAsString));
 
                     axisQueue.addLast(new NestedAxis(new ConcurrentAxis<>(newConcurrentRtx1, filterAxis),
-                        new ChildAxis(newConcurrentRtx1)));
+                        new FieldValueAxis(newConcurrentRtx1)));
                   }
                 }
               }
@@ -312,8 +335,9 @@ class DerefDescendantExpr implements Expr {
     } else if (rtx.getChildCount() == 0) {
       return null;
     } else {
+      // iter#31 Option B: fallback descendant-deref path — FieldValueAxis unifies legacy + fused.
       final var filterAxis = new NestedAxis(
-          new FilterAxis<>(new DescendantAxis(rtx), new JsonNameFilter(rtx, recordFieldAsString)), new ChildAxis(rtx));
+          new FilterAxis<>(new DescendantAxis(rtx), new JsonNameFilter(rtx, recordFieldAsString)), new FieldValueAxis(rtx));
       return getLazySequence(new SirixJsonStream(filterAxis, jsonDBItem.getCollection()));
     }
   }
@@ -341,6 +365,14 @@ class DerefDescendantExpr implements Expr {
     final var concurrentRtx = resourceSession.beginNodeReadOnlyTrx(revisionNumber);
     concurrentRtx.moveTo(nodeKey);
     final var concurrentRtx1 = resourceSession.beginNodeReadOnlyTrx(revisionNumber);
+    // a JsonDBArray cursor can sit on either a plain {@link NodeKind#ARRAY}
+    // (legacy or anonymous nested arrays) or a fused {@link NodeKind#OBJECT_NAMED_ARRAY} (which
+    // simultaneously plays the OBJECT_KEY name role and the ARRAY structural role). Both share
+    // the same descend-into-elements topology — anonymous OBJECT children carrying the field
+    // records — so the path-summary axis builder has to treat them identically.
+    final NodeKind cursorKind = concurrentRtx.getKind();
+    final boolean cursorIsArrayLike =
+        cursorKind == NodeKind.ARRAY || cursorKind == NodeKind.OBJECT_NAMED_ARRAY;
     var pathSegment = pathSegments.pop();
     var lastPathSegmentIsArray = pathSegment.isArray();
     Axis axis;
@@ -348,35 +380,47 @@ class DerefDescendantExpr implements Expr {
       if (lastPathSegmentIsArray) {
         axis = new ConcurrentAxis<>(concurrentRtx1, new ChildAxis(concurrentRtx));
       } else {
-        if (concurrentRtx.getKind() == NodeKind.ARRAY) {
+        if (cursorIsArrayLike) {
           axis = new FilterAxis<>(new NestedAxis(new ChildAxis(concurrentRtx), new ChildAxis(concurrentRtx)),
               new ObjectKeyFilter(concurrentRtx), new JsonNameFilter(concurrentRtx, pathSegment.name));
-          axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new ChildAxis(concurrentRtx1));
+          // iter#31 Option B: FieldValueAxis yields fused nodes as-self (they ARE the value)
+          // and legacy OBJECT_KEY's primitive child.
+          axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new FieldValueAxis(concurrentRtx1));
         } else {
           axis = new FilterAxis<>(new ChildAxis(concurrentRtx), new ObjectKeyFilter(concurrentRtx),
               new JsonNameFilter(concurrentRtx, pathSegment.name));
-          axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new ChildAxis(concurrentRtx1));
+          axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new FieldValueAxis(concurrentRtx1));
         }
       }
     } else {
       if (lastPathSegmentIsArray) {
         axis = new ChildAxis(concurrentRtx);
       } else {
-        if (concurrentRtx.getKind() == NodeKind.ARRAY) {
+        if (cursorIsArrayLike) {
           axis = new FilterAxis<>(new NestedAxis(new ChildAxis(concurrentRtx), new ChildAxis(concurrentRtx)),
               new ObjectKeyFilter(concurrentRtx), new JsonNameFilter(concurrentRtx, pathSegment.name));
-          axis = new NestedAxis(axis, new ChildAxis(concurrentRtx));
+          axis = new NestedAxis(axis, new FieldValueAxis(concurrentRtx));
         } else {
           axis = new FilterAxis<>(new ChildAxis(concurrentRtx), new ObjectKeyFilter(concurrentRtx),
               new JsonNameFilter(concurrentRtx, pathSegment.name));
-          axis = new NestedAxis(axis, new ChildAxis(concurrentRtx));
+          axis = new NestedAxis(axis, new FieldValueAxis(concurrentRtx));
         }
       }
     }
+    // between two consecutive non-array path segments the previous step
+    // already lands the cursor on a fused {@code OBJECT_NAMED_*} record (which under fusion
+    // IS the value), so we need a "step into the value" that is a no-op for fused records and
+    // a first-child descent for legacy {@code OBJECT_KEY}. {@link FieldValueAxis} unifies both.
+    // For an array path segment the cursor sits on {@code OBJECT_NAMED_ARRAY} (fusion) or
+    // {@code OBJECT_KEY} whose first child is the {@code ARRAY} (legacy) — descending into the
+    // anonymous element OBJECT requires one {@link ChildAxis} step in either mode. Picking the
+    // bridge axis off the *current* segment keeps both modes correct (HFT contract: one axis
+    // alloc per segment, no branchy hot-path scaffolding).
     for (int i = 0, size = pathSegments.size(); i < size; i++) {
       pathSegment = pathSegments.pop();
+      final boolean currentSegmentIsArray = pathSegment.isArray;
 
-      if (!pathSegment.isArray) {
+      if (!currentSegmentIsArray) {
         if (lastPathSegmentIsArray) {
           axis = new NestedAxis(axis,
               new FilterAxis<>(new NestedAxis(new ChildAxis(concurrentRtx), new ChildAxis(concurrentRtx)),
@@ -390,9 +434,16 @@ class DerefDescendantExpr implements Expr {
       }
 
       if (i == size - 1) {
-        axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new ChildAxis(concurrentRtx1));
-      } else {
+        axis = new NestedAxis(new ConcurrentAxis<>(concurrentRtx1, axis), new FieldValueAxis(concurrentRtx1));
+      } else if (currentSegmentIsArray) {
+        // After the array segment we are at OBJECT_NAMED_ARRAY (fusion) or OBJECT_KEY whose
+        // value is the ARRAY (legacy). One ChildAxis enters the anonymous element OBJECT.
         axis = new NestedAxis(axis, new ChildAxis(concurrentRtx));
+      } else {
+        // After a non-array name segment the FilterAxis match left the cursor on the fused
+        // OBJECT_NAMED_* (fusion) or the legacy OBJECT_KEY (legacy). FieldValueAxis bridges
+        // both: self-emit for fused, first-child descent into the OBJECT for legacy.
+        axis = new NestedAxis(axis, new FieldValueAxis(concurrentRtx));
       }
     }
 

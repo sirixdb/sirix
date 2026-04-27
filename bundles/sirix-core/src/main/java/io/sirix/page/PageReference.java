@@ -30,7 +30,6 @@ import io.sirix.settings.Constants;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * <p>
@@ -65,12 +64,6 @@ public final class PageReference {
   private List<PageFragmentKey> pageFragments;
 
   private int hash;
-
-  /**
-   * Guard count tracks active PageGuards referencing this page. Pages can only be evicted when
-   * guardCount == 0.
-   */
-  private final AtomicInteger guardCount = new AtomicInteger(0);
 
   /**
    * Default constructor setting up an uninitialized page reference.

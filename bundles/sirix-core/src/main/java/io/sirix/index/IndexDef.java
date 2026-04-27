@@ -15,9 +15,11 @@ import org.jspecify.annotations.Nullable;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -50,6 +52,11 @@ public final class IndexDef implements Materializable {
 
   private static final QNm HNSW_EF_SEARCH_ATTRIBUTE = new QNm("hnswEfSearch");
 
+  // Projection-index tags
+  private static final QNm PROJECTION_FIELDS_TAG = new QNm("projectionFields");
+  private static final QNm PROJECTION_FIELD_TAG = new QNm("projectionField");
+  private static final QNm PROJECTION_FIELD_TYPE_ATTRIBUTE = new QNm("contentType");
+
   public static final QNm INDEX_TAG = new QNm("index");
 
   private DbType dbType;
@@ -76,6 +83,25 @@ public final class IndexDef implements Materializable {
   private int hnswEfConstruction = 200;
 
   private int hnswEfSearch = 50;
+
+  /**
+   * Projection-index state. {@link #paths} holds exactly one entry — the
+   * projection's root path (e.g. {@code $doc[]}) — while
+   * {@link #projectionFields} is an ordered list of the declared sub-field
+   * paths, each paired with its declared value type. The ordering matters:
+   * column layout in every leaf page mirrors this list, so look-ups at
+   * scan time are {@code fields.get(i) → leafPage.longCol[i]} and friends
+   * without a hash probe.
+   */
+  private final ArrayList<Path<QNm>> projectionFields = new ArrayList<>();
+
+  /**
+   * Per-field declared value type, index-aligned with
+   * {@link #projectionFields}. Determines the leaf-page column kind:
+   * numeric → packed {@code long[]}, boolean → bit array,
+   * string → dict-id {@code int[]} with a per-leaf local dictionary.
+   */
+  private final ArrayList<Type> projectionFieldTypes = new ArrayList<>();
 
   public enum DbType {
     XML,
@@ -164,6 +190,41 @@ public final class IndexDef implements Materializable {
     this.dbType = dbType;
   }
 
+  /**
+   * Projection index. Stores a covering index over {@code rootPath} with
+   * one column per declared field in {@code fieldPaths}, in order.
+   * {@code fieldTypes} is index-aligned to {@code fieldPaths} and declares
+   * each column's value type (numeric/boolean/string) so the HOT leaf
+   * layout can pick the right primitive column shape.
+   *
+   * @param rootPath      projection root (e.g. {@code $doc[]}) — every
+   *                      descendant that matches this path contributes
+   *                      one row to the index.
+   * @param fieldPaths    ordered field sub-paths relative to
+   *                      {@code rootPath}; duplicates rejected by
+   *                      caller. Order matters — it's the leaf-page
+   *                      column order at scan time.
+   * @param fieldTypes    one type per {@code fieldPaths} entry.
+   * @param indexDefNo    stable id slot for this index in the resource's
+   *                      index catalogue.
+   * @param dbType        XML / JSON — the projection is shaped by the
+   *                      shredder, same as other indexes.
+   */
+  IndexDef(final Path<QNm> rootPath, final List<Path<QNm>> fieldPaths,
+      final List<Type> fieldTypes, final int indexDefNo, final DbType dbType) {
+    if (fieldPaths.size() != fieldTypes.size()) {
+      throw new IllegalArgumentException(
+          "projection field-path count (" + fieldPaths.size()
+              + ") must match field-type count (" + fieldTypes.size() + ")");
+    }
+    type = IndexType.PROJECTION;
+    this.paths.add(requireNonNull(rootPath));
+    this.projectionFields.addAll(fieldPaths);
+    this.projectionFieldTypes.addAll(fieldTypes);
+    id = indexDefNo;
+    this.dbType = dbType;
+  }
+
   @Override
   public Node<?> materialize() throws DocumentException {
     final FragmentHelper tmp = new FragmentHelper();
@@ -195,6 +256,18 @@ public final class IndexDef implements Materializable {
         tmp.content(path.toString()); // TODO
         tmp.closeElement();
       }
+    }
+
+    if (type == IndexType.PROJECTION && !projectionFields.isEmpty()) {
+      tmp.openElement(PROJECTION_FIELDS_TAG);
+      for (int i = 0, n = projectionFields.size(); i < n; i++) {
+        tmp.openElement(PROJECTION_FIELD_TAG);
+        tmp.attribute(PROJECTION_FIELD_TYPE_ATTRIBUTE,
+            new Una(projectionFieldTypes.get(i).toString()));
+        tmp.content(projectionFields.get(i).toString());
+        tmp.closeElement();
+      }
+      tmp.closeElement();
     }
 
     if (!excluded.isEmpty()) {
@@ -321,6 +394,20 @@ public final class IndexDef implements Materializable {
             if (s.length() > 0)
               excluded.add(new QNm(s));
           }
+        } else if (childName.equals(PROJECTION_FIELDS_TAG)) {
+          try (Stream<? extends Node<?>> fieldNodes = child.getChildren()) {
+            Node<?> fieldNode;
+            while ((fieldNode = fieldNodes.next()) != null) {
+              if (!fieldNode.getName().equals(PROJECTION_FIELD_TAG)) continue;
+              final Node<?> typeAttr = fieldNode.getAttribute(PROJECTION_FIELD_TYPE_ATTRIBUTE);
+              final Type fieldType = typeAttr != null
+                  ? resolveType(typeAttr.getValue().stringValue())
+                  : Type.STR;
+              projectionFields.add(Path.parse(fieldNode.getValue().stringValue(),
+                  dbType == DbType.JSON ? PathParser.Type.JSON : PathParser.Type.XML));
+              projectionFieldTypes.add(fieldType);
+            }
+          }
         }
         // }
       }
@@ -351,6 +438,40 @@ public final class IndexDef implements Materializable {
 
   public boolean isVectorIndex() {
     return type == IndexType.VECTOR;
+  }
+
+  public boolean isProjectionIndex() {
+    return type == IndexType.PROJECTION;
+  }
+
+  /**
+   * Ordered list of projection-index sub-field paths. Index {@code i} in the
+   * returned list matches column {@code i} in every leaf page of the
+   * projection's HOT sub-tree. Only meaningful for {@link IndexType#PROJECTION}.
+   */
+  public List<Path<QNm>> getProjectionFields() {
+    return Collections.unmodifiableList(projectionFields);
+  }
+
+  /**
+   * Value types for the projection's columns, index-aligned with
+   * {@link #getProjectionFields()}. Drives the leaf-page column layout:
+   * {@code INR}/{@code LON} → packed {@code long[]}, {@code BOOL} → bit
+   * array, {@code STR} → dict-id {@code int[]} plus per-leaf local dict.
+   */
+  public List<Type> getProjectionFieldTypes() {
+    return Collections.unmodifiableList(projectionFieldTypes);
+  }
+
+  /**
+   * For a projection index, the declared root path (e.g. {@code $doc[]});
+   * every descendant matching this path contributes a row. Returns
+   * {@code null} when the index isn't a projection or its root hasn't
+   * been declared.
+   */
+  public Path<QNm> getProjectionRootPath() {
+    if (type != IndexType.PROJECTION || paths.isEmpty()) return null;
+    return paths.iterator().next();
   }
 
   public int getDimension() {

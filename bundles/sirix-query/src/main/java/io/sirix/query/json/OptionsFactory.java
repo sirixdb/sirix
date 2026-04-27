@@ -23,6 +23,7 @@ class OptionsFactory {
     final Sequence dateTimeSequence = providedOptions.get(new QNm("commitTimestamp"));
     final Sequence useTextCompressionSequence = providedOptions.get(new QNm("useTextCompression"));
     final Sequence buildPathSummarySequence = providedOptions.get(new QNm("buildPathSummary"));
+    final Sequence buildPathStatisticsSequence = providedOptions.get(new QNm("buildPathStatistics"));
     final Sequence storageTypeSequence = providedOptions.get(new QNm("storageType"));
     final Sequence useDeweyIDsSequence = providedOptions.get(new QNm("useDeweyIDs"));
     final Sequence hashTypeSequence = providedOptions.get(new QNm("hashType"));
@@ -40,6 +41,9 @@ class OptionsFactory {
     final boolean buildPathSummary = buildPathSummarySequence == null
         ? defaultOptions.buildPathSummary()
         : buildPathSummarySequence.booleanValue();
+    final boolean buildPathStatistics = buildPathStatisticsSequence == null
+        ? defaultOptions.buildPathStatistics()
+        : buildPathStatisticsSequence.booleanValue();
     final StorageType storageType = storageTypeSequence == null
         ? defaultOptions.storageType()
         : StorageType.valueOf(storageTypeSequence.toString());
@@ -55,7 +59,8 @@ class OptionsFactory {
     final int numberOfNodesBeforeAutoCommit = numberOfNodesBeforeAutoCommitSequence == null
         ? defaultOptions.numberOfNodesBeforeAutoCommit()
         : ((Int64) numberOfNodesBeforeAutoCommitSequence).intValue();
-    return new Options(commitMessage, commitTimestamp, useTextCompression, buildPathSummary, storageType, useDeweyIDs,
+    return new Options(commitMessage, commitTimestamp, useTextCompression, buildPathSummary,
+        buildPathStatistics, storageType, useDeweyIDs,
         hashType, versioningType, numberOfNodesBeforeAutoCommit);
   }
 }

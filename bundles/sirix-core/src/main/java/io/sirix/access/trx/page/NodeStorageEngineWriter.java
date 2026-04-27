@@ -28,17 +28,15 @@ import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.xml.XmlIndexController;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.api.StorageEngineWriter;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.IndexLogKey;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.PageGuard;
 import io.sirix.cache.TransactionIntentLog;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
 import io.sirix.io.SerializationBufferPool;
 import io.sirix.node.PooledBytesOut;
-import io.sirix.utils.OS;
 import io.sirix.index.IndexType;
 import io.sirix.io.Writer;
 import io.sirix.node.DeletedNode;
@@ -1325,9 +1323,7 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
 
       if (reference.getKey() == Constants.NULL_ID_LONG) {
         // Direct allocation (no pool)
-        final MemorySegmentAllocator allocator = OS.isWindows()
-            ? WindowsMemorySegmentAllocator.getInstance()
-            : LinuxMemorySegmentAllocator.getInstance();
+        final MemorySegmentAllocator allocator = Allocators.getInstance();
 
         final KeyValueLeafPage completePage = new KeyValueLeafPage(recordPageKey, indexType,
             getResourceSession().getResourceConfig(), storageEngineReader.getRevisionNumber(), allocator.allocate(SIXTYFOUR_KB),

@@ -179,9 +179,18 @@ public final class ResourceConfiguration {
   private static final VersioningType VERSIONING = VersioningType.SLIDING_SNAPSHOT;
 
   /**
-   * Type of hashing.
+   * Type of hashing. Default is {@link HashType#ROLLING} (incremental Merkle-tree
+   * hash maintained on structural mutations). Override at JVM level via
+   * {@code -Dsirix.hashType=NONE} when you want to elide per-record hash bytes
+   * entirely (bench workloads); legacy tests rely on the ROLLING default.
+   *
+   * <p>The per-record hash field is stored as a signed-varint (1 byte for hash=0,
+   * up to 10 for a real 64-bit ROLLING hash) — when the resource is configured
+   * {@code HashType.NONE} the bench writer pays only 1 byte per record for the
+   * field, vs. 8 bytes under the previous fixed-width layout.
    */
-  private static final HashType HASH_TYPE = HashType.ROLLING;
+  private static final HashType HASH_TYPE =
+      HashType.fromString(System.getProperty("sirix.hashType", "ROLLING"));
 
   /**
    * Versions to restore.
@@ -194,7 +203,9 @@ public final class ResourceConfiguration {
   private static final RecordSerializer NODE_SERIALIZER = new NodeSerializerImpl();
 
   /**
-   * The current binary encoding version.
+   * The current binary encoding version. Single version (V0) — the on-disk
+   * format includes a version byte to reserve room for future bumps, but
+   * there are no alternative encodings to select at runtime.
    */
   public static final BinaryEncodingVersion BINARY_ENCODING_VERSION = BinaryEncodingVersion.V0;
 
@@ -245,6 +256,15 @@ public final class ResourceConfiguration {
    * Determines if a path summary should be build and kept up to date or not.
    */
   public final boolean withPathSummary;
+
+  /**
+   * Determines if per-path value statistics (count, nullCount, sum, min, max, HLL) are
+   * maintained on the PathSummary nodes. Requires {@link #withPathSummary} to be true.
+   * When enabled, aggregate queries over unfiltered paths ({@code sum/avg/min/max},
+   * {@code countDistinct}) can short-circuit via the PathSummary without scanning data
+   * pages — typically microseconds instead of seconds.
+   */
+  public final boolean withPathStatistics;
 
   /**
    * Persistents records / commonly nodes.
@@ -391,6 +411,7 @@ public final class ResourceConfiguration {
     maxNumberOfRevisionsToRestore = builder.maxNumberOfRevisionsToRestore;
     useTextCompression = builder.useTextCompression;
     withPathSummary = builder.pathSummary;
+    withPathStatistics = builder.pathStatistics;
     areDeweyIDsStored = builder.useDeweyIDs;
     deweyIdSiblingDistance = builder.deweyIdSiblingDistance;
     recordPersister = builder.persistenter;
@@ -554,7 +575,8 @@ public final class ResourceConfiguration {
       "numbersOfRevisiontoRestore", "byteHandlerClasses", "storageKind", "hashKind", "hashFunction", "compression",
       "pathSummary", "resourceID", "deweyIDsStored", "persistenter", "storeDiffs", "customCommitTimestamps",
       "storeNodeHistory", "storeChildCount", "stringCompressionType", "indexBackendType", "deweyIdSiblingDistance",
-      "verifyChecksumsOnRead", "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath"};
+      "verifyChecksumsOnRead", "hashAlgorithm", "validTimeConfig", "validFromPath", "validToPath",
+      "pathStatistics"};
 
   /**
    * Serialize the configuration.
@@ -624,6 +646,8 @@ public final class ResourceConfiguration {
         jsonWriter.name(JSONNAMES[24]).value(config.validTimeConfig.getValidToPath());
         jsonWriter.endObject();
       }
+      // Path statistics.
+      jsonWriter.name(JSONNAMES[25]).value(config.withPathStatistics);
       jsonWriter.endObject();
     } catch (final IOException e) {
       throw new SirixIOException(e);
@@ -768,7 +792,9 @@ public final class ResourceConfiguration {
 
       // Valid time configuration (optional for backward compatibility with older configs)
       ValidTimeConfig validTimeConfig = null;
-      if (jsonReader.hasNext()) {
+      // Path statistics flag (optional for backward compatibility with older configs)
+      boolean pathStatistics = false;
+      while (jsonReader.hasNext()) {
         name = jsonReader.nextName();
         if (name.equals(JSONNAMES[22])) {
           jsonReader.beginObject();
@@ -786,6 +812,8 @@ public final class ResourceConfiguration {
           if (validFromPath != null && validToPath != null) {
             validTimeConfig = new ValidTimeConfig(validFromPath, validToPath);
           }
+        } else if (name.equals(JSONNAMES[25])) {
+          pathStatistics = jsonReader.nextBoolean();
         }
       }
 
@@ -817,7 +845,8 @@ public final class ResourceConfiguration {
              .deweyIdSiblingDistance(deweyIdSiblingDistance)
              .verifyChecksumsOnRead(verifyChecksumsOnRead)
              .hashAlgorithm(hashAlgorithm)
-             .validTimeConfig(validTimeConfig);
+             .validTimeConfig(validTimeConfig)
+             .buildPathStatistics(pathStatistics);
 
       // Deserialized instance.
       final ResourceConfiguration config = new ResourceConfiguration(builder);
@@ -901,6 +930,12 @@ public final class ResourceConfiguration {
     private boolean pathSummary;
 
     /**
+     * Determines if per-path value statistics are maintained on PathSummary nodes.
+     * Requires {@link #pathSummary} to be {@code true}.
+     */
+    private boolean pathStatistics;
+
+    /**
      * Determines whether child count should be tracked or not.
      */
     private boolean storeChildCount;
@@ -967,11 +1002,25 @@ public final class ResourceConfiguration {
       return this;
     }
 
+    // White-box per-region encoders keep scans SARGable, so outer block compression is off by
+    // default; set -Dsirix.compression=lz4 for storage-size A/Bs that re-enable the legacy pipeline.
     private ByteHandlerPipeline selectDefaultByteHandler() {
-      if (!FFILz4Compressor.isNativeAvailable()) {
-        throw new IllegalStateException("Native LZ4 library not available — install liblz4");
+      final String choice = System.getProperty("sirix.compression", "none").toLowerCase();
+      switch (choice) {
+        case "none":
+          return new ByteHandlerPipeline();
+        case "lz4":
+          if (!FFILz4Compressor.isNativeAvailable()) {
+            // Graceful degrade: missing native → uncompressed pages, operator sees a warning.
+            System.err.println(
+                "[sirix] WARN: liblz4 not available, falling back to uncompressed pages.");
+            return new ByteHandlerPipeline();
+          }
+          return new ByteHandlerPipeline(new FFILz4Compressor());
+        default:
+          throw new IllegalArgumentException(
+              "Unknown sirix.compression value: '" + choice + "' (expected: none, lz4)");
       }
-      return new ByteHandlerPipeline(new FFILz4Compressor());
     }
 
     /**
@@ -1094,6 +1143,27 @@ public final class ResourceConfiguration {
      */
     public Builder buildPathSummary(final boolean buildPathSummary) {
       pathSummary = buildPathSummary;
+      return this;
+    }
+
+    /**
+     * Determines if per-path value statistics (count, nullCount, sum, min, max, HLL)
+     * are maintained on PathSummary nodes. Requires {@code buildPathSummary(true)}.
+     *
+     * <p>When enabled, aggregate queries ({@code sum/avg/min/max}, {@code countDistinct})
+     * over unfiltered paths short-circuit through the PathSummary — microseconds instead
+     * of a full scan. Costs ~10-20% write-path overhead on top of plain PathSummary
+     * maintenance.
+     *
+     * @return reference to the builder object
+     * @throws IllegalStateException if enabled without a path summary
+     */
+    public Builder buildPathStatistics(final boolean buildPathStatistics) {
+      if (buildPathStatistics && !pathSummary) {
+        throw new IllegalStateException(
+            "buildPathStatistics requires buildPathSummary(true) — enable the path summary first");
+      }
+      this.pathStatistics = buildPathStatistics;
       return this;
     }
 

@@ -545,7 +545,7 @@ public final class JsonConcurrentAccessTest {
 
       // Open reader on the current revision
       try (final var rtx = session.beginNodeReadOnlyTrx(revBeforeModification)) {
-        // Navigate to "name" object key, then to its string value child
+        // Navigate to "name" object key, then to its string value child (legacy) or read inline (fused).
         rtx.moveToDocumentRoot();
         assertTrue(rtx.moveToFirstChild()); // object
         assertTrue(rtx.moveToFirstChild()); // first object key ("name" or "items")
@@ -553,8 +553,13 @@ public final class JsonConcurrentAccessTest {
         long nameValueKey = -1;
         do {
           if (rtx.isObjectKey() && "name".equals(rtx.getName().getLocalName())) {
-            assertTrue(rtx.moveToFirstChild()); // string value
-            nameValueKey = rtx.getNodeKey();
+            if (rtx.getKind().isFusedObjectNamed()) {
+              // Option B: value is inline on the fused record; key itself is the value carrier.
+              nameValueKey = rtx.getNodeKey();
+            } else {
+              assertTrue(rtx.moveToFirstChild()); // string value
+              nameValueKey = rtx.getNodeKey();
+            }
             break;
           }
         } while (rtx.moveToRightSibling());

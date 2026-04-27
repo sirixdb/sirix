@@ -10,12 +10,8 @@ import io.brackit.query.atomic.Str;
 import io.sirix.index.cas.CASIndexListener;
 import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.NumberNode;
-import io.sirix.node.json.ObjectBooleanNode;
-import io.sirix.node.json.ObjectNumberNode;
 import io.sirix.node.immutable.json.ImmutableBooleanNode;
-import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
 import io.brackit.query.atomic.QNm;
 import org.jspecify.annotations.Nullable;
 
@@ -43,7 +39,9 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
       return;
     }
     switch (nodeKind) {
-      case STRING_VALUE, OBJECT_STRING_VALUE, BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE, NUMBER_VALUE, OBJECT_NUMBER_VALUE ->
+      case STRING_VALUE, BOOLEAN_VALUE, NUMBER_VALUE,
+          // Fused kinds carry primitive value inline — extractValue upstream produced the Str.
+          OBJECT_NAMED_STRING, OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER ->
         indexListenerDelegate.listen(type, nodeKey, pathNodeKey, value);
       default -> {
       }
@@ -52,7 +50,7 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
 
   private static Str extractValue(final ImmutableNode node) {
     switch (node.getKind()) {
-      case STRING_VALUE, OBJECT_STRING_VALUE -> {
+      case STRING_VALUE -> {
         // Handle both mutable ValueNode and immutable ImmutableValueNode
         final String value;
         if (node instanceof ValueNode valueNode) {
@@ -77,19 +75,6 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
             ? STR_TRUE
             : STR_FALSE;
       }
-      case OBJECT_BOOLEAN_VALUE -> {
-        final boolean objBoolValue;
-        if (node instanceof ObjectBooleanNode objBoolNode) {
-          objBoolValue = objBoolNode.getValue();
-        } else if (node instanceof ImmutableObjectBooleanNode immutableObjBoolNode) {
-          objBoolValue = immutableObjBoolNode.getValue();
-        } else {
-          throw new IllegalStateException("Unexpected node type for object boolean value: " + node.getClass());
-        }
-        return objBoolValue
-            ? STR_TRUE
-            : STR_FALSE;
-      }
       case NUMBER_VALUE -> {
         final Number numValue;
         if (node instanceof NumberNode numNode) {
@@ -100,17 +85,6 @@ public final class JsonCASIndexListener implements PathNodeKeyChangeListener {
           throw new IllegalStateException("Unexpected node type for number value: " + node.getClass());
         }
         return new Str(String.valueOf(numValue));
-      }
-      case OBJECT_NUMBER_VALUE -> {
-        final Number objNumValue;
-        if (node instanceof ObjectNumberNode objNumNode) {
-          objNumValue = objNumNode.getValue();
-        } else if (node instanceof ImmutableObjectNumberNode immutableObjNumNode) {
-          objNumValue = immutableObjNumNode.getValue();
-        } else {
-          throw new IllegalStateException("Unexpected node type for object number value: " + node.getClass());
-        }
-        return new Str(String.valueOf(objNumValue));
       }
       default -> {
         return null;

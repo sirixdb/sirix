@@ -88,7 +88,7 @@ abstract class AbstractJsonPathWalker extends ScopeWalker {
           : queryPathSegment.pathSegmentName(), pathSummary,
           !queryPathSegment.arrayIndexes().isEmpty()
               ? NodeKind.ARRAY
-              : NodeKind.OBJECT_KEY);
+              : NodeKind.OBJECT_NAMED_OBJECT);
 
       var pathNodeKeysToRemove =
           pathNodeKeys.stream()

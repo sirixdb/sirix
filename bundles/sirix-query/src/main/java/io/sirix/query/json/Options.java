@@ -7,6 +7,7 @@ import io.sirix.settings.VersioningType;
 import java.time.Instant;
 
 public record Options(String commitMessage, Instant commitTimestamp, boolean useTextCompression,
-    boolean buildPathSummary, StorageType storageType, boolean useDeweyIDs, HashType hashType,
+    boolean buildPathSummary, boolean buildPathStatistics,
+    StorageType storageType, boolean useDeweyIDs, HashType hashType,
     VersioningType versioningType, int numberOfNodesBeforeAutoCommit) {
 }

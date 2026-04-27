@@ -136,8 +136,11 @@ class SirixVerticleJsonTest {
 
                 val url = "$server"
 
+                // Cat-1: post-fusion (iter#32) the foo array's OBJECT_KEY+ARRAY pair collapses
+                // into one OBJECT_NAMED_ARRAY (nodeKey=2). Pre-fusion the foo array was at
+                // nodeKey 3; sdb:select-item must now select 2 to target the array.
                 val updateQuery = """
-                        {"query":"let ${"$"}doc := jn:doc('database','json-resource') return ( append json {\"tadaaa\":true()} into sdb:select-item(${"$"}doc, 3) )",
+                        {"query":"let ${"$"}doc := jn:doc('database','json-resource') return ( append json {\"tadaaa\":true()} into sdb:select-item(${"$"}doc, 2) )",
                          "commitMessage":"this is a commit message",
                          "commitTimestamp":"2014-01-01T12:12:12"}
                      """.trimIndent()
@@ -227,7 +230,10 @@ class SirixVerticleJsonTest {
                     assertEquals(200, httpResponse.statusCode())
                 }
 
-                httpResponse = client.headAbs("$server$serverPath?nodeId=6").putHeader(
+                // Cat-1: post-fusion (iter#32) the value 2.33 (3rd element of foo array)
+                // shifts from nodeId=6 to nodeId=5 because OBJECT_KEY+ARRAY pair "foo" collapses
+                // into one OBJECT_NAMED_ARRAY record.
+                httpResponse = client.headAbs("$server$serverPath?nodeId=5").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
@@ -239,7 +245,7 @@ class SirixVerticleJsonTest {
                         {"foo":["bar",null,2.33,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
                     """.trimIndent()
 
-                val url = "$server$serverPath?nodeId=6&insert=asRightSibling"
+                val url = "$server$serverPath?nodeId=5&insert=asRightSibling"
 
                 httpResponse = client.postAbs(url).putHeader(
                     HttpHeaders.AUTHORIZATION
@@ -387,7 +393,10 @@ class SirixVerticleJsonTest {
                     assertEquals(200, httpResponse.statusCode())
                 }
 
-                httpResponse = client.headAbs("$server$serverPath?nodeId=6").putHeader(
+                // Cat-1: post-fusion (iter#32) the value 2.33 (3rd element of foo array)
+                // shifts from nodeId=6 to nodeId=5 because OBJECT_KEY+ARRAY pair "foo" collapses
+                // into one OBJECT_NAMED_ARRAY record.
+                httpResponse = client.headAbs("$server$serverPath?nodeId=5").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
@@ -399,7 +408,7 @@ class SirixVerticleJsonTest {
                         {"foo":["bar",null,2.33,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
                     """.trimIndent()
 
-                val url = "$server$serverPath?nodeId=6&insert=asRightSibling"
+                val url = "$server$serverPath?nodeId=5&insert=asRightSibling"
 
                 httpResponse = client.postAbs(url).putHeader(
                     HttpHeaders.AUTHORIZATION
@@ -423,8 +432,12 @@ class SirixVerticleJsonTest {
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").send().coAwait()
 
+                // Cat-1: post-fusion (iter#32) the document has 17 baseline nodes (was 25 pre-fusion)
+                // because OBJECT_KEY+value pairs collapse into one OBJECT_NAMED_*. The newly inserted
+                // tadaaa wrapper lands at nodeKey=18 (was 26). insertPositionNodeKey is the 2.33 leaf
+                // which is now at nodeKey=5 (was 6).
                 val expectedDiffJsonString = """
-                    {"database":"database","resource":"json-resource","old-revision":1,"new-revision":2,"diffs":[{"insert":{"nodeKey":26,"insertPositionNodeKey":6,"insertPosition":"asRightSibling","path":"/foo/[3]","type":"jsonFragment","data":"{\"tadaaa\":true}"}}]}
+                    {"database":"database","resource":"json-resource","old-revision":1,"new-revision":2,"diffs":[{"insert":{"nodeKey":18,"insertPositionNodeKey":5,"insertPosition":"asRightSibling","path":"/foo/[3]","type":"jsonFragment","data":"{\"tadaaa\":true}"}}]}
                 """.trimIndent()
 
                 testContext.verify {
@@ -1003,8 +1016,12 @@ class SirixVerticleJsonTest {
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendJson(jsonData).coAwait()
 
+                // Cat-1: post-fusion (iter#32) collapses OBJECT_KEY+value pairs into one
+                // OBJECT_NAMED_* record per primitive field and OBJECT_NAMED_OBJECT/ARRAY per
+                // structural field. Each object now uses 4 nodeKeys (was 9 pre-fusion), so
+                // nodeKey of the second object in the array shifts from 11 to 7.
                 val expectedJsonAnswer = """
-                    {"rest":[{"generic":1,"location":{"state":"NY","city":"New York"},"nodeKey":11}]}
+                    {"rest":[{"generic":1,"location":{"state":"NY","city":"New York"},"nodeKey":7}]}
                 """.trimIndent()
 
                 testContext.verify {
@@ -1087,8 +1104,10 @@ class SirixVerticleJsonTest {
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendJson(jsonData).coAwait()
 
+                // Cat-1: post-fusion (iter#32) collapses each OBJECT_KEY+value pair so the
+                // second object's nodeKey shifts from 11 to 7 (4 fewer keys per object).
                 val expectedJsonAnswer = """
-                    {"rest":[{"generic":1,"location":{"state":"NY","city":"New York"},"nodeKey":11}]}
+                    {"rest":[{"generic":1,"location":{"state":"NY","city":"New York"},"nodeKey":7}]}
                 """.trimIndent()
 
                 testContext.verify {
@@ -1171,8 +1190,10 @@ class SirixVerticleJsonTest {
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").sendJson(jsonData).coAwait()
 
+                // Cat-1: post-fusion (iter#32) collapses each OBJECT_KEY+value pair into one
+                // OBJECT_NAMED_* record so the second object's nodeKey shifts from 11 to 7.
                 val expectedJsonAnswer = """
-                    {"rest":[{"generic":1,"location":{"state":"CA","city":"Los Angeles"},"nodeKey":2},{"generic":1,"location":{"state":"NY","city":"New York"},"nodeKey":11}]}
+                    {"rest":[{"generic":1,"location":{"state":"CA","city":"Los Angeles"},"nodeKey":2},{"generic":1,"location":{"state":"NY","city":"New York"},"nodeKey":7}]}
                 """.trimIndent()
 
                 testContext.verify {
@@ -1327,8 +1348,11 @@ class SirixVerticleJsonTest {
                                 .toString(), "Bearer $accessToken"
                         ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").send().coAwait()
 
+                // Cat-1: post-fusion (iter#32) "foo" no longer needs a separate OBJECT_KEY +
+                // ARRAY pair — it's a single OBJECT_NAMED_ARRAY (nodeKey=2). The 3rd element
+                // (2.33) shifts from nodeKey=6 to nodeKey=5.
                 val expectedQueryResponse = """
-                    {"rest":[{"nodeKey":6}]}
+                    {"rest":[{"nodeKey":5}]}
                 """.trimIndent()
 
                 testContext.verify {
@@ -1479,7 +1503,9 @@ class SirixVerticleJsonTest {
                     assertEquals(200, response.statusCode())
                 }
 
-                response = client.headAbs("$server$serverPath?nodeId=6").putHeader(
+                // Cat-1: post-fusion (iter#32) the value 2.33 (3rd element of foo array)
+                // shifts from nodeId=6 to nodeId=5 because OBJECT_KEY+ARRAY pair "foo" collapses.
+                response = client.headAbs("$server$serverPath?nodeId=5").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
@@ -1487,7 +1513,7 @@ class SirixVerticleJsonTest {
 
                 var hashCode = response.getHeader(HttpHeaders.ETAG.toString())
 
-                val updateURLInsertAsRightSibling = "$server$serverPath?nodeId=6&insert=asRightSibling"
+                val updateURLInsertAsRightSibling = "$server$serverPath?nodeId=5&insert=asRightSibling"
 
                 response = client.postAbs(updateURLInsertAsRightSibling).putHeader(
                     HttpHeaders.AUTHORIZATION
@@ -1597,7 +1623,10 @@ class SirixVerticleJsonTest {
                     assertEquals(200, response.statusCode())
                 }
 
-                response = client.headAbs("$server$serverPath?nodeId=3").putHeader(
+                // Cat-1: post-fusion (iter#32) the foo array is the OBJECT_NAMED_ARRAY itself
+                // at nodeId=2 (was nodeId=3 pre-fusion). Insert-as-first-child must target the
+                // array, not what was previously the foo-key.
+                response = client.headAbs("$server$serverPath?nodeId=2").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.CONTENT_TYPE.toString(), "application/json")
@@ -1605,7 +1634,7 @@ class SirixVerticleJsonTest {
 
                 hashCode = response.getHeader(HttpHeaders.ETAG.toString())
 
-                val updateURLInsertAsFirstChild = "$server$serverPath?nodeId=3&insert=asFirstChild"
+                val updateURLInsertAsFirstChild = "$server$serverPath?nodeId=2&insert=asFirstChild"
 
                 response = client.postAbs(updateURLInsertAsFirstChild).putHeader(
                     HttpHeaders.AUTHORIZATION
@@ -1845,7 +1874,9 @@ class SirixVerticleJsonTest {
                     assertEquals(200, response.statusCode())
                 }
 
-                response = client.headAbs("$server$serverPath?nodeId=6").putHeader(
+                // Cat-1: post-fusion (iter#32) the value 2.33 (3rd element of foo array)
+                // shifts from nodeId=6 to nodeId=5 because OBJECT_KEY+ARRAY pair "foo" collapses.
+                response = client.headAbs("$server$serverPath?nodeId=5").putHeader(
                     HttpHeaders.AUTHORIZATION
                         .toString(), "Bearer $accessToken"
                 ).putHeader(HttpHeaders.ACCEPT.toString(), "application/json").send().coAwait()
@@ -1856,7 +1887,7 @@ class SirixVerticleJsonTest {
                         {"foo":["bar",null,2.33,{"tadaaa":true}],"bar":{"hello":"world","helloo":true},"baz":"hello","tada":[{"foo":"bar"},{"baz":false},"boo",{},[]]}
                     """.trimIndent()
 
-                val url = "$server$serverPath?nodeId=6&insert=asRightSibling"
+                val url = "$server$serverPath?nodeId=5&insert=asRightSibling"
 
                 response = client.postAbs(url).putHeader(
                     HttpHeaders.AUTHORIZATION
@@ -2024,12 +2055,13 @@ class SirixVerticleJsonTest {
                 val rootValue = initialJson.getValue("value")
                 println("Root value type: ${rootValue?.javaClass?.simpleName}")
 
-                // The root value should contain data key pointing to array
-                // Let's use a simpler approach: query nodeId=3 which should be the data array
-                // based on the structure: 1=root obj, 2=data key, 3=data array
+                // The root value should contain data key pointing to array.
+                // Cat-1: post-fusion (iter#32) the OBJECT_KEY+ARRAY pair "data" collapses into
+                // one OBJECT_NAMED_ARRAY (nodeId=2). Pre-fusion structure was 1=root obj, 2=data
+                // key, 3=data array; post-fusion 1=root, 2=data array, 3=first element.
 
                 // Get the data array directly (maxLevel=2 to include children)
-                httpResponse = client.getAbs("$server/pagination-test/array-resource?nodeId=3&maxLevel=2&maxChildren=10&withMetaData=nodeKeyAndChildCount")
+                httpResponse = client.getAbs("$server/pagination-test/array-resource?nodeId=2&maxLevel=2&maxChildren=10&withMetaData=nodeKeyAndChildCount")
                     .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken")
                     .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
                     .send().coAwait()
@@ -2135,9 +2167,11 @@ class SirixVerticleJsonTest {
                 testContext.verify { assertEquals(200, httpResponse.statusCode()) }
                 println("Update response: ${httpResponse.statusCode()}")
 
-                // Get data array directly using nodeId=3 (1=root, 2=data key, 3=data array)
-                // maxLevel=2 to include children
-                httpResponse = client.getAbs("$server/historical-test/array-resource?revision=$revision1&nodeId=3&maxLevel=2&maxChildren=5&withMetaData=nodeKeyAndChildCount")
+                // Get data array directly. Cat-1: post-fusion (iter#32) the OBJECT_KEY+ARRAY
+                // pair "data" collapses into one OBJECT_NAMED_ARRAY (nodeId=2). Pre-fusion
+                // structure was 1=root obj, 2=data key, 3=data array; post-fusion 1=root,
+                // 2=data array. maxLevel=2 to include children.
+                httpResponse = client.getAbs("$server/historical-test/array-resource?revision=$revision1&nodeId=2&maxLevel=2&maxChildren=5&withMetaData=nodeKeyAndChildCount")
                     .putHeader(HttpHeaders.AUTHORIZATION.toString(), "Bearer $accessToken")
                     .putHeader(HttpHeaders.ACCEPT.toString(), "application/json")
                     .send().coAwait()

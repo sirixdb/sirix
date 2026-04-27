@@ -1,9 +1,7 @@
 package io.sirix.io.bytepipe;
 
-import io.sirix.cache.LinuxMemorySegmentAllocator;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.MemorySegmentAllocator;
-import io.sirix.cache.WindowsMemorySegmentAllocator;
-import io.sirix.utils.OS;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -102,9 +100,7 @@ public final class FFILz4Compressor implements ByteHandler {
   private final CompressionMode compressionMode;
 
   // Memory segment allocator for decompression buffers
-  private static final MemorySegmentAllocator ALLOCATOR = OS.isWindows()
-      ? WindowsMemorySegmentAllocator.getInstance()
-      : LinuxMemorySegmentAllocator.getInstance();
+  private static final MemorySegmentAllocator ALLOCATOR = Allocators.getInstance();
 
   /**
    * Default initial size for decompression buffer (128KB - typical page size after decompression).
@@ -568,52 +564,49 @@ public final class FFILz4Compressor implements ByteHandler {
 
     int sizeHeader = compressed.get(JAVA_INT_UNALIGNED, 0);
 
-    // Negative size indicates uncompressed data (stored as-is for small/incompressible data)
+    // Restored the shared pool for decompression buffers. Arena.ofShared() per
+    // decompression was correct but added ~40 s of mmap/close overhead per
+    // 1 M-page scan (2.5× slowdown). The pool path is fast (asSlice from a
+    // pre-mmap'd region) but has a known cross-thread recycling race under
+    // 20-way parallelism. The permanent fix is the Umbra-style
+    // FrameSlotAllocator (fixed-address frames + optimistic versioned reads);
+    // until that lands the pool path is the performant default.
+
     if (sizeHeader < 0) {
       int uncompressedSize = -sizeHeader;
       MemorySegment buffer = ALLOCATOR.allocate(uncompressedSize);
       MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
 
       final MemorySegment backingBuffer = buffer;
-      return new DecompressionResult(buffer, // segment
-          backingBuffer, // backingBuffer (same as segment)
-          () -> ALLOCATOR.release(backingBuffer), // releaser
-          new java.util.concurrent.atomic.AtomicBoolean(false) // ownershipTransferred
-      );
+      return new DecompressionResult(buffer, backingBuffer,
+          () -> ALLOCATOR.release(backingBuffer),
+          new java.util.concurrent.atomic.AtomicBoolean(false));
     }
 
     int decompressedSize = sizeHeader;
 
-    // Use page allocator - buffer lifetime matches page lifetime for zero-copy
-    // This replaces the pool-based approach to enable ownership transfer
     MemorySegment buffer = ALLOCATOR.allocate(decompressedSize);
 
-    // FFI requires native memory - handle heap segments
     MemorySegment nativeCompressed;
     Arena tempArena = null;
     if (compressed.isNative()) {
       nativeCompressed = compressed;
     } else {
-      // Copy heap segment to native memory for FFI call
       tempArena = Arena.ofConfined();
       nativeCompressed = tempArena.allocate(compressed.byteSize());
       MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
     }
 
     try {
-      // Decompress - choose between safe (validated) and fast (unvalidated) modes
       int actualSize;
       if (USE_FAST_DECOMPRESS) {
-        // Fast mode: ~10-15% faster, doesn't validate compressed buffer bounds
-        // Returns bytes read from source (not written to dest)
         int bytesRead = decompressSegmentFast(nativeCompressed.asSlice(4), buffer, decompressedSize);
         if (bytesRead < 0) {
           ALLOCATOR.release(buffer);
           throw new RuntimeException("LZ4 fast decompression failed: " + bytesRead);
         }
-        actualSize = decompressedSize; // Fast mode always writes exactly originalSize bytes
+        actualSize = decompressedSize;
       } else {
-        // Safe mode: validates compressed buffer bounds
         actualSize = decompressSegment(nativeCompressed.asSlice(4), buffer, (int) nativeCompressed.byteSize() - 4);
         if (actualSize < 0) {
           ALLOCATOR.release(buffer);
@@ -625,18 +618,10 @@ public final class FFILz4Compressor implements ByteHandler {
         LOGGER.warn("Decompressed size mismatch: expected {}, got {}", decompressedSize, actualSize);
       }
 
-      // Create result with:
-      // - segment: the actual decompressed data slice
-      // - backingBuffer: the full buffer for zero-copy ownership transfer
-      // - releaser: returns buffer to allocator (called unless ownership transferred)
-      // - ownershipTransferred: tracks if page took ownership
       final MemorySegment backingBuffer = buffer;
-
-      return new DecompressionResult(buffer.asSlice(0, actualSize), // segment (may be smaller than allocated)
-          backingBuffer, // backingBuffer (full allocation)
-          () -> ALLOCATOR.release(backingBuffer), // releaser
-          new java.util.concurrent.atomic.AtomicBoolean(false) // ownershipTransferred
-      );
+      return new DecompressionResult(buffer.asSlice(0, actualSize), backingBuffer,
+          () -> ALLOCATOR.release(backingBuffer),
+          new java.util.concurrent.atomic.AtomicBoolean(false));
     } finally {
       if (tempArena != null) {
         tempArena.close();

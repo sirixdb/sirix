@@ -2,6 +2,8 @@ package io.sirix.io;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.ResourceConfiguration;
+import io.sirix.io.bytepipe.ByteHandlerPipeline;
+import io.sirix.io.bytepipe.FFILz4Compressor;
 import io.sirix.io.filechannel.FileChannelStorage;
 import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
@@ -61,8 +63,18 @@ class UberPageCorruptionTest {
     tempDir = Files.createTempDirectory("sirix-uberpage-corruption-");
     final Path dataDir = tempDir.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath());
     Files.createDirectories(dataDir);
+    // This class specifically tests bit-rot detection on LZ4-compressed UberPage
+    // beacons — the BitFlipTests and CorruptDataLength nested classes rely on the
+    // decompressor catching corruption. The project-wide default byte-handler is
+    // now "none" (white-box structural encoders only, per Data Blocks SIGMOD'16);
+    // keep the LZ4 pipeline here explicitly so the corruption assertions still
+    // hold.
+    final ByteHandlerPipeline lz4Pipeline = FFILz4Compressor.isNativeAvailable()
+        ? new ByteHandlerPipeline(new FFILz4Compressor())
+        : new ByteHandlerPipeline();
     resourceConfig = ResourceConfiguration.newBuilder("corruption-test")
         .storageType(StorageType.FILE_CHANNEL)
+        .byteHandlerPipeline(lz4Pipeline)
         .build();
     resourceConfig.resourcePath = tempDir;
   }

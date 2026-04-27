@@ -13,6 +13,7 @@ import io.sirix.node.NodeKind;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
+import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.VectorPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
@@ -185,6 +186,11 @@ public abstract class AbstractForwardingStorageEngineReader extends ForwardingOb
   @Override
   public VectorPage getVectorPage(final RevisionRootPage revisionRoot) {
     return delegate().getVectorPage(revisionRoot);
+  }
+
+  @Override
+  public ProjectionIndexPage getProjectionIndexPage(final RevisionRootPage revisionRoot) {
+    return delegate().getProjectionIndexPage(revisionRoot);
   }
 
   @Override

@@ -385,18 +385,15 @@ class JsonStreamingShredderTest {
 
                     val rtx = manager.beginNodeReadOnlyTrx()
                     rtx.use {
-                        // Navigate to the "items" array
-                        // Structure: RootObject -> ObjectKey "level1" -> Object
-                        //                                             -> ObjectKey "level2" -> Object
-                        //                                                                   -> ObjectKey "items" -> Array
+                        // Navigate to the "items" array.
+                        // Cat-1: post-fusion (iter#32) collapses each OBJECT_KEY+OBJECT/ARRAY pair
+                        // into one OBJECT_NAMED_OBJECT/ARRAY record, so each named-structural level
+                        // is one moveToFirstChild instead of two.
                         rtx.moveToDocumentRoot()
                         rtx.moveToFirstChild() // root object
-                        rtx.moveToFirstChild() // "level1" key
-                        rtx.moveToFirstChild() // level1 object value (child of key)
-                        rtx.moveToFirstChild() // "level2" key
-                        rtx.moveToFirstChild() // level2 object value (child of key)
-                        rtx.moveToFirstChild() // "items" key
-                        rtx.moveToFirstChild() // items array (child of key)
+                        rtx.moveToFirstChild() // "level1" — fused OBJECT_NAMED_OBJECT
+                        rtx.moveToFirstChild() // "level2" — fused OBJECT_NAMED_OBJECT
+                        rtx.moveToFirstChild() // "items" — fused OBJECT_NAMED_ARRAY (parent of elements)
 
                         val itemsArrayKey = rtx.nodeKey
                         println("Items array nodeKey: $itemsArrayKey, kind: ${rtx.kind}")
@@ -522,12 +519,13 @@ class JsonStreamingShredderTest {
 
                     val rtx = manager.beginNodeReadOnlyTrx()
                     rtx.use {
-                        // Navigate to the "data" array
-                        // Structure: RootObject -> ObjectKey "data" -> Array
+                        // Navigate to the "data" array.
+                        // Cat-1: post-fusion (iter#32) structure collapses OBJECT_KEY+ARRAY into a
+                        // single OBJECT_NAMED_ARRAY record, so the path is RootObject ->
+                        // OBJECT_NAMED_ARRAY "data" -> elements (one fewer level than legacy).
                         rtx.moveToDocumentRoot()
                         rtx.moveToFirstChild() // root object
-                        rtx.moveToFirstChild() // "data" key
-                        rtx.moveToFirstChild() // data array (child of key)
+                        rtx.moveToFirstChild() // "data" — fused OBJECT_NAMED_ARRAY (parent of elements)
 
                         val dataArrayKey = rtx.nodeKey
                         println("Data array nodeKey: $dataArrayKey, kind: ${rtx.kind}")
@@ -761,8 +759,10 @@ class JsonStreamingShredderTest {
                     rtx.use {
                         rtx.moveToDocumentRoot()
                         rtx.moveToFirstChild() // root object
-                        rtx.moveToFirstChild() // "data" key
-                        rtx.moveToFirstChild() // data array
+                        // Cat-1: post-fusion the OBJECT_KEY+ARRAY pair is collapsed into one
+                        // OBJECT_NAMED_ARRAY record, so one moveToFirstChild lands directly on
+                        // the array node (the fused parent of all elements).
+                        rtx.moveToFirstChild() // "data" — fused OBJECT_NAMED_ARRAY (parent of elements)
                         val dataArrayKey = rtx.nodeKey
                         println("Data array nodeKey: $dataArrayKey, childCount: ${rtx.childCount}")
 
@@ -921,11 +921,12 @@ class JsonStreamingShredderTest {
                     // Now test pagination on revision 1 (historical)
                     val rtx = manager.beginNodeReadOnlyTrx(revision1)
                     rtx.use {
-                        // Navigate to data array
+                        // Navigate to data array.
+                        // Cat-1: post-fusion the OBJECT_KEY+ARRAY pair collapses into one
+                        // OBJECT_NAMED_ARRAY record (1 moveToFirstChild instead of 2).
                         rtx.moveToDocumentRoot()
                         rtx.moveToFirstChild() // root object
-                        rtx.moveToFirstChild() // "data" key
-                        rtx.moveToFirstChild() // data array
+                        rtx.moveToFirstChild() // "data" — fused OBJECT_NAMED_ARRAY
                         val dataArrayKey = rtx.nodeKey
                         println("Historical rev $revision1 - Data array nodeKey: $dataArrayKey")
 

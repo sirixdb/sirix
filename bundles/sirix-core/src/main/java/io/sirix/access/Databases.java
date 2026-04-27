@@ -8,9 +8,9 @@ import io.sirix.api.NodeTrx;
 import io.sirix.api.ResourceSession;
 import io.sirix.api.json.JsonResourceSession;
 import io.sirix.api.xml.XmlResourceSession;
+import io.sirix.cache.Allocators;
 import io.sirix.cache.BufferManager;
 import io.sirix.cache.BufferManagerImpl;
-import io.sirix.cache.LinuxMemorySegmentAllocator;
 import io.sirix.cache.MemorySegmentAllocator;
 import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.exception.SirixIOException;
@@ -332,10 +332,10 @@ public final class Databases {
 
   private static void initAllocator(long maxSegmentAllocationSize) {
     if (MANAGER.sessions().isEmpty()) {
-      // Initialize the allocator (no pool needed anymore)
-      MemorySegmentAllocator segmentAllocator = OS.isWindows()
-          ? WindowsMemorySegmentAllocator.getInstance()
-          : LinuxMemorySegmentAllocator.getInstance();
+      // Use the central Allocators factory so every callsite in sirix-core
+      // talks to the same allocator instance. The choice (legacy pool vs.
+      // Umbra-style frame-slot) is driven by -Dsirix.allocator at class-init.
+      final MemorySegmentAllocator segmentAllocator = Allocators.getInstance();
       segmentAllocator.init(maxSegmentAllocationSize);
 
       // Initialize global BufferManager with sizes proportional to memory budget

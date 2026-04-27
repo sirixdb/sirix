@@ -182,19 +182,23 @@ public final class ClockSweeper implements Runnable {
             return page; // Keep in cache
           }
 
-          // Evict page atomically within compute() while holding per-key lock
+          // Evict page atomically within compute() while holding per-key lock.
+          // close() first (no-op if guards held), bump version + null out
+          // ref AFTER confirming the page is dead. Previously the version
+          // bump happened pre-close, which made a narrow race between guard
+          // acquisition and eviction check visible as FrameReusedException
+          // even when the page was still live.
           try {
             long pageWeight = cache.weightOf(page);
 
-            page.incrementVersion();
-            ref.setPage(null);
             page.close();
-
-            // Verify page was actually closed (guards might have been acquired after our check)
             if (!page.isClosed()) {
               pagesSkippedByGuard.incrementAndGet();
-              return page; // Keep in cache - another thread is using it
+              return page; // Guard acquired after our check — page still live.
             }
+
+            page.incrementVersion();
+            ref.setPage(null);
 
             cache.onEvicted(page, pageWeight);
             pagesEvicted.incrementAndGet();

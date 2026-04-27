@@ -92,6 +92,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
   private final boolean buildPathSummary;
 
   /**
+   * Determines if per-path value statistics (count, sum, min, max, HLL) should be
+   * maintained on PathSummary nodes for this store's resources. Requires
+   * {@link #buildPathSummary} to be {@code true}.
+   */
+  private final boolean buildPathStatistics;
+
+  /**
    * Determines if DeweyIDs should be generated for resources.
    */
   private final boolean useDeweyIDs;
@@ -110,6 +117,13 @@ public final class BasicJsonDBStore implements JsonDBStore {
    * Number of nodes before an auto-commit is issued during an import of an XML document.
    */
   private final int numberOfNodesBeforeAutoCommit;
+
+  /**
+   * Whether the record-to-revisions index should be maintained. Off by default
+   * on this builder — it writes one index entry per insert and is only needed
+   * for cross-revision record history lookups.
+   */
+  private final boolean storeNodeHistory;
 
   /**
    * Get a new builder instance.
@@ -148,6 +162,14 @@ public final class BasicJsonDBStore implements JsonDBStore {
         System.getProperty("buildPathSummary") == null || Boolean.parseBoolean(System.getProperty("buildPathSummary"));
 
     /**
+     * Determines if per-path value statistics should be maintained. Opt-in (default
+     * {@code false}); requires {@link #buildPathSummary} to be {@code true}.
+     */
+    private boolean buildPathStatistics =
+        System.getProperty("buildPathStatistics") != null
+            && Boolean.parseBoolean(System.getProperty("buildPathStatistics"));
+
+    /**
      * Determines if DeweyIDs should be generated for resources.
      */
     private boolean useDeweyIDs =
@@ -175,6 +197,26 @@ public final class BasicJsonDBStore implements JsonDBStore {
         : 262_144 << 2;
 
     /**
+     * Whether the record-to-revisions index is maintained on insert. Default
+     * matches ResourceConfiguration's default ({@code true}) but is overridable
+     * via {@code -DstoreNodeHistory=false} for write-heavy, single-revision
+     * workloads that don't need cross-revision record history lookups.
+     */
+    private boolean storeNodeHistory = System.getProperty("storeNodeHistory") == null
+        || Boolean.parseBoolean(System.getProperty("storeNodeHistory"));
+
+    /**
+     * Toggle the record-to-revisions index. Default true.
+     *
+     * @param storeNodeHistory {@code true} to enable, {@code false} to skip the per-insert index entry
+     * @return this builder instance
+     */
+    public Builder storeNodeHistory(final boolean storeNodeHistory) {
+      this.storeNodeHistory = storeNodeHistory;
+      return this;
+    }
+
+    /**
      * Set the storage type (default: file backend).
      *
      * @param storageType storage type
@@ -193,6 +235,20 @@ public final class BasicJsonDBStore implements JsonDBStore {
      */
     public Builder buildPathSummary(final boolean buildPathSummary) {
       this.buildPathSummary = buildPathSummary;
+      return this;
+    }
+
+    /**
+     * Set whether per-path value statistics should be maintained on PathSummary nodes.
+     * Enables the aggregate short-circuit for {@code sum / avg / min / max / count}
+     * queries at the cost of some write-path overhead. Requires
+     * {@link #buildPathSummary(boolean)} to be {@code true}.
+     *
+     * @param buildPathStatistics {@code true} to enable per-path statistics
+     * @return this builder instance
+     */
+    public Builder buildPathStatistics(final boolean buildPathStatistics) {
+      this.buildPathStatistics = buildPathStatistics;
       return this;
     }
 
@@ -276,10 +332,12 @@ public final class BasicJsonDBStore implements JsonDBStore {
     storageType = builder.storageType;
     location = builder.location;
     buildPathSummary = builder.buildPathSummary;
+    buildPathStatistics = builder.buildPathStatistics;
     useDeweyIDs = builder.useDeweyIDs;
     hashType = builder.hashType;
     versioningType = builder.versioningType;
     numberOfNodesBeforeAutoCommit = builder.numberOfNodesBeforeAutoCommit;
+    storeNodeHistory = builder.storeNodeHistory;
   }
 
   /**
@@ -291,8 +349,8 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   @Override
   public Options options() {
-    return new Options(null, null, false, buildPathSummary, storageType, useDeweyIDs, hashType, versioningType,
-        numberOfNodesBeforeAutoCommit);
+    return new Options(null, null, false, buildPathSummary, buildPathStatistics, storageType, useDeweyIDs, hashType,
+        versioningType, numberOfNodesBeforeAutoCommit);
   }
 
   @Override
@@ -436,8 +494,14 @@ public final class BasicJsonDBStore implements JsonDBStore {
         return collection;
       }
 
+      // Pass numberOfNodesBeforeAutoCommit so the shred commits incrementally.
+      // Without this, large imports hold every distinct offheap segment they
+      // ever touch inside a single transaction — the allocator's physical
+      // memory counter is monotonic within a trx (only decrements on commit
+      // via page release), and a multi-GB shred exhausts the budget long
+      // before the single final commit fires.
       try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
-          final JsonNodeTrx wtx = resourceSession.beginNodeTrx()) {
+          final JsonNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {
         wtx.insertSubtreeAsFirstChild(reader, JsonNodeTrx.Commit.NO);
         wtx.commit(resourceOptions.commitMessage(), resourceOptions.commitTimestamp());
       }
@@ -449,16 +513,18 @@ public final class BasicJsonDBStore implements JsonDBStore {
 
   private Options createResource(Object options, Database<JsonResourceSession> database, String resourceName) {
     final var resourceOptions = OptionsFactory.createOptions(options, new Options(null, null, false, buildPathSummary,
-        storageType, useDeweyIDs, hashType, versioningType, numberOfNodesBeforeAutoCommit));
+        buildPathStatistics, storageType, useDeweyIDs, hashType, versioningType, numberOfNodesBeforeAutoCommit));
 
     database.createResource(ResourceConfiguration.newBuilder(resourceName)
                                                  .useTextCompression(resourceOptions.useTextCompression())
                                                  .buildPathSummary(resourceOptions.buildPathSummary())
+                                                 .buildPathStatistics(resourceOptions.buildPathStatistics())
                                                  .customCommitTimestamps(resourceOptions.commitTimestamp() != null)
                                                  .storageType(resourceOptions.storageType())
                                                  .useDeweyIDs(resourceOptions.useDeweyIDs())
                                                  .hashKind(resourceOptions.hashType())
                                                  .versioningApproach(versioningType)
+                                                 .storeNodeHistory(storeNodeHistory)
                                                  .build());
     return resourceOptions;
   }
@@ -579,6 +645,7 @@ public final class BasicJsonDBStore implements JsonDBStore {
                                                          .buildPathSummary(buildPathSummary)
                                                          .hashKind(hashType)
                                                          .versioningApproach(versioningType)
+                                                         .storeNodeHistory(storeNodeHistory)
                                                          .build());
             try (final JsonResourceSession resourceSession = database.beginResourceSession(resourceName);
                 final JsonNodeTrx wtx = resourceSession.beginNodeTrx(numberOfNodesBeforeAutoCommit)) {

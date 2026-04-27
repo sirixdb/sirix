@@ -78,3 +78,53 @@ jmh {
         benchmarkParameters = typedParameters
     }
 }
+
+// Convenience task: export the synthesised scale-bench dataset to CSV so the
+// same workload can be loaded into DuckDB / CedarDB / Umbra for a baseline
+// columnar-engine comparison. Uses Random(42), 18+rng.nextInt(48) ages, and
+// the same DEPTS/CITIES arrays as BrackitQueryOnSirixScaleMain so aggregates
+// match bit-for-bit across engines.
+// Usage:
+//   ./gradlew :sirix-benchmarks:exportScaleCsv -PcsvArgs="10000000 /tmp/records-10m.csv"
+tasks.register('exportScaleCsv', JavaExec) {
+    group = 'benchmark'
+    description = 'Export scale-bench dataset as CSV for cross-engine comparison.'
+    classpath = sourceSets.jmh.runtimeClasspath
+    mainClass = 'io.sirix.benchmark.ExportScaleBenchCsv'
+    def argsStr = (findProperty('csvArgs') ?: '1000000 /tmp/records-1m.csv').toString()
+    args = argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    jvmArgs = [
+        '--enable-preview',
+        '-Xms512m',
+        '-Xmx2g'
+    ]
+}
+
+// Convenience task: run BrackitQueryOnSirixScaleMain directly (not via JMH).
+// Usage:
+//   ./gradlew :sirix-benchmarks:runScale -Pscale.args="1000000 true 3"
+//   ./gradlew :sirix-benchmarks:runScale -Pscale.args="10000000 true 3" \
+//      -Pscale.jvmArgs="-agentpath:/path/libasyncProfiler.so=start,event=cpu,file=/tmp/p.collapsed"
+tasks.register('runScale', JavaExec) {
+    group = 'benchmark'
+    description = 'Run BrackitQueryOnSirixScaleMain for large-dataset perf iteration.'
+    classpath = sourceSets.jmh.runtimeClasspath
+    mainClass = 'io.sirix.benchmark.BrackitQueryOnSirixScaleMain'
+    def argsStr = (findProperty('scale.args') ?: '1000000 true 3').toString()
+    args = argsStr.split(/\s+/).findAll { !it.isEmpty() }
+    def baseJvmArgs = [
+        '--add-opens', 'java.base/sun.nio.ch=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.nio=ALL-UNNAMED',
+        '--add-modules', 'jdk.incubator.vector',
+        '--enable-native-access=ALL-UNNAMED',
+        '--enable-preview',
+        '-Xms8g',
+        '-Xmx24g'
+    ]
+    def extraJvmArgs = (findProperty('scale.jvmArgs') ?: '').toString().trim()
+    if (!extraJvmArgs.isEmpty()) {
+        jvmArgs = baseJvmArgs + extraJvmArgs.split(/\s+/).findAll { !it.isEmpty() }
+    } else {
+        jvmArgs = baseJvmArgs
+    }
+}

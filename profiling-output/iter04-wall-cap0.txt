@@ -1,0 +1,56 @@
+--- Execution profile ---
+Total samples       : 2385
+skipped             : 1 (0.04%)
+
+          ns  percent  samples  top
+  ----------  -------  -------  ---
+236250000000   75.11%     4725  __futex_abstimed_wait_cancelable64
+ 19450000000    6.18%      389  io.sirix.index.projection.ProjectionIndexByteScan.conjunctiveCountByGroup
+  7500000000    2.38%      150  syscall
+  5100000000    1.62%      102  __libc_pread64
+  4350000000    1.38%       87  __memcpy_sse2_unaligned_erms
+  4000000000    1.27%       80  java.lang.invoke.VarHandle.checkAccessModeThenIsDirect
+  3700000000    1.18%       74  it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap.addTo
+  3050000000    0.97%       61  java.lang.invoke.VarHandleByteArrayAsInts$ArrayHandle.get
+  2750000000    0.87%       55  java.lang.invoke.VarForm.getMemberName
+  1850000000    0.59%       37  __GI___lll_lock_wait
+  1450000000    0.46%       29  java.lang.invoke.VarHandleByteArrayAsInts$ArrayHandle.index
+  1100000000    0.35%       22  java.util.Arrays.copyOf
+  1100000000    0.35%       22  io.sirix.index.projection.ProjectionIndexByteScan.evalNumericBytes
+  1050000000    0.33%       21  jdk.incubator.vector.LongVector$LongSpecies.rvOp
+   750000000    0.24%       15  java.lang.invoke.VarHandleByteArrayAsLongs$ArrayHandle.get
+   700000000    0.22%       14  jdk.internal.vm.vector.VectorSupport.compare
+   600000000    0.19%       12  jdk.incubator.vector.LongVector.bTest
+   600000000    0.19%       12  java.lang.invoke.VarHandleGuards.guard_LI_I
+   550000000    0.17%       11  jbyte_disjoint_arraycopy
+   550000000    0.17%       11  jlong_disjoint_arraycopy
+   550000000    0.17%       11  io.sirix.index.projection.ProjectionIndexByteScan.countLeaf
+   500000000    0.16%       10  jdk.incubator.vector.AbstractMask.toLongHelper
+   450000000    0.14%        9  __memset_avx2_unaligned_erms
+   450000000    0.14%        9  java.lang.invoke.VarHandleByteArrayAsLongs$ArrayHandle.index
+   450000000    0.14%        9  io.sirix.index.projection.ProjectionIndexByteScan.conjunctiveCount
+   400000000    0.13%        8  io.sirix.index.projection.ProjectionIndexHOTStorage.collectSubtreeChunks
+   300000000    0.10%        6  jdk.internal.misc.Unsafe.getIntUnaligned
+   300000000    0.10%        6  jdk.incubator.vector.LongVector.fromArray0Template
+   300000000    0.10%        6  jdk.incubator.vector.LongVector.lambda$fromArray0Template$1
+   250000000    0.08%        5  jdk.internal.vm.vector.VectorSupport.load
+   250000000    0.08%        5  void LibGraalClassLoader_69504ae9::jdk.graal.compiler.graph.iterators.PredicatedProxyNodeIterator::forward
+   250000000    0.08%        5  void com.oracle.svm.core.genscavenge.GreyToBlackObjRefVisitor::visitObjectReferences
+   250000000    0.08%        5  java.lang.String.hashCode
+   200000000    0.06%        4  void LibGraalClassLoader_69504ae9::jdk.graal.compiler.phases.common.DeadCodeEliminationPhase::iterateSuccessorsAndInputs
+   200000000    0.06%        4  jdk.internal.vm.vector.VectorSupport$VectorPayload.getPayload
+   200000000    0.06%        4  G1ParScanThreadState::trim_queue_to_threshold
+   200000000    0.06%        4  it.unimi.dsi.fastutil.objects.Object2LongOpenHashMap.addToValue
+   200000000    0.06%        4  java.lang.Long.numberOfTrailingZeros
+   200000000    0.06%        4  void LibGraalClassLoader_69504ae9::jdk.graal.compiler.phases.schedule.SchedulePhase$Instance::pushUnprocessedInputs
+   200000000    0.06%        4  void LibGraalClassLoader_69504ae9::jdk.graal.compiler.nodes.cfg.ControlFlowGraph::computePostdominators
+   200000000    0.06%        4  java.lang.invoke.VarHandleGuards.guard_LI_J
+   150000000    0.05%        3  jdk.incubator.vector.Long256Vector.maskFromArray
+   150000000    0.05%        3  void LibGraalClassLoader_69504ae9::jdk.graal.compiler.nodes.loop.LoopFragment::markFloating
+   150000000    0.05%        3  java.lang.String.equals
+   150000000    0.05%        3  jdk.incubator.vector.Long256Vector$Long256Mask.prepare
+   150000000    0.05%        3  io.sirix.index.projection.ProjectionIndexByteScan.evaluateLeafMask
+   150000000    0.05%        3  SafepointBlob
+   150000000    0.05%        3  it.unimi.dsi.fastutil.HashCommon.mix
+   150000000    0.05%        3  void LibGraalClassLoader_69504ae9::jdk.graal.compiler.phases.schedule.SchedulePhase$Instance::scheduleEarliestIterative
+   150000000    0.05%        3  jdk.internal.vm.vector.VectorSupport.fromBitsCoerced

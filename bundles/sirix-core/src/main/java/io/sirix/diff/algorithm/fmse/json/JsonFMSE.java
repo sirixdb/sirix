@@ -19,6 +19,7 @@ import io.sirix.exception.SirixException;
 import io.sirix.node.NodeKind;
 import io.sirix.utils.LogWrapper;
 import io.sirix.utils.Pair;
+import java.util.Objects;
 import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -439,11 +440,31 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
     rtx.moveTo(toNode);
 
     switch (rtx.getKind()) {
-      case OBJECT_KEY -> wtx.setObjectKeyName(rtx.getName().getLocalName());
-      case STRING_VALUE, OBJECT_STRING_VALUE -> wtx.setStringValue(rtx.getValue());
-      case NUMBER_VALUE, OBJECT_NUMBER_VALUE -> wtx.setNumberValue(rtx.getNumberValue());
-      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE -> wtx.setBooleanValue(rtx.getBooleanValue());
-      case NULL_VALUE, OBJECT_NULL_VALUE -> {
+      case STRING_VALUE -> wtx.setStringValue(rtx.getValue());
+      case NUMBER_VALUE -> wtx.setNumberValue(rtx.getNumberValue());
+      case BOOLEAN_VALUE -> wtx.setBooleanValue(rtx.getBooleanValue());
+      // Fused OBJECT_NAMED_* records carry BOTH the key name AND the primitive value on
+      // the same record. Update the name first if it changed, THEN the value. Without the
+      // name step a rename (e.g. old_name → new_name) would leave the old key on disk
+      // because setStringValue/setNumberValue/setBooleanValue only touch the payload.
+      case OBJECT_NAMED_STRING -> {
+        updateFusedNameIfChanged(wtx, rtx);
+        wtx.setStringValue(rtx.getValue());
+      }
+      case OBJECT_NAMED_NUMBER -> {
+        updateFusedNameIfChanged(wtx, rtx);
+        wtx.setNumberValue(rtx.getNumberValue());
+      }
+      case OBJECT_NAMED_BOOLEAN -> {
+        updateFusedNameIfChanged(wtx, rtx);
+        wtx.setBooleanValue(rtx.getBooleanValue());
+      }
+      case OBJECT_NAMED_NULL, OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY -> {
+        // Null has no primitive value; structural fused records (OBJECT_NAMED_OBJECT/ARRAY)
+        // carry their child sub-tree separately — only the name can change here.
+        updateFusedNameIfChanged(wtx, rtx);
+      }
+      case NULL_VALUE -> {
         // null = null, no-op
       }
       case OBJECT, ARRAY -> {
@@ -452,6 +473,24 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
       // $CASES-OMITTED$
       default -> {
       }
+    }
+  }
+
+  /**
+   * When two fused OBJECT_NAMED_* records were matched but have different key names, rename
+   * the wtx-side record to match rtx. A no-op if both sides already carry the same name.
+   */
+  private static void updateFusedNameIfChanged(final JsonNodeTrx wtx,
+      final JsonNodeReadOnlyTrx rtx) {
+    final var oldName = wtx.getName();
+    final var newName = rtx.getName();
+    if (oldName == null || newName == null) {
+      return;
+    }
+    final String oldLocal = oldName.getLocalName();
+    final String newLocal = newName.getLocalName();
+    if (!Objects.equals(oldLocal, newLocal)) {
+      wtx.setObjectKeyName(newLocal);
     }
   }
 
@@ -513,14 +552,21 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
    */
   private static long insertAsFirstChild(final JsonNodeTrx wtx, final JsonNodeReadOnlyTrx rtx) {
     return switch (rtx.getKind()) {
-      case OBJECT, ARRAY, OBJECT_KEY -> wtx.copySubtreeAsFirstChild(rtx).getNodeKey();
-      case STRING_VALUE, OBJECT_STRING_VALUE ->
+      case OBJECT, ARRAY -> wtx.copySubtreeAsFirstChild(rtx).getNodeKey();
+      // Fused OBJECT_NAMED_* records structurally play the OBJECT_KEY role. The primitive
+      // leaves carry an inline primitive payload; the structural variants (OBJECT_NAMED_OBJECT,
+      // OBJECT_NAMED_ARRAY) carry a name + nested subtree. Both delegate to copySubtree which
+      // resolves the right copy strategy via copyNode().
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL,
+           OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY ->
+          wtx.copySubtreeAsFirstChild(rtx).getNodeKey();
+      case STRING_VALUE ->
           wtx.insertStringValueAsFirstChild(rtx.getValue()).getNodeKey();
-      case NUMBER_VALUE, OBJECT_NUMBER_VALUE ->
+      case NUMBER_VALUE ->
           wtx.insertNumberValueAsFirstChild(rtx.getNumberValue()).getNodeKey();
-      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE ->
+      case BOOLEAN_VALUE ->
           wtx.insertBooleanValueAsFirstChild(rtx.getBooleanValue()).getNodeKey();
-      case NULL_VALUE, OBJECT_NULL_VALUE ->
+      case NULL_VALUE ->
           wtx.insertNullValueAsFirstChild().getNodeKey();
       default -> throw new IllegalStateException("Unexpected node kind: " + rtx.getKind());
     };
@@ -532,14 +578,18 @@ public final class JsonFMSE implements JsonImportDiff, AutoCloseable {
   private static long insertAsRightSibling(final JsonNodeTrx wtx,
       final JsonNodeReadOnlyTrx rtx) {
     return switch (rtx.getKind()) {
-      case OBJECT, ARRAY, OBJECT_KEY -> wtx.copySubtreeAsRightSibling(rtx).getNodeKey();
-      case STRING_VALUE, OBJECT_STRING_VALUE ->
+      case OBJECT, ARRAY -> wtx.copySubtreeAsRightSibling(rtx).getNodeKey();
+      // Fused OBJECT_NAMED_* — see insertAsFirstChild.
+      case OBJECT_NAMED_BOOLEAN, OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL,
+           OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY ->
+          wtx.copySubtreeAsRightSibling(rtx).getNodeKey();
+      case STRING_VALUE ->
           wtx.insertStringValueAsRightSibling(rtx.getValue()).getNodeKey();
-      case NUMBER_VALUE, OBJECT_NUMBER_VALUE ->
+      case NUMBER_VALUE ->
           wtx.insertNumberValueAsRightSibling(rtx.getNumberValue()).getNodeKey();
-      case BOOLEAN_VALUE, OBJECT_BOOLEAN_VALUE ->
+      case BOOLEAN_VALUE ->
           wtx.insertBooleanValueAsRightSibling(rtx.getBooleanValue()).getNodeKey();
-      case NULL_VALUE, OBJECT_NULL_VALUE ->
+      case NULL_VALUE ->
           wtx.insertNullValueAsRightSibling().getNodeKey();
       default -> throw new IllegalStateException("Unexpected node kind: " + rtx.getKind());
     };

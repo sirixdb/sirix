@@ -27,6 +27,7 @@ import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.BitmapChunkPage;
+import io.sirix.page.FsstAwareSlotCopier;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageLayout;
@@ -37,6 +38,7 @@ import io.sirix.page.interfaces.PageFragmentKey;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.lang.foreign.MemorySegment;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -81,6 +83,11 @@ public enum VersioningType {
 
       // Propagate FSST symbol table for string compression
       propagateFsstSymbolTable(firstPage, completePage);
+
+      // Propagate PAX number region from the donor (first) fragment — for
+      // read-only resources this is an O(1) copy. Multi-fragment merges fall
+      // back to a slotted-page walk inside ensureNumberRegion.
+      ((KeyValueLeafPage) completePage).ensureNumberRegion((KeyValueLeafPage) firstPage);
 
       return completePage;
     }
@@ -148,51 +155,75 @@ public enum VersioningType {
       assert latest.getPageKey() == recordPageKey;
       assert fullDump.getPageKey() == recordPageKey;
 
-      // Use bitmap iteration for O(k) instead of O(1024)
       final KeyValueLeafPage latestKvp = (KeyValueLeafPage) latest;
       final KeyValueLeafPage returnKvp = (KeyValueLeafPage) pageToReturn;
       returnKvp.ensureSlottedPage();
 
-      // Copy all populated slots from latest page
-      final int[] latestSlots = latestKvp.populatedSlots();
-      for (int i = 0; i < latestSlots.length; i++) {
-        final int offset = latestSlots[i];
-        returnKvp.setSlotWithNodeKind(firstPage.getSlot(offset), offset, latestKvp.getSlotNodeKindId(offset));
-        var deweyId = firstPage.getDeweyId(offset);
-        if (deweyId != null) {
-          pageToReturn.setDeweyId(deweyId, offset);
-        }
-      }
+      final boolean singleFragment = pages.size() == 1;
 
-      // Copy references from latest
-      for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
-        pageToReturn.setPageReference(entry.getKey(), entry.getValue());
-      }
-
-      // Fill gaps from full dump if present
-      if (pages.size() == 2 && returnKvp.populatedSlotCount() < Constants.NDP_NODE_COUNT) {
-        final KeyValueLeafPage fullDumpKvp = (KeyValueLeafPage) fullDump;
-        final long[] filledBitmap = returnKvp.getSlotBitmap();
-
-        // Use bitmap iteration for O(k) on fullDump
-        final int[] fullDumpSlots = fullDumpKvp.populatedSlots();
-        for (int i = 0; i < fullDumpSlots.length; i++) {
-          final int offset = fullDumpSlots[i];
-          // Check if slot already filled using bitmap (O(1))
-          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from latest
-          }
-
-          var recordData = fullDump.getSlot(offset);
-          returnKvp.setSlotWithNodeKind(recordData, offset, fullDumpKvp.getSlotNodeKindId(offset));
-
-          var deweyId = fullDump.getDeweyId(offset);
+      if (singleFragment) {
+        // Fast path — target is a bit-identical copy of the sole fragment.
+        // Raw-copy slots, propagate the FSST table (same compressed bytes),
+        // and short-circuit the PAX region as an O(1) reference copy.
+        final int[] latestSlots = latestKvp.populatedSlots();
+        for (int i = 0; i < latestSlots.length; i++) {
+          final int offset = latestSlots[i];
+          returnKvp.setSlotWithNodeKind(firstPage.getSlot(offset), offset, latestKvp.getSlotNodeKindId(offset));
+          final var deweyId = firstPage.getDeweyId(offset);
           if (deweyId != null) {
             pageToReturn.setDeweyId(deweyId, offset);
           }
         }
 
-        // Fill reference gaps
+        for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
+          pageToReturn.setPageReference(entry.getKey(), entry.getValue());
+        }
+
+        propagateFsstSymbolTable(firstPage, pageToReturn);
+        returnKvp.ensureNumberRegion(latestKvp);
+        return pageToReturn;
+      }
+
+      // Multi-fragment combine — decompress-on-merge so each compressed string
+      // on a source fragment is decoded through that fragment's own FSST table
+      // before landing on the target. After the loop, the target holds no
+      // compressed bytes and carries no FSST table of its own.
+      final FsstAwareSlotCopier latestCopier = new FsstAwareSlotCopier(latestKvp.getFsstSymbolTable());
+
+      final int[] latestSlots = latestKvp.populatedSlots();
+      for (int i = 0; i < latestSlots.length; i++) {
+        final int offset = latestSlots[i];
+        copySlotDecompressing(latestKvp, returnKvp, offset, latestKvp.getSlotNodeKindId(offset), latestCopier);
+        final var deweyId = firstPage.getDeweyId(offset);
+        if (deweyId != null) {
+          pageToReturn.setDeweyId(deweyId, offset);
+        }
+      }
+
+      for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
+        pageToReturn.setPageReference(entry.getKey(), entry.getValue());
+      }
+
+      if (returnKvp.populatedSlotCount() < Constants.NDP_NODE_COUNT) {
+        final KeyValueLeafPage fullDumpKvp = (KeyValueLeafPage) fullDump;
+        final FsstAwareSlotCopier fullDumpCopier = new FsstAwareSlotCopier(fullDumpKvp.getFsstSymbolTable());
+        final long[] filledBitmap = returnKvp.getSlotBitmap();
+
+        final int[] fullDumpSlots = fullDumpKvp.populatedSlots();
+        for (int i = 0; i < fullDumpSlots.length; i++) {
+          final int offset = fullDumpSlots[i];
+          if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
+            continue;
+          }
+
+          copySlotDecompressing(fullDumpKvp, returnKvp, offset, fullDumpKvp.getSlotNodeKindId(offset), fullDumpCopier);
+
+          final var deweyId = fullDump.getDeweyId(offset);
+          if (deweyId != null) {
+            pageToReturn.setDeweyId(deweyId, offset);
+          }
+        }
+
         for (final Entry<Long, PageReference> entry : fullDump.referenceEntrySet()) {
           if (pageToReturn.getPageReference(entry.getKey()) == null) {
             pageToReturn.setPageReference(entry.getKey(), entry.getValue());
@@ -203,9 +234,10 @@ public enum VersioningType {
         }
       }
 
-      // Propagate FSST symbol table for string compression
-      propagateFsstSymbolTable(firstPage, pageToReturn);
-
+      // Target holds merged content from multiple fragments. Rebuild the PAX
+      // number region from the combined slotted heap — a donor shortcut from
+      // any single fragment would miss values contributed by the others.
+      returnKvp.ensureNumberRegion();
       return pageToReturn;
     }
 
@@ -233,66 +265,61 @@ public enum VersioningType {
       final T fullDump = pages.size() == 1 ? firstPage : pages.get(1);
       final boolean isFullDumpRevision = revision % revToRestore == 0;
 
-      // Use bitmap iteration for O(k) instead of O(1024)
       final KeyValueLeafPage latestKvp = (KeyValueLeafPage) latest;
       final KeyValueLeafPage completeKvp = (KeyValueLeafPage) completePage;
       final KeyValueLeafPage modifiedKvp = (KeyValueLeafPage) modifiedPage;
       completeKvp.ensureSlottedPage();
       modifiedKvp.ensureSlottedPage();
 
-      // Copy all populated slots from latest to completePage using bitmap iteration
-      // For modifiedPage: use lazy copy - mark for preservation, actual copy deferred to commit time
+      final boolean singleFragment = pages.size() == 1;
+      final FsstAwareSlotCopier latestCopier =
+          singleFragment ? null : new FsstAwareSlotCopier(latestKvp.getFsstSymbolTable());
+
+      // Copy all populated slots from latest to completePage using bitmap iteration.
+      // For modifiedPage: use lazy copy — mark for preservation, actual copy deferred to commit time.
       final int[] latestSlots = latestKvp.populatedSlots();
       for (int i = 0; i < latestSlots.length; i++) {
         final int offset = latestSlots[i];
-        var recordData = firstPage.getSlot(offset);
-        var deweyId = firstPage.getDeweyId(offset);
-
-        completeKvp.setSlotWithNodeKind(recordData, offset, latestKvp.getSlotNodeKindId(offset));
+        if (singleFragment) {
+          completeKvp.setSlotWithNodeKind(firstPage.getSlot(offset), offset, latestKvp.getSlotNodeKindId(offset));
+        } else {
+          copySlotDecompressing(latestKvp, completeKvp, offset, latestKvp.getSlotNodeKindId(offset), latestCopier);
+        }
+        final var deweyId = firstPage.getDeweyId(offset);
         if (deweyId != null) {
           completePage.setDeweyId(deweyId, offset);
         }
-        
-        // LAZY COPY: Mark slot for preservation instead of copying
-        // Actual copy from completePage happens in addReferences() if records[offset] == null
         modifiedKvp.markSlotForPreservation(offset);
       }
 
-      // Copy references from latest
       for (final Map.Entry<Long, PageReference> entry : latest.referenceEntrySet()) {
         completePage.setPageReference(entry.getKey(), entry.getValue());
         modifiedPage.setPageReference(entry.getKey(), entry.getValue());
       }
 
-      // Fill gaps from full dump if not all slots are filled
       if (completeKvp.populatedSlotCount() < Constants.NDP_NODE_COUNT && pages.size() == 2) {
         final KeyValueLeafPage fullDumpKvp = (KeyValueLeafPage) fullDump;
+        final FsstAwareSlotCopier fullDumpCopier = new FsstAwareSlotCopier(fullDumpKvp.getFsstSymbolTable());
         final long[] filledBitmap = completeKvp.getSlotBitmap();
-        
-        // Use bitmap iteration on fullDump
+
         final int[] fullDumpSlots = fullDumpKvp.populatedSlots();
         for (int j = 0; j < fullDumpSlots.length; j++) {
           final int offset = fullDumpSlots[j];
-          // Check if slot already filled using bitmap (O(1))
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from latest
+            continue;
           }
-          
-          var recordData = fullDump.getSlot(offset);
-          var deweyId = fullDump.getDeweyId(offset);
 
-          completeKvp.setSlotWithNodeKind(recordData, offset, fullDumpKvp.getSlotNodeKindId(offset));
+          copySlotDecompressing(fullDumpKvp, completeKvp, offset, fullDumpKvp.getSlotNodeKindId(offset), fullDumpCopier);
+          final var deweyId = fullDump.getDeweyId(offset);
           if (deweyId != null) {
             completePage.setDeweyId(deweyId, offset);
           }
 
           if (isFullDumpRevision) {
-            // LAZY COPY: Mark slot for preservation instead of copying
             modifiedKvp.markSlotForPreservation(offset);
           }
         }
-        
-        // Fill reference gaps from fullDump
+
         for (final Map.Entry<Long, PageReference> entry : fullDump.referenceEntrySet()) {
           if (completePage.getPageReference(entry.getKey()) == null) {
             completePage.setPageReference(entry.getKey(), entry.getValue());
@@ -308,7 +335,13 @@ public enum VersioningType {
         }
       }
 
-      // Set completePage reference for lazy copying at commit time
+      // Single-fragment: completePage is a byte-copy of latest and can safely
+      // inherit the FSST table. Multi-fragment: completePage has uncompressed
+      // strings from decompress-on-merge — no FSST table to propagate.
+      if (singleFragment) {
+        propagateFsstSymbolTable(firstPage, completePage);
+      }
+
       modifiedKvp.setCompletePageRef(completeKvp);
 
       final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);
@@ -349,25 +382,33 @@ public enum VersioningType {
       
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
       int filledSlotCount = 0;
-      
+
+      final boolean singleFragment = pages.size() == 1;
+
       for (final T page : pages) {
         assert page.getPageKey() == recordPageKey;
         if (filledSlotCount == Constants.NDP_NODE_COUNT) {
           break;
         }
 
-        // Use bitmap iteration for O(k) instead of O(1024)
         final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
+        // Per-fragment copier — amortizes the FSST symbol-table parse across
+        // every slot on this fragment. In the single-fragment case we bypass
+        // the copier entirely (raw-copy is byte-identical to the source).
+        final FsstAwareSlotCopier copier =
+            singleFragment ? null : new FsstAwareSlotCopier(kvPage.getFsstSymbolTable());
         final int[] populatedSlots = kvPage.populatedSlots();
-        
+
         for (final int offset : populatedSlots) {
-          // Check if slot already filled using bitmap (O(1))
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from newer fragment
+            continue;
           }
 
-          final var recordData = page.getSlot(offset);
-          returnPage.setSlotWithNodeKind(recordData, offset, kvPage.getSlotNodeKindId(offset));
+          if (singleFragment) {
+            returnPage.setSlotWithNodeKind(page.getSlot(offset), offset, kvPage.getSlotNodeKindId(offset));
+          } else {
+            copySlotDecompressing(kvPage, returnPage, offset, kvPage.getSlotNodeKindId(offset), copier);
+          }
           filledBitmap[offset >>> 6] |= (1L << (offset & 63));
           filledSlotCount++;
 
@@ -394,8 +435,16 @@ public enum VersioningType {
         }
       }
 
-      // Propagate FSST symbol table for string compression
-      propagateFsstSymbolTable(firstPage, pageToReturn);
+      if (singleFragment) {
+        // Bit-identical copy: FSST table propagation + donor PAX region shortcut.
+        propagateFsstSymbolTable(firstPage, pageToReturn);
+        returnPage.ensureNumberRegion((KeyValueLeafPage) firstPage);
+      } else {
+        // Merged content from multiple fragments — decompress-on-merge already
+        // made every string slot uncompressed; the target intentionally carries
+        // no FSST table. Rebuild the PAX number region from the combined heap.
+        returnPage.ensureNumberRegion();
+      }
 
       return pageToReturn;
     }
@@ -435,37 +484,39 @@ public enum VersioningType {
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
       int filledSlotCount = 0;
 
+      final boolean singleFragment = pages.size() == 1;
+
       for (final T page : pages) {
         assert page.getPageKey() == recordPageKey;
         if (filledSlotCount == Constants.NDP_NODE_COUNT) {
           break;
         }
 
-        // Use bitmap iteration for O(k) instead of O(1024)
         final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
+        final FsstAwareSlotCopier copier =
+            singleFragment ? null : new FsstAwareSlotCopier(kvPage.getFsstSymbolTable());
         final int[] populatedSlots = kvPage.populatedSlots();
 
         for (final int offset : populatedSlots) {
-          // Check if slot already filled using bitmap (O(1))
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from newer fragment
+            continue;
           }
 
-          final var recordData = page.getSlot(offset);
-          completeKvp.setSlotWithNodeKind(recordData, offset, kvPage.getSlotNodeKindId(offset));
+          if (singleFragment) {
+            completeKvp.setSlotWithNodeKind(page.getSlot(offset), offset, kvPage.getSlotNodeKindId(offset));
+          } else {
+            copySlotDecompressing(kvPage, completeKvp, offset, kvPage.getSlotNodeKindId(offset), copier);
+          }
           filledBitmap[offset >>> 6] |= (1L << (offset & 63));
           filledSlotCount++;
 
           if (isFullDump) {
-            // LAZY COPY: Mark slot for preservation instead of copying
-            // Actual copy from completePage happens in addReferences() if records[offset] == null
             modifiedKvp.markSlotForPreservation(offset);
           }
 
           final var deweyId = page.getDeweyId(offset);
           if (deweyId != null) {
             completePage.setDeweyId(deweyId, offset);
-            // DeweyId will be lazily copied along with slot in addReferences()
           }
 
           if (filledSlotCount == Constants.NDP_NODE_COUNT) {
@@ -492,7 +543,10 @@ public enum VersioningType {
         }
       }
 
-      // Set completePage reference for lazy copying at commit time (only for full-dump)
+      if (singleFragment) {
+        propagateFsstSymbolTable(firstPage, completePage);
+      }
+
       if (isFullDump) {
         modifiedKvp.setCompletePageRef(completeKvp);
       }
@@ -535,35 +589,53 @@ public enum VersioningType {
       final long recordPageKey = firstPage.getPageKey();
       final T returnVal = firstPage.newInstance(firstPage.getPageKey(), firstPage.getIndexType(), storageEngineReader);
 
+      final KeyValueLeafPage returnKvp = (KeyValueLeafPage) returnVal;
+
+      // Single-fragment fast path: the donor fragment is fully materialized;
+      // bulk-copy its slotted page + propagate FSST/NumberRegion + copy
+      // overflow refs. One MemorySegment.copy replaces the 1024-slot loop.
+      if (pages.size() == 1) {
+        final KeyValueLeafPage srcKvl = (KeyValueLeafPage) firstPage;
+        returnKvp.copySlottedPageFrom(srcKvl);
+        propagateFsstSymbolTable(firstPage, returnVal);
+        returnKvp.ensureNumberRegion(srcKvl);
+        for (final Entry<Long, PageReference> e : firstPage.referenceEntrySet()) {
+          returnVal.setPageReference(e.getKey(), e.getValue());
+        }
+        return returnVal;
+      }
+
       // Track which slots are already filled using bitmap from returnVal
       // This enables O(k) iteration instead of O(1024)
-      final KeyValueLeafPage returnKvp = (KeyValueLeafPage) returnVal;
       returnKvp.ensureSlottedPage();
       final long[] filledBitmap = returnKvp.getSlotBitmap();
-      
+
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
       int filledSlotCount = 0;
-      
+
+      final boolean singleFragment = false;
+
       for (final T page : pages) {
         assert page.getPageKey() == recordPageKey;
         if (filledSlotCount == Constants.NDP_NODE_COUNT) {
           break;
         }
 
-        // Use bitmap iteration for O(k) instead of O(1024)
         final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
+        final FsstAwareSlotCopier copier =
+            singleFragment ? null : new FsstAwareSlotCopier(kvPage.getFsstSymbolTable());
         final int[] populatedSlots = kvPage.populatedSlots();
 
         for (final int offset : populatedSlots) {
-          // Check if slot already filled using bitmap (O(1))
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from newer fragment
+            continue;
           }
 
-          final var recordData = page.getSlot(offset);
-          returnKvp.setSlotWithNodeKind(recordData, offset, kvPage.getSlotNodeKindId(offset));
-          // Keep local bitmap in sync with slotted page bitmap so that older fragments
-          // don't overwrite newer data (setSlotToHeap only updates the slotted page bitmap)
+          if (singleFragment) {
+            returnKvp.setSlotWithNodeKind(page.getSlot(offset), offset, kvPage.getSlotNodeKindId(offset));
+          } else {
+            copySlotDecompressing(kvPage, returnKvp, offset, kvPage.getSlotNodeKindId(offset), copier);
+          }
           filledBitmap[offset >>> 6] |= (1L << (offset & 63));
           filledSlotCount++;
 
@@ -590,8 +662,14 @@ public enum VersioningType {
         }
       }
 
-      // Propagate FSST symbol table for string compression
-      propagateFsstSymbolTable(firstPage, returnVal);
+      if (singleFragment) {
+        propagateFsstSymbolTable(firstPage, returnVal);
+        returnKvp.ensureNumberRegion((KeyValueLeafPage) firstPage);
+      } else {
+        // Target intentionally holds no FSST table after decompress-on-merge.
+        // Rebuild the PAX number region from the combined slotted heap.
+        returnKvp.ensureNumberRegion();
+      }
 
       return returnVal;
     }
@@ -633,30 +711,34 @@ public enum VersioningType {
       
       final boolean hasOutOfWindowPage = (pages.size() == revToRestore);
       final int lastInWindowIndex = hasOutOfWindowPage ? pages.size() - 2 : pages.size() - 1;
-      
+
+      final boolean singleFragment = pages.size() == 1;
+
       // Track slot count incrementally - CRITICAL: don't call populatedSlotCount() in loop
       int filledSlotCount = 0;
-      
+
       // Phase 1: Process in-window fragments, track populated slots in bitmap
       for (int i = 0; i <= lastInWindowIndex; i++) {
         final T page = pages.get(i);
         assert page.getPageKey() == recordPageKey;
 
-        // Use bitmap iteration for O(k) instead of O(1024)
         final KeyValueLeafPage kvPage = (KeyValueLeafPage) page;
+        final FsstAwareSlotCopier copier =
+            singleFragment ? null : new FsstAwareSlotCopier(kvPage.getFsstSymbolTable());
         final int[] populatedSlots = kvPage.populatedSlots();
 
         for (final int offset : populatedSlots) {
-          // Mark slot as in-window (for Phase 2 check)
           inWindowBitmap[offset >>> 6] |= (1L << (offset & 63));
-          
-          // Check if slot already filled in completePage using bitmap (O(1))
+
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) != 0) {
-            continue;  // Already filled from newer fragment
+            continue;
           }
 
-          final var recordData = page.getSlot(offset);
-          completeKvp.setSlotWithNodeKind(recordData, offset, kvPage.getSlotNodeKindId(offset));
+          if (singleFragment) {
+            completeKvp.setSlotWithNodeKind(page.getSlot(offset), offset, kvPage.getSlotNodeKindId(offset));
+          } else {
+            copySlotDecompressing(kvPage, completeKvp, offset, kvPage.getSlotNodeKindId(offset), copier);
+          }
           filledBitmap[offset >>> 6] |= (1L << (offset & 63));
           filledSlotCount++;
 
@@ -666,11 +748,10 @@ public enum VersioningType {
           }
 
           if (filledSlotCount == Constants.NDP_NODE_COUNT) {
-            break;  // Page is full
+            break;
           }
         }
 
-        // Handle references
         for (final Entry<Long, PageReference> entry : page.referenceEntrySet()) {
           final Long key = entry.getKey();
           if (completePage.getPageReference(key) == null) {
@@ -679,61 +760,57 @@ public enum VersioningType {
         }
 
         if (filledSlotCount == Constants.NDP_NODE_COUNT) {
-          break;  // Page is full
+          break;
         }
       }
 
-      // Phase 2: Process out-of-window fragment if present
-      // LAZY COPY: Mark slots for preservation instead of copying
-      // Actual copy from completePage happens in addReferences() if records[offset] == null
+      // Phase 2: Process out-of-window fragment if present.
       if (hasOutOfWindowPage) {
         final T outOfWindowPage = pages.get(pages.size() - 1);
         assert outOfWindowPage.getPageKey() == recordPageKey;
 
         final KeyValueLeafPage outOfWindowKvp = (KeyValueLeafPage) outOfWindowPage;
+        final FsstAwareSlotCopier outCopier = new FsstAwareSlotCopier(outOfWindowKvp.getFsstSymbolTable());
         final int[] populatedSlots = outOfWindowKvp.populatedSlots();
 
         for (final int offset : populatedSlots) {
-          final var recordData = outOfWindowPage.getSlot(offset);
           final var deweyId = outOfWindowPage.getDeweyId(offset);
 
-          // Add to completePage if not already filled
           if ((filledBitmap[offset >>> 6] & (1L << (offset & 63))) == 0) {
-            completeKvp.setSlotWithNodeKind(recordData, offset, outOfWindowKvp.getSlotNodeKindId(offset));
+            copySlotDecompressing(outOfWindowKvp, completeKvp, offset, outOfWindowKvp.getSlotNodeKindId(offset),
+                outCopier);
             filledBitmap[offset >>> 6] |= (1L << (offset & 63));
             if (deweyId != null) {
               completePage.setDeweyId(deweyId, offset);
             }
           }
-          
-          // If slot is NOT in the sliding window, mark for preservation in modifyingPage
-          // (these are records falling out of the window that need to be written)
+
           if ((inWindowBitmap[offset >>> 6] & (1L << (offset & 63))) == 0) {
-            // LAZY COPY: Mark slot for preservation instead of copying
             modifyingKvp.markSlotForPreservation(offset);
           }
         }
-        
-        // Handle references from out-of-window page
+
         for (final Entry<Long, PageReference> entry : outOfWindowPage.referenceEntrySet()) {
           final Long key = entry.getKey();
           if (completePage.getPageReference(key) == null) {
             completePage.setPageReference(key, entry.getValue());
           }
-          // References falling out of window - check if not in window
           if (modifyingPage.getPageReference(key) == null) {
-            // Add to modifying if needed (reference handling simplified)
             modifyingPage.setPageReference(key, entry.getValue());
           }
         }
-        
-        // Set completePage reference for lazy copying at commit time
+
         modifyingKvp.setCompletePageRef(completeKvp);
       }
 
-      // Propagate FSST symbol tables
-      propagateFsstSymbolTable(firstPage, completePage);
-      propagateFsstSymbolTable(firstPage, modifyingPage);
+      // Single-fragment only: completePage / modifyingPage are byte-identical
+      // to firstPage and can share its FSST table. Multi-fragment combines
+      // apply decompress-on-merge so completePage carries no compressed strings
+      // and no FSST table; modifyingPage rebuilds its own table at commit.
+      if (singleFragment && !hasOutOfWindowPage) {
+        propagateFsstSymbolTable(firstPage, completePage);
+        propagateFsstSymbolTable(firstPage, modifyingPage);
+      }
 
       final var pageContainer = PageContainer.getInstance(completePage, modifyingPage);
       log.put(reference, pageContainer);  // TIL will remove from caches before mutating
@@ -806,24 +883,67 @@ public enum VersioningType {
   public abstract int[] getRevisionRoots(final int previousRevision, final int revsToRestore);
 
   /**
-   * Propagate FSST symbol table from source page to target page.
-   * This is needed when combining page fragments to ensure the combined page
-   * can decompress string values.
+   * Propagate an FSST symbol table from a single-fragment source page to the
+   * target. <b>Callers must only invoke this in the single-fragment combine
+   * path</b> (i.e. when the target is a byte-identical copy of the source), so
+   * every compressed slot on the target was encoded with the propagated table.
    *
-   * @param sourcePage the source page with the FSST symbol table
+   * <p>For multi-fragment combines, do not call this — use the decompress-on-
+   * merge path (see {@link #copySlotDecompressing}) instead, which rewrites
+   * each compressed slot to its uncompressed form so the target correctly
+   * carries {@code fsstSymbolTable = null}.
+   *
+   * @param sourcePage the single-fragment source page
    * @param targetPage the target page to set the symbol table on
-   * @param <V> the data record type
-   * @param <T> the key-value page type
    */
   protected static <V extends DataRecord, T extends KeyValuePage<V>> void propagateFsstSymbolTable(
       final T sourcePage, final T targetPage) {
-    if (sourcePage instanceof KeyValueLeafPage sourceKvp 
+    if (sourcePage instanceof KeyValueLeafPage sourceKvp
         && targetPage instanceof KeyValueLeafPage targetKvp) {
-      byte[] fsstSymbolTable = sourceKvp.getFsstSymbolTable();
+      final byte[] fsstSymbolTable = sourceKvp.getFsstSymbolTable();
       if (fsstSymbolTable != null && fsstSymbolTable.length > 0) {
         targetKvp.setFsstSymbolTable(fsstSymbolTable);
       }
     }
+  }
+
+  /**
+   * Copy a single slot from {@code src} to {@code dst} during a multi-fragment
+   * combine. If {@code src} holds an FSST symbol table and the slot is a
+   * string-kind slot whose compressed-flag byte is {@code 1}, the payload is
+   * decoded through the source's table and the rewritten uncompressed slot is
+   * stored on {@code dst}. All other slots (including uncompressed string
+   * slots) are raw-copied.
+   *
+   * <p>Using this helper across every fragment of a multi-fragment combine is
+   * the invariant that lets the target page safely carry
+   * {@code fsstSymbolTable = null}. The next commit re-runs
+   * {@code buildFsstSymbolTable} + {@code compressStringValues} so the page
+   * lands on disk with a single coherent table — zero growth in disk footprint.
+   *
+   * @param src    source fragment
+   * @param dst    target page being assembled
+   * @param offset slot index (0-1023)
+   * @param nodeKindId directory {@code nodeKindId} for the slot on the source
+   * @param copier per-fragment copier carrying {@code src}'s parsed FSST table;
+   *               may be {@code null} or inactive when the source has no table
+   *               — callers commonly pass the same copier across the whole
+   *               fragment loop to amortize the symbol-table parse
+   */
+  protected static void copySlotDecompressing(final KeyValueLeafPage src, final KeyValueLeafPage dst,
+      final int offset, final int nodeKindId, final FsstAwareSlotCopier copier) {
+    final MemorySegment slot = src.getSlot(offset);
+    if (slot == null) {
+      return;
+    }
+    if (copier != null && copier.active()) {
+      final byte[] rewritten = copier.decompressSlot(slot, nodeKindId);
+      if (rewritten != null) {
+        dst.setSlotWithNodeKind(MemorySegment.ofArray(rewritten), offset, nodeKindId);
+        return;
+      }
+    }
+    dst.setSlotWithNodeKind(slot, offset, nodeKindId);
   }
 
   // ===== HOT Leaf Page Combining Methods =====

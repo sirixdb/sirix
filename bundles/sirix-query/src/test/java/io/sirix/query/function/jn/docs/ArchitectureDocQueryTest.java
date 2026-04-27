@@ -289,11 +289,16 @@ public final class ArchitectureDocQueryTest {
         final var updateQuery = "replace json value of jn:doc('mydb', 'myresource').field with \"modified\"";
         new Query(chain, updateQuery).evaluate(ctx);
 
-        // Access old version via node key (node key 3 is typically the field value)
+        // Access old version via node key. Under legacy shredding, nodeKey 3 is the
+        // OBJECT_STRING_VALUE "original"; under fusion the primitive field fuses with its
+        // OBJECT_KEY parent into a single OBJECT_NAMED_STRING at nodeKey 2, so we target
+        // nodeKey 2 when fusion is enabled.
+        final boolean fused = true;
+        final long targetKey = fused ? 2L : 3L;
         final var selectQuery = """
             let $oldDoc := jn:doc('mydb', 'myresource', 1)
-            return sdb:select-item($oldDoc, 3)
-            """;
+            return sdb:select-item($oldDoc, %d)
+            """.formatted(targetKey);
         final var result = executeQuery(chain, ctx, selectQuery);
         assertTrue(result.contains("original"), "Old revision should have 'original': " + result);
       }

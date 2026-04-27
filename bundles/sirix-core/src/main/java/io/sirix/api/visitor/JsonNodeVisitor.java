@@ -26,13 +26,14 @@ import io.sirix.node.immutable.json.ImmutableBooleanNode;
 import io.sirix.node.immutable.json.ImmutableJsonDocumentRootNode;
 import io.sirix.node.immutable.json.ImmutableNullNode;
 import io.sirix.node.immutable.json.ImmutableNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectBooleanNode;
-import io.sirix.node.immutable.json.ImmutableObjectKeyNode;
 import io.sirix.node.immutable.json.ImmutableObjectNode;
-import io.sirix.node.immutable.json.ImmutableObjectNullNode;
-import io.sirix.node.immutable.json.ImmutableObjectNumberNode;
-import io.sirix.node.immutable.json.ImmutableObjectStringNode;
 import io.sirix.node.immutable.json.ImmutableStringNode;
+import io.sirix.node.json.ObjectNamedArrayNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedObjectNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 
 /**
  * Interface which must be implemented from visitors to implement functionality based on the visitor
@@ -59,26 +60,6 @@ public interface JsonNodeVisitor extends NodeVisitor {
    * @return the result of visiting the {@link ImmutableObjectNode}
    */
   default VisitResult visit(ImmutableObjectNode node) {
-    return VisitResultType.CONTINUE;
-  }
-
-  /**
-   * Do something when visiting an {@link ImmutableObjectKeyNode}.
-   *
-   * @param node the {@link ImmutableObjectKeyNode}
-   * @return the result of visiting the {@link ImmutableObjectKeyNode}
-   */
-  default VisitResult visit(ImmutableObjectKeyNode node) {
-    return VisitResultType.CONTINUE;
-  }
-
-  /**
-   * Do something when visiting a {@link ImmutableObjectBooleanNode}.
-   *
-   * @param node the {@link ImmutableObjectBooleanNode}
-   * @return the result of visiting the {@link ImmutableObjectBooleanNode}
-   */
-  default VisitResult visit(ImmutableObjectBooleanNode node) {
     return VisitResultType.CONTINUE;
   }
 
@@ -123,42 +104,65 @@ public interface JsonNodeVisitor extends NodeVisitor {
   }
 
   /**
-   * ImmutableDocumentRoot Do something when visiting a {@link ImmutableObjectStringNode}.
-   *
-   * @param node the {@link ImmutableObjectStringNode}
-   * @return the result of visiting the {@link ImmutableObjectStringNode}
-   */
-  default VisitResult visit(ImmutableObjectStringNode node) {
-    return VisitResultType.CONTINUE;
-  }
-
-  /**
-   * Do something when visiting a {@link ImmutableObjectNumberNode}.
-   *
-   * @param node the {@link ImmutableObjectNumberNode}
-   * @return the result of visiting the {@link ImmutableObjectNumberNode}
-   */
-  default VisitResult visit(ImmutableObjectNumberNode node) {
-    return VisitResultType.CONTINUE;
-  }
-
-  /**
-   * Do something when visiting a {@link ImmutableObjectNullNode}.
-   *
-   * @param node the {@link ImmutableObjectNullNode}
-   * @return the result of visiting the {@link ImmutableObjectNullNode}
-   */
-  default VisitResult visit(ImmutableObjectNullNode node) {
-    return VisitResultType.CONTINUE;
-  }
-
-  /**
    * Do something when visiting the {@link ImmutableJsonDocumentRootNode}.
    *
    * @param node the {@link ImmutableJsonDocumentRootNode}
    * @return the result of visiting the {@link ImmutableJsonDocumentRootNode}
    */
   default VisitResult visit(ImmutableJsonDocumentRootNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  // ==================== Fused OBJECT_NAMED_* visit methods (iter#30) ====================
+  //
+  // Fused nodes carry an OBJECT_KEY role + primitive value in a single record. A visitor
+  // that treats the two as distinct entities (e.g. the CAS/PATH/NAME index builders) can
+  // override these to emit the equivalent index entries. The default returns CONTINUE
+  // so passive visitors (the majority) transparently skip fused records — same as they
+  // would have skipped the legacy primitive-value child when they only cared about
+  // OBJECT_KEY navigation.
+
+  /**
+   * Visit a fused {@link ObjectNamedBooleanNode}. Default returns CONTINUE.
+   */
+  default VisitResult visit(ObjectNamedBooleanNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  /**
+   * Visit a fused {@link ObjectNamedNumberNode}. Default returns CONTINUE.
+   */
+  default VisitResult visit(ObjectNamedNumberNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  /**
+   * Visit a fused {@link ObjectNamedStringNode}. Default returns CONTINUE.
+   */
+  default VisitResult visit(ObjectNamedStringNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  /**
+   * Visit a fused {@link ObjectNamedNullNode}. Default returns CONTINUE.
+   */
+  default VisitResult visit(ObjectNamedNullNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  /**
+   * Visit a fused {@link ObjectNamedObjectNode} (P2 — fused OBJECT_KEY + nested OBJECT). Default
+   * returns CONTINUE so passive visitors traverse the underlying subtree transparently.
+   */
+  default VisitResult visit(ObjectNamedObjectNode node) {
+    return VisitResultType.CONTINUE;
+  }
+
+  /**
+   * Visit a fused {@link ObjectNamedArrayNode} (P2 — fused OBJECT_KEY + nested ARRAY). Default
+   * returns CONTINUE so passive visitors traverse the underlying subtree transparently.
+   */
+  default VisitResult visit(ObjectNamedArrayNode node) {
     return VisitResultType.CONTINUE;
   }
 }

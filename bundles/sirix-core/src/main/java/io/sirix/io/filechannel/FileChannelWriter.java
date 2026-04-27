@@ -249,6 +249,18 @@ public final class FileChannelWriter extends AbstractForwardingReader implements
         throw new IllegalStateException("Failed to build serialized page payload");
       }
 
+      if (io.sirix.io.file.StorageProfile.isEnabled()) {
+        // Raw (pre-compression) size — we read it from the reader view before
+        // clearing. This is the byte count the pagePersister produced.
+        final int rawSize;
+        if (uncompressedBytes instanceof io.sirix.node.MemorySegmentBytesIn msIn) {
+          rawSize = (int) msIn.getSource().byteSize();
+        } else {
+          rawSize = uncompressedBytes.toByteArray().length;
+        }
+        io.sirix.io.file.StorageProfile.record(page.getClass().getSimpleName(), rawSize, serializedPageLength);
+      }
+
       byteBufferBytes.clear();
 
       int offsetToAdd = 0;

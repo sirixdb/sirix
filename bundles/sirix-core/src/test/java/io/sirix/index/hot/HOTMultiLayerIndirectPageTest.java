@@ -375,8 +375,9 @@ class HOTMultiLayerIndirectPageTest {
 
           wtx.moveToDocumentRoot();
           assertTrue(wtx.moveToFirstChild(), "Document should have root object");
-          assertTrue(wtx.moveToFirstChild(), "Root object should have 'records' key");
-          assertTrue(wtx.moveToFirstChild(), "'records' should be an array");
+          // iter#32 P2 fusion: "records" OBJECT_KEY+ARRAY collapsed into one OBJECT_NAMED_ARRAY record,
+          // so a single firstChild reaches the records array (no separate ARRAY layer to traverse).
+          assertTrue(wtx.moveToFirstChild(), "Root object should have 'records' OBJECT_NAMED_ARRAY");
           assertTrue(wtx.moveToLastChild(), "Records array should have existing entries");
           wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"id\": 5000}"));
 

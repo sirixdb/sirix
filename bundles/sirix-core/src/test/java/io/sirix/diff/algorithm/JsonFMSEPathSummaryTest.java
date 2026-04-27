@@ -56,9 +56,9 @@ public final class JsonFMSEPathSummaryTest {
         "{\"a\":{},\"b\":{\"x\":1}}",
         "{\"a\":{},\"b\":{\"x\":1}}",
         Map.of(
-            "/a", NodeKind.OBJECT_KEY,
-            "/b", NodeKind.OBJECT_KEY,
-            "/b/x", NodeKind.OBJECT_KEY
+            "/a", NodeKind.OBJECT_NAMED_OBJECT,
+            "/b", NodeKind.OBJECT_NAMED_OBJECT,
+            "/b/x", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -70,9 +70,9 @@ public final class JsonFMSEPathSummaryTest {
         "{\"source\":{},\"dest\":{\"child\":1}}",
         "{\"source\":{},\"dest\":{\"child\":1}}",
         Map.of(
-            "/source", NodeKind.OBJECT_KEY,
-            "/dest", NodeKind.OBJECT_KEY,
-            "/dest/child", NodeKind.OBJECT_KEY
+            "/source", NodeKind.OBJECT_NAMED_OBJECT,
+            "/dest", NodeKind.OBJECT_NAMED_OBJECT,
+            "/dest/child", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -86,9 +86,9 @@ public final class JsonFMSEPathSummaryTest {
         "{\"gamma\":3,\"alpha\":1,\"beta\":2}",
         "{\"gamma\":3,\"alpha\":1,\"beta\":2}",
         Map.of(
-            "/alpha", NodeKind.OBJECT_KEY,
-            "/beta", NodeKind.OBJECT_KEY,
-            "/gamma", NodeKind.OBJECT_KEY
+            "/alpha", NodeKind.OBJECT_NAMED_OBJECT,
+            "/beta", NodeKind.OBJECT_NAMED_OBJECT,
+            "/gamma", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -103,10 +103,10 @@ public final class JsonFMSEPathSummaryTest {
         "{\"a\":{},\"b\":{\"nested\":{\"inner\":1}}}",
         "{\"a\":{},\"b\":{\"nested\":{\"inner\":1}}}",
         Map.of(
-            "/a", NodeKind.OBJECT_KEY,
-            "/b", NodeKind.OBJECT_KEY,
-            "/b/nested", NodeKind.OBJECT_KEY,
-            "/b/nested/inner", NodeKind.OBJECT_KEY
+            "/a", NodeKind.OBJECT_NAMED_OBJECT,
+            "/b", NodeKind.OBJECT_NAMED_OBJECT,
+            "/b/nested", NodeKind.OBJECT_NAMED_OBJECT,
+            "/b/nested/inner", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -118,11 +118,11 @@ public final class JsonFMSEPathSummaryTest {
         "{\"src\":{},\"dst\":{\"l1\":{\"l2\":{\"l3\":\"val\"}}}}",
         "{\"src\":{},\"dst\":{\"l1\":{\"l2\":{\"l3\":\"val\"}}}}",
         Map.of(
-            "/src", NodeKind.OBJECT_KEY,
-            "/dst", NodeKind.OBJECT_KEY,
-            "/dst/l1", NodeKind.OBJECT_KEY,
-            "/dst/l1/l2", NodeKind.OBJECT_KEY,
-            "/dst/l1/l2/l3", NodeKind.OBJECT_KEY
+            "/src", NodeKind.OBJECT_NAMED_OBJECT,
+            "/dst", NodeKind.OBJECT_NAMED_OBJECT,
+            "/dst/l1", NodeKind.OBJECT_NAMED_OBJECT,
+            "/dst/l1/l2", NodeKind.OBJECT_NAMED_OBJECT,
+            "/dst/l1/l2/l3", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -136,9 +136,9 @@ public final class JsonFMSEPathSummaryTest {
         "{\"a\":{},\"b\":{\"items\":[1,2]}}",
         "{\"a\":{},\"b\":{\"items\":[1,2]}}",
         Map.of(
-            "/a", NodeKind.OBJECT_KEY,
-            "/b", NodeKind.OBJECT_KEY,
-            "/b/items", NodeKind.OBJECT_KEY
+            "/a", NodeKind.OBJECT_NAMED_OBJECT,
+            "/b", NodeKind.OBJECT_NAMED_OBJECT,
+            "/b/items", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -152,8 +152,8 @@ public final class JsonFMSEPathSummaryTest {
         "{\"existing\":1,\"newkey\":2}",
         "{\"existing\":1,\"newkey\":2}",
         Map.of(
-            "/existing", NodeKind.OBJECT_KEY,
-            "/newkey", NodeKind.OBJECT_KEY
+            "/existing", NodeKind.OBJECT_NAMED_OBJECT,
+            "/newkey", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -165,9 +165,9 @@ public final class JsonFMSEPathSummaryTest {
         "{\"root\":{\"child\":{\"grandchild\":\"value\"}}}",
         "{\"root\":{\"child\":{\"grandchild\":\"value\"}}}",
         Map.of(
-            "/root", NodeKind.OBJECT_KEY,
-            "/root/child", NodeKind.OBJECT_KEY,
-            "/root/child/grandchild", NodeKind.OBJECT_KEY
+            "/root", NodeKind.OBJECT_NAMED_OBJECT,
+            "/root/child", NodeKind.OBJECT_NAMED_OBJECT,
+            "/root/child/grandchild", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -179,7 +179,7 @@ public final class JsonFMSEPathSummaryTest {
         "{\"data\":[{\"id\":1}]}",
         "{\"data\":[{\"id\":1}]}",
         Map.of(
-            "/data", NodeKind.OBJECT_KEY
+            "/data", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -193,10 +193,10 @@ public final class JsonFMSEPathSummaryTest {
         "{\"a\":{\"name\":\"Alice\"},\"b\":{\"name\":\"Bob\"}}",
         "{\"a\":{\"name\":\"Alice\"},\"b\":{\"name\":\"Bob\"}}",
         Map.of(
-            "/a", NodeKind.OBJECT_KEY,
-            "/a/name", NodeKind.OBJECT_KEY,
-            "/b", NodeKind.OBJECT_KEY,
-            "/b/name", NodeKind.OBJECT_KEY
+            "/a", NodeKind.OBJECT_NAMED_OBJECT,
+            "/a/name", NodeKind.OBJECT_NAMED_OBJECT,
+            "/b", NodeKind.OBJECT_NAMED_OBJECT,
+            "/b/name", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -207,7 +207,7 @@ public final class JsonFMSEPathSummaryTest {
     final String newJson = "{\"users\":[{\"name\":\"Alice\"},{\"name\":\"Bob\"}]}";
     testDiffAndVerifyPathSummary(oldJson, newJson, newJson,
         Map.of(
-            "/users", NodeKind.OBJECT_KEY
+            "/users", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -221,7 +221,7 @@ public final class JsonFMSEPathSummaryTest {
         "{\"keep\":1}",
         "{\"keep\":1}",
         Map.of(
-            "/keep", NodeKind.OBJECT_KEY
+            "/keep", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -233,7 +233,7 @@ public final class JsonFMSEPathSummaryTest {
         "{\"keep\":1}",
         "{\"keep\":1}",
         Map.of(
-            "/keep", NodeKind.OBJECT_KEY
+            "/keep", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -247,7 +247,7 @@ public final class JsonFMSEPathSummaryTest {
         "{\"user_name\":\"Alice\"}",
         "{\"user_name\":\"Alice\"}",
         Map.of(
-            "/user_name", NodeKind.OBJECT_KEY
+            "/user_name", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -261,10 +261,10 @@ public final class JsonFMSEPathSummaryTest {
         "{\"c\":{\"inner\":false},\"a\":10,\"d\":4}",
         "{\"c\":{\"inner\":false},\"a\":10,\"d\":4}",
         Map.of(
-            "/a", NodeKind.OBJECT_KEY,
-            "/c", NodeKind.OBJECT_KEY,
-            "/c/inner", NodeKind.OBJECT_KEY,
-            "/d", NodeKind.OBJECT_KEY
+            "/a", NodeKind.OBJECT_NAMED_OBJECT,
+            "/c", NodeKind.OBJECT_NAMED_OBJECT,
+            "/c/inner", NodeKind.OBJECT_NAMED_OBJECT,
+            "/d", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -320,12 +320,12 @@ public final class JsonFMSEPathSummaryTest {
         "{\"config\":{\"db\":{\"host\":\"localhost\",\"port\":5432},\"cache\":{\"ttl\":300}}}",
         "{\"config\":{\"db\":{\"host\":\"localhost\",\"port\":5432},\"cache\":{\"ttl\":300}}}",
         Map.of(
-            "/config", NodeKind.OBJECT_KEY,
-            "/config/db", NodeKind.OBJECT_KEY,
-            "/config/db/host", NodeKind.OBJECT_KEY,
-            "/config/db/port", NodeKind.OBJECT_KEY,
-            "/config/cache", NodeKind.OBJECT_KEY,
-            "/config/cache/ttl", NodeKind.OBJECT_KEY
+            "/config", NodeKind.OBJECT_NAMED_OBJECT,
+            "/config/db", NodeKind.OBJECT_NAMED_OBJECT,
+            "/config/db/host", NodeKind.OBJECT_NAMED_OBJECT,
+            "/config/db/port", NodeKind.OBJECT_NAMED_OBJECT,
+            "/config/cache", NodeKind.OBJECT_NAMED_OBJECT,
+            "/config/cache/ttl", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -337,7 +337,7 @@ public final class JsonFMSEPathSummaryTest {
         "{\"list\":[{\"id\":1,\"name\":\"a\"},{\"id\":2,\"name\":\"b\"}]}",
         "{\"list\":[{\"id\":1,\"name\":\"a\"},{\"id\":2,\"name\":\"b\"}]}",
         Map.of(
-            "/list", NodeKind.OBJECT_KEY
+            "/list", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -352,8 +352,8 @@ public final class JsonFMSEPathSummaryTest {
         "{\"a\":[],\"b\":[{\"x\":1}]}",
         "{\"a\":[],\"b\":[{\"x\":1}]}",
         Map.of(
-            "/a", NodeKind.OBJECT_KEY,
-            "/b", NodeKind.OBJECT_KEY
+            "/a", NodeKind.OBJECT_NAMED_OBJECT,
+            "/b", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -376,10 +376,10 @@ public final class JsonFMSEPathSummaryTest {
         "{\"a\":1,\"b\":{\"c\":true},\"d\":[1,2]}",
         "{\"a\":1,\"b\":{\"c\":true},\"d\":[1,2]}",
         Map.of(
-            "/a", NodeKind.OBJECT_KEY,
-            "/b", NodeKind.OBJECT_KEY,
-            "/b/c", NodeKind.OBJECT_KEY,
-            "/d", NodeKind.OBJECT_KEY
+            "/a", NodeKind.OBJECT_NAMED_OBJECT,
+            "/b", NodeKind.OBJECT_NAMED_OBJECT,
+            "/b/c", NodeKind.OBJECT_NAMED_OBJECT,
+            "/d", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -400,9 +400,9 @@ public final class JsonFMSEPathSummaryTest {
         "{\"new1\":2,\"new2\":{\"new3\":false}}",
         "{\"new1\":2,\"new2\":{\"new3\":false}}",
         Map.of(
-            "/new1", NodeKind.OBJECT_KEY,
-            "/new2", NodeKind.OBJECT_KEY,
-            "/new2/new3", NodeKind.OBJECT_KEY
+            "/new1", NodeKind.OBJECT_NAMED_OBJECT,
+            "/new2", NodeKind.OBJECT_NAMED_OBJECT,
+            "/new2/new3", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -414,7 +414,7 @@ public final class JsonFMSEPathSummaryTest {
         "{\"val\":42}",
         "{\"val\":42}",
         Map.of(
-            "/val", NodeKind.OBJECT_KEY
+            "/val", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -426,7 +426,7 @@ public final class JsonFMSEPathSummaryTest {
         "{\"data\":[1,2,3]}",
         "{\"data\":[1,2,3]}",
         Map.of(
-            "/data", NodeKind.OBJECT_KEY
+            "/data", NodeKind.OBJECT_NAMED_OBJECT
         ));
   }
 
@@ -449,15 +449,15 @@ public final class JsonFMSEPathSummaryTest {
       long keyB = -1;
       long keyX = -1;
 
-      // Find all keys
+      // Find all keys. iter#32 structural fusion: "a" is OBJECT_NAMED_OBJECT (collapsed
+      // OBJECT_KEY+OBJECT pair) so its first child IS the inner-field record "x"
+      // (OBJECT_NAMED_NUMBER). One moveToFirstChild + one moveToParent navigates the level.
       do {
         final String name = wtx.getName().getLocalName();
         if ("a".equals(name)) {
           keyA = wtx.getNodeKey();
-          wtx.moveToFirstChild(); // OBJECT under "a"
-          wtx.moveToFirstChild(); // OBJECT_KEY "x"
+          wtx.moveToFirstChild(); // fused "x" record under "a"
           keyX = wtx.getNodeKey();
-          wtx.moveToParent();
           wtx.moveToParent();
         } else if ("b".equals(name)) {
           keyB = wtx.getNodeKey();
@@ -467,9 +467,9 @@ public final class JsonFMSEPathSummaryTest {
       assertTrue("Key x must be found", keyX > 0);
       assertTrue("Key b must be found", keyB > 0);
 
-      // Move "x" to be first child of the OBJECT under "b"
+      // Move "x" to be first child of fused OBJECT_NAMED_OBJECT "b" — under fusion this fused
+      // record IS the OBJECT, so moveSubtreeToFirstChild lands "x" inline as its first child.
       wtx.moveTo(keyB);
-      wtx.moveToFirstChild(); // OBJECT under "b"
       wtx.moveSubtreeToFirstChild(keyX);
 
       wtx.commit();
@@ -689,7 +689,7 @@ public final class JsonFMSEPathSummaryTest {
         final NodeKind kind = pathSummary.getPathKind();
         assertNotNull("Path node " + pathSummary.getNodeKey() + " has null kind", kind);
         assertTrue("Unexpected path kind: " + kind,
-            kind == NodeKind.OBJECT_KEY || kind == NodeKind.ARRAY
+            kind == NodeKind.OBJECT_NAMED_OBJECT || kind == NodeKind.ARRAY
                 || kind == NodeKind.ELEMENT || kind == NodeKind.ATTRIBUTE
                 || kind == NodeKind.NAMESPACE);
 
@@ -706,7 +706,7 @@ public final class JsonFMSEPathSummaryTest {
         final Axis dataAxis = new DescendantAxis(rtx);
         while (dataAxis.hasNext()) {
           dataAxis.nextLong();
-          if (rtx.getKind() == NodeKind.OBJECT_KEY) {
+          if (rtx.getKind() == NodeKind.OBJECT_NAMED_OBJECT) {
             final long pathNodeKey = rtx.getPathNodeKey();
             assertTrue("OBJECT_KEY node " + rtx.getNodeKey() + " (name: "
                     + rtx.getName().getLocalName() + ") has invalid pathNodeKey: " + pathNodeKey,

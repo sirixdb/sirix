@@ -128,6 +128,14 @@ public class MemorySegmentBytesIn implements BytesIn<MemorySegment> {
   }
 
   @Override
+  public void readInts(final int[] dst, final int off, final int len) {
+    // One native copy vs {@code len} VarHandle reads — used by the compact-dir
+    // rebuild in PageKind.deserializeSlottedPage (hot path at cold-cache scan).
+    MemorySegment.copy(memorySegment, ValueLayout.JAVA_INT_UNALIGNED, position, dst, off, len);
+    position += (long) len * Integer.BYTES;
+  }
+
+  @Override
   public long position() {
     return position;
   }

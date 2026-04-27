@@ -1,0 +1,16 @@
+=== iter03c — lock profile (parallel-depth2 hydrate enabled) ===
+# Total samples: 22519
+# Measurement host: 20-core single-socket box
+# Flag: -Dsirix.projection.hydrate.parallel=true (default after iter#03c)
+
+--- Top 25 leaf frames (last frame of each stack) ---
+     22087   98.08%  sun.nio.ch.NativeThreadSet_[i]
+       201    0.89%  int[]_[i]
+       122    0.54%  java.lang.Object_[i]
+       106    0.47%  java.util.concurrent.locks.ReentrantLock$NonfairSync_[i]
+         3    0.01%  java.util.concurrent.ConcurrentHashMap$Node_[i]
+
+--- ProjectionIndexHOTStorage inclusive samples ---
+      1436    6.38%  io/sirix/index/projection/ProjectionIndexHOTStorage$$Lambda.0x00000000311de030.run
+      1436    6.38%  io/sirix/index/projection/ProjectionIndexHOTStorage.lambda$readAllViaCursorParallelDepth2$0
+      1414    6.28%  io/sirix/index/projection/ProjectionIndexHOTStorage.collectSubtreeChunks

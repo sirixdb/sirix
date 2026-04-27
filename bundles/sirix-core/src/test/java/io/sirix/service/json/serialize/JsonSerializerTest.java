@@ -29,6 +29,18 @@ import static org.junit.Assert.assertEquals;
 public final class JsonSerializerTest {
   private static final Path JSON = Paths.get("src", "test", "resources", "json");
 
+  /**
+   * When {@code sirix.json.fuseNamedPrimitives=true} the shredder collapses object
+   * fields whose value is a primitive into a single {@code OBJECT_NAMED_*} record
+   * instead of emitting an {@code OBJECT_KEY} plus a value child. That shrinks the
+   * persisted record count for those fields by one, so descendantCount and nodeKey
+   * annotations in the serialized output shift accordingly. We keep two parallel
+   * expected-JSON fixtures per test ({@code name.json} for legacy, {@code
+   * name-fused.json} for fusion) and {@link #expectedFor(String)} picks the right one.
+   */
+  private static final boolean FUSE_NAMED_PRIMITIVES =
+      true;
+
   @Before
   public void setUp() throws SirixException {
     JsonTestHelper.deleteEverything();
@@ -37,6 +49,28 @@ public final class JsonSerializerTest {
   @After
   public void tearDown() throws SirixException {
     JsonTestHelper.deleteEverything();
+  }
+
+  /**
+   * Resolves the expected-JSON fixture for the current shredder fusion mode.
+   *
+   * @param baseFileName file name relative to the {@code json} resource root for the
+   *                     legacy (non-fused) expected output, e.g.
+   *                     {@code "simple-testdoc-withmetadata-withmaxlevel.json"}
+   * @return the {@link Path} of the matching fused fixture when
+   *         {@code sirix.json.fuseNamedPrimitives=true} and a {@code *-fused.json}
+   *         sibling exists, otherwise the legacy path
+   */
+  private static Path expectedFor(final String baseFileName) {
+    if (FUSE_NAMED_PRIMITIVES) {
+      final int dot = baseFileName.lastIndexOf('.');
+      final String fusedName = baseFileName.substring(0, dot) + "-fused" + baseFileName.substring(dot);
+      final Path fusedPath = JSON.resolve(fusedName);
+      if (Files.exists(fusedPath)) {
+        return fusedPath;
+      }
+    }
+    return JSON.resolve(baseFileName);
   }
 
   @Test
@@ -203,7 +237,7 @@ public final class JsonSerializerTest {
       serializer.call();
 
       final var expected =
-          Files.readString(JSON.resolve("testdoc-withmetadata-withmaxlevel.json"), StandardCharsets.UTF_8);
+          Files.readString(expectedFor("testdoc-withmetadata-withmaxlevel.json"), StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       assertEquals(expected, actual);
@@ -224,8 +258,8 @@ public final class JsonSerializerTest {
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true).maxLevel(2).build();
       serializer.call();
 
-      final var expected =
-          Files.readString(JSON.resolve("simple-testdoc-withmetadata-withmaxlevel.json"), StandardCharsets.UTF_8);
+      final var expected = Files.readString(expectedFor("simple-testdoc-withmetadata-withmaxlevel.json"),
+          StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       JSONAssert.assertEquals(expected, actual, true);
@@ -247,7 +281,7 @@ public final class JsonSerializerTest {
           new JsonSerializer.Builder(manager, writer).withMetaData(true).startNodeKey(3).prettyPrint().build();
       serializer.call();
 
-      final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-objectkey.json"),
+      final var expected = Files.readString(expectedFor("simple-testdoc-withmetadata-withstartnodekey-objectkey.json"),
           StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
@@ -266,11 +300,14 @@ public final class JsonSerializerTest {
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
+      // iter#32 fusion: legacy key 4 was the inner OBJECT (head's value); under fusion the
+      // OBJECT_KEY+OBJECT pair collapsed into OBJECT_NAMED_OBJECT at key 3. Starting on the
+      // fused record reproduces the same logical "head's body" subtree.
       final var serializer =
-          new JsonSerializer.Builder(manager, writer).withMetaData(true).startNodeKey(4).prettyPrint().build();
+          new JsonSerializer.Builder(manager, writer).withMetaData(true).startNodeKey(3).prettyPrint().build();
       serializer.call();
 
-      final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-object.json"),
+      final var expected = Files.readString(expectedFor("simple-testdoc-withmetadata-withstartnodekey-object.json"),
           StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
@@ -289,11 +326,14 @@ public final class JsonSerializerTest {
           InsertPosition.AS_FIRST_CHILD).commitAfterwards().build();
       shredder.call();
 
+      // iter#32 fusion: legacy key 6 was the inner ARRAY (test's value); under fusion the
+      // OBJECT_KEY+ARRAY pair collapsed into OBJECT_NAMED_ARRAY at key 4. Starting on the
+      // fused record reproduces the same logical "test's array body" subtree.
       final var serializer =
-          new JsonSerializer.Builder(manager, writer).withMetaData(true).startNodeKey(6).prettyPrint().build();
+          new JsonSerializer.Builder(manager, writer).withMetaData(true).startNodeKey(4).prettyPrint().build();
       serializer.call();
 
-      final var expected = Files.readString(JSON.resolve("simple-testdoc-withmetadata-withstartnodekey-array.json"),
+      final var expected = Files.readString(expectedFor("simple-testdoc-withmetadata-withstartnodekey-array.json"),
           StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
@@ -308,15 +348,17 @@ public final class JsonSerializerTest {
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final Writer writer = new StringWriter()) {
 
+      // iter#32 full fusion: "tada" OBJECT_KEY+ARRAY pair moved from legacy 15+16 -> 10
+      // (single fused OBJECT_NAMED_ARRAY).
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true)
-                                                                        .startNodeKey(15)
+                                                                        .startNodeKey(10)
                                                                         .maxLevel(2)
                                                                         .prettyPrint()
                                                                         .build();
       serializer.call();
 
       final var expected =
-          Files.readString(JSON.resolve("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel2.json"),
+          Files.readString(expectedFor("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel2.json"),
               StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
@@ -331,15 +373,17 @@ public final class JsonSerializerTest {
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final Writer writer = new StringWriter()) {
+      // iter#32 full fusion: "tada" OBJECT_KEY+ARRAY pair moved from legacy 15+16 -> 10
+      // (single fused OBJECT_NAMED_ARRAY).
       final var serializer = new JsonSerializer.Builder(manager, writer).withNodeKeyMetaData(true)
-                                                                        .startNodeKey(15)
+                                                                        .startNodeKey(10)
                                                                         .maxLevel(3)
                                                                         .prettyPrint()
                                                                         .build();
       serializer.call();
 
       final var expected = Files.readString(
-          JSON.resolve("test-withnodekeymetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
+          expectedFor("test-withnodekeymetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
           StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
@@ -354,15 +398,17 @@ public final class JsonSerializerTest {
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final Writer writer = new StringWriter()) {
+      // iter#32 full fusion: "tada" OBJECT_KEY+ARRAY pair moved from legacy 15+16 -> 10
+      // (single fused OBJECT_NAMED_ARRAY).
       final var serializer = new JsonSerializer.Builder(manager, writer).withNodeKeyAndChildCountMetaData(true)
-                                                                        .startNodeKey(15)
+                                                                        .startNodeKey(10)
                                                                         .maxLevel(3)
                                                                         .prettyPrint()
                                                                         .build();
       serializer.call();
 
       final var expected = Files.readString(
-          JSON.resolve("test-withnodekeyandchildcountmetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
+          expectedFor("test-withnodekeyandchildcountmetadata-withprettyprinting-withstartnodekey-withmaxlevel.json"),
           StandardCharsets.UTF_8);
       final var actual = writer.toString();
 
@@ -376,15 +422,16 @@ public final class JsonSerializerTest {
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final Writer writer = new StringWriter()) {
+      // iter#32 full fusion: "tada" OBJECT_KEY+ARRAY pair moved from legacy 15+16 -> 10.
       final var serializer = new JsonSerializer.Builder(manager, writer).withMetaData(true)
-                                                                        .startNodeKey(15)
+                                                                        .startNodeKey(10)
                                                                         .maxLevel(3)
                                                                         .prettyPrint()
                                                                         .build();
       serializer.call();
 
       final var expected =
-          Files.readString(JSON.resolve("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel3.json"),
+          Files.readString(expectedFor("test-withmetadata-withprettyprinting-withstartnodekey-withmaxlevel3.json"),
               StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
@@ -408,7 +455,7 @@ public final class JsonSerializerTest {
       serializer.call();
 
       final var expected = Files.readString(
-          JSON.resolve("simple-testdoc-withmetadata-withmaxlevel-withprettyprint.json"), StandardCharsets.UTF_8);
+          expectedFor("simple-testdoc-withmetadata-withmaxlevel-withprettyprint.json"), StandardCharsets.UTF_8);
       final var actual = writer.toString().replaceAll("[0-9a-fA-F]{16}", "0000000000000000");
 
       JSONAssert.assertEquals(expected, actual, true);
@@ -506,43 +553,63 @@ public final class JsonSerializerTest {
 
     final var database = JsonTestHelper.getDatabaseWithHashesEnabled(PATHS.PATH1.getFile());
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      // iter#32 full fusion: every primitive-valued OBJECT_KEY collapses with its value
+      // into a single fused OBJECT_NAMED_* record; structural-valued OBJECT_KEYs collapse
+      // with their inner OBJECT/ARRAY into OBJECT_NAMED_OBJECT/OBJECT_NAMED_ARRAY. Result:
+      //  1: root OBJECT
+      //  2: "foo" OBJECT_NAMED_ARRAY  (legacy 2+3 collapsed)
+      //  3: "bar" STRING_VALUE        (legacy 4)
+      //  4: null  NULL_VALUE          (legacy 5)
+      //  5: 2.33  NUMBER_VALUE        (legacy 6)
+      //  6: "bar" OBJECT_NAMED_OBJECT (legacy 7+8 collapsed)
+      //  7: "hello"  OBJECT_NAMED_STRING  (legacy 9+10)
+      //  8: "helloo" OBJECT_NAMED_BOOLEAN (legacy 11+12)
+      //  9: "baz"  OBJECT_NAMED_STRING (legacy 13+14)
+      // 10: "tada" OBJECT_NAMED_ARRAY  (legacy 15+16)
+      // 11: OBJECT first tada element  (legacy 17)
+      // 12: "foo"  OBJECT_NAMED_STRING (legacy 18+19, inside element 11)
+      // 13: OBJECT second tada element (legacy 20)
+      // 14: "baz"  OBJECT_NAMED_BOOLEAN (legacy 21+22, inside element 13)
+      // 15: "boo"  STRING_VALUE        (legacy 23, third element of tada)
+      // 16: OBJECT fourth tada element (legacy 24)
+      // 17: ARRAY  fifth tada element  (legacy 25)
       var serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 1, 2);
       var expected = "{\"foo\":[]}";
       assertEquals(expected, serializedString);
 
-      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 1, 7);
+      // bar OBJECT_NAMED_OBJECT moved 7 -> 6.
+      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 1, 6);
       expected = "{\"bar\":{}}";
       assertEquals(expected, serializedString);
 
-      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 2, 7);
+      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 2, 6);
       expected = "{\"bar\":{\"hello\":\"world\",\"helloo\":true}}";
       assertEquals(expected, serializedString);
 
-      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 2, 17);
+      // {"foo":"bar"} OBJECT (first tada element) moved 17 -> 11.
+      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 2, 11);
       expected = "{\"foo\":\"bar\"}";
       assertEquals(expected, serializedString);
 
-      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 2, 16);
-      expected = "[{},{},\"boo\",{},[]]";
+      // tada OBJECT_NAMED_ARRAY moved 15 (OBJECT_KEY) / 16 (ARRAY) -> 10.
+      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 2, 10);
+      expected = "{\"tada\":[{},{},\"boo\",{},[]]}";
       assertEquals(expected, serializedString);
 
-      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 3, 16);
-      expected = "[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]";
+      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 3, 10);
+      expected = "{\"tada\":[{\"foo\":\"bar\"},{\"baz\":false},\"boo\",{},[]]}";
       assertEquals(expected, serializedString);
 
+      // foo's array elements: "bar" 4 -> 3, null 5 -> 4, 2.33 6 -> 5.
       serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 1, 3);
-      expected = "[]";
-      assertEquals(expected, serializedString);
-
-      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 1, 4);
       expected = "\"bar\"";
       assertEquals(expected, serializedString);
 
-      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 1, 5);
+      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 1, 4);
       expected = "null";
       assertEquals(expected, serializedString);
 
-      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 1, 6);
+      serializedString = getSerializedStringWithMaxLevelAndStartNodeKey(manager, 1, 5);
       expected = "2.33";
       assertEquals(expected, serializedString);
     }

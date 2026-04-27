@@ -27,6 +27,10 @@ import io.sirix.api.NodeCursor;
  * <p>
  * Iterate over all children starting at a given node. Self is not included.
  * </p>
+ *
+ * <p>Fused {@code OBJECT_NAMED_*} records are leaves (iter#31 Option B): no synthetic
+ * child is emitted. Callers that need the inline primitive value read it directly off
+ * the fused node via {@code getValue()} / {@code getNumberValue()} / etc.
  */
 public final class ChildAxis extends AbstractAxis {
 

@@ -1,0 +1,40 @@
+=== iter03c — alloc profile (parallel-depth2 hydrate enabled) ===
+# Total samples: 32418
+# Measurement host: 20-core single-socket box
+# Flag: -Dsirix.projection.hydrate.parallel=true (default after iter#03c)
+
+--- Top 25 leaf frames (last frame of each stack) ---
+     15100   46.58%  byte[]_[i]
+      9370   28.90%  long[]_[i]
+      3006    9.27%  jdk.incubator.vector.Long256Vector_[i]
+      2328    7.18%  boolean[]_[i]
+      1570    4.84%  jdk.incubator.vector.Long256Vector$Long256Mask_[i]
+       335    1.03%  int[]_[i]
+        81    0.25%  jdk.internal.foreign.HeapMemorySegmentImpl$OfByte_[i]
+        74    0.23%  jdk.internal.foreign.NativeMemorySegmentImpl_[i]
+        70    0.22%  java.lang.VirtualThread_[i]
+        65    0.20%  jdk.internal.foreign.layout.ValueLayouts$OfLongImpl_[i]
+        56    0.17%  java.lang.Object[]_[i]
+        55    0.17%  jdk.internal.foreign.GlobalSession$HeapSession_[i]
+        36    0.11%  io.sirix.page.HOTLeafPage_[i]
+        24    0.07%  java.util.concurrent.ForkJoinTask$RunnableExecuteAction_[i]
+        24    0.07%  jdk.internal.foreign.LayoutPath_[i]
+        22    0.07%  java.lang.VirtualThread$VThreadContinuation_[i]
+        21    0.06%  io.sirix.access.trx.page.HOTRangeCursor$Entry_[i]
+        18    0.06%  java.util.concurrent.ConcurrentHashMap$Node_[i]
+        12    0.04%  io.sirix.access.trx.page.HOTTrieReader$$Lambda.0x000000003f205b20_[i]
+        11    0.03%  io.sirix.page.PageReference_[i]
+        10    0.03%  java.lang.VirtualThread$$Lambda.0x000000003f17a418_[i]
+         9    0.03%  java.lang.classfile.constantpool.PoolEntry[]_[i]
+         9    0.03%  it.unimi.dsi.fastutil.longs.Long2ObjectRBTreeMap$Entry_[i]
+         9    0.03%  it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap_[i]
+         8    0.02%  java.lang.Object_[i]
+
+--- ProjectionIndexHOTStorage inclusive samples ---
+     11980   36.95%  io/sirix/index/projection/ProjectionIndexHOTStorage$$Lambda.0x000000003f1dedc8.run
+     11980   36.95%  io/sirix/index/projection/ProjectionIndexHOTStorage.lambda$readAllViaCursorParallelDepth2$0
+     11867   36.61%  io/sirix/index/projection/ProjectionIndexHOTStorage.collectSubtreeChunks
+      3771   11.63%  io/sirix/index/projection/ProjectionIndexHOTStorage.readAll
+      3771   11.63%  io/sirix/index/projection/ProjectionIndexHOTStorage.readAllViaCursorParallelDepth2
+        96    0.30%  io/sirix/index/projection/ProjectionIndexHOTStorage.decodeCompositeKeySegment
+         1    0.00%  io/sirix/index/projection/ProjectionIndexHOTStorage.<clinit>

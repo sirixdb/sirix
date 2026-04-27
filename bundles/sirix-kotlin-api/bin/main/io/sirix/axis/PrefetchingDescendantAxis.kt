@@ -178,7 +178,7 @@ class PrefetchingDescendantAxis private constructor(
         readerPool = if (prefetchAhead > 0 && parallelReaders > 0) {
             Array(parallelReaders) {
                 try {
-                    resourceSession.beginStorageEngineReader(revisionNumber)
+                    resourceSession.createStorageEngineReader(revisionNumber)
                 } catch (_: Exception) {
                     null
                 }

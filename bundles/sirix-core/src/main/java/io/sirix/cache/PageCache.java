@@ -4,6 +4,8 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.CASPage;
+import io.sirix.page.HOTIndirectPage;
+import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
@@ -62,9 +64,21 @@ public final class PageCache implements Cache<PageReference, Page> {
         // For very large pages (>2GB), cap at Integer.MAX_VALUE
         long size = keyValueLeafPage.getActualMemorySize();
         return (int) Math.min(size, Integer.MAX_VALUE);
-      } else {
-        return 1000; // Other page types use fixed weight
       }
+      // IndirectPage / HOTIndirectPage and other metadata pages rely on
+      // Caffeine's W-TinyLFU admission + frequency-aware eviction. Because
+      // these pages are touched on every leaf load, their access frequency
+      // dwarfs any transient metadata traffic, so W-TinyLFU keeps them in
+      // cache naturally under the configured maxWeight budget. An earlier
+      // iteration set weight=0 to hard-pin them, but that leaked memory
+      // across revisions (each CoW creates new IndirectPage instances and
+      // weight=0 meant Caffeine never evicted the stale ones). A fixed
+      // representative weight lets Caffeine age out old-revision indirect
+      // pages via normal LRU/TinyLFU eviction while keeping the current
+      // revision's navigation pages hot. KeyValueLeafPages don't reach the
+      // PageCache — they live in RecordPageCache — so there is no large
+      // leaf-page traffic competing for this budget.
+      return 1000;
     }).removalListener(removalListener).recordStats().build();
 
     LOGGER.info("PageCache created with maxWeight: {} MB", maxWeight / (1024 * 1024));

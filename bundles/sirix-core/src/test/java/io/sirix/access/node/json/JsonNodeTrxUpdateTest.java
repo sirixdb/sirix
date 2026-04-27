@@ -94,7 +94,9 @@ public class JsonNodeTrxUpdateTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = manager.beginNodeTrx()) {
-      wtx.moveTo(4);
+      // Legacy STRING "bar" inside foo array was at key 4 → fused: key 3 (foo subtree shrank by
+      // one because the OBJECT_KEY+ARRAY pair fused into a single OBJECT_NAMED_ARRAY).
+      wtx.moveTo(3);
 
       assertEquals("bar", wtx.getValue());
       wtx.setStringValue("baz");
@@ -112,7 +114,7 @@ public class JsonNodeTrxUpdateTest {
   }
 
   private void assertsForUpdateStringValue(JsonNodeReadOnlyTrx rtx) {
-    rtx.moveTo(4);
+    rtx.moveTo(3);
 
     assertEquals("baz", rtx.getValue());
   }
@@ -124,7 +126,8 @@ public class JsonNodeTrxUpdateTest {
     try (final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = manager.beginNodeTrx()) {
-      wtx.moveTo(6);
+      // Legacy NUMBER 2.33 inside foo array was at key 6 → fused: key 5.
+      wtx.moveTo(5);
 
       assertEquals(2.33, wtx.getNumberValue());
       wtx.setNumberValue(5.77);
@@ -142,7 +145,7 @@ public class JsonNodeTrxUpdateTest {
   }
 
   private void assertsForUpdateNumberValue(JsonNodeReadOnlyTrx rtx) {
-    rtx.moveTo(6);
+    rtx.moveTo(5);
 
     assertEquals(5.77, rtx.getNumberValue());
   }
@@ -154,7 +157,9 @@ public class JsonNodeTrxUpdateTest {
     try (final var database = JsonTestHelper.getDatabaseWithDeweyIdsEnabled(JsonTestHelper.PATHS.PATH1.getFile());
         final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = manager.beginNodeTrx()) {
-      wtx.moveTo(12);
+      // Legacy "helloo":true was OBJECT_KEY(11)+BOOLEAN(12). Under fusion these collapse into a
+      // single OBJECT_NAMED_BOOLEAN at key 8.
+      wtx.moveTo(8);
 
       assertTrue(wtx.getBooleanValue());
       wtx.setBooleanValue(false);
@@ -172,7 +177,7 @@ public class JsonNodeTrxUpdateTest {
   }
 
   private void assertsForUpdateBooleanValue(JsonNodeReadOnlyTrx rtx) {
-    rtx.moveTo(12);
+    rtx.moveTo(8);
 
     assertFalse(rtx.getBooleanValue());
   }
@@ -185,26 +190,7 @@ public class JsonNodeTrxUpdateTest {
     assert database != null;
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = manager.beginNodeTrx()) {
-      wtx.moveToDocumentRoot();
-      wtx.moveToFirstChild();
-      wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
-      wtx.moveTo(5);
-      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), JsonNodeTrx.Commit.NO);
-      wtx.moveTo(5);
-      wtx.remove();
-      wtx.moveTo(4);
-      wtx.insertBooleanValueAsRightSibling(true);
-      wtx.setBooleanValue(false);
-      wtx.moveTo(6);
-      wtx.setNumberValue(1.2);
-      wtx.moveTo(9);
-      wtx.remove();
-      wtx.moveTo(13);
-      wtx.remove();
-      wtx.moveTo(15);
-      wtx.setObjectKeyName("tadaa");
-      wtx.moveTo(22);
-      wtx.setBooleanValue(true);
+      mutateForDiffScenario(wtx);
       wtx.commit();
 
       final var diffPath = manager.getResourceConfig()
@@ -212,7 +198,10 @@ public class JsonNodeTrxUpdateTest {
                                   .resolve(ResourceConfiguration.ResourcePaths.UPDATE_OPERATIONS.getPath())
                                   .resolve("diffFromRev1toRev2.json");
 
-      assertEquals(Files.readString(JSON.resolve("diffFromRev1toRev2.json")), Files.readString(diffPath));
+      // Fusion shifts the inserted-subtree's interior nodeKey by one (primitive-valued fields
+      // collapse two records to one), so we need a variant golden file for the fused shredder.
+      final String golden = "diffFromRev1toRev2-fused.json";
+      assertEquals(Files.readString(JSON.resolve(golden)), Files.readString(diffPath));
     }
   }
 
@@ -224,28 +213,10 @@ public class JsonNodeTrxUpdateTest {
     assert database != null;
     try (final var manager = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var wtx = manager.beginNodeTrx()) {
-      wtx.moveToDocumentRoot();
-      wtx.moveToFirstChild();
-      wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
-      wtx.moveTo(5);
-      wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), JsonNodeTrx.Commit.NO);
-      wtx.moveTo(5);
-      wtx.remove();
-      wtx.moveTo(4);
-      wtx.insertBooleanValueAsRightSibling(true);
-      wtx.setBooleanValue(false);
-      wtx.moveTo(6);
-      wtx.setNumberValue(1.2);
-      wtx.moveTo(9);
-      wtx.remove();
-      wtx.moveTo(13);
-      wtx.remove();
-      wtx.moveTo(15);
-      wtx.setObjectKeyName("tadaa");
-      wtx.moveTo(22);
-      wtx.setBooleanValue(true);
+      mutateForDiffScenario(wtx);
       wtx.commit();
 
+      // foo (root's first field) is at key 2 under fusion, same as legacy.
       wtx.moveTo(2);
 
       var rootDeweyId = wtx.getDeweyID();
@@ -257,11 +228,14 @@ public class JsonNodeTrxUpdateTest {
       assertTrue(updateOperations.get(2).has("insert"));
       assertTrue(updateOperations.get(3).has("update"));
 
-      wtx.moveTo(17);
+      // Legacy first OBJECT inside tada array was key 17 → fused: key 11 (tada at 10, its first
+      // child is OBJECT at 11).
+      wtx.moveTo(11);
       wtx.insertObjectRecordAsFirstChild("foo1", new StringValue("bar1"));
       wtx.commit();
 
-      wtx.moveTo(15);
+      // tada was OBJECT_KEY at legacy key 15 → fused OBJECT_NAMED_ARRAY at key 10.
+      wtx.moveTo(10);
       rootDeweyId = wtx.getDeweyID();
       updateOperations = wtx.getUpdateOperationsInSubtreeOfNode(rootDeweyId, 1);
 
@@ -272,5 +246,43 @@ public class JsonNodeTrxUpdateTest {
       assertEquals(1, updateOperations.size());
       assertTrue(updateOperations.get(0).has("insert"));
     }
+  }
+
+  /**
+   * Drives the rev1 → rev2 mutation sequence shared by the diff and update-ops tests. Legacy
+   * keys are shifted by one per fused field encountered before the targeted node:
+   * <ul>
+   *   <li>foo's NULL — legacy 5 → fused 4 (foo: OBJECT_KEY+ARRAY → OBJECT_NAMED_ARRAY).</li>
+   *   <li>foo's STRING "bar" — legacy 4 → fused 3.</li>
+   *   <li>foo's NUMBER 2.33 — legacy 6 → fused 5.</li>
+   *   <li>bar's "hello" field — legacy OBJECT_KEY 9 → fused OBJECT_NAMED_STRING 7
+   *     (bar: OBJECT_KEY+OBJECT → OBJECT_NAMED_OBJECT, then hello: OBJECT_KEY+STRING →
+   *     OBJECT_NAMED_STRING).</li>
+   *   <li>top-level "baz" — legacy OBJECT_KEY 13 → fused OBJECT_NAMED_STRING 9.</li>
+   *   <li>top-level "tada" — legacy OBJECT_KEY 15 → fused OBJECT_NAMED_ARRAY 10.</li>
+   *   <li>"baz" inside tada[1] — legacy BOOLEAN 22 → fused OBJECT_NAMED_BOOLEAN 14.</li>
+   * </ul>
+   */
+  private static void mutateForDiffScenario(final JsonNodeTrx wtx) {
+    wtx.moveToDocumentRoot();
+    wtx.moveToFirstChild();
+    wtx.insertObjectRecordAsFirstChild("tadaaa", new StringValue("todooo"));
+    wtx.moveTo(4); // legacy 5 = NULL_VALUE
+    wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"test\":1}"), JsonNodeTrx.Commit.NO);
+    wtx.moveTo(4); // legacy 5 = NULL_VALUE
+    wtx.remove();
+    wtx.moveTo(3); // legacy 4 = STRING_VALUE "bar"
+    wtx.insertBooleanValueAsRightSibling(true);
+    wtx.setBooleanValue(false);
+    wtx.moveTo(5); // legacy 6 = NUMBER_VALUE 2.33
+    wtx.setNumberValue(1.2);
+    wtx.moveTo(7); // legacy 9 = OBJECT_KEY "hello" (inside "bar"). Fused OBJECT_NAMED_STRING.
+    wtx.remove();
+    wtx.moveTo(9); // legacy 13 = OBJECT_KEY "baz" (top-level). Fused OBJECT_NAMED_STRING.
+    wtx.remove();
+    wtx.moveTo(10); // legacy 15 = OBJECT_KEY "tada". Fused OBJECT_NAMED_ARRAY.
+    wtx.setObjectKeyName("tadaa");
+    wtx.moveTo(14); // legacy 22 = BOOLEAN false inside tada[1]. Fused OBJECT_NAMED_BOOLEAN.
+    wtx.setBooleanValue(true);
   }
 }

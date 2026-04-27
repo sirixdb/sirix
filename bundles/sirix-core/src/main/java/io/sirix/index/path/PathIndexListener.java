@@ -56,6 +56,15 @@ public final class PathIndexListener {
     this.useHOT = true;
   }
 
+  /**
+   * Returns the {@link PathSummaryReader} backing this listener. Used by JSON-specific dispatch
+   * (e.g. fused {@code OBJECT_NAMED_ARRAY} which must mirror its index entry at both the
+   * OBJECT_KEY layer and the {@code __array__/ARRAY} layer) to navigate path-summary parents.
+   */
+  public PathSummaryReader getPathSummaryReader() {
+    return pathSummaryReader;
+  }
+
   public void listen(final IndexController.ChangeType type, final ImmutableNode node, final long pathNodeKey) {
     listen(type, node.getNodeKey(), pathNodeKey);
   }

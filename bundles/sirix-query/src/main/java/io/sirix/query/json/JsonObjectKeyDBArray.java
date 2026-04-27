@@ -2,19 +2,26 @@ package io.sirix.query.json;
 
 import io.sirix.query.stream.json.TemporalSirixJsonObjectKeyArrayStream;
 import io.brackit.query.atomic.IntNumeric;
+import io.brackit.query.jdm.Sequence;
 import io.brackit.query.jdm.Stream;
 import io.brackit.query.jdm.json.Array;
 import io.brackit.query.jdm.json.TemporalJsonItem;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
+import io.sirix.axis.ChildAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.temporal.AllTimeAxis;
 import io.sirix.axis.temporal.FutureAxis;
 import io.sirix.axis.temporal.PastAxis;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import static java.util.Objects.requireNonNull;
 
 public final class JsonObjectKeyDBArray extends AbstractJsonDBArray<JsonObjectKeyDBArray>
     implements TemporalJsonItem<JsonObjectKeyDBArray> {
+
+  private static final JsonItemFactory NAME_FACTORY = new JsonItemFactory();
 
   /**
    * Sirix read-only transaction.
@@ -37,6 +44,43 @@ public final class JsonObjectKeyDBArray extends AbstractJsonDBArray<JsonObjectKe
     this.collection = requireNonNull(collection);
     this.rtx = requireNonNull(rtx);
     assert this.rtx.isObject();
+  }
+
+  /**
+   * This array represents the NAMES (keys) of an object's fields. Under fusion, the shared
+   * {@link JsonItemFactory#getSequence} method returns the inline VALUE for OBJECT_NAMED_*
+   * records, which is wrong for a name-iteration. Override to always return the field name
+   * regardless of whether the underlying record is fused.
+   */
+  @Override
+  public List<Sequence> values() {
+    rtx.moveTo(getNodeKey());
+    final List<Sequence> out = new ArrayList<>((int) rtx.getChildCount());
+    final ChildAxis axis = new ChildAxis(rtx);
+    axis.forEach(nodeKey -> out.add(NAME_FACTORY.getNameSequence(rtx, collection)));
+    return out;
+  }
+
+  @Override
+  public Sequence at(final int index) {
+    if (index < 0) {
+      throw new IllegalArgumentException("index must be >= 0");
+    }
+    rtx.moveTo(getNodeKey());
+    final ChildAxis axis = new ChildAxis(rtx);
+    for (int i = 0; i < index && axis.hasNext(); i++) {
+      axis.nextLong();
+    }
+    if (axis.hasNext()) {
+      axis.nextLong();
+      return NAME_FACTORY.getNameSequence(rtx, collection);
+    }
+    return null;
+  }
+
+  @Override
+  public Sequence at(final IntNumeric numericIndex) {
+    return at(numericIndex.intValue());
   }
 
   @Override

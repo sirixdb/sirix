@@ -10,9 +10,9 @@ import java.lang.foreign.ValueLayout;
  * Extracts string-type and number-type node columns directly from slotted page MemorySegments.
  *
  * <p>Scans the page bitmap, filters for STRING_VALUE (kindId=30),
- * OBJECT_STRING_VALUE (kindId=40), NUMBER_VALUE (kindId=28), and
- * OBJECT_NUMBER_VALUE (kindId=42) nodes, and extracts their metadata
- * into caller-provided primitive arrays — zero allocation on the hot path.</p>
+ * OBJECT_NAMED_STRING (fused, kindId=50), NUMBER_VALUE (kindId=28), and OBJECT_NAMED_NUMBER
+ * (fused, kindId=49) nodes, and extracts their metadata into caller-provided primitive arrays
+ * — zero allocation on the hot path.</p>
  *
  * <p>This enables page-at-a-time columnar extraction: instead of
  * per-node moveTo + flyweight bind + field extract, we scan the page
@@ -27,44 +27,44 @@ public final class ColumnarPageExtractor {
   /** NodeKind ID for STRING_VALUE. */
   private static final int KIND_STRING_VALUE = NodeKind.STRING_VALUE.getId();
 
-  /** NodeKind ID for OBJECT_STRING_VALUE. */
-  private static final int KIND_OBJECT_STRING_VALUE = NodeKind.OBJECT_STRING_VALUE.getId();
+  /** NodeKind ID for fused OBJECT_NAMED_STRING. */
+  private static final int KIND_OBJECT_NAMED_STRING = NodeKind.OBJECT_NAMED_STRING.getId();
 
   /** Field count for STRING_VALUE nodes. */
   private static final int STRING_VALUE_FIELD_COUNT = NodeFieldLayout.STRING_VALUE_FIELD_COUNT; // 6
 
-  /** Field count for OBJECT_STRING_VALUE nodes. */
-  private static final int OBJECT_STRING_VALUE_FIELD_COUNT = NodeFieldLayout.OBJECT_STRING_VALUE_FIELD_COUNT; // 4
+  /** Field count for OBJECT_NAMED_STRING nodes (excludes variable-length payload). */
+  private static final int OBJECT_NAMED_STRING_FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_STRING_FIELD_COUNT; // 9
 
   /** Payload field index for STRING_VALUE. */
   private static final int STRVAL_PAYLOAD_IDX = NodeFieldLayout.STRVAL_PAYLOAD; // 5
 
-  /** Payload field index for OBJECT_STRING_VALUE. */
-  private static final int OBJSTRVAL_PAYLOAD_IDX = NodeFieldLayout.OBJSTRVAL_PAYLOAD; // 3
+  /** Payload field index for OBJECT_NAMED_STRING. */
+  private static final int OBJNAMEDSTR_PAYLOAD_IDX = NodeFieldLayout.OBJNAMEDSTR_PAYLOAD; // 8
 
   /**
-   * Parent key field index — same for both string node types.
-   * Uses STRVAL_PARENT_KEY as the canonical source; asserted equal to OBJSTRVAL_PARENT_KEY.
+   * Parent key field index — same for every extractable kind (always 0 in the field-order
+   * contract; asserted below).
    */
   private static final int PARENT_KEY_IDX = NodeFieldLayout.STRVAL_PARENT_KEY;
 
   /** NodeKind ID for NUMBER_VALUE. */
   private static final int KIND_NUMBER_VALUE = NodeKind.NUMBER_VALUE.getId();
 
-  /** NodeKind ID for OBJECT_NUMBER_VALUE. */
-  private static final int KIND_OBJECT_NUMBER_VALUE = NodeKind.OBJECT_NUMBER_VALUE.getId();
+  /** NodeKind ID for fused OBJECT_NAMED_NUMBER. */
+  private static final int KIND_OBJECT_NAMED_NUMBER = NodeKind.OBJECT_NAMED_NUMBER.getId();
 
   /** Field count for NUMBER_VALUE nodes. */
   private static final int NUMBER_VALUE_FIELD_COUNT = NodeFieldLayout.NUMBER_VALUE_FIELD_COUNT; // 6
 
-  /** Field count for OBJECT_NUMBER_VALUE nodes. */
-  private static final int OBJECT_NUMBER_VALUE_FIELD_COUNT = NodeFieldLayout.OBJECT_NUMBER_VALUE_FIELD_COUNT; // 4
+  /** Field count for OBJECT_NAMED_NUMBER nodes (excludes variable-length payload). */
+  private static final int OBJECT_NAMED_NUMBER_FIELD_COUNT = NodeFieldLayout.OBJECT_NAMED_NUMBER_FIELD_COUNT; // 9
 
   /** Payload field index for NUMBER_VALUE. */
   private static final int NUMVAL_PAYLOAD_IDX = NodeFieldLayout.NUMVAL_PAYLOAD; // 5
 
-  /** Payload field index for OBJECT_NUMBER_VALUE. */
-  private static final int OBJNUMVAL_PAYLOAD_IDX = NodeFieldLayout.OBJNUMVAL_PAYLOAD; // 3
+  /** Payload field index for OBJECT_NAMED_NUMBER. */
+  private static final int OBJNAMEDNUM_PAYLOAD_IDX = NodeFieldLayout.OBJNAMEDNUM_PAYLOAD; // 8
 
   /** Number type bytes — matching NodeKind.serializeNumber format. */
   private static final byte NUM_TYPE_DOUBLE = 0;
@@ -74,12 +74,12 @@ public final class ColumnarPageExtractor {
   // Types 4 (BigInteger) and 5 (BigDecimal) are skipped on the hot path
 
   static {
-    assert NodeFieldLayout.STRVAL_PARENT_KEY == NodeFieldLayout.OBJSTRVAL_PARENT_KEY
-        : "Parent key field index must be the same for STRING_VALUE and OBJECT_STRING_VALUE";
-    assert NodeFieldLayout.NUMVAL_PARENT_KEY == NodeFieldLayout.OBJNUMVAL_PARENT_KEY
-        : "Parent key field index must be the same for NUMBER_VALUE and OBJECT_NUMBER_VALUE";
     assert NodeFieldLayout.NUMVAL_PARENT_KEY == NodeFieldLayout.STRVAL_PARENT_KEY
         : "Parent key field index must be 0 for all extractable node types";
+    assert NodeFieldLayout.OBJNAMEDSTR_PARENT_KEY == NodeFieldLayout.STRVAL_PARENT_KEY
+        : "OBJECT_NAMED_STRING parent key must also be at field index 0";
+    assert NodeFieldLayout.OBJNAMEDNUM_PARENT_KEY == NodeFieldLayout.NUMVAL_PARENT_KEY
+        : "OBJECT_NAMED_NUMBER parent key must also be at field index 0";
   }
 
   /**
@@ -134,7 +134,7 @@ public final class ColumnarPageExtractor {
 
         // Fast kindId check from directory entry
         final int kindId = PageLayout.getDirNodeKindId(page, slot);
-        if (kindId != KIND_STRING_VALUE && kindId != KIND_OBJECT_STRING_VALUE) {
+        if (kindId != KIND_STRING_VALUE && kindId != KIND_OBJECT_NAMED_STRING) {
           continue;
         }
 
@@ -149,8 +149,9 @@ public final class ColumnarPageExtractor {
           fieldCount = STRING_VALUE_FIELD_COUNT;
           payloadFieldIdx = STRVAL_PAYLOAD_IDX;
         } else {
-          fieldCount = OBJECT_STRING_VALUE_FIELD_COUNT;
-          payloadFieldIdx = OBJSTRVAL_PAYLOAD_IDX;
+          // Fused OBJECT_NAMED_STRING — carries both field name and inline string payload.
+          fieldCount = OBJECT_NAMED_STRING_FIELD_COUNT;
+          payloadFieldIdx = OBJNAMEDSTR_PAYLOAD_IDX;
         }
 
         // Read field offsets from the offset table
@@ -216,7 +217,7 @@ public final class ColumnarPageExtractor {
    * Extract all number-type slots from a page, parsing their numeric payload
    * into doubles for SIMD-friendly columnar storage.
    *
-   * <p>Handles NUMBER_VALUE (kindId=28) and OBJECT_NUMBER_VALUE (kindId=42).
+   * <p>Handles NUMBER_VALUE (kindId=28) and fused OBJECT_NAMED_NUMBER (kindId=49).
    * The number payload format is: {@code [numberType:1][numberData:variable]}.
    * For the hot path, only Double, Float, Integer, and Long types are decoded.
    * BigInteger and BigDecimal are skipped (they'd require allocation).</p>
@@ -264,7 +265,7 @@ public final class ColumnarPageExtractor {
         seen++;
 
         final int kindId = PageLayout.getDirNodeKindId(page, slot);
-        if (kindId != KIND_NUMBER_VALUE && kindId != KIND_OBJECT_NUMBER_VALUE) {
+        if (kindId != KIND_NUMBER_VALUE && kindId != KIND_OBJECT_NAMED_NUMBER) {
           continue;
         }
 
@@ -277,8 +278,9 @@ public final class ColumnarPageExtractor {
           fieldCount = NUMBER_VALUE_FIELD_COUNT;
           payloadFieldIdx = NUMVAL_PAYLOAD_IDX;
         } else {
-          fieldCount = OBJECT_NUMBER_VALUE_FIELD_COUNT;
-          payloadFieldIdx = OBJNUMVAL_PAYLOAD_IDX;
+          // Fused OBJECT_NAMED_NUMBER — carries both field name and inline number payload.
+          fieldCount = OBJECT_NAMED_NUMBER_FIELD_COUNT;
+          payloadFieldIdx = OBJNAMEDNUM_PAYLOAD_IDX;
         }
 
         final long dataStart = PageLayout.dataRegionStart(recordBase, fieldCount);

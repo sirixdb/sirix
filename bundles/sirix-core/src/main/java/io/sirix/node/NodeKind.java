@@ -35,7 +35,9 @@ import io.brackit.query.module.Namespaces;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.index.AtomicUtil;
+import io.sirix.index.path.summary.HyperLogLogSketch;
 import io.sirix.index.path.summary.PathNode;
+import io.sirix.index.projection.ProjectionIndexLeafRecord;
 import io.sirix.index.redblacktree.RBNodeKey;
 import io.sirix.index.redblacktree.RBNodeValue;
 import io.sirix.index.redblacktree.keyvalue.CASValue;
@@ -54,12 +56,13 @@ import io.sirix.node.json.BooleanNode;
 import io.sirix.node.json.JsonDocumentRootNode;
 import io.sirix.node.json.NullNode;
 import io.sirix.node.json.NumberNode;
-import io.sirix.node.json.ObjectBooleanNode;
-import io.sirix.node.json.ObjectKeyNode;
+import io.sirix.node.json.ObjectNamedArrayNode;
+import io.sirix.node.json.ObjectNamedBooleanNode;
+import io.sirix.node.json.ObjectNamedNullNode;
+import io.sirix.node.json.ObjectNamedNumberNode;
+import io.sirix.node.json.ObjectNamedObjectNode;
+import io.sirix.node.json.ObjectNamedStringNode;
 import io.sirix.node.json.ObjectNode;
-import io.sirix.node.json.ObjectNullNode;
-import io.sirix.node.json.ObjectNumberNode;
-import io.sirix.node.json.ObjectStringNode;
 import io.sirix.node.json.StringNode;
 import io.sirix.node.xml.AttributeNode;
 import io.sirix.node.xml.CommentNode;
@@ -74,9 +77,14 @@ import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import net.openhft.hashing.LongHashFunction;
+import org.roaringbitmap.RoaringBitmap;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInput;
 import java.io.DataInputStream;
+import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -625,7 +633,56 @@ public enum NodeKind implements DeweyIdSerializer {
 
       final NodeKind kind = NodeKind.getKind(source.readByte());
 
-      return new PathNode(null, nodeDel, structDel, nameDel, kind, source.readInt(), source.readInt());
+      final PathNode pathNode =
+          new PathNode(null, nodeDel, structDel, nameDel, kind, source.readInt(), source.readInt());
+
+      // Optional per-path statistics trailer — present iff the resource was configured
+      // with withPathStatistics=true. Older resources / disabled configs pay zero bytes.
+      if (resourceConfiguration.withPathStatistics) {
+        final long statsCount = source.readLong();
+        final long statsNullCount = source.readLong();
+        final long statsSum = source.readLong();
+        final long statsMin = source.readLong();
+        final long statsMax = source.readLong();
+        final byte[] statsMinBytes = readOptionalBytes(source);
+        final byte[] statsMaxBytes = readOptionalBytes(source);
+        final int hllLen = source.readInt();
+        HyperLogLogSketch hll = null;
+        if (hllLen >= 0) {
+          final byte[] hllBytes = new byte[hllLen];
+          source.read(hllBytes, 0, hllLen);
+          hll = HyperLogLogSketch.deserialize(hllBytes);
+        }
+        final boolean statsMinDirty = source.readBoolean();
+        final boolean statsMaxDirty = source.readBoolean();
+        pathNode.setStatsState(statsCount, statsNullCount, statsSum, statsMin, statsMax,
+            statsMinBytes, statsMaxBytes, hll, statsMinDirty, statsMaxDirty);
+        // Optional presence bitmap (leaf-page-skip index). Length prefix:
+        //   -1  → absent (new field in older serialisations)
+        //    N  → N bytes of RoaringBitmap.serialize() data (native format,
+        //          same as RoaringBitmap.deserialize(DataInput) consumes).
+        // Older on-disk records stop before this field; the reader skips it
+        // transparently when source is exhausted (eof → -1 length).
+        final int bitmapLen = readOptionalIntLength(source);
+        if (bitmapLen > 0) {
+          final byte[] bmBytes = new byte[bitmapLen];
+          source.read(bmBytes, 0, bitmapLen);
+          final RoaringBitmap bm = new RoaringBitmap();
+          try {
+            bm.deserialize(new DataInputStream(new ByteArrayInputStream(bmBytes)));
+          } catch (final IOException e) {
+            throw new UncheckedIOException("PathNode pageKeys deserialize failed", e);
+          }
+          pathNode.setPageKeys(bm);
+        } else if (bitmapLen == 0) {
+          // Empty bitmap was explicitly serialised — preserve that (a
+          // completed scan that proved the nameKey is present nowhere).
+          pathNode.setPageKeys(new RoaringBitmap());
+        }
+        // bitmapLen == -1 → leave pageKeys null (legacy record).
+      }
+
+      return pathNode;
     }
 
     @Override
@@ -638,6 +695,49 @@ public enum NodeKind implements DeweyIdSerializer {
       sink.writeByte(node.getPathKind().getId());
       sink.writeInt(node.getReferences());
       sink.writeInt(node.getLevel());
+
+      // Optional per-path statistics trailer — mirrors the deserialize path. Writes
+      // zero extra bytes when withPathStatistics is false (backward compatible).
+      if (resourceConfiguration.withPathStatistics) {
+        sink.writeLong(node.getStatsValueCount());
+        sink.writeLong(node.getStatsNullCount());
+        sink.writeLong(node.getStatsSum());
+        sink.writeLong(node.getStatsMin());
+        sink.writeLong(node.getStatsMax());
+        writeOptionalBytes(sink, node.getStatsMinBytes());
+        writeOptionalBytes(sink, node.getStatsMaxBytes());
+        final HyperLogLogSketch hll = node.getHllSketch();
+        if (hll == null) {
+          sink.writeInt(-1);
+        } else {
+          final byte[] hllBytes = hll.serialize();
+          sink.writeInt(hllBytes.length);
+          sink.write(hllBytes);
+        }
+        sink.writeBoolean(node.isStatsMinDirty());
+        sink.writeBoolean(node.isStatsMaxDirty());
+        // Presence bitmap trailer. -1 length = absent (the PathNode has no
+        // tracked pageKeys). RoaringBitmap.serialize writes the portable
+        // self-describing format; we prefix with the byte length so the
+        // reader can skip the correct number of bytes even if the bitmap
+        // format changes across RoaringBitmap versions.
+        final RoaringBitmap pageKeys = node.getPageKeys();
+        if (pageKeys == null) {
+          sink.writeInt(-1);
+        } else {
+          pageKeys.runOptimize();
+          final ByteArrayOutputStream baos = new ByteArrayOutputStream(
+              Math.max(16, pageKeys.serializedSizeInBytes()));
+          try {
+            pageKeys.serialize(new DataOutputStream(baos));
+          } catch (final IOException e) {
+            throw new UncheckedIOException("PathNode pageKeys serialize failed", e);
+          }
+          final byte[] bmBytes = baos.toByteArray();
+          sink.writeInt(bmBytes.length);
+          sink.write(bmBytes);
+        }
+      }
     }
 
     @Override
@@ -1027,147 +1127,51 @@ public enum NodeKind implements DeweyIdSerializer {
     }
   },
 
+  // (Phase 4: legacy OBJECT_KEY (byte 26) and OBJECT_KEY_PAX (byte 126) enum constants
+  //  deleted — fully replaced by the 6 fused OBJECT_NAMED_* kinds 48-53.)
+
   /**
-   * JSON object key node.
+   * JSON fused object-key + boolean value (single record per {@code {"name": true|false}}).
+   * On-wire layout mirrors {@link ObjectNamedBooleanNode}'s flyweight serialization:
+   * structural fields first (parent, siblings), then nameKey + pathNodeKey, then
+   * revisions + hash + value.
    */
-  OBJECT_KEY((byte) 26) {
+  OBJECT_NAMED_BOOLEAN((byte) 48) {
     @Override
     public DataRecord deserialize(final BytesIn<?> source, final long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // STRUCTURAL FIELDS FIRST (for lazy singleton optimization)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      long firstChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      // LAZY FIELDS (metadata)
       int nameKey = DeltaVarIntCodec.decodeSigned(source);
       long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       long hash = 0;
-      long descendantCount = 0;
       if (resourceConfiguration.hashType != HashType.NONE) {
         hash = source.readLong();
-        descendantCount = DeltaVarIntCodec.decodeSigned(source);
       }
-      return new ObjectKeyNode(recordID, parentKey, pathNodeKey, prevRev, lastModRev, rightSiblingKey, leftSiblingKey,
-          firstChildKey, nameKey, descendantCount, hash, resourceConfiguration.nodeHashFunction, deweyID);
-    }
-
-    @Override
-    public void serialize(final BytesOut<?> sink, final DataRecord record,
-        final ResourceConfiguration resourceConfiguration) {
-      final ObjectKeyNode node = (ObjectKeyNode) record;
-      final long nodeKey = node.getNodeKey();
-      // STRUCTURAL FIELDS FIRST
-      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
-      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
-      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
-      DeltaVarIntCodec.encodeDelta(sink, node.getFirstChildKey(), nodeKey);
-      // LAZY FIELDS (metadata)
-      DeltaVarIntCodec.encodeSigned(sink, node.getNameKey());
-      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
-      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
-      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
-      if (resourceConfiguration.hashType != HashType.NONE) {
-        sink.writeLong(node.getHash());
-        DeltaVarIntCodec.encodeSigned(sink, (int) node.getDescendantCount());
-      }
-    }
-
-    @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
-        ResourceConfiguration resourceConfig) {
-      throw new UnsupportedOperationException();
-    }
-  },
-
-  /**
-   * JSON object string value node.
-   */
-  OBJECT_STRING_VALUE((byte) 40) {
-    @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // STRUCTURAL FIELD (parentKey is the only structural field for leaf nodes)
-      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      // LAZY FIELDS (metadata + value)
-      int prevRev = DeltaVarIntCodec.decodeSigned(source);
-      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      // Compression flag (1 byte: 0 = none, 1 = FSST)
-      boolean isCompressed = source.readByte() == 1;
-      int length = DeltaVarIntCodec.decodeSigned(source);
-      byte[] value = new byte[length];
-      source.read(value);
-      // Note: fsstSymbolTable will be set by the page after deserialization if needed
-      return new ObjectStringNode(recordID, parentKey, prevRev, lastModRev, 0, value,
-          resourceConfiguration.nodeHashFunction, deweyID, isCompressed, null);
-    }
-
-    @Override
-    public void serialize(final BytesOut<?> sink, final DataRecord record,
-        final ResourceConfiguration resourceConfiguration) {
-      final ObjectStringNode node = (ObjectStringNode) record;
-      final long nodeKey = node.getNodeKey();
-      // STRUCTURAL FIELD
-      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
-      // LAZY FIELDS (metadata + value)
-      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
-      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
-      // Compression flag (1 byte: 0 = none, 1 = FSST)
-      sink.writeByte(node.isCompressed()
-          ? (byte) 1
-          : (byte) 0);
-      // Use raw value without decompression to preserve compression
-      final byte[] value = node.getRawValueWithoutDecompression();
-      DeltaVarIntCodec.encodeSigned(sink, value.length);
-      sink.write(value);
-    }
-
-    @Override
-    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
-        ResourceConfiguration resourceConfig) {
-      throw new UnsupportedOperationException();
-    }
-  },
-
-  /**
-   * JSON boolean value node.
-   */
-  OBJECT_BOOLEAN_VALUE((byte) 41) {
-    @Override
-    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
-        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // STRUCTURAL FIELD (parentKey is the only structural field for leaf nodes)
-      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      // LAZY FIELDS (metadata + value)
-      int prevRev = DeltaVarIntCodec.decodeSigned(source);
-      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
       boolean value = source.readBoolean();
-      return new ObjectBooleanNode(recordID, parentKey, prevRev, lastModRev, 0, value,
+      return new ObjectNamedBooleanNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
+          nameKey, pathNodeKey, prevRev, lastModRev, hash, value,
           resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
-      final ObjectBooleanNode node = (ObjectBooleanNode) record;
+      final ObjectNamedBooleanNode node = (ObjectNamedBooleanNode) record;
       final long nodeKey = node.getNodeKey();
-      // STRUCTURAL FIELD
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
-      // LAZY FIELDS (metadata + value)
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getNameKey());
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
       sink.writeBoolean(node.getValue());
     }
 
@@ -1184,32 +1188,44 @@ public enum NodeKind implements DeweyIdSerializer {
   },
 
   /**
-   * JSON number value node.
+   * JSON fused object-key + number value (single record per {@code {"name": 42}}).
    */
-  OBJECT_NUMBER_VALUE((byte) 42) {
+  OBJECT_NAMED_NUMBER((byte) 49) {
     @Override
     public DataRecord deserialize(final BytesIn<?> source, final long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // STRUCTURAL FIELD (parentKey is the only structural field for leaf nodes)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      // LAZY FIELDS (metadata + value)
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int nameKey = DeltaVarIntCodec.decodeSigned(source);
+      long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long hash = 0;
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        hash = source.readLong();
+      }
       Number value = deserializeNumber(source);
-      return new ObjectNumberNode(recordID, parentKey, prevRev, lastModRev, 0, value,
+      return new ObjectNamedNumberNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
+          nameKey, pathNodeKey, prevRev, lastModRev, hash, value,
           resourceConfiguration.nodeHashFunction, deweyID);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
-      final ObjectNumberNode node = (ObjectNumberNode) record;
+      final ObjectNamedNumberNode node = (ObjectNamedNumberNode) record;
       final long nodeKey = node.getNodeKey();
-      // STRUCTURAL FIELD
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
-      // LAZY FIELDS (metadata + value)
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getNameKey());
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
       serializeNumber(node.getValue(), sink);
     }
 
@@ -1224,32 +1240,253 @@ public enum NodeKind implements DeweyIdSerializer {
       throw new UnsupportedOperationException();
     }
   },
+
   /**
-   * JSON null node.
+   * JSON fused object-key + string value (single record per {@code {"name": "value"}}).
    */
-  OBJECT_NULL_VALUE((byte) 43) {
+  OBJECT_NAMED_STRING((byte) 50) {
     @Override
     public DataRecord deserialize(final BytesIn<?> source, final long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // STRUCTURAL FIELD (parentKey is the only structural field for leaf nodes)
       long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
-      // LAZY FIELDS (metadata)
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int nameKey = DeltaVarIntCodec.decodeSigned(source);
+      long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
       int prevRev = DeltaVarIntCodec.decodeSigned(source);
       int lastModRev = DeltaVarIntCodec.decodeSigned(source);
-      return new ObjectNullNode(recordID, parentKey, prevRev, lastModRev, 0, resourceConfiguration.nodeHashFunction,
-          deweyID);
+      long hash = 0;
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        hash = source.readLong();
+      }
+      boolean isCompressed = source.readByte() == 1;
+      int length = DeltaVarIntCodec.decodeSigned(source);
+      byte[] value = new byte[length];
+      source.read(value);
+      return new ObjectNamedStringNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
+          nameKey, pathNodeKey, prevRev, lastModRev, hash, value,
+          resourceConfiguration.nodeHashFunction, deweyID, isCompressed, null);
     }
 
     @Override
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
-      final ObjectNullNode node = (ObjectNullNode) record;
+      final ObjectNamedStringNode node = (ObjectNamedStringNode) record;
       final long nodeKey = node.getNodeKey();
-      // STRUCTURAL FIELD
       DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
-      // LAZY FIELDS (metadata)
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getNameKey());
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
       DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
       DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
+      sink.writeByte(node.isCompressed() ? (byte) 1 : (byte) 0);
+      final byte[] value = node.getRawValueWithoutDecompression();
+      final byte[] actual = value != null ? value : new byte[0];
+      DeltaVarIntCodec.encodeSigned(sink, actual.length);
+      sink.write(actual);
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /**
+   * JSON fused object-key + null value (single record per {@code {"name": null}}).
+   */
+  OBJECT_NAMED_NULL((byte) 51) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int nameKey = DeltaVarIntCodec.decodeSigned(source);
+      long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long hash = 0;
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        hash = source.readLong();
+      }
+      return new ObjectNamedNullNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
+          nameKey, pathNodeKey, prevRev, lastModRev, hash,
+          resourceConfiguration.nodeHashFunction, deweyID);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ObjectNamedNullNode node = (ObjectNamedNullNode) record;
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getNameKey());
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /**
+   * JSON fused object-key + nested object value (single record per
+   * {@code {"name": { ... }}}). Internal node carrying first/last child + child/desc count.
+   *
+   * <p><b>Phase 1 stub</b>: kindId reserved and class plumbing exists, but no factory/shredder
+   * path emits this kind yet. Wire serialize/deserialize throw — if reached, treat as a bug.
+   *
+   * <h2>Wire layout</h2>
+   * <pre>
+   * Field order (offset-table indices for the slotted-page heap encoding):
+   *   0 parentKey         (delta-varint)
+   *   1 rightSiblingKey   (delta-varint)
+   *   2 leftSiblingKey    (delta-varint)
+   *   3 firstChildKey     (delta-varint)
+   *   4 lastChildKey      (delta-varint)
+   *   5 nameKey           (signed varint)
+   *   6 pathNodeKey       (delta-varint)
+   *   7 previousRevision  (signed varint)
+   *   8 lastModifiedRev   (signed varint)
+   *   9 hash              (fixed 8 bytes)
+   *  10 childCount        (signed long varint)
+   *  11 descendantCount   (signed long varint)
+   * </pre>
+   */
+  OBJECT_NAMED_OBJECT((byte) 52) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      final long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      final long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      final long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      final long firstChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      final long lastChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      final int nameKey = DeltaVarIntCodec.decodeSigned(source);
+      final long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      final int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      final int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long hash = 0L;
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        hash = source.readLong();
+      }
+      final long childCount = DeltaVarIntCodec.decodeSignedLong(source);
+      final long descendantCount = DeltaVarIntCodec.decodeSignedLong(source);
+      return new ObjectNamedObjectNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
+          firstChildKey, lastChildKey, nameKey, pathNodeKey, prevRev, lastModRev, hash,
+          childCount, descendantCount, resourceConfiguration.nodeHashFunction, deweyID);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ObjectNamedObjectNode node = (ObjectNamedObjectNode) record;
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getFirstChildKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLastChildKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getNameKey());
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
+      DeltaVarIntCodec.encodeSignedLong(sink, node.getChildCount());
+      DeltaVarIntCodec.encodeSignedLong(sink, node.getDescendantCount());
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /**
+   * JSON fused object-key + nested array value (single record per
+   * {@code {"name": [ ... ]}}). Internal node carrying first/last child + child/desc count.
+   *
+   * <p><b>Phase 1 stub</b>: kindId reserved and class plumbing exists, but no factory/shredder
+   * path emits this kind yet. Wire serialize/deserialize throw — if reached, treat as a bug.
+   *
+   * <p>Field layout identical to {@link #OBJECT_NAMED_OBJECT}.
+   */
+  OBJECT_NAMED_ARRAY((byte) 53) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      final long parentKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      final long rightSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      final long leftSiblingKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      final long firstChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      final long lastChildKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      final int nameKey = DeltaVarIntCodec.decodeSigned(source);
+      final long pathNodeKey = DeltaVarIntCodec.decodeDelta(source, recordID);
+      final int prevRev = DeltaVarIntCodec.decodeSigned(source);
+      final int lastModRev = DeltaVarIntCodec.decodeSigned(source);
+      long hash = 0L;
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        hash = source.readLong();
+      }
+      final long childCount = DeltaVarIntCodec.decodeSignedLong(source);
+      final long descendantCount = DeltaVarIntCodec.decodeSignedLong(source);
+      return new ObjectNamedArrayNode(recordID, parentKey, rightSiblingKey, leftSiblingKey,
+          firstChildKey, lastChildKey, nameKey, pathNodeKey, prevRev, lastModRev, hash,
+          childCount, descendantCount, resourceConfiguration.nodeHashFunction, deweyID);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ObjectNamedArrayNode node = (ObjectNamedArrayNode) record;
+      final long nodeKey = node.getNodeKey();
+      DeltaVarIntCodec.encodeDelta(sink, node.getParentKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getRightSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLeftSiblingKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getFirstChildKey(), nodeKey);
+      DeltaVarIntCodec.encodeDelta(sink, node.getLastChildKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getNameKey());
+      DeltaVarIntCodec.encodeDelta(sink, node.getPathNodeKey(), nodeKey);
+      DeltaVarIntCodec.encodeSigned(sink, node.getPreviousRevisionNumber());
+      DeltaVarIntCodec.encodeSigned(sink, node.getLastModifiedRevisionNumber());
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getHash());
+      }
+      DeltaVarIntCodec.encodeSignedLong(sink, node.getChildCount());
+      DeltaVarIntCodec.encodeSignedLong(sink, node.getDescendantCount());
     }
 
     @Override
@@ -1587,6 +1824,48 @@ public enum NodeKind implements DeweyIdSerializer {
   },
 
   /**
+   * Projection-index leaf chunk. Wraps the serialised
+   * {@link io.sirix.index.projection.ProjectionIndexLeafPage} byte[] so the
+   * projection index can live as a HOT sub-tree rooted at
+   * {@code RevisionRootPage#getProjectionPageReference}. The {@code nodeKey}
+   * is the sequential leaf index; payload length is varint-free (plain int
+   * prefix) — leaves are typically in the 4–20 KB range.
+   */
+  PROJECTION_INDEX_LEAF((byte) 44) {
+    @Override
+    public DataRecord deserialize(final BytesIn<?> source, final long recordID,
+        final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
+      final int length = source.readInt();
+      if (length < 0) {
+        throw new IllegalStateException("Negative PROJECTION_INDEX_LEAF payload length: " + length);
+      }
+      final byte[] payload = new byte[length];
+      if (length > 0) source.read(payload);
+      return new ProjectionIndexLeafRecord(recordID, payload);
+    }
+
+    @Override
+    public void serialize(final BytesOut<?> sink, final DataRecord record,
+        final ResourceConfiguration resourceConfiguration) {
+      final ProjectionIndexLeafRecord leaf = (ProjectionIndexLeafRecord) record;
+      final byte[] payload = leaf.getPayload();
+      sink.writeInt(payload.length);
+      if (payload.length > 0) sink.write(payload);
+    }
+
+    @Override
+    public byte[] deserializeDeweyID(BytesIn<?> source, byte[] previousDeweyID, ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public void serializeDeweyID(BytesOut<?> sink, byte[] deweyID, byte[] nextDeweyID,
+        ResourceConfiguration resourceConfig) {
+      throw new UnsupportedOperationException();
+    }
+  },
+
+  /**
    * HNSW vector graph node storing an embedding vector and per-layer neighbor lists.
    */
   VECTOR_NODE((byte) 56) {
@@ -1800,6 +2079,53 @@ public enum NodeKind implements DeweyIdSerializer {
   }
 
   /**
+   * Write a possibly-null byte array with a length prefix ({@code -1} marks null).
+   */
+  private static void writeOptionalBytes(BytesOut<?> sink, byte[] bytes) {
+    if (bytes == null) {
+      sink.writeInt(-1);
+    } else {
+      sink.writeInt(bytes.length);
+      if (bytes.length > 0) {
+        sink.write(bytes);
+      }
+    }
+  }
+
+  /**
+   * Read the byte array written by {@link #writeOptionalBytes}. Returns {@code null}
+   * if the length prefix is {@code -1}.
+   */
+  private static byte[] readOptionalBytes(BytesIn<?> source) {
+    final int length = source.readInt();
+    if (length < 0) {
+      return null;
+    }
+    final byte[] bytes = new byte[length];
+    if (length > 0) {
+      source.read(bytes, 0, length);
+    }
+    return bytes;
+  }
+
+  /**
+   * Read an {@code int} length prefix, treating end-of-stream as {@code -1}.
+   * Used when appending an optional trailing field to a previously
+   * versionless on-disk record: old records end before the prefix and we
+   * must not propagate the underlying EOF exception.
+   */
+  private static int readOptionalIntLength(BytesIn<?> source) {
+    try {
+      return source.readInt();
+    } catch (final RuntimeException eof) {
+      // Bytes-based backends throw a RuntimeException on underflow rather
+      // than a checked EOFException — treat either as "legacy record, field
+      // not present" and fall back to the null-equivalent sentinel.
+      return -1;
+    }
+  }
+
+  /**
    * Identifier.
    */
   private final byte id;
@@ -1841,6 +2167,52 @@ public enum NodeKind implements DeweyIdSerializer {
    */
   public static NodeKind getKind(final byte id) {
     return INSTANCEFORID[id];
+  }
+
+  /** True for all fused {@code OBJECT_NAMED_*} kinds — records that carry a field nameKey
+   *  + pathNodeKey and play the "object field" role in diff/index/scan code.
+   *
+   *  <p>Phase 4 — the legacy {@code OBJECT_KEY} branch was removed; the predicate now covers
+   *  exclusively the 6 fused kinds (48-53). Naming retained for source-compatibility with
+   *  call sites; semantics now mean "is a fused named record". Predicate remains a
+   *  {@code ||} chain of identity comparisons (zero-alloc, no autoboxing). */
+  public boolean playsObjectKeyRole() {
+    return this == OBJECT_NAMED_BOOLEAN
+        || this == OBJECT_NAMED_NUMBER
+        || this == OBJECT_NAMED_STRING
+        || this == OBJECT_NAMED_NULL
+        || this == OBJECT_NAMED_OBJECT
+        || this == OBJECT_NAMED_ARRAY;
+  }
+
+  /** True for the iter#30 fused leaf kinds (primitive payload only). Excludes the Phase 1
+   *  structural-fused kinds, since callers of this predicate dispatch into per-leaf-type
+   *  switches (e.g. removeName) that would need new cases for OBJECT/ARRAY structural shape. */
+  public boolean isFusedObjectNamed() {
+    return this == OBJECT_NAMED_BOOLEAN
+        || this == OBJECT_NAMED_NUMBER
+        || this == OBJECT_NAMED_STRING
+        || this == OBJECT_NAMED_NULL;
+  }
+
+  /** True for the Phase 1 fused structural kinds (OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY).
+   *  Phase 1 reserves the kindIds 52/53 and the recognizer; no runtime code path emits them
+   *  yet, so this predicate returns true only when fed an explicit constant. */
+  public boolean isFusedStructural() {
+    return this == OBJECT_NAMED_OBJECT
+        || this == OBJECT_NAMED_ARRAY;
+  }
+
+  /** True for any fused named record (primitive leaves 48-51 OR structural 52-53). Useful
+   *  for predicates that classify "any record carrying both a fieldname and an inline payload
+   *  or sub-tree" without caring about the payload shape. */
+  public boolean isFusedAnyNamed() {
+    return this == OBJECT_NAMED_BOOLEAN
+        || this == OBJECT_NAMED_NUMBER
+        || this == OBJECT_NAMED_STRING
+        || this == OBJECT_NAMED_NULL
+        || this == OBJECT_NAMED_OBJECT
+        || this == OBJECT_NAMED_ARRAY;
   }
 
   @Override

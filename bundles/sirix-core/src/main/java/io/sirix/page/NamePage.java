@@ -205,7 +205,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         rawName = processingInstructions.getRawName(key);
       }
-      case OBJECT_KEY -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
+           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -260,7 +261,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         yield processingInstructions.getName(key);
       }
-      case OBJECT_KEY -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
+           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -304,7 +306,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         yield processingInstructions.getCount(key);
       }
-      case OBJECT_KEY -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
+           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -349,7 +352,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         return processingInstructions.setName(name, storageEngineReader);
       }
-      case OBJECT_KEY -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
+           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }
@@ -418,7 +422,8 @@ public final class NamePage extends AbstractForwardingPage {
         }
         processingInstructions.removeName(key, storageEngineReader);
       }
-      case OBJECT_KEY -> {
+      case OBJECT_NAMED_OBJECT, OBJECT_NAMED_ARRAY, OBJECT_NAMED_BOOLEAN,
+           OBJECT_NAMED_NUMBER, OBJECT_NAMED_STRING, OBJECT_NAMED_NULL -> {
         if (jsonObjectKeys == null) {
           jsonObjectKeys = getNames(storageEngineReader, JSON_OBJECT_KEY_REFERENCE_OFFSET);
         }

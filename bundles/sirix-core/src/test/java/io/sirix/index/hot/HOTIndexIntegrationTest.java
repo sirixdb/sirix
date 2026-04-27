@@ -509,9 +509,10 @@ class HOTIndexIntegrationTest {
         // Delete one feature - should reduce count by 1
         trx.moveToDocumentRoot();
         trx.moveToFirstChild(); // root object
-        trx.moveToFirstChild(); // "type" OBJECT_KEY (first key)
-        trx.moveToRightSibling(); // "features" OBJECT_KEY (second key)
-        trx.moveToFirstChild(); // features ARRAY
+        trx.moveToFirstChild(); // "type" OBJECT_NAMED_STRING
+        trx.moveToRightSibling(); // "features" OBJECT_NAMED_ARRAY (fused: plays both OBJECT_KEY+ARRAY roles)
+        // iter#32 P2 fusion collapsed the legacy OBJECT_KEY+ARRAY pair into one record, so a single
+        // moveToFirstChild reaches the first feature OBJECT (no separate ARRAY layer to traverse).
         trx.moveToFirstChild(); // first feature OBJECT
         trx.remove();
 
@@ -563,9 +564,9 @@ class HOTIndexIntegrationTest {
 
         trx.moveToDocumentRoot();
         trx.moveToFirstChild(); // root object
-        trx.moveToFirstChild(); // "type" OBJECT_KEY
-        trx.moveToRightSibling(); // "features" OBJECT_KEY
-        trx.moveToFirstChild(); // features ARRAY
+        trx.moveToFirstChild(); // "type" OBJECT_NAMED_STRING
+        trx.moveToRightSibling(); // "features" OBJECT_NAMED_ARRAY (fused OBJECT_KEY+ARRAY)
+        // iter#32 P2 fusion: single firstChild reaches the first feature OBJECT (ARRAY layer collapsed).
         trx.moveToFirstChild(); // first feature OBJECT
         trx.remove();
         trx.commit();
@@ -727,9 +728,10 @@ class HOTIndexIntegrationTest {
             final var trx = manager.beginNodeTrx()) {
           trx.moveToDocumentRoot();
           trx.moveToFirstChild(); // root object
-          trx.moveToFirstChild(); // "type" OBJECT_KEY (first key)
-          trx.moveToRightSibling(); // "features" OBJECT_KEY (second key)
-          trx.moveToFirstChild(); // features ARRAY (value of the key)
+          trx.moveToFirstChild(); // "type" OBJECT_NAMED_STRING (first key)
+          trx.moveToRightSibling(); // "features" OBJECT_NAMED_ARRAY (fused OBJECT_KEY+ARRAY)
+          // iter#32 P2 fusion collapsed OBJECT_KEY+ARRAY into one record, so single firstChild reaches
+          // the first feature OBJECT (no separate ARRAY layer to traverse).
           trx.moveToFirstChild(); // first feature OBJECT in array
           trx.remove();
 
@@ -809,9 +811,10 @@ class HOTIndexIntegrationTest {
             final var trx = manager.beginNodeTrx()) {
           trx.moveToDocumentRoot();
           trx.moveToFirstChild(); // root object
-          trx.moveToFirstChild(); // "type" OBJECT_KEY (first key)
-          trx.moveToRightSibling(); // "features" OBJECT_KEY (second key)
-          trx.moveToFirstChild(); // features ARRAY (value of the key)
+          trx.moveToFirstChild(); // "type" OBJECT_NAMED_STRING (first key)
+          trx.moveToRightSibling(); // "features" OBJECT_NAMED_ARRAY (fused OBJECT_KEY+ARRAY)
+          // iter#32 P2 fusion collapsed OBJECT_KEY+ARRAY into one record, so single firstChild reaches
+          // the first feature OBJECT (no separate ARRAY layer to traverse).
           trx.moveToFirstChild(); // first feature OBJECT in array
           trx.remove();
           trx.commit();
@@ -887,9 +890,10 @@ class HOTIndexIntegrationTest {
             final var trx = manager.beginNodeTrx()) {
           trx.moveToDocumentRoot();
           trx.moveToFirstChild(); // root object
-          trx.moveToFirstChild(); // "type" OBJECT_KEY (first key)
-          trx.moveToRightSibling(); // "features" OBJECT_KEY (second key)
-          trx.moveToFirstChild(); // features ARRAY (value of the key)
+          trx.moveToFirstChild(); // "type" OBJECT_NAMED_STRING (first key)
+          trx.moveToRightSibling(); // "features" OBJECT_NAMED_ARRAY (fused OBJECT_KEY+ARRAY)
+          // iter#32 P2 fusion collapsed OBJECT_KEY+ARRAY into one record, so single firstChild reaches
+          // the first feature OBJECT (no separate ARRAY layer to traverse).
           trx.moveToFirstChild(); // first feature OBJECT in array
           trx.remove();
           trx.commit();
@@ -1010,8 +1014,9 @@ class HOTIndexIntegrationTest {
         // Navigate and insert
         trx.moveToDocumentRoot();
         trx.moveToFirstChild(); // root object
-        trx.moveToFirstChild(); // "users" key
-        trx.moveToFirstChild(); // users array
+        trx.moveToFirstChild(); // "users" OBJECT_NAMED_ARRAY (fused OBJECT_KEY+ARRAY)
+        // iter#32 P2 fusion: OBJECT_NAMED_ARRAY plays the ARRAY role, so lastChild lands directly on
+        // the last array element (no separate ARRAY layer to traverse).
         trx.moveToLastChild(); // last user
 
         trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("""
@@ -1093,8 +1098,8 @@ class HOTIndexIntegrationTest {
         // Navigate to users array
         trx.moveToDocumentRoot();
         trx.moveToFirstChild(); // root object
-        trx.moveToFirstChild(); // "users" key
-        trx.moveToFirstChild(); // users array
+        trx.moveToFirstChild(); // "users" OBJECT_NAMED_ARRAY (fused OBJECT_KEY+ARRAY)
+        // iter#32 P2 fusion: lastChild on OBJECT_NAMED_ARRAY directly hits the last array element.
         trx.moveToLastChild(); // last user object
 
         // Insert new users as siblings
@@ -1121,8 +1126,8 @@ class HOTIndexIntegrationTest {
           final var trx = manager.beginNodeTrx()) {
         trx.moveToDocumentRoot();
         trx.moveToFirstChild(); // root object
-        trx.moveToFirstChild(); // "users" key
-        trx.moveToFirstChild(); // users array
+        trx.moveToFirstChild(); // "users" OBJECT_NAMED_ARRAY (fused OBJECT_KEY+ARRAY)
+        // iter#32 P2 fusion: firstChild on OBJECT_NAMED_ARRAY directly hits the first array element.
         trx.moveToFirstChild(); // first user
         trx.remove();
         trx.commit();
@@ -1142,9 +1147,8 @@ class HOTIndexIntegrationTest {
           final var trx = manager.beginNodeTrx()) {
         trx.moveToDocumentRoot();
         trx.moveToFirstChild();
-        trx.moveToFirstChild();
-        trx.moveToFirstChild();
-        trx.moveToLastChild();
+        trx.moveToFirstChild(); // "users" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
+        trx.moveToLastChild(); // last user
         trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("""
             {"name": "Frank", "age": 40, "address": {"city": "Denver", "zip": "80201"}}
             """));
@@ -1223,8 +1227,8 @@ class HOTIndexIntegrationTest {
           final var trx = manager.beginNodeTrx()) {
         trx.moveToDocumentRoot();
         trx.moveToFirstChild(); // root object
-        trx.moveToFirstChild(); // "products" key
-        trx.moveToFirstChild(); // products array
+        trx.moveToFirstChild(); // "products" OBJECT_NAMED_ARRAY (fused OBJECT_KEY+ARRAY)
+        // iter#32 P2 fusion: lastChild on OBJECT_NAMED_ARRAY directly hits the last array element.
         trx.moveToLastChild(); // last product
 
         trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("""
@@ -1241,8 +1245,7 @@ class HOTIndexIntegrationTest {
           final var trx = manager.beginNodeTrx()) {
         trx.moveToDocumentRoot();
         trx.moveToFirstChild();
-        trx.moveToFirstChild();
-        trx.moveToFirstChild();
+        trx.moveToFirstChild(); // "products" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
         trx.moveToFirstChild(); // first product
         trx.remove();
         trx.commit();
@@ -1253,8 +1256,7 @@ class HOTIndexIntegrationTest {
           final var trx = manager.beginNodeTrx()) {
         trx.moveToDocumentRoot();
         trx.moveToFirstChild();
-        trx.moveToFirstChild();
-        trx.moveToFirstChild();
+        trx.moveToFirstChild(); // "products" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
         trx.moveToFirstChild(); // now the second product (which became first after previous deletion)
         trx.remove();
         trx.commit();
@@ -1349,9 +1351,8 @@ class HOTIndexIntegrationTest {
           final var trx = manager.beginNodeTrx()) {
         trx.moveToDocumentRoot();
         trx.moveToFirstChild();
-        trx.moveToFirstChild();
-        trx.moveToFirstChild();
-        trx.moveToLastChild();
+        trx.moveToFirstChild(); // "tasks" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
+        trx.moveToLastChild(); // last task
 
         trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("""
             {"id": 5, "title": "Task E", "status": "in_progress", "priority": "high"}
@@ -1371,9 +1372,8 @@ class HOTIndexIntegrationTest {
         // Delete first task (pending, high)
         trx.moveToDocumentRoot();
         trx.moveToFirstChild();
-        trx.moveToFirstChild();
-        trx.moveToFirstChild();
-        trx.moveToFirstChild();
+        trx.moveToFirstChild(); // "tasks" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
+        trx.moveToFirstChild(); // first task
         trx.remove();
         trx.commit();
       }
@@ -1384,9 +1384,8 @@ class HOTIndexIntegrationTest {
         // Delete completed task (now first after previous deletion)
         trx.moveToDocumentRoot();
         trx.moveToFirstChild();
-        trx.moveToFirstChild();
-        trx.moveToFirstChild();
-        trx.moveToFirstChild();
+        trx.moveToFirstChild(); // "tasks" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
+        trx.moveToFirstChild(); // first task
         trx.moveToRightSibling(); // second task
         trx.remove();
         trx.commit();
@@ -1492,9 +1491,8 @@ class HOTIndexIntegrationTest {
             final var trx = manager.beginNodeTrx()) {
           trx.moveToDocumentRoot();
           trx.moveToFirstChild();
-          trx.moveToFirstChild();
-          trx.moveToFirstChild();
-          trx.moveToLastChild();
+          trx.moveToFirstChild(); // "orders" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
+          trx.moveToLastChild(); // last order
 
           int orderId = 4 + i;
           trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(String.format("""
@@ -1510,9 +1508,8 @@ class HOTIndexIntegrationTest {
             final var trx = manager.beginNodeTrx()) {
           trx.moveToDocumentRoot();
           trx.moveToFirstChild();
-          trx.moveToFirstChild();
-          trx.moveToFirstChild();
-          trx.moveToFirstChild();
+          trx.moveToFirstChild(); // "orders" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
+          trx.moveToFirstChild(); // first order
           trx.remove();
           trx.commit();
         }
@@ -1955,11 +1952,11 @@ class HOTIndexIntegrationTest {
         // Navigate to "c" (middle ancestor) and delete it
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild(); // root object
-        wtx.moveToFirstChild(); // "a" key
-        wtx.moveToFirstChild(); // a object
-        wtx.moveToFirstChild(); // "b" key
-        wtx.moveToFirstChild(); // b object
-        wtx.moveToFirstChild(); // "c" key
+        wtx.moveToFirstChild(); // "a" OBJECT_NAMED_OBJECT (fused: OBJECT_KEY+OBJECT)
+        wtx.moveToFirstChild(); // "b" OBJECT_NAMED_OBJECT (fused: OBJECT_KEY+OBJECT)
+        // iter#32 P2 fusion collapses each OBJECT_KEY+OBJECT pair into one record, halving the
+        // navigation depth: legacy needed 6 firstChild calls to reach "c", fusion needs 3.
+        wtx.moveToFirstChild(); // "c" OBJECT_NAMED_OBJECT
         assertEquals("c", wtx.getName().getLocalName(), "Should be at 'c' key");
 
         wtx.remove(); // Delete "c" and all descendants
@@ -2148,9 +2145,8 @@ class HOTIndexIntegrationTest {
         // Rev 2: Insert 2 more values
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
-        wtx.moveToFirstChild();
-        wtx.moveToFirstChild();
-        wtx.moveToLastChild();
+        wtx.moveToFirstChild(); // "data" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
+        wtx.moveToLastChild(); // last data element
         wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"value\": \"gamma\"}"));
         wtx.moveToRightSibling();
         wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"value\": \"delta\"}"));
@@ -2177,9 +2173,8 @@ class HOTIndexIntegrationTest {
         // Rev 3: Insert duplicate value
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
-        wtx.moveToFirstChild();
-        wtx.moveToFirstChild();
-        wtx.moveToLastChild();
+        wtx.moveToFirstChild(); // "data" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
+        wtx.moveToLastChild(); // last data element
         wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"value\": \"alpha\"}"));
         wtx.commit();
 
@@ -2292,8 +2287,7 @@ class HOTIndexIntegrationTest {
         // Rev 2: Insert 2 more items
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild(); // root object
-        wtx.moveToFirstChild(); // "items" key
-        wtx.moveToFirstChild(); // items array
+        wtx.moveToFirstChild(); // "items" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
         wtx.moveToLastChild(); // last item
         wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"id\": 3}"));
         wtx.moveToRightSibling();
@@ -2303,9 +2297,8 @@ class HOTIndexIntegrationTest {
         // Rev 3: Insert 1 more item
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
-        wtx.moveToFirstChild();
-        wtx.moveToFirstChild();
-        wtx.moveToLastChild();
+        wtx.moveToFirstChild(); // "items" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
+        wtx.moveToLastChild(); // last item
         wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"id\": 5}"));
         wtx.commit();
 
@@ -2499,8 +2492,7 @@ class HOTIndexIntegrationTest {
         // Delete middle user (with "inactive" status)
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
-        wtx.moveToFirstChild();
-        wtx.moveToFirstChild();
+        wtx.moveToFirstChild(); // "users" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
         wtx.moveToFirstChild(); // first user
         wtx.moveToRightSibling(); // second user
         wtx.remove();
@@ -2552,9 +2544,10 @@ class HOTIndexIntegrationTest {
         // Delete L2 (ancestor at level 2), removing L3/L4/L5/L6
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild(); // root object
-        wtx.moveToFirstChild(); // L1 key
-        wtx.moveToFirstChild(); // L1 object
-        wtx.moveToFirstChild(); // L2 key
+        wtx.moveToFirstChild(); // "L1" OBJECT_NAMED_OBJECT (fused: OBJECT_KEY+OBJECT)
+        // iter#32 P2 fusion: each OBJECT_KEY+OBJECT pair is collapsed into one record, so legacy's
+        // 4-step descent to L2 is now 3.
+        wtx.moveToFirstChild(); // "L2" OBJECT_NAMED_OBJECT
         assertEquals("L2", wtx.getName().getLocalName());
         wtx.remove();
         wtx.commit();
@@ -2667,9 +2660,8 @@ class HOTIndexIntegrationTest {
         // Rev 2: Insert 2 more items
         wtx.moveToDocumentRoot();
         wtx.moveToFirstChild();
-        wtx.moveToFirstChild();
-        wtx.moveToFirstChild();
-        wtx.moveToLastChild();
+        wtx.moveToFirstChild(); // "items" OBJECT_NAMED_ARRAY (fused: ARRAY layer collapsed)
+        wtx.moveToLastChild(); // last item
         wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"status\": \"pending\"}"));
         wtx.moveToRightSibling();
         wtx.insertSubtreeAsRightSibling(JsonShredder.createStringReader("{\"status\": \"active\"}"));

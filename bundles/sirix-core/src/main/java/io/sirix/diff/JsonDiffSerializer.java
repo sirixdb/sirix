@@ -158,18 +158,20 @@ public final class JsonDiffSerializer {
             if (!Objects.equals(oldRtx.getName(), newRtx.getName())) {
               jsonUpdateDiff.addProperty("name", newRtx.getName().toString());
             } else if (!Objects.equals(oldRtx.getValue(), newRtx.getValue())) {
-              if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE) {
+              if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE
+                  || newRtx.getKind() == NodeKind.OBJECT_NAMED_BOOLEAN) {
                 jsonUpdateDiff.addProperty("type", "boolean");
                 jsonUpdateDiff.addProperty("value", newRtx.getBooleanValue());
               } else if (newRtx.getKind() == NodeKind.STRING_VALUE
-                  || newRtx.getKind() == NodeKind.OBJECT_STRING_VALUE) {
+                  || newRtx.getKind() == NodeKind.OBJECT_NAMED_STRING) {
                 jsonUpdateDiff.addProperty("type", "string");
                 jsonUpdateDiff.addProperty("value", newRtx.getValue());
-              } else if (newRtx.getKind() == NodeKind.NULL_VALUE || newRtx.getKind() == NodeKind.OBJECT_NULL_VALUE) {
+              } else if (newRtx.getKind() == NodeKind.NULL_VALUE
+                  || newRtx.getKind() == NodeKind.OBJECT_NAMED_NULL) {
                 jsonUpdateDiff.addProperty("type", "null");
                 jsonUpdateDiff.add("value", null);
               } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE
-                  || newRtx.getKind() == NodeKind.OBJECT_NUMBER_VALUE) {
+                  || newRtx.getKind() == NodeKind.OBJECT_NAMED_NUMBER) {
                 jsonUpdateDiff.addProperty("type", "number");
                 jsonUpdateDiff.addProperty("value", newRtx.getNumberValue());
               }
@@ -214,21 +216,25 @@ public final class JsonDiffSerializer {
 
   private void addTypeAndDataProperties(JsonNodeReadOnlyTrx newRtx, JsonObject json, int newRevisionNumber,
       boolean emitFromDiffAlgorithm) {
-    if (newRtx.isArray() || newRtx.isObject() || newRtx.isObjectKey()) {
+    final NodeKind kind = newRtx.getKind();
+    // Fused OBJECT_NAMED_* records carry BOTH the key-name role AND the primitive value.
+    // Serialize them as a small jsonFragment "{"name":value}" so insert/replace diffs expose
+    // the same external shape as a legacy OBJECT_KEY + primitive-child pair.
+    if (newRtx.isArray() || newRtx.isObject() || newRtx.isObjectKey() || kind.isFusedAnyNamed()) {
       json.addProperty("type", "jsonFragment");
       if (emitFromDiffAlgorithm) {
         serialize(newRevisionNumber, resourceSession, newRtx, json);
       }
-    } else if (newRtx.getKind() == NodeKind.BOOLEAN_VALUE || newRtx.getKind() == NodeKind.OBJECT_BOOLEAN_VALUE) {
+    } else if (kind == NodeKind.BOOLEAN_VALUE) {
       json.addProperty("type", "boolean");
       json.addProperty("data", newRtx.getBooleanValue());
-    } else if (newRtx.getKind() == NodeKind.STRING_VALUE || newRtx.getKind() == NodeKind.OBJECT_STRING_VALUE) {
+    } else if (kind == NodeKind.STRING_VALUE) {
       json.addProperty("type", "string");
       json.addProperty("data", newRtx.getValue());
-    } else if (newRtx.getKind() == NodeKind.NULL_VALUE || newRtx.getKind() == NodeKind.OBJECT_NULL_VALUE) {
+    } else if (kind == NodeKind.NULL_VALUE) {
       json.addProperty("type", "null");
       json.add("data", null);
-    } else if (newRtx.getKind() == NodeKind.NUMBER_VALUE || newRtx.getKind() == NodeKind.OBJECT_NUMBER_VALUE) {
+    } else if (kind == NodeKind.NUMBER_VALUE) {
       json.addProperty("type", "number");
       json.addProperty("data", newRtx.getNumberValue());
     }
@@ -272,27 +278,40 @@ public final class JsonDiffSerializer {
     if (pathNodeKey == nullNodeKey && rtx.hasParent()) {
       final NodeKind kind = rtx.getKind();
       final NodeKind parentKind = rtx.getParentKind();
+      // iter#32 P2: OBJECT_NAMED_ARRAY plays the OBJECT_KEY+ARRAY role under fusion; every
+      // child path resolution that previously bottomed out on ARRAY must accept the fused kind
+      // too. OBJECT_NAMED_OBJECT plays the OBJECT_KEY role for the OBJECT_KEY-parent fallback.
+      final boolean parentIsArrayLike =
+          parentKind == NodeKind.ARRAY || parentKind == NodeKind.OBJECT_NAMED_ARRAY;
+      final boolean parentIsObjectKeyLike =
+          parentKind == NodeKind.OBJECT_NAMED_OBJECT;
 
       // For structural nodes (OBJECT, ARRAY) in arrays, get path from parent array
       // This gives paths like /foo/[0], /foo/[1] for array elements
-      if ((kind == NodeKind.OBJECT || kind == NodeKind.ARRAY) && parentKind == NodeKind.ARRAY) {
+      if ((kind == NodeKind.OBJECT || kind == NodeKind.ARRAY) && parentIsArrayLike) {
         rtx.moveToParent();
         pathNodeKey = rtx.getPathNodeKey();
         rtx.moveTo(originalNodeKey);
       }
       // For value nodes in arrays, get path from parent array
-      else if (parentKind == NodeKind.ARRAY) {
+      else if (parentIsArrayLike) {
         rtx.moveToParent();
         pathNodeKey = rtx.getPathNodeKey();
         rtx.moveTo(originalNodeKey);
       }
       // For value nodes under OBJECT_KEY, include parent path
-      else if (includeParentPathForValues && parentKind == NodeKind.OBJECT_KEY) {
+      else if (includeParentPathForValues && parentIsObjectKeyLike) {
         rtx.moveToParent();
         pathNodeKey = rtx.getPathNodeKey();
         rtx.moveTo(originalNodeKey);
       }
     }
+
+    // iter#32 P2: OBJECT_NAMED_ARRAY's own pathNodeKey points at the synthetic
+    // `__array__/ARRAY` layer added so child paths nest correctly. The field-level path of the
+    // record itself (the value for diff `path` reporting) is the OBJECT_KEY parent — walk one
+    // level up the path summary so the reported path stops at the field name.
+    final boolean cursorOnFusedNamedArray = rtx.getKind() == NodeKind.OBJECT_NAMED_ARRAY;
 
     // If still no pathNodeKey, return null (no path)
     if (pathNodeKey == nullNodeKey) {
@@ -300,7 +319,20 @@ public final class JsonDiffSerializer {
     }
 
     try (final PathSummaryReader pathReader = resourceSession.openPathSummary(revisionNumber)) {
-      if (!pathReader.moveTo(pathNodeKey)) {
+      long effectivePathNodeKey = pathNodeKey;
+      if (cursorOnFusedNamedArray) {
+        if (pathReader.moveTo(pathNodeKey)) {
+          final var arrayPathNode = pathReader.getPathNode();
+          if (arrayPathNode != null) {
+            final long parentKey = arrayPathNode.getParentKey();
+            if (parentKey >= 0
+                && parentKey != Fixed.DOCUMENT_NODE_KEY.getStandardProperty()) {
+              effectivePathNodeKey = parentKey;
+            }
+          }
+        }
+      }
+      if (!pathReader.moveTo(effectivePathNodeKey)) {
         return null;
       }
 
@@ -353,7 +385,9 @@ public final class JsonDiffSerializer {
           // For CHILD_ARRAY steps, we need to get the position of the node within the array.
           // If our parent is the array, we're already at the array element.
           // If not, we're deeper inside the structure and need to move up first.
-          if (rtx.getParentKind() == NodeKind.ARRAY) {
+          // iter#32 P2: OBJECT_NAMED_ARRAY is the fused OBJECT_KEY+ARRAY — treat it identically.
+          final NodeKind pKind = rtx.getParentKind();
+          if (pKind == NodeKind.ARRAY || pKind == NodeKind.OBJECT_NAMED_ARRAY) {
             // We're directly inside the array, get position then move up
             positions.addFirst(getArrayPosition(rtx));
             rtx.moveToParent();
@@ -393,7 +427,10 @@ public final class JsonDiffSerializer {
    * @return the 0-based index, or -1 if this is an array directly under an object key
    */
   private int getArrayPosition(JsonNodeReadOnlyTrx rtx) {
-    if (rtx.getParentKind() == NodeKind.OBJECT_KEY && rtx.isArray()) {
+    // iter#32 P2: OBJECT_NAMED_OBJECT plays the OBJECT_KEY role under fusion. An ARRAY whose
+    // parent is the fused OBJECT_KEY-equivalent has no sibling index either.
+    final NodeKind parentKind = rtx.getParentKind();
+    if (parentKind == NodeKind.OBJECT_NAMED_OBJECT && rtx.isArray()) {
       return -1;
     }
 

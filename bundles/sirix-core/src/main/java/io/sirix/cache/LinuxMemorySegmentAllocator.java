@@ -47,6 +47,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private static final int MAP_ANONYMOUS = 0x20; // Anonymous mapping
   private static final int MAP_NORESERVE = 0x4000; // Don't reserve swap space
   private static final int MADV_DONTNEED = 4; // Linux: release physical memory, keep virtual
+  private static final int MADV_POPULATE_WRITE = 23; // Linux 5.14+: pre-fault + zero pages writable
 
   // sysconf constants for page size detection
   private static final int _SC_PAGESIZE = 30; // Get system page size
@@ -191,12 +192,367 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   // Pre-allocated virtual memory regions (one per size class)
   private final MemorySegment[] virtualRegions = new MemorySegment[SEGMENT_SIZES.length];
 
+  /**
+   * Pressure callback set by {@code BufferManagerImpl} so over-budget
+   * allocation triggers cache eviction synchronously. Shared with
+   * {@link FrameSlotAllocator} — the interface type lives there as a single
+   * source of truth. {@code null} means no listener (e.g., unit tests).
+   */
+  private static volatile FrameSlotAllocator.PressureListener PRESSURE_LISTENER;
+
+  public static void setPressureListener(final FrameSlotAllocator.PressureListener listener) {
+    PRESSURE_LISTENER = listener;
+  }
+
   // Track borrowed segments to prevent double-returns and for accurate physical memory tracking
   private final java.util.Set<Long> borrowedSegments = ConcurrentHashMap.newKeySet();
+
+  // =====================================================================
+  // Reference-counted pin per segment address.
+  //
+  // The allocator's release path used to unconditionally MADV_DONTNEED + pool
+  // a segment as soon as its owning page called close(). Under heavy parallel
+  // scans, that opened a window where thread A was still reading bytes from a
+  // segment while thread B had evicted the page and triggered release — the
+  // kernel tore down the physical backing mid-read, and the read faulted with
+  // SIGSEGV_MAPERR.
+  //
+  // The pin closes that window. Each segment address maps to an AtomicInteger
+  // refcount: allocate() initializes to 1, addRef() increments, release()
+  // decrements. The physical teardown (MADV_DONTNEED) and pool return only
+  // happen when the count reaches 0 — i.e. no thread still holds a reference
+  // to the segment.
+  //
+  // Semantics:
+  //   allocate()      → count becomes 1 (primary owner).
+  //   addRef(addr)    → count++ (additional holder, e.g. a thread about to
+  //                     read the segment cross-thread).
+  //   release(seg)    → count-- ; if 0, physical teardown + return to pool.
+  //                     If >0, noop — segment stays live until last ref drops.
+  //
+  // HFT-grade: a single AtomicInteger per in-use segment, one atomic
+  // increment/decrement per ref-op. No per-op allocation on the hot path
+  // (AtomicInteger is allocated once per segment address on first use and
+  // lives for the lifetime of that address).
+  // =====================================================================
+  private final ConcurrentHashMap<Long, AtomicInteger> segmentRefcounts = new ConcurrentHashMap<>();
 
   // Rebalancing infrastructure
   private final AtomicLong[] totalBorrows = new AtomicLong[SEGMENT_SIZES.length];
   private final AtomicLong[] totalReturns = new AtomicLong[SEGMENT_SIZES.length];
+
+  // =====================================================================
+  // Diagnostic tracing: records allocate/release events per virtual address
+  // so a stale release (second release of an address by a caller holding a
+  // dangling reference) can be identified before MADV_DONTNEED tears the
+  // PTE of pages that another thread has just re-borrowed. Zero cost when
+  // -Dsirix.allocator.trace=false (default): one boolean check that JIT
+  // dead-code-eliminates the rest. When enabled, each event costs one
+  // CHM.computeIfAbsent (only the first event per address allocates an
+  // AddressTrace) and four primitive-array stores — NO per-event object
+  // allocation, NO stack capture. Stacks are captured lazily at detection
+  // time (the current caller's stack, which is free — we're already
+  // paying the cost of handling the detection). Historical callers are
+  // identified by thread id + nanotime.
+  // =====================================================================
+
+  private static final boolean TRACE_ENABLED = Boolean.getBoolean("sirix.allocator.trace");
+
+  /** If true, a detected stale release throws instead of only logging. */
+  private static final boolean FAIL_ON_STALE_RELEASE =
+      Boolean.getBoolean("sirix.allocator.trace.fail_on_stale");
+
+  /** Window within which an ALLOC on a different thread makes a subsequent RELEASE suspicious. */
+  private static final long STALE_WINDOW_NANOS = 1_000_000_000L; // 1 s
+
+  /** Power-of-two ring size per address — we only need the last few events. */
+  private static final int TRACE_RING_SIZE = 8;
+  private static final int TRACE_RING_MASK = TRACE_RING_SIZE - 1;
+
+  // Compact op codes for the primitive-array ring. Epoch 0 means "unused slot".
+  private static final byte OP_ALLOC_FRESH    = 1;
+  private static final byte OP_ALLOC_REBORROW = 2;
+  private static final byte OP_RELEASE_OK     = 3;
+  private static final byte OP_RELEASE_DOUBLE = 4;
+  private static final byte OP_RELEASE_STALE  = 5;
+
+  private static final ConcurrentHashMap<Long, AddressTrace> addressTraces =
+      TRACE_ENABLED ? new ConcurrentHashMap<>() : null;
+
+  private static final AtomicLong traceEpoch = new AtomicLong();
+  private static final AtomicLong staleReleaseCount = new AtomicLong();
+
+  /** Primitive-array ring — zero per-event allocation after the AddressTrace itself is created. */
+  private static final class AddressTrace {
+    final long[] epochs    = new long[TRACE_RING_SIZE];
+    final byte[] ops       = new byte[TRACE_RING_SIZE];
+    final long[] threadIds = new long[TRACE_RING_SIZE];
+    final long[] nanoTimes = new long[TRACE_RING_SIZE];
+    final AtomicInteger cursor = new AtomicInteger();
+
+    void record(long epoch, byte op, long threadId, long nanoTime) {
+      int idx = cursor.getAndIncrement() & TRACE_RING_MASK;
+      // Write epoch LAST so readers that see a non-zero epoch also see the
+      // rest of the fields (plain long writes are atomic on 64-bit; ordering
+      // is best-effort — acceptable for diagnostic torn reads).
+      ops[idx]       = op;
+      threadIds[idx] = threadId;
+      nanoTimes[idx] = nanoTime;
+      epochs[idx]    = epoch;
+    }
+
+    /** Return ring index of the highest-epoch event matching any of the given op codes, or -1. */
+    int mostRecent(byte op1, byte op2) {
+      int bestIdx = -1;
+      long bestEpoch = 0L;
+      for (int i = 0; i < TRACE_RING_SIZE; i++) {
+        long epoch = epochs[i];
+        if (epoch == 0L) continue;
+        byte op = ops[i];
+        if ((op == op1 || op == op2) && epoch > bestEpoch) {
+          bestEpoch = epoch;
+          bestIdx = i;
+        }
+      }
+      return bestIdx;
+    }
+
+    int mostRecent(byte op) {
+      int bestIdx = -1;
+      long bestEpoch = 0L;
+      for (int i = 0; i < TRACE_RING_SIZE; i++) {
+        long epoch = epochs[i];
+        if (epoch == 0L) continue;
+        if (ops[i] == op && epoch > bestEpoch) {
+          bestEpoch = epoch;
+          bestIdx = i;
+        }
+      }
+      return bestIdx;
+    }
+  }
+
+  private static String opName(byte op) {
+    return switch (op) {
+      case OP_ALLOC_FRESH    -> "ALLOC_FRESH";
+      case OP_ALLOC_REBORROW -> "ALLOC_REBORROW";
+      case OP_RELEASE_OK     -> "RELEASE_OK";
+      case OP_RELEASE_DOUBLE -> "RELEASE_DOUBLE";
+      case OP_RELEASE_STALE  -> "RELEASE_STALE";
+      default                -> "OP_" + op;
+    };
+  }
+
+  private static void trace(long address, byte op) {
+    if (!TRACE_ENABLED) return;
+    AddressTrace at = addressTraces.computeIfAbsent(address, _ -> new AddressTrace());
+    at.record(traceEpoch.incrementAndGet(), op,
+              Thread.currentThread().threadId(), System.nanoTime());
+  }
+
+  /**
+   * Detect whether the current release() call is stale — i.e. another thread
+   * has just allocated this virtual address and is presumably still using it.
+   * Signature: the most recent ALLOC on this address is from a different
+   * thread, within STALE_WINDOW_NANOS, and no successful RELEASE has happened
+   * since that ALLOC. If true, calling MADV_DONTNEED here would tear pages
+   * the other thread is writing — the exact pattern seen in the LZ4
+   * decompress crashes (hs_err: SEGV_MAPERR in LZ4_decompress_safe).
+   */
+  private static boolean detectStaleRelease(long address) {
+    if (!TRACE_ENABLED) return false;
+    AddressTrace at = addressTraces.get(address);
+    if (at == null) return false;
+    int allocIdx = at.mostRecent(OP_ALLOC_FRESH, OP_ALLOC_REBORROW);
+    if (allocIdx < 0) return false;
+    long nowNanos = System.nanoTime();
+    if (nowNanos - at.nanoTimes[allocIdx] > STALE_WINDOW_NANOS) return false;
+    if (at.threadIds[allocIdx] == Thread.currentThread().threadId()) return false;
+    int releaseIdx = at.mostRecent(OP_RELEASE_OK);
+    return releaseIdx < 0 || at.epochs[releaseIdx] < at.epochs[allocIdx];
+  }
+
+  /** Dump the per-address ring to stderr + log. Also logs the CURRENT caller's stack. */
+  public static void dumpAddressTrace(long address) {
+    if (!TRACE_ENABLED) {
+      LOGGER.warn("Allocator trace not enabled (set -Dsirix.allocator.trace=true)");
+      return;
+    }
+    AddressTrace at = addressTraces.get(address);
+    if (at == null) {
+      LOGGER.info("No trace recorded for address 0x{}", Long.toHexString(address));
+      return;
+    }
+
+    // Collect non-empty slots and sort by epoch (insertion sort on n<=8).
+    int[] order = new int[TRACE_RING_SIZE];
+    int n = 0;
+    for (int i = 0; i < TRACE_RING_SIZE; i++) {
+      if (at.epochs[i] != 0L) order[n++] = i;
+    }
+    for (int i = 1; i < n; i++) {
+      int key = order[i];
+      long keyEpoch = at.epochs[key];
+      int j = i - 1;
+      while (j >= 0 && at.epochs[order[j]] > keyEpoch) {
+        order[j + 1] = order[j];
+        j--;
+      }
+      order[j + 1] = key;
+    }
+
+    StringBuilder sb = new StringBuilder(2048);
+    sb.append("\n=== Allocator event trace for address 0x")
+      .append(Long.toHexString(address)).append(" ===\n");
+    for (int i = 0; i < n; i++) {
+      int s = order[i];
+      sb.append(String.format("  #%-6d %-16s tid=%-4d @%d ns%n",
+          at.epochs[s], opName(at.ops[s]), at.threadIds[s], at.nanoTimes[s]));
+    }
+    sb.append("  (stale releases detected so far: ").append(staleReleaseCount.get()).append(")\n");
+    sb.append("  --- Current caller stack (captured at detection time) ---\n");
+    StackTraceElement[] frames = Thread.currentThread().getStackTrace();
+    // Skip getStackTrace() and dumpAddressTrace() itself.
+    int start = Math.min(2, frames.length);
+    int end = Math.min(frames.length, start + 18);
+    for (int i = start; i < end; i++) {
+      sb.append("    at ").append(frames[i]).append('\n');
+    }
+    sb.append("================================================\n");
+    LOGGER.error(sb.toString());
+    System.err.println(sb);
+    System.err.flush();
+  }
+
+  public static long getStaleReleaseCount() {
+    return staleReleaseCount.get();
+  }
+
+  // ===== Periodic trace dumper for post-mortem SEGV analysis =====
+  //
+  // When TRACE_ENABLED, a daemon thread flushes new per-address events to
+  // a log file at {@code sirix.allocator.trace.file} every
+  // {@code sirix.allocator.trace.interval.ms} (default 100 ms). The idea
+  // is that when the JVM crashes with SIGSEGV touching a freed segment,
+  // the on-disk log preserves the last ~100-500 ms of events per segment
+  // address, so the post-mortem "what did thread A do to this segment
+  // before thread B dereferenced it" question is directly answerable.
+  //
+  // Writer side (trace()) is already zero-allocation and lock-free. The
+  // dumper holds no locks; it iterates the weakly-consistent
+  // ConcurrentHashMap view and filters events by epoch > lastDumpedEpoch.
+  // A torn-read on the per-address ring only affects the diagnostic
+  // output, not correctness.
+
+  private static final java.util.concurrent.atomic.AtomicLong lastDumpedEpoch =
+      new java.util.concurrent.atomic.AtomicLong(0);
+
+  private static final String TRACE_LOG_PATH_STR =
+      System.getProperty("sirix.allocator.trace.file", "/tmp/sirix-allocator-trace.log");
+
+  private static final long TRACE_DUMP_INTERVAL_MS =
+      Long.parseLong(System.getProperty("sirix.allocator.trace.interval.ms", "100"));
+
+  private static volatile Thread traceDumperThread;
+
+  /** Drain new events from addressTraces to the on-disk log. Best-effort, non-blocking. */
+  private static void dumpNewTraceEvents() {
+    if (!TRACE_ENABLED || addressTraces == null) {
+      return;
+    }
+    final long floor = lastDumpedEpoch.get();
+    long maxSeen = floor;
+    final StringBuilder buf = new StringBuilder(4096);
+    // Collect events with epoch > floor across all addresses.
+    for (java.util.Map.Entry<Long, AddressTrace> e : addressTraces.entrySet()) {
+      final long addr = e.getKey();
+      final AddressTrace at = e.getValue();
+      for (int i = 0; i < TRACE_RING_SIZE; i++) {
+        final long epoch = at.epochs[i];
+        if (epoch <= floor || epoch == 0L) {
+          continue;
+        }
+        buf.append(String.format("#%d 0x%x %-16s tid=%d t=%d%n",
+            epoch, addr, opName(at.ops[i]), at.threadIds[i], at.nanoTimes[i]));
+        if (epoch > maxSeen) {
+          maxSeen = epoch;
+        }
+      }
+    }
+    if (buf.length() == 0) {
+      return;
+    }
+    try {
+      java.nio.file.Files.writeString(
+          java.nio.file.Paths.get(TRACE_LOG_PATH_STR),
+          buf.toString(),
+          java.nio.charset.StandardCharsets.UTF_8,
+          java.nio.file.StandardOpenOption.CREATE,
+          java.nio.file.StandardOpenOption.APPEND);
+    } catch (java.io.IOException ioe) {
+      // Diagnostic path — don't let it propagate.
+      LOGGER.warn("Failed to write allocator trace log: {}", ioe.getMessage());
+    }
+    lastDumpedEpoch.set(maxSeen);
+  }
+
+  /** Start the trace-dumper daemon (idempotent; no-op if trace disabled or already started). */
+  private static synchronized void startTraceDumperIfNeeded() {
+    if (!TRACE_ENABLED || traceDumperThread != null) {
+      return;
+    }
+    // Truncate the log at startup so each run has clean output.
+    try {
+      java.nio.file.Files.write(
+          java.nio.file.Paths.get(TRACE_LOG_PATH_STR),
+          ("# allocator trace — pid=" + ProcessHandle.current().pid()
+              + " interval_ms=" + TRACE_DUMP_INTERVAL_MS + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8),
+          java.nio.file.StandardOpenOption.CREATE,
+          java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+    } catch (java.io.IOException ioe) {
+      LOGGER.warn("Failed to truncate allocator trace log: {}", ioe.getMessage());
+    }
+    final Thread t = new Thread(() -> {
+      while (!Thread.currentThread().isInterrupted()) {
+        try {
+          Thread.sleep(TRACE_DUMP_INTERVAL_MS);
+        } catch (InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          break;
+        }
+        try {
+          dumpNewTraceEvents();
+        } catch (Throwable ignored) {
+          // swallow — tracer must never crash the JVM
+        }
+      }
+      // Final flush on interrupt.
+      try {
+        dumpNewTraceEvents();
+      } catch (Throwable ignored) {
+      }
+    }, "sirix-allocator-trace-dumper");
+    t.setDaemon(true);
+    t.start();
+    traceDumperThread = t;
+    Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+      try {
+        dumpNewTraceEvents();
+      } catch (Throwable ignored) {
+      }
+    }, "sirix-allocator-trace-final-flush"));
+    LOGGER.info("Allocator trace dumper started — log={} interval={}ms",
+        TRACE_LOG_PATH_STR, TRACE_DUMP_INTERVAL_MS);
+  }
+
+  // Deferred start: the constructor runs at line 172 (INSTANCE init) BEFORE
+  // TRACE_ENABLED is initialized at line 217. Calling startTraceDumperIfNeeded()
+  // from the constructor therefore sees TRACE_ENABLED == false (default) and
+  // never starts the dumper. This static block runs AFTER all trace-related
+  // fields are initialized — use it to actually start the dumper.
+  static {
+    startTraceDumperIfNeeded();
+  }
 
   /**
    * Private constructor to enforce singleton pattern.
@@ -664,7 +1020,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
     allocateCallCount.incrementAndGet();
 
-    int index = SegmentAllocators.getIndexForSize(size);
+    final int index = SegmentAllocators.getIndexForSize(size);
 
     if (index < 0 || index >= segmentPools.length) {
       throw new IllegalArgumentException("Unsupported size: " + size);
@@ -672,22 +1028,79 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
 
     // CRITICAL: Use the actual segment size from the pool, NOT the requested size!
     // The pool returns segments of SEGMENT_SIZES[index], which may be larger than requested.
-    long actualSegmentSize = SEGMENT_SIZES[index];
+    final long actualSegmentSize = SEGMENT_SIZES[index];
 
-    // Check physical memory limit before allocation using actual segment size
-    long currentPhysical = physicalMemoryBytes.get();
-    if (currentPhysical + actualSegmentSize > maxBufferSize.get()) {
-      LOGGER.warn("Physical memory limit approaching: {} / {} MB (requested {} bytes, actual segment {} bytes)",
-          currentPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024), size, actualSegmentSize);
+    // Atomic budget reserve: bump first, roll back on failure. Eliminates
+    // the TOCTOU race between check and update without taking a lock — the
+    // old check-then-bump let two concurrent allocators both observe the
+    // pre-bump value, both proceed, and both push the counter past the cap.
+    //
+    // On budget-exceeded we spin-wait briefly for the ClockSweeper to evict
+    // some pages back to the pool instead of throwing straight away. An OOM
+    // mid-query corrupts partially-constructed pages and surfaces as SIGSEGV
+    // in follow-up threads that dereference now-broken references; waiting
+    // for the cache to free up is almost always what we want, and the
+    // bounded retry still fails fast if eviction genuinely can't keep up.
+    // Atomic lock-free budget reserve with adaptive back-off. The ClockSweeper
+    // runs on a separate scheduled thread and frees space continuously; on
+    // over-budget we park briefly and retry instead of bubbling OOM, because
+    // a mid-query OOM cascades to SIGSEGV in the caller's partially-built
+    // page state (seen in KeyValueLeafPage.setSlottedPage, LZ4_decompress_safe
+    // writing to an invalid slice, etc.). Park intervals grow linearly so a
+    // pathological workload fails in bounded time (~10 s) with a clean OOM
+    // instead of hanging forever.
+    long newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
+    if (newPhysical > maxBufferSize.get()) {
+      physicalMemoryBytes.addAndGet(-actualSegmentSize);
 
-      // Memory limit reached - throw exception rather than blocking
-      // Future enhancement: implement backpressure with waiting mechanism
-      throw new OutOfMemoryError(String.format(
-          "Cannot allocate %d bytes (actual segment: %d bytes). Physical memory: %d/%d MB, would exceed limit", size,
-          actualSegmentSize, currentPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024)));
+      // Direct pressure hook: cache registers an eviction callback here, so
+      // over-budget triggers synchronous eviction rather than waiting for the
+      // background ClockSweeper's 500 ms cadence. Matches FrameSlotAllocator
+      // semantics — every allocator path uses the same hook.
+      FrameSlotAllocator.PressureListener l = PRESSURE_LISTENER;
+      if (l != null) {
+        try { l.onPressure(); } catch (Throwable ignored) { }
+      }
+      newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
+      if (newPhysical <= maxBufferSize.get()) {
+        // Pressure hook freed enough; fall through to the normal success path.
+      } else {
+        physicalMemoryBytes.addAndGet(-actualSegmentSize);
+      }
+
+      boolean reserved = newPhysical <= maxBufferSize.get();
+      long parkNanos = 50_000L; // 50 µs initial park — tiny, in case the sweeper already freed something.
+      long totalWaitedNanos = 0L;
+      final long maxWaitNanos = 10_000_000_000L; // 10 s absolute ceiling.
+      while (!reserved && totalWaitedNanos < maxWaitNanos) {
+        java.util.concurrent.locks.LockSupport.parkNanos(parkNanos);
+        totalWaitedNanos += parkNanos;
+        parkNanos = Math.min(parkNanos * 2, 5_000_000L); // grow to 5 ms, cap there.
+        if (l != null) {
+          try { l.onPressure(); } catch (Throwable ignored) { }
+        }
+        newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
+        if (newPhysical <= maxBufferSize.get()) { reserved = true; break; }
+        physicalMemoryBytes.addAndGet(-actualSegmentSize);
+      }
+      if (!reserved) {
+        LOGGER.warn("Physical memory limit saturated for {} ms; giving up: {} / {} MB (requested {} bytes)",
+            totalWaitedNanos / 1_000_000L,
+            (newPhysical - actualSegmentSize) / (1024 * 1024), maxBufferSize.get() / (1024 * 1024), size);
+        throw new OutOfMemoryError(String.format(
+            "Cannot allocate %d bytes (actual segment: %d bytes). Physical memory: %d/%d MB, sweeper did not "
+                + "free enough in %d ms",
+            size, actualSegmentSize, (newPhysical - actualSegmentSize) / (1024 * 1024),
+            maxBufferSize.get() / (1024 * 1024), totalWaitedNanos / 1_000_000L));
+      }
+    }
+    if (newPhysical > maxBufferSize.get() * 0.9) {
+      final double percentUsed = (newPhysical * 100.0) / maxBufferSize.get();
+      LOGGER.warn("Physical memory at {:.1f}% of limit ({} MB / {} MB)", percentUsed,
+          newPhysical / (1024 * 1024), maxBufferSize.get() / (1024 * 1024));
     }
 
-    Deque<MemorySegment> pool = segmentPools[index];
+    final Deque<MemorySegment> pool = segmentPools[index];
     MemorySegment segment = pool.poll();
 
     if (segment == null) {
@@ -697,47 +1110,132 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
         final MemorySegment region = virtualRegions[index];
         segment = region.asSlice(freshIndex * actualSegmentSize, actualSegmentSize);
       } else {
-        // A segment might have been returned concurrently while we were checking fresh capacity.
+        // Concurrent release may have returned a segment while we were checking fresh capacity.
         segment = pool.poll();
         if (segment == null) {
-          LOGGER.error(
-              "Pool {} exhausted! requestedSize={}, segmentSize={}, available={}, freshUsed={}, totalSegments={}",
+          physicalMemoryBytes.addAndGet(-actualSegmentSize); // Roll back the reserve.
+          LOGGER.error("Pool {} exhausted! requestedSize={}, segmentSize={}, available={}, freshUsed={}, totalSegments={}",
               index, size, actualSegmentSize, poolSizes[index].get(), freshIndex, totalSegments);
           throw new OutOfMemoryError("Memory pool exhausted for size class " + size);
         }
       }
     }
 
-    // Track if this is the first time we're borrowing this segment
-    long address = segment.address();
-    boolean isFirstBorrow = borrowedSegments.add(address);
-
-    // SIMPLIFIED: Always increment physical memory on first borrow
-    // Note: actualSegmentSize is already defined above (uses SEGMENT_SIZES[index])
-    // release() uses segment.byteSize() which is the actual size, so we must match here.
-    // Don't track "re-borrow" cases - too complex with async operations
-    if (isFirstBorrow) {
-      long newPhysical = physicalMemoryBytes.addAndGet(actualSegmentSize);
-
-      if (newPhysical > maxBufferSize.get() * 0.9) {
-        double percentUsed = (newPhysical * 100.0) / maxBufferSize.get();
-        LOGGER.warn("Physical memory at {:.1f}% of limit ({} MB / {} MB)", percentUsed, newPhysical / (1024 * 1024),
-            maxBufferSize.get() / (1024 * 1024));
-      }
+    // Track first-borrow for the virtual address. Re-borrows (same address,
+    // released back to pool and re-handed-out) don't count against budget —
+    // subtract our speculative reservation since the segment's physical
+    // pages are already accounted for.
+    final long address = segment.address();
+    final boolean isFirstBorrow = borrowedSegments.add(address);
+    if (!isFirstBorrow) {
+      physicalMemoryBytes.addAndGet(-actualSegmentSize); // Already counted when first handed out.
     }
-    // Note: If !isFirstBorrow (re-borrow), don't increment - already counted
 
-    // Decrement pool counter
+    // Pin: initialize refcount to 1 (primary owner). If an AtomicInteger
+    // already exists for this address (because it's been cycled through the
+    // pool), reuse it — the prior owner's release() should have left it at 0,
+    // and we CAS from 0 back to 1 to serialize against any late observers.
+    final AtomicInteger pinCount = segmentRefcounts.computeIfAbsent(address, _ -> new AtomicInteger(0));
+    // Reset via CAS from 0. Failing this CAS would mean someone else still
+    // thinks they own the segment — log as an anomaly and overwrite anyway
+    // (we can't block on it; the allocate needs to return something).
+    if (!pinCount.compareAndSet(0, 1)) {
+      final int stuck = pinCount.get();
+      LOGGER.warn("Pin refcount non-zero on allocate for address 0x{} — expected 0 got {}, forcing to 1",
+          Long.toHexString(address), stuck);
+      pinCount.set(1);
+    }
+
     poolSizes[index].decrementAndGet();
-
-    // Track utilization
     totalBorrows[index].incrementAndGet();
 
-    // Touch first byte to ensure pages are faulted in after madvise(MADV_DONTNEED).
-    // This prevents SIGSEGV when native code (like LZ4) accesses the memory.
-    segment.set(JAVA_BYTE, 0, (byte) 0);
+    if (TRACE_ENABLED) {
+      trace(address, isFirstBorrow ? OP_ALLOC_FRESH : OP_ALLOC_REBORROW);
+      // isFirstBorrow == false is the REAL anomaly: the address was still
+      // tracked as borrowed when the pool handed it back out. In a healthy
+      // allocator this never happens — release() removes the address before
+      // pool.offer(), so subsequent allocate()s see it unborrowed. If we see
+      // this, one of three things is broken:
+      //   1. release() re-added the address after a madvise error (EFAULT
+      //      branch at ~line 1094 — legitimate; we skip pool.offer there).
+      //   2. Two allocate()s raced for the same address from the pool
+      //      (shouldn't happen — ConcurrentLinkedDeque.poll is atomic).
+      //   3. The address was already handed to a live owner and is being
+      //      handed out AGAIN — the real double-allocation bug.
+      // Log with full stack so we can tell the three apart.
+      if (!isFirstBorrow) {
+        staleReleaseCount.incrementAndGet(); // reusing counter for any allocator anomaly
+        dumpAddressTrace(address);
+      }
+    }
+
+    // Pre-commit physical pages with MADV_POPULATE_WRITE so subsequent writes
+    // from native code (LZ4 decompressor, bulk MemorySegment.fill, etc.) don't
+    // hit lazy-commit failures on a MAP_NORESERVE region under tight physical
+    // memory — those surface as SIGSEGV_MAPERR from native stubs.
+    //
+    // PREVIOUSLY this error was silently swallowed. Under a 24 GiB heap +
+    // pooled segments + 20-way parallel scans on a 31 GiB box, that hid a
+    // real failure mode: ENOMEM from MADV_POPULATE_WRITE meant the kernel
+    // could NOT back the pages with physical memory, but the allocator
+    // returned the segment anyway, the caller wrote to it, and the kernel
+    // page-faulted → SIGSEGV_MAPERR. Trace output showed the exact crash
+    // signature.
+    //
+    // Distinguish the error kinds:
+    //   - EINVAL: older kernel that doesn't support MADV_POPULATE_WRITE.
+    //     Safe to fall through — on kernels that lack the flag, lazy-commit
+    //     typically succeeds unless the machine is OOM at the host level,
+    //     in which case SIGSEGV was going to happen regardless.
+    //   - ENOMEM: kernel says "I cannot back this with physical memory".
+    //     Must roll back the allocation and throw OOM instead of handing
+    //     out a segment that will SEGV on first write.
+    //   - Other errno: log once, treat like ENOMEM (conservative).
+    try {
+      final int rc = (int) MADVISE.invokeExact(segment, actualSegmentSize, MADV_POPULATE_WRITE);
+      if (rc != 0) {
+        final int errno = getErrno();
+        if (errno != EINVAL) {
+          // Roll back the allocation so callers see a clean OOM and can park
+          // on the budget-reserve path instead of SEGV'ing on first write.
+          releaseSegmentAfterPopulateFailure(segment, actualSegmentSize, address, index);
+          throw new OutOfMemoryError(String.format(
+              "MADV_POPULATE_WRITE failed (errno=%d) for segment 0x%x size=%d bytes — "
+                  + "physical memory exhausted, allocator cannot back lazy-commit. "
+                  + "Reduce offheap budget, free RAM, or expect slower allocation.",
+              errno, address, actualSegmentSize));
+        }
+        // EINVAL: flag unsupported; fall through to lazy-commit.
+      }
+    } catch (OutOfMemoryError oom) {
+      throw oom;
+    } catch (Throwable t) {
+      // Method-handle invocation failure (JDK-level issue): conservatively
+      // fail the allocation rather than hand out a possibly-unbacked segment.
+      releaseSegmentAfterPopulateFailure(segment, actualSegmentSize, address, index);
+      final OutOfMemoryError oom = new OutOfMemoryError(
+          "MADV_POPULATE_WRITE invocation failed for segment 0x"
+              + Long.toHexString(address) + " size=" + actualSegmentSize);
+      oom.initCause(t);
+      throw oom;
+    }
 
     return segment;
+  }
+
+  /**
+   * Undo a partially-completed allocate() when MADV_POPULATE_WRITE indicates
+   * the segment cannot be backed with physical memory. Returns the segment
+   * to the pool, removes it from borrowedSegments, and rolls back the
+   * physical-memory reserve — matching the invariants that a fresh allocate()
+   * failure would leave.
+   */
+  private void releaseSegmentAfterPopulateFailure(final MemorySegment segment,
+      final long actualSegmentSize, final long address, final int index) {
+    borrowedSegments.remove(address);
+    physicalMemoryBytes.addAndGet(-actualSegmentSize);
+    poolSizes[index].incrementAndGet();
+    segmentPools[index].offer(segment);
   }
 
   /**
@@ -814,6 +1312,39 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
   private static final java.util.concurrent.atomic.AtomicLong doubleReleaseCount =
       new java.util.concurrent.atomic.AtomicLong(0);
 
+  /**
+   * Increment the pin count for the given segment. Consumers that retain a
+   * cross-thread reference to a segment (e.g. a page's slot memory that will
+   * be read by scan workers) should call this after receiving the segment
+   * from {@link #allocate(long)}. Each {@code addRef} must be paired with a
+   * matching {@link #release(MemorySegment)}.
+   *
+   * <p>Returns {@code true} if the ref was successfully acquired,
+   * {@code false} if the segment has already dropped to zero refs (race:
+   * the primary owner released before we could pin). Callers that get
+   * {@code false} MUST NOT use the segment.
+   */
+  public boolean addRef(final MemorySegment segment) {
+    if (segment == null) {
+      return false;
+    }
+    final long address = segment.address();
+    final AtomicInteger rc = segmentRefcounts.get(address);
+    if (rc == null) {
+      return false;
+    }
+    // Only increment if still > 0. Prevents racing with a release that took
+    // the count to 0.
+    int cur;
+    do {
+      cur = rc.get();
+      if (cur <= 0) {
+        return false;
+      }
+    } while (!rc.compareAndSet(cur, cur + 1));
+    return true;
+  }
+
   @Override
   public void release(MemorySegment segment) {
     if (segment == null) {
@@ -827,15 +1358,44 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
           java.util.Arrays.toString(getPoolSizes()));
     }
 
-    long size = segment.byteSize();
-    int index = SegmentAllocators.getIndexForSize(size);
+    final long size = segment.byteSize();
+    final int index = SegmentAllocators.getIndexForSize(size);
 
     if (index < 0 || index >= segmentPools.length) {
       LOGGER.error("CANNOT RETURN SEGMENT! Invalid size: {}", size);
       throw new IllegalArgumentException("Segment size not supported for reuse: " + size);
     }
 
-    long address = segment.address();
+    final long address = segment.address();
+
+    // Pin decrement. If other refs still exist (e.g. a reader is mid-access),
+    // don't tear down the segment — let them drop their ref first. This is
+    // the core of the LeanStore-style pin: physical teardown (MADV_DONTNEED
+    // + pool return) happens only when the last ref drops.
+    final AtomicInteger rc = segmentRefcounts.get(address);
+    if (rc != null) {
+      final int remaining = rc.decrementAndGet();
+      if (remaining > 0) {
+        // Other holders still active — do not free. The last releaser will
+        // see remaining == 0 and proceed to the actual teardown.
+        if (TRACE_ENABLED) trace(address, OP_RELEASE_OK);
+        return;
+      }
+      if (remaining < 0) {
+        // Under-release: more releases than allocations. Keep state sane by
+        // clamping to 0 and logging. This path is a bug (double-release),
+        // but we shouldn't blow up — just refuse the release.
+        rc.set(0);
+        doubleReleaseCount.incrementAndGet();
+        if (TRACE_ENABLED) trace(address, OP_RELEASE_DOUBLE);
+        if (callNum % 100 == 0) {
+          LOGGER.warn("Pin under-release for segment 0x{} (call #{}) — refcount went negative",
+              Long.toHexString(address), callNum);
+        }
+        return;
+      }
+      // remaining == 0: we are the last releaser; proceed with physical teardown.
+    }
 
     // CRITICAL: Atomically check-and-remove to prevent TOCTOU race
     // Multiple threads can call release() simultaneously on same segment address
@@ -844,6 +1404,7 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     if (!wasRemoved) {
       // Segment was never borrowed OR already released by another thread
       doubleReleaseCount.incrementAndGet();
+      if (TRACE_ENABLED) trace(address, OP_RELEASE_DOUBLE);
       if (callNum % 100 == 0) {
         LOGGER.warn(
             "Attempting to release segment that was never borrowed or already released: address={}, size={} (call #{})",
@@ -851,6 +1412,13 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
       }
       return; // Prevent double-release
     }
+
+    // Stale-release detection is DISABLED in release() because the naive
+    // "released by different thread than allocated" heuristic fires on every
+    // normal cache eviction (ClockSweeper / cross-worker eviction is the
+    // design). The real bug signature lives in allocate()'s isFirstBorrow
+    // path — see trace there. We still record the event for post-hoc
+    // analysis but do not interfere with the release.
 
     // Track utilization
     totalReturns[index].incrementAndGet();
@@ -932,6 +1500,8 @@ public final class LinuxMemorySegmentAllocator implements MemorySegmentAllocator
     // (correct).
     segmentPools[index].offer(segment);
     poolSizes[index].incrementAndGet();
+
+    if (TRACE_ENABLED) trace(address, OP_RELEASE_OK);
   }
 
   @Override

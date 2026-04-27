@@ -822,16 +822,38 @@ public final class JacksonJsonShredder implements Callable<Long> {
       default -> throw new AssertionError("Unknown insert position: " + insert);
     }
 
-    parents.popLong();
-    parents.push(wtx.getParentKey());
-    parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
-
     if (isContainerValue) {
+      // P2: Object/Array-valued fields emit a single fused OBJECT_NAMED_OBJECT/ARRAY record.
+      // The cursor lands ON the fused parent — no separate OBJECT/ARRAY child.
+      // Stack arithmetic mirrors legacy two-level pattern: push fused_key twice + NULL anchor so
+      // processTrxMovement's 2-pop on END_OBJECT/END_ARRAY returns the cursor to the outer
+      // container correctly.
+      final NodeKind cursorKind = wtx.getKind();
+      if (cursorKind == NodeKind.OBJECT_NAMED_OBJECT || cursorKind == NodeKind.OBJECT_NAMED_ARRAY) {
+        parents.popLong();
+        parents.push(key);
+        parents.push(key);
+        parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
+        return parser.nextToken();
+      }
+      // Legacy two-level fallback (OBJECT_KEY + OBJECT/ARRAY) — used when the insert routed
+      // through the non-fused path (e.g. left/right sibling on an OBJECT_KEY parent).
+      parents.popLong();
+      parents.push(wtx.getParentKey());
+      parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
       parents.popLong();
       parents.push(key);
       parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
       return parser.nextToken();
     } else {
+      // Primitive value: iter#32 fused this into a single OBJECT_NAMED_* record. Cursor sits
+      // directly on the fused record (which plays the OBJECT_KEY role). The left-sibling anchor
+      // for the next field at this level is `key` itself, NOT wtx.getParentKey() (= the parent
+      // OBJECT). Push `key` so subsequent insertObjectRecordAsRightSibling calls find a valid
+      // OBJECT_KEY-or-OBJECT_NAMED_* anchor.
+      parents.popLong();
+      parents.push(key);
+      parents.push(Fixed.NULL_NODE_KEY.getStandardProperty());
       final var next = parser.nextToken();
       final var isNextTokenParent = (next == JsonToken.FIELD_NAME || next == JsonToken.END_OBJECT);
       adaptTrxPosAndStack(isNextTokenParent, key);

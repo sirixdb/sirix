@@ -78,33 +78,68 @@ public final class FileChannelReader extends AbstractReader {
   private final Cache<Integer, RevisionFileData> cache;
 
   /**
-   * Striped buffer pool for reading page data - virtual-thread-friendly.
-   * 
-   * <p>
-   * Unlike ThreadLocal which creates one buffer per thread (problematic with millions of virtual
-   * threads), this uses a fixed number of buffers with striping. Memory usage is bounded:
-   * O(STRIPE_COUNT) not O(num_threads).
-   * 
-   * <p>
-   * The entire read-deserialize operation is synchronized on the stripe lock, ensuring the buffer
-   * isn't reused until we're completely done with it.
+   * Direct-ByteBuffer pool for page reads. Owning a buffer via
+   * {@link java.util.concurrent.ArrayBlockingQueue#poll} gives a thread exclusive use
+   * without holding any shared monitor during the expensive decompress + deserialize
+   * phase. Replaces the prior {@code synchronized(STRIPE_LOCK)} design which serialized
+   * {@code read → decompress → deserialize} per-stripe and was the dominant cold-cache
+   * wall-time contributor (profiled: 97 % of lock samples, ~770 s off-CPU at cold 100M).
+   *
+   * <p>HFT constraints honored: bounded off-heap (POOL_SIZE × per-buffer capacity),
+   * zero alloc in steady state (buffers are reused), virtual-thread-safe (queue applies
+   * back-pressure instead of letting the buffer population scale with thread count).
    */
-  private static final int STRIPE_COUNT = Runtime.getRuntime().availableProcessors() * 2;
-  private static final ByteBuffer[] READ_BUFFERS = new ByteBuffer[STRIPE_COUNT];
-  private static final Object[] STRIPE_LOCKS = new Object[STRIPE_COUNT];
+  private static final int POOL_SIZE = Runtime.getRuntime().availableProcessors() * 2;
+  private static final java.util.concurrent.ArrayBlockingQueue<ByteBuffer> BUF_POOL =
+      new java.util.concurrent.ArrayBlockingQueue<>(POOL_SIZE);
+
+  /**
+   * Per-pool-buffer capacity. Kept at 128 KiB because measurement at cold 100 M
+   * showed that enlarging to 1 MiB didn't help wall-time (the pool-growth path
+   * is hit rarely enough to not matter) but increased FS-input by 20% —
+   * apparently {@code FileChannel.read(buffer, pos)} with a 1 MiB-limit buffer
+   * on a 200 KiB page triggers extra readahead we don't benefit from.
+   *
+   * <p>Override with {@code -Dsirix.filechannel.bufferBytes=<N>} (N = bytes,
+   * clamped to [64 KiB, 16 MiB]). Kept configurable for future tuning on
+   * different workloads (e.g. LZ4-on DBs where pages are ~32 KiB).
+   */
+  private static final int BUFFER_BYTES =
+      Math.max(64 * 1024, Math.min(16 * 1024 * 1024,
+          Integer.getInteger("sirix.filechannel.bufferBytes", 128 * 1024)));
 
   static {
-    for (int i = 0; i < STRIPE_COUNT; i++) {
-      STRIPE_LOCKS[i] = new Object();
-      READ_BUFFERS[i] = ByteBuffer.allocateDirect(128 * 1024).order(ByteOrder.nativeOrder());
+    for (int i = 0; i < POOL_SIZE; i++) {
+      BUF_POOL.offer(ByteBuffer.allocateDirect(BUFFER_BYTES).order(ByteOrder.nativeOrder()));
     }
   }
 
   /**
-   * Get stripe index for current thread. Works correctly with both platform and virtual threads.
+   * Acquire a direct ByteBuffer from the pool, or — rare — allocate a fresh one if the
+   * pool is temporarily drained. Always pair with {@link #releaseBuffer}.
+   *
+   * <p>We do not block on {@code take()} here: a drained pool means every worker is
+   * already servicing a read in parallel; adding queue-wait on top would serialize
+   * them again. One extra allocation is cheaper than that serialization.
    */
-  private static int getStripeIndex() {
-    return (int) (Thread.currentThread().threadId() % STRIPE_COUNT);
+  private static ByteBuffer acquireBuffer(final int minCapacity) {
+    ByteBuffer b = BUF_POOL.poll();
+    if (b == null || b.capacity() < minCapacity) {
+      if (b != null) {
+        // Pooled buffer too small for this page — drop it (direct memory GC'd) and
+        // allocate replacement sized to current page. Pool capacity is maintained.
+        BUF_POOL.offer(b);
+      }
+      final int cap = Math.max(minCapacity, BUFFER_BYTES);
+      b = ByteBuffer.allocateDirect(cap).order(ByteOrder.nativeOrder());
+    }
+    return b;
+  }
+
+  /** Return a buffer to the pool. If pool is full (transient extras), drop the reference. */
+  private static void releaseBuffer(final ByteBuffer b) {
+    if (b == null) return;
+    BUF_POOL.offer(b);
   }
 
   /**
@@ -125,54 +160,48 @@ public final class FileChannelReader extends AbstractReader {
 
   public Page read(final PageReference reference,
       final @Nullable ResourceConfiguration resourceConfiguration) {
-    final int stripe = getStripeIndex();
+    // First pread: 4-byte length header. Uses a pooled buffer so we can size the
+    // data buffer exactly for the second pread.
+    ByteBuffer buffer = acquireBuffer(4);
+    try {
+      final long position = reference.getKey();
 
-    // Synchronize on stripe lock for the ENTIRE read-deserialize operation.
-    // This ensures the buffer isn't reused until deserialization is complete.
-    // Safe with virtual threads: memory bounded by STRIPE_COUNT, not thread count.
-    synchronized (STRIPE_LOCKS[stripe]) {
-      try {
-        final long position = reference.getKey();
+      buffer.clear().limit(4);
+      dataFileChannel.read(buffer, position);
+      buffer.flip();
+      final int dataLength = buffer.getInt();
 
-        // Read page length header (4 bytes)
-        ByteBuffer buffer = READ_BUFFERS[stripe];
-        buffer.clear().limit(4);
-        dataFileChannel.read(buffer, position);
-        buffer.flip();
-        final int dataLength = buffer.getInt();
-
-        // Grow buffer if needed (rare - only for very large pages)
-        if (buffer.capacity() < dataLength) {
-          int newSize = Math.max(dataLength, buffer.capacity() * 2);
-          buffer = ByteBuffer.allocateDirect(newSize).order(ByteOrder.nativeOrder());
-          READ_BUFFERS[stripe] = buffer;
-        }
-
-        // Read page data
-        buffer.clear().limit(dataLength);
-        dataFileChannel.read(buffer, position + 4);
-        buffer.flip();
-
-        // Deserialize while holding the lock (buffer safe until we return)
-        if (byteHandler.supportsMemorySegments()) {
-          // Zero-copy: wrap direct ByteBuffer as MemorySegment
-          MemorySegment segment = MemorySegment.ofBuffer(buffer);
-          // Verify checksum for non-KVLP pages (KVLP verified after decompression)
-          verifyChecksumIfNeeded(segment, reference, resourceConfiguration);
-          // Pass reference for KVLP verification after decompression
-          return deserializeFromSegment(resourceConfiguration, segment, reference);
-        } else {
-          // Fallback: copy to byte array for stream-based decompression
-          final byte[] page = new byte[dataLength];
-          buffer.get(page);
-          // Verify checksum for non-KVLP pages (KVLP verified after decompression)
-          verifyChecksumIfNeeded(page, reference, resourceConfiguration);
-          // Pass reference for KVLP verification after decompression
-          return deserialize(resourceConfiguration, page, reference);
-        }
-      } catch (final IOException e) {
-        throw new SirixIOException(e);
+      // If the header-probe buffer is too small for the page body, swap it for a
+      // right-sized one. The rare-extra-alloc branch returns the old buffer to the
+      // pool and gives us one large enough. Keeps the pool invariant.
+      if (buffer.capacity() < dataLength) {
+        final ByteBuffer grown = acquireBuffer(dataLength);
+        releaseBuffer(buffer);
+        buffer = grown;
       }
+
+      buffer.clear().limit(dataLength);
+      dataFileChannel.read(buffer, position + 4);
+      buffer.flip();
+
+      // Deserialize while this thread exclusively owns `buffer`. No shared monitor.
+      // The buffer is released in finally — this is safe because deserialize either
+      // returns a Page with no reference back to the buffer, or copies the bytes
+      // into a page-owned allocation before returning.
+      if (byteHandler.supportsMemorySegments()) {
+        final MemorySegment segment = MemorySegment.ofBuffer(buffer);
+        verifyChecksumIfNeeded(segment, reference, resourceConfiguration);
+        return deserializeFromSegment(resourceConfiguration, segment, reference);
+      } else {
+        final byte[] page = new byte[dataLength];
+        buffer.get(page);
+        verifyChecksumIfNeeded(page, reference, resourceConfiguration);
+        return deserialize(resourceConfiguration, page, reference);
+      }
+    } catch (final IOException e) {
+      throw new SirixIOException(e);
+    } finally {
+      releaseBuffer(buffer);
     }
   }
 
@@ -208,44 +237,37 @@ public final class FileChannelReader extends AbstractReader {
 
   @Override
   public RevisionRootPage readRevisionRootPage(final int revision, final ResourceConfiguration resourceConfiguration) {
-    final int stripe = getStripeIndex();
+    ByteBuffer buffer = acquireBuffer(4);
+    try {
+      final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
 
-    // Synchronize entire read-deserialize operation (Loom-safe)
-    synchronized (STRIPE_LOCKS[stripe]) {
-      try {
-        final var dataFileOffset = cache.get(revision, (unused) -> getRevisionFileData(revision)).offset();
+      buffer.clear().limit(4);
+      dataFileChannel.read(buffer, dataFileOffset);
+      buffer.flip();
+      final int dataLength = buffer.getInt();
 
-        // Read page length header
-        ByteBuffer buffer = READ_BUFFERS[stripe];
-        buffer.clear().limit(4);
-        dataFileChannel.read(buffer, dataFileOffset);
-        buffer.flip();
-        final int dataLength = buffer.getInt();
-
-        // Grow buffer if needed
-        if (buffer.capacity() < dataLength) {
-          int newSize = Math.max(dataLength, buffer.capacity() * 2);
-          buffer = ByteBuffer.allocateDirect(newSize).order(ByteOrder.nativeOrder());
-          READ_BUFFERS[stripe] = buffer;
-        }
-
-        // Read page data
-        buffer.clear().limit(dataLength);
-        dataFileChannel.read(buffer, dataFileOffset + 4);
-        buffer.flip();
-
-        // Deserialize while holding the lock
-        if (byteHandler.supportsMemorySegments()) {
-          MemorySegment segment = MemorySegment.ofBuffer(buffer);
-          return (RevisionRootPage) deserializeFromSegment(resourceConfiguration, segment);
-        } else {
-          final byte[] page = new byte[dataLength];
-          buffer.get(page);
-          return (RevisionRootPage) deserialize(resourceConfiguration, page);
-        }
-      } catch (IOException e) {
-        throw new SirixIOException(e);
+      if (buffer.capacity() < dataLength) {
+        final ByteBuffer grown = acquireBuffer(dataLength);
+        releaseBuffer(buffer);
+        buffer = grown;
       }
+
+      buffer.clear().limit(dataLength);
+      dataFileChannel.read(buffer, dataFileOffset + 4);
+      buffer.flip();
+
+      if (byteHandler.supportsMemorySegments()) {
+        final MemorySegment segment = MemorySegment.ofBuffer(buffer);
+        return (RevisionRootPage) deserializeFromSegment(resourceConfiguration, segment);
+      } else {
+        final byte[] page = new byte[dataLength];
+        buffer.get(page);
+        return (RevisionRootPage) deserialize(resourceConfiguration, page);
+      }
+    } catch (IOException e) {
+      throw new SirixIOException(e);
+    } finally {
+      releaseBuffer(buffer);
     }
   }
 

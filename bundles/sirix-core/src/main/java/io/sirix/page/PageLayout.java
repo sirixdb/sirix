@@ -442,10 +442,17 @@ public final class PageLayout {
   public static void setDirEntry(final MemorySegment page, final int slotIndex,
       final int heapOffset, final int dataLength, final int nodeKindId) {
     final long base = dirEntryOffset(slotIndex);
-    page.set(JAVA_INT_UNALIGNED, base + DIRENTRY_OFF_HEAP_OFFSET, heapOffset);
-    // Pack: top 3 bytes = dataLength, bottom byte = nodeKindId
+    // Pack heapOffset (low 32 bits) + lengthAndKind (high 32 bits) into one
+    // unaligned long write — halves the VarHandle dispatch on the dir-rebuild
+    // hot path during page deserialization. On little-endian (x86_64) the
+    // lower 32 bits land at base+0..3 (= DIRENTRY_OFF_HEAP_OFFSET) and the
+    // upper 32 bits land at base+4..7 (= DIRENTRY_OFF_LENGTH_AND_KIND), which
+    // matches the field layout. The asserts below catch any future change.
+    assert DIRENTRY_OFF_HEAP_OFFSET == 0 && DIRENTRY_OFF_LENGTH_AND_KIND == 4
+        : "packed setDirEntry assumes hot-then-cold field order";
     final int packed = (dataLength << 8) | (nodeKindId & 0xFF);
-    page.set(JAVA_INT_UNALIGNED, base + DIRENTRY_OFF_LENGTH_AND_KIND, packed);
+    final long entry = ((long) heapOffset & 0xFFFFFFFFL) | (((long) packed) << 32);
+    page.set(JAVA_LONG_UNALIGNED, base, entry);
   }
 
   /**

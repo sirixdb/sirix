@@ -81,6 +81,14 @@ public interface JsonNodeReadOnlyTrx extends NodeCursor, NodeReadOnlyTrx {
 
   int getNameKey();
 
+  /**
+   * @return {@code true} when the cursor is currently in the synthetic primitive-value
+   *         child mode of a fused {@code OBJECT_NAMED_*} record (iter#30). Used by
+   *         axes / translators that need to distinguish the virtual child from an actual
+   *         primitive node.
+   */
+  boolean isFusedSyntheticChild();
+
   List<JsonObject> getUpdateOperations();
 
   List<JsonObject> getUpdateOperationsInSubtreeOfNode(SirixDeweyID deweyID, long maxDepth);

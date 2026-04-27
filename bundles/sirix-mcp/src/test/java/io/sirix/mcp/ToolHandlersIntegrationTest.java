@@ -162,7 +162,10 @@ class ToolHandlersIntegrationTest {
       try (final var db = Databases.openJsonDatabase(dbPath);
            final var session = db.beginResourceSession(RESOURCE_NAME);
            final JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.moveTo(3);
+        // Cat-1: post-fusion (iter#32) the OBJECT_KEY+STRING_VALUE pair "name":"Alice"
+        // collapses into one OBJECT_NAMED_STRING (nodeKey=2). Pre-fusion "Alice" was at
+        // nodeKey 3. setStringValue accepts OBJECT_NAMED_STRING and updates in place.
+        wtx.moveTo(2);
         wtx.setStringValue("Bob");
         wtx.commit();
       }
@@ -179,7 +182,8 @@ class ToolHandlersIntegrationTest {
       try (final var db = Databases.openJsonDatabase(dbPath);
            final var session = db.beginResourceSession(RESOURCE_NAME);
            final JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.moveTo(3);
+        // Cat-1: see "name" Cat-1 note above — fused OBJECT_NAMED_STRING at nodeKey=2.
+        wtx.moveTo(2);
         wtx.setStringValue("Bob");
         wtx.commit();
       }
@@ -245,8 +249,10 @@ class ToolHandlersIntegrationTest {
 
   @Nested class Update {
     @Test void updatesStringValue() {
+      // Cat-1: post-fusion (iter#32) the OBJECT_KEY+STRING_VALUE pair "name":"Alice" collapses
+      // into one OBJECT_NAMED_STRING at nodeKey=2 (was nodeKey=3 pre-fusion).
       final var result = readWriteHandlers.update(null, request(Map.of(
-          "database", DB_NAME, "resource", RESOURCE_NAME, "nodeKey", 3, "value", "Bob")));
+          "database", DB_NAME, "resource", RESOURCE_NAME, "nodeKey", 2, "value", "Bob")));
       assertThat(result.isError()).isFalse();
       assertThat(resultText(result)).contains("Update completed");
       final var queryResult = readWriteHandlers.query(null, request(Map.of(
@@ -265,8 +271,10 @@ class ToolHandlersIntegrationTest {
 
   @Nested class Delete {
     @Test void deletesNode() {
+      // Cat-1: post-fusion (iter#32) the "active":true field is one OBJECT_NAMED_BOOLEAN
+      // record at nodeKey=4 (was OBJECT_KEY at nodeKey=6 pre-fusion).
       final var result = readWriteHandlers.delete(null, request(Map.of(
-          "database", DB_NAME, "resource", RESOURCE_NAME, "nodeKey", 6)));
+          "database", DB_NAME, "resource", RESOURCE_NAME, "nodeKey", 4)));
       assertThat(result.isError()).isFalse();
       assertThat(resultText(result)).contains("Delete completed");
     }
@@ -280,8 +288,10 @@ class ToolHandlersIntegrationTest {
 
   @Nested class Revert {
     @Test void revertsToEarlierRevision() {
+      // Cat-1: post-fusion (iter#32) the "name":"Alice" pair is one OBJECT_NAMED_STRING
+      // at nodeKey=2 (was nodeKey=3 pre-fusion).
       readWriteHandlers.update(null, request(Map.of(
-          "database", DB_NAME, "resource", RESOURCE_NAME, "nodeKey", 3, "value", "Modified")));
+          "database", DB_NAME, "resource", RESOURCE_NAME, "nodeKey", 2, "value", "Modified")));
       final var result = readWriteHandlers.revert(null, request(Map.of(
           "database", DB_NAME, "resource", RESOURCE_NAME, "revision", 1)));
       assertThat(result.isError()).isFalse();
@@ -296,8 +306,9 @@ class ToolHandlersIntegrationTest {
     @Test void revertsViaSnapshotName() {
       readWriteHandlers.createSnapshot(null, request(Map.of(
           "database", DB_NAME, "resource", RESOURCE_NAME, "name", "before-change", "revision", 1)));
+      // Cat-1: post-fusion fused OBJECT_NAMED_STRING "name" at nodeKey=2 (was 3).
       readWriteHandlers.update(null, request(Map.of(
-          "database", DB_NAME, "resource", RESOURCE_NAME, "nodeKey", 3, "value", "Changed")));
+          "database", DB_NAME, "resource", RESOURCE_NAME, "nodeKey", 2, "value", "Changed")));
       final var result = readWriteHandlers.revert(null, request(Map.of(
           "database", DB_NAME, "resource", RESOURCE_NAME, "snapshot", "before-change")));
       assertThat(result.isError()).isFalse();

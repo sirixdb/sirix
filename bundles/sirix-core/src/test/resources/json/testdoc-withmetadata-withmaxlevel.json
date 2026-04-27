@@ -3,7 +3,7 @@
     "nodeKey": 1,
     "hash": "0000000000000000",
     "type": "OBJECT",
-    "descendantCount": 24,
+    "descendantCount": 19,
     "childCount": 4
   },
   "value": [
@@ -32,14 +32,14 @@
         "nodeKey": 7,
         "hash": "0000000000000000",
         "type": "OBJECT_KEY",
-        "descendantCount": 5
+        "descendantCount": 3
       },
       "value": {
         "metadata": {
           "nodeKey": 8,
           "hash": "0000000000000000",
           "type": "OBJECT",
-          "descendantCount": 4,
+          "descendantCount": 2,
           "childCount": 2
         },
         "value": {}
@@ -48,34 +48,26 @@
     {
       "key": "baz",
       "metadata": {
-        "nodeKey": 13,
+        "nodeKey": 11,
         "hash": "0000000000000000",
-        "type": "OBJECT_KEY",
-        "descendantCount": 1
+        "type": "OBJECT_KEY"
       },
-      "value": {
-        "metadata": {
-          "nodeKey": 14,
-          "hash": "0000000000000000",
-          "type": "OBJECT_STRING_VALUE"
-        },
-        "value": "hello"
-      }
+      "value": "hello"
     },
     {
       "key": "tada",
       "metadata": {
-        "nodeKey": 15,
+        "nodeKey": 12,
         "hash": "0000000000000000",
         "type": "OBJECT_KEY",
-        "descendantCount": 10
+        "descendantCount": 8
       },
       "value": {
         "metadata": {
-          "nodeKey": 16,
+          "nodeKey": 13,
           "hash": "0000000000000000",
           "type": "ARRAY",
-          "descendantCount": 9,
+          "descendantCount": 7,
           "childCount": 5
         },
         "value": []

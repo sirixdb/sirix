@@ -63,10 +63,9 @@ public final class GetDescendantCountTest {
 
       try (final var out = new ByteArrayOutputStream(); final var printWriter = new PrintWriter(out)) {
         new Query(chain, query).serialize(ctx, printWriter);
-        // Descendant count depends on internal node structure
-        final int count = Integer.parseInt(out.toString());
-        // Should have at least the key "a", the nested object, key "b", and value 1
-        assertEquals(true, count >= 4, "Expected at least 4 descendants, got " + count);
+        // {"a":{"b":1}} under iter#32 P2 structural fusion: OBJECT_NAMED_OBJECT "a" +
+        // OBJECT_NAMED_NUMBER "b=1" = exactly 2 descendants of the root OBJECT.
+        assertEquals("2", out.toString());
       }
     }
   }
