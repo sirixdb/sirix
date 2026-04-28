@@ -129,13 +129,17 @@ final class XmlNodeFactoryImpl implements XmlNodeFactory {
     // After TIL.put(), PageReference.getPage() returns null
     // Must use storageEngineWriter.getPathSummaryPage() which handles TIL lookups
     final PathSummaryPage pathSummaryPage = storageEngineWriter.getPathSummaryPage(storageEngineWriter.getActualRevisionRootPage());
-    final NodeDelegate nodeDel = new NodeDelegate(pathSummaryPage.getMaxNodeKey(0) + 1, parentKey, hashFunction,
-        Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
-    final StructNodeDelegate structDel =
-        new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
+    final long nodeKey = pathSummaryPage.getMaxNodeKey(0) + 1;
+    final long nullKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+    // XML PathNode formerly used the 5-arg StructNodeDelegate ctor that defaulted lastChild
+    // to INVALID_KEY (sentinel for "no last-child tracked"). Preserve that on-disk semantic.
+    final long lastChildKey = Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty();
 
     return storageEngineWriter.createRecord(
-        new PathNode(name, nodeDel, structDel, uriKey, prefixKey, localName, 0L, kind, 1, level),
+        new PathNode(name, kind, 1, level, nodeKey, parentKey,
+            Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null,
+            nullKey, lastChildKey, rightSibKey, leftSibKey, 0L, 0L,
+            uriKey, prefixKey, localName, 0L),
         IndexType.PATH_SUMMARY, 0);
   }
 

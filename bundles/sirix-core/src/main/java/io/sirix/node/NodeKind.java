@@ -618,23 +618,35 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public DataRecord deserialize(final BytesIn<?> source, final long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source, recordID, resourceConfiguration);
+      // Inlined NodeDelegate fields (delegate-less PathNode owns its structural state directly).
+      final long parentKey = recordID - getVarLong(source);
+      final int previousRevision = source.readInt();
+      final int lastModifiedRevision = source.readInt();
 
-      // Struct delegate.
-      final StructNodeDelegate structDel = deserializeStructDel(this, nodeDel, source, resourceConfiguration);
+      // Inlined StructNodeDelegate fields. PATH is never a value-node, so firstChild/lastChild
+      // are always present on the wire; childCount and descendantCount are gated on config.
+      final long rightSibling = source.readLong();
+      final long leftSibling = source.readLong();
+      final long firstChild = source.readLong();
+      final long lastChild = source.readLong();
+      final long childCount = resourceConfiguration.storeChildCount() ? source.readLong() : 0L;
+      final long descendantCount =
+          resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0L;
 
-      // Inlined name fields (formerly via NameNodeDelegate).
+      // Inlined NameNodeDelegate fields.
       final int uriKey = source.readInt();
       final int prefixKey = source.readInt();
       final int localNameKey = source.readInt();
       final long pathNodeKey = getVarLong(source);
 
       final NodeKind kind = NodeKind.getKind(source.readByte());
+      final int references = source.readInt();
+      final int level = source.readInt();
 
-      final PathNode pathNode =
-          new PathNode(null, nodeDel, structDel, uriKey, prefixKey, localNameKey, pathNodeKey, kind,
-              source.readInt(), source.readInt());
+      final PathNode pathNode = new PathNode(null, kind, references, level,
+          recordID, parentKey, previousRevision, lastModifiedRevision, (SirixDeweyID) null,
+          firstChild, lastChild, rightSibling, leftSibling, childCount, descendantCount,
+          uriKey, prefixKey, localNameKey, pathNodeKey);
 
       // Optional per-path statistics trailer — present iff the resource was configured
       // with withPathStatistics=true. Older resources / disabled configs pay zero bytes.
@@ -650,12 +662,29 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final PathNode node = (PathNode) record;
-      serializeDelegateWithoutIDs(node.getNodeDelegate(), sink);
-      serializeStructDelegate(this, node.getStructNodeDelegate(), sink, resourceConfiguration);
+      // Inlined NodeDelegate fields.
+      putVarLong(sink, node.getNodeKey() - node.getParentKey());
+      sink.writeInt(node.getPreviousRevisionNumber());
+      sink.writeInt(node.getLastModifiedRevisionNumber());
+
+      // Inlined StructNodeDelegate fields.
+      sink.writeLong(node.getRightSiblingKey());
+      sink.writeLong(node.getLeftSiblingKey());
+      sink.writeLong(node.getFirstChildKey());
+      sink.writeLong(node.getLastChildKey());
+      if (resourceConfiguration.storeChildCount()) {
+        sink.writeLong(node.getChildCount());
+      }
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getDescendantCount());
+      }
+
+      // Inlined NameNodeDelegate fields.
       sink.writeInt(node.getURIKey());
       sink.writeInt(node.getPrefixKey());
       sink.writeInt(node.getLocalNameKey());
       putVarLong(sink, node.getPathNodeKey());
+
       sink.writeByte(node.getPathKind().getId());
       sink.writeInt(node.getReferences());
       sink.writeInt(node.getLevel());

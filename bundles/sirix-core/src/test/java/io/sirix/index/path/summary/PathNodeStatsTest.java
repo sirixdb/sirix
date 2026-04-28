@@ -3,9 +3,6 @@ package io.sirix.index.path.summary;
 import io.brackit.query.atomic.QNm;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
-import net.openhft.hashing.LongHashFunction;
 import org.junit.jupiter.api.Test;
 
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -19,17 +16,16 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Unit tests for the stats mutators/accessors added to {@link PathNode}. Delegates are
- * constructed with dummy/sentinel values since the stats code paths don't touch them.
+ * Unit tests for the stats mutators/accessors added to {@link PathNode}. Structural
+ * fields are constructed with sentinel values since the stats code paths don't touch them.
  */
 final class PathNodeStatsTest {
 
   private static PathNode newPathNode() {
-    final NodeDelegate nodeDel = new NodeDelegate(1L, -1L, LongHashFunction.xx3(),
-        -1, 0, (SirixDeweyID) null);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, -1L, -1L, -1L, -1L, 0L, 0L);
-    return new PathNode(new QNm("age"), nodeDel, structDel, -1, -1, 42, 0L,
-        NodeKind.OBJECT_NAMED_OBJECT, 1, 1);
+    return new PathNode(new QNm("age"), NodeKind.OBJECT_NAMED_OBJECT, 1, 1,
+        1L, -1L, -1, 0, (SirixDeweyID) null,
+        -1L, -1L, -1L, -1L, 0L, 0L,
+        -1, -1, 42, 0L);
   }
 
   @Test

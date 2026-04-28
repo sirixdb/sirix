@@ -1,82 +1,86 @@
 package io.sirix.index.path.summary;
 
 import io.sirix.utils.ToStringHelper;
-import it.unimi.dsi.fastutil.ints.IntIterator;
-import it.unimi.dsi.fastutil.ints.IntSet;
-import java.util.Arrays;
-import java.util.Objects;
+import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
+import io.sirix.node.SirixDeweyID;
 import io.sirix.node.interfaces.NameNode;
+import io.sirix.node.interfaces.Node;
+import io.sirix.node.interfaces.StructNode;
+import io.sirix.settings.Fixed;
+import io.sirix.utils.NamePageHash;
 import io.brackit.query.atomic.QNm;
 import io.brackit.query.util.path.Path;
+import it.unimi.dsi.fastutil.ints.IntIterator;
+import it.unimi.dsi.fastutil.ints.IntSet;
 import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.RoaringBitmap;
-import io.sirix.node.xml.AbstractStructForwardingNode;
+
+import java.util.Arrays;
 
 import static io.sirix.utils.Preconditions.checkArgument;
-import static java.util.Objects.requireNonNull;
 
 /**
  * Path node in the {@link PathSummaryReader}.
  *
+ * <p>Self-contained: holds all structural and name state directly as inline fields
+ * (formerly held by {@code NodeDelegate} / {@code StructNodeDelegate} / {@code NameNodeDelegate}).
+ * Each PathNode is one heap object instead of three; structural reads are a single load
+ * instead of two pointer chases.
+ *
  * @author Johannes Lichtenberger
  */
-public final class PathNode extends AbstractStructForwardingNode implements NameNode {
+public final class PathNode implements StructNode, NameNode {
 
-  /**
-   * {@link NodeDelegate} instance.
-   */
-  private final NodeDelegate nodeDel;
+  private static final int TYPE_KEY = NamePageHash.generateHashForString("xs:untyped");
+  private static final long NULL_NODE_KEY = Fixed.NULL_NODE_KEY.getStandardProperty();
+  private static final long INVALID_KEY = Fixed.INVALID_KEY_FOR_TYPE_CHECK.getStandardProperty();
 
-  /**
-   * {@link StructNodeDelegate} instance.
-   */
-  private final StructNodeDelegate structNodeDel;
+  // ---------------------------------------------------------------------
+  // Inlined NodeDelegate state.
+  // ---------------------------------------------------------------------
+  private long nodeKey;
+  private long parentKey;
+  private int typeKey = TYPE_KEY;
+  private int previousRevision;
+  private int lastModifiedRevision;
+  private volatile @Nullable SirixDeweyID sirixDeweyID;
+  private byte @Nullable [] deweyIDData;
 
-  /**
-   * Inlined name-component fields (formerly held by {@code NameNodeDelegate}).
-   * Path-summary entries don't carry a separate {@code pathNodeKey} of their own
-   * (they ARE the path summary), but the field is preserved at zero so the wire
-   * format can stay symmetric with other name-bearing nodes.
-   */
+  // ---------------------------------------------------------------------
+  // Inlined StructNodeDelegate state.
+  // ---------------------------------------------------------------------
+  private long firstChildKey;
+  private long lastChildKey;
+  private long rightSiblingKey;
+  private long leftSiblingKey;
+  private long childCount;
+  private long descendantCount;
+
+  // ---------------------------------------------------------------------
+  // Inlined NameNodeDelegate state.
+  // ---------------------------------------------------------------------
   private int prefixKey;
   private int localNameKey;
   private int uriKey;
   private long pathNodeKey;
 
-  /**
-   * Kind of node to index.
-   */
+  // ---------------------------------------------------------------------
+  // Path-node-specific state.
+  // ---------------------------------------------------------------------
   private final NodeKind kind;
-
-  /**
-   * The node name.
-   */
   private QNm name;
-
-  /**
-   * Number of references to this path node.
-   */
   private int references;
-
-  /**
-   * Level of this path node.
-   */
   private final int level;
 
-  private PathNode firstChild;
+  /** In-memory tree pointers — populated only by the cached PathSummaryReader graph. */
+  private @Nullable PathNode firstChild;
+  private @Nullable PathNode lastChild;
+  private @Nullable PathNode parent;
+  private @Nullable PathNode leftSibling;
+  private @Nullable PathNode rightSibling;
 
-  private PathNode lastChild;
-
-  private PathNode parent;
-
-  private PathNode leftSibling;
-
-  private PathNode rightSibling;
-
-  private Path<QNm> path;
+  private @Nullable Path<QNm> path;
 
   /**
    * Per-path value statistics — populated only when the owning resource has
@@ -86,99 +90,75 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    *
    * <p>Lazily allocated — a PathNode that has never seen a value carries a single
    * {@code null} reference instead of 11 zero-init fields + lazy HLL/bitmap.
-   * Phase C migrates this off-record into {@code PathSummaryPage}'s registry; for
-   * now stats stay attached to the node so the wire format is preserved.
    */
   private @Nullable PathStats stats;
 
   /**
-   * Constructor.
-   *
-   * @param name the full qualified name
-   * @param nodeDel {@link NodeDelegate} instance
-   * @param structNodeDel {@link StructNodeDelegate} instance
-   * @param uriKey URI key of the qualified name (or {@code -1})
-   * @param prefixKey prefix key of the qualified name (or {@code -1})
-   * @param localNameKey local-name key of the qualified name
-   * @param pathNodeKey path-node key (typically zero for path-summary entries)
-   * @param kind kind of node to index
-   * @param references number of references to this path node
-   * @param level level of this path node
+   * Constructor — all structural and name state passed as primitives. The path-summary
+   * factories own the construction; deserialization in {@link io.sirix.node.NodeKind}
+   * uses this constructor directly.
    */
-  public PathNode(final QNm name, final NodeDelegate nodeDel, final StructNodeDelegate structNodeDel,
-      final int uriKey, final int prefixKey, final int localNameKey, final long pathNodeKey,
-      final NodeKind kind, final int references, final int level) {
+  public PathNode(final QNm name, final NodeKind kind, final int references, final int level,
+      final long nodeKey, final long parentKey,
+      final int previousRevision, final int lastModifiedRevision,
+      final @Nullable SirixDeweyID deweyID,
+      final long firstChildKey, final long lastChildKey,
+      final long rightSiblingKey, final long leftSiblingKey,
+      final long childCount, final long descendantCount,
+      final int uriKey, final int prefixKey, final int localNameKey, final long pathNodeKey) {
+    assert parentKey >= NULL_NODE_KEY;
+    checkArgument(references > 0, "references must be > 0!");
     this.name = name;
-    this.nodeDel = requireNonNull(nodeDel);
-    this.structNodeDel = requireNonNull(structNodeDel);
+    this.kind = kind;
+    this.references = references;
+    this.level = level;
+    this.nodeKey = nodeKey;
+    this.parentKey = parentKey;
+    this.previousRevision = previousRevision;
+    this.lastModifiedRevision = lastModifiedRevision;
+    this.sirixDeweyID = deweyID;
+    this.firstChildKey = firstChildKey;
+    this.lastChildKey = lastChildKey;
+    this.rightSiblingKey = rightSiblingKey;
+    this.leftSiblingKey = leftSiblingKey;
+    this.childCount = childCount;
+    this.descendantCount = descendantCount;
     this.uriKey = uriKey;
     this.prefixKey = prefixKey;
     this.localNameKey = localNameKey;
     this.pathNodeKey = pathNodeKey;
-    this.kind = requireNonNull(kind);
-    checkArgument(references > 0, "references must be > 0!");
-    this.references = references;
-    this.level = level;
   }
 
-  /**
-   * Get the path up to the root path node.
-   *
-   * @return path up to the root
-   */
+  // ---------------------------------------------------------------------
+  // Path-node-specific accessors.
+  // ---------------------------------------------------------------------
+
   public Path<QNm> getPath() {
     return path;
   }
 
-  /**
-   * Set the path.
-   * 
-   * @param path path to set
-   * @return this path instance
-   */
-  public PathNode setPath(Path<QNm> path) {
+  public PathNode setPath(final Path<QNm> path) {
     this.path = path;
     return this;
   }
 
-  /**
-   * Level of this path node.
-   *
-   * @return level of this path node
-   */
   public int getLevel() {
     return level;
   }
 
-  /**
-   * Get the number of references to this path node.
-   *
-   * @return number of references
-   */
   public int getReferences() {
     return references;
   }
 
-  /**
-   * Set the reference count.
-   *
-   * @param references number of references
-   */
   public void setReferenceCount(final int references) {
     checkArgument(references > 0, "pReferences must be > 0!");
     this.references = references;
   }
 
-  /**
-   * Increment the reference count.
-   */
   public void incrementReferenceCount() {
     references++;
   }
 
-  /**
-   * Decrement the reference count.
-   */
   public void decrementReferenceCount() {
     if (references <= 1) {
       throw new IllegalStateException();
@@ -186,11 +166,6 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     references--;
   }
 
-  /**
-   * Get the kind of path (element, attribute or namespace).
-   *
-   * @return path kind
-   */
   public NodeKind getPathKind() {
     return kind;
   }
@@ -199,6 +174,20 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   public NodeKind getKind() {
     return NodeKind.PATH;
   }
+
+  @Override
+  public QNm getName() {
+    return name;
+  }
+
+  @Override
+  public void setName(final QNm qNm) {
+    name = qNm;
+  }
+
+  // ---------------------------------------------------------------------
+  // NameNode surface — direct field access.
+  // ---------------------------------------------------------------------
 
   @Override
   public int getPrefixKey() {
@@ -231,48 +220,6 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   }
 
   @Override
-  protected StructNodeDelegate structDelegate() {
-    return structNodeDel;
-  }
-
-  @Override
-  protected NodeDelegate delegate() {
-    return nodeDel;
-  }
-
-  @Override
-  public int hashCode() {
-    return Objects.hash(nodeDel, prefixKey, localNameKey, uriKey, pathNodeKey);
-  }
-
-  @Override
-  public boolean equals(final @Nullable Object obj) {
-    if (obj instanceof PathNode other) {
-      return Objects.equals(nodeDel, other.nodeDel)
-          && prefixKey == other.prefixKey
-          && localNameKey == other.localNameKey
-          && uriKey == other.uriKey
-          && pathNodeKey == other.pathNodeKey;
-    }
-    return false;
-  }
-
-  @Override
-  public String toString() {
-    return ToStringHelper.of(this)
-                      .add("node delegate", nodeDel)
-                      .add("struct delegate", structNodeDel)
-                      .add("uriKey", uriKey)
-                      .add("prefixKey", prefixKey)
-                      .add("localNameKey", localNameKey)
-                      .add("pathNodeKey", pathNodeKey)
-                      .add("references", references)
-                      .add("kind", kind)
-                      .add("level", level)
-                      .toString();
-  }
-
-  @Override
   public long getPathNodeKey() {
     return pathNodeKey;
   }
@@ -282,28 +229,252 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     this.pathNodeKey = nodeKey;
   }
 
+  // ---------------------------------------------------------------------
+  // Node / DataRecord surface — direct field access (formerly NodeDelegate).
+  // ---------------------------------------------------------------------
+
   @Override
-  public QNm getName() {
-    return name;
+  public long getNodeKey() {
+    return nodeKey;
   }
 
-  public void setFirstChild(PathNode pathNode) {
+  @Override
+  public void setNodeKey(final long nodeKey) {
+    this.nodeKey = nodeKey;
+  }
+
+  @Override
+  public long getParentKey() {
+    return parentKey;
+  }
+
+  @Override
+  public void setParentKey(final long parentKey) {
+    assert parentKey >= NULL_NODE_KEY;
+    this.parentKey = parentKey;
+  }
+
+  @Override
+  public boolean hasParent() {
+    return parentKey != NULL_NODE_KEY;
+  }
+
+  public int getTypeKey() {
+    return typeKey;
+  }
+
+  @Override
+  public void setTypeKey(final int typeKey) {
+    this.typeKey = typeKey;
+  }
+
+  @Override
+  public int getPreviousRevisionNumber() {
+    return previousRevision;
+  }
+
+  @Override
+  public void setPreviousRevision(final int revision) {
+    this.previousRevision = revision;
+  }
+
+  @Override
+  public int getLastModifiedRevisionNumber() {
+    return lastModifiedRevision;
+  }
+
+  @Override
+  public void setLastModifiedRevision(final int revision) {
+    this.lastModifiedRevision = revision;
+  }
+
+  @Override
+  public long getHash() {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public void setHash(final long hash) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public long computeHash(final BytesOut<?> bytes) {
+    throw new UnsupportedOperationException();
+  }
+
+  @Override
+  public boolean isSameItem(final @Nullable Node other) {
+    return other != null && other.getNodeKey() == nodeKey;
+  }
+
+  @Override
+  public SirixDeweyID getDeweyID() {
+    // Double-checked locking lazy decode — preserves the contract NodeDelegate enforced.
+    SirixDeweyID result = sirixDeweyID;
+    final byte[] data = deweyIDData;
+    if (result == null && data != null) {
+      synchronized (this) {
+        result = sirixDeweyID;
+        if (result == null) {
+          result = new SirixDeweyID(data);
+          sirixDeweyID = result;
+        }
+      }
+    }
+    return result;
+  }
+
+  @Override
+  public byte[] getDeweyIDAsBytes() {
+    final byte[] data = deweyIDData;
+    if (data != null) {
+      return data;
+    }
+    final SirixDeweyID id = sirixDeweyID;
+    if (id != null) {
+      final byte[] bytes = id.toBytes();
+      deweyIDData = bytes;
+      return bytes;
+    }
+    return null;
+  }
+
+  @Override
+  public void setDeweyID(final SirixDeweyID id) {
+    this.sirixDeweyID = id;
+    this.deweyIDData = null;
+  }
+
+  @Override
+  public void setDeweyIDBytes(final byte[] bytes) {
+    this.deweyIDData = bytes;
+    this.sirixDeweyID = null;
+  }
+
+  // ---------------------------------------------------------------------
+  // StructNode surface — direct field access (formerly StructNodeDelegate).
+  // ---------------------------------------------------------------------
+
+  @Override
+  public boolean hasFirstChild() {
+    return firstChildKey != NULL_NODE_KEY;
+  }
+
+  @Override
+  public boolean hasLastChild() {
+    return lastChildKey != NULL_NODE_KEY;
+  }
+
+  @Override
+  public boolean hasLeftSibling() {
+    return leftSiblingKey != NULL_NODE_KEY;
+  }
+
+  @Override
+  public boolean hasRightSibling() {
+    return rightSiblingKey != NULL_NODE_KEY;
+  }
+
+  @Override
+  public long getChildCount() {
+    return childCount;
+  }
+
+  @Override
+  public long getFirstChildKey() {
+    return firstChildKey;
+  }
+
+  @Override
+  public long getLastChildKey() {
+    return lastChildKey;
+  }
+
+  @Override
+  public long getLeftSiblingKey() {
+    return leftSiblingKey;
+  }
+
+  @Override
+  public long getRightSiblingKey() {
+    return rightSiblingKey;
+  }
+
+  @Override
+  public void setRightSiblingKey(final long key) {
+    this.rightSiblingKey = key;
+  }
+
+  @Override
+  public void setLeftSiblingKey(final long key) {
+    this.leftSiblingKey = key;
+  }
+
+  @Override
+  public void setFirstChildKey(final long key) {
+    this.firstChildKey = key;
+  }
+
+  @Override
+  public void setLastChildKey(final long key) {
+    if (key == INVALID_KEY) {
+      throw new UnsupportedOperationException();
+    }
+    this.lastChildKey = key;
+  }
+
+  @Override
+  public void decrementChildCount() {
+    childCount--;
+  }
+
+  @Override
+  public void incrementChildCount() {
+    childCount++;
+  }
+
+  @Override
+  public long getDescendantCount() {
+    return descendantCount;
+  }
+
+  @Override
+  public void decrementDescendantCount() {
+    descendantCount--;
+  }
+
+  @Override
+  public void incrementDescendantCount() {
+    descendantCount++;
+  }
+
+  @Override
+  public void setDescendantCount(final long descendantCount) {
+    this.descendantCount = descendantCount;
+  }
+
+  // ---------------------------------------------------------------------
+  // In-memory tree pointers (cached PathSummaryReader graph).
+  // ---------------------------------------------------------------------
+
+  public void setFirstChild(final PathNode pathNode) {
     firstChild = pathNode;
   }
 
-  public void setLastChild(PathNode pathNode) {
+  public void setLastChild(final PathNode pathNode) {
     lastChild = pathNode;
   }
 
-  public void setParent(PathNode pathNode) {
+  public void setParent(final PathNode pathNode) {
     parent = pathNode;
   }
 
-  public void setLeftSibling(PathNode pathNode) {
+  public void setLeftSibling(final PathNode pathNode) {
     leftSibling = pathNode;
   }
 
-  public void setRightSibling(PathNode pathNode) {
+  public void setRightSibling(final PathNode pathNode) {
     rightSibling = pathNode;
   }
 
@@ -327,8 +498,56 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     return rightSibling;
   }
 
-  public void setName(QNm qNm) {
-    name = qNm;
+  // ---------------------------------------------------------------------
+  // hashCode / equals / toString.
+  // ---------------------------------------------------------------------
+
+  @Override
+  public int hashCode() {
+    int result = (int) (nodeKey ^ (nodeKey >>> 32));
+    result = 31 * result + typeKey;
+    result = 31 * result + (int) (parentKey ^ (parentKey >>> 32));
+    result = 31 * result + prefixKey;
+    result = 31 * result + localNameKey;
+    result = 31 * result + uriKey;
+    result = 31 * result + (int) (pathNodeKey ^ (pathNodeKey >>> 32));
+    return result;
+  }
+
+  @Override
+  public boolean equals(final @Nullable Object obj) {
+    if (!(obj instanceof PathNode other)) {
+      return false;
+    }
+    return nodeKey == other.nodeKey
+        && typeKey == other.typeKey
+        && parentKey == other.parentKey
+        && prefixKey == other.prefixKey
+        && localNameKey == other.localNameKey
+        && uriKey == other.uriKey
+        && pathNodeKey == other.pathNodeKey;
+  }
+
+  @Override
+  public String toString() {
+    return ToStringHelper.of(this)
+        .add("nodeKey", nodeKey)
+        .add("parentKey", parentKey)
+        .add("typeKey", typeKey)
+        .add("firstChild", firstChildKey)
+        .add("lastChild", lastChildKey)
+        .add("leftSib", leftSiblingKey)
+        .add("rightSib", rightSiblingKey)
+        .add("childCount", childCount)
+        .add("descendantCount", descendantCount)
+        .add("uriKey", uriKey)
+        .add("prefixKey", prefixKey)
+        .add("localNameKey", localNameKey)
+        .add("pathNodeKey", pathNodeKey)
+        .add("references", references)
+        .add("kind", kind)
+        .add("level", level)
+        .toString();
   }
 
   // =====================================================================
@@ -443,19 +662,9 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   }
 
   // =====================================================================
-  // Bulk-merge mutators — used by PathSummaryWriter.flushPendingStats to
-  // splice a batched-up set of deferred observations into this node in
-  // a single prepareRecordForModification call. Package-private; callers
-  // must hold the write-side PathNode reference (not a reader snapshot).
+  // Bulk-merge mutators — used by PathSummaryWriter.flushPendingStats.
   // =====================================================================
 
-  /**
-   * Merge a precomputed long-value aggregate. Equivalent to calling
-   * {@link #recordLongValue(long)} {@code count} times with values whose
-   * sum is {@code sum} and whose extremes are {@code min}/{@code max}.
-   * HLL is merged via {@link #unionHll(HyperLogLogSketch)} separately by
-   * the caller so the batch's HLL can be union'd in one pass.
-   */
   void mergeLongStats(final long count, final long sum, final long min, final long max) {
     final PathStats s = getOrCreateStats();
     s.count += count;
@@ -468,11 +677,6 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     }
   }
 
-  /**
-   * Merge a precomputed bytes-value aggregate. Caller owns the passed
-   * arrays; we clone on min/max update so later mutation doesn't corrupt
-   * the stored bound.
-   */
   void mergeBytesStats(final long count, final byte @Nullable [] minBytes, final byte @Nullable [] maxBytes) {
     final PathStats s = getOrCreateStats();
     s.count += count;
@@ -486,12 +690,10 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     }
   }
 
-  /** Add {@code delta} to the null-value counter. Bulk equivalent of N {@link #recordNullValue()} calls. */
   void incrementNullCount(final long delta) {
     getOrCreateStats().nullCount += delta;
   }
 
-  /** Union {@code other} into this node's HLL sketch, creating one if absent. No-op if {@code other} is null. */
   void unionHll(final HyperLogLogSketch other) {
     if (other == null) {
       return;
@@ -503,14 +705,12 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     s.hll.union(other);
   }
 
-/** Replace the tracked minimum after a rebound and clear the dirty flag. */
   void clearMinDirty(final long newMin) {
     final PathStats s = getOrCreateStats();
     s.min = newMin;
     s.minDirty = false;
   }
 
-  /** Replace the tracked maximum after a rebound and clear the dirty flag. */
   void clearMaxDirty(final long newMax) {
     final PathStats s = getOrCreateStats();
     s.max = newMax;
@@ -518,27 +718,24 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   }
 
   /**
-   * Merge the set of {@code leafPageKeys} into this PathNode's presence
-   * bitmap. Each entry is a page key — {@code nodeKey >>> INP_REFERENCE_COUNT_EXPONENT}
-   * for the leaf page where a node with this pathNodeKey was stored.
-   *
-   * <p>Lazily allocates the bitmap on first call. Updates are idempotent
-   * (RoaringBitmap dedupes). Caller must hold a writable reference to this
-   * PathNode — typically via {@code prepareRecordForModification}.
+   * Merge the set of {@code leafPageKeys} into this PathNode's presence bitmap.
+   * Lazily allocates the bitmap on first call.
    */
   void mergePageKeys(final IntSet leafPageKeys) {
-    if (leafPageKeys == null || leafPageKeys.isEmpty()) return;
+    if (leafPageKeys == null || leafPageKeys.isEmpty()) {
+      return;
+    }
     final PathStats s = getOrCreateStats();
-    if (s.pageKeys == null) s.pageKeys = new RoaringBitmap();
+    if (s.pageKeys == null) {
+      s.pageKeys = new RoaringBitmap();
+    }
     final IntIterator it = leafPageKeys.iterator();
-    while (it.hasNext()) s.pageKeys.add(it.nextInt());
+    while (it.hasNext()) {
+      s.pageKeys.add(it.nextInt());
+    }
   }
 
-  /**
-   * Serializer-accessible setter. Package-exposed via a public accessor
-   * on the {@link io.sirix.node.NodeKind} enum. Takes ownership of the
-   * supplied bitmap.
-   */
+  /** Serializer-accessible setter; takes ownership of the supplied bitmap. */
   public void setPageKeys(final @Nullable RoaringBitmap pageKeys) {
     if (pageKeys == null) {
       if (stats != null) {
@@ -549,22 +746,11 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     }
   }
 
-  /**
-   * @return the presence bitmap, or {@code null} if this pathNode has
-   *         no page-key tracking (either never recorded or the resource
-   *         was built without path statistics).
-   */
   public @Nullable RoaringBitmap getPageKeys() {
     final PathStats s = stats;
     return s == null ? null : s.pageKeys;
   }
 
-  /**
-   * @return sorted array copy of the page keys where this pathNodeKey
-   *         is present, or {@code null} if the bitmap is absent. Empty
-   *         array (distinct from {@code null}) signals "definitely no
-   *         page has this pathNodeKey".
-   */
   public int @Nullable [] getPageKeysArray() {
     final PathStats s = stats;
     return (s == null || s.pageKeys == null) ? null : s.pageKeys.toArray();
@@ -572,16 +758,12 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   // =====================================================================
   // Statistics accessors (public — used by query-time short-circuit).
-  // Each returns the empty-state default when no PathStats record has
-  // been allocated for this PathNode.
   // =====================================================================
 
-  /** Direct access to the underlying stats record (or {@code null}). */
   public @Nullable PathStats getStats() {
     return stats;
   }
 
-  /** Replace the entire stats record. {@code null} drops it. */
   public void setStats(final @Nullable PathStats stats) {
     this.stats = stats;
   }
@@ -601,19 +783,11 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     return s == null ? 0L : s.sum;
   }
 
-  /**
-   * @return the tracked minimum long value, or {@link Long#MAX_VALUE} if no numeric
-   *         values have been recorded.
-   */
   public long getStatsMin() {
     final PathStats s = stats;
     return s == null ? Long.MAX_VALUE : s.min;
   }
 
-  /**
-   * @return the tracked maximum long value, or {@link Long#MIN_VALUE} if no numeric
-   *         values have been recorded.
-   */
   public long getStatsMax() {
     final PathStats s = stats;
     return s == null ? Long.MIN_VALUE : s.max;
@@ -644,13 +818,11 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     return s != null && s.maxDirty;
   }
 
-  /** True if any numeric value has been recorded (i.e. min/max are real bounds). */
   public boolean hasNumericStats() {
     final PathStats s = stats;
     return s != null && s.min != Long.MAX_VALUE;
   }
 
-  /** True if any byte/string value has been recorded. */
   public boolean hasBytesStats() {
     final PathStats s = stats;
     return s != null && s.minBytes != null;
