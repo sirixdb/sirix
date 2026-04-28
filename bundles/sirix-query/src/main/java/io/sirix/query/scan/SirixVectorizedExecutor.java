@@ -3612,7 +3612,7 @@ public final class SirixVectorizedExecutor implements VectorizedExecutor {
     if (session.getResourceConfig().withPathSummary) {
       try (JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx(revision);
            var summary = rtx.getResourceSession().openPathSummary(revision)) {
-        if (summary != null && !summary.findPathsByLocalName(field).isEmpty()) {
+        if (summary != null && summary.containsLocalName(field)) {
           return rtx.keyForName(field);
         }
       } catch (final Exception ignored) {
