@@ -3,10 +3,6 @@ package io.sirix.index.path.summary;
 import io.brackit.query.atomic.QNm;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.delegates.NameNodeDelegate;
-import io.sirix.node.delegates.NodeDelegate;
-import io.sirix.node.delegates.StructNodeDelegate;
-import net.openhft.hashing.LongHashFunction;
 import org.junit.jupiter.api.Test;
 
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -20,18 +16,16 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Unit tests for the stats mutators/accessors added to {@link PathNode}. Delegates are
- * constructed with dummy/sentinel values since the stats code paths don't touch them.
+ * Unit tests for the stats mutators/accessors added to {@link PathNode}. Structural
+ * fields are constructed with sentinel values since the stats code paths don't touch them.
  */
 final class PathNodeStatsTest {
 
   private static PathNode newPathNode() {
-    final NodeDelegate nodeDel = new NodeDelegate(1L, -1L, LongHashFunction.xx3(),
-        -1, 0, (SirixDeweyID) null);
-    final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, -1L, -1L, -1L, -1L, 0L, 0L);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, -1, -1, 42, 0);
-    return new PathNode(new QNm("age"), nodeDel, structDel, nameDel,
-        NodeKind.OBJECT_NAMED_OBJECT, 1, 1);
+    return new PathNode(new QNm("age"), NodeKind.OBJECT_NAMED_OBJECT, 1, 1,
+        1L, -1L, -1, 0, (SirixDeweyID) null,
+        -1L, -1L, -1L, -1L, 0L, 0L,
+        -1, -1, 42, 0L);
   }
 
   @Test
@@ -199,14 +193,25 @@ final class PathNodeStatsTest {
   }
 
   @Test
-  void setStatsState_roundTripPreservesAllFields() {
+  void setStats_roundTripPreservesAllFields() {
     final PathNode node = newPathNode();
     final HyperLogLogSketch hll = new HyperLogLogSketch();
     hll.add(1L);
     hll.add(2L);
     final byte[] minB = "a".getBytes();
     final byte[] maxB = "z".getBytes();
-    node.setStatsState(5, 2, 100, -3, 77, minB, maxB, hll, true, false);
+    final PathStats stats = new PathStats();
+    stats.count = 5;
+    stats.nullCount = 2;
+    stats.sum = 100;
+    stats.min = -3;
+    stats.max = 77;
+    stats.minBytes = minB;
+    stats.maxBytes = maxB;
+    stats.hll = hll;
+    stats.minDirty = true;
+    stats.maxDirty = false;
+    node.setStats(stats);
     assertEquals(5, node.getStatsValueCount());
     assertEquals(2, node.getStatsNullCount());
     assertEquals(100, node.getStatsSum());

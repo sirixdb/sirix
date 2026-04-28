@@ -35,7 +35,6 @@ import io.sirix.Holder;
 import io.sirix.XmlTestHelper;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.exception.SirixException;
-import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.ValueNodeDelegate;
 import io.sirix.settings.Constants;

@@ -35,8 +35,8 @@ import io.brackit.query.module.Namespaces;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.HashType;
 import io.sirix.index.AtomicUtil;
-import io.sirix.index.path.summary.HyperLogLogSketch;
 import io.sirix.index.path.summary.PathNode;
+import io.sirix.index.path.summary.PathStats;
 import io.sirix.index.projection.ProjectionIndexLeafRecord;
 import io.sirix.index.redblacktree.RBNodeKey;
 import io.sirix.index.redblacktree.RBNodeValue;
@@ -44,7 +44,6 @@ import io.sirix.index.redblacktree.keyvalue.CASValue;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.index.vector.VectorIndexMetadataNode;
 import io.sirix.index.vector.VectorNode;
-import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.delegates.ValueNodeDelegate;
@@ -77,11 +76,8 @@ import io.sirix.settings.Fixed;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import net.openhft.hashing.LongHashFunction;
-import org.roaringbitmap.RoaringBitmap;
 import org.roaringbitmap.longlong.Roaring64Bitmap;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
 import java.io.DataInputStream;
 import java.io.DataOutput;
@@ -622,64 +618,41 @@ public enum NodeKind implements DeweyIdSerializer {
     @Override
     public DataRecord deserialize(final BytesIn<?> source, final long recordID,
         final byte[] deweyID, final ResourceConfiguration resourceConfiguration) {
-      // Node delegate.
-      final NodeDelegate nodeDel = deserializeNodeDelegateWithoutIDs(source, recordID, resourceConfiguration);
+      // Inlined NodeDelegate fields (delegate-less PathNode owns its structural state directly).
+      final long parentKey = recordID - getVarLong(source);
+      final int previousRevision = source.readInt();
+      final int lastModifiedRevision = source.readInt();
 
-      // Struct delegate.
-      final StructNodeDelegate structDel = deserializeStructDel(this, nodeDel, source, resourceConfiguration);
+      // Inlined StructNodeDelegate fields. PATH is never a value-node, so firstChild/lastChild
+      // are always present on the wire; childCount and descendantCount are gated on config.
+      final long rightSibling = source.readLong();
+      final long leftSibling = source.readLong();
+      final long firstChild = source.readLong();
+      final long lastChild = source.readLong();
+      final long childCount = resourceConfiguration.storeChildCount() ? source.readLong() : 0L;
+      final long descendantCount =
+          resourceConfiguration.hashType != HashType.NONE ? source.readLong() : 0L;
 
-      // Name delegate.
-      final NameNodeDelegate nameDel = deserializeNameDelegate(nodeDel, source);
+      // Inlined NameNodeDelegate fields.
+      final int uriKey = source.readInt();
+      final int prefixKey = source.readInt();
+      final int localNameKey = source.readInt();
+      final long pathNodeKey = getVarLong(source);
 
       final NodeKind kind = NodeKind.getKind(source.readByte());
+      final int references = source.readInt();
+      final int level = source.readInt();
 
-      final PathNode pathNode =
-          new PathNode(null, nodeDel, structDel, nameDel, kind, source.readInt(), source.readInt());
+      final PathNode pathNode = new PathNode(null, kind, references, level,
+          recordID, parentKey, previousRevision, lastModifiedRevision, (SirixDeweyID) null,
+          firstChild, lastChild, rightSibling, leftSibling, childCount, descendantCount,
+          uriKey, prefixKey, localNameKey, pathNodeKey);
 
       // Optional per-path statistics trailer — present iff the resource was configured
       // with withPathStatistics=true. Older resources / disabled configs pay zero bytes.
+      // The on-disk format is owned by PathStats so the encoder / decoder stay in lockstep.
       if (resourceConfiguration.withPathStatistics) {
-        final long statsCount = source.readLong();
-        final long statsNullCount = source.readLong();
-        final long statsSum = source.readLong();
-        final long statsMin = source.readLong();
-        final long statsMax = source.readLong();
-        final byte[] statsMinBytes = readOptionalBytes(source);
-        final byte[] statsMaxBytes = readOptionalBytes(source);
-        final int hllLen = source.readInt();
-        HyperLogLogSketch hll = null;
-        if (hllLen >= 0) {
-          final byte[] hllBytes = new byte[hllLen];
-          source.read(hllBytes, 0, hllLen);
-          hll = HyperLogLogSketch.deserialize(hllBytes);
-        }
-        final boolean statsMinDirty = source.readBoolean();
-        final boolean statsMaxDirty = source.readBoolean();
-        pathNode.setStatsState(statsCount, statsNullCount, statsSum, statsMin, statsMax,
-            statsMinBytes, statsMaxBytes, hll, statsMinDirty, statsMaxDirty);
-        // Optional presence bitmap (leaf-page-skip index). Length prefix:
-        //   -1  → absent (new field in older serialisations)
-        //    N  → N bytes of RoaringBitmap.serialize() data (native format,
-        //          same as RoaringBitmap.deserialize(DataInput) consumes).
-        // Older on-disk records stop before this field; the reader skips it
-        // transparently when source is exhausted (eof → -1 length).
-        final int bitmapLen = readOptionalIntLength(source);
-        if (bitmapLen > 0) {
-          final byte[] bmBytes = new byte[bitmapLen];
-          source.read(bmBytes, 0, bitmapLen);
-          final RoaringBitmap bm = new RoaringBitmap();
-          try {
-            bm.deserialize(new DataInputStream(new ByteArrayInputStream(bmBytes)));
-          } catch (final IOException e) {
-            throw new UncheckedIOException("PathNode pageKeys deserialize failed", e);
-          }
-          pathNode.setPageKeys(bm);
-        } else if (bitmapLen == 0) {
-          // Empty bitmap was explicitly serialised — preserve that (a
-          // completed scan that proved the nameKey is present nowhere).
-          pathNode.setPageKeys(new RoaringBitmap());
-        }
-        // bitmapLen == -1 → leave pageKeys null (legacy record).
+        pathNode.setStats(PathStats.readFromOrNullIfEmpty(source));
       }
 
       return pathNode;
@@ -689,54 +662,38 @@ public enum NodeKind implements DeweyIdSerializer {
     public void serialize(final BytesOut<?> sink, final DataRecord record,
         final ResourceConfiguration resourceConfiguration) {
       final PathNode node = (PathNode) record;
-      serializeDelegateWithoutIDs(node.getNodeDelegate(), sink);
-      serializeStructDelegate(this, node.getStructNodeDelegate(), sink, resourceConfiguration);
-      serializeNameDelegate(node.getNameNodeDelegate(), sink);
+      // Inlined NodeDelegate fields.
+      putVarLong(sink, node.getNodeKey() - node.getParentKey());
+      sink.writeInt(node.getPreviousRevisionNumber());
+      sink.writeInt(node.getLastModifiedRevisionNumber());
+
+      // Inlined StructNodeDelegate fields.
+      sink.writeLong(node.getRightSiblingKey());
+      sink.writeLong(node.getLeftSiblingKey());
+      sink.writeLong(node.getFirstChildKey());
+      sink.writeLong(node.getLastChildKey());
+      if (resourceConfiguration.storeChildCount()) {
+        sink.writeLong(node.getChildCount());
+      }
+      if (resourceConfiguration.hashType != HashType.NONE) {
+        sink.writeLong(node.getDescendantCount());
+      }
+
+      // Inlined NameNodeDelegate fields.
+      sink.writeInt(node.getURIKey());
+      sink.writeInt(node.getPrefixKey());
+      sink.writeInt(node.getLocalNameKey());
+      putVarLong(sink, node.getPathNodeKey());
+
       sink.writeByte(node.getPathKind().getId());
       sink.writeInt(node.getReferences());
       sink.writeInt(node.getLevel());
 
       // Optional per-path statistics trailer — mirrors the deserialize path. Writes
       // zero extra bytes when withPathStatistics is false (backward compatible).
+      // PathStats owns the on-disk format; null stats are written as the empty trailer.
       if (resourceConfiguration.withPathStatistics) {
-        sink.writeLong(node.getStatsValueCount());
-        sink.writeLong(node.getStatsNullCount());
-        sink.writeLong(node.getStatsSum());
-        sink.writeLong(node.getStatsMin());
-        sink.writeLong(node.getStatsMax());
-        writeOptionalBytes(sink, node.getStatsMinBytes());
-        writeOptionalBytes(sink, node.getStatsMaxBytes());
-        final HyperLogLogSketch hll = node.getHllSketch();
-        if (hll == null) {
-          sink.writeInt(-1);
-        } else {
-          final byte[] hllBytes = hll.serialize();
-          sink.writeInt(hllBytes.length);
-          sink.write(hllBytes);
-        }
-        sink.writeBoolean(node.isStatsMinDirty());
-        sink.writeBoolean(node.isStatsMaxDirty());
-        // Presence bitmap trailer. -1 length = absent (the PathNode has no
-        // tracked pageKeys). RoaringBitmap.serialize writes the portable
-        // self-describing format; we prefix with the byte length so the
-        // reader can skip the correct number of bytes even if the bitmap
-        // format changes across RoaringBitmap versions.
-        final RoaringBitmap pageKeys = node.getPageKeys();
-        if (pageKeys == null) {
-          sink.writeInt(-1);
-        } else {
-          pageKeys.runOptimize();
-          final ByteArrayOutputStream baos = new ByteArrayOutputStream(
-              Math.max(16, pageKeys.serializedSizeInBytes()));
-          try {
-            pageKeys.serialize(new DataOutputStream(baos));
-          } catch (final IOException e) {
-            throw new UncheckedIOException("PathNode pageKeys serialize failed", e);
-          }
-          final byte[] bmBytes = baos.toByteArray();
-          sink.writeInt(bmBytes.length);
-          sink.write(bmBytes);
-        }
+        PathStats.writeOrEmpty(sink, node.getStats());
       }
     }
 
@@ -2079,53 +2036,6 @@ public enum NodeKind implements DeweyIdSerializer {
   }
 
   /**
-   * Write a possibly-null byte array with a length prefix ({@code -1} marks null).
-   */
-  private static void writeOptionalBytes(BytesOut<?> sink, byte[] bytes) {
-    if (bytes == null) {
-      sink.writeInt(-1);
-    } else {
-      sink.writeInt(bytes.length);
-      if (bytes.length > 0) {
-        sink.write(bytes);
-      }
-    }
-  }
-
-  /**
-   * Read the byte array written by {@link #writeOptionalBytes}. Returns {@code null}
-   * if the length prefix is {@code -1}.
-   */
-  private static byte[] readOptionalBytes(BytesIn<?> source) {
-    final int length = source.readInt();
-    if (length < 0) {
-      return null;
-    }
-    final byte[] bytes = new byte[length];
-    if (length > 0) {
-      source.read(bytes, 0, length);
-    }
-    return bytes;
-  }
-
-  /**
-   * Read an {@code int} length prefix, treating end-of-stream as {@code -1}.
-   * Used when appending an optional trailing field to a previously
-   * versionless on-disk record: old records end before the prefix and we
-   * must not propagate the underlying EOF exception.
-   */
-  private static int readOptionalIntLength(BytesIn<?> source) {
-    try {
-      return source.readInt();
-    } catch (final RuntimeException eof) {
-      // Bytes-based backends throw a RuntimeException on underflow rather
-      // than a checked EOFException — treat either as "legacy record, field
-      // not present" and fall back to the null-equivalent sentinel.
-      return -1;
-    }
-  }
-
-  /**
    * Identifier.
    */
   private final byte id;
@@ -2402,25 +2312,6 @@ public enum NodeKind implements DeweyIdSerializer {
         descendantCount);
   }
 
-  private static NameNodeDelegate deserializeNameDelegate(final NodeDelegate nodeDel, final BytesIn<?> source) {
-    final int uriKey = source.readInt();
-    int prefixKey = source.readInt();
-    int localNameKey = source.readInt();
-    return new NameNodeDelegate(nodeDel, uriKey, prefixKey, localNameKey, getVarLong(source));
-  }
-
-  /**
-   * Serializing the {@link NameNodeDelegate} instance.
-   *
-   * @param nameDel {@link NameNodeDelegate} instance
-   * @param sink to serialize to
-   */
-  private static void serializeNameDelegate(final NameNodeDelegate nameDel, final BytesOut<?> sink) {
-    sink.writeInt(nameDel.getURIKey());
-    sink.writeInt(nameDel.getPrefixKey());
-    sink.writeInt(nameDel.getLocalNameKey());
-    putVarLong(sink, nameDel.getPathNodeKey());
-  }
 
   /**
    * Serializing the {@link ValueNodeDelegate} instance.
