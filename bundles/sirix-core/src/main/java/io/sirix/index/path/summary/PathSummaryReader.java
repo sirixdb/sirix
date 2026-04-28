@@ -108,6 +108,15 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
   private final Map<QNm, Set<PathNode>> qnmMapping;
 
   /**
+   * Lazy SIMD-friendly localName → PathNodes index. Built on first call to
+   * {@link #findPathsByLocalName(String)} (or {@link #containsLocalName(String)})
+   * from {@link #qnmMapping}; invalidated by {@link #putQNameMapping} /
+   * {@link #removeQNameMapping}. PathSummary mutations are rare relative to
+   * lookups so the rebuild cost amortises trivially.
+   */
+  private final PathLocalNameIndex localNameIndex = new PathLocalNameIndex();
+
+  /**
    * The path cache.
    */
   private final Map<Path<QNm>, LongSet> pathCache;
@@ -308,6 +317,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     final Set<PathNode> pathNodes = qnmMapping.computeIfAbsent(this.getName(), (unused) -> new HashSet<>());
     pathNodes.add(node);
     qnmMapping.put(name, pathNodes);
+    localNameIndex.invalidate();
   }
 
   // package private, only used in writer to keep the mapping always up-to-date
@@ -318,6 +328,7 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     } else {
       pathNodes.remove(node);
     }
+    localNameIndex.invalidate();
   }
 
   /**
@@ -425,16 +436,27 @@ public final class PathSummaryReader implements NodeReadOnlyTrx, NodeCursor {
     if (localName == null) {
       return List.of();
     }
-    List<PathNode> result = null;
-    for (final Map.Entry<QNm, Set<PathNode>> entry : qnmMapping.entrySet()) {
-      if (localName.equals(entry.getKey().getLocalName())) {
-        if (result == null) {
-          result = new ArrayList<>(entry.getValue().size());
-        }
-        result.addAll(entry.getValue());
-      }
+    if (!localNameIndex.isBuilt()) {
+      localNameIndex.build(qnmMapping);
     }
-    return result == null ? List.of() : result;
+    return localNameIndex.findByLocalName(localName);
+  }
+
+  /**
+   * Existence-only variant of {@link #findPathsByLocalName(String)} — returns
+   * {@code true} when at least one path's QNm has the given localName.
+   * Allocates nothing on the hot path; SIMD-scans {@link #qnmMapping}'s dense
+   * localName-key array and stops on the first verified hit.
+   */
+  public boolean containsLocalName(final String localName) {
+    assertNotClosed();
+    if (localName == null) {
+      return false;
+    }
+    if (!localNameIndex.isBuilt()) {
+      localNameIndex.build(qnmMapping);
+    }
+    return localNameIndex.containsLocalName(localName);
   }
 
   /**
