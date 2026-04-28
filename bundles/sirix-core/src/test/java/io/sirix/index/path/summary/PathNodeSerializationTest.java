@@ -6,7 +6,6 @@ import io.sirix.node.Bytes;
 import io.sirix.node.BytesOut;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
@@ -30,8 +29,7 @@ final class PathNodeSerializationTest {
     final NodeDelegate nodeDel = new NodeDelegate(1L, -1L, LongHashFunction.xx3(),
         -1, 0, (SirixDeweyID) null);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, -1L, -1L, -1L, -1L, 0L, 0L);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, -1, -1, 42, 0);
-    return new PathNode(new QNm("age"), nodeDel, structDel, nameDel,
+    return new PathNode(new QNm("age"), nodeDel, structDel, -1, -1, 42, 0L,
         NodeKind.OBJECT_NAMED_OBJECT, 1, 1);
   }
 

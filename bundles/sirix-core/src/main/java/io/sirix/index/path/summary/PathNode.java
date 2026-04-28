@@ -6,7 +6,6 @@ import it.unimi.dsi.fastutil.ints.IntSet;
 import java.util.Arrays;
 import java.util.Objects;
 import io.sirix.node.NodeKind;
-import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.NameNode;
@@ -37,9 +36,15 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   private final StructNodeDelegate structNodeDel;
 
   /**
-   * {@link NameNodeDelegate} instance.
+   * Inlined name-component fields (formerly held by {@code NameNodeDelegate}).
+   * Path-summary entries don't carry a separate {@code pathNodeKey} of their own
+   * (they ARE the path summary), but the field is preserved at zero so the wire
+   * format can stay symmetric with other name-bearing nodes.
    */
-  private final NameNodeDelegate nameNodeDel;
+  private int prefixKey;
+  private int localNameKey;
+  private int uriKey;
+  private long pathNodeKey;
 
   /**
    * Kind of node to index.
@@ -73,47 +78,18 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   private Path<QNm> path;
 
-  // =====================================================================
-  // Per-path value statistics — populated only when the owning resource has
-  // ResourceConfiguration.withPathStatistics == true. Maintained at commit
-  // time via recordValue / removeValue hooks in PathSummaryWriter; read at
-  // query time for the aggregate-short-circuit path in the vectorized
-  // executor.
-  //
-  // Sentinel values for the "empty" state:
-  //   statsMin = Long.MAX_VALUE, statsMax = Long.MIN_VALUE
-  //   statsMinBytes = null,      statsMaxBytes = null
-  //   hll = null (lazily created on first value)
-  // =====================================================================
-
-  private long statsCount;
-  private long statsNullCount;
-  private long statsSum;
-  private long statsMin = Long.MAX_VALUE;
-  private long statsMax = Long.MIN_VALUE;
-  private byte @Nullable [] statsMinBytes;
-  private byte @Nullable [] statsMaxBytes;
-  private @Nullable HyperLogLogSketch hll;
   /**
-   * Set when a remove saw a value equal to {@link #statsMin} — the stored min may now be
-   * too low. Reader rebounds on demand.
+   * Per-path value statistics — populated only when the owning resource has
+   * {@code ResourceConfiguration.withPathStatistics == true}. Maintained at commit
+   * time via recordValue / removeValue hooks in {@link PathSummaryWriter}; read at
+   * query time for the aggregate-short-circuit path in the vectorized executor.
+   *
+   * <p>Lazily allocated — a PathNode that has never seen a value carries a single
+   * {@code null} reference instead of 11 zero-init fields + lazy HLL/bitmap.
+   * Phase C migrates this off-record into {@code PathSummaryPage}'s registry; for
+   * now stats stay attached to the node so the wire format is preserved.
    */
-  private boolean statsMinDirty;
-  /**
-   * Set when a remove saw a value equal to {@link #statsMax} — the stored max may now be
-   * too high. Reader rebounds on demand.
-   */
-  private boolean statsMaxDirty;
-
-  /**
-   * Presence bitmap — set of leaf pageKeys that contain at least one node
-   * with this PathNode's {@link #getPathNodeKey()}. Populated incrementally
-   * at commit time from the caller's deferred stats; read at query time to
-   * skip leaf-page fetches for pages that provably don't contribute. Lazily
-   * allocated on the first recorded page to avoid the 60 B empty-bitmap
-   * overhead on PathNodes that never see an analytical query.
-   */
-  private @Nullable RoaringBitmap pageKeys;
+  private @Nullable PathStats stats;
 
   /**
    * Constructor.
@@ -121,18 +97,24 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * @param name the full qualified name
    * @param nodeDel {@link NodeDelegate} instance
    * @param structNodeDel {@link StructNodeDelegate} instance
-   * @param nameNodeDel {@link NameNodeDelegate} instance
+   * @param uriKey URI key of the qualified name (or {@code -1})
+   * @param prefixKey prefix key of the qualified name (or {@code -1})
+   * @param localNameKey local-name key of the qualified name
+   * @param pathNodeKey path-node key (typically zero for path-summary entries)
    * @param kind kind of node to index
    * @param references number of references to this path node
    * @param level level of this path node
    */
   public PathNode(final QNm name, final NodeDelegate nodeDel, final StructNodeDelegate structNodeDel,
-      final NameNodeDelegate nameNodeDel, final NodeKind kind, final int references,
-      final int level) {
+      final int uriKey, final int prefixKey, final int localNameKey, final long pathNodeKey,
+      final NodeKind kind, final int references, final int level) {
     this.name = name;
     this.nodeDel = requireNonNull(nodeDel);
     this.structNodeDel = requireNonNull(structNodeDel);
-    this.nameNodeDel = requireNonNull(nameNodeDel);
+    this.uriKey = uriKey;
+    this.prefixKey = prefixKey;
+    this.localNameKey = localNameKey;
+    this.pathNodeKey = pathNodeKey;
     this.kind = requireNonNull(kind);
     checkArgument(references > 0, "references must be > 0!");
     this.references = references;
@@ -220,32 +202,32 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   @Override
   public int getPrefixKey() {
-    return nameNodeDel.getPrefixKey();
+    return prefixKey;
   }
 
   @Override
   public int getLocalNameKey() {
-    return nameNodeDel.getLocalNameKey();
+    return localNameKey;
   }
 
   @Override
   public int getURIKey() {
-    return nameNodeDel.getURIKey();
+    return uriKey;
   }
 
   @Override
   public void setLocalNameKey(final int nameKey) {
-    nameNodeDel.setLocalNameKey(nameKey);
+    this.localNameKey = nameKey;
   }
 
   @Override
   public void setPrefixKey(final int prefixKey) {
-    nameNodeDel.setPrefixKey(prefixKey);
+    this.prefixKey = prefixKey;
   }
 
   @Override
   public void setURIKey(final int uriKey) {
-    nameNodeDel.setURIKey(uriKey);
+    this.uriKey = uriKey;
   }
 
   @Override
@@ -258,24 +240,19 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     return nodeDel;
   }
 
-  /**
-   * Get the name node delegate.
-   *
-   * @return name node delegate.
-   */
-  public NameNodeDelegate getNameNodeDelegate() {
-    return nameNodeDel;
-  }
-
   @Override
   public int hashCode() {
-    return Objects.hash(nodeDel, nameNodeDel);
+    return Objects.hash(nodeDel, prefixKey, localNameKey, uriKey, pathNodeKey);
   }
 
   @Override
   public boolean equals(final @Nullable Object obj) {
     if (obj instanceof PathNode other) {
-      return Objects.equals(nodeDel, other.nodeDel) && Objects.equals(nameNodeDel, other.nameNodeDel);
+      return Objects.equals(nodeDel, other.nodeDel)
+          && prefixKey == other.prefixKey
+          && localNameKey == other.localNameKey
+          && uriKey == other.uriKey
+          && pathNodeKey == other.pathNodeKey;
     }
     return false;
   }
@@ -285,7 +262,10 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     return ToStringHelper.of(this)
                       .add("node delegate", nodeDel)
                       .add("struct delegate", structNodeDel)
-                      .add("name delegate", nameNodeDel)
+                      .add("uriKey", uriKey)
+                      .add("prefixKey", prefixKey)
+                      .add("localNameKey", localNameKey)
+                      .add("pathNodeKey", pathNodeKey)
                       .add("references", references)
                       .add("kind", kind)
                       .add("level", level)
@@ -293,13 +273,13 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   }
 
   @Override
-  public void setPathNodeKey(final long nodeKey) {
-    throw new UnsupportedOperationException();
+  public long getPathNodeKey() {
+    return pathNodeKey;
   }
 
   @Override
-  public long getPathNodeKey() {
-    throw new UnsupportedOperationException();
+  public void setPathNodeKey(final long nodeKey) {
+    this.pathNodeKey = nodeKey;
   }
 
   @Override
@@ -353,22 +333,34 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   // =====================================================================
   // Statistics maintenance (package-private — called by PathSummaryWriter).
+  // All mutators route through the lazily-allocated PathStats record.
   // =====================================================================
+
+  /** Lazily allocate the PathStats record. */
+  private PathStats getOrCreateStats() {
+    PathStats s = stats;
+    if (s == null) {
+      s = new PathStats();
+      stats = s;
+    }
+    return s;
+  }
 
   /** Record a long value observation (numeric path). */
   void recordLongValue(final long value) {
-    statsCount++;
-    statsSum += value;
-    if (value < statsMin) {
-      statsMin = value;
+    final PathStats s = getOrCreateStats();
+    s.count++;
+    s.sum += value;
+    if (value < s.min) {
+      s.min = value;
     }
-    if (value > statsMax) {
-      statsMax = value;
+    if (value > s.max) {
+      s.max = value;
     }
-    if (hll == null) {
-      hll = new HyperLogLogSketch();
+    if (s.hll == null) {
+      s.hll = new HyperLogLogSketch();
     }
-    hll.add(value);
+    s.hll.add(value);
   }
 
   /**
@@ -376,17 +368,18 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * cloned on min/max update so later mutations don't corrupt the bound.
    */
   void recordBytesValue(final byte[] value) {
-    statsCount++;
-    if (statsMinBytes == null || Arrays.compareUnsigned(value, statsMinBytes) < 0) {
-      statsMinBytes = value.clone();
+    final PathStats s = getOrCreateStats();
+    s.count++;
+    if (s.minBytes == null || Arrays.compareUnsigned(value, s.minBytes) < 0) {
+      s.minBytes = value.clone();
     }
-    if (statsMaxBytes == null || Arrays.compareUnsigned(value, statsMaxBytes) > 0) {
-      statsMaxBytes = value.clone();
+    if (s.maxBytes == null || Arrays.compareUnsigned(value, s.maxBytes) > 0) {
+      s.maxBytes = value.clone();
     }
-    if (hll == null) {
-      hll = new HyperLogLogSketch();
+    if (s.hll == null) {
+      s.hll = new HyperLogLogSketch();
     }
-    hll.add(value);
+    s.hll.add(value);
   }
 
   /** Record a boolean value (treated as 0/1 in numeric aggregates). */
@@ -396,7 +389,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
 
   /** Record a null value observation. */
   void recordNullValue() {
-    statsNullCount++;
+    getOrCreateStats().nullCount++;
   }
 
   /**
@@ -406,27 +399,35 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * rebuild runs.
    */
   void removeLongValue(final long value) {
-    if (statsCount > 0) {
-      statsCount--;
+    final PathStats s = stats;
+    if (s == null) {
+      return;
     }
-    statsSum -= value;
-    if (value == statsMin) {
-      statsMinDirty = true;
+    if (s.count > 0) {
+      s.count--;
     }
-    if (value == statsMax) {
-      statsMaxDirty = true;
+    s.sum -= value;
+    if (value == s.min) {
+      s.minDirty = true;
+    }
+    if (value == s.max) {
+      s.maxDirty = true;
     }
   }
 
   void removeBytesValue(final byte[] value) {
-    if (statsCount > 0) {
-      statsCount--;
+    final PathStats s = stats;
+    if (s == null) {
+      return;
     }
-    if (statsMinBytes != null && Arrays.equals(value, statsMinBytes)) {
-      statsMinDirty = true;
+    if (s.count > 0) {
+      s.count--;
     }
-    if (statsMaxBytes != null && Arrays.equals(value, statsMaxBytes)) {
-      statsMaxDirty = true;
+    if (s.minBytes != null && Arrays.equals(value, s.minBytes)) {
+      s.minDirty = true;
+    }
+    if (s.maxBytes != null && Arrays.equals(value, s.maxBytes)) {
+      s.maxDirty = true;
     }
   }
 
@@ -435,8 +436,9 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
   }
 
   void removeNullValue() {
-    if (statsNullCount > 0) {
-      statsNullCount--;
+    final PathStats s = stats;
+    if (s != null && s.nullCount > 0) {
+      s.nullCount--;
     }
   }
 
@@ -455,13 +457,14 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * the caller so the batch's HLL can be union'd in one pass.
    */
   void mergeLongStats(final long count, final long sum, final long min, final long max) {
-    statsCount += count;
-    statsSum += sum;
-    if (min < statsMin) {
-      statsMin = min;
+    final PathStats s = getOrCreateStats();
+    s.count += count;
+    s.sum += sum;
+    if (min < s.min) {
+      s.min = min;
     }
-    if (max > statsMax) {
-      statsMax = max;
+    if (max > s.max) {
+      s.max = max;
     }
   }
 
@@ -471,20 +474,21 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * the stored bound.
    */
   void mergeBytesStats(final long count, final byte @Nullable [] minBytes, final byte @Nullable [] maxBytes) {
-    statsCount += count;
+    final PathStats s = getOrCreateStats();
+    s.count += count;
     if (minBytes != null
-        && (statsMinBytes == null || Arrays.compareUnsigned(minBytes, statsMinBytes) < 0)) {
-      statsMinBytes = minBytes.clone();
+        && (s.minBytes == null || Arrays.compareUnsigned(minBytes, s.minBytes) < 0)) {
+      s.minBytes = minBytes.clone();
     }
     if (maxBytes != null
-        && (statsMaxBytes == null || Arrays.compareUnsigned(maxBytes, statsMaxBytes) > 0)) {
-      statsMaxBytes = maxBytes.clone();
+        && (s.maxBytes == null || Arrays.compareUnsigned(maxBytes, s.maxBytes) > 0)) {
+      s.maxBytes = maxBytes.clone();
     }
   }
 
   /** Add {@code delta} to the null-value counter. Bulk equivalent of N {@link #recordNullValue()} calls. */
   void incrementNullCount(final long delta) {
-    statsNullCount += delta;
+    getOrCreateStats().nullCount += delta;
   }
 
   /** Union {@code other} into this node's HLL sketch, creating one if absent. No-op if {@code other} is null. */
@@ -492,10 +496,11 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     if (other == null) {
       return;
     }
-    if (hll == null) {
-      hll = new HyperLogLogSketch();
+    final PathStats s = getOrCreateStats();
+    if (s.hll == null) {
+      s.hll = new HyperLogLogSketch();
     }
-    hll.union(other);
+    s.hll.union(other);
   }
 
   /**
@@ -509,28 +514,31 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
       final byte @Nullable [] minBytes, final byte @Nullable [] maxBytes,
       final @Nullable HyperLogLogSketch hll,
       final boolean minDirty, final boolean maxDirty) {
-    this.statsCount = count;
-    this.statsNullCount = nullCount;
-    this.statsSum = sum;
-    this.statsMin = min;
-    this.statsMax = max;
-    this.statsMinBytes = minBytes;
-    this.statsMaxBytes = maxBytes;
-    this.hll = hll;
-    this.statsMinDirty = minDirty;
-    this.statsMaxDirty = maxDirty;
+    final PathStats s = getOrCreateStats();
+    s.count = count;
+    s.nullCount = nullCount;
+    s.sum = sum;
+    s.min = min;
+    s.max = max;
+    s.minBytes = minBytes;
+    s.maxBytes = maxBytes;
+    s.hll = hll;
+    s.minDirty = minDirty;
+    s.maxDirty = maxDirty;
   }
 
   /** Replace the tracked minimum after a rebound and clear the dirty flag. */
   void clearMinDirty(final long newMin) {
-    this.statsMin = newMin;
-    this.statsMinDirty = false;
+    final PathStats s = getOrCreateStats();
+    s.min = newMin;
+    s.minDirty = false;
   }
 
   /** Replace the tracked maximum after a rebound and clear the dirty flag. */
   void clearMaxDirty(final long newMax) {
-    this.statsMax = newMax;
-    this.statsMaxDirty = false;
+    final PathStats s = getOrCreateStats();
+    s.max = newMax;
+    s.maxDirty = false;
   }
 
   /**
@@ -544,9 +552,10 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    */
   void mergePageKeys(final IntSet leafPageKeys) {
     if (leafPageKeys == null || leafPageKeys.isEmpty()) return;
-    if (pageKeys == null) pageKeys = new RoaringBitmap();
+    final PathStats s = getOrCreateStats();
+    if (s.pageKeys == null) s.pageKeys = new RoaringBitmap();
     final IntIterator it = leafPageKeys.iterator();
-    while (it.hasNext()) pageKeys.add(it.nextInt());
+    while (it.hasNext()) s.pageKeys.add(it.nextInt());
   }
 
   /**
@@ -555,7 +564,13 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    * supplied bitmap.
    */
   public void setPageKeys(final @Nullable RoaringBitmap pageKeys) {
-    this.pageKeys = pageKeys;
+    if (pageKeys == null) {
+      if (stats != null) {
+        stats.pageKeys = null;
+      }
+    } else {
+      getOrCreateStats().pageKeys = pageKeys;
+    }
   }
 
   /**
@@ -564,7 +579,8 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    *         was built without path statistics).
    */
   public @Nullable RoaringBitmap getPageKeys() {
-    return pageKeys;
+    final PathStats s = stats;
+    return s == null ? null : s.pageKeys;
   }
 
   /**
@@ -574,23 +590,39 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    *         page has this pathNodeKey".
    */
   public int @Nullable [] getPageKeysArray() {
-    return pageKeys == null ? null : pageKeys.toArray();
+    final PathStats s = stats;
+    return (s == null || s.pageKeys == null) ? null : s.pageKeys.toArray();
   }
 
   // =====================================================================
   // Statistics accessors (public — used by query-time short-circuit).
+  // Each returns the empty-state default when no PathStats record has
+  // been allocated for this PathNode.
   // =====================================================================
 
+  /** Direct access to the underlying stats record (or {@code null}). */
+  public @Nullable PathStats getStats() {
+    return stats;
+  }
+
+  /** Replace the entire stats record. {@code null} drops it. */
+  public void setStats(final @Nullable PathStats stats) {
+    this.stats = stats;
+  }
+
   public long getStatsValueCount() {
-    return statsCount;
+    final PathStats s = stats;
+    return s == null ? 0L : s.count;
   }
 
   public long getStatsNullCount() {
-    return statsNullCount;
+    final PathStats s = stats;
+    return s == null ? 0L : s.nullCount;
   }
 
   public long getStatsSum() {
-    return statsSum;
+    final PathStats s = stats;
+    return s == null ? 0L : s.sum;
   }
 
   /**
@@ -598,7 +630,8 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    *         values have been recorded.
    */
   public long getStatsMin() {
-    return statsMin;
+    final PathStats s = stats;
+    return s == null ? Long.MAX_VALUE : s.min;
   }
 
   /**
@@ -606,36 +639,44 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
    *         values have been recorded.
    */
   public long getStatsMax() {
-    return statsMax;
+    final PathStats s = stats;
+    return s == null ? Long.MIN_VALUE : s.max;
   }
 
   public byte @Nullable [] getStatsMinBytes() {
-    return statsMinBytes;
+    final PathStats s = stats;
+    return s == null ? null : s.minBytes;
   }
 
   public byte @Nullable [] getStatsMaxBytes() {
-    return statsMaxBytes;
+    final PathStats s = stats;
+    return s == null ? null : s.maxBytes;
   }
 
   public @Nullable HyperLogLogSketch getHllSketch() {
-    return hll;
+    final PathStats s = stats;
+    return s == null ? null : s.hll;
   }
 
   public boolean isStatsMinDirty() {
-    return statsMinDirty;
+    final PathStats s = stats;
+    return s != null && s.minDirty;
   }
 
   public boolean isStatsMaxDirty() {
-    return statsMaxDirty;
+    final PathStats s = stats;
+    return s != null && s.maxDirty;
   }
 
   /** True if any numeric value has been recorded (i.e. min/max are real bounds). */
   public boolean hasNumericStats() {
-    return statsMin != Long.MAX_VALUE;
+    final PathStats s = stats;
+    return s != null && s.min != Long.MAX_VALUE;
   }
 
   /** True if any byte/string value has been recorded. */
   public boolean hasBytesStats() {
-    return statsMinBytes != null;
+    final PathStats s = stats;
+    return s != null && s.minBytes != null;
   }
 }

@@ -30,7 +30,6 @@ package io.sirix.page;
 
 import io.sirix.utils.ToStringHelper;
 import io.sirix.access.DatabaseType;
-import io.sirix.index.path.summary.PathStatsRegistry;
 import io.sirix.page.delegates.BitmapReferencesPage;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
@@ -42,7 +41,6 @@ import io.sirix.index.IndexType;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
-import org.jspecify.annotations.Nullable;
 
 /**
  * Page to hold references to a path summary.
@@ -65,13 +63,6 @@ public final class PathSummaryPage extends AbstractForwardingPage {
    * Current maximum levels of indirect pages in the tree.
    */
   private final Int2IntMap currentMaxLevelsOfIndirectPages;
-
-  /**
-   * Per-{@code pathNodeKey} statistics registry — lazily allocated when the resource
-   * is configured with {@code withPathStatistics} and the writer first records a value.
-   * {@code null} means "no stats tracked on this revision."
-   */
-  private @Nullable PathStatsRegistry pathStatsRegistry;
 
   /**
    * Constructor.
@@ -101,36 +92,9 @@ public final class PathSummaryPage extends AbstractForwardingPage {
    */
   PathSummaryPage(final Page delegate, final Int2LongMap maxNodeKeys,
       final Int2IntMap currentMaxLevelsOfIndirectPages) {
-    this(delegate, maxNodeKeys, currentMaxLevelsOfIndirectPages, null);
-  }
-
-  /**
-   * Constructor including a deserialised {@link PathStatsRegistry}. {@code null}
-   * means the page was written without a stats trailer (legacy V0 or
-   * {@code withPathStatistics == false} resource).
-   */
-  PathSummaryPage(final Page delegate, final Int2LongMap maxNodeKeys,
-      final Int2IntMap currentMaxLevelsOfIndirectPages,
-      final @Nullable PathStatsRegistry pathStatsRegistry) {
     this.delegate = delegate;
     this.maxNodeKeys = maxNodeKeys;
     this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
-    this.pathStatsRegistry = pathStatsRegistry;
-  }
-
-  /** Returns the registry, or {@code null} if no stats have ever been recorded. */
-  public @Nullable PathStatsRegistry getPathStatsRegistry() {
-    return pathStatsRegistry;
-  }
-
-  /** Returns the registry, allocating an empty one on first call. */
-  public PathStatsRegistry getOrCreatePathStatsRegistry() {
-    PathStatsRegistry r = pathStatsRegistry;
-    if (r == null) {
-      r = new PathStatsRegistry();
-      pathStatsRegistry = r;
-    }
-    return r;
   }
 
   @Override

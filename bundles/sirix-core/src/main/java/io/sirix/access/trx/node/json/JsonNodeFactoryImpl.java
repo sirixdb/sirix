@@ -6,7 +6,6 @@ import io.sirix.index.path.summary.PathNode;
 import io.sirix.node.DeweyIDNode;
 import io.sirix.node.NodeKind;
 import io.sirix.node.SirixDeweyID;
-import io.sirix.node.delegates.NameNodeDelegate;
 import io.sirix.node.delegates.NodeDelegate;
 import io.sirix.node.delegates.StructNodeDelegate;
 import io.sirix.node.interfaces.DataRecord;
@@ -150,10 +149,10 @@ final class JsonNodeFactoryImpl implements JsonNodeFactory {
         Constants.NULL_REVISION_NUMBER, revisionNumber, (SirixDeweyID) null);
     final StructNodeDelegate structDel = new StructNodeDelegate(nodeDel, Fixed.NULL_NODE_KEY.getStandardProperty(),
         Fixed.NULL_NODE_KEY.getStandardProperty(), rightSibKey, leftSibKey, 0, 0);
-    final NameNodeDelegate nameDel = new NameNodeDelegate(nodeDel, uriKey, prefixKey, localName, 0);
 
-    return storageEngineWriter.createRecord(new PathNode(name, nodeDel, structDel, nameDel, kind, 1, level), IndexType.PATH_SUMMARY,
-        0);
+    return storageEngineWriter.createRecord(
+        new PathNode(name, nodeDel, structDel, uriKey, prefixKey, localName, 0L, kind, 1, level),
+        IndexType.PATH_SUMMARY, 0);
   }
 
   @Override
