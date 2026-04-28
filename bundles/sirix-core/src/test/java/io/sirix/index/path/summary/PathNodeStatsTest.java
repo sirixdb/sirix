@@ -197,14 +197,25 @@ final class PathNodeStatsTest {
   }
 
   @Test
-  void setStatsState_roundTripPreservesAllFields() {
+  void setStats_roundTripPreservesAllFields() {
     final PathNode node = newPathNode();
     final HyperLogLogSketch hll = new HyperLogLogSketch();
     hll.add(1L);
     hll.add(2L);
     final byte[] minB = "a".getBytes();
     final byte[] maxB = "z".getBytes();
-    node.setStatsState(5, 2, 100, -3, 77, minB, maxB, hll, true, false);
+    final PathStats stats = new PathStats();
+    stats.count = 5;
+    stats.nullCount = 2;
+    stats.sum = 100;
+    stats.min = -3;
+    stats.max = 77;
+    stats.minBytes = minB;
+    stats.maxBytes = maxB;
+    stats.hll = hll;
+    stats.minDirty = true;
+    stats.maxDirty = false;
+    node.setStats(stats);
     assertEquals(5, node.getStatsValueCount());
     assertEquals(2, node.getStatsNullCount());
     assertEquals(100, node.getStatsSum());

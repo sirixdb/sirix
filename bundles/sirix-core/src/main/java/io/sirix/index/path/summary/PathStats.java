@@ -6,7 +6,6 @@ import org.jspecify.annotations.Nullable;
 import org.roaringbitmap.RoaringBitmap;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -81,16 +80,12 @@ public final class PathStats {
       sink.writeInt(-1);
     } else {
       pageKeysRef.runOptimize();
-      final ByteArrayOutputStream baos =
-          new ByteArrayOutputStream(Math.max(16, pageKeysRef.serializedSizeInBytes()));
-      try {
-        pageKeysRef.serialize(new DataOutputStream(baos));
+      sink.writeInt(pageKeysRef.serializedSizeInBytes());
+      try (final DataOutputStream out = new DataOutputStream(sink.outputStream())) {
+        pageKeysRef.serialize(out);
       } catch (final IOException e) {
         throw new UncheckedIOException("PathStats pageKeys serialize failed", e);
       }
-      final byte[] bmBytes = baos.toByteArray();
-      sink.writeInt(bmBytes.length);
-      sink.write(bmBytes);
     }
   }
 

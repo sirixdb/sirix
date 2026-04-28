@@ -503,31 +503,7 @@ public final class PathNode extends AbstractStructForwardingNode implements Name
     s.hll.union(other);
   }
 
-  /**
-   * Bulk setter — used by the PATH-node deserializer (in {@code io.sirix.node}, a
-   * different package, so this must be public) and by the reader after a dirty-bound
-   * rebound. Not part of the user-facing API; callers other than the serializer and
-   * rebound path should use the {@code recordValue}/{@code removeValue} mutators.
-   */
-  public void setStatsState(final long count, final long nullCount, final long sum,
-      final long min, final long max,
-      final byte @Nullable [] minBytes, final byte @Nullable [] maxBytes,
-      final @Nullable HyperLogLogSketch hll,
-      final boolean minDirty, final boolean maxDirty) {
-    final PathStats s = getOrCreateStats();
-    s.count = count;
-    s.nullCount = nullCount;
-    s.sum = sum;
-    s.min = min;
-    s.max = max;
-    s.minBytes = minBytes;
-    s.maxBytes = maxBytes;
-    s.hll = hll;
-    s.minDirty = minDirty;
-    s.maxDirty = maxDirty;
-  }
-
-  /** Replace the tracked minimum after a rebound and clear the dirty flag. */
+/** Replace the tracked minimum after a rebound and clear the dirty flag. */
   void clearMinDirty(final long newMin) {
     final PathStats s = getOrCreateStats();
     s.min = newMin;
