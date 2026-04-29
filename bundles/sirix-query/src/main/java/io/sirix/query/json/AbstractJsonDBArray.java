@@ -99,6 +99,10 @@ public abstract class AbstractJsonDBArray<T extends AbstractJsonDBArray<T>> exte
     return rtx;
   }
 
+  protected final JsonItemFactory getJsonItemFactory() {
+    return jsonItemFactory;
+  }
+
   @Override
   public Array replaceAt(int index, Sequence value) {
     modify(index, value, Op.Replace);
