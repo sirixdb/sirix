@@ -14,6 +14,7 @@ import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.temporal.PrefetchedAllTimeAxis;
 import io.sirix.axis.temporal.PrefetchedFutureAxis;
 import io.sirix.axis.temporal.PrefetchedPastAxis;
+import io.sirix.settings.Fixed;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +40,12 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
    */
   private List<Sequence> values;
 
+  /** Last slice-relative index served by {@link #at(int)} / {@link #at(IntNumeric)}. */
+  private int cursorSliceIndex = -1;
+
+  /** Node key positioned at {@link #cursorSliceIndex}; {@link Fixed#NULL_NODE_KEY} if invalid. */
+  private long cursorNodeKey = Fixed.NULL_NODE_KEY.getStandardProperty();
+
   /**
    * Constructor.
    *
@@ -59,13 +66,14 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
 
     assert this.rtx.isArray();
 
-    jsonUtil = new JsonItemFactory();
+    jsonUtil = getJsonItemFactory();
 
-    if ((fromIndex < 0) || (fromIndex > toIndex) || (fromIndex >= this.rtx.getChildCount())) {
+    final long childCount = this.rtx.getChildCount();
+    if ((fromIndex < 0) || (fromIndex > toIndex) || (fromIndex >= childCount)) {
       throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid array start index: %s", fromIndex);
     }
 
-    if (toIndex > this.rtx.getChildCount()) {
+    if (toIndex > childCount) {
       throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid array end index: %s", toIndex);
     }
 
@@ -117,55 +125,95 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
   }
 
   private List<Sequence> getValues() {
-    final var values = new ArrayList<Sequence>();
-
-    for (int i = 0, length = len(); i < length; i++) {
-      values.add(at(fromIndex + i));
+    final int length = toIndex - fromIndex;
+    final ArrayList<Sequence> out = new ArrayList<>(length);
+    if (length == 0) {
+      return out;
     }
 
-    return values;
+    final ChildAxis axis = new ChildAxis(rtx);
+
+    for (int skipped = 0; skipped < fromIndex; skipped++) {
+      if (!axis.hasNext()) {
+        return out;
+      }
+      axis.nextLong();
+    }
+
+    for (int collected = 0; collected < length; collected++) {
+      if (!axis.hasNext()) {
+        break;
+      }
+      axis.nextLong();
+      out.add(jsonUtil.getSequence(rtx, collection));
+    }
+
+    invalidateCursor();
+    return out;
   }
 
-  private Sequence getSequenceAtIndex(final JsonNodeReadOnlyTrx rtx, final int index) {
-    moveRtx();
+  private Sequence sequenceAtSliceIndex(final int sliceIndex) {
+    final int absoluteIndex = fromIndex + sliceIndex;
+    final long arrayKey = getNodeKey();
 
-    final var axis = new ChildAxis(rtx);
-
-    for (int i = 0; i < index && axis.hasNext(); i++)
-      axis.nextLong();
-
-    if (axis.hasNext()) {
-      axis.nextLong();
-
+    if (cursorSliceIndex >= 0 && sliceIndex == cursorSliceIndex + 1
+        && rtx.moveTo(cursorNodeKey) && rtx.getParentKey() == arrayKey
+        && rtx.hasRightSibling()) {
+      rtx.moveToRightSibling();
+      cursorSliceIndex = sliceIndex;
+      cursorNodeKey = rtx.getNodeKey();
       return jsonUtil.getSequence(rtx, collection);
     }
 
-    return null;
+    moveRtx();
+    final ChildAxis axis = new ChildAxis(rtx);
+
+    for (int i = 0; i < absoluteIndex; i++) {
+      if (!axis.hasNext()) {
+        invalidateCursor();
+        return null;
+      }
+      axis.nextLong();
+    }
+
+    if (!axis.hasNext()) {
+      invalidateCursor();
+      return null;
+    }
+    axis.nextLong();
+
+    cursorSliceIndex = sliceIndex;
+    cursorNodeKey = rtx.getNodeKey();
+    return jsonUtil.getSequence(rtx, collection);
+  }
+
+  private void invalidateCursor() {
+    cursorSliceIndex = -1;
+    cursorNodeKey = Fixed.NULL_NODE_KEY.getStandardProperty();
   }
 
   @Override
-  public Sequence at(IntNumeric numericIndex) {
-    int ii = fromIndex + numericIndex.intValue();
-    if (ii >= toIndex) {
-      throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid array index: %s", numericIndex.intValue());
+  public Sequence at(final IntNumeric numericIndex) {
+    final int sliceIndex = numericIndex.intValue();
+    if (fromIndex + sliceIndex >= toIndex) {
+      throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid array index: %s", sliceIndex);
     }
 
     if (values == null) {
-      return getSequenceAtIndex(rtx, ii);
+      return sequenceAtSliceIndex(sliceIndex);
     }
 
-    return values.get(ii);
+    return values.get(sliceIndex);
   }
 
   @Override
-  public Sequence at(int index) {
-    int ii = fromIndex + index;
-    if (ii >= toIndex) {
+  public Sequence at(final int index) {
+    if (fromIndex + index >= toIndex) {
       throw new QueryException(ErrorCode.ERR_INVALID_ARGUMENT_TYPE, "Invalid array index: %s", index);
     }
 
     if (values == null) {
-      return getSequenceAtIndex(rtx, ii);
+      return sequenceAtSliceIndex(index);
     }
 
     return values.get(index);
