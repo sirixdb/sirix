@@ -281,34 +281,17 @@ public final class JsonNodeTrxCopyTest {
         wtx.moveToFirstChild(); // copied object
 
         assertEquals(NodeKind.OBJECT, wtx.getKind());
-        wtx.moveToFirstChild(); // first key "name" — fused OBJECT_NAMED_STRING when fusion on, else OBJECT_KEY
-        final NodeKind firstKeyKind = wtx.getKind();
-        assertTrue(firstKeyKind.playsObjectKeyRole(),
-            "expected OBJECT_KEY or fused OBJECT_NAMED_STRING but was: " + firstKeyKind);
+        wtx.moveToFirstChild(); // first key "name" — string value → OBJECT_NAMED_STRING under default fusion
+        assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind(),
+            "string-valued field must produce OBJECT_NAMED_STRING under default fusion");
         assertEquals("name", wtx.getName().getLocalName());
+        assertEquals("Alice", wtx.getValue()); // fused leaf — read inline primitive directly
 
-        if (firstKeyKind.isFusedObjectNamed()) {
-          // Option B: fused leaf — read the inline primitive directly.
-          assertEquals("Alice", wtx.getValue());
-        } else {
-          // Legacy: descend into OBJECT_STRING_VALUE child.
-          wtx.moveToFirstChild();
-          assertEquals("Alice", wtx.getValue());
-          wtx.moveToParent(); // back to "name" key
-        }
-
-        wtx.moveToRightSibling(); // "age" key — fused OBJECT_NAMED_NUMBER or legacy OBJECT_KEY
-        final NodeKind secondKeyKind = wtx.getKind();
-        assertTrue(secondKeyKind.playsObjectKeyRole(),
-            "expected OBJECT_KEY or fused OBJECT_NAMED_NUMBER but was: " + secondKeyKind);
+        wtx.moveToRightSibling(); // "age" key — number value → OBJECT_NAMED_NUMBER under default fusion
+        assertEquals(NodeKind.OBJECT_NAMED_NUMBER, wtx.getKind(),
+            "number-valued field must produce OBJECT_NAMED_NUMBER under default fusion");
         assertEquals("age", wtx.getName().getLocalName());
-
-        if (secondKeyKind.isFusedObjectNamed()) {
-          assertEquals(30, wtx.getNumberValue().intValue());
-        } else {
-          wtx.moveToFirstChild(); // 30
-          assertEquals(30, wtx.getNumberValue().intValue());
-        }
+        assertEquals(30, wtx.getNumberValue().intValue());
       }
 
       wtx.commit();
@@ -561,10 +544,9 @@ public final class JsonNodeTrxCopyTest {
 
         // Verify the copied object's internal structure: key "key" -> value "value"
         wtx.moveTo(copiedObjKey);
-        wtx.moveToFirstChild(); // "key" field record — fused when fusion on, legacy OBJECT_KEY when off
-        final NodeKind fieldKind = wtx.getKind();
-        assertTrue(fieldKind.playsObjectKeyRole(),
-            "expected OBJECT_KEY or fused OBJECT_NAMED_STRING but was: " + fieldKind);
+        wtx.moveToFirstChild(); // "key" field record — string value → OBJECT_NAMED_STRING
+        assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind(),
+            "string-valued field must produce OBJECT_NAMED_STRING under default fusion");
         assertEquals("key", wtx.getName().getLocalName());
         assertEquals(copiedObjKey, wtx.getParentKey());
 
@@ -618,33 +600,20 @@ public final class JsonNodeTrxCopyTest {
         rtx.moveToFirstChild(); // first object (the copy)
         assertEquals(NodeKind.OBJECT, rtx.getKind());
 
-        rtx.moveToFirstChild(); // "x" field record — fused OBJECT_NAMED_NUMBER when fusion on, legacy OBJECT_KEY when off
-        final NodeKind xKind = rtx.getKind();
-        assertTrue(xKind.playsObjectKeyRole(),
-            "expected OBJECT_KEY or fused OBJECT_NAMED_NUMBER but was: " + xKind);
+        rtx.moveToFirstChild(); // "x" field record — number value → OBJECT_NAMED_NUMBER
+        assertEquals(NodeKind.OBJECT_NAMED_NUMBER, rtx.getKind(),
+            "number-valued field must produce OBJECT_NAMED_NUMBER under default fusion");
         assertEquals("x", rtx.getName().getLocalName());
+        assertEquals(10, rtx.getNumberValue().intValue());
+        rtx.moveToParent(); // back to first object
 
-        if (xKind.isFusedObjectNamed()) {
-          // Option B: fused leaf — read inline and hop straight back to OBJECT.
-          assertEquals(10, rtx.getNumberValue().intValue());
-          rtx.moveToParent(); // back to first object
-        } else {
-          rtx.moveToFirstChild(); // 10
-          assertEquals(10, rtx.getNumberValue().intValue());
-          rtx.moveToParent(); // back to "x" key
-          rtx.moveToParent(); // back to first object
-        }
         rtx.moveToRightSibling(); // second object (original)
         assertEquals(NodeKind.OBJECT, rtx.getKind());
 
-        rtx.moveToFirstChild(); // "x" key — fused or legacy
-        final NodeKind origXKind = rtx.getKind();
-        if (origXKind.isFusedObjectNamed()) {
-          assertEquals(10, rtx.getNumberValue().intValue());
-        } else {
-          rtx.moveToFirstChild(); // 10
-          assertEquals(10, rtx.getNumberValue().intValue());
-        }
+        rtx.moveToFirstChild(); // "x" key on the original
+        assertEquals(NodeKind.OBJECT_NAMED_NUMBER, rtx.getKind(),
+            "original object's number-valued field must also be OBJECT_NAMED_NUMBER");
+        assertEquals(10, rtx.getNumberValue().intValue());
       }
     }
   }
