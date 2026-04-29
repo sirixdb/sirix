@@ -57,6 +57,7 @@ public final class PrefetchedFutureAxis<R extends NodeReadOnlyTrx & NodeCursor,
     final RtxResult<R> result = prefetcher.poll();
     if (result == null) {
       drained = true;
+      prefetcher.close();
       return endOfData();
     }
     if (result.nodeFound) {
@@ -71,5 +72,11 @@ public final class PrefetchedFutureAxis<R extends NodeReadOnlyTrx & NodeCursor,
   @Override
   public ResourceSession<R, W> getResourceSession() {
     return resourceSession;
+  }
+
+  @Override
+  public void close() {
+    drained = true;
+    prefetcher.close();
   }
 }

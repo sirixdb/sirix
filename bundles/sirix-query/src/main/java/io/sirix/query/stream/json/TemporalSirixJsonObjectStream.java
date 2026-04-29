@@ -48,7 +48,9 @@ public final class TemporalSirixJsonObjectStream implements Stream<JsonDBObject>
   }
 
   @Override
-  public void close() {}
+  public void close() {
+    axis.close();
+  }
 
   @Override
   public String toString() {
