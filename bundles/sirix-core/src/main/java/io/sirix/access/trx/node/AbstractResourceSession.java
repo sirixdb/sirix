@@ -861,6 +861,14 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   /**
+   * Number of currently-open read-only or read-write node transactions on this session.
+   * Useful for diagnostics and for asserting the absence of resource leaks in tests.
+   */
+  public int activeTrxCount() {
+    return nodeTrxMap.size();
+  }
+
+  /**
    * Begin a read-only transaction at the revision that was valid at the given point in time.
    * 
    * <p>

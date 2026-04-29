@@ -95,6 +95,14 @@ public interface ResourceSession<R extends NodeReadOnlyTrx & NodeCursor, W exten
   Optional<W> getNodeTrx();
 
   /**
+   * Number of currently-open read-only or read-write node transactions on this session.
+   * Useful for diagnostics and for asserting the absence of resource leaks in tests.
+   *
+   * @return the number of open node transactions, including the single writer if any
+   */
+  int activeTrxCount();
+
+  /**
    * Begin a new {@link StorageEngineReader}.
    *
    * @return new {@link StorageEngineReader} instance

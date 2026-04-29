@@ -52,8 +52,13 @@ public final class AllTimeAxis<R extends NodeReadOnlyTrx & NodeCursor, W extends
       if (rtx.moveTo(nodeKey)) {
         hasMoved = true;
         return rtx;
-      } else if (hasMoved) {
-        rtx.close();
+      }
+      // moveTo failed: either we're still in the prefix before the node was created, or
+      // the node was deleted after a prior yield. Either way, this rtx is ours alone —
+      // close it so it does not leak. (Past/FutureAxis already do this; AllTimeAxis used
+      // to leak the prefix rtxs.)
+      rtx.close();
+      if (hasMoved) {
         return endOfData();
       }
     }
