@@ -27,12 +27,12 @@ import io.sirix.axis.filter.xml.PIFilter;
 import io.sirix.axis.filter.xml.TemporalXmlNodeReadFilterAxis;
 import io.sirix.axis.filter.xml.TextFilter;
 import io.sirix.axis.filter.xml.XmlNameFilter;
-import io.sirix.axis.temporal.AllTimeAxis;
+import io.sirix.axis.temporal.PrefetchedAllTimeAxis;
 import io.sirix.axis.temporal.FirstAxis;
-import io.sirix.axis.temporal.FutureAxis;
+import io.sirix.axis.temporal.PrefetchedFutureAxis;
 import io.sirix.axis.temporal.LastAxis;
 import io.sirix.axis.temporal.NextAxis;
-import io.sirix.axis.temporal.PastAxis;
+import io.sirix.axis.temporal.PrefetchedPastAxis;
 import io.sirix.axis.temporal.PreviousAxis;
 import io.sirix.exception.SirixException;
 import io.sirix.index.path.summary.PathSummaryReader;
@@ -313,7 +313,7 @@ public class SirixTranslator extends TopDownTranslator {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new AllTimeAxis<>(rtx.getResourceSession(), rtx);
+          new PrefetchedAllTimeAxis<>(rtx.getResourceSession(), rtx);
       return new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
     }
 
@@ -322,7 +322,7 @@ public class SirixTranslator extends TopDownTranslator {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new AllTimeAxis<>(rtx.getResourceSession(), rtx);
+          new PrefetchedAllTimeAxis<>(rtx.getResourceSession(), rtx);
       return new TemporalSirixNodeStream(axis, dbNode.getCollection());
     }
   }
@@ -355,7 +355,7 @@ public class SirixTranslator extends TopDownTranslator {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new PastAxis<>(rtx.getResourceSession(), rtx, mSelf);
+          new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, mSelf);
       return new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
     }
 
@@ -364,7 +364,7 @@ public class SirixTranslator extends TopDownTranslator {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new PastAxis<>(rtx.getResourceSession(), rtx, mSelf);
+          new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, mSelf);
       return new TemporalSirixNodeStream(axis, dbNode.getCollection());
     }
   }
@@ -397,7 +397,7 @@ public class SirixTranslator extends TopDownTranslator {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new FutureAxis<>(rtx.getResourceSession(), rtx, includeSelf);
+          new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, includeSelf);
       return new TemporalSirixNodeStream(SirixTranslator.getTemporalAxis(test, rtx, axis), dbNode.getCollection());
     }
 
@@ -406,7 +406,7 @@ public class SirixTranslator extends TopDownTranslator {
       final XmlDBNode dbNode = (XmlDBNode) node;
       final XmlNodeReadOnlyTrx rtx = dbNode.getTrx();
       final AbstractTemporalAxis<XmlNodeReadOnlyTrx, XmlNodeTrx> axis =
-          new FutureAxis<>(rtx.getResourceSession(), rtx, includeSelf);
+          new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, includeSelf);
       return new TemporalSirixNodeStream(axis, dbNode.getCollection());
     }
   }

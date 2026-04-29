@@ -48,7 +48,9 @@ public final class TemporalSirixJsonObjectKeyArrayStream implements Stream<JsonO
   }
 
   @Override
-  public void close() {}
+  public void close() {
+    axis.close();
+  }
 
   @Override
   public String toString() {

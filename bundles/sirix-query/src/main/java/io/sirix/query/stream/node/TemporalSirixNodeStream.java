@@ -50,7 +50,9 @@ public class TemporalSirixNodeStream implements Stream<AbstractTemporalNode<XmlD
   }
 
   @Override
-  public void close() {}
+  public void close() {
+    axis.close();
+  }
 
   @Override
   public String toString() {

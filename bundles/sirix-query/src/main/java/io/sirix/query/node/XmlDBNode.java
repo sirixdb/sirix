@@ -10,12 +10,12 @@ import io.sirix.axis.FollowingAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.NonStructuralWrapperAxis;
 import io.sirix.axis.PrecedingAxis;
-import io.sirix.axis.temporal.AllTimeAxis;
+import io.sirix.axis.temporal.PrefetchedAllTimeAxis;
 import io.sirix.axis.temporal.FirstAxis;
-import io.sirix.axis.temporal.FutureAxis;
+import io.sirix.axis.temporal.PrefetchedFutureAxis;
 import io.sirix.axis.temporal.LastAxis;
 import io.sirix.axis.temporal.NextAxis;
-import io.sirix.axis.temporal.PastAxis;
+import io.sirix.axis.temporal.PrefetchedPastAxis;
 import io.sirix.axis.temporal.PreviousAxis;
 import io.sirix.query.stream.node.SirixNodeStream;
 import io.sirix.query.stream.node.TemporalSirixNodeStream;
@@ -1694,7 +1694,7 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixNodeStream(new PastAxis<>(rtx.getResourceSession(), rtx, include), collection);
+    return new TemporalSirixNodeStream(new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
   @Override
@@ -1703,13 +1703,13 @@ public final class XmlDBNode extends AbstractTemporalNode<XmlDBNode> implements 
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixNodeStream(new FutureAxis<>(rtx.getResourceSession(), rtx, include), collection);
+    return new TemporalSirixNodeStream(new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
   @Override
   public Stream<AbstractTemporalNode<XmlDBNode>> getAllTime() {
     moveRtx();
-    return new TemporalSirixNodeStream(new AllTimeAxis<>(rtx.getResourceSession(), rtx), collection);
+    return new TemporalSirixNodeStream(new PrefetchedAllTimeAxis<>(rtx.getResourceSession(), rtx), collection);
   }
 
   @Override

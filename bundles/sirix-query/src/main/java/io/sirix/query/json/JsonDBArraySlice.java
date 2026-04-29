@@ -11,9 +11,9 @@ import io.brackit.query.jdm.json.Array;
 import io.sirix.api.json.JsonNodeReadOnlyTrx;
 import io.sirix.axis.ChildAxis;
 import io.sirix.axis.IncludeSelf;
-import io.sirix.axis.temporal.AllTimeAxis;
-import io.sirix.axis.temporal.FutureAxis;
-import io.sirix.axis.temporal.PastAxis;
+import io.sirix.axis.temporal.PrefetchedAllTimeAxis;
+import io.sirix.axis.temporal.PrefetchedFutureAxis;
+import io.sirix.axis.temporal.PrefetchedPastAxis;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -79,7 +79,7 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonArraySliceStream(new PastAxis<>(rtx.getResourceSession(), rtx, include), collection,
+    return new TemporalSirixJsonArraySliceStream(new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, include), collection,
         fromIndex, toIndex);
   }
 
@@ -89,14 +89,14 @@ public final class JsonDBArraySlice extends AbstractJsonDBArray<JsonDBArraySlice
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonArraySliceStream(new FutureAxis<>(rtx.getResourceSession(), rtx, include), collection,
+    return new TemporalSirixJsonArraySliceStream(new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, include), collection,
         fromIndex, toIndex);
   }
 
   @Override
   public Stream<JsonDBArraySlice> getAllTimes() {
     moveRtx();
-    return new TemporalSirixJsonArraySliceStream(new AllTimeAxis<>(rtx.getResourceSession(), rtx), collection,
+    return new TemporalSirixJsonArraySliceStream(new PrefetchedAllTimeAxis<>(rtx.getResourceSession(), rtx), collection,
         fromIndex, toIndex);
   }
 

@@ -15,12 +15,12 @@ import io.sirix.axis.ChildAxis;
 import io.sirix.axis.IncludeSelf;
 import io.sirix.axis.filter.FilterAxis;
 import io.sirix.axis.filter.json.JsonNameFilter;
-import io.sirix.axis.temporal.AllTimeAxis;
+import io.sirix.axis.temporal.PrefetchedAllTimeAxis;
 import io.sirix.axis.temporal.FirstAxis;
-import io.sirix.axis.temporal.FutureAxis;
+import io.sirix.axis.temporal.PrefetchedFutureAxis;
 import io.sirix.axis.temporal.LastAxis;
 import io.sirix.axis.temporal.NextAxis;
-import io.sirix.axis.temporal.PastAxis;
+import io.sirix.axis.temporal.PrefetchedPastAxis;
 import io.sirix.axis.temporal.PreviousAxis;
 import io.sirix.index.path.summary.PathSummaryReader;
 import io.sirix.node.NodeKind;
@@ -188,7 +188,7 @@ public final class JsonDBObject extends AbstractItem
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonObjectStream(new PastAxis<>(rtx.getResourceSession(), rtx, include), collection);
+    return new TemporalSirixJsonObjectStream(new PrefetchedPastAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
   @Override
@@ -197,13 +197,13 @@ public final class JsonDBObject extends AbstractItem
     final IncludeSelf include = includeSelf
         ? IncludeSelf.YES
         : IncludeSelf.NO;
-    return new TemporalSirixJsonObjectStream(new FutureAxis<>(rtx.getResourceSession(), rtx, include), collection);
+    return new TemporalSirixJsonObjectStream(new PrefetchedFutureAxis<>(rtx.getResourceSession(), rtx, include), collection);
   }
 
   @Override
   public Stream<JsonDBObject> getAllTimes() {
     moveRtx();
-    return new TemporalSirixJsonObjectStream(new AllTimeAxis<>(rtx.getResourceSession(), rtx), collection);
+    return new TemporalSirixJsonObjectStream(new PrefetchedAllTimeAxis<>(rtx.getResourceSession(), rtx), collection);
   }
 
   @Override

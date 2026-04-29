@@ -4,7 +4,7 @@ import io.sirix.index.path.summary.HyperLogLogSketch;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.SplittableRandom;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -44,11 +44,13 @@ final class HyperLogLogSketchTest {
   void largeCardinality_withinExpectedStdError() {
     var sketch = new HyperLogLogSketch();
     final int n = 1_000_000;
-    final ThreadLocalRandom rng = ThreadLocalRandom.current();
+    // Fixed seed: HLL std error for m=2048 is ~2.3% (1.04/sqrt(2048)). At a 5% tolerance
+    // a random seed fails on roughly 1 in 30 runs (a 2σ tail), which is unacceptable for
+    // CI. Pin the draw so the assertion tests the estimator on a known sample.
+    final SplittableRandom rng = new SplittableRandom(0xC0FFEEL);
     for (int i = 0; i < n; i++) {
       sketch.add(rng.nextLong());
     }
-    // Expected std error ~2.3% for m=2048; tolerate ±5% (roughly 2 sigma).
     final long est = sketch.estimate();
     final double err = Math.abs(est - n) / (double) n;
     assertTrue(err < 0.05, "error " + err + " from estimate " + est);
