@@ -17,7 +17,6 @@ class Lz4ZeroCopyCompressionTest {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(Lz4ZeroCopyCompressionTest.class);
 
-  @SuppressWarnings("deprecation")
   @Test
   void nativeFFIZeroCopyRoundTrip() {
     assumeTrue(FFILz4Compressor.isNativeAvailable());
@@ -28,10 +27,10 @@ class Lz4ZeroCopyCompressionTest {
     final var compressor = new FFILz4Compressor();
     final MemorySegment compressed = compressor.compress(MemorySegment.ofArray(payload));
 
-    // Use deprecated decompress method for testing (avoids allocator initialization issues)
-    final MemorySegment decompressedSegment = compressor.decompress(compressed);
     final byte[] decompressed = new byte[payload.length];
-    MemorySegment.copy(decompressedSegment, 0, MemorySegment.ofArray(decompressed), 0, decompressed.length);
+    try (final var result = compressor.decompressScoped(compressed)) {
+      MemorySegment.copy(result.segment(), 0, MemorySegment.ofArray(decompressed), 0, decompressed.length);
+    }
     assertArrayEquals(payload, decompressed);
   }
 
@@ -46,7 +45,6 @@ class Lz4ZeroCopyCompressionTest {
     }
   }
 
-  @SuppressWarnings("deprecation")
   @Test
   void ffiCompressionWithRandomData() throws Exception {
     assumeTrue(FFILz4Compressor.isNativeAvailable());
@@ -63,10 +61,11 @@ class Lz4ZeroCopyCompressionTest {
     // LZ4 may produce output larger than input for incompressible data (up to compressBound)
     assertTrue(ffiCompressed.byteSize() > 0, "Compressed size should be positive");
 
-    // Verify round-trip (using deprecated decompress for test simplicity)
-    final MemorySegment decompressedSegment = ffiCompressor.decompress(ffiCompressed);
+    // Verify round-trip
     final byte[] decompressed = new byte[payload.length];
-    MemorySegment.copy(decompressedSegment, 0, MemorySegment.ofArray(decompressed), 0, decompressed.length);
+    try (final var result = ffiCompressor.decompressScoped(ffiCompressed)) {
+      MemorySegment.copy(result.segment(), 0, MemorySegment.ofArray(decompressed), 0, decompressed.length);
+    }
     assertArrayEquals(payload, decompressed, "Random data round-trip should produce identical data");
 
     LOGGER.info("Random data: {} bytes -> {} bytes (ratio: {}x)", payload.length, ffiCompressed.byteSize(),
@@ -88,9 +87,10 @@ class Lz4ZeroCopyCompressionTest {
     assertEquals(-smallPayload.length, sizeHeader, "Header should be negated original size");
 
     // Verify round-trip
-    final MemorySegment decompressed = compressor.decompress(compressed);
-    byte[] result = new byte[smallPayload.length];
-    MemorySegment.copy(decompressed, 0, MemorySegment.ofArray(result), 0, result.length);
+    final byte[] result = new byte[smallPayload.length];
+    try (final var dr = compressor.decompressScoped(compressed)) {
+      MemorySegment.copy(dr.segment(), 0, MemorySegment.ofArray(result), 0, result.length);
+    }
     assertArrayEquals(smallPayload, result, "Small data round-trip should be identical");
   }
 
@@ -115,13 +115,14 @@ class Lz4ZeroCopyCompressionTest {
     assertTrue(largeCompressed.byteSize() < largePage.length, "Large page should compress");
 
     // Verify round-trips
-    MemorySegment smallDecompressed = compressor.decompress(smallCompressed);
-    MemorySegment largeDecompressed = compressor.decompress(largeCompressed);
-
-    byte[] smallResult = new byte[smallPage.length];
-    byte[] largeResult = new byte[largePage.length];
-    MemorySegment.copy(smallDecompressed, 0, MemorySegment.ofArray(smallResult), 0, smallResult.length);
-    MemorySegment.copy(largeDecompressed, 0, MemorySegment.ofArray(largeResult), 0, largeResult.length);
+    final byte[] smallResult = new byte[smallPage.length];
+    final byte[] largeResult = new byte[largePage.length];
+    try (final var dr = compressor.decompressScoped(smallCompressed)) {
+      MemorySegment.copy(dr.segment(), 0, MemorySegment.ofArray(smallResult), 0, smallResult.length);
+    }
+    try (final var dr = compressor.decompressScoped(largeCompressed)) {
+      MemorySegment.copy(dr.segment(), 0, MemorySegment.ofArray(largeResult), 0, largeResult.length);
+    }
 
     assertArrayEquals(smallPage, smallResult);
     assertArrayEquals(largePage, largeResult);
@@ -142,9 +143,10 @@ class Lz4ZeroCopyCompressionTest {
     final MemorySegment compressed = compressor.compress(MemorySegment.ofArray(randomData));
 
     // Verify round-trip regardless of storage mode
-    final MemorySegment decompressed = compressor.decompress(compressed);
-    byte[] result = new byte[randomData.length];
-    MemorySegment.copy(decompressed, 0, MemorySegment.ofArray(result), 0, result.length);
+    final byte[] result = new byte[randomData.length];
+    try (final var dr = compressor.decompressScoped(compressed)) {
+      MemorySegment.copy(dr.segment(), 0, MemorySegment.ofArray(result), 0, result.length);
+    }
     assertArrayEquals(randomData, result, "Random data round-trip should be identical");
 
     LOGGER.info("Random data (4KB): {} -> {} bytes (header check: {})", randomData.length, compressed.byteSize(),

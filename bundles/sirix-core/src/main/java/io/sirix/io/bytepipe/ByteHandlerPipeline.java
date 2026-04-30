@@ -130,26 +130,6 @@ public final class ByteHandlerPipeline implements ByteHandler {
   }
 
   @Override
-  public MemorySegment decompress(MemorySegment compressed) {
-    // Empty pipeline = identity (Umbra-style: no transformation needed)
-    if (byteHandlers.isEmpty()) {
-      return compressed;
-    }
-
-    if (!memorySegmentSupport) {
-      throw new UnsupportedOperationException(
-          "MemorySegment decompression not supported - not all handlers support it");
-    }
-
-    // Apply handlers in reverse order (decompression pipeline)
-    MemorySegment result = compressed;
-    for (int i = byteHandlers.size() - 1; i >= 0; i--) {
-      result = byteHandlers.get(i).decompress(result);
-    }
-    return result;
-  }
-
-  @Override
   public DecompressionResult decompressScoped(MemorySegment compressed) {
     // Empty pipeline = identity, but we MUST copy to a buffer the page can own!
     // The input segment may be a reusable buffer (e.g., FileChannelReader's striped buffers)

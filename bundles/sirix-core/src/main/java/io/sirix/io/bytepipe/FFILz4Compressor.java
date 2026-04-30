@@ -484,55 +484,6 @@ public final class FFILz4Compressor implements ByteHandler {
   }
 
   /**
-   * Decompress data using the scoped pool pattern.
-   * 
-   * @deprecated Use {@link #decompressScoped(MemorySegment)} instead for Loom compatibility. This
-   *             method allocates a new buffer that must be managed by the caller.
-   */
-  @Override
-  @Deprecated(forRemoval = true)
-  public MemorySegment decompress(MemorySegment compressed) {
-    // For backwards compatibility, allocate a fresh buffer (caller manages lifecycle)
-    if (!NATIVE_LZ4_AVAILABLE) {
-      throw new UnsupportedOperationException("Native LZ4 not available");
-    }
-
-    int sizeHeader = compressed.get(JAVA_INT_UNALIGNED, 0);
-
-    // Negative size indicates uncompressed data (stored as-is)
-    if (sizeHeader < 0) {
-      int uncompressedSize = -sizeHeader;
-      MemorySegment buffer = Arena.ofAuto().allocate(uncompressedSize);
-      MemorySegment.copy(compressed, 4, buffer, 0, uncompressedSize);
-      return buffer;
-    }
-
-    int decompressedSize = sizeHeader;
-
-    // Use confined arena for temporary native copy if source is heap
-    try (Arena arena = Arena.ofConfined()) {
-      MemorySegment nativeCompressed;
-      if (compressed.isNative()) {
-        nativeCompressed = compressed;
-      } else {
-        // Copy heap segment to native memory for FFI call
-        nativeCompressed = arena.allocate(compressed.byteSize());
-        MemorySegment.copy(compressed, 0, nativeCompressed, 0, compressed.byteSize());
-      }
-
-      MemorySegment buffer = Arena.ofAuto().allocate(decompressedSize);
-
-      int actualSize = decompressSegment(nativeCompressed.asSlice(4), buffer, (int) nativeCompressed.byteSize() - 4);
-
-      if (actualSize < 0) {
-        throw new RuntimeException("LZ4 decompression failed: " + actualSize);
-      }
-
-      return buffer.asSlice(0, actualSize);
-    }
-  }
-
-  /**
    * Decompress data using the page allocator for zero-copy page support.
    * 
    * <p>
