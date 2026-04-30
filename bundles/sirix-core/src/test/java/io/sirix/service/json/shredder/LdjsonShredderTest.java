@@ -256,18 +256,24 @@ public final class LdjsonShredderTest {
       assertEquals(NodeKind.OBJECT, trx.getKind());
       final long firstObjKey = trx.getNodeKey();
 
-      // First object has child object key "k" — fused into OBJECT_NAMED_STRING in iter#32.
+      // First object has child object key "k" with string value → OBJECT_NAMED_STRING under default fusion.
       trx.moveToFirstChild();
-      assertTrue(trx.getKind().playsObjectKeyRole(), "expected OBJECT_KEY-role kind, got: " + trx.getKind());
+      assertEquals(NodeKind.OBJECT_NAMED_STRING, trx.getKind(),
+          "string-valued field must produce OBJECT_NAMED_STRING under default fusion");
+      assertEquals("k", trx.getName().getLocalName());
+      assertEquals("v", trx.getValue());
 
       // Right sibling of first object: second object
       trx.moveTo(firstObjKey);
       trx.moveToRightSibling();
       assertEquals(NodeKind.OBJECT, trx.getKind());
 
-      // Second object has child object key "k2" — fused into OBJECT_NAMED_STRING in iter#32.
+      // Second object has child object key "k2" with string value → OBJECT_NAMED_STRING.
       trx.moveToFirstChild();
-      assertTrue(trx.getKind().playsObjectKeyRole(), "expected OBJECT_KEY-role kind, got: " + trx.getKind());
+      assertEquals(NodeKind.OBJECT_NAMED_STRING, trx.getKind(),
+          "string-valued field must produce OBJECT_NAMED_STRING under default fusion");
+      assertEquals("k2", trx.getName().getLocalName());
+      assertEquals("v2", trx.getValue());
 
       // No more siblings after second object
       trx.moveToParent(); // back to second object

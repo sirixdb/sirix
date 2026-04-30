@@ -238,10 +238,9 @@ class FlyweightCursorTest {
         count++;
       }
 
-      // Legacy (unfused): object, key "nested", object, key "deep", number 42 = 5 descendants.
-      // iter#32 fusion (primitive + structural): object, OBJECT_NAMED_OBJECT "nested", fused
-      // "deep=42" (OBJECT_NAMED_NUMBER) = 3 descendants.
-      assertTrue(count >= 3, "Should have at least 3 descendants, got: " + count);
+      // iter#32 fusion (primitive + structural) is default ON: the descendant axis from doc root
+      // visits exactly OBJECT, OBJECT_NAMED_OBJECT "nested", OBJECT_NAMED_NUMBER "deep"=42 → 3.
+      assertEquals(3, count, "fused descendant count for {nested:{deep:42}} must be exactly 3");
     }
   }
 
@@ -389,12 +388,11 @@ class FlyweightCursorTest {
       final long firstNodeKey = firstSnapshot.getNodeKey();
       final NodeKind firstKind = firstSnapshot.getKind();
 
-      // Verify we have a valid snapshot
+      // Verify we have a valid snapshot. Source is {"first": 1, "second": 2}; first key has a
+      // number value so default fusion produces OBJECT_NAMED_NUMBER.
       assertNotNull(firstSnapshot);
-      // Under legacy mode first is OBJECT_KEY; under fuseNamedPrimitives it becomes an
-      // OBJECT_NAMED_* kind. Both play the "object key" role.
-      assertTrue(firstKind.playsObjectKeyRole(),
-          "Expected OBJECT_KEY or fused OBJECT_NAMED_* kind, got: " + firstKind);
+      assertEquals(NodeKind.OBJECT_NAMED_NUMBER, firstKind,
+          "first key with number value must produce OBJECT_NAMED_NUMBER under default fusion");
 
       // Move to the next sibling (different node)
       assertTrue(rtx.moveToRightSibling());
@@ -547,9 +545,9 @@ class FlyweightCursorTest {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // Object
       wtx.moveToFirstChild(); // "a" key
-      wtx.moveToRightSibling(); // "b" key
-      assertTrue(wtx.getKind().playsObjectKeyRole(),
-          "Expected OBJECT_KEY or fused OBJECT_NAMED_* kind, got: " + wtx.getKind());
+      wtx.moveToRightSibling(); // "b" key — string value → OBJECT_NAMED_STRING under default fusion
+      assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind(),
+          "string-valued field must produce OBJECT_NAMED_STRING under default fusion");
       assertEquals("b", wtx.getName().getLocalName());
 
       // This was the buggy operation — the cursor would end up at parent instead of "b"
@@ -587,9 +585,9 @@ class FlyweightCursorTest {
     try (final var session = database.beginResourceSession(RESOURCE); final var wtx = session.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // Object
-      wtx.moveToFirstChild(); // "a" key
-      assertTrue(wtx.getKind().playsObjectKeyRole(),
-          "Expected OBJECT_KEY or fused OBJECT_NAMED_* kind, got: " + wtx.getKind());
+      wtx.moveToFirstChild(); // "a" key — string value → OBJECT_NAMED_STRING under default fusion
+      assertEquals(NodeKind.OBJECT_NAMED_STRING, wtx.getKind(),
+          "string-valued field must produce OBJECT_NAMED_STRING under default fusion");
       assertEquals("a", wtx.getName().getLocalName());
 
       wtx.insertObjectRecordAsRightSibling("inserted", new StringValue("new"));
@@ -624,13 +622,13 @@ class FlyweightCursorTest {
 
     try (final var session = database.beginResourceSession(RESOURCE); final var rtx = session.beginNodeReadOnlyTrx()) {
 
-      // Navigate to "first" object key
+      // Navigate to "first" object key. Source is {"first": "hello", "second": "world"} — both
+      // string values, so default fusion produces OBJECT_NAMED_STRING for each.
       rtx.moveToDocumentRoot();
       rtx.moveToFirstChild(); // Object
       rtx.moveToFirstChild(); // "first" key
-      // Under legacy mode OBJECT_KEY; under fuseNamedPrimitives it becomes OBJECT_NAMED_STRING.
-      assertTrue(rtx.getKind().playsObjectKeyRole(),
-          "Expected OBJECT_KEY or fused OBJECT_NAMED_* kind, got: " + rtx.getKind());
+      assertEquals(NodeKind.OBJECT_NAMED_STRING, rtx.getKind(),
+          "string-valued field 'first' must produce OBJECT_NAMED_STRING under default fusion");
 
       // Get immutable snapshot at "first"
       final var firstNode = rtx.getNode();
@@ -639,8 +637,8 @@ class FlyweightCursorTest {
 
       // Move cursor to "second" key
       assertTrue(rtx.moveToRightSibling());
-      assertTrue(rtx.getKind().playsObjectKeyRole(),
-          "Expected OBJECT_KEY or fused OBJECT_NAMED_* kind, got: " + rtx.getKind());
+      assertEquals(NodeKind.OBJECT_NAMED_STRING, rtx.getKind(),
+          "string-valued field 'second' must produce OBJECT_NAMED_STRING under default fusion");
 
       // Get immutable snapshot at "second"
       final var secondNode = rtx.getNode();
