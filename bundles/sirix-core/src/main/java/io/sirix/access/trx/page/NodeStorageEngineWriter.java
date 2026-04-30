@@ -140,6 +140,49 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
   private volatile boolean isClosed;
 
   /**
+   * Shared Cleaner that runs the leak-detection callback on every NodeStorageEngineWriter
+   * once it becomes phantom-reachable. Used as the post-Java-9 replacement for the
+   * deprecated {@code finalize()} override.
+   */
+  private static final java.lang.ref.Cleaner LEAK_CLEANER = java.lang.ref.Cleaner.create();
+
+  /**
+   * State captured for leak diagnostics. Static class with no reference to the enclosing
+   * writer — capturing {@code this} would make the writer strongly reachable through the
+   * Cleaner queue and defeat the leak detection it implements.
+   */
+  private static final class LeakDetectorState implements Runnable {
+    final int trxId;
+    final int writerIdentity;
+    final int logIdentity;
+    final java.util.concurrent.atomic.AtomicReference<TransactionIntentLog> logRef;
+    final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    LeakDetectorState(final int trxId, final int writerIdentity, final int logIdentity,
+        final TransactionIntentLog log) {
+      this.trxId = trxId;
+      this.writerIdentity = writerIdentity;
+      this.logIdentity = logIdentity;
+      this.logRef = new java.util.concurrent.atomic.AtomicReference<>(log);
+    }
+
+    @Override
+    public void run() {
+      if (closed.get()) {
+        return;
+      }
+      final TransactionIntentLog log = logRef.get();
+      final int containerCount = log != null ? log.getList().size() : -1;
+      LOGGER.warn(
+          "NodeStorageEngineWriter FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL",
+          trxId, writerIdentity, logIdentity, containerCount);
+    }
+  }
+
+  /** Non-null for the lifetime of this writer; close() flips its closed flag. */
+  private final LeakDetectorState leakDetectorState;
+
+  /**
    * Pending fsync future for async durability. For auto-commit mode, fsync runs in background; next
    * commit waits for it.
    */
@@ -279,6 +322,15 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         return false;
       }
     };
+
+    // Register a Cleaner-driven leak detector for this writer. Replaces the deprecated
+    // finalize() override; runs on a Cleaner thread (not the GC thread), no resurrection,
+    // survives finalize() removal in future JDKs. close() flips the closed flag so the
+    // detector skips the leak warning on properly-closed writers.
+    this.leakDetectorState = new LeakDetectorState(
+        storageEngineReader.getTrxId(), System.identityHashCode(this),
+        System.identityHashCode(log), log);
+    LEAK_CLEANER.register(this, leakDetectorState);
   }
 
   @Override
@@ -1161,6 +1213,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       mostRecentPathSummaryPageContainer = null;
 
       isClosed = true;
+      // Tell the Cleaner-registered leak detector this writer closed cleanly so the
+      // post-GC callback skips its warn-log.
+      leakDetectorState.closed.set(true);
     }
   }
 
@@ -1562,15 +1617,9 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     return storageEngineReader.getCommitCredentials();
   }
 
-  @Override
-  @SuppressWarnings("deprecation")
-  protected void finalize() {
-    if (!isClosed) {
-      LOGGER.warn(
-          "NodeStorageEngineWriter FINALIZED WITHOUT CLOSE: trxId={} instance={} TIL={} with {} containers in TIL",
-          storageEngineReader.getTrxId(), System.identityHashCode(this), System.identityHashCode(log), log.getList().size());
-    }
-  }
+  // The deprecated finalize() override was replaced by the Cleaner-driven LeakDetectorState
+  // registered in the constructor. Cleaner is the post-Java-9 sanctioned way to run code on
+  // phantom-reachability without the GC-thread / object-resurrection downsides of finalize.
 
   /**
    * Acquire a guard on the page containing the current node. This is needed when holding a reference

@@ -42,12 +42,14 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.ValueLayout;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.lang.ref.Cleaner;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 
@@ -159,6 +161,76 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
    * Used to trace where leaked pages come from.
    */
   private final StackTraceElement[] creationStackTrace;
+
+  /** Shared Cleaner for all KeyValueLeafPage leak-detection registrations. */
+  private static final Cleaner LEAK_CLEANER = Cleaner.create();
+
+  /**
+   * Heap-allocated state captured by the leak-detection {@link Cleaner.Cleanable} so it
+   * does NOT capture the enclosing {@code KeyValueLeafPage} instance — capturing
+   * {@code this} would make the page strongly reachable via the Cleaner queue, defeating
+   * the very leak detection it implements. Holds:
+   * <ul>
+   *   <li>The diagnostic facts the leak log needs (pageKey, indexType, revision,
+   *       creationStackTrace).</li>
+   *   <li>A {@code closed} flag the page's {@link #close()} flips — the Cleaner action
+   *       reads it and skips logging when the page was closed properly.</li>
+   * </ul>
+   * Non-static state class so users can read the closed flag through the
+   * {@code Cleaner.Cleanable} owner; reference is held by the page only when
+   * {@link #DEBUG_MEMORY_LEAKS} is on, so production builds pay zero overhead.
+   */
+  private static final class LeakDetectorState implements Runnable {
+    final long pageKey;
+    final IndexType indexType;
+    final int revision;
+    final StackTraceElement[] creationStackTrace;
+    final AtomicBoolean closed = new AtomicBoolean(false);
+
+    LeakDetectorState(final long pageKey, final IndexType indexType, final int revision,
+        final StackTraceElement[] creationStackTrace) {
+      this.pageKey = pageKey;
+      this.indexType = indexType;
+      this.revision = revision;
+      this.creationStackTrace = creationStackTrace;
+    }
+
+    @Override
+    public void run() {
+      if (closed.get()) {
+        return; // closed properly — no leak.
+      }
+      PAGES_FINALIZED_WITHOUT_CLOSE.incrementAndGet();
+      if (indexType != null) {
+        FINALIZED_BY_TYPE.computeIfAbsent(indexType,
+            _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+      }
+      FINALIZED_BY_PAGE_KEY.computeIfAbsent(pageKey,
+          _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
+      if (LOGGER.isWarnEnabled()) {
+        final StringBuilder leakMsg = new StringBuilder()
+            .append(String.format(
+                "Page leak detected: pageKey=%d, type=%s, revision=%d - not closed explicitly",
+                pageKey, indexType, revision));
+        if (creationStackTrace != null && LOGGER.isDebugEnabled()) {
+          leakMsg.append("\n  Creation stack trace:");
+          for (int i = 2; i < Math.min(creationStackTrace.length, 8); i++) {
+            final StackTraceElement frame = creationStackTrace[i];
+            leakMsg.append(String.format("\n    at %s.%s(%s:%d)",
+                frame.getClassName(), frame.getMethodName(),
+                frame.getFileName(), frame.getLineNumber()));
+          }
+        }
+        LOGGER.warn(leakMsg.toString());
+      }
+    }
+  }
+
+  /**
+   * Non-null only when {@link #DEBUG_MEMORY_LEAKS} is on; the page sets {@code .closed}
+   * on this state in {@link #close()} so the Cleaner action skips the leak log.
+   */
+  private final LeakDetectorState leakDetectorState;
 
   /**
    * Get the creation stack trace for leak diagnostics.
@@ -403,8 +475,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       if (recordPageKey == 0) {
         ALL_PAGE_0_INSTANCES.add(this);
       }
+      this.leakDetectorState =
+          new LeakDetectorState(recordPageKey, indexType, revision, creationStackTrace);
+      LEAK_CLEANER.register(this, leakDetectorState);
     } else {
       this.creationStackTrace = null;
+      this.leakDetectorState = null;
     }
   }
 
@@ -456,8 +532,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       if (recordPageKey == 0) {
         ALL_PAGE_0_INSTANCES.add(this);
       }
+      this.leakDetectorState =
+          new LeakDetectorState(recordPageKey, indexType, revision, creationStackTrace);
+      LEAK_CLEANER.register(this, leakDetectorState);
     } else {
       this.creationStackTrace = null;
+      this.leakDetectorState = null;
     }
   }
 
@@ -2706,49 +2786,12 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
     return ((int) STATE_FLAGS_HANDLE.getVolatile(this) & CLOSED_BIT) != 0;
   }
 
-  /**
-   * Finalizer for detecting page leaks during development.
-   * <p>
-   * This method logs a warning if a page is garbage collected without being
-   * properly closed, indicating a potential memory leak. The warning is only
-   * generated when diagnostic settings are enabled.
-   * <p>
-   * <b>Note:</b> Finalizers are deprecated in modern Java. This is retained
-   * solely for leak detection during development and testing.
-   *
-   * @deprecated Finalizers are discouraged. This exists only for leak detection.
-   */
-  @Override
-  @Deprecated(forRemoval = false)
-  protected void finalize() {
-    if (!isClosed() && DEBUG_MEMORY_LEAKS) {
-      PAGES_FINALIZED_WITHOUT_CLOSE.incrementAndGet();
-      
-      // Track by type and pageKey for detailed leak analysis
-      if (indexType != null) {
-        FINALIZED_BY_TYPE.computeIfAbsent(indexType, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
-      }
-      FINALIZED_BY_PAGE_KEY.computeIfAbsent(recordPageKey, _ -> new java.util.concurrent.atomic.AtomicLong(0)).incrementAndGet();
-      
-      // Log leak information (only when diagnostics enabled)
-      if (LOGGER.isWarnEnabled()) {
-        StringBuilder leakMsg = new StringBuilder();
-        leakMsg.append(String.format("Page leak detected: pageKey=%d, type=%s, revision=%d - not closed explicitly",
-            recordPageKey, indexType, revision));
-        
-        if (creationStackTrace != null && LOGGER.isDebugEnabled()) {
-          leakMsg.append("\n  Creation stack trace:");
-          for (int i = 2; i < Math.min(creationStackTrace.length, 8); i++) {
-            StackTraceElement frame = creationStackTrace[i];
-            leakMsg.append(String.format("\n    at %s.%s(%s:%d)",
-                frame.getClassName(), frame.getMethodName(),
-                frame.getFileName(), frame.getLineNumber()));
-          }
-        }
-        LOGGER.warn(leakMsg.toString());
-      }
-    }
-  }
+  // Leak detection lives in LeakDetectorState above (registered with LEAK_CLEANER in
+  // each constructor when DEBUG_MEMORY_LEAKS is on). The deprecated finalize() override
+  // was removed — Cleaner is the sanctioned post-Java-9 replacement: it doesn't run on
+  // the GC thread, doesn't resurrect objects, and survives finalize() being removed in
+  // a future JDK. close() flips the LeakDetectorState.closed flag so the Cleaner action
+  // skips the leak log on a properly-closed page.
 
   /**
    * Closes this page and releases associated memory resources.
@@ -2787,6 +2830,13 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
       currentFlags = (int) STATE_FLAGS_HANDLE.getVolatile(this);
       newFlags = currentFlags | CLOSED_BIT;
     } while (!STATE_FLAGS_HANDLE.compareAndSet(this, currentFlags, newFlags));
+
+    // Tell the Cleaner-registered leak detector that this page closed cleanly. The
+    // detector's run() reads this flag and skips the leak log. Only present when
+    // DEBUG_MEMORY_LEAKS is on; null in production builds.
+    if (leakDetectorState != null) {
+      leakDetectorState.closed.set(true);
+    }
 
     // Update diagnostic counters if tracking is enabled
     if (DEBUG_MEMORY_LEAKS) {
