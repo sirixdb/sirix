@@ -49,6 +49,7 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   // Use LongAdder for high-contention counters (better scalability than AtomicLong)
   private static final LongAdder CACHE_HITS = new LongAdder();
   private static final LongAdder CACHE_MISSES = new LongAdder();
+  private static final LongAdder CACHE_EVICTIONS = new LongAdder();
 
   /** Get cache hit count for diagnostics */
   public static long getCacheHits() {
@@ -60,10 +61,16 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
     return CACHE_MISSES.sum();
   }
 
+  /** Get cache eviction count for diagnostics */
+  public static long getCacheEvictions() {
+    return CACHE_EVICTIONS.sum();
+  }
+
   /** Reset cache counters */
   public static void resetCacheCounters() {
     CACHE_HITS.reset();
     CACHE_MISSES.reset();
+    CACHE_EVICTIONS.reset();
   }
   // ===== END INSTRUMENTATION =====
 
@@ -92,13 +99,14 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
   }
 
   /**
-   * Callback for eviction: adjust the tracked weight.
+   * Callback for eviction: adjust the tracked weight and bump the eviction counter.
    */
   void onEvicted(KeyValueLeafPage page, long pageWeight) {
     if (pageWeight <= 0) {
       return;
     }
     currentWeightBytes.addAndGet(-pageWeight);
+    CACHE_EVICTIONS.increment();
   }
 
   /**

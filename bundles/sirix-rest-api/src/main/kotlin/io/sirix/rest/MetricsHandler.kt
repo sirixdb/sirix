@@ -1,15 +1,19 @@
 package io.sirix.rest
 
 import io.micrometer.core.instrument.Counter
+import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.Tag
 import io.micrometer.core.instrument.Timer
 import io.micrometer.prometheusmetrics.PrometheusConfig
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry
+import io.sirix.metrics.SirixMetricsRegistry
 import io.vertx.core.http.HttpHeaders
 import io.vertx.ext.web.Router
 import io.vertx.ext.web.RoutingContext
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.function.LongSupplier
 
 /**
  * Provides HTTP request metrics via Micrometer with a Prometheus registry.
@@ -39,8 +43,31 @@ object MetricsHandler {
         .description("Total HTTP requests")
         .register(registry)
 
+    private val sirixBridgeInstalled = AtomicBoolean(false)
+
     init {
         registry.gauge("http_active_requests", activeRequests)
+    }
+
+    /**
+     * Installs a one-shot adapter that forwards every gauge registered with
+     * [SirixMetricsRegistry] to this handler's Prometheus registry. Idempotent — if
+     * called more than once (e.g. from multiple `installAuthn` paths), only the first
+     * call wires the bridge. Called from [install] so embedders never need to invoke it
+     * directly.
+     */
+    private fun installSirixBridge() {
+        if (!sirixBridgeInstalled.compareAndSet(false, true)) {
+            return
+        }
+        SirixMetricsRegistry.install { name: String, _: String, supplier: LongSupplier ->
+            // Micrometer uses the gauge's strong reference to the supplier object as its
+            // poll source; .register(registry) returns the existing gauge if a same-named
+            // one already exists, so re-registration during reload is harmless.
+            Gauge.builder(name) { supplier.asLong.toDouble() }
+                .strongReference(true)
+                .register(registry)
+        }
     }
 
     /**
@@ -53,6 +80,12 @@ object MetricsHandler {
      * 3. A GET `/metrics` endpoint returns the Prometheus scrape payload.
      */
     fun install(router: Router) {
+        // Forward every Sirix-internal gauge (cache hit/miss/eviction counters today; future
+        // additions automatically follow) to the same Prometheus registry the HTTP handlers
+        // publish to. Done here so the database internals don't need to know about
+        // Micrometer — they just register LongSuppliers with SirixMetricsRegistry.
+        installSirixBridge()
+
         // -- before: record start time, bump in-flight counter ----------------
         router.route().order(-1).handler { ctx: RoutingContext ->
             ctx.put(REQUEST_START_KEY, System.nanoTime())
