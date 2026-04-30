@@ -8,7 +8,6 @@ import io.sirix.cache.ShardedPageCache;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.LongSupplier;
 
 /**
@@ -56,8 +55,11 @@ public final class SirixMetricsRegistry {
   /** Internal record of a single gauge registration. */
   private record GaugeReg(String name, String help, LongSupplier supplier) {}
 
-  private static final List<GaugeReg> REGISTRATIONS = new CopyOnWriteArrayList<>();
-  private static final List<Bridge> BRIDGES = new CopyOnWriteArrayList<>();
+  // CoW lists would be wrong here — registrations and bridges are append-only at startup,
+  // never iterated under concurrent modification, so the cheap-write/synchronized pattern
+  // matches the access better. Both lists are guarded by synchronizing on REGISTRATIONS.
+  private static final List<GaugeReg> REGISTRATIONS = new ArrayList<>();
+  private static final List<Bridge> BRIDGES = new ArrayList<>();
 
   static {
     // Built-in gauges. Counters that increment monotonically use the _total suffix per
@@ -89,8 +91,14 @@ public final class SirixMetricsRegistry {
       throw new NullPointerException("name/help/supplier");
     }
     final GaugeReg reg = new GaugeReg(name, help, supplier);
-    REGISTRATIONS.add(reg);
-    for (final Bridge bridge : BRIDGES) {
+    final List<Bridge> snapshot;
+    synchronized (REGISTRATIONS) {
+      REGISTRATIONS.add(reg);
+      snapshot = new ArrayList<>(BRIDGES);
+    }
+    // Forward outside the monitor — bridges shouldn't see registry-internal locking, and
+    // a misbehaving bridge can't deadlock against later concurrent registrations.
+    for (final Bridge bridge : snapshot) {
       bridge.registerGauge(name, help, supplier);
     }
   }
@@ -104,28 +112,24 @@ public final class SirixMetricsRegistry {
     if (bridge == null) {
       throw new NullPointerException("bridge");
     }
-    BRIDGES.add(bridge);
-    for (final GaugeReg reg : REGISTRATIONS) {
+    final List<GaugeReg> snapshot;
+    synchronized (REGISTRATIONS) {
+      BRIDGES.add(bridge);
+      snapshot = new ArrayList<>(REGISTRATIONS);
+    }
+    for (final GaugeReg reg : snapshot) {
       bridge.registerGauge(reg.name, reg.help, reg.supplier);
     }
   }
 
-  /** Diagnostic accessor — number of registered gauges (test / debugging). */
-  public static int registeredGaugeCount() {
-    return REGISTRATIONS.size();
-  }
-
-  /** Diagnostic accessor — installed bridge count. */
-  public static int installedBridgeCount() {
-    return BRIDGES.size();
-  }
-
   /** Test-only: snapshot of currently registered gauge names. */
   public static List<String> registeredGaugeNames() {
-    final List<String> out = new ArrayList<>(REGISTRATIONS.size());
-    for (final GaugeReg reg : REGISTRATIONS) {
-      out.add(reg.name);
+    synchronized (REGISTRATIONS) {
+      final List<String> out = new ArrayList<>(REGISTRATIONS.size());
+      for (final GaugeReg reg : REGISTRATIONS) {
+        out.add(reg.name);
+      }
+      return Collections.unmodifiableList(out);
     }
-    return Collections.unmodifiableList(out);
   }
 }

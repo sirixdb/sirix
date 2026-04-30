@@ -60,11 +60,13 @@ object MetricsHandler {
         if (!sirixBridgeInstalled.compareAndSet(false, true)) {
             return
         }
-        SirixMetricsRegistry.install { name: String, _: String, supplier: LongSupplier ->
-            // Micrometer uses the gauge's strong reference to the supplier object as its
-            // poll source; .register(registry) returns the existing gauge if a same-named
-            // one already exists, so re-registration during reload is harmless.
+        SirixMetricsRegistry.install { name: String, help: String, supplier: LongSupplier ->
+            // Micrometer's PrometheusMeterRegistry emits .description() as the # HELP line
+            // in the scrape output, so wiring help through gives us self-documenting
+            // metrics. .register(registry) returns the existing gauge if a same-named one
+            // already exists, so re-registration during reload is harmless.
             Gauge.builder(name) { supplier.asLong.toDouble() }
+                .description(help)
                 .strongReference(true)
                 .register(registry)
         }
