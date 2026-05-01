@@ -128,25 +128,13 @@ public interface ByteHandler {
   }
 
   /**
-   * Decompress data using MemorySegment (zero-copy). Default implementation throws
-   * UnsupportedOperationException.
-   *
-   * @param compressed compressed data
-   * @return decompressed data in a MemorySegment
-   * @deprecated Use {@link #decompressScoped(MemorySegment)} for Loom compatibility
-   */
-  @Deprecated(forRemoval = true)
-  default MemorySegment decompress(MemorySegment compressed) {
-    throw new UnsupportedOperationException("MemorySegment decompression not supported by " + getClass().getName());
-  }
-
-  /**
    * Decompress data using a pooled buffer with explicit lifecycle (Loom-friendly).
-   * 
+   *
    * <p>
-   * Unlike {@link #decompress(MemorySegment)} which uses ThreadLocal (problematic with millions of
-   * virtual threads), this method uses a bounded pool. Memory is bounded by pool size, not thread
-   * count.
+   * Returns a {@link DecompressionResult} backed by a bounded pool — memory is bounded by pool
+   * size, not virtual-thread count. The legacy {@code decompress(MemorySegment)} variant that
+   * returned a freshly-allocated segment was removed; it had ThreadLocal-based pooling that
+   * pinned a buffer per virtual thread (incompatible with millions of VTs).
    * 
    * <p>
    * The returned result MUST be closed after use to return the buffer to the pool:

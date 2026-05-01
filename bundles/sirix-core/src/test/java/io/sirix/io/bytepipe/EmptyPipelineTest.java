@@ -14,7 +14,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -65,18 +64,9 @@ class EmptyPipelineTest {
     }
   }
 
-  @Test
-  void decompress_whenEmpty_returnsInputUnchanged() {
-    final byte[] data = new byte[1024];
-    new Random(42).nextBytes(data);
-    final MemorySegment input = MemorySegment.ofArray(data);
-
-    final var pipeline = new ByteHandlerPipeline();
-    final MemorySegment output = pipeline.decompress(input);
-
-    // Identity: should return exact same segment
-    assertSame(input, output, "Empty pipeline decompress should return same segment (identity)");
-  }
+  // The deprecated decompress(MemorySegment) variant has been removed; the empty-pipeline
+  // identity contract is now covered by decompressScoped_whenEmpty_returnsIdentityResult,
+  // which verifies content equality plus the bounded-pool releaser semantics.
 
   @Test
   void decompressScoped_whenEmpty_returnsIdentityResult() {

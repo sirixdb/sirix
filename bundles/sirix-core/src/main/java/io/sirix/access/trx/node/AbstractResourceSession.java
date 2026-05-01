@@ -384,7 +384,16 @@ public abstract class AbstractResourceSession<R extends NodeReadOnlyTrx & NodeCu
   }
 
   @Override
-  public synchronized R beginNodeReadOnlyTrx(final int revision) {
+  public R beginNodeReadOnlyTrx(final int revision) {
+    // Read-only opens have no shared-state concurrency concerns:
+    //  * assertAccess() reads a volatile and a volatile-published epoch — thread-safe.
+    //  * createStorageEngineReader() uses AtomicInteger for IDs and ConcurrentMap for the
+    //    bookkeeping — already not synchronized.
+    //  * getDocumentNode() operates on the just-constructed reader (per-thread ownership).
+    //  * nodeTrxIDCounter is an AtomicInteger; nodeTrxMap is a ConcurrentMap.
+    // Removing the per-session monitor allows N concurrent reader-opens to run in parallel,
+    // unblocking the depth-N pipeline in the prefetched temporal axes (and any other caller
+    // that opens multiple rtxs back-to-back from concurrent threads).
     assertAccess(revision);
 
     final StorageEngineReader storageEngineReader = createStorageEngineReader(revision);

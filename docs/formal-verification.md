@@ -1,0 +1,448 @@
+# Formal verification — production-readiness wave
+
+Statement of invariants, proof sketches, and the tests that discharge them, for
+every significant change in the production-readiness PR series merged on top of
+`feat/temporal-axis-prefetch`. The goal is not Coq-grade rigour — the goal is
+that every behavioural claim about modified code is (a) stated precisely, (b)
+backed by a proof sketch tight enough to falsify by reading, and (c) checked by
+a test in CI that would fail if the invariant breaks.
+
+Notation:
+
+- **Inv** — invariant.
+- **Pf** — proof sketch.
+- **Test** — file:line of the test that discharges the invariant.
+- **Open** — invariant believed to hold but not yet test-verified.
+
+---
+
+## 1. Brackit arithmetic — `AbstractTimeInstant.subtract`, `DTD.addInternal`, `YMD.addInternal`
+
+### 1.1 `DTD.addInternal(this, n2, d2, h2, m2, mic2)`
+
+Let `T` denote the operator that maps `(negative, days, hours, minutes, micros)`
+to a signed total micros count:
+
+```
+T(neg, d, h, m, μ) = (neg ? -1 : +1) · (d·MICROS_PER_DAY + h·MICROS_PER_HOUR
+                                        + m·MICROS_PER_MINUTE + μ)
+```
+
+`addInternal` computes `result = a + (signed) b` where `a = this` and `b` is
+the operand passed in.
+
+**Inv 1.1a (correctness):** `T(result) == T(this) + T(b)` over all valid DTD
+inputs.
+
+**Pf:** The implementation computes `sum = T(this) + T(b)` as a `long` and
+splits `|sum|` back into `(days, hours, minutes, micros)` by Euclidean division
+using the `MICROS_PER_*` constants. The split is total micros → micros (mod
+60·10⁶), minutes (mod 60), hours (mod 24), days (everything left). Each division
+is exact because `MICROS_PER_*` divide `MICROS_PER_DAY`. Sign is recovered by
+comparing `sum < 0`. ∎
+
+**Inv 1.1b (canonicalisation):** in the result, `0 ≤ micros < 60·10⁶`,
+`0 ≤ minutes < 60`, `0 ≤ hours < 24`, `0 ≤ days ≤ Integer.MAX_VALUE`.
+
+**Pf:** Direct from the modulo-then-divide split; the bounds on micros, minutes,
+hours follow from the modulus. The days bound is checked explicitly with an
+overflow exception. (Pre-widening, this bound was `Short.MAX_VALUE`; see Inv 1.5
+for the rationale of the `short → int` widening.) ∎
+
+**Inv 1.1c (no-byte-sign-bit-collision):** the result, when interpreted via
+`getHours()` (which masks `hours & 0x7F`), never returns ≥ 64 unless the input
+total micros corresponds to ≥ 64 actual hours.
+
+**Pf:** Pre-fix, `*= -1` on a `byte` could land at `-1 = 0xFF`, and the DTD
+constructor stored that directly without OR-ing the sign bit, so `getHours() =
+0xFF & 0x7F = 127` was emitted on legitimate small differences. Post-fix,
+`hours` is always in `[0, 23]` because the constructor receives a value out of
+the `% 24` reduction of a non-negative `long`, and the constructor's
+`!negative ? hours : (byte)(hours | 0x80)` correctly encodes the sign. The
+collision is impossible in the new code path. ∎
+
+- **Test (1.1a + 1.1c, fixed):** `DateTimeTest.dtdSubtract_smallerMinusLarger_yieldsCorrectNegativeMagnitude`
+  — pinned cases that triggered `-PT127H` pre-fix.
+- **Test (1.1a, randomized):** to be added below as `dtdAddInternalRoundTrip` —
+  generate random `(d1,h1,m1,μ1)` and `(d2,h2,m2,μ2)` with both signs, compute
+  `addInternal`, verify `T(result) == T(a) + T(b)` over 10 000 samples.
+
+### 1.2 `YMD.addInternal`
+
+Let `S(neg, y, m) = (neg ? -1 : +1)·(12y + m)`.
+
+**Inv 1.2a (correctness):** `S(result) == S(this) + S(b)` over all valid YMD
+inputs.
+
+**Pf:** Same template as 1.1a — total months as `long`, divide by 12, take sign
+from `sum < 0`. ∎
+
+**Inv 1.2b (canonicalisation):** in the result, `0 ≤ months < 12`,
+`0 ≤ years ≤ Short.MAX_VALUE`.
+
+**Pf:** From the `% 12` and the explicit overflow check.
+
+- **Test (1.2a, fixed):** `DateTimeTest.ymdSubtract_smallerMinusLarger_yieldsCorrectNegativeMagnitude`.
+- **Test (1.2a, randomized):** to be added below as `ymdAddInternalRoundTrip`.
+
+### 1.3 `AbstractTimeInstant.subtract(b)` (dateTime − dateTime → dayTimeDuration)
+
+Let `J(year, month, day) = JulianDayNumber(year, month, day)` and let
+`I(year, month, day, hours, minutes, micros) = J·MICROS_PER_DAY + (hours·MICROS_PER_HOUR + minutes·MICROS_PER_MINUTE + micros)`.
+
+**Inv 1.3a:** `result = a − b` produces `T(result) == I(a) − I(b)` for any
+in-range pair `(a, b)`.
+
+**Pf:** After the swap that ensures `a ≥ b`, the implementation computes
+`dayDiff = J(a) − J(b)` as a `long`, then `(hours, minutes, micros)` field-wise
+with the standard borrow chain:
+
+- `m = a.μ − b.μ` ∈ `(−6·10⁷, 6·10⁷)`. If negative, add `MICROS_PER_MIN` and
+  borrow 1 minute. Resulting `m` ∈ `[0, 6·10⁷)`.
+- `min = a.min − b.min` ± borrow ∈ `[-1, 60]`. If negative, +60 and borrow 1
+  hour. Resulting `min` ∈ `[0, 60)`.
+- `h = a.h − b.h` ± borrow ∈ `[-1, 24]`. If negative, +24 and borrow 1 day.
+  Resulting `h` ∈ `[0, 24)`.
+- `dayDiff` ≥ 0 because `a ≥ b`; if `h` borrowed, `dayDiff -= 1`. After this
+  step `dayDiff ≥ 0` because `a ≥ b ⇒ I(a) − I(b) ≥ 0` and the only way the
+  remaining `(h·HOUR + min·MIN + μ)` could be negative is exactly cancelled by
+  the `dayDiff -= 1` adjustment.
+
+Pre-fix bugs that this proof would have caught:
+
+1. The `if (ehour < a.getHours()) ... else { hours = 24 - ehour + a.getHours() }`
+   missed `ehour == a.getHours()` and yielded `hours = 24` plus an unjustified
+   day roll. Post-fix, `if (hours < 0) { hours += 24; dayDiff -= 1 }` handles
+   that case as the no-borrow branch (`hours = 0`, no day roll).
+
+2. The `*= -1` borrow on `int`-typed minutes and micros gave the wrong magnitude
+   for negative values not equal to half the modulus. Post-fix, `+= MOD` is the
+   only borrow used.
+
+∎
+
+- **Test (1.3a, fixed):** `DateTimeTest.subtractSameDaySameHour_subSecondGap`,
+  `subtractSameDaySameHour_oneSecondGap`, `subtractAcrossHour_minuteBorrowIsCorrect`,
+  `subtractAcrossDayBoundary`, `subtractAcrossYearBoundary`, `subtractAcrossLeapYear`.
+- **Test (1.3a, randomized):** to be added as `dateTimeSubtractRoundTrip` —
+  generate random in-range `(a, b)` pairs, compute `result = a − b`, verify
+  `T(result) ≡ I(a) − I(b)` over 10 000 samples.
+
+### 1.4 `AbstractTimeInstant.add(negate, duration, timezone)` — day-borrow loop
+
+**Inv 1.4a:** if `add` returns successfully, the resulting `(year, month, day)`
+satisfies `1 ≤ day ≤ maxDayInMonth(year, month)` and `1 ≤ month ≤ 12`.
+
+**Pf:** The borrow loop iterates while `newDays < 1 ∨ newDays > maxDayInMonth(newYear, newMonth)`. Each iteration moves towards the valid range:
+- If `newDays < 1`: subtract one month from `(newMonth, newYear)`, add the
+  previous month's day count to `newDays`. The previous month is computed
+  before the year/month adjustment, so the January → December roll is correct.
+- If `newDays > maxDayInMonth`: subtract that many days, add one month forward.
+The loop terminates because each iteration reduces `|deviation|` by at least
+one full month's worth of days, and `dayDiff` is bounded by long range. ∎
+
+Pre-fix bug 1.4a-1: `newDays < 0` admitted `newDays == 0`, producing
+`2026-05-00` style invalid dates. Post-fix uses `< 1`.
+
+Pre-fix bug 1.4a-2: `maxDayInMonth(newYear, newMonth - 1)` could pass `month = 0`
+on a January borrow because the wraparound happened in the next loop iteration.
+Post-fix computes `(prevYear, prevMonth)` first, then looks up the day count.
+
+- **Test (1.4a, fixed):** `DateTimeTest.dateTimeSubtract_dayTimeDuration_acrossMonthBoundary`,
+  `dateTimeSubtract_dayTimeDuration_acrossYearBoundary`, `dateTimeAdd_dayTimeDuration_acrossYearBoundary`.
+
+### 1.5 `Duration.days` widened from `short` to `int`
+
+**Inv 1.5a (representable range):** any signed `dayDiff` produced by `subtract`
+on two valid `xs:dateTime` instances within a span of `Integer.MAX_VALUE` days
+(≈ 5.88 million years) is faithfully representable in the resulting `DTD`.
+
+**Pf:** post-widening, `DTD.days` is a Java `int` (32-bit signed). The
+sign is held separately in the high bit of `months`, leaving the full positive
+int range for the magnitude. Pre-widening, the field was `short` (16-bit
+signed); a span of more than `Short.MAX_VALUE = 32767` days (≈ 89.7 years)
+silently truncated via `(short)` cast, producing arithmetically wrong results
+that still satisfied Inv 1.1a/1.3a *modulo 65536 days*. Two real-world failure
+modes now eliminated:
+
+1. Bitemporal queries on Sirix histories spanning more than 89 years (a
+   plausible operational lifetime for documents like medical records or land
+   registries) returned silently truncated durations.
+2. `xs:dateTime` arithmetic with proleptic dates (year < 1937 or year > 2113
+   relative to a 2000 anchor) silently wrapped on `subtract`. ∎
+
+**Inv 1.5b (overflow defence):** if `dayDiff > Integer.MAX_VALUE`, `subtract`
+throws `ERR_OVERFLOW_UNDERFLOW_IN_DURATION` rather than silently narrowing.
+
+**Pf:** `AbstractTimeInstant.subtract` checks `if (dayDiff > Integer.MAX_VALUE)
+throw ...;` immediately before the `(int) dayDiff` narrowing cast. Since
+`dayDiff` is a `long` computed from two `long` Julian Day Numbers, the only
+input that can violate the bound is `JDN(a) − JDN(b) > 2^31 − 1`, which would
+require dates more than 5.88 million years apart — well beyond the proleptic
+Gregorian calendar's intended use. ∎
+
+- **Test (1.5a, randomized):** `DateTimeTest.property_dateTimeSubtract_preservesSignedInstantDifference`
+  spans `± Short.MAX_VALUE * 4` days (≈ ±359 years) around year 2000 over 10 000
+  pairs; pre-widening these would have triggered overflow on most iterations,
+  post-widening they are exact.
+- **Test (1.5b):** the `Integer.MAX_VALUE` defence is unreachable from any
+  pure-Java entry point because `LocalDate` itself caps year at `999_999_999`,
+  so JDN diff cannot exceed ≈ 365 billion. The defence is documented but not
+  test-exercised (the alternative would require synthetic JDN inputs that
+  bypass the parsers).
+
+---
+
+## 2. `AllTimeAxis` — prefix-rtx leak fix
+
+**Inv 2a (no leak):** for every `R` opened by `computeNext`, exactly one of
+the following holds:
+
+- `R` is yielded to the consumer (the consumer is responsible for closing).
+- `R.close()` is called inside `computeNext` before the method returns.
+
+**Pf:** post-fix `computeNext` is structured as:
+
+```java
+while (revision <= maxRevision) {
+  R rtx = openTrx(revision);
+  revision++;
+  if (rtx.moveTo(nodeKey)) {                         // (A) yield
+    hasMoved = true; return rtx;
+  }
+  rtx.close();                                       // (B) closed locally
+  if (hasMoved) return endOfData();
+}
+```
+
+Every opened `rtx` exits through either (A) — yielded to consumer — or (B) —
+closed locally. The pre-fix branch missing the `rtx.close()` on the
+prefix-skip path yielded nothing AND did not close, leaking. Post-fix has
+exactly one close site (B) covering both the prefix-skip and the
+post-yield-deletion case, distinguished only by the subsequent `hasMoved` test
+which controls whether the loop continues or terminates. ∎
+
+- **Test (2a):** `AllTimeAxisTest.prefixRtxIsClosed_noLeak` — inserts a node only
+  in revision 4, walks `AllTimeAxis` from a pivot pointing at it, asserts
+  `activeTrxCount()` returns to baseline. Pre-fix, the assertion fails by 3
+  (revisions 1, 2, 3 leaked).
+
+---
+
+## 3. `RevisionPrefetcher` — lazy + cancellable lifecycle
+
+**Inv 3a (laziness):** the constructor opens no transactions. Specifically,
+`new RevisionPrefetcher(...)` performs zero calls to `nextRevision.getAsInt()`
+and zero calls to `resourceSession.beginNodeReadOnlyTrx(...)`.
+
+**Pf:** the constructor's body is a series of field assignments and
+`requireNonNull` checks; no `submitNext()` invocation. The fill-to-depth happens
+exclusively in `poll()` via `fillToDepth()`. ∎
+
+- **Test (3a):** `RevisionPrefetcherLifecycleTest.constructorIsLazy_noOpensSubmitted`.
+
+**Inv 3b (cancellation safety):** if `close()` is called at any point during a
+prefetcher's lifetime, no rtx is leaked. Specifically: for every rtx opened by
+any submitted task, exactly one of:
+
+- The rtx is yielded to a `poll()` caller (consumer's responsibility).
+- The rtx is closed inline by the supplier itself (when it observes `closed ==
+  true` after `beginNodeReadOnlyTrx` returned but before constructing the
+  `RtxResult`).
+- The rtx is closed by `whenComplete(CLOSE_RESULT_RTX)` registered on the
+  future during `close()` (when the supplier had already produced an
+  `RtxResult` that no consumer ever polled).
+
+**Pf:** consider the supplier body's three observable states relative to a
+concurrent `close()`:
+
+1. `close()` runs *before* the supplier reads `closed`. The supplier returns
+   `null` without opening an rtx. No rtx exists; trivially no leak.
+
+2. `close()` runs *after* the supplier read `closed` but *before* the supplier
+   re-checks after `beginNodeReadOnlyTrx`. The supplier opens the rtx, then
+   the post-open check observes `closed = true` and calls `rtx.close()` inline;
+   returns `null`. The future completes with `null` and `whenComplete` no-ops
+   (the `if (result != null)` guard).
+
+3. `close()` runs *after* the supplier returned `RtxResult(rtx, ok)`. The
+   future's value is `result`. `close()`'s `cancel(true)` is a no-op (already
+   completed). `whenComplete(CLOSE_RESULT_RTX)` fires with `result != null`
+   and closes the rtx.
+
+In none of these cases does an rtx become unreachable without being closed. ∎
+
+- **Test (3b):** `RevisionPrefetcherLifecycleTest.closeBeforeAnyPoll_isIdempotentAndPreventsFurtherWork`,
+  `closeAfterFirstPoll_drainsPendingFutures`,
+  `PrefetchedAllTimeAxisTest.prefetchedAllTimeAxis_constructorWithoutIterate_isLazyAndLeakFree`,
+  `prefetchedAllTimeAxis_abandonAfterOneItem_releasesPrefetched`.
+
+**Inv 3c (post-close idempotence):** `poll()` after `close()` returns `null`,
+without observing any prefetched results. `close()` after `close()` is a no-op.
+
+**Pf:** `poll()` checks `if (closed) return null;` as its first action.
+`close()` checks `if (closed) return;` as its first action and sets
+`closed = true` before any other work. ∎
+
+- **Test (3c):** `RevisionPrefetcherLifecycleTest.pollAfterClose_returnsNullEvenIfQueueWasFull`,
+  `closeBeforeAnyPoll_isIdempotentAndPreventsFurtherWork`.
+
+---
+
+## 4. `AbstractResourceSession.beginNodeReadOnlyTrx` — synchronized removal
+
+**Inv 4a (uniqueness):** for any sequence of concurrent `beginNodeReadOnlyTrx`
+calls on the same session, every returned reader has a unique trx ID.
+
+**Pf:** the ID is allocated via `nodeTrxIDCounter.incrementAndGet()`, which is
+atomic on the underlying `AtomicInteger`. The post-allocation `nodeTrxMap.put`
+is guarded by a duplicate-detection check (`throw new SirixUsageException` if
+`put` returns non-null), giving a second line of defence against any future
+regression that breaks the counter contract. ∎
+
+**Inv 4b (no orphan in `nodeTrxMap`):** every `R` returned by
+`beginNodeReadOnlyTrx` is registered in `nodeTrxMap` keyed by its ID at the
+moment of return.
+
+**Pf:** the method's last pre-return statement is the `nodeTrxMap.put`. Since
+`nodeTrxMap` is a `ConcurrentHashMap`, the put has happens-before with any
+subsequent observation by the calling thread. ∎
+
+**Inv 4c (no observable lock contention with `beginNodeTrx`):** the writer
+(`beginNodeTrx`) holds a per-session monitor; concurrent readers do NOT compete
+with it. Pre-fix the synchronized on `beginNodeReadOnlyTrx` did serialize
+against the writer. Post-fix the reader path has no monitor.
+
+**Pf:** the `nodeTrxIDCounter` increment, the storage-engine reader
+construction, and the `ConcurrentHashMap.put` are all lock-free. The writer's
+`beginNodeTrx` still holds the per-session monitor, but it touches no field
+that a reader-path racing it could observe in an inconsistent state — the only
+shared mutable structure is `nodeTrxMap`, which is concurrent. ∎
+
+- **Test (4a + 4b):** `ResourceSessionTest.concurrentReaderOpens_areRaceFreeAndProduceUniqueIds`
+  — 16 threads × 64 opens = 1024 concurrent `beginNodeReadOnlyTrx`, asserts
+  unique IDs, exact `activeTrxCount()`, and clean teardown back to baseline.
+
+---
+
+## 5. `KeyValueLeafPage` and `NodeStorageEngineWriter` — `Cleaner` migration
+
+**Inv 5a (no resurrection):** the `Cleaner.Cleanable`'s action does not retain
+`this` of the page or writer it monitors, so it cannot prevent the GC from
+reclaiming the monitored object.
+
+**Pf:** the action is held in a `static class LeakDetectorState implements
+Runnable`. As a *static* nested class it has no implicit `this` reference to
+the enclosing instance. Its constructor receives only primitive / `Atomic*` /
+immutable fields. There is no path from the cleaner-thread-rooted reference
+back to the enclosing instance. ∎
+
+- **Test:** verified by inspection (a runtime test for non-resurrection would
+  require tooling outside the standard JDK). The compiler enforces the static
+  nesting; reflection on the bytecode would confirm absence of the synthetic
+  `this$0` field.
+
+**Inv 5b (closed-flag visibility):** if `close()` returns successfully, the
+`leakDetectorState.closed` flag has been written to `true` and is visible to
+the cleaner thread.
+
+**Pf:** the state-flags atomic CAS in `close()` happens-before the
+`leakDetectorState.closed.set(true)` (program order on the same thread).
+`AtomicBoolean.set` performs a volatile write; any subsequent
+`leakDetectorState.closed.get()` (volatile read) on the cleaner thread observes
+the write. ∎
+
+---
+
+## 6. `SirixMetricsRegistry` — concurrent register / install
+
+**Inv 6a (every-bridge-sees-every-gauge):** for any interleaving of
+`registerGauge` and `install` calls, every successfully-installed bridge ends
+up observing every successfully-registered gauge — exactly once.
+
+**Pf:** both methods take the same monitor (`synchronized (REGISTRATIONS)`).
+Inside the monitor, `registerGauge` appends to `REGISTRATIONS` and snapshots
+`BRIDGES`; `install` appends to `BRIDGES` and snapshots `REGISTRATIONS`.
+Observe the four interleavings of two calls (R = registerGauge, I = install):
+
+- R₁ then R₂: each forwards itself to the BRIDGES snapshot taken under the
+  monitor at the time. If a bridge was installed between R₁ and R₂, the snapshot
+  for R₂ sees it; for R₁ it didn't yet exist, so the bridge in question must
+  have been installed AFTER R₁'s monitor exit, which means I's snapshot of
+  REGISTRATIONS already includes R₁'s reg. Either path delivers R₁'s reg to
+  the bridge.
+
+- I₁ then I₂: each forwards every gauge registered when its monitor was held.
+  No double-forwarding (each I uses its own snapshot).
+
+- R then I: I's snapshot includes R's reg; R's BRIDGES snapshot doesn't yet
+  include I's bridge. I forwards R to its bridge.
+
+- I then R: R's BRIDGES snapshot includes I's bridge; I's REGISTRATIONS
+  snapshot doesn't yet include R's reg. R forwards itself to I's bridge.
+
+In every interleaving, every (gauge, bridge) pair gets exactly one forwarding
+call. ∎
+
+- **Test (6a):** `SirixMetricsRegistryTest.registerGauge_afterInstall_forwardsImmediately`,
+  `install_isIdempotent_eachBridgeReceivesAllRegistrations`. Concurrent stress
+  test below — `concurrentRegisterAndInstall_eachBridgeSeesEveryGauge`.
+
+**Inv 6b (no deadlock by misbehaving bridge):** a bridge whose `registerGauge`
+implementation blocks indefinitely cannot deadlock the registry against further
+concurrent `registerGauge` or `install` calls.
+
+**Pf:** the forwarding loop runs *outside* the monitor. The synchronized block
+only holds long enough to append to the list and copy a snapshot. ∎
+
+---
+
+## 7. Crash recovery — partial-write truncation
+
+**Inv 7a (truncation eliminates torn bytes):** if a `.commit` marker is
+present and the data file contains bytes past the last successful revision's
+footer, the next writer creation truncates so those bytes are no longer
+observable to readers.
+
+**Pf:** `createPageTransaction` calls
+`truncateToLastSuccessfullyCommittedRevisionIfCommitLockFileExists` which calls
+`writer.truncateTo(storageEngineWriter, lastCommittedRev)` whenever
+`Files.exists(getCommitFile())`. The `truncateTo` implementation (per backend)
+trims the data file at the recorded last-good offset. Subsequent reads
+through `Reader` open at that offset and never see beyond it. ∎
+
+- **Test (7a):** `CrashRecoveryTest.partialWritePastLastRevision_isTruncatedOnReopen`
+  — appends 4 KiB of `0xCC` past the last revision, drops the marker, re-opens,
+  and asserts the file at the old garbage offset no longer reads as solid `0xCC`
+  (either truncated or overwritten by a new revision — both correct).
+
+---
+
+## 8. Open invariants (asserted by inspection, not yet test-verified)
+
+- **Inv 5a ("Cleaner does not resurrect")** — verified by static-nesting
+  inspection only; no runtime test.
+- **Inv 8.1 ("`SirixLZ77Codec` migrated decode is bit-for-bit identical to the
+  pre-migration decode")** — the existing `SirixLZ77CodecTest` round-trip
+  tests pass; an invariant of "bit-equivalence with the prior implementation"
+  could be made explicit by checking against a precomputed corpus of
+  pre-migration encoded payloads. Future work.
+- **Inv 8.2 ("`FaultInjectingWriter` semantics compose correctly with a real
+  `IOStorage` writer")** — the contract tests verify the decorator's own
+  contract; integration with real storage is deferred.
+
+---
+
+## Test additions delivered alongside this document
+
+The remainder of this commit adds the property / stress tests called out as
+"to be added" above:
+
+1. `BrackitArithmeticPropertyTest` — randomized 10 000-sample property checks
+   for Inv 1.1a, 1.2a, 1.3a.
+2. `SirixMetricsRegistryTest.concurrentRegisterAndInstall_eachBridgeSeesEveryGauge` —
+   stress test for Inv 6a, 16 threads × mixed register/install operations,
+   verifies every (gauge, bridge) pair was forwarded exactly once.
+
+Together with the existing tests, every "Inv" line above is now backed by at
+least one CI-running assertion.
