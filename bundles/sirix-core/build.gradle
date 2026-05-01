@@ -40,6 +40,28 @@ jar {
     }
 }
 
+// Expose compiled test classes (Holder, JsonTestHelper, IteratorTester, ...) to sibling
+// modules. Gradle 9+ no longer lets you reach `project(':x').sourceSets.test.output`
+// via project() in another module's dependencies block, so the historical short form
+// breaks. Publish a classifier="tests" jar through a named consumable configuration
+// instead — works on Gradle 8/9/10 alike.
+configurations {
+    testArtifacts
+}
+
+tasks.register('testJar', Jar) {
+    archiveClassifier = 'tests'
+    // Only compiled test classes — not src/test/resources, which contains
+    // multi-GB benchmark datasets (cityofchicago.json) that would blow past
+    // the zip 4 GB limit and are not needed by downstream test consumers.
+    from sourceSets.test.output.classesDirs
+    dependsOn testClasses
+}
+
+artifacts {
+    testArtifacts tasks.named('testJar')
+}
+
 test {
     useJUnitPlatform()
     
