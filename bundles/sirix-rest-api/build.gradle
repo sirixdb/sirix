@@ -20,7 +20,7 @@ apply plugin: 'org.graalvm.buildtools.native'
 dependencies {
     implementation project(':sirix-core')
     implementation project(':sirix-query')
-    testImplementation project(':sirix-core').sourceSets.test.output
+    testImplementation project(path: ':sirix-core', configuration: 'testArtifacts')
 
     implementation implLibraries.kotlinStdlib
     implementation implLibraries.kotlinxCoroutinesCore
