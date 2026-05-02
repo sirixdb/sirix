@@ -44,18 +44,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>Why this shape: heavy temporal-axis walks (which open one rtx per yielded
  * revision) are covered by dedicated correctness tests
  * ({@code PrefetchedAllTimeAxisTest}, {@code AllTimeAxisTest}) and aren't appropriate
- * for a leak-hunting soak — they exhaust the tracker too fast to give the heap
- * sampler enough cycles to compare.
+ * for a leak-hunting soak — they generate enough rtx churn that heap-snapshot noise
+ * dominates the leak signal we want to detect.
  *
- * <p>Note on Sirix's {@code RevisionEpochTracker}: the global 4096-slot tracker
- * does not currently release slots when a wtx commit completes — confirmed by this
- * soak. After a few thousand commits the tracker fills and a fresh
- * {@code beginNodeReadOnlyTrx} fails with {@code IllegalStateException("No free
- * slots in RevisionEpochTracker")}. The soak catches this case, logs it as a
- * leak signal, and still runs the heap-leak check against the cycles that did
- * complete. A separate Sirix issue should track the tracker fix; until then the
- * soak's effective ceiling is determined by the tracker, not the wall-clock budget
- * (~30-40 cycles at {@link #COMMITS_PER_CYCLE} = 100 before exhaustion).
+ * <p>Note on Sirix's {@code RevisionEpochTracker}: the global tracker has a 4096-slot
+ * cap. The {@code AbstractNodeReadOnlyTrx.close} fix landed alongside this test
+ * ensures every rtx deregisters its ticket on close, so the tracker stays well below
+ * the cap regardless of soak duration. The soak still defensively catches
+ * {@code IllegalStateException("No free slots in RevisionEpochTracker")} and reports
+ * it as a leak signal — if the bound is hit again, that's a new regression, not the
+ * known-fixed one.
  *
  * <h2>What this test catches</h2>
  * <ol>
