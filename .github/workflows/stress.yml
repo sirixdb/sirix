@@ -1,41 +1,45 @@
 name: Bitemporal soak stress test
 
-# Long-running stress test for the bitemporal commit + temporal-axis-read pipeline.
+# Long-running multi-cycle stress test for the bitemporal commit + temporal-axis-read
+# pipeline, with per-cycle heap-leak detection.
 #
-# Runs on demand via the Actions tab "Run workflow" button (workflow_dispatch) and
-# also on a weekly cron at 03:00 UTC Sunday — enough cadence to catch slow-burn
-# regressions without saturating CI capacity. The default 30-minute duration
-# fits well inside the GitHub Actions 6-hour job ceiling and gives the test plenty
-# of time to repeat the writer/reader/cycle phases many times.
+# The test runs an unbounded number of cycles within the configured wall-clock budget;
+# each cycle commits + reads + cycles the session, sampling heap usage between cycles.
+# A real per-cycle leak grows linearly with cycle count and trips the 1.5× late-vs-early
+# heap-median assertion well before the soak completes.
 #
-# To launch a short ad-hoc run from the UI: Actions → "Bitemporal soak stress test" →
-# "Run workflow" → set duration_seconds (e.g. 60) and the number of reader threads.
+# Trigger paths:
+#   * workflow_dispatch — manual UI trigger from Actions tab. Supports adjustable
+#     duration_seconds (default 1800 = 30 min) and reader_threads (default 4).
+#   * Weekly Sunday 03:00 UTC cron — 1-hour soak, enough for ~20-50 cycles depending
+#     on commit throughput.
+#
+# GitHub-hosted runners cap each job at 6 hours wall-clock; soaks of >5 hours need
+# self-hosted runners. Set duration_seconds <= 18000 for hosted runs.
 
 on:
   workflow_dispatch:
     inputs:
       duration_seconds:
-        description: Soak duration in seconds (writer + reader phases share this budget)
+        description: Soak duration in seconds. <= 18000 for GitHub-hosted runners.
         required: true
         default: '1800'
         type: string
       reader_threads:
-        description: Concurrent reader threads in phase 2
+        description: Concurrent reader threads in each cycle's reader phase
         required: true
         default: '4'
         type: string
   schedule:
-    # Every Sunday at 03:00 UTC. Weekly cadence is enough to catch slow-burn
-    # regressions without saturating CI capacity.
     - cron: '0 3 * * 0'
 
 jobs:
   soak:
-    name: Run soak (${{ github.event.inputs.duration_seconds || '1800' }}s)
+    name: Run soak (${{ github.event.inputs.duration_seconds || '3600' }}s)
     runs-on: ubuntu-latest
-    # Headroom over the soak duration for setup, build, and teardown. Keep well under
-    # the GitHub Actions 6h hard ceiling.
-    timeout-minutes: 60
+    # Headroom over the soak duration for setup, build, GC pauses, and teardown.
+    # GitHub-hosted runners enforce a 6-hour hard ceiling regardless.
+    timeout-minutes: 350
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,21 +55,15 @@ jobs:
 
       - name: Run the soak
         env:
-          # The test gate: SIRIX_STRESS_ENABLE bypasses the @Disabled annotation in
-          # combination with the explicit --tests filter below. Duration and reader
-          # thread count are user-configurable for workflow_dispatch; the cron path
-          # uses the defaults from inputs.
+          # The test is gated by SIRIX_STRESS_ENABLE — without it the test method
+          # returns early in the first millisecond. This avoids @Disabled,
+          # which Gradle's forked test JVM cannot easily un-disable from CLI flags.
           SIRIX_STRESS_ENABLE: '1'
-          SIRIX_STRESS_DURATION_SECONDS: ${{ github.event.inputs.duration_seconds || '1800' }}
+          SIRIX_STRESS_DURATION_SECONDS: ${{ github.event.inputs.duration_seconds || '3600' }}
           SIRIX_STRESS_READER_THREADS: ${{ github.event.inputs.reader_threads || '4' }}
         run: |
-          # The @Disabled annotation is the no-op default; explicitly include the
-          # disabled test via the --tests filter so JUnit picks it up under the env
-          # gate. The internal env-var check ensures it still no-ops if someone
-          # accidentally runs `gradlew test` without the gate set.
           ./gradlew :sirix-core:test \
             --tests io.sirix.stress.BitemporalSoakStressTest \
-            -Djunit.jupiter.conditions.deactivate='org.junit.*DisabledCondition' \
             --no-daemon
 
       - name: Upload test reports
