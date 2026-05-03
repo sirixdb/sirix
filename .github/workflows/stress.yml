@@ -1,0 +1,78 @@
+name: Bitemporal soak stress test
+
+# Long-running multi-cycle stress test for the bitemporal commit + temporal-axis-read
+# pipeline, with per-cycle heap-leak detection.
+#
+# The test runs an unbounded number of cycles within the configured wall-clock budget;
+# each cycle commits + reads + cycles the session, sampling heap usage between cycles.
+# A real per-cycle leak grows linearly with cycle count and trips the 1.5× late-vs-early
+# heap-median assertion well before the soak completes.
+#
+# Trigger paths:
+#   * workflow_dispatch — manual UI trigger from Actions tab. Supports adjustable
+#     duration_seconds (default 1800 = 30 min) and reader_threads (default 4).
+#   * Weekly Sunday 03:00 UTC cron — 1-hour soak, enough for ~20-50 cycles depending
+#     on commit throughput.
+#
+# GitHub-hosted runners cap each job at 6 hours wall-clock; soaks of >5 hours need
+# self-hosted runners. Set duration_seconds <= 18000 for hosted runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: Soak duration in seconds. <= 18000 for GitHub-hosted runners.
+        required: true
+        default: '1800'
+        type: string
+      reader_threads:
+        description: Concurrent reader threads in each cycle's reader phase
+        required: true
+        default: '4'
+        type: string
+  schedule:
+    - cron: '0 3 * * 0'
+
+jobs:
+  soak:
+    name: Run soak (${{ github.event.inputs.duration_seconds || '3600' }}s)
+    runs-on: ubuntu-latest
+    # Headroom over the soak duration for setup, build, GC pauses, and teardown.
+    # GitHub-hosted runners enforce a 6-hour hard ceiling regardless.
+    timeout-minutes: 350
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run the soak
+        env:
+          # The test is gated by SIRIX_STRESS_ENABLE — without it the test method
+          # returns early in the first millisecond. This avoids @Disabled,
+          # which Gradle's forked test JVM cannot easily un-disable from CLI flags.
+          SIRIX_STRESS_ENABLE: '1'
+          SIRIX_STRESS_DURATION_SECONDS: ${{ github.event.inputs.duration_seconds || '3600' }}
+          SIRIX_STRESS_READER_THREADS: ${{ github.event.inputs.reader_threads || '4' }}
+        run: |
+          ./gradlew :sirix-core:test \
+            --tests io.sirix.stress.BitemporalSoakStressTest \
+            --no-daemon
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-test-reports-${{ github.run_id }}
+          path: |
+            bundles/sirix-core/build/reports/tests/
+            bundles/sirix-core/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 30

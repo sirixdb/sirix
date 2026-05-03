@@ -1446,7 +1446,20 @@ public abstract class AbstractNodeReadOnlyTrx<T extends NodeCursor & NodeReadOnl
     if (!isClosed) {
       // Release page guard first to allow page eviction.
       releaseCurrentPageGuard();
-      
+
+      // Pure read-only trx: close the underlying StorageEngineReader so its
+      // RevisionEpochTracker ticket gets deregistered. Without this, every rtx
+      // permanently consumes one of the global 4096 tracker slots and a long-running
+      // workload eventually fails to open new transactions.
+      //
+      // wtx-attached rtx (cachedWriter != null) is owned by the surrounding
+      // AbstractNodeTrxImpl, which closes the writer separately — closing the reader
+      // here would tear it down before the writer finishes its close path
+      // (await async commit, write last UberPage, close TIL).
+      if (cachedWriter == null && storageEngineReader != null) {
+        storageEngineReader.close();
+      }
+
       // Callback on session to make sure everything is cleaned up.
       resourceSession.closeReadTransaction(id);
 
