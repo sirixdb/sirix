@@ -11,6 +11,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import javax.management.MBeanServer;
+import javax.management.ObjectName;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
@@ -18,7 +20,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -138,6 +142,7 @@ final class BitemporalSoakStressTest {
     final Instant tStart = Instant.now();
     int cycle = 0;
     Throwable trackerExhaustion = null;
+    Map<String, long[]> baselineHistogram = null;
     while (System.nanoTime() < deadlineNanos) {
       cycle++;
       try {
@@ -158,6 +163,12 @@ final class BitemporalSoakStressTest {
       Thread.sleep(50); // yield so concurrent finalizers / Cleaner threads run
       final MemoryUsage heap = memBean.getHeapMemoryUsage();
       heapSamples.add(heap.getUsed());
+
+      // Capture a class-histogram baseline at cycle 50 (post-warmup, ~5K commits).
+      // The end-of-soak diff against this baseline names the leaking class.
+      if (cycle == 50) {
+        baselineHistogram = captureClassHistogram();
+      }
 
       // Print every cycle for the first 10, then every 10 cycles, then every 100.
       if (cycle <= 10 || (cycle <= 100 && cycle % 10 == 0) || cycle % 100 == 0) {
@@ -185,7 +196,91 @@ final class BitemporalSoakStressTest {
                         cycle - 1, totalCommits.get(), trackerExhaustion.getMessage());
     }
 
+    if (baselineHistogram != null) {
+      System.gc();
+      Thread.sleep(100);
+      final Map<String, long[]> finalHistogram = captureClassHistogram();
+      printTopLeakers(baselineHistogram, finalHistogram, 25);
+    }
+
     assertHeapDidNotLeak(heapSamples);
+  }
+
+  /**
+   * Capture a class histogram via the {@code DiagnosticCommand} JMX bean — the same data
+   * source as {@code jcmd <pid> GC.class_histogram}. Returns a map from class name to
+   * {@code [instanceCount, byteCount]} so a later snapshot can be diffed against this one.
+   */
+  private static Map<String, long[]> captureClassHistogram() throws Exception {
+    final MBeanServer server = ManagementFactory.getPlatformMBeanServer();
+    final ObjectName name = new ObjectName("com.sun.management:type=DiagnosticCommand");
+    final String raw = (String) server.invoke(name,
+                                              "gcClassHistogram",
+                                              new Object[] {new String[0]},
+                                              new String[] {String[].class.getName()});
+    final Map<String, long[]> out = new HashMap<>(2048);
+    for (final String line : raw.split("\n")) {
+      // Format: " num     #instances         #bytes  class name (module)"
+      // Data:   "   1:        12345        1234567  io.sirix.page.KeyValueLeafPage"
+      // Skip header / divider / empty.
+      final String trimmed = line.trim();
+      if (trimmed.isEmpty() || trimmed.startsWith("num") || trimmed.startsWith("---") || trimmed.startsWith("Total")) {
+        continue;
+      }
+      // Split on whitespace; skip the leading "N:" rank.
+      final String[] parts = trimmed.split("\\s+");
+      if (parts.length < 4) {
+        continue;
+      }
+      final long instances;
+      final long bytes;
+      try {
+        instances = Long.parseLong(parts[1]);
+        bytes = Long.parseLong(parts[2]);
+      } catch (final NumberFormatException ignored) {
+        continue;
+      }
+      // Class name is parts[3..]; reassemble with single spaces.
+      final StringBuilder cls = new StringBuilder(parts[3]);
+      for (int i = 4; i < parts.length; i++) {
+        cls.append(' ').append(parts[i]);
+      }
+      out.put(cls.toString(), new long[] {instances, bytes});
+    }
+    return out;
+  }
+
+  /**
+   * Print the {@code topN} classes with the largest absolute byte growth between two
+   * histogram snapshots. The output is sorted by {@code finalBytes - baseBytes} descending,
+   * so a real per-cycle leak surfaces near the top.
+   */
+  private static void printTopLeakers(final Map<String, long[]> base, final Map<String, long[]> finalH,
+      final int topN) {
+    record Entry(String cls, long deltaBytes, long deltaInstances, long finalBytes) {}
+    final List<Entry> entries = new ArrayList<>();
+    for (final Map.Entry<String, long[]> e : finalH.entrySet()) {
+      final long[] b = base.getOrDefault(e.getKey(), new long[] {0L, 0L});
+      final long deltaBytes = e.getValue()[1] - b[1];
+      final long deltaInstances = e.getValue()[0] - b[0];
+      if (deltaBytes <= 0) {
+        continue;
+      }
+      entries.add(new Entry(e.getKey(), deltaBytes, deltaInstances, e.getValue()[1]));
+    }
+    entries.sort((x, y) -> Long.compare(y.deltaBytes, x.deltaBytes));
+
+    System.out.println("[soak] === top " + topN + " classes by heap growth (post-baseline) ===");
+    System.out.printf("[soak] %-65s %12s %12s %12s%n", "class", "Δ_bytes", "Δ_instances", "final_bytes");
+    for (int i = 0; i < Math.min(topN, entries.size()); i++) {
+      final Entry e = entries.get(i);
+      System.out.printf("[soak] %-65s %12d %12d %12d%n",
+                        e.cls.length() > 65 ? e.cls.substring(0, 62) + "..." : e.cls,
+                        e.deltaBytes,
+                        e.deltaInstances,
+                        e.finalBytes);
+    }
+    System.out.println("[soak] === end histogram diff ===");
   }
 
   /** Run one writer + readback + session-cycle. */
