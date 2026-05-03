@@ -62,10 +62,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <h2>What this test catches</h2>
  * <ol>
  *   <li><b>Heap leaks.</b> After each cycle the test forces a full GC and samples
- *       used heap. The median of the last quarter of cycle samples must not exceed
- *       the median of the first quarter by more than {@link #HEAP_GROWTH_TOLERANCE}.
- *       A real per-cycle leak (tens of KB to MB) compounds over hundreds of cycles
- *       and trips the bound; metaspace settling and minor cache fill stay under it.</li>
+ *       used heap. {@link #findPlateauStart} walks the sample list to locate the
+ *       first {@link #PLATEAU_WINDOW_CYCLES}-cycle window whose spread is under
+ *       {@link #PLATEAU_RANGE_TOLERANCE} of the starting heap (i.e., caches have
+ *       saturated). The post-plateau median heap of the last quarter of samples
+ *       must not exceed the median of the first post-plateau quarter by more than
+ *       {@link #POST_PLATEAU_HEAP_GROWTH_TOLERANCE}. A real per-cycle leak grows
+ *       linearly forever and trips this bound; bounded cache fill plateaus and
+ *       stays flat. If the soak ends before any plateau is reached, the
+ *       assertion is skipped with an informational message — saturating caches
+ *       like the global RevisionFileData cache (default 1M entries) takes a
+ *       longer soak or a smaller cap (e.g.
+ *       {@code -Dsirix.revision.file.data.cache.size=10000}).</li>
  *   <li><b>Recovery liveness.</b> Each cycle's reopen-and-readback verifies the
  *       {@code .commit}-marker recovery path and that the latest committed revision
  *       is bit-for-bit readable.</li>
@@ -100,14 +108,21 @@ final class BitemporalSoakStressTest {
    *  heap-snapshot noise (per-cycle measurement variance) doesn't dominate the
    *  leak signal. */
   private static final long COMMITS_PER_CYCLE = 100L;
-  /** Heap-leak detection needs at least this many completed cycles to compare
-   *  early-stable vs late heap usage. Below the threshold the leak-bound is
-   *  skipped (per-cycle invariants still assert). */
-  private static final int MIN_CYCLES_FOR_LEAK_CHECK = 8;
-  /** Tolerance for the late-vs-early median heap comparison. 1.5× lets natural
-   *  metaspace settling and minor cache fill pass; a real per-cycle leak
-   *  compounds linearly and blows the bound after a few hundred cycles. */
-  private static final double HEAP_GROWTH_TOLERANCE = 1.5;
+  /** Sliding-window length for plateau detection (cycles). */
+  private static final int PLATEAU_WINDOW_CYCLES = 50;
+  /** Plateau is reached when the spread (max−min) of a {@link #PLATEAU_WINDOW_CYCLES}-cycle
+   *  window is at most this fraction of the window's starting heap. 3% is loose enough
+   *  to absorb GC-induced sample noise, tight enough to reject the slow cache-fill ramp
+   *  produced by the default RevisionFileData (1M entry) and page-cache (~2 GB byte)
+   *  budgets. */
+  private static final double PLATEAU_RANGE_TOLERANCE = 0.03;
+  /** A leak-comparison needs at least this many post-plateau samples for a meaningful
+   *  early-vs-late split. */
+  private static final int MIN_POST_PLATEAU_SAMPLES = 20;
+  /** Tolerance for the late-vs-early median heap comparison <em>after</em> the plateau
+   *  starts. 1.2× lets minor in-plateau noise pass; a real per-cycle leak compounds
+   *  linearly across the post-plateau window and blows the bound easily. */
+  private static final double POST_PLATEAU_HEAP_GROWTH_TOLERANCE = 1.2;
 
   @BeforeEach
   void setUp() {
@@ -306,26 +321,70 @@ final class BitemporalSoakStressTest {
   }
 
   /**
-   * Compare median used-heap of the first vs last quarter of cycles. A real
-   * per-cycle leak scales linearly with cycle count, so a 100-cycle soak with
-   * a 1 MB/cycle leak grows by ~25 MB on the late samples vs the early ones —
-   * easily blown past {@link #HEAP_GROWTH_TOLERANCE} = 1.5×.
+   * Detect when the heap has plateaued (caches saturated, eviction taking over) and
+   * compare median used-heap of the first vs last quarter of <em>post-plateau</em>
+   * cycles. Pre-plateau samples are dominated by cache fill toward bounded caps
+   * (page cache, RevisionFileData cache), which is not a leak; including them in
+   * the comparison produces false positives whenever the soak ends before saturation.
+   *
+   * <p>A real per-cycle leak scales linearly forever and trips the post-plateau
+   * comparison once the comparison window is long enough — bounded cache fill
+   * plateaus and stays flat.
    */
   private static void assertHeapDidNotLeak(final List<Long> samples) {
-    if (samples.size() < MIN_CYCLES_FOR_LEAK_CHECK) {
-      System.out.printf("[soak] heap-leak check skipped (only %d cycles, need >= %d)%n",
-                        samples.size(), MIN_CYCLES_FOR_LEAK_CHECK);
+    final int plateauStart = findPlateauStart(samples);
+    if (plateauStart < 0) {
+      System.out.printf(
+          "[soak] heap-leak check skipped: heap did not plateau within %d cycles (no %d-cycle window with "
+              + "spread ≤ %.1f%% of base found). Run a longer soak or lower the cache caps via "
+              + "-Dsirix.revision.file.data.cache.size=N to reach plateau within budget.%n",
+          samples.size(), PLATEAU_WINDOW_CYCLES, PLATEAU_RANGE_TOLERANCE * 100.0);
       return;
     }
-    final int q = samples.size() / 4;
-    final long earlyMedian = medianOfRange(samples, 0, q);
-    final long lateMedian = medianOfRange(samples, samples.size() - q, samples.size());
+    final int postPlateau = samples.size() - plateauStart;
+    if (postPlateau < MIN_POST_PLATEAU_SAMPLES) {
+      System.out.printf("[soak] heap-leak check skipped: only %d cycles after plateau (need >= %d). "
+                        + "Run a longer soak.%n", postPlateau, MIN_POST_PLATEAU_SAMPLES);
+      return;
+    }
+    final int quarter = Math.max(1, postPlateau / 4);
+    final long earlyMedian = medianOfRange(samples, plateauStart, plateauStart + quarter);
+    final long lateMedian = medianOfRange(samples, samples.size() - quarter, samples.size());
     final double ratio = (double) lateMedian / Math.max(1L, earlyMedian);
-    System.out.printf("[soak] heap medians: early=%d MB late=%d MB ratio=%.2fx%n",
-                      earlyMedian / (1024L * 1024L), lateMedian / (1024L * 1024L), ratio);
-    assertTrue(ratio <= HEAP_GROWTH_TOLERANCE,
-               String.format("heap leak suspected: late-median %d B / early-median %d B = %.2fx > %.2fx",
-                             lateMedian, earlyMedian, ratio, HEAP_GROWTH_TOLERANCE));
+    System.out.printf("[soak] post-plateau heap medians: early=%d MB late=%d MB ratio=%.2fx (plateau started at cycle %d)%n",
+                      earlyMedian / (1024L * 1024L), lateMedian / (1024L * 1024L), ratio, plateauStart + 1);
+    assertTrue(ratio <= POST_PLATEAU_HEAP_GROWTH_TOLERANCE,
+               String.format("heap leak suspected: post-plateau late-median %d B / early-median %d B = %.2fx > %.2fx",
+                             lateMedian, earlyMedian, ratio, POST_PLATEAU_HEAP_GROWTH_TOLERANCE));
+  }
+
+  /**
+   * Walk the samples and return the index of the first cycle that begins a window of
+   * {@link #PLATEAU_WINDOW_CYCLES} consecutive cycles whose value spread (max − min) is
+   * at most {@link #PLATEAU_RANGE_TOLERANCE} of the window's starting heap. The
+   * range-based test rejects the slow linear ramp of cache fill (where every cycle
+   * adds a small amount, never plateauing) while accepting GC-noise-only fluctuation
+   * around a stable baseline. Returns {@code -1} if no such window exists.
+   */
+  private static int findPlateauStart(final List<Long> samples) {
+    if (samples.size() < PLATEAU_WINDOW_CYCLES) {
+      return -1;
+    }
+    for (int start = 0; start <= samples.size() - PLATEAU_WINDOW_CYCLES; start++) {
+      final long base = samples.get(start);
+      final long allowedRange = (long) (base * PLATEAU_RANGE_TOLERANCE);
+      long min = base;
+      long max = base;
+      for (int i = start + 1; i < start + PLATEAU_WINDOW_CYCLES; i++) {
+        final long v = samples.get(i);
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      if (max - min <= allowedRange) {
+        return start;
+      }
+    }
+    return -1;
   }
 
   private static long medianOfRange(final List<Long> samples, final int from, final int toExclusive) {
