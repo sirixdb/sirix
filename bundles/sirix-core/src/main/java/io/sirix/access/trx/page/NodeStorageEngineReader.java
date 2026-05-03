@@ -1766,9 +1766,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return null;
     }
     
-    // Try to get from buffer cache
+    // Try to get from buffer cache. On hit, swizzle back onto the reference so the
+    // next access takes the getPage() fast path instead of round-tripping through
+    // the cache map (and through a per-key compute on contention).
     Page cachedPage = resourceBufferManager.getRecordPageCache().get(rootRef);
     if (cachedPage instanceof HOTLeafPage hotLeaf) {
+      rootRef.setPage(hotLeaf);
       return hotLeaf;
     }
     
@@ -1895,9 +1898,12 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       return null;
     }
     
-    // Try to get from buffer cache
+    // Try to get from buffer cache. On hit, swizzle back onto the reference so the
+    // next access takes the getPage() fast path (line 1888) instead of round-tripping
+    // through the cache map.
     Page cachedPage = resourceBufferManager.getRecordPageCache().get(reference);
     if (cachedPage instanceof HOTLeafPage || cachedPage instanceof HOTIndirectPage) {
+      reference.setPage(cachedPage);
       return cachedPage;
     }
     
