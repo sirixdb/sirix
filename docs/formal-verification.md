@@ -538,6 +538,17 @@ the rtx's next `moveTo` re-fetches via the normal page-load path. The
 watermark is therefore a *recency hint* the per-resource sweepers use to
 prefer keeping recently-committed pages warm, not a memory pin. ∎
 
+This separation matches the architecture of Umbra and LeanStore (TUM):
+buffer eviction is independent of long-running readers — Umbra evicts
+unlatched pages freely and re-resolves through pointer-swizzling on next
+access — while version-chain GC is gated by the oldest active reader's
+timestamp. Sirix's `PageGuard` plays the role Umbra's per-page latch does
+for cache pinning, and `minActiveRevision` plays the role of Umbra's
+"oldest active txn timestamp" for version retention. The trade-off both
+systems share — long-running OLAP scans delay version GC, not buffer
+eviction — is a property of snapshot-isolation MVCC, not of either
+specific implementation.
+
 ### Inv 9.4 (capacity bound is configurable, default headroom adequate)
 
 The tracker's hard cap is `slotCount`, returned by `slotCount()`. The default
