@@ -216,27 +216,58 @@ public enum StorageType {
     return resourceConf.storageType.getInstance(resourceConf);
   }
 
+  /** System property to override the per-resource RevisionFileData cache cap. */
+  public static final String REVISION_FILE_DATA_CACHE_SIZE_PROPERTY = "sirix.revision.file.data.cache.size";
+
   /**
-   * Cap on the per-resource {@code RevisionFileData} cache. Each entry maps a revision
-   * number to its (offset, timestamp) tuple in the data file; a cache miss is a single
-   * 16-byte read from the file's revision index, so the cache is a pure optimization
-   * for point-in-time queries — not a correctness requirement.
+   * Default per-resource cap for the {@code RevisionFileData} cache. Each entry maps a
+   * revision number to its (offset, timestamp) tuple in the data file; a cache miss is a
+   * single 16-byte read from the file's revision index, so the cache is a pure
+   * optimization for repeated point-in-time queries — not a correctness requirement.
    *
-   * <p>Without an upper bound this cache grew linearly in the number of committed
-   * revisions, retaining ~2 KB of heap per commit (confirmed by a 30-minute soak that
-   * surfaced this as the dominant per-commit retention class). 10k entries is enough
-   * to keep the working set of typical point-in-time queries hot while bounding the
-   * worst-case heap to ~1 MB per resource. Sequential full-history scans don't benefit
-   * from any cache size below the scan length anyway — every access misses regardless.
+   * <p>Without any upper bound this cache grew linearly in the number of committed
+   * revisions (one entry per commit, never evicted), retaining ~2 KB of heap per commit.
+   * Confirmed by a 30-minute soak: 77,153 commits → +77k {@link RevisionFileData}
+   * records, +77k {@link java.time.Instant}, +77k {@link java.util.concurrent.CompletableFuture}
+   * (the {@code AsyncCache} wrapper), +154k Caffeine map nodes — exactly one
+   * never-evicted entry per commit.
+   *
+   * <p>100k entries is the default because typical bitemporal workloads can have deep
+   * histories that point-in-time queries reach into — an audit log might commit several
+   * times per minute over years and still want fast lookup across that history. At
+   * ~200 bytes per Caffeine entry the worst-case ceiling is ~20 MB per resource.
+   *
+   * <p><b>Note for multi-tenant deployments:</b> the cache is currently
+   * <em>per-resource</em>, keyed by resource path in {@link #CACHE_REPOSITORY}. A
+   * deployment with N independent resources therefore sees up to N × cap entries
+   * total. Override via {@code -D}{@value #REVISION_FILE_DATA_CACHE_SIZE_PROPERTY}{@code =M}
+   * to scale down for many-resource workloads. A follow-up should refactor this to a
+   * single global cache keyed by {@code (resourcePath, revision)} so the budget can
+   * be enforced once across all resources — that touches the
+   * {@code AsyncCache<Integer, RevisionFileData>} type signature on ~12 storage
+   * classes (Storage / Reader / Writer for each backend) and is out of scope here.
    */
-  static final long REVISION_FILE_DATA_CACHE_MAX_SIZE = 10_000L;
+  public static final long DEFAULT_REVISION_FILE_DATA_CACHE_MAX_SIZE = 100_000L;
+
+  static long revisionFileDataCacheMaxSize() {
+    final String prop = System.getProperty(REVISION_FILE_DATA_CACHE_SIZE_PROPERTY);
+    if (prop == null || prop.isEmpty()) {
+      return DEFAULT_REVISION_FILE_DATA_CACHE_MAX_SIZE;
+    }
+    try {
+      final long parsed = Long.parseLong(prop.trim());
+      return parsed > 0L ? parsed : DEFAULT_REVISION_FILE_DATA_CACHE_MAX_SIZE;
+    } catch (final NumberFormatException ignored) {
+      return DEFAULT_REVISION_FILE_DATA_CACHE_MAX_SIZE;
+    }
+  }
 
   private static AsyncCache<Integer, RevisionFileData> getIntegerRevisionFileDataAsyncCache(
       ResourceConfiguration resourceConf) {
     final var resourcePath = resourceConf.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
                                                       .resolve(IOStorage.FILENAME);
     return StorageType.CACHE_REPOSITORY.computeIfAbsent(resourcePath,
-        path -> Caffeine.newBuilder().maximumSize(REVISION_FILE_DATA_CACHE_MAX_SIZE).buildAsync());
+        path -> Caffeine.newBuilder().maximumSize(revisionFileDataCacheMaxSize()).buildAsync());
   }
 
   /**
