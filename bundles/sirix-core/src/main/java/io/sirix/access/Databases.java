@@ -440,7 +440,7 @@ public final class Databases {
               maxRevisionRootPageCache, maxRBTreeNodeCache, maxNamesCacheSize, maxPathSummaryCacheSize);
 
       // Initialize global epoch tracker (large slot count for all databases/resources)
-      GLOBAL_EPOCH_TRACKER = new RevisionEpochTracker(4096);
+      GLOBAL_EPOCH_TRACKER = new RevisionEpochTracker(RevisionEpochTracker.defaultSlotCount());
       GLOBAL_EPOCH_TRACKER.setLastCommittedRevision(0);
 
       // Start GLOBAL ClockSweeper threads (PostgreSQL bgwriter pattern)
@@ -515,7 +515,7 @@ public final class Databases {
   public static RevisionEpochTracker getGlobalEpochTracker() {
     if (GLOBAL_EPOCH_TRACKER == null) {
       // Initialize with default if called before BufferManager is initialized
-      GLOBAL_EPOCH_TRACKER = new RevisionEpochTracker(4096);
+      GLOBAL_EPOCH_TRACKER = new RevisionEpochTracker(RevisionEpochTracker.defaultSlotCount());
       GLOBAL_EPOCH_TRACKER.setLastCommittedRevision(0);
     }
     return GLOBAL_EPOCH_TRACKER;
@@ -584,7 +584,7 @@ public final class Databases {
 
     // Initialize global epoch tracker
     if (GLOBAL_EPOCH_TRACKER == null) {
-      GLOBAL_EPOCH_TRACKER = new RevisionEpochTracker(4096);
+      GLOBAL_EPOCH_TRACKER = new RevisionEpochTracker(RevisionEpochTracker.defaultSlotCount());
       GLOBAL_EPOCH_TRACKER.setLastCommittedRevision(0);
     }
 

@@ -446,3 +446,173 @@ The remainder of this commit adds the property / stress tests called out as
 
 Together with the existing tests, every "Inv" line above is now backed by at
 least one CI-running assertion.
+
+---
+
+## 9. `RevisionEpochTracker` — packed-state, free-list, leak-free deregistration
+
+### Background
+
+The MVCC tracker assigns each active transaction a slot. The slot stores the
+transaction's revision; an eviction decision uses `minActiveRevision` as its
+watermark. Pre-fix it stored the slot state (`revision`, `active`) in two
+volatile fields of an `AtomicReferenceArray<Slot>` element, used a linear scan
+to find a free slot, and capped at 4 096 slots — small enough that any soak
+exercising a few thousand transactions saturated the array, even with all
+tickets correctly deregistered. Capacity, register cost, and a leak in
+`AbstractNodeReadOnlyTrx.close()` were all addressed in the same change set.
+
+### Notation
+
+Let `S` be the slot count, `state[i]` the packed `long` for slot `i` —
+encoding the active flag in bit 63 and the revision in the low 32 bits — and
+`free` the LIFO of free indices.
+
+### Inv 9.1 (mutual exclusion of slot ownership)
+
+If `register` returns ticket `t` for transaction `T` and `t.slotIndex == s`,
+then no other ticket with slot index `s` exists between the volatile-publish
+of `state[s] = ACTIVE | rev(T)` and `T.deregister(t)`'s volatile clear.
+
+**Pf:** `register` pops a single index from `free` under a monitor lock; the
+index is not pushed back until `deregister` runs. Per the Java Memory Model,
+the monitor entry/exit serialise pop and push observations across threads. ∎
+
+### Inv 9.2 (no leaked slots after balanced register/deregister)
+
+For any sequence of operations in which every successful `register` is followed
+by exactly one `deregister(ticket)`, the count of free indices in `free`
+equals `S`, and every `state[i] == 0L`.
+
+**Pf:** Pop decrements `freeTop` by 1, push increments by 1; with one
+`register` per `deregister` the net is zero. `deregister` clears `state[i]`
+unconditionally before pushing. ∎
+
+The `RevisionEpochTrackerTest.deregister_recyclesSlotsForReuse` test pins this
+property by cycling 100× through a 4-slot tracker — only feasible if every
+deregister actually frees the slot.
+
+### Inv 9.3 (`minActiveRevision` is a safe eviction watermark)
+
+For any transaction `T` registered with revision `rev(T)`, no concurrent or
+later call to `minActiveRevision` returns a value greater than `rev(T)` —
+provided `T.deregister` has not been observed by the calling thread.
+
+**Pf:** `register` performs `setVolatile(state[s], ACTIVE | rev(T))` *after*
+popping the slot. Any later thread that reads `state[s]` via `getVolatile`
+observes the post-publication value (volatile write/read pair establishes
+happens-before). The scan in `minActiveRevision` reads each slot's state once
+and takes `min` over the active ones; therefore `min ≤ rev(T)`. ∎
+
+`minActiveRevision` is *eventually consistent* (slots changing during the
+scan can be observed in either pre- or post-state) but never returns a
+watermark greater than any active transaction's revision, which is the only
+property the eviction code needs for safety.
+
+#### Long-running read transactions do not pin the working set
+
+A naïve reading of "the watermark protects pages with `rev ≥ minActiveRev`"
+suggests that a 24-hour analytical rtx at revision `R` pins every page
+authored at revision `≥ R` against eviction, defeating cache replacement
+under memory pressure. The actual design avoids this in two layers:
+
+1. **`PageGuard` is what pins a page in cache, not the watermark.**
+   `AbstractNodeReadOnlyTrx` acquires a `PageGuard` on the page it is
+   reading from and releases it (`releaseCurrentPageGuard`) on every
+   `moveTo` to a different page and on `close()`. A long-running rtx
+   therefore guards at most one page at a time — the one its cursor is
+   currently positioned on — never the whole working set.
+
+2. **The watermark is consulted only by per-resource sweepers, not the
+   global sweeper.** The eviction filter in
+   `ClockSweeper.sweep` is gated by
+   `if (!isGlobalSweeper && page.getRevision() >= minActiveRev)`. Under
+   memory pressure the global sweeper, instantiated by
+   `Databases.startClockSweepers(GLOBAL_EPOCH_TRACKER)`, walks all shards
+   and bypasses the watermark — any page that is not currently
+   `PageGuard`-pinned and not `HOT` is evictable regardless of its
+   revision.
+
+Pages dropped from cache by the global sweeper remain durable on disk;
+the rtx's next `moveTo` re-fetches via the normal page-load path. The
+watermark is therefore a *recency hint* the per-resource sweepers use to
+prefer keeping recently-committed pages warm, not a memory pin. ∎
+
+This separation matches the architecture of Umbra and LeanStore (TUM):
+buffer eviction is independent of long-running readers — Umbra evicts
+unlatched pages freely and re-resolves through pointer-swizzling on next
+access — while version-chain GC is gated by the oldest active reader's
+timestamp. Sirix's `PageGuard` plays the role Umbra's per-page latch does
+for cache pinning, and `minActiveRevision` plays the role of Umbra's
+"oldest active txn timestamp" for version retention. The trade-off both
+systems share — long-running OLAP scans delay version GC, not buffer
+eviction — is a property of snapshot-isolation MVCC, not of either
+specific implementation.
+
+### Inv 9.4 (capacity bound is configurable, default headroom adequate)
+
+The tracker's hard cap is `slotCount`, returned by `slotCount()`. The default
+is `DEFAULT_SLOT_COUNT = 65 536`, overridable via
+`-Dsirix.epoch.tracker.slots=N`. A `register` call on a full tracker throws
+`IllegalStateException` with a message naming the system property.
+
+**Pf:** Construction sizes `freeStack[]` to `slotCount`; `freeTop` starts at
+`slotCount` and is bounded by it. The throw site is the only branch in
+`register` for `freeTop == 0`. ∎
+
+### Inv 9.5 (HFT-grade hot path)
+
+`register` takes one monitor lock for the duration of a stack pop (~ns) plus
+one volatile write to a `long[]` element. `deregister` takes one volatile
+write plus a monitor lock for the push. Per-call allocation is one
+`Ticket` (single `int` field — escape-analysable when stored in a caller's
+local frame) and no boxing.
+
+**Pf:** Inspect the bodies of `register` and `deregister`. The monitor scope
+contains only constant-time array operations; the volatile writes are direct
+`long`-array stores via `VarHandle`. No call site loops over the slot array.
+The `Ticket` constructor is invoked once per register; storage is a single
+`int`. ∎
+
+`minActiveRevision` is called only from `ClockSweeper` (typical 100 ms
+interval) and is bounded by `O(slotCount)` volatile reads. At 65 536 slots a
+full scan is ~30 µs on commodity hardware — three orders of magnitude under
+the sweeper period.
+
+### Companion fix — `AbstractNodeReadOnlyTrx.close`
+
+The same change set fixes a long-standing leak: pure read-only transactions
+opened via `session.beginNodeReadOnlyTrx` dropped their
+`StorageEngineReader` reference without calling `.close()`, so the rtx's
+tracker ticket never deregistered. wtx-attached read-only views were unaffected
+because `AbstractNodeTrxImpl.close` closes the writer (which closes the inner
+reader) explicitly.
+
+**Inv 9.6:** for every transaction `T` returned by `beginNodeReadOnlyTrx`,
+`T.close()` invokes `storageEngineReader.close()` exactly once, which calls
+`tracker.deregister(epochTicket)` exactly once.
+
+**Pf:** `AbstractNodeReadOnlyTrx.close()` checks `cachedWriter == null`
+(established at construction by `(pageReadTransaction instanceof
+StorageEngineWriter w) ? w : null`); for pure rtx this is always null, so the
+branch closes the reader. `NodeStorageEngineReader.close()` is guarded by
+`isClosed`, so the call is idempotent if any caller double-closes. ∎
+
+### Tests
+
+- **Unit:** `RevisionEpochTrackerTest`
+  (`register_returnsTicketWithUniqueSlots`,
+  `register_throwsWhenCapacityExhausted`,
+  `deregister_recyclesSlotsForReuse`,
+  `minActiveRevision_reflectsLowestActiveTicket`,
+  `deregister_nullTicket_isANoOp`,
+  `defaultSlotCount_returnsSensibleHeadroom`).
+- **Concurrent stress:** `register_isThreadSafeUnderConcurrentLoad` —
+  16 threads × 5 000 register/deregister cycles on a 1 024-slot tracker;
+  proves Inv 9.1 and 9.2 hold under contention, asserts the post-test capacity
+  is fully restored.
+- **End-to-end leak detector:** `BitemporalSoakStressTest.soak` runs cycles of
+  100 commits + readback + session close until either the time budget expires
+  or the tracker exhausts. Pre-fix the tracker exhausted at ~40 cycles
+  (~4 000 commits); post-fix the soak runs to its full configured duration
+  (default 60 s, configurable up to 24 hours) without exhaustion.
