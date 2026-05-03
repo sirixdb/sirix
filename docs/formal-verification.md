@@ -507,9 +507,36 @@ and takes `min` over the active ones; therefore `min ≤ rev(T)`. ∎
 `minActiveRevision` is *eventually consistent* (slots changing during the
 scan can be observed in either pre- or post-state) but never returns a
 watermark greater than any active transaction's revision, which is the only
-property the eviction code needs for safety: a page evicted at revision `r`
-is reachable only by transactions reading revision `≥ r`, and those will hold
-a slot until they finish.
+property the eviction code needs for safety.
+
+#### Long-running read transactions do not pin the working set
+
+A naïve reading of "the watermark protects pages with `rev ≥ minActiveRev`"
+suggests that a 24-hour analytical rtx at revision `R` pins every page
+authored at revision `≥ R` against eviction, defeating cache replacement
+under memory pressure. The actual design avoids this in two layers:
+
+1. **`PageGuard` is what pins a page in cache, not the watermark.**
+   `AbstractNodeReadOnlyTrx` acquires a `PageGuard` on the page it is
+   reading from and releases it (`releaseCurrentPageGuard`) on every
+   `moveTo` to a different page and on `close()`. A long-running rtx
+   therefore guards at most one page at a time — the one its cursor is
+   currently positioned on — never the whole working set.
+
+2. **The watermark is consulted only by per-resource sweepers, not the
+   global sweeper.** The eviction filter in
+   `ClockSweeper.sweep` is gated by
+   `if (!isGlobalSweeper && page.getRevision() >= minActiveRev)`. Under
+   memory pressure the global sweeper, instantiated by
+   `Databases.startClockSweepers(GLOBAL_EPOCH_TRACKER)`, walks all shards
+   and bypasses the watermark — any page that is not currently
+   `PageGuard`-pinned and not `HOT` is evictable regardless of its
+   revision.
+
+Pages dropped from cache by the global sweeper remain durable on disk;
+the rtx's next `moveTo` re-fetches via the normal page-load path. The
+watermark is therefore a *recency hint* the per-resource sweepers use to
+prefer keeping recently-committed pages warm, not a memory pin. ∎
 
 ### Inv 9.4 (capacity bound is configurable, default headroom adequate)
 
