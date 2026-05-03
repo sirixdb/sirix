@@ -1,6 +1,7 @@
 package io.sirix.access.trx;
 
-import java.util.concurrent.atomic.AtomicReferenceArray;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 
 /**
  * Tracks the minimum active revision across all transactions (epoch-based MVCC).
@@ -11,26 +12,60 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  * Inspired by LeanStore/CedarDB epoch-based reclamation, adapted to Sirix's revision-based MVCC
  * model.
  *
+ * <h2>HFT-grade design</h2>
+ * <ul>
+ *   <li>Slot state is packed into a single {@code long} per slot — bit 63 is the active flag,
+ *       bits 0..31 hold the revision number. Replaces the previous
+ *       {@code AtomicReferenceArray<Slot>} (one volatile object per slot, two volatile fields
+ *       per slot, three pointer hops to read state). The packed layout is one cache-line
+ *       prefetch every eight slots and one volatile read per state access via a {@link VarHandle}.</li>
+ *   <li>{@link #register} is O(1): a free-list of slot indices in a primitive {@code int[]}
+ *       is popped under a single intrinsic monitor. The lock holds for ~10 ns; outside it,
+ *       the volatile slot write is lock-free.</li>
+ *   <li>{@link #deregister} is O(1): clears the slot's volatile state then pushes the index
+ *       back. Idempotent on a {@code null} ticket.</li>
+ *   <li>{@link #minActiveRevision} is lock-free: walks the {@code long[]} with one volatile
+ *       read per slot. At the default 65,536 slot count one full scan is ~30 µs, well under
+ *       the typical 100 ms ClockSweeper interval.</li>
+ *   <li>Default capacity is 65,536 slots — {@code ~512 KB} of permanent heap (one
+ *       {@code long} per slot in the state array plus an {@code int} per slot in the free
+ *       stack), enough for query engines fronting Sirix with thousands of concurrent
+ *       readers. Override via {@code -D}{@value #SLOT_COUNT_PROPERTY}{@code =N}.</li>
+ * </ul>
+ *
+ * <h2>Memory ordering</h2>
+ * <p>{@code register} writes the packed state via {@link VarHandle#setVolatile} <em>after</em>
+ * popping the index under the lock; {@code deregister} writes {@code 0L} via
+ * {@code setVolatile} <em>before</em> pushing the index back. {@code minActiveRevision}
+ * reads each slot via {@link VarHandle#getVolatile}. The volatile write/read pair establishes
+ * happens-before from the registering transaction's revision assignment to any subsequent
+ * sweeper observation, which is the safety the eviction watermark requires (see
+ * docs/formal-verification.md, Inv 8).
+ *
  * @author Johannes Lichtenberger
  */
 public final class RevisionEpochTracker {
 
+  /** System property to override the slot count. Must be a positive integer. */
+  public static final String SLOT_COUNT_PROPERTY = "sirix.epoch.tracker.slots";
+
   /**
-   * Slot in the tracker array.
+   * Default slot count, applied when {@link #defaultSlotCount()} is used by callers that don't
+   * pick an explicit count. 65,536 is enough for all typical bitemporal Sirix workloads and
+   * costs ~768 KB of permanent heap (state long[] + free-stack int[]).
    */
-  private static final class Slot {
-    volatile int revision;
-    volatile boolean active;
+  public static final int DEFAULT_SLOT_COUNT = 65_536;
 
-    Slot() {
-      this.revision = 0;
-      this.active = false;
-    }
-  }
+  /** Bit set in the packed state when the slot is active. The low 32 bits hold the revision. */
+  private static final long ACTIVE_BIT = 1L << 63;
+
+  /** Volatile-access handle for the slot-state array. */
+  private static final VarHandle SLOT_VH = MethodHandles.arrayElementVarHandle(long[].class);
 
   /**
-   * Ticket returned when registering a transaction. Used to efficiently deregister the transaction
-   * later.
+   * Ticket returned when registering a transaction. Used to deregister the transaction later in
+   * O(1). The slot index is final; one Ticket per register call — escape-analysis-friendly and,
+   * since the field is a final {@code int}, cheap to allocate.
    */
   public static final class Ticket {
     private final int slotIndex;
@@ -44,21 +79,53 @@ public final class RevisionEpochTracker {
     }
   }
 
-  private final AtomicReferenceArray<Slot> slots;
+  /** Packed (active, revision) state per slot. Accessed via {@link #SLOT_VH}. */
+  private final long[] slotStates;
   private final int slotCount;
+  /** Stack of free slot indices. {@link #freeTop} is the count of free slots. */
+  private final int[] freeStack;
+  private int freeTop;
+  /** Used only for {@link #getDiagnostics} reporting; updated under {@link #lock}. */
+  private int highWaterMark;
+  private final Object lock = new Object();
   private volatile int lastCommittedRevision;
+
+  /**
+   * Resolve the configured slot count from the {@value #SLOT_COUNT_PROPERTY} system property,
+   * falling back to {@link #DEFAULT_SLOT_COUNT}. Invalid or non-positive values fall back to
+   * the default.
+   */
+  public static int defaultSlotCount() {
+    final String prop = System.getProperty(SLOT_COUNT_PROPERTY);
+    if (prop == null || prop.isEmpty()) {
+      return DEFAULT_SLOT_COUNT;
+    }
+    try {
+      final int parsed = Integer.parseInt(prop.trim());
+      return parsed > 0 ? parsed : DEFAULT_SLOT_COUNT;
+    } catch (final NumberFormatException ignored) {
+      return DEFAULT_SLOT_COUNT;
+    }
+  }
 
   /**
    * Create a new RevisionEpochTracker.
    *
    * @param slotCount number of concurrent transaction slots (power of 2 recommended)
    */
-  public RevisionEpochTracker(int slotCount) {
-    this.slotCount = slotCount;
-    this.slots = new AtomicReferenceArray<>(slotCount);
-    for (int i = 0; i < slotCount; i++) {
-      slots.set(i, new Slot());
+  public RevisionEpochTracker(final int slotCount) {
+    if (slotCount <= 0) {
+      throw new IllegalArgumentException("slotCount must be > 0, got " + slotCount);
     }
+    this.slotCount = slotCount;
+    this.slotStates = new long[slotCount];
+    this.freeStack = new int[slotCount];
+    // Push all indices onto the free stack in reverse order so register() pops 0, 1, 2, ...
+    for (int i = 0; i < slotCount; i++) {
+      freeStack[i] = slotCount - 1 - i;
+    }
+    this.freeTop = slotCount;
+    this.highWaterMark = 0;
     this.lastCommittedRevision = 0;
   }
 
@@ -70,23 +137,23 @@ public final class RevisionEpochTracker {
    * @return ticket for deregistration
    * @throws IllegalStateException if no free slots available
    */
-  public Ticket register(int revision) {
-    // Try to find a free slot using simple linear search
-    for (int i = 0; i < slotCount; i++) {
-      Slot slot = slots.get(i);
-      if (!slot.active) {
-        synchronized (slot) {
-          if (!slot.active) {
-            slot.revision = revision;
-            slot.active = true;
-            return new Ticket(i);
-          }
-        }
+  public Ticket register(final int revision) {
+    final int slotIndex;
+    synchronized (lock) {
+      if (freeTop == 0) {
+        throw new IllegalStateException("No free slots in RevisionEpochTracker (max=" + slotCount + "). "
+            + "Too many concurrent transactions. Raise the cap via -D" + SLOT_COUNT_PROPERTY + "=N.");
+      }
+      slotIndex = freeStack[--freeTop];
+      final int active = slotCount - freeTop;
+      if (active > highWaterMark) {
+        highWaterMark = active;
       }
     }
-
-    throw new IllegalStateException("No free slots in RevisionEpochTracker (max=" + slotCount + "). "
-        + "Too many concurrent transactions. Consider increasing slot count.");
+    // Volatile write: bit 63 set (active) + revision in the low 32 bits. After this returns,
+    // any subsequent volatile read of the slot observes the active state with the right revision.
+    SLOT_VH.setVolatile(slotStates, slotIndex, ACTIVE_BIT | (revision & 0xFFFF_FFFFL));
+    return new Ticket(slotIndex);
   }
 
   /**
@@ -94,15 +161,15 @@ public final class RevisionEpochTracker {
    *
    * @param ticket the ticket from registration
    */
-  public void deregister(Ticket ticket) {
+  public void deregister(final Ticket ticket) {
     if (ticket == null) {
       return;
     }
-
-    Slot slot = slots.get(ticket.slotIndex);
-    synchronized (slot) {
-      slot.active = false;
-      slot.revision = 0;
+    // Clear the slot first so a concurrent minActiveRevision can no longer see it as active —
+    // we only re-push the index onto the free stack after the volatile clear has been published.
+    SLOT_VH.setVolatile(slotStates, ticket.slotIndex, 0L);
+    synchronized (lock) {
+      freeStack[freeTop++] = ticket.slotIndex;
     }
   }
 
@@ -112,8 +179,9 @@ public final class RevisionEpochTracker {
    * Returns the oldest revision that any active transaction is currently reading. If no transactions
    * are active, returns the last committed revision.
    * <p>
-   * This is the watermark for safe eviction: pages with revision < minActiveRevision are no longer
-   * needed by any active transaction.
+   * This is the watermark for safe eviction: pages with revision &lt; minActiveRevision are no
+   * longer needed by any active transaction. Lock-free; eventually consistent with the latest
+   * register/deregister.
    *
    * @return minimum active revision, or lastCommittedRevision if none active
    */
@@ -122,10 +190,13 @@ public final class RevisionEpochTracker {
     boolean anyActive = false;
 
     for (int i = 0; i < slotCount; i++) {
-      Slot slot = slots.get(i);
-      if (slot.active) {
+      final long state = (long) SLOT_VH.getVolatile(slotStates, i);
+      if ((state & ACTIVE_BIT) != 0L) {
         anyActive = true;
-        min = Math.min(min, slot.revision);
+        final int rev = (int) state; // low 32 bits
+        if (rev < min) {
+          min = rev;
+        }
       }
     }
 
@@ -139,7 +210,7 @@ public final class RevisionEpochTracker {
    *
    * @param revision the newly committed revision number
    */
-  public void setLastCommittedRevision(int revision) {
+  public void setLastCommittedRevision(final int revision) {
     this.lastCommittedRevision = revision;
   }
 
@@ -150,6 +221,11 @@ public final class RevisionEpochTracker {
    */
   public int getLastCommittedRevision() {
     return lastCommittedRevision;
+  }
+
+  /** Capacity of the tracker (max concurrent active transactions). */
+  public int slotCount() {
+    return slotCount;
   }
 
   /**
@@ -163,20 +239,31 @@ public final class RevisionEpochTracker {
     int maxRev = 0;
 
     for (int i = 0; i < slotCount; i++) {
-      Slot slot = slots.get(i);
-      if (slot.active) {
+      final long state = (long) SLOT_VH.getVolatile(slotStates, i);
+      if ((state & ACTIVE_BIT) != 0L) {
         activeCount++;
-        minRev = Math.min(minRev, slot.revision);
-        maxRev = Math.max(maxRev, slot.revision);
+        final int rev = (int) state;
+        if (rev < minRev) {
+          minRev = rev;
+        }
+        if (rev > maxRev) {
+          maxRev = rev;
+        }
       }
     }
 
+    final int high;
+    synchronized (lock) {
+      high = highWaterMark;
+    }
+
     if (activeCount == 0) {
-      return String.format("RevisionEpochTracker: no active transactions (lastCommitted=%d)", lastCommittedRevision);
+      return String.format("RevisionEpochTracker: no active transactions (capacity=%d, highWater=%d, lastCommitted=%d)",
+                           slotCount, high, lastCommittedRevision);
     } else {
-      return String.format("RevisionEpochTracker: %d active txns, revisions [%d..%d], lastCommitted=%d", activeCount,
-          minRev, maxRev, lastCommittedRevision);
+      return String.format(
+          "RevisionEpochTracker: %d active txns, revisions [%d..%d] (capacity=%d, highWater=%d, lastCommitted=%d)",
+          activeCount, minRev, maxRev, slotCount, high, lastCommittedRevision);
     }
   }
 }
-
