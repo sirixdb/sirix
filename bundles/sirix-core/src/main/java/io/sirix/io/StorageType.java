@@ -116,6 +116,72 @@ public enum StorageType {
     }
   };
 
+  /** System property to override the global RevisionFileData cache cap. */
+  public static final String REVISION_FILE_DATA_CACHE_SIZE_PROPERTY = "sirix.revision.file.data.cache.size";
+
+  /**
+   * Default cap for the <em>global</em> {@code RevisionFileData} cache. Each entry maps
+   * a {@code (resourcePath, revision)} pair to its on-disk (offset, timestamp) tuple; a
+   * cache miss is a single 16-byte read from the file's revision index, so the cache is
+   * a pure optimization for repeated point-in-time queries — not a correctness
+   * requirement.
+   *
+   * <p>Without any upper bound this cache grew linearly in the number of committed
+   * revisions (one entry per commit, never evicted), retaining ~2 KB of heap per commit.
+   * Confirmed by a 30-minute soak: 77,153 commits → +77k {@link RevisionFileData}
+   * records, +77k {@link java.time.Instant}, +77k {@link java.util.concurrent.CompletableFuture}
+   * (the {@code AsyncCache} wrapper), +154k Caffeine map nodes — exactly one
+   * never-evicted entry per commit.
+   *
+   * <p>The cache is <em>global</em> across all resources in the JVM. This is the
+   * SaaS-friendly pattern PostgreSQL ({@code shared_buffers}) and InnoDB
+   * ({@code innodb_buffer_pool_size}) follow: total memory is bounded by a single
+   * operator dial regardless of how many resources are open. Caffeine's LRU
+   * naturally redistributes the budget toward whichever resource is currently busy.
+   * Each resource accesses the global cache through
+   * {@link PerResourceRevisionFileDataCache}, a thin wrapper that translates the
+   * resource's {@code Integer}-keyed API to and from {@link RevisionFileDataCacheKey}
+   * composites at the boundary.
+   *
+   * <p>1,000,000 entries is the default — at ~200 bytes per Caffeine entry the
+   * worst-case ceiling is ~200 MB regardless of resource count, well within typical
+   * heap allocations. Override via
+   * {@code -D}{@value #REVISION_FILE_DATA_CACHE_SIZE_PROPERTY}{@code =M}.
+   */
+  public static final long DEFAULT_REVISION_FILE_DATA_CACHE_MAX_SIZE = 1_000_000L;
+
+  static long revisionFileDataCacheMaxSize() {
+    final String prop = System.getProperty(REVISION_FILE_DATA_CACHE_SIZE_PROPERTY);
+    if (prop == null || prop.isEmpty()) {
+      return DEFAULT_REVISION_FILE_DATA_CACHE_MAX_SIZE;
+    }
+    try {
+      final long parsed = Long.parseLong(prop.trim());
+      return parsed > 0L ? parsed : DEFAULT_REVISION_FILE_DATA_CACHE_MAX_SIZE;
+    } catch (final NumberFormatException ignored) {
+      return DEFAULT_REVISION_FILE_DATA_CACHE_MAX_SIZE;
+    }
+  }
+
+  /**
+   * One global {@link AsyncCache} backs every per-resource {@link RevisionFileData}
+   * lookup in this JVM. Keyed by {@link RevisionFileDataCacheKey} {@code (resourcePath,
+   * revision)} so a single Caffeine instance is responsible for total memory; each
+   * resource's {@link AsyncCache} surface is provided by {@link PerResourceRevisionFileDataCache},
+   * a thin per-resource view that translates Integer keys to the composite at the
+   * boundary. The {@code maximumSize(N)} cap on this cache is the operator's single
+   * memory dial — same shape as PostgreSQL's {@code shared_buffers} or InnoDB's
+   * {@code innodb_buffer_pool_size}.
+   */
+  static final AsyncCache<RevisionFileDataCacheKey, RevisionFileData> GLOBAL_REVISION_FILE_DATA_CACHE =
+      Caffeine.newBuilder().maximumSize(revisionFileDataCacheMaxSize()).buildAsync();
+
+  /**
+   * Per-resource view registry. Each resource path maps to its own
+   * {@link PerResourceRevisionFileDataCache}, all of which delegate storage to
+   * {@link #GLOBAL_REVISION_FILE_DATA_CACHE}. Kept as a public field for backwards
+   * compatibility with callers that hold references to the per-resource view.
+   */
   public static final ConcurrentMap<Path, AsyncCache<Integer, RevisionFileData>> CACHE_REPOSITORY =
       new ConcurrentHashMap<>();
 
@@ -220,7 +286,8 @@ public enum StorageType {
       ResourceConfiguration resourceConf) {
     final var resourcePath = resourceConf.resourcePath.resolve(ResourceConfiguration.ResourcePaths.DATA.getPath())
                                                       .resolve(IOStorage.FILENAME);
-    return StorageType.CACHE_REPOSITORY.computeIfAbsent(resourcePath, path -> Caffeine.newBuilder().buildAsync());
+    return StorageType.CACHE_REPOSITORY.computeIfAbsent(resourcePath,
+        path -> new PerResourceRevisionFileDataCache(path, GLOBAL_REVISION_FILE_DATA_CACHE));
   }
 
   /**
