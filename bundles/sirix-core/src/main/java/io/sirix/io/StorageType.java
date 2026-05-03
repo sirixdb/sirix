@@ -232,20 +232,16 @@ public enum StorageType {
    * (the {@code AsyncCache} wrapper), +154k Caffeine map nodes — exactly one
    * never-evicted entry per commit.
    *
-   * <p>100k entries is the default because typical bitemporal workloads can have deep
-   * histories that point-in-time queries reach into — an audit log might commit several
-   * times per minute over years and still want fast lookup across that history. At
-   * ~200 bytes per Caffeine entry the worst-case ceiling is ~20 MB per resource.
-   *
-   * <p><b>Note for multi-tenant deployments:</b> the cache is currently
-   * <em>per-resource</em>, keyed by resource path in {@link #CACHE_REPOSITORY}. A
-   * deployment with N independent resources therefore sees up to N × cap entries
-   * total. Override via {@code -D}{@value #REVISION_FILE_DATA_CACHE_SIZE_PROPERTY}{@code =M}
-   * to scale down for many-resource workloads. A follow-up should refactor this to a
-   * single global cache keyed by {@code (resourcePath, revision)} so the budget can
-   * be enforced once across all resources — that touches the
-   * {@code AsyncCache<Integer, RevisionFileData>} type signature on ~12 storage
-   * classes (Storage / Reader / Writer for each backend) and is out of scope here.
+   * <p>The cache is intentionally <em>per database / per resource</em>, keyed by
+   * resource path in {@link #CACHE_REPOSITORY}. Each resource gets its own working
+   * set, so a hot resource doesn't starve cold ones and there is no cross-resource
+   * contention on lookups. 100k entries is the default because typical bitemporal
+   * workloads can have deep histories that point-in-time queries reach into — an
+   * audit log might commit several times per minute over years and still want fast
+   * lookup across that history. At ~200 bytes per Caffeine entry the worst-case
+   * ceiling is ~20 MB per resource. Override via
+   * {@code -D}{@value #REVISION_FILE_DATA_CACHE_SIZE_PROPERTY}{@code =M} to dial
+   * the per-resource cap up or down.
    */
   public static final long DEFAULT_REVISION_FILE_DATA_CACHE_MAX_SIZE = 100_000L;
 
