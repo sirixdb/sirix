@@ -152,12 +152,12 @@ final class JsonRoundTripFuzz {
   /**
    * Recursively generate a random JSON document. Branching is bounded by
    * {@link #MAX_DEPTH} and {@link #MAX_BRANCH}; leaves are typed null /
-   * boolean / integer / string with equal probability. The shape is biased
-   * toward arrays/objects only at non-leaf levels to keep generated trees
-   * close to realistic document layouts.
+   * boolean / integer / string with equal probability. Depth 0 always returns
+   * an object or array — Sirix's {@code insertSubtreeAsFirstChild} rejects
+   * top-level scalars.
    */
   private static String generateJson(final SplittableRandom rng, final int depth) {
-    if (depth >= MAX_DEPTH || rng.nextInt(0, 4) == 0) {
+    if (depth > 0 && (depth >= MAX_DEPTH || rng.nextInt(0, 4) == 0)) {
       return generateLeaf(rng);
     }
     return rng.nextBoolean() ? generateArray(rng, depth) : generateObject(rng, depth);
