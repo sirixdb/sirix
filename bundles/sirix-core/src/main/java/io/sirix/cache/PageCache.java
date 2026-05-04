@@ -76,14 +76,13 @@ public final class PageCache implements Cache<PageReference, Page> {
   }
 
   /**
-   * Legacy constructor accepting a byte budget. Translates the byte budget to an
-   * entry-count cap using a fixed per-entry estimate; the system property
-   * {@value #MAX_ENTRIES_PROPERTY} overrides the result. Kept so existing call
-   * sites (e.g. {@code BufferManagerImpl}) compile without change while the
-   * cache's eviction policy switches to count-based.
+   * Legacy constructor accepting a byte budget. The byte input is ignored — the
+   * eviction policy is now count-based ({@link #DEFAULT_MAX_ENTRIES}, override
+   * via {@value #MAX_ENTRIES_PROPERTY}). Kept so existing call sites (e.g.
+   * {@code BufferManagerImpl}) compile without change.
    *
-   * @param maxWeight legacy byte budget — converted to entry count via
-   *     {@code maxWeight / APPROX_BYTES_PER_ENTRY}.
+   * @param maxWeight legacy byte budget — ignored. Set the system property to
+   *     change the cap.
    */
   public PageCache(final long maxWeight) {
     this(resolveMaxEntries(maxWeight));
