@@ -97,8 +97,17 @@ public final class JacksonJsonShredder implements Callable<Long> {
   /** Reusable value wrapper for pre-encoded UTF-8 string bytes (object record path). */
   private final ByteStringValue reusableByteStringValue = new ByteStringValue();
 
-  /** Reusable encode buffer — grows as needed, never shrinks. */
-  private byte[] encodeBuf = new byte[256];
+  /**
+   * Thread-local growable byte buffer pool. Each thread owns one buffer that
+   * survives across {@code JacksonJsonShredder} instances and grows monotonically;
+   * a fresh shredder rents the existing buffer (zero alloc on the steady-state
+   * path) and only the very first shred on a new thread pays the initial 256-byte
+   * allocation. The pool stays alive for the lifetime of the thread.
+   */
+  private static final ThreadLocal<byte[]> ENCODE_BUF_POOL = ThreadLocal.withInitial(() -> new byte[256]);
+
+  /** Reusable encode buffer — rented from {@link #ENCODE_BUF_POOL}, grows as needed, never shrinks. */
+  private byte[] encodeBuf = ENCODE_BUF_POOL.get();
 
   /** Valid length in encodeBuf after last encodeCurrentTextToUtf8 call. */
   private int encodeLen;
@@ -538,7 +547,10 @@ public final class JacksonJsonShredder implements Callable<Long> {
 
     if (allAscii) {
       if (encodeBuf.length < len) {
+        // Grow once, then publish the larger buffer back to the thread-local pool
+        // so subsequent shreds on this thread skip the same growth step.
         encodeBuf = new byte[len];
+        ENCODE_BUF_POOL.set(encodeBuf);
       }
       for (int i = 0; i < len; i++) {
         encodeBuf[i] = (byte) chars[off + i];
@@ -551,6 +563,7 @@ public final class JacksonJsonShredder implements Callable<Long> {
     final byte[] fallback = new String(chars, off, len).getBytes(StandardCharsets.UTF_8);
     if (encodeBuf.length < fallback.length) {
       encodeBuf = fallback;
+      ENCODE_BUF_POOL.set(encodeBuf);
     } else {
       System.arraycopy(fallback, 0, encodeBuf, 0, fallback.length);
     }
