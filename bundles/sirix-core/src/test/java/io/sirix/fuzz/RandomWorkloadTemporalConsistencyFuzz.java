@@ -116,8 +116,10 @@ final class RandomWorkloadTemporalConsistencyFuzz {
     // recorded model. A divergence at any revision is either a Sirix bug or a
     // test-model bug; either way the test fails with the offending revision +
     // the expected vs observed lists.
-    try (final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
+    // Cached singleton — must NOT be closed by try-with-resources, or subsequent
+    // getDatabase calls (across this whole test method) hand back a closed instance.
+    final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
       for (int rev = 1; rev <= currentRevision; rev++) {
         final List<Integer> expected = expectedPerRevision.get(rev - 1);
         final List<Integer> observed = readArray(session, rev);
@@ -150,8 +152,8 @@ final class RandomWorkloadTemporalConsistencyFuzz {
 
   private static void applyInsert(final int randomIndex, final int value, final List<Integer> live)
       throws Exception {
-    try (final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE);
+    final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE);
          final JsonNodeTrx wtx = session.beginNodeTrx()) {
       // Move to position randomIndex inside the array; insert as right sibling.
       // If the array is empty, fall back to insertAsFirstChild on the array node.
@@ -174,8 +176,8 @@ final class RandomWorkloadTemporalConsistencyFuzz {
 
   private static void applyUpdate(final int randomIndex, final int value, final List<Integer> live)
       throws Exception {
-    try (final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE);
+    final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE);
          final JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // array
@@ -191,8 +193,8 @@ final class RandomWorkloadTemporalConsistencyFuzz {
 
   private static void applyDelete(final int randomIndex, final List<Integer> live)
       throws Exception {
-    try (final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE);
+    final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE);
          final JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.moveToDocumentRoot();
       wtx.moveToFirstChild(); // array
@@ -213,8 +215,8 @@ final class RandomWorkloadTemporalConsistencyFuzz {
       sb.append(seed.get(i));
     }
     sb.append(']');
-    try (final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE);
+    final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE);
          final JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(sb.toString()), JsonNodeTrx.Commit.NO);
       wtx.commit();

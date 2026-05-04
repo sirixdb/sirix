@@ -113,8 +113,10 @@ final class PageCorruptionFuzz {
                 + " offset=" + offset + " bit=" + bit
                 + ": canary read returned an unexpected mutated value: " + observed);
         }
-      } catch (final SirixException | IllegalStateException | java.io.IOException expected) {
-        // Sirix-traceable exception. Acceptable.
+      } catch (final SirixException | IllegalStateException | java.io.IOException
+                     | java.util.concurrent.CompletionException expected) {
+        // Sirix-traceable exception (or async-wrapped variant from CompletableFuture-driven
+        // page-read paths). Acceptable.
         caughtExpected++;
       } catch (final NullPointerException | IndexOutOfBoundsException unexpected) {
         // Unchecked JVM-level exception caused by a missing input-validation step
@@ -145,12 +147,14 @@ final class PageCorruptionFuzz {
    * resource has a single committed revision containing {@link #SEED_DOCUMENT}.
    */
   private static Path seedResource() throws Exception {
-    try (final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile())) {
-      try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
-           final JsonNodeTrx wtx = session.beginNodeTrx()) {
-        wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(SEED_DOCUMENT), JsonNodeTrx.Commit.NO);
-        wtx.commit();
-      }
+    // Don't try-with-resources the Database — JsonTestHelper.getDatabase returns
+    // a cached singleton; closing it here makes subsequent getDatabase calls
+    // return a closed instance. closeEverything() below handles teardown.
+    final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+         final JsonNodeTrx wtx = session.beginNodeTrx()) {
+      wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(SEED_DOCUMENT), JsonNodeTrx.Commit.NO);
+      wtx.commit();
     }
     JsonTestHelper.closeEverything();
     return PATHS.PATH1.getFile()
@@ -179,8 +183,10 @@ final class PageCorruptionFuzz {
    * if Sirix's checksum / structure validation missed the flip).
    */
   private static String readCanary() throws Exception {
-    try (final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = db.beginResourceSession(RESOURCE);
+    // Singleton-cached Database — kept outside try-with-resources to avoid
+    // closing the cache; the per-iteration finally clause calls closeEverything().
+    final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = db.beginResourceSession(RESOURCE);
          final JsonNodeReadOnlyTrx rtx = session.beginNodeReadOnlyTrx()) {
       // Walk: doc-root → object → first object-record. The seed doc puts the
       // "canary" key first, so the canary value is reachable in 3 moves. If any

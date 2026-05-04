@@ -99,14 +99,17 @@ final class JsonRoundTripFuzz {
   }
 
   private static String roundTripThroughSirix(final String input) throws Exception {
-    try (final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE);
+    // Note: don't try-with-resources the Database — JsonTestHelper.getDatabase
+    // returns a cached singleton, so closing it in one block makes subsequent
+    // getDatabase calls return a closed instance. tearDown's deleteEverything
+    // handles teardown.
+    final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
+    try (final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE);
          final JsonNodeTrx wtx = session.beginNodeTrx()) {
       wtx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(input), JsonNodeTrx.Commit.NO);
       wtx.commit();
     }
-    try (final var db = JsonTestHelper.getDatabase(PATHS.PATH1.getFile());
-         final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
+    try (final JsonResourceSession session = db.beginResourceSession(JsonTestHelper.RESOURCE)) {
       final StringWriter out = new StringWriter();
       JsonSerializer.newBuilder(session, out).build().call();
       return out.toString();
