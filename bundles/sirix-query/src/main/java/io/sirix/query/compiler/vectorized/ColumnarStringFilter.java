@@ -1,5 +1,6 @@
 package io.sirix.query.compiler.vectorized;
 
+import io.sirix.page.pax.StringRegion;
 import io.sirix.utils.FSSTCompressor;
 
 import java.lang.foreign.MemorySegment;
@@ -87,6 +88,38 @@ public final class ColumnarStringFilter {
     final MemorySegment[] pages = pagesList.toArray(new MemorySegment[pageCount]);
     final byte[][][] symbolsByPage = symbolsByPageList.toArray(new byte[pageCount][][]);
 
+    // QuestDB-style per-page symbol-table fast path.
+    // For each backing page that exposes a StringRegion, decide whether the
+    // literal can possibly appear on the page by probing every tag's local
+    // dictionary. {@code stringRegionLiteralAbsent[p] == true} means the
+    // literal is not present in any tag's per-page dict, so:
+    //   - EQ: every row from page p is non-matching (skip without byte-compare)
+    //   - NE: every non-null row from page p is matching (keep without byte-compare)
+    //
+    // Correctness guard: the StringRegion is built only from fused OBJECT_NAMED_STRING
+    // slots. If the page also has raw STRING_VALUE rows in the batch, the region
+    // does not cover them and the short-circuit would be unsafe. We compare the
+    // region's encoded {@code count} against the number of input rows the batch
+    // contributes from page p; if they match, every row is fused-and-covered,
+    // making the short-circuit safe. Otherwise the page falls back to FSST.
+    final boolean[] stringRegionLiteralAbsent = new boolean[pageCount];
+    final int[] perPageRowCount = countRowsPerPage(sel, inputCount, pageIndices, nulls, pageCount);
+    for (int p = 0; p < pageCount; p++) {
+      final StringRegion.Header h = batch.stringRegionHeader(col, p);
+      if (h == null) {
+        continue;
+      }
+      final byte[] payload = batch.stringRegionPayload(col, p);
+      if (payload == null) {
+        continue;
+      }
+      // Region must cover every row this batch contributes from page p.
+      if (h.count != perPageRowCount[p]) {
+        continue;
+      }
+      stringRegionLiteralAbsent[p] = !literalInAnyTag(h, payload, constantUtf8);
+    }
+
     // Pre-encode constant with each page's FSST table + wrap as MemorySegment.
     // FSSTCompressor.encode() prepends a 1-byte header (HEADER_COMPRESSED or HEADER_RAW),
     // but ColumnarPageExtractor extracts payload offsets pointing past the page's own
@@ -95,6 +128,11 @@ public final class ColumnarStringFilter {
     final byte[][] encodedByPage = new byte[pageCount][];
     final MemorySegment[] encodedSegByPage = new MemorySegment[pageCount];
     for (int p = 0; p < pageCount; p++) {
+      // Skip FSST encode for pages where the StringRegion already proved the literal absent;
+      // their rows take the short-circuit branch below without ever touching encodedByPage.
+      if (stringRegionLiteralAbsent[p]) {
+        continue;
+      }
       final byte[][] symbols = symbolsByPage[p];
       if (symbols != null && symbols.length > 0) {
         final byte[] withHeader = FSSTCompressor.encode(constantUtf8, symbols);
@@ -123,6 +161,18 @@ public final class ColumnarStringFilter {
       }
 
       final int pgIdx = pageIndices[row];
+
+      // QuestDB-style fast path: literal proven absent on this page → answer
+      // is statically known without touching the row's bytes.
+      if (stringRegionLiteralAbsent[pgIdx]) {
+        if (!keepIfEqual) {
+          // NE: literal absent → row's value differs from literal → keep
+          sel[outPos++] = row;
+        }
+        // EQ: literal absent → drop
+        continue;
+      }
+
       final MemorySegment page = pages[pgIdx];
       final int offset = offsets[row];
       final int length = lengths[row];
@@ -150,6 +200,44 @@ public final class ColumnarStringFilter {
     }
 
     batch.setSelectionCount(outPos);
+  }
+
+  /**
+   * QuestDB-style page-level Bloom probe: does the UTF-8 literal appear in
+   * <em>any</em> tag's local dictionary on this StringRegion?
+   *
+   * <p>Returns {@code true} on the first hit; iterates {@code parentDictSize} tags
+   * (≤16 typical) and within each tag the local dict (≤16 typical), all while
+   * walking concatenated payload bytes — zero allocations.
+   */
+  private static boolean literalInAnyTag(final StringRegion.Header h, final byte[] payload,
+      final byte[] literal) {
+    final int litLen = literal.length;
+    final int tagCount = h.parentDictSize;
+    for (int t = 0; t < tagCount; t++) {
+      if (StringRegion.lookupDictId(payload, h, t, literal, 0, litLen) >= 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Per-page non-null row count over the active selection. Allocates a tiny
+   * int[pageCount] (typically 1-8 entries — ~32 bytes); the savings from
+   * skipping FSST encode + per-row byte compare on miss-pages dwarf the
+   * allocation cost.
+   */
+  private static int[] countRowsPerPage(final int[] sel, final int inputCount,
+      final int[] pageIndices, final boolean[] nulls, final int pageCount) {
+    final int[] counts = new int[pageCount];
+    for (int i = 0; i < inputCount; i++) {
+      final int row = sel[i];
+      if (!nulls[row]) {
+        counts[pageIndices[row]]++;
+      }
+    }
+    return counts;
   }
 
   /**

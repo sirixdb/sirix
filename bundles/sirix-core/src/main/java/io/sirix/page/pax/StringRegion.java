@@ -208,6 +208,64 @@ public final class StringRegion {
   }
 
   /**
+   * Bulk-match the encoded dict-id stream against a target dict-id, writing a
+   * per-row hit bitmap into {@code outSelBits}. Mirrors the word-cache trick in
+   * {@link #countDictIds}: consecutive lanes that share an 8-byte payload window
+   * read the underlying long once, so for typical bit widths (3-8) only one
+   * {@code readUpToLongLE} call covers {@code 8/bw} rows.
+   *
+   * <p>The kernel sets bit {@code i} of {@code outSelBits} (LSB-first within
+   * each long) iff the {@code i}-th value's encoded dict-id at absolute index
+   * {@code start + i} equals {@code targetDictId}. Caller must ensure
+   * {@code outSelBits.length >= (n + 63) >>> 6} and that the bitmap is
+   * pre-cleared for the rows being written. Zero allocs, primitives only.
+   *
+   * @param payload       region payload bytes
+   * @param h             parsed header
+   * @param start         absolute index of the first lane to read
+   * @param n             number of lanes to read
+   * @param targetDictId  dict-id (within the tag-local dictionary) to match
+   * @param outSelBits    output bitmap; bit i set when row i matches
+   */
+  public static void matchDictIdInto(final byte[] payload, final Header h, final int start, final int n,
+      final int targetDictId, final long[] outSelBits) {
+    if (n <= 0) return;
+    final int bw = h.valueBitWidthEff;
+    if (bw == 0) {
+      // Width 0 means dict-size 1 so every encoded value is dict-id 0.
+      if (targetDictId == 0) {
+        final int fullWords = n >>> 6;
+        for (int w = 0; w < fullWords; w++) outSelBits[w] |= -1L;
+        final int rem = n & 63;
+        if (rem != 0) outSelBits[fullWords] |= (1L << rem) - 1L;
+      }
+      return;
+    }
+    final long mask = bw == 32 ? 0xFFFFFFFFL : ((1L << bw) - 1L);
+    final long target = ((long) targetDictId) & mask;
+    final int base = h.valueDictIdsOffset;
+    long bitOff = (long) start * bw;
+    long cachedWord = 0L;
+    int cachedByteOff = -1;
+    for (int i = 0; i < n; i++) {
+      final int byteOff = base + (int) (bitOff >>> 3);
+      final int shift = (int) (bitOff & 7L);
+      final long word;
+      if (byteOff == cachedByteOff) {
+        word = cachedWord;
+      } else {
+        word = readUpToLongLE(payload, byteOff);
+        cachedWord = word;
+        cachedByteOff = byteOff;
+      }
+      if (((word >>> shift) & mask) == target) {
+        outSelBits[i >>> 6] |= 1L << (i & 63);
+      }
+      bitOff += bw;
+    }
+  }
+
+  /**
    * Decode the string bytes for the given dict-id within a tag. Returns offset
    * and length in the payload's per-tag local dictionary, avoiding a copy on
    * the group-by hot path.
@@ -225,6 +283,36 @@ public final class StringRegion {
 
   public static int decodeStringLength(final byte[] payload, final Header h, final int tag, final int dictId) {
     return getInt(payload, h.tagStringDictOffset[tag] + dictId * 4);
+  }
+
+  /**
+   * Look up {@code literal[litOff..litOff+litLen)} in the per-tag local
+   * dictionary; return its dict-id when present, otherwise {@code -1}.
+   * Linear walk: for the typical analytical column (8-50 distinct values per
+   * page) this is 1-2 cache lines and beats any hash-table bookkeeping.
+   * Zero allocations.
+   */
+  public static int lookupDictId(final byte[] payload, final Header h, final int tag,
+      final byte[] literal, final int litOff, final int litLen) {
+    final int dictStart = h.tagStringDictOffset[tag];
+    final int n = h.tagStringDictSize[tag];
+    int off = dictStart + n * 4;
+    for (int i = 0; i < n; i++) {
+      final int len = getInt(payload, dictStart + i * 4);
+      if (len == litLen && bytesEqualSlice(payload, off, literal, litOff, litLen)) {
+        return i;
+      }
+      off += len;
+    }
+    return -1;
+  }
+
+  private static boolean bytesEqualSlice(final byte[] a, final int aOff,
+      final byte[] b, final int bOff, final int len) {
+    for (int i = 0; i < len; i++) {
+      if (a[aOff + i] != b[bOff + i]) return false;
+    }
+    return true;
   }
 
   // ───────────────────────────────────────────────────────────── encoder

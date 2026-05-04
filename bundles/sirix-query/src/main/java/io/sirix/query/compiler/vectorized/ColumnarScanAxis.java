@@ -5,6 +5,7 @@ import io.sirix.cache.PageGuard;
 import io.sirix.page.ColumnarPageExtractor;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageScanIterator;
+import io.sirix.page.pax.StringRegion;
 import io.sirix.utils.FSSTCompressor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -82,6 +83,10 @@ public final class ColumnarScanAxis implements AutoCloseable {
   private final List<PageGuard> batchGuards = new ArrayList<>(8);
   private final List<MemorySegment> pageSegments = new ArrayList<>(8);
   private final List<byte[][]> parsedSymbolTables = new ArrayList<>(8);
+  // Per-page StringRegion handles, parallel to {@link #pageSegments}. {@code null}
+  // entries mean the page has no StringRegion (filter falls back to FSST path).
+  private final List<StringRegion.Header> stringRegionHeaders = new ArrayList<>(8);
+  private final List<byte[]> stringRegionPayloads = new ArrayList<>(8);
 
   // Reusable ColumnBatch
   private final ColumnBatch batch;
@@ -157,6 +162,12 @@ public final class ColumnarScanAxis implements AutoCloseable {
       parsedSymbolTables.add(
           fsstTable != null ? FSSTCompressor.parseSymbolTable(fsstTable) : null);
 
+      // StringRegion handle for QuestDB-style symbol-table predicate fast path.
+      // The page may not have built a region yet (rare); pass null in that case.
+      final StringRegion.Header srHeader = page.getStringRegionHeader();
+      stringRegionHeaders.add(srHeader);
+      stringRegionPayloads.add(srHeader != null ? page.getStringRegionPayload() : null);
+
       // Extract string nodes
       final int prevStrPos = strWritePos;
       strWritePos = extractor.extractStringsFromPage(
@@ -214,9 +225,12 @@ public final class ColumnarScanAxis implements AutoCloseable {
   private void populateBatch(final int strCount, final int numCount) {
     final int totalRows = strCount + numCount;
 
-    // Register backing pages for DEFERRED_BYTES column
+    // Register backing pages for DEFERRED_BYTES column.
+    // The 4-arg overload threads per-page StringRegion handles for the
+    // ColumnarStringFilter QuestDB-style fast path.
     for (int p = 0; p < pageSegments.size(); p++) {
-      batch.addBackingPage(COL_STRING_VALUE, pageSegments.get(p), parsedSymbolTables.get(p));
+      batch.addBackingPage(COL_STRING_VALUE, pageSegments.get(p), parsedSymbolTables.get(p),
+          stringRegionHeaders.get(p), stringRegionPayloads.get(p));
     }
 
     // --- String rows [0..strCount-1] ---
@@ -285,6 +299,8 @@ public final class ColumnarScanAxis implements AutoCloseable {
     batchGuards.clear();
     pageSegments.clear();
     parsedSymbolTables.clear();
+    stringRegionHeaders.clear();
+    stringRegionPayloads.clear();
     if (firstError instanceof RuntimeException re) {
       throw re;
     } else if (firstError != null) {

@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import io.sirix.page.pax.StringRegion;
 import io.sirix.utils.FSSTCompressor;
 
 /**
@@ -58,6 +59,10 @@ public final class ColumnBatch {
   // Multi-page backing for DEFERRED_BYTES columns
   private final List<MemorySegment>[] backingPages;
   private final List<byte[][]>[] parsedFsstSymbolsByPage;
+  // Per-page StringRegion handles. Parallel to backingPages — index i references
+  // page i. {@code null} entries when the page lacks a StringRegion (no fast path).
+  private final List<StringRegion.Header>[] stringRegionHeadersByPage;
+  private final List<byte[]>[] stringRegionPayloadsByPage;
 
   // Cached arrays for materializeAllSelected — avoid per-batch toArray() allocation
   private MemorySegment[] cachedPagesArray;
@@ -103,6 +108,8 @@ public final class ColumnBatch {
     this.bytesColumns = new byte[columnCount][][];
     this.backingPages = new List[columnCount];
     this.parsedFsstSymbolsByPage = new List[columnCount];
+    this.stringRegionHeadersByPage = new List[columnCount];
+    this.stringRegionPayloadsByPage = new List[columnCount];
     this.selectionVector = new int[capacity];
     this.selectionCount = 0;
     this.rowCount = 0;
@@ -133,6 +140,8 @@ public final class ColumnBatch {
         deferredPageIndex[col] = new int[capacity];
         backingPages[col] = new ArrayList<>(8);
         parsedFsstSymbolsByPage[col] = new ArrayList<>(8);
+        stringRegionHeadersByPage[col] = new ArrayList<>(8);
+        stringRegionPayloadsByPage[col] = new ArrayList<>(8);
         // Also allocate string column for materialized results
         stringColumns[col] = new String[capacity];
       }
@@ -216,9 +225,30 @@ public final class ColumnBatch {
    * @return the page index to use in {@link #setDeferredBytes}
    */
   public int addBackingPage(int col, MemorySegment page, byte[][] parsedSymbols) {
+    return addBackingPage(col, page, parsedSymbols, null, null);
+  }
+
+  /**
+   * Register a backing page for a DEFERRED_BYTES column with an optional
+   * {@link StringRegion} fast-path handle. Pages that participate in the
+   * QuestDB-style symbol-table predicate evaluation pass non-null
+   * {@code stringRegionHeader}/{@code stringRegionPayload}; pages without a
+   * region pass {@code null} for both and fall back to the FSST path.
+   *
+   * @param col                 column index (must be DEFERRED_BYTES)
+   * @param page                page MemorySegment
+   * @param parsedSymbols       FSST symbol table, or {@code null}
+   * @param stringRegionHeader  parsed StringRegion header for this page, or {@code null}
+   * @param stringRegionPayload raw StringRegion payload bytes for this page, or {@code null}
+   * @return the page index to use in {@link #setDeferredBytes}
+   */
+  public int addBackingPage(int col, MemorySegment page, byte[][] parsedSymbols,
+      StringRegion.Header stringRegionHeader, byte[] stringRegionPayload) {
     final int idx = backingPages[col].size();
     backingPages[col].add(page);
     parsedFsstSymbolsByPage[col].add(parsedSymbols);
+    stringRegionHeadersByPage[col].add(stringRegionHeader);
+    stringRegionPayloadsByPage[col].add(stringRegionPayload);
     return idx;
   }
 
@@ -307,6 +337,44 @@ public final class ColumnBatch {
     if (parsedFsstSymbolsByPage[col] != null) {
       parsedFsstSymbolsByPage[col].clear();
     }
+    if (stringRegionHeadersByPage[col] != null) {
+      stringRegionHeadersByPage[col].clear();
+    }
+    if (stringRegionPayloadsByPage[col] != null) {
+      stringRegionPayloadsByPage[col].clear();
+    }
+  }
+
+  /**
+   * Per-page parsed StringRegion header for a DEFERRED_BYTES column.
+   * Returns {@code null} when the page has no StringRegion (fall back to FSST path).
+   */
+  public StringRegion.Header stringRegionHeader(int col, int pageIdx) {
+    final List<StringRegion.Header> list = stringRegionHeadersByPage[col];
+    return (list == null || pageIdx >= list.size()) ? null : list.get(pageIdx);
+  }
+
+  /**
+   * Per-page raw StringRegion payload for a DEFERRED_BYTES column.
+   * Returns {@code null} when the page has no StringRegion.
+   */
+  public byte[] stringRegionPayload(int col, int pageIdx) {
+    final List<byte[]> list = stringRegionPayloadsByPage[col];
+    return (list == null || pageIdx >= list.size()) ? null : list.get(pageIdx);
+  }
+
+  /**
+   * Whether at least one backing page for this column exposes a
+   * StringRegion fast-path handle. Used by filters to short-circuit the
+   * fast-path probe when no page on the batch supports it.
+   */
+  public boolean hasStringRegion(int col) {
+    final List<StringRegion.Header> list = stringRegionHeadersByPage[col];
+    if (list == null) return false;
+    for (int i = 0, n = list.size(); i < n; i++) {
+      if (list.get(i) != null) return true;
+    }
+    return false;
   }
 
   // --- BYTES methods ---
