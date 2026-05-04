@@ -108,6 +108,11 @@ final class BitemporalSoakStressTest {
    *  heap-snapshot noise (per-cycle measurement variance) doesn't dominate the
    *  leak signal. */
   private static final long COMMITS_PER_CYCLE = 100L;
+  /** Cycle indices at which to capture class-histograms for slope analysis.
+   *  Three points let us compute two slopes — early→mid and mid→late — so the
+   *  output reveals whether per-class growth is decelerating (cache fill) or
+   *  steady (leak). */
+  private static final java.util.Set<Integer> CHECKPOINT_CYCLES = java.util.Set.of(100, 500, 1000);
   /** Sliding-window length for plateau detection (cycles). */
   private static final int PLATEAU_WINDOW_CYCLES = 50;
   /** Plateau is reached when the spread (max−min) of a {@link #PLATEAU_WINDOW_CYCLES}-cycle
@@ -158,6 +163,12 @@ final class BitemporalSoakStressTest {
     int cycle = 0;
     Throwable trackerExhaustion = null;
     Map<String, long[]> baselineHistogram = null;
+    // Per-class slope tracking: capture histograms at three cycle checkpoints
+    // (CHECKPOINT_CYCLES). For each class, the slope between the early-checkpoint
+    // and end-of-soak histogram tells us the per-cycle growth rate. A leak's
+    // anchor class has slope ≈ commit-rate (~ 1 instance per commit); incidental
+    // cache fill plateaus once the cap is hit.
+    final Map<Integer, Map<String, long[]>> checkpointHistograms = new HashMap<>();
     while (System.nanoTime() < deadlineNanos) {
       cycle++;
       try {
@@ -183,6 +194,12 @@ final class BitemporalSoakStressTest {
       // The end-of-soak diff against this baseline names the leaking class.
       if (cycle == 50) {
         baselineHistogram = captureClassHistogram();
+      }
+      // Slope checkpoints — early, mid, late. Each slope (Δbytes / Δcycle) for a
+      // class reveals whether its growth is unbounded (leak: slope steady or
+      // increasing) or bounded (cache fill: slope decreasing as cap is approached).
+      if (CHECKPOINT_CYCLES.contains(cycle)) {
+        checkpointHistograms.put(cycle, captureClassHistogram());
       }
 
       // Print every cycle for the first 10, then every 10 cycles, then every 100.
@@ -216,9 +233,62 @@ final class BitemporalSoakStressTest {
       Thread.sleep(100);
       final Map<String, long[]> finalHistogram = captureClassHistogram();
       printTopLeakers(baselineHistogram, finalHistogram, 25);
+      printSlopeAnalysis(checkpointHistograms, finalHistogram, cycle, 15);
     }
 
     assertHeapDidNotLeak(heapSamples);
+  }
+
+  /**
+   * For each class that grew between two checkpoints, compute the per-cycle slope
+   * (Δbytes / Δcycle). A leak's anchor class has a steady or increasing slope across
+   * the checkpoints; a cache that is filling toward a cap shows a decelerating slope
+   * (early-slope > mid-slope > late-slope) and eventually approaches zero.
+   * Top 15 classes by absolute slope are printed.
+   */
+  private static void printSlopeAnalysis(final Map<Integer, Map<String, long[]>> checkpoints,
+      final Map<String, long[]> finalH, final int finalCycle, final int topN) {
+    final java.util.List<Integer> ckpts = new ArrayList<>(checkpoints.keySet());
+    java.util.Collections.sort(ckpts);
+    if (ckpts.size() < 2) {
+      System.out.println("[soak] slope analysis skipped: need >= 2 checkpoints, soak ended early");
+      return;
+    }
+
+    record Slope(String cls, double earlyMidBpc, double midLateBpc, double overallBpc, long finalBytes) {}
+    final Map<String, long[]> early = checkpoints.get(ckpts.get(0));
+    final Map<String, long[]> mid = ckpts.size() >= 2 ? checkpoints.get(ckpts.get(ckpts.size() / 2)) : null;
+    final int earlyCycle = ckpts.get(0);
+    final int midCycle = ckpts.get(ckpts.size() / 2);
+    final List<Slope> slopes = new ArrayList<>();
+    for (final Map.Entry<String, long[]> e : finalH.entrySet()) {
+      final long[] earlyEntry = early.getOrDefault(e.getKey(), new long[] {0, 0});
+      final long[] midEntry = mid != null ? mid.getOrDefault(e.getKey(), new long[] {0, 0}) : null;
+      final long finalBytes = e.getValue()[1];
+      final double earlyMidBpc = midEntry == null ? 0.0
+          : (double) (midEntry[1] - earlyEntry[1]) / Math.max(1, midCycle - earlyCycle);
+      final double midLateBpc = midEntry == null ? (double) (finalBytes - earlyEntry[1]) / Math.max(1, finalCycle - earlyCycle)
+          : (double) (finalBytes - midEntry[1]) / Math.max(1, finalCycle - midCycle);
+      final double overallBpc = (double) (finalBytes - earlyEntry[1]) / Math.max(1, finalCycle - earlyCycle);
+      if (overallBpc <= 0) {
+        continue;
+      }
+      slopes.add(new Slope(e.getKey(), earlyMidBpc, midLateBpc, overallBpc, finalBytes));
+    }
+    slopes.sort((x, y) -> Double.compare(y.overallBpc, x.overallBpc));
+
+    System.out.println("[soak] === per-class slope (Δbytes/cycle) — top " + topN + " by overall slope ===");
+    System.out.println("[soak]   leak signature: early≈mid≈late slope, all positive");
+    System.out.println("[soak]   cache fill:     early > mid > late, late approaches 0");
+    System.out.printf("[soak] %-65s %12s %12s %12s %15s%n",
+                      "class", "early→mid", "mid→late", "overall", "final_bytes");
+    for (int i = 0; i < Math.min(topN, slopes.size()); i++) {
+      final Slope s = slopes.get(i);
+      System.out.printf("[soak] %-65s %12.0f %12.0f %12.0f %15d%n",
+                        s.cls.length() > 65 ? s.cls.substring(0, 62) + "..." : s.cls,
+                        s.earlyMidBpc, s.midLateBpc, s.overallBpc, s.finalBytes);
+    }
+    System.out.println("[soak] === end slope analysis ===");
   }
 
   /**
