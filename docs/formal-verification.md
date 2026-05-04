@@ -742,3 +742,67 @@ that we add happens after the cache map mutation has been serialized.
   in-test class-histogram capture. Post-fix, the per-cycle delta on
   `KeyValueLeafPage`/`NamePage`/`PathSummaryPage` should plateau when the
   cache budget is reached, not grow linearly with cumulative commits.
+
+---
+
+## 11. `IndexController` per-revision cache bound
+
+### Background
+
+`JsonResourceSessionImpl` and `XmlResourceSessionImpl` cache
+`IndexController` instances per revision so multiple transactions on the
+same revision share the same controller (which holds the per-index
+references and a `Set<ChangeListener>`). Pre-fix the cache was a plain
+`ConcurrentHashMap<Integer, IndexController>` with **no eviction**:
+`getRtxIndexController(rev)` / `getWtxIndexController(rev)` called
+`computeIfAbsent`, so every distinct revision touched added a permanent
+entry. Over a long-running soak each revision's controller transitively
+retained a non-trivial set of per-index state.
+
+### Inv 11.1 (bounded controller cache)
+
+The number of cached `IndexController` instances per resource session is
+at most `INDEX_CONTROLLER_CACHE_SIZE` (default 1024).
+
+**Pf:** Both maps are now backed by
+`Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE).build().asMap()`.
+Caffeine enforces the bound by evicting the least-recently-used entry on
+every `put` past the cap. Cache misses recreate the controller via
+`createIndexController(revision)`, which is O(index-defs) — a small
+constant for typical resources. ∎
+
+### Inv 11.2 (eviction safety)
+
+Evicting an `IndexController` does not leave dangling listeners on any
+external observable.
+
+**Pf:** Each `AbstractIndexController` owns its own
+`Set<ChangeListener> listeners` field; `notifyChange(...)` (line 197-204
+of `AbstractIndexController.java`) iterates that field internally. There
+is no global listener registry — `addListener` only mutates the
+controller's own field. When the cache evicts a controller, the
+controller becomes unreachable from the cache map; if no transaction or
+other holder retains a strong reference to it, it is GC-eligible
+together with all its listeners. The property that listeners live as
+fields of the controller — not as registrations on an external
+dispatcher — is what makes plain LRU safe here. The same property would
+not hold for, e.g., a JMX-registered MBean, which would need an explicit
+`unregister` step on eviction. ∎
+
+### Tests
+
+- `StructuralDiffTest` and `RevisionPrefetcherLifecycleTest` pass with
+  the LRU swap in isolation. Earlier full-suite runs that appeared to
+  fail with the LRU swap were OOM (`SIGKILL` exit 137) under memory
+  pressure from a concurrent in-flight 3-hour soak, not real test
+  regressions.
+
+---
+
+## 12. Dead-code removal: `PageKeyToOffsetCache`
+
+`PageKeyToOffsetCache` was an unbounded `Caffeine.newBuilder().build()`
+with no `maximumSize`/`expireAfter`. Cross-tree grep showed **no callers
+anywhere** (production or tests). Removed in this PR. The unbounded-cache
+concern was academic — the class was never instantiated — but the file's
+existence was a landmine if anyone wired it up later.

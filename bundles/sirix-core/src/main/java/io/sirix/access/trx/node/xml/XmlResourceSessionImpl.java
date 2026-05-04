@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.node.xml;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.ResourceStore;
@@ -43,7 +44,6 @@ import io.sirix.node.interfaces.immutable.ImmutableXmlNode;
 import io.sirix.page.UberPage;
 
 import java.time.Duration;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.ReentrantLock;
@@ -54,14 +54,10 @@ import java.util.concurrent.locks.ReentrantLock;
 public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx>
     implements XmlResourceSession, InternalResourceSession<XmlNodeReadOnlyTrx, XmlNodeTrx> {
 
-  /**
-   * {@link XmlIndexController}s used for this session.
-   */
-  private final ConcurrentMap<Integer, XmlIndexController> rtxIndexControllers;
+  /** See {@code JsonResourceSessionImpl.INDEX_CONTROLLER_CACHE_SIZE}. */
+  private static final int INDEX_CONTROLLER_CACHE_SIZE = 1024;
 
-  /**
-   * {@link XmlIndexController}s used for this session.
-   */
+  private final ConcurrentMap<Integer, XmlIndexController> rtxIndexControllers;
   private final ConcurrentMap<Integer, XmlIndexController> wtxIndexControllers;
 
   /**
@@ -84,8 +80,10 @@ public final class XmlResourceSessionImpl extends AbstractResourceSession<XmlNod
 
     super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, storageEngineWriterFactory);
 
-    rtxIndexControllers = new ConcurrentHashMap<>();
-    wtxIndexControllers = new ConcurrentHashMap<>();
+    rtxIndexControllers = Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE)
+        .<Integer, XmlIndexController>build().asMap();
+    wtxIndexControllers = Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE)
+        .<Integer, XmlIndexController>build().asMap();
   }
 
   @Override
