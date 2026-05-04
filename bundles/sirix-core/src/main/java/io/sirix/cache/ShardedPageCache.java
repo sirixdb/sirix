@@ -223,7 +223,15 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
         existingValue.acquireGuard();
         return existingValue;
       }
-      // Not in cache or closed - return null
+      // Not in cache, or in cache but closed → drop it. If we drop a closed entry,
+      // null the back-reference too: returning null from compute removes (k, V) from
+      // the map, but k.page may still strong-hold the closed page (set when the page
+      // was first loaded). Without this clear, anything holding k (e.g. a parent
+      // IndirectPage) keeps the page alive after its cache lifetime — see Inv 10
+      // in docs/formal-verification.md.
+      if (existingValue != null) {
+        k.setPage(null);
+      }
       return null;
     });
   }
@@ -393,10 +401,19 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
             alreadyClosedCount);
       }
 
-      // Clear the map
-      // WARNING: This removes cache entries even for guarded pages that couldn't be closed
-      // This is acceptable for shutdown scenarios (typical clear() use case)
-      // If guards are leaked, those pages will be orphaned in memory
+      // Null the in-memory back-reference on every cached key BEFORE clearing the map.
+      // PageReference.setPage establishes the swizzling shortcut that makes
+      // PageReference.getPage() return the live in-memory page; if we drop the cache
+      // entry without nulling that field, anything still holding the PageReference
+      // (e.g., a parent IndirectPage in the metadata cache, the TIL's modified-page
+      // list, or a sibling indirect-page chain that was created via CoW) keeps the
+      // KeyValueLeafPage strongly reachable forever — the invariant
+      // {@code (k, p) ∈ map ⇒ k.page = p} would be replaced by an asymmetric leak
+      // where the page outlives its cache entry. See docs/formal-verification.md
+      // §10 (PageReference back-reference invariant) for the proof.
+      for (final PageReference key : map.keySet()) {
+        key.setPage(null);
+      }
       map.clear();
       currentWeightBytes.set(0L);
       shard.clockHand = 0;
@@ -426,6 +443,14 @@ public final class ShardedPageCache implements Cache<PageReference, KeyValueLeaf
       if (weight > 0) {
         currentWeightBytes.addAndGet(-weight);
       }
+      // Drop the swizzled back-reference so the PageReference no longer strong-holds
+      // the page that just exited the cache. Callers that hand the page off to a
+      // downstream owner (e.g. TransactionIntentLog) keep it alive via their own
+      // strong reference (PageContainer.complete/modified or a local variable from
+      // before the remove). They do NOT rely on PageReference.getPage() to find
+      // the handed-off page; the TIL has its own internal map keyed by logKey.
+      // See docs/formal-verification.md §10 (PageReference back-reference invariant).
+      key.setPage(null);
     }
 
     // NOTE: We do NOT close pages here by design

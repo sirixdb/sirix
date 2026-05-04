@@ -21,6 +21,7 @@
 
 package io.sirix.access.trx.node.json;
 
+import com.github.benmanes.caffeine.cache.Caffeine;
 import io.sirix.access.DatabaseConfiguration;
 import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.ResourceStore;
@@ -43,7 +44,6 @@ import io.sirix.index.path.summary.PathSummaryWriter;
 import io.sirix.io.IOStorage;
 
 import java.time.Duration;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.locks.ReentrantLock;
@@ -55,13 +55,16 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
     implements JsonResourceSession, InternalResourceSession<JsonNodeReadOnlyTrx, JsonNodeTrx> {
 
   /**
-   * {@link JsonIndexController}s used for this session.
+   * Bounded LRU cap for the per-revision IndexController maps. Without a cap each
+   * map grew one entry per distinct revision an rtx/wtx accessed and was never
+   * pruned. Evicting a controller is safe because each {@link JsonIndexController}
+   * owns its own {@link io.sirix.index.ChangeListener} set; the listeners are
+   * not registered globally — see {@link AbstractIndexController#notifyChange}
+   * which iterates the controller's own {@code listeners} field.
    */
-  private final ConcurrentMap<Integer, JsonIndexController> rtxIndexControllers;
+  private static final int INDEX_CONTROLLER_CACHE_SIZE = 1024;
 
-  /**
-   * {@link JsonIndexController}s used for this session.
-   */
+  private final ConcurrentMap<Integer, JsonIndexController> rtxIndexControllers;
   private final ConcurrentMap<Integer, JsonIndexController> wtxIndexControllers;
 
   /**
@@ -89,8 +92,10 @@ public final class JsonResourceSessionImpl extends AbstractResourceSession<JsonN
     super(resourceStore, resourceConf, bufferManager, storage, uberPage, writeLock, user, storageEngineWriterFactory);
 
     this.databaseName = databaseName;
-    rtxIndexControllers = new ConcurrentHashMap<>();
-    wtxIndexControllers = new ConcurrentHashMap<>();
+    rtxIndexControllers = Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE)
+        .<Integer, JsonIndexController>build().asMap();
+    wtxIndexControllers = Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE)
+        .<Integer, JsonIndexController>build().asMap();
   }
 
   @Override

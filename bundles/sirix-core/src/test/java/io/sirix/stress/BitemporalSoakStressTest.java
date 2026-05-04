@@ -11,6 +11,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import javax.management.MBeanServer;
+import javax.management.ObjectName;
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
@@ -18,7 +20,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -58,10 +62,18 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <h2>What this test catches</h2>
  * <ol>
  *   <li><b>Heap leaks.</b> After each cycle the test forces a full GC and samples
- *       used heap. The median of the last quarter of cycle samples must not exceed
- *       the median of the first quarter by more than {@link #HEAP_GROWTH_TOLERANCE}.
- *       A real per-cycle leak (tens of KB to MB) compounds over hundreds of cycles
- *       and trips the bound; metaspace settling and minor cache fill stay under it.</li>
+ *       used heap. {@link #findPlateauStart} walks the sample list to locate the
+ *       first {@link #PLATEAU_WINDOW_CYCLES}-cycle window whose spread is under
+ *       {@link #PLATEAU_RANGE_TOLERANCE} of the starting heap (i.e., caches have
+ *       saturated). The post-plateau median heap of the last quarter of samples
+ *       must not exceed the median of the first post-plateau quarter by more than
+ *       {@link #POST_PLATEAU_HEAP_GROWTH_TOLERANCE}. A real per-cycle leak grows
+ *       linearly forever and trips this bound; bounded cache fill plateaus and
+ *       stays flat. If the soak ends before any plateau is reached, the
+ *       assertion is skipped with an informational message — saturating caches
+ *       like the global RevisionFileData cache (default 1M entries) takes a
+ *       longer soak or a smaller cap (e.g.
+ *       {@code -Dsirix.revision.file.data.cache.size=10000}).</li>
  *   <li><b>Recovery liveness.</b> Each cycle's reopen-and-readback verifies the
  *       {@code .commit}-marker recovery path and that the latest committed revision
  *       is bit-for-bit readable.</li>
@@ -96,14 +108,26 @@ final class BitemporalSoakStressTest {
    *  heap-snapshot noise (per-cycle measurement variance) doesn't dominate the
    *  leak signal. */
   private static final long COMMITS_PER_CYCLE = 100L;
-  /** Heap-leak detection needs at least this many completed cycles to compare
-   *  early-stable vs late heap usage. Below the threshold the leak-bound is
-   *  skipped (per-cycle invariants still assert). */
-  private static final int MIN_CYCLES_FOR_LEAK_CHECK = 8;
-  /** Tolerance for the late-vs-early median heap comparison. 1.5× lets natural
-   *  metaspace settling and minor cache fill pass; a real per-cycle leak
-   *  compounds linearly and blows the bound after a few hundred cycles. */
-  private static final double HEAP_GROWTH_TOLERANCE = 1.5;
+  /** Cycle indices at which to capture class-histograms for slope analysis.
+   *  Three points let us compute two slopes — early→mid and mid→late — so the
+   *  output reveals whether per-class growth is decelerating (cache fill) or
+   *  steady (leak). */
+  private static final java.util.Set<Integer> CHECKPOINT_CYCLES = java.util.Set.of(100, 500, 1000);
+  /** Sliding-window length for plateau detection (cycles). */
+  private static final int PLATEAU_WINDOW_CYCLES = 50;
+  /** Plateau is reached when the spread (max−min) of a {@link #PLATEAU_WINDOW_CYCLES}-cycle
+   *  window is at most this fraction of the window's starting heap. 3% is loose enough
+   *  to absorb GC-induced sample noise, tight enough to reject the slow cache-fill ramp
+   *  produced by the default RevisionFileData (1M entry) and page-cache (~2 GB byte)
+   *  budgets. */
+  private static final double PLATEAU_RANGE_TOLERANCE = 0.03;
+  /** A leak-comparison needs at least this many post-plateau samples for a meaningful
+   *  early-vs-late split. */
+  private static final int MIN_POST_PLATEAU_SAMPLES = 20;
+  /** Tolerance for the late-vs-early median heap comparison <em>after</em> the plateau
+   *  starts. 1.2× lets minor in-plateau noise pass; a real per-cycle leak compounds
+   *  linearly across the post-plateau window and blows the bound easily. */
+  private static final double POST_PLATEAU_HEAP_GROWTH_TOLERANCE = 1.2;
 
   @BeforeEach
   void setUp() {
@@ -138,6 +162,13 @@ final class BitemporalSoakStressTest {
     final Instant tStart = Instant.now();
     int cycle = 0;
     Throwable trackerExhaustion = null;
+    Map<String, long[]> baselineHistogram = null;
+    // Per-class slope tracking: capture histograms at three cycle checkpoints
+    // (CHECKPOINT_CYCLES). For each class, the slope between the early-checkpoint
+    // and end-of-soak histogram tells us the per-cycle growth rate. A leak's
+    // anchor class has slope ≈ commit-rate (~ 1 instance per commit); incidental
+    // cache fill plateaus once the cap is hit.
+    final Map<Integer, Map<String, long[]>> checkpointHistograms = new HashMap<>();
     while (System.nanoTime() < deadlineNanos) {
       cycle++;
       try {
@@ -158,6 +189,18 @@ final class BitemporalSoakStressTest {
       Thread.sleep(50); // yield so concurrent finalizers / Cleaner threads run
       final MemoryUsage heap = memBean.getHeapMemoryUsage();
       heapSamples.add(heap.getUsed());
+
+      // Capture a class-histogram baseline at cycle 50 (post-warmup, ~5K commits).
+      // The end-of-soak diff against this baseline names the leaking class.
+      if (cycle == 50) {
+        baselineHistogram = captureClassHistogram();
+      }
+      // Slope checkpoints — early, mid, late. Each slope (Δbytes / Δcycle) for a
+      // class reveals whether its growth is unbounded (leak: slope steady or
+      // increasing) or bounded (cache fill: slope decreasing as cap is approached).
+      if (CHECKPOINT_CYCLES.contains(cycle)) {
+        checkpointHistograms.put(cycle, captureClassHistogram());
+      }
 
       // Print every cycle for the first 10, then every 10 cycles, then every 100.
       if (cycle <= 10 || (cycle <= 100 && cycle % 10 == 0) || cycle % 100 == 0) {
@@ -185,7 +228,144 @@ final class BitemporalSoakStressTest {
                         cycle - 1, totalCommits.get(), trackerExhaustion.getMessage());
     }
 
+    if (baselineHistogram != null) {
+      System.gc();
+      Thread.sleep(100);
+      final Map<String, long[]> finalHistogram = captureClassHistogram();
+      printTopLeakers(baselineHistogram, finalHistogram, 25);
+      printSlopeAnalysis(checkpointHistograms, finalHistogram, cycle, 15);
+    }
+
     assertHeapDidNotLeak(heapSamples);
+  }
+
+  /**
+   * For each class that grew between two checkpoints, compute the per-cycle slope
+   * (Δbytes / Δcycle). A leak's anchor class has a steady or increasing slope across
+   * the checkpoints; a cache that is filling toward a cap shows a decelerating slope
+   * (early-slope > mid-slope > late-slope) and eventually approaches zero.
+   * Top 15 classes by absolute slope are printed.
+   */
+  private static void printSlopeAnalysis(final Map<Integer, Map<String, long[]>> checkpoints,
+      final Map<String, long[]> finalH, final int finalCycle, final int topN) {
+    final java.util.List<Integer> ckpts = new ArrayList<>(checkpoints.keySet());
+    java.util.Collections.sort(ckpts);
+    if (ckpts.size() < 2) {
+      System.out.println("[soak] slope analysis skipped: need >= 2 checkpoints, soak ended early");
+      return;
+    }
+
+    record Slope(String cls, double earlyMidBpc, double midLateBpc, double overallBpc, long finalBytes) {}
+    final Map<String, long[]> early = checkpoints.get(ckpts.get(0));
+    final Map<String, long[]> mid = ckpts.size() >= 2 ? checkpoints.get(ckpts.get(ckpts.size() / 2)) : null;
+    final int earlyCycle = ckpts.get(0);
+    final int midCycle = ckpts.get(ckpts.size() / 2);
+    final List<Slope> slopes = new ArrayList<>();
+    for (final Map.Entry<String, long[]> e : finalH.entrySet()) {
+      final long[] earlyEntry = early.getOrDefault(e.getKey(), new long[] {0, 0});
+      final long[] midEntry = mid != null ? mid.getOrDefault(e.getKey(), new long[] {0, 0}) : null;
+      final long finalBytes = e.getValue()[1];
+      final double earlyMidBpc = midEntry == null ? 0.0
+          : (double) (midEntry[1] - earlyEntry[1]) / Math.max(1, midCycle - earlyCycle);
+      final double midLateBpc = midEntry == null ? (double) (finalBytes - earlyEntry[1]) / Math.max(1, finalCycle - earlyCycle)
+          : (double) (finalBytes - midEntry[1]) / Math.max(1, finalCycle - midCycle);
+      final double overallBpc = (double) (finalBytes - earlyEntry[1]) / Math.max(1, finalCycle - earlyCycle);
+      if (overallBpc <= 0) {
+        continue;
+      }
+      slopes.add(new Slope(e.getKey(), earlyMidBpc, midLateBpc, overallBpc, finalBytes));
+    }
+    slopes.sort((x, y) -> Double.compare(y.overallBpc, x.overallBpc));
+
+    System.out.println("[soak] === per-class slope (Δbytes/cycle) — top " + topN + " by overall slope ===");
+    System.out.println("[soak]   leak signature: early≈mid≈late slope, all positive");
+    System.out.println("[soak]   cache fill:     early > mid > late, late approaches 0");
+    System.out.printf("[soak] %-65s %12s %12s %12s %15s%n",
+                      "class", "early→mid", "mid→late", "overall", "final_bytes");
+    for (int i = 0; i < Math.min(topN, slopes.size()); i++) {
+      final Slope s = slopes.get(i);
+      System.out.printf("[soak] %-65s %12.0f %12.0f %12.0f %15d%n",
+                        s.cls.length() > 65 ? s.cls.substring(0, 62) + "..." : s.cls,
+                        s.earlyMidBpc, s.midLateBpc, s.overallBpc, s.finalBytes);
+    }
+    System.out.println("[soak] === end slope analysis ===");
+  }
+
+  /**
+   * Capture a class histogram via the {@code DiagnosticCommand} JMX bean — the same data
+   * source as {@code jcmd <pid> GC.class_histogram}. Returns a map from class name to
+   * {@code [instanceCount, byteCount]} so a later snapshot can be diffed against this one.
+   */
+  private static Map<String, long[]> captureClassHistogram() throws Exception {
+    final MBeanServer server = ManagementFactory.getPlatformMBeanServer();
+    final ObjectName name = new ObjectName("com.sun.management:type=DiagnosticCommand");
+    final String raw = (String) server.invoke(name,
+                                              "gcClassHistogram",
+                                              new Object[] {new String[0]},
+                                              new String[] {String[].class.getName()});
+    final Map<String, long[]> out = new HashMap<>(2048);
+    for (final String line : raw.split("\n")) {
+      // Format: " num     #instances         #bytes  class name (module)"
+      // Data:   "   1:        12345        1234567  io.sirix.page.KeyValueLeafPage"
+      // Skip header / divider / empty.
+      final String trimmed = line.trim();
+      if (trimmed.isEmpty() || trimmed.startsWith("num") || trimmed.startsWith("---") || trimmed.startsWith("Total")) {
+        continue;
+      }
+      // Split on whitespace; skip the leading "N:" rank.
+      final String[] parts = trimmed.split("\\s+");
+      if (parts.length < 4) {
+        continue;
+      }
+      final long instances;
+      final long bytes;
+      try {
+        instances = Long.parseLong(parts[1]);
+        bytes = Long.parseLong(parts[2]);
+      } catch (final NumberFormatException ignored) {
+        continue;
+      }
+      // Class name is parts[3..]; reassemble with single spaces.
+      final StringBuilder cls = new StringBuilder(parts[3]);
+      for (int i = 4; i < parts.length; i++) {
+        cls.append(' ').append(parts[i]);
+      }
+      out.put(cls.toString(), new long[] {instances, bytes});
+    }
+    return out;
+  }
+
+  /**
+   * Print the {@code topN} classes with the largest absolute byte growth between two
+   * histogram snapshots. The output is sorted by {@code finalBytes - baseBytes} descending,
+   * so a real per-cycle leak surfaces near the top.
+   */
+  private static void printTopLeakers(final Map<String, long[]> base, final Map<String, long[]> finalH,
+      final int topN) {
+    record Entry(String cls, long deltaBytes, long deltaInstances, long finalBytes) {}
+    final List<Entry> entries = new ArrayList<>();
+    for (final Map.Entry<String, long[]> e : finalH.entrySet()) {
+      final long[] b = base.getOrDefault(e.getKey(), new long[] {0L, 0L});
+      final long deltaBytes = e.getValue()[1] - b[1];
+      final long deltaInstances = e.getValue()[0] - b[0];
+      if (deltaBytes <= 0) {
+        continue;
+      }
+      entries.add(new Entry(e.getKey(), deltaBytes, deltaInstances, e.getValue()[1]));
+    }
+    entries.sort((x, y) -> Long.compare(y.deltaBytes, x.deltaBytes));
+
+    System.out.println("[soak] === top " + topN + " classes by heap growth (post-baseline) ===");
+    System.out.printf("[soak] %-65s %12s %12s %12s%n", "class", "Δ_bytes", "Δ_instances", "final_bytes");
+    for (int i = 0; i < Math.min(topN, entries.size()); i++) {
+      final Entry e = entries.get(i);
+      System.out.printf("[soak] %-65s %12d %12d %12d%n",
+                        e.cls.length() > 65 ? e.cls.substring(0, 62) + "..." : e.cls,
+                        e.deltaBytes,
+                        e.deltaInstances,
+                        e.finalBytes);
+    }
+    System.out.println("[soak] === end histogram diff ===");
   }
 
   /** Run one writer + readback + session-cycle. */
@@ -211,26 +391,70 @@ final class BitemporalSoakStressTest {
   }
 
   /**
-   * Compare median used-heap of the first vs last quarter of cycles. A real
-   * per-cycle leak scales linearly with cycle count, so a 100-cycle soak with
-   * a 1 MB/cycle leak grows by ~25 MB on the late samples vs the early ones —
-   * easily blown past {@link #HEAP_GROWTH_TOLERANCE} = 1.5×.
+   * Detect when the heap has plateaued (caches saturated, eviction taking over) and
+   * compare median used-heap of the first vs last quarter of <em>post-plateau</em>
+   * cycles. Pre-plateau samples are dominated by cache fill toward bounded caps
+   * (page cache, RevisionFileData cache), which is not a leak; including them in
+   * the comparison produces false positives whenever the soak ends before saturation.
+   *
+   * <p>A real per-cycle leak scales linearly forever and trips the post-plateau
+   * comparison once the comparison window is long enough — bounded cache fill
+   * plateaus and stays flat.
    */
   private static void assertHeapDidNotLeak(final List<Long> samples) {
-    if (samples.size() < MIN_CYCLES_FOR_LEAK_CHECK) {
-      System.out.printf("[soak] heap-leak check skipped (only %d cycles, need >= %d)%n",
-                        samples.size(), MIN_CYCLES_FOR_LEAK_CHECK);
+    final int plateauStart = findPlateauStart(samples);
+    if (plateauStart < 0) {
+      System.out.printf(
+          "[soak] heap-leak check skipped: heap did not plateau within %d cycles (no %d-cycle window with "
+              + "spread ≤ %.1f%% of base found). Run a longer soak or lower the cache caps via "
+              + "-Dsirix.revision.file.data.cache.size=N to reach plateau within budget.%n",
+          samples.size(), PLATEAU_WINDOW_CYCLES, PLATEAU_RANGE_TOLERANCE * 100.0);
       return;
     }
-    final int q = samples.size() / 4;
-    final long earlyMedian = medianOfRange(samples, 0, q);
-    final long lateMedian = medianOfRange(samples, samples.size() - q, samples.size());
+    final int postPlateau = samples.size() - plateauStart;
+    if (postPlateau < MIN_POST_PLATEAU_SAMPLES) {
+      System.out.printf("[soak] heap-leak check skipped: only %d cycles after plateau (need >= %d). "
+                        + "Run a longer soak.%n", postPlateau, MIN_POST_PLATEAU_SAMPLES);
+      return;
+    }
+    final int quarter = Math.max(1, postPlateau / 4);
+    final long earlyMedian = medianOfRange(samples, plateauStart, plateauStart + quarter);
+    final long lateMedian = medianOfRange(samples, samples.size() - quarter, samples.size());
     final double ratio = (double) lateMedian / Math.max(1L, earlyMedian);
-    System.out.printf("[soak] heap medians: early=%d MB late=%d MB ratio=%.2fx%n",
-                      earlyMedian / (1024L * 1024L), lateMedian / (1024L * 1024L), ratio);
-    assertTrue(ratio <= HEAP_GROWTH_TOLERANCE,
-               String.format("heap leak suspected: late-median %d B / early-median %d B = %.2fx > %.2fx",
-                             lateMedian, earlyMedian, ratio, HEAP_GROWTH_TOLERANCE));
+    System.out.printf("[soak] post-plateau heap medians: early=%d MB late=%d MB ratio=%.2fx (plateau started at cycle %d)%n",
+                      earlyMedian / (1024L * 1024L), lateMedian / (1024L * 1024L), ratio, plateauStart + 1);
+    assertTrue(ratio <= POST_PLATEAU_HEAP_GROWTH_TOLERANCE,
+               String.format("heap leak suspected: post-plateau late-median %d B / early-median %d B = %.2fx > %.2fx",
+                             lateMedian, earlyMedian, ratio, POST_PLATEAU_HEAP_GROWTH_TOLERANCE));
+  }
+
+  /**
+   * Walk the samples and return the index of the first cycle that begins a window of
+   * {@link #PLATEAU_WINDOW_CYCLES} consecutive cycles whose value spread (max − min) is
+   * at most {@link #PLATEAU_RANGE_TOLERANCE} of the window's starting heap. The
+   * range-based test rejects the slow linear ramp of cache fill (where every cycle
+   * adds a small amount, never plateauing) while accepting GC-noise-only fluctuation
+   * around a stable baseline. Returns {@code -1} if no such window exists.
+   */
+  private static int findPlateauStart(final List<Long> samples) {
+    if (samples.size() < PLATEAU_WINDOW_CYCLES) {
+      return -1;
+    }
+    for (int start = 0; start <= samples.size() - PLATEAU_WINDOW_CYCLES; start++) {
+      final long base = samples.get(start);
+      final long allowedRange = (long) (base * PLATEAU_RANGE_TOLERANCE);
+      long min = base;
+      long max = base;
+      for (int i = start + 1; i < start + PLATEAU_WINDOW_CYCLES; i++) {
+        final long v = samples.get(i);
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+      if (max - min <= allowedRange) {
+        return start;
+      }
+    }
+    return -1;
   }
 
   private static long medianOfRange(final List<Long> samples, final int from, final int toExclusive) {

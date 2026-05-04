@@ -616,3 +616,193 @@ branch closes the reader. `NodeStorageEngineReader.close()` is guarded by
   or the tracker exhausts. Pre-fix the tracker exhausted at ~40 cycles
   (~4 000 commits); post-fix the soak runs to its full configured duration
   (default 60 s, configurable up to 24 hours) without exhaustion.
+
+---
+
+## 10. `PageReference` back-reference invariant on cache eviction
+
+### Background
+
+`PageReference` carries two ways to reach a page:
+
+1. A persistent **disk locator** — `(databaseId, resourceId, logKey, key)` —
+   used for cache lookups and disk reads.
+2. A **swizzled in-memory shortcut** — the volatile `page` field set via
+   {@code setPage(Page)} and read via {@code getPage()}. Once the page has
+   been loaded once, this field bypasses both the cache and the disk.
+
+`ShardedPageCache` (the buffer pool for {@code KeyValueLeafPage}) and
+`PageCache` (for metadata pages) use {@code PageReference} as their map key.
+Multiple `PageReference` instances can compare equal under
+{@code .equals(...)} — equality is value-based on the disk locator — but
+each instance has its own {@code page} field. A parent {@code IndirectPage}
+in the metadata cache holds its own `PageReference` array; that's a
+distinct instance from whatever instance the record cache uses as its key.
+
+### Notation
+
+Let $C$ be a cache map of type {@code Map<PageReference, Page>}, and write
+$(\pi, p) \in C$ when {@code C.get(π) == p}. Let $\pi.\mathit{page}$ denote
+the swizzled field on $\pi$.
+
+### Inv 10.1 (cache-key back-reference)
+
+For every entry $(\pi, p) \in C$ that was inserted via the load path
+{@code map.compute(k, loader)} or {@code put(k, p)}:
+
+$$\pi.\mathit{page} = p$$
+
+**Pf:** the loader at {@code NodeStorageEngineReader.getPage} (file
+NodeStorageEngineReader.java:807-810) and `setPage` callsites in the trie
+writers (e.g. {@code KeyedTrieWriter.java:136}) explicitly assign
+{@code reference.setPage(page)} after a successful load, *before* the page
+is published into the cache. ∎
+
+### Inv 10.2 (back-reference is cleared on every cache exit)
+
+For every transition $(\pi, p) \in C \rightsquigarrow (\pi, p) \notin C$
+("$\pi$ exits the cache map") that does not transfer ownership of $p$ to
+another in-memory owner via $\pi$, the cache implementation must run
+
+$$\pi.\mathit{page} \leftarrow \bot$$
+
+before $C$ ceases to be reachable from a GC root.
+
+**Why this is necessary, not optional.** Suppose Inv 10.2 is violated: $\pi$
+exits $C$ but $\pi.\mathit{page}$ still strong-holds $p$. Any other GC-root
+chain reaching $\pi$ — typically a parent {@code IndirectPage} held in the
+sibling metadata cache, or the {@code TransactionIntentLog}'s modified-page
+list — keeps $p$ strongly reachable. The cache eviction is then **logical
+only**: the byte budget is reclaimed in the cache's bookkeeping, but the
+actual heap memory is not. Repeated CoW commits create new
+`IndirectPage` instances per revision, each with its own `PageReference`
+array; over time the sum of "evicted-but-still-referenced" pages dominates
+heap. This is the class of leak that surfaced as ~1.2 KB per commit
+retained in the 3-hour soak's class histogram (KeyValueLeafPage,
+NamePage, PathSummaryPage, PageReference, Int2*OpenHashMap all growing
+linearly with cumulative commits past the cache's apparent capacity).
+
+### Cache-exit paths and their Inv 10.2 status
+
+The cache-exit paths in {@code ShardedPageCache} (the dominant cache by
+byte volume) are:
+
+| # | Path | Pre-fix `setPage(null)`? | Post-fix |
+|---|---|---|---|
+| 1 | `enforceBudget` (line 540) | yes | yes |
+| 2 | `evictUnderPressure` (line 612) | yes | yes |
+| 3 | `ClockSweeper.sweep` (cache/ClockSweeper.java:179) | yes | yes |
+| 4 | `clear()` (line 396) | **no** | yes (this PR) |
+| 5 | `remove(K)` (line 408) | **no** | yes (this PR) |
+| 6 | `getAndGuard` `compute` returning null because existing was closed (line 219) | **no** | yes (this PR) |
+
+Paths 1-3 evict and clear correctly. Paths 4-6 dropped the entry but left
+$\pi.\mathit{page}$ pointing at the just-evicted page — a real leak per the
+argument above. The fix in this PR adds the missing
+{@code key.setPage(null)} at each of those sites.
+
+### Inv 10.3 (TIL-handoff carve-out)
+
+For the `remove(K)` path specifically, the caller is moving $p$ to the
+{@code TransactionIntentLog} via a separate strong reference inside a
+{@code PageContainer} ({@code TransactionIntentLog.put}, line 188-189).
+The TIL keeps $p$ alive via {@code value.getComplete()} /
+{@code value.getModified()}, *not* via {@code π.getPage()}. Therefore
+clearing $\pi.\mathit{page}$ does not break the handoff — the TIL has its
+own keying ({@code logKey}-indexed map) and never calls
+{@code π.getPage()} to re-resolve a page it already owns.
+
+**Pf:** Read of `TransactionIntentLog.put`: the fresh
+{@code PageContainer} is the canonical reference for the handed-off page;
+the TIL's map is keyed by {@code logKey}, not by {@code PageReference}
+identity, so a subsequent caller that resolves the same logical page goes
+through the TIL's own lookup, not through `π.getPage()`. ∎
+
+### Concurrency
+
+`PageReference.page` is `volatile` (PageReference.java:44). The visibility
+of `setPage(null)` is therefore guaranteed under JMM happens-before to any
+later `getPage()` on the same reference. Eviction paths 1-3 already perform
+`page.close()` and `page.incrementVersion()` *before* `setPage(null)`, so
+the version-counter drift that was the original `FrameReusedException`
+hazard remains correctly ordered. Path 4 (`clear()`) sees no concurrent
+readers because it runs under the per-shard `evictionLock`. Paths 5
+(`remove`) and 6 (`getAndGuard` closed-existing branch) inherit the
+Caffeine map's per-key `compute` serialization, so the `setPage(null)`
+that we add happens after the cache map mutation has been serialized.
+
+### Tests
+
+- **Existing leak detector:** `BitemporalSoakStressTest.soak` — a real
+  per-cycle leak grows linearly forever and trips the post-plateau heap-
+  ratio bound. Without the fix, the 3-hour soak retained 188 k
+  KeyValueLeafPage / 188 k NamePage / 188 k PathSummaryPage instances over
+  193 k commits — exactly the leak shape Inv 10.2 forbids.
+- **Histogram diff:** the same soak attributes the leak per-class via the
+  in-test class-histogram capture. Post-fix, the per-cycle delta on
+  `KeyValueLeafPage`/`NamePage`/`PathSummaryPage` should plateau when the
+  cache budget is reached, not grow linearly with cumulative commits.
+
+---
+
+## 11. `IndexController` per-revision cache bound
+
+### Background
+
+`JsonResourceSessionImpl` and `XmlResourceSessionImpl` cache
+`IndexController` instances per revision so multiple transactions on the
+same revision share the same controller (which holds the per-index
+references and a `Set<ChangeListener>`). Pre-fix the cache was a plain
+`ConcurrentHashMap<Integer, IndexController>` with **no eviction**:
+`getRtxIndexController(rev)` / `getWtxIndexController(rev)` called
+`computeIfAbsent`, so every distinct revision touched added a permanent
+entry. Over a long-running soak each revision's controller transitively
+retained a non-trivial set of per-index state.
+
+### Inv 11.1 (bounded controller cache)
+
+The number of cached `IndexController` instances per resource session is
+at most `INDEX_CONTROLLER_CACHE_SIZE` (default 1024).
+
+**Pf:** Both maps are now backed by
+`Caffeine.newBuilder().maximumSize(INDEX_CONTROLLER_CACHE_SIZE).build().asMap()`.
+Caffeine enforces the bound by evicting the least-recently-used entry on
+every `put` past the cap. Cache misses recreate the controller via
+`createIndexController(revision)`, which is O(index-defs) — a small
+constant for typical resources. ∎
+
+### Inv 11.2 (eviction safety)
+
+Evicting an `IndexController` does not leave dangling listeners on any
+external observable.
+
+**Pf:** Each `AbstractIndexController` owns its own
+`Set<ChangeListener> listeners` field; `notifyChange(...)` (line 197-204
+of `AbstractIndexController.java`) iterates that field internally. There
+is no global listener registry — `addListener` only mutates the
+controller's own field. When the cache evicts a controller, the
+controller becomes unreachable from the cache map; if no transaction or
+other holder retains a strong reference to it, it is GC-eligible
+together with all its listeners. The property that listeners live as
+fields of the controller — not as registrations on an external
+dispatcher — is what makes plain LRU safe here. The same property would
+not hold for, e.g., a JMX-registered MBean, which would need an explicit
+`unregister` step on eviction. ∎
+
+### Tests
+
+- `StructuralDiffTest` and `RevisionPrefetcherLifecycleTest` pass with
+  the LRU swap in isolation. Earlier full-suite runs that appeared to
+  fail with the LRU swap were OOM (`SIGKILL` exit 137) under memory
+  pressure from a concurrent in-flight 3-hour soak, not real test
+  regressions.
+
+---
+
+## 12. Dead-code removal: `PageKeyToOffsetCache`
+
+`PageKeyToOffsetCache` was an unbounded `Caffeine.newBuilder().build()`
+with no `maximumSize`/`expireAfter`. Cross-tree grep showed **no callers
+anywhere** (production or tests). Removed in this PR. The unbounded-cache
+concern was academic — the class was never instantiated — but the file's
+existence was a landmine if anyone wired it up later.
