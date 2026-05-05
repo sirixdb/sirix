@@ -199,18 +199,35 @@ public final class NamePage extends AbstractForwardingPage {
     this.maxHotPageKeys = new Int2LongOpenHashMap(other.maxHotPageKeys);
     this.currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap(other.currentMaxLevelsOfIndirectPages);
     this.numberOfArrays = other.numberOfArrays;
-    if (storageEngineReader != null) {
+    if (storageEngineReader != null
+        && storageEngineReader.getResourceSession().getResourceConfig().indexBackendType
+            == io.sirix.access.IndexBackendType.HOT) {
       // Eager-load any null dictionary on the source so the shared reference is non-null on both
       // sides; subsequent lazy-loads short-circuit since the field is already populated.
-      // Storage formats differ between HOT (HashEntryNode-based) and RBTree (RBNodeKey-based);
-      // ClassCastException here just means the index uses the alternate backend — the Names
-      // dictionary will lazy-load via the correct path on the first real access. Swallow the
-      // exception so the deep-copy still proceeds cleanly with null dictionaries.
-      tryEagerLoad(other, storageEngineReader, NodeKind.ATTRIBUTE);
-      tryEagerLoad(other, storageEngineReader, NodeKind.ELEMENT);
-      tryEagerLoad(other, storageEngineReader, NodeKind.NAMESPACE);
-      tryEagerLoad(other, storageEngineReader, NodeKind.PROCESSING_INSTRUCTION);
-      tryEagerLoad(other, storageEngineReader, NodeKind.OBJECT_NAMED_OBJECT);
+      //
+      // Gated on the resource's IndexBackendType: under HOT no secondary NAME index ever writes
+      // KVL records into the IndexType.NAME sub-tree that the dictionary lives in (HOT secondary
+      // indexes live on a separate HOT-page chain), so Names.fromStorage's HashEntryNode walk is
+      // safe. Under RBTREE, an RBTree NAME-index writer can interleave RBNodeKey records into
+      // the same sub-tree — Names.fromStorage's unchecked HashEntryNode cast would blow up. The
+      // RBTree code path doesn't need the dictionary pre-shared anyway: name lookups on RBTree-
+      // backed pages flow through different reader paths, so leaving the field null here keeps
+      // behaviour identical to the pre-fix baseline for that backend.
+      if (other.attributes == null) {
+        other.getName(0, NodeKind.ATTRIBUTE, storageEngineReader);
+      }
+      if (other.elements == null) {
+        other.getName(0, NodeKind.ELEMENT, storageEngineReader);
+      }
+      if (other.namespaces == null) {
+        other.getName(0, NodeKind.NAMESPACE, storageEngineReader);
+      }
+      if (other.processingInstructions == null) {
+        other.getName(0, NodeKind.PROCESSING_INSTRUCTION, storageEngineReader);
+      }
+      if (other.jsonObjectKeys == null) {
+        other.getName(0, NodeKind.OBJECT_NAMED_OBJECT, storageEngineReader);
+      }
     }
     this.attributes = other.attributes;
     this.elements = other.elements;
@@ -231,27 +248,6 @@ public final class NamePage extends AbstractForwardingPage {
     this(other, null);
   }
 
-  /**
-   * Try to eager-load a {@link Names} dictionary on {@code other}, swallowing storage-format
-   * mismatch errors (e.g. HOT vs. RBTree backends) so the deep-copy still proceeds.
-   */
-  private static void tryEagerLoad(final NamePage other, final StorageEngineReader reader,
-      final NodeKind kind) {
-    final Names existing = switch (kind) {
-      case ATTRIBUTE -> other.attributes;
-      case ELEMENT -> other.elements;
-      case NAMESPACE -> other.namespaces;
-      case PROCESSING_INSTRUCTION -> other.processingInstructions;
-      case OBJECT_NAMED_OBJECT -> other.jsonObjectKeys;
-      default -> null;
-    };
-    if (existing != null) return;
-    try {
-      other.getName(0, kind, reader);
-    } catch (final RuntimeException ignored) {
-      // Backend mismatch (HOT vs RBTree) — the index will lazy-load via the correct path later.
-    }
-  }
 
   /**
    * Get raw name belonging to name key.
