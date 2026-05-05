@@ -288,13 +288,28 @@ public abstract class AbstractHOTIndexReader<K> {
   }
 
   /**
-   * Range iterator over HOT entries, handling tree navigation.
+   * Range iterator over HOT entries.
    *
-   * <p>
-   * For range queries, we start from the leftmost leaf and skip entries that are before
-   * {@code fromBytes}. This is simpler and more correct than trying to navigate directly to a key
-   * that may not exist.
-   * </p>
+   * <p><strong>Implementation note (lower-bound primitive missing in Sirix's HOT).</strong> A
+   * navigate-to-fromKey range scan via {@link HOTRangeCursor} returns wrong results for
+   * non-existent fromKeys on this Sirix HOT implementation: {@code HOTTrieReader.navigateToLeaf}
+   * does PEXT-based exact-or-best-guess routing and does NOT implement a true lower-bound
+   * primitive over the lex order. For an existing key it lands correctly; for a non-existent
+   * key (the common range-scan case, e.g. {@code GREATER_OR_EQUAL 2500}) it may land in a leaf
+   * whose entries are NOT lex-greater than fromKey, and walking forward from there visits keys
+   * in HOT-trie-order rather than lex order — verified empirically by
+   * {@code HOTMultiLayerIndirectPageTest.testCrossTransactionWriteAfterSplitPreservesEntries}
+   * (range &ge; 2500 returned 4489 instead of 2501).
+   *
+   * <p>The HOT paper / Binna 2018 reference implementation in C++ does provide a proper
+   * lower_bound iterator; Sirix's HOT does not yet expose one. Until that primitive lands, the
+   * correct fallback is leftmost-and-filter — start at {@code navigateToLeftmostLeaf}, walk
+   * every leaf via the parent stack, skip entries before {@code fromBytes}. {@code O(total
+   * trie entries)} per query, but correct on every key shape (chunked PROJECTION-style keys,
+   * composite CAS path-value pairs, etc.).
+   *
+   * <p>If/when {@code HOTTrieReader} gains a true lower-bound navigation, this iterator can be
+   * rewritten to use it; the current implementation pins the correct semantics.
    */
   protected class RangeIterator implements Iterator<Map.Entry<K, NodeReferences>> {
     private final byte[] fromBytes;
@@ -311,11 +326,9 @@ public abstract class AbstractHOTIndexReader<K> {
       PageReference rootRef = getRootReference();
       if (rootRef != null) {
         this.trieReader = new HOTTrieReader(storageEngineReader);
-        // Start from the leftmost leaf and skip entries < fromBytes
         this.currentLeaf = trieReader.navigateToLeftmostLeaf(rootRef);
       } else {
         this.trieReader = null;
-        // Fallback to simple case
         this.currentLeaf = storageEngineReader.getHOTLeafPage(indexType, indexNumber);
       }
 
@@ -344,14 +357,11 @@ public abstract class AbstractHOTIndexReader<K> {
         if (currentIndex < currentLeaf.getEntryCount()) {
           byte[] key = currentLeaf.getKey(currentIndex);
 
-          // Check if key is within range (only if toBytes is set)
           if (toBytes != null && compareKeys(key, 0, key.length, toBytes, 0, toBytes.length) >= 0) {
-            // Past end of range
             currentLeaf = null;
             break;
           }
 
-          // Skip entries before fromBytes
           if (compareKeys(key, 0, key.length, fromBytes, 0, fromBytes.length) < 0) {
             currentIndex++;
             continue;
@@ -369,7 +379,6 @@ public abstract class AbstractHOTIndexReader<K> {
             }
           }
         } else {
-          // No more entries in current leaf - try to advance to next leaf
           currentIndex = 0;
           if (trieReader != null) {
             currentLeaf = trieReader.advanceToNextLeaf();
@@ -379,11 +388,11 @@ public abstract class AbstractHOTIndexReader<K> {
         }
       }
 
-      // Clean up trie reader when done
       if (trieReader != null && currentLeaf == null) {
         trieReader.close();
       }
     }
   }
+
 }
 

@@ -2639,6 +2639,21 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Number of entries currently marked dirty in the bitmap. Used by tests pinning the
+   * slot-granular sparse-fragment invariants — a single-key write must leave dirtyEntryCount
+   * equal to 1 so the rev's on-disk fragment carries only that one slot.
+   *
+   * @return total population count across the dirty bitmap, capped at {@link #entryCount}
+   */
+  public int dirtyEntryCount() {
+    int count = 0;
+    for (int i = 0; i < DIRTY_BITMAP_WORDS; i++) {
+      count += Long.bitCount(dirtyBitmap[i]);
+    }
+    return count;
+  }
+
+  /**
    * @return {@code true} if at least one entry has been marked dirty.
    */
   public boolean hasDirty() {
