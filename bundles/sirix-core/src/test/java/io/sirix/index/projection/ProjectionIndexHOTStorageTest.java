@@ -568,13 +568,15 @@ final class ProjectionIndexHOTStorageTest {
     }
   }
 
-  @org.junit.jupiter.api.Disabled("Pre-existing Sirix limitation tracked as task #57: HOT index "
-      + "sub-trees don't provide per-revision historical read isolation — a chunk updated in "
-      + "revision N bleeds into revision N-1 reads. The test is kept as an executable "
-      + "specification of the target SLIDING_SNAPSHOT contract so the versioning fix can "
-      + "flip @Disabled when it lands. Reproduces today: r2 putChunk at (5,1) → r1 reader "
-      + "sees the r2 bytes when walking via HOTTrieReader. Same underlying issue affects "
-      + "CAS / PATH / NAME indexes equally — not a projection-specific regression.")
+  @org.junit.jupiter.api.Disabled("Task #57 partial fix landed (sub-leaf CoW + sparse-fragment "
+      + "chain + write-side cumulative reads at HEAD). Remaining gap: historical-revision reads "
+      + "of HOT sub-tree values still alias the latest in-memory state because PageReference "
+      + "instances are shared across revisions through the indirect-page child slots and the "
+      + "ProjectionIndexPage / NamePage / CASPage / PathPage reference arrays. Closing this "
+      + "requires deep-copy at every CoW level (or revision-gated swizzle) — a multi-page redesign "
+      + "of how the HOT index sub-tree integrates with Sirix's page CoW. Test reproduces today: "
+      + "r2 putChunk at (5,1) → r1 reader sees the r2 bytes. Same root cause affects CAS / PATH "
+      + "/ NAME indexes equally.")
   @Test
   void multiRevision_chunkUpdateInR2DoesNotAffectR1Readers() throws IOException {
     // Revision 1: write leafIndex 5 with a 3-chunk payload.

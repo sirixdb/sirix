@@ -24,7 +24,6 @@ package io.sirix.settings;
 import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.PageContainer;
 import io.sirix.cache.TransactionIntentLog;
-import io.sirix.index.hot.NodeReferencesSerializer;
 import io.sirix.node.interfaces.DataRecord;
 import io.sirix.page.BitmapChunkPage;
 import io.sirix.page.FsstAwareSlotCopier;
@@ -1015,11 +1014,12 @@ public enum VersioningType {
           // Newer fragment owns this key (possibly as a tombstone); skip older.
           continue;
         }
+        // Add the entry — including tombstones — to the result. A tombstone in the older
+        // fragment is the SHADOW that hides any non-tombstone value in still-older fragments;
+        // skipping it would let the older value resurrect on the next iteration.
+        // mergeWithNodeRefs takes the insert-new-entry branch when the key is absent and
+        // preserves the tombstone byte verbatim.
         final byte[] value = olderPage.getValue(j);
-        if (NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
-          // Older tombstone with no newer overwrite → key remains deleted. Don't add it.
-          continue;
-        }
         result.mergeWithNodeRefs(key, key.length, value, value.length);
       }
     }
@@ -1033,18 +1033,21 @@ public enum VersioningType {
   }
 
   /**
-   * Combine HOT leaf page fragments for modification (COW).
+   * Combine HOT leaf page fragments for modification (COW) and update the fragment chain on
+   * {@code reference}. Mirrors {@link #combineRecordPagesForModification} for KVLP including the
+   * chain bump done at lines 254-259 / 458-470 / 683-695.
    *
-   * <p>Mirrors KeyValueLeafPage's
-   * {@link #combineRecordPagesForModification(List, int, StorageEngineReader, PageReference, TransactionIntentLog)}
-   * pattern. The complete page is the merged read-only view; the modifying page is a copy()
-   * with completePageRef linked back to complete so the slot-granular CoW machinery on
-   * {@link HOTLeafPage} emits a sparse fragment at commit time under non-FULL strategies.</p>
+   * <p>Under non-FULL strategies, the writer commits a sparse fragment at a NEW disk offset; the
+   * reader needs the prior fragment chain on {@code reference} to walk older fragments at the
+   * subsequent revision read. Without this hook the chain stays empty and entries from prior
+   * revisions are lost on read.</p>
    *
-   * @param pages the list of HOT leaf page fragments (newest first)
+   * @param pages the list of HOT leaf page fragments (newest first); for the HOT writer the read-
+   *              side combine has already collapsed the chain into a single complete page so this
+   *              is typically a singleton list
    * @param revToRestore the maximum number of fragments per strategy
    * @param storageEngineReader the storage engine reader
-   * @param reference the page reference
+   * @param reference the page reference (mutated: pageFragments updated in place)
    * @param log the transaction intent log
    * @return the page container with complete and modified pages
    */
@@ -1056,18 +1059,75 @@ public enum VersioningType {
       final TransactionIntentLog log) {
 
     final HOTLeafPage completePage = combineHOTLeafPages(pages, revToRestore, storageEngineReader);
-    // copy() bulk-copies content and pre-wires completePageRef = completePage + clears dirty bits.
+    final boolean forceFullEmit = bumpHOTPageFragmentChain(reference, completePage.getRevision(),
+        revToRestore, storageEngineReader.getDatabaseId(), storageEngineReader.getResourceId());
+
     final HOTLeafPage modifiedPage = completePage.copy();
 
-    // FULL: every commit must produce a full leaf — flip all bits dirty so sparse-emit covers
-    // every entry and the on-disk fragment is byte-equivalent to a full dump.
-    if (this == FULL) {
+    if (this == FULL || forceFullEmit) {
       modifiedPage.markAllEntriesDirty();
     }
 
     final var pageContainer = PageContainer.getInstance(completePage, modifiedPage);
     log.put(reference, pageContainer);
     return pageContainer;
+  }
+
+  /**
+   * Update the fragment chain on {@code reference} prior to the next CoW write of a HOT leaf.
+   * Mirrors KVLP's chain bump at {@link #combineRecordPagesForModification} lines 254-259 /
+   * 458-470 / 683-695, and additionally returns whether this commit must emit a full leaf
+   * (snapshot rotation).
+   *
+   * <p>The chain is grown by prepending the prior on-disk offset; the result is bounded by the
+   * strategy. FULL keeps no chain at all (every revision is a full dump). DIFFERENTIAL keeps
+   * exactly one entry. INCREMENTAL and SLIDING_SNAPSHOT prepend up to {@code revToRestore - 1}
+   * entries. When the chain would otherwise overflow, the chain is reset and the caller is told
+   * to force a full emit so future readers can reconstruct from a fresh snapshot — without this
+   * the OLDEST keys would fall off the chain and become unreadable.</p>
+   *
+   * <p>If {@code reference.getKey() < 0} the leaf was never persisted (no prior on-disk
+   * fragment). Returns {@code false} and leaves the list untouched.</p>
+   *
+   * @param reference   the leaf reference (mutated)
+   * @param revision    the revision number of the prior on-disk fragment (the page being CoW'd)
+   * @param revToRestore strategy-bounded chain length
+   * @param databaseId  the database id propagated into the new {@link PageFragmentKeyImpl}
+   * @param resourceId  the resource id propagated into the new {@link PageFragmentKeyImpl}
+   * @return {@code true} if the caller must force a full emit at commit (chain rotated) — only
+   *         possible under non-FULL strategies; {@code false} otherwise
+   */
+  public boolean bumpHOTPageFragmentChain(final PageReference reference, final int revision,
+      final int revToRestore, final long databaseId, final long resourceId) {
+    if (this == FULL) {
+      return false;
+    }
+    final long priorKey = reference.getKey();
+    if (priorKey < 0) {
+      return false;
+    }
+    final List<PageFragmentKey> existing = reference.getPageFragments();
+
+    if (this == DIFFERENTIAL) {
+      reference.setPageFragments(List.of(
+          new PageFragmentKeyImpl(revision, priorKey, databaseId, resourceId)));
+      return false;
+    }
+
+    final int chainCap = Math.max(0, revToRestore - 1);
+    if (existing.size() + 1 > chainCap) {
+      reference.setPageFragments(List.of());
+      return true;
+    }
+
+    final int existingSize = existing.size();
+    final ArrayList<PageFragmentKey> next = new ArrayList<>(existingSize + 1);
+    next.add(new PageFragmentKeyImpl(revision, priorKey, databaseId, resourceId));
+    for (int i = 0; i < existingSize && next.size() < chainCap; i++) {
+      next.add(existing.get(i));
+    }
+    reference.setPageFragments(next);
+    return false;
   }
 
   // ===== Bitmap Chunk Page Versioning =====

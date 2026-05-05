@@ -3844,12 +3844,21 @@ public enum PageKind {
         }
       }
 
-      // Read child references (simple key-only format)
+      // Read child references with embedded pageFragments — mirrors
+      // SerializationType.readPageFragments so HOT leaf fragment chains survive parent round-trip.
+      // Database/resource ids on PageFragmentKeyImpl are placeholders and patched by
+      // Reader.fixupPageReferenceIds on the parent's references after this returns.
       final PageReference[] children = new PageReference[numChildren];
       for (int i = 0; i < numChildren; i++) {
-        PageReference ref = new PageReference();
-        long childKey = source.readLong();
+        final PageReference ref = new PageReference();
+        final long childKey = source.readLong();
         ref.setKey(childKey);
+        final int fragmentCount = source.readByte() & 0xff;
+        for (int f = 0; f < fragmentCount; f++) {
+          final int fragRevision = source.readInt();
+          final long fragKey = source.readLong();
+          ref.addPageFragment(new PageFragmentKeyImpl(fragRevision, fragKey, 0L, 0L));
+        }
         children[i] = ref;
       }
 
@@ -3936,11 +3945,26 @@ public enum PageKind {
         }
       }
 
-      // Write child references
-      for (int i = 0; i < hotIndirect.getNumChildren(); i++) {
+      // Write child references — embed pageFragments so the leaf fragment chain
+      // (built by VersioningType.bumpHOTPageFragmentChain at CoW time) survives
+      // round-trip through the parent indirect page on disk.
+      final int numChildren = hotIndirect.getNumChildren();
+      for (int i = 0; i < numChildren; i++) {
         final PageReference ref = hotIndirect.getChildReference(i);
-        final long key = ref != null ? ref.getKey() : Constants.NULL_ID_LONG;
-        sink.writeLong(key);
+        if (ref == null) {
+          sink.writeLong(Constants.NULL_ID_LONG);
+          sink.writeByte((byte) 0);
+          continue;
+        }
+        sink.writeLong(ref.getKey());
+        final var fragments = ref.getPageFragments();
+        final int fragmentCount = fragments.size();
+        sink.writeByte((byte) fragmentCount);
+        for (int f = 0; f < fragmentCount; f++) {
+          final var fragKey = fragments.get(f);
+          sink.writeInt(fragKey.revision());
+          sink.writeLong(fragKey.key());
+        }
       }
 
       // For SingleMask MultiNode, write the 256-byte child index array

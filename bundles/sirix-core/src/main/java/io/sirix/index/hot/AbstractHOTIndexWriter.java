@@ -27,6 +27,7 @@
  */
 package io.sirix.index.hot;
 
+import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.page.HOTTrieWriter;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.PageContainer;
@@ -43,6 +44,7 @@ import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
+import io.sirix.settings.VersioningType;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Arrays;
@@ -351,8 +353,23 @@ public abstract class AbstractHOTIndexWriter<K> {
         return buildNavigationResult(modifiedLeaf, currentRef, pathDepth);
       }
 
-      // COW leaf for write path and persist COW path to keep parent references in sync.
+      // CoW + fragment-chain bump: under non-FULL versioning the writer commits a sparse fragment
+      // at a new disk offset, so the prior on-disk offset must be recorded on the reference's
+      // pageFragments before the writer overwrites it. Mirrors KVLP's plumbing in
+      // VersioningType.combineRecordPagesForModification. The bump returns true when the chain
+      // would have overflowed: in that case the chain is reset and we force a full emit so the
+      // soon-to-be-dropped fragment's entries do not become unreachable.
+      final ResourceConfiguration resourceConfig = storageEngineWriter.getResourceSession().getResourceConfig();
+      final VersioningType versioningType = resourceConfig.versioningType;
+      final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
+      final boolean forceFullEmit =
+          versioningType.bumpHOTPageFragmentChain(currentRef, hotLeaf.getRevision(), revsToRestore,
+              storageEngineWriter.getDatabaseId(), storageEngineWriter.getResourceId());
+
       final HOTLeafPage modifiedLeaf = hotLeaf.copy();
+      if (versioningType == VersioningType.FULL || forceFullEmit) {
+        modifiedLeaf.markAllEntriesDirty();
+      }
       final PageContainer leafContainer = PageContainer.getInstance(hotLeaf, modifiedLeaf);
       storageEngineWriter.getLog().put(currentRef, leafContainer);
 
