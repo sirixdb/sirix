@@ -8,6 +8,7 @@ import io.sirix.api.StorageEngineReader;
 import io.sirix.cache.TransactionIntentLog;
 import io.sirix.index.IndexType;
 import io.sirix.page.delegates.BitmapReferencesPage;
+import io.sirix.page.delegates.FullReferencesPage;
 import io.sirix.page.delegates.ReferencesPage4;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
@@ -64,6 +65,30 @@ public final class ProjectionIndexPage extends AbstractForwardingPage {
     this.maxNodeKeys = maxNodeKeys;
     this.maxHotPageKeys = maxHotPageKeys;
     this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
+  }
+
+  /**
+   * Copy constructor for write-side CoW. Mirrors {@link IndirectPage#IndirectPage(IndirectPage)}:
+   * the underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so
+   * mutations to a child reference (key, pageFragments, swizzled page) cannot bleed back into the
+   * historical revision's view through cache aliasing. The bookkeeping maps are duplicated to
+   * decouple writer-side mutations from the prior-revision's instance.
+   */
+  public ProjectionIndexPage(final ProjectionIndexPage other) {
+    final Page otherDelegate = other.delegate;
+    if (otherDelegate instanceof ReferencesPage4 ref) {
+      this.delegate = new ReferencesPage4(ref);
+    } else if (otherDelegate instanceof BitmapReferencesPage bmp) {
+      this.delegate = new BitmapReferencesPage(otherDelegate, bmp.getBitmap());
+    } else if (otherDelegate instanceof FullReferencesPage full) {
+      this.delegate = new FullReferencesPage(full);
+    } else {
+      throw new IllegalStateException(
+          "Unknown ProjectionIndexPage delegate type, cannot clone: " + otherDelegate.getClass().getName());
+    }
+    this.maxNodeKeys = new Int2LongOpenHashMap(other.maxNodeKeys);
+    this.maxHotPageKeys = new Int2LongOpenHashMap(other.maxHotPageKeys);
+    this.currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap(other.currentMaxLevelsOfIndirectPages);
   }
 
   @Override

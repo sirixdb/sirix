@@ -225,6 +225,13 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @return the root page reference
    */
   protected PageReference getRootReference() {
+    // Prefer the cached field — initialise*Index() points it at the CoW'd index page's slot,
+    // which is what same-trx writes/reads must traverse to see in-progress mutations. Falling
+    // back to the disk-loaded page would yield the un-modified slot whose subtree never received
+    // the writer's puts.
+    if (rootReference != null) {
+      return rootReference;
+    }
     final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
     return switch (indexType) {
       case PATH -> {
@@ -281,8 +288,12 @@ public abstract class AbstractHOTIndexWriter<K> {
         final PageReference projPageRef = revisionRootPage.getProjectionIndexPageReference();
         PageContainer container = storageEngineWriter.getLog().get(projPageRef);
         if (container == null) {
+          // Top-down CoW: deep-copy the page so the writer-side mutates a private instance.
+          // Without this the rev-(N-1) cached ProjectionIndexPage still aliases the same root
+          // PageReference instance, and TIL.put / chain-bump mutations bleed into historical reads.
           ProjectionIndexPage projPage = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
-          storageEngineWriter.appendLogRecord(projPageRef, PageContainer.getInstance(projPage, projPage));
+          ProjectionIndexPage modified = new ProjectionIndexPage(projPage);
+          storageEngineWriter.appendLogRecord(projPageRef, PageContainer.getInstance(projPage, modified));
         }
       }
       default -> {
@@ -316,28 +327,43 @@ public abstract class AbstractHOTIndexWriter<K> {
     // firstKey/lastKey may no longer match the resident page.
     invalidateLeafCache();
 
+    // Top-down CoW (task #57): the caller hands us a cached root reference taken from the
+    // *original* index page (NamePage / CASPage / PathPage / ProjectionIndexPage). That instance
+    // is shared with historical revisions through the page's reference array. CoW the index
+    // page first so subsequent mutations to the root reference (TIL.put resetting key/page,
+    // chain-bump on pageFragments) target a private copy, then re-resolve the root reference
+    // from the CoW'd index page so the rest of this method works against the fresh instance.
+    markIndexPageDirty();
+    final PageReference cowedRootRef = resolveCowedRootReference(rootRef);
+
     // Reset path depth counter — no allocation
     int pathDepth = 0;
-    PageReference currentRef = rootRef;
+    PageReference currentRef = cowedRootRef;
     final byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
     Page page = resolveHOTPageForTraversal(currentRef);
 
-    // Navigate through indirect pages, tracking the path into pre-allocated arrays.
+    // Top-down CoW (task #57): on every indirect along the path, deep-copy it on first
+    // touch in this trx via the HOTIndirectPage copy ctor, which itself deep-copies every
+    // child PageReference. This mirrors KeyedTrieWriter.prepareIndirectPage for the
+    // document trie. With this, the leaf reference handed back at the bottom is a fresh
+    // PageReference owned by the CoW'd indirect — mutations to its key/pageFragments
+    // never bleed back into the historical revision's view through cache aliasing.
     while (page instanceof HOTIndirectPage indirectPage) {
       if (pathDepth >= MAX_PATH_DEPTH) {
         throw new IllegalStateException("HOT tree depth exceeds MAX_PATH_DEPTH=" + MAX_PATH_DEPTH);
       }
-      _pathNodes[pathDepth] = indirectPage;
+      final HOTIndirectPage cowedIndirect = prepareHOTIndirectPage(currentRef, indirectPage);
+      _pathNodes[pathDepth] = cowedIndirect;
       _pathRefs[pathDepth] = currentRef;
 
-      int childIndex = indirectPage.findChildIndex(keySlice);
+      int childIndex = cowedIndirect.findChildIndex(keySlice);
       if (childIndex < 0) {
         childIndex = 0; // Default to first child
       }
       _pathChildIndices[pathDepth] = childIndex;
       pathDepth++;
 
-      final PageReference childRef = indirectPage.getChildReference(childIndex);
+      final PageReference childRef = cowedIndirect.getChildReference(childIndex);
       if (childRef == null) {
         throw new IllegalStateException("Null child reference in HOTIndirectPage");
       }
@@ -359,6 +385,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       // VersioningType.combineRecordPagesForModification. The bump returns true when the chain
       // would have overflowed: in that case the chain is reset and we force a full emit so the
       // soon-to-be-dropped fragment's entries do not become unreachable.
+      // Safe under top-down CoW: currentRef is owned by the CoW'd parent's children array.
       final ResourceConfiguration resourceConfig = storageEngineWriter.getResourceSession().getResourceConfig();
       final VersioningType versioningType = resourceConfig.versioningType;
       final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
@@ -373,25 +400,76 @@ public abstract class AbstractHOTIndexWriter<K> {
       final PageContainer leafContainer = PageContainer.getInstance(hotLeaf, modifiedLeaf);
       storageEngineWriter.getLog().put(currentRef, leafContainer);
 
-      // If this is not the root leaf, COW all ancestors so child log keys are persisted.
-      if (pathDepth > 0) {
-        propagateCowPathToRoot(pathDepth, currentRef);
-      }
-
       return buildNavigationResult(modifiedLeaf, currentRef, pathDepth);
     }
 
     // Empty tree path: create a new leaf at currentRef (root or missing child).
+    // currentRef here is owned by the CoW'd parent's children array (top-down CoW above).
     final HOTLeafPage newLeaf = new HOTLeafPage(currentRef.getKey() >= 0 ? currentRef.getKey() : 0,
         storageEngineWriter.getRevisionNumber(), indexType);
     final PageContainer container = PageContainer.getInstance(newLeaf, newLeaf);
     storageEngineWriter.getLog().put(currentRef, container);
 
-    if (pathDepth > 0) {
-      propagateCowPathToRoot(pathDepth, currentRef);
-    }
-
     return buildNavigationResult(newLeaf, currentRef, pathDepth);
+  }
+
+  /**
+   * Resolve the root reference of this HOT sub-tree from the CoW'd index page now in the
+   * transaction log. Required because the cached {@link #rootReference} field points at the
+   * pre-CoW index page's slot — that instance is shared with the historical revision's view.
+   * After {@link #markIndexPageDirty()} has put a deep-copied page in the log, the slot returned
+   * by {@code getOrCreateReference(indexNumber)} on the CoW'd page is a fresh
+   * {@link PageReference} owned exclusively by this writer's transaction.
+   *
+   * @param fallbackRef returned when no CoW'd page is in the log (e.g. unsupported index types)
+   * @return the writer-private root reference
+   */
+  private PageReference resolveCowedRootReference(final PageReference fallbackRef) {
+    final RevisionRootPage rrp = storageEngineWriter.getActualRevisionRootPage();
+    final PageReference indexPageRef = switch (indexType) {
+      case PATH -> rrp.getPathPageReference();
+      case CAS -> rrp.getCASPageReference();
+      case NAME -> rrp.getNamePageReference();
+      case PROJECTION -> rrp.getProjectionIndexPageReference();
+      default -> null;
+    };
+    if (indexPageRef == null) return fallbackRef;
+    final PageContainer container = storageEngineWriter.getLog().get(indexPageRef);
+    if (container == null) return fallbackRef;
+    final Page modified = container.getModified();
+    final PageReference cowed = switch (indexType) {
+      case PATH -> ((PathPage) modified).getOrCreateReference(indexNumber);
+      case CAS -> ((CASPage) modified).getOrCreateReference(indexNumber);
+      case NAME -> ((NamePage) modified).getOrCreateReference(indexNumber);
+      case PROJECTION -> ((ProjectionIndexPage) modified).getOrCreateReference(indexNumber);
+      default -> fallbackRef;
+    };
+    return cowed != null ? cowed : fallbackRef;
+  }
+
+  /**
+   * Top-down CoW for a HOT indirect page on the write path. Mirrors
+   * {@link io.sirix.access.trx.page.KeyedTrieWriter#prepareIndirectPage} for the document trie:
+   * if not already in the transaction log this trx, deep-copy the page via
+   * {@link HOTIndirectPage#HOTIndirectPage(HOTIndirectPage)} — the copy ctor allocates a fresh
+   * children array and a fresh {@link PageReference} per occupied slot, so subsequent mutations
+   * to a child reference (its key, pageFragments, swizzled page) cannot bleed back to the
+   * historical revision's view of the parent indirect through cache aliasing. Idempotent within
+   * a transaction: subsequent calls return the same in-log copy.
+   *
+   * @param reference the reference whose page is to be CoW'd into the log
+   * @param indirectPage the resolved indirect page (must not be {@code null})
+   * @return the CoW'd indirect page (newly created or already in log)
+   */
+  private HOTIndirectPage prepareHOTIndirectPage(final PageReference reference,
+      final HOTIndirectPage indirectPage) {
+    final PageContainer cont = storageEngineWriter.getLog().get(reference);
+    if (cont != null && cont.getModified() instanceof HOTIndirectPage cowed) {
+      return cowed;
+    }
+    final HOTIndirectPage cowed = new HOTIndirectPage(indirectPage);
+    storageEngineWriter.getLog().put(reference, PageContainer.getInstance(cowed, cowed));
+    return cowed;
   }
 
   /**

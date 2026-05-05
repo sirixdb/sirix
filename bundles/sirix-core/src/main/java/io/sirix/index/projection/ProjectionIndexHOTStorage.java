@@ -247,8 +247,12 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (projContainer != null && projContainer.getModified() instanceof ProjectionIndexPage modifiedProj) {
       projPage = modifiedProj;
     } else {
-      projPage = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
-      storageEngineWriter.appendLogRecord(projPageRef, PageContainer.getInstance(projPage, projPage));
+      // Top-down CoW (task #57): the writer must mutate a private deep-copy. Without this the
+      // cached prior-revision instance shares the reference array (and the rootRef slot) with
+      // the historical revisions, so write-side mutations bleed into historical reads.
+      final ProjectionIndexPage cached = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
+      projPage = new ProjectionIndexPage(cached);
+      storageEngineWriter.appendLogRecord(projPageRef, PageContainer.getInstance(cached, projPage));
     }
 
     final PageReference existingRef = projPage.getOrCreateReference(indexNumber);

@@ -148,13 +148,11 @@ final class HOTMultiRevisionFragmentChainTest {
     }
   }
 
-  @Disabled("Task #57 remaining work: HOT indirect-page child references and the index-page "
-      + "reference arrays (NamePage / CASPage / PathPage / ProjectionIndexPage) are shared "
-      + "PageReference instances across revisions. Read at HEAD walks the latest leaf which "
-      + "does carry a cumulative bitmap (the WIP makes that pass); read at an intermediate "
-      + "revision picks up the latest in-memory state because of cross-revision aliasing. "
-      + "Fixing this cleanly requires deep-copy of every modified ref at every CoW level, "
-      + "or revision-gated page swizzling — a multi-page redesign. Kept as executable spec.")
+  @Disabled("Task #57 partial fix: top-down CoW landed for HOT indirect pages + index-page-level "
+      + "deep-copy. HEAD reads pass. Intermediate-revision reads still alias the historical RRP's "
+      + "projectionIndexPageReference / namePageReference / etc. — the rev=N RRP's reference reads "
+      + "back rev=(N+1)'s offset on disk. Suspect a deeper aliasing path in the RRP commit / "
+      + "indirect-tree-of-RRPs serialization. Remaining work for next session.")
   @Test
   @DisplayName("read at every intermediate revision sees the cumulative-up-to-that-revision view")
   void readAtIntermediateRevisionsIsCumulative() {

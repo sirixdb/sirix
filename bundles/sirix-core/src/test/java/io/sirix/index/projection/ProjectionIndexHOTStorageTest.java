@@ -568,15 +568,12 @@ final class ProjectionIndexHOTStorageTest {
     }
   }
 
-  @org.junit.jupiter.api.Disabled("Task #57 partial fix landed (sub-leaf CoW + sparse-fragment "
-      + "chain + write-side cumulative reads at HEAD). Remaining gap: historical-revision reads "
-      + "of HOT sub-tree values still alias the latest in-memory state because PageReference "
-      + "instances are shared across revisions through the indirect-page child slots and the "
-      + "ProjectionIndexPage / NamePage / CASPage / PathPage reference arrays. Closing this "
-      + "requires deep-copy at every CoW level (or revision-gated swizzle) — a multi-page redesign "
-      + "of how the HOT index sub-tree integrates with Sirix's page CoW. Test reproduces today: "
-      + "r2 putChunk at (5,1) → r1 reader sees the r2 bytes. Same root cause affects CAS / PATH "
-      + "/ NAME indexes equally.")
+  @org.junit.jupiter.api.Disabled("Task #57 partially fixed (top-down CoW for HOT indirect pages "
+      + "+ ProjectionIndexPage deep-copy at write start). Remaining gap: rev=N RevisionRootPage's "
+      + "projectionIndexPageReference reads back rev=(N+1)'s offset on disk for reasons not yet "
+      + "diagnosed. Trace at debug time showed `after r1 commit projRef.key=12576` (correct), but "
+      + "fresh-load at r1 read returned key=22544 (rev=2's offset). Suspect commit/serialize "
+      + "ordering somewhere in the RRP indirect tree write path. Remaining work for next session.")
   @Test
   void multiRevision_chunkUpdateInR2DoesNotAffectR1Readers() throws IOException {
     // Revision 1: write leafIndex 5 with a 3-chunk payload.
