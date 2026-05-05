@@ -148,14 +148,6 @@ final class HOTMultiRevisionFragmentChainTest {
     }
   }
 
-  @Disabled("Task #57 partial: NAME-index intermediate-revision reads still alias the latest "
-      + "in-memory state via the cached NamePage. The projection multi-rev case is fully fixed "
-      + "(ProjectionIndexHOTStorage.initializeProjectionIndex deep-copies the page); replicating "
-      + "the same pattern for NamePage breaks unrelated HOTIndexIntegrationTest tests because "
-      + "those tests rely on cross-listener mutation visibility through the cached NamePage "
-      + "instance. Closing this needs a smarter deep-copy strategy that preserves intra-listener "
-      + "mutation visibility — likely deferring the deep-copy until the writer first mutates a "
-      + "slot, or sharing one CoW NamePage across all HOT index writers in the same wtx.")
   @Test
   @DisplayName("read at every intermediate revision sees the cumulative-up-to-that-revision view")
   void readAtIntermediateRevisionsIsCumulative() {
@@ -163,6 +155,7 @@ final class HOTMultiRevisionFragmentChainTest {
 
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     final IndexDef nameIndexDef;
+    final int[] revisions = new int[4];
 
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = session.beginNodeTrx()) {
@@ -172,20 +165,29 @@ final class HOTMultiRevisionFragmentChainTest {
       trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
           "{\"items\":[{\"name\":\"alpha\"}]}"));
       trx.commit();
+      revisions[0] = trx.getResourceSession().getMostRecentRevisionNumber();
     }
 
     appendItemAndCommit(database, "{\"name\":\"beta\"}");
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      revisions[1] = session.getMostRecentRevisionNumber();
+    }
     appendItemAndCommit(database, "{\"name\":\"gamma\"}");
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      revisions[2] = session.getMostRecentRevisionNumber();
+    }
     appendItemAndCommit(database, "{\"name\":\"delta\"}");
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      revisions[3] = session.getMostRecentRevisionNumber();
+    }
 
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
-      // Sirix numbering: bootstrap = rev 0; nth commit = rev n. The test does 4 commits, so
-      // revisions 1..4 are the cumulative views. Card at rev N == N.
-      for (int revision = 1; revision <= 4; revision++) {
+      for (int commit = 1; commit <= 4; commit++) {
+        final int revision = revisions[commit - 1];
         try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
           final var ic = session.getRtxIndexController(rtx.getRevisionNumber());
-          assertNameKeyCount(rtx, ic, nameIndexDef, "name", revision,
-              "rev " + revision + " 'name' cardinality");
+          assertNameKeyCount(rtx, ic, nameIndexDef, "name", commit,
+              "rev " + revision + " 'name' cardinality (commit " + commit + ")");
         }
       }
     }

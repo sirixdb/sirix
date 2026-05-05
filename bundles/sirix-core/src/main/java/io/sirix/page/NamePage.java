@@ -175,10 +175,15 @@ public final class NamePage extends AbstractForwardingPage {
    * Copy constructor for write-side CoW. Mirrors {@link IndirectPage#IndirectPage(IndirectPage)}:
    * the underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so
    * mutations to a child reference cannot bleed back into the historical revision's view through
-   * cache aliasing. Bookkeeping maps are duplicated; {@link Names} dictionaries are shared because
-   * they are append-only within a wtx and get re-deserialized fresh on historical reads.
+   * cache aliasing. Bookkeeping maps are duplicated.
+   *
+   * <p>Eager-loads any {@link Names} dictionary that is currently {@code null} on {@code other}
+   * before sharing — without this, a subsequent lazy-load via either side creates an independent
+   * instance that diverges from its sibling, and writes via the deep-copy never become visible to
+   * the cached page (and vice-versa). Pass a non-null {@code storageEngineReader} to enable the
+   * eager-load; pass {@code null} only when neither side will be queried before commit.</p>
    */
-  public NamePage(final NamePage other) {
+  public NamePage(final NamePage other, final StorageEngineReader storageEngineReader) {
     final Page otherDelegate = other.delegate;
     if (otherDelegate instanceof io.sirix.page.delegates.ReferencesPage4 ref) {
       this.delegate = new io.sirix.page.delegates.ReferencesPage4(ref);
@@ -194,11 +199,58 @@ public final class NamePage extends AbstractForwardingPage {
     this.maxHotPageKeys = new Int2LongOpenHashMap(other.maxHotPageKeys);
     this.currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap(other.currentMaxLevelsOfIndirectPages);
     this.numberOfArrays = other.numberOfArrays;
+    if (storageEngineReader != null) {
+      // Eager-load any null dictionary on the source so the shared reference is non-null on both
+      // sides; subsequent lazy-loads short-circuit since the field is already populated.
+      // Storage formats differ between HOT (HashEntryNode-based) and RBTree (RBNodeKey-based);
+      // ClassCastException here just means the index uses the alternate backend — the Names
+      // dictionary will lazy-load via the correct path on the first real access. Swallow the
+      // exception so the deep-copy still proceeds cleanly with null dictionaries.
+      tryEagerLoad(other, storageEngineReader, NodeKind.ATTRIBUTE);
+      tryEagerLoad(other, storageEngineReader, NodeKind.ELEMENT);
+      tryEagerLoad(other, storageEngineReader, NodeKind.NAMESPACE);
+      tryEagerLoad(other, storageEngineReader, NodeKind.PROCESSING_INSTRUCTION);
+      tryEagerLoad(other, storageEngineReader, NodeKind.OBJECT_NAMED_OBJECT);
+    }
     this.attributes = other.attributes;
     this.elements = other.elements;
     this.namespaces = other.namespaces;
     this.processingInstructions = other.processingInstructions;
     this.jsonObjectKeys = other.jsonObjectKeys;
+  }
+
+  /**
+   * Convenience copy constructor that doesn't pre-load Names dictionaries. Use only when the
+   * caller can guarantee Names won't be queried via either side.
+   *
+   * @deprecated prefer {@link #NamePage(NamePage, StorageEngineReader)} so Names dictionaries
+   *             stay in sync between cached and CoW'd pages.
+   */
+  @Deprecated
+  public NamePage(final NamePage other) {
+    this(other, null);
+  }
+
+  /**
+   * Try to eager-load a {@link Names} dictionary on {@code other}, swallowing storage-format
+   * mismatch errors (e.g. HOT vs. RBTree backends) so the deep-copy still proceeds.
+   */
+  private static void tryEagerLoad(final NamePage other, final StorageEngineReader reader,
+      final NodeKind kind) {
+    final Names existing = switch (kind) {
+      case ATTRIBUTE -> other.attributes;
+      case ELEMENT -> other.elements;
+      case NAMESPACE -> other.namespaces;
+      case PROCESSING_INSTRUCTION -> other.processingInstructions;
+      case OBJECT_NAMED_OBJECT -> other.jsonObjectKeys;
+      default -> null;
+    };
+    if (existing != null) return;
+    try {
+      other.getName(0, kind, reader);
+    } catch (final RuntimeException ignored) {
+      // Backend mismatch (HOT vs RBTree) — the index will lazy-load via the correct path later.
+    }
   }
 
   /**

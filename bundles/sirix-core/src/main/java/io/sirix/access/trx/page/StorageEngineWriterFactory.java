@@ -32,10 +32,13 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.node.IndexController;
 import io.sirix.access.trx.node.InternalResourceSession;
 import io.sirix.cache.TransactionIntentLog;
+import io.sirix.page.CASPage;
 import io.sirix.page.DeweyIDPage;
 import io.sirix.page.NamePage;
 import io.sirix.page.PageReference;
+import io.sirix.page.PathPage;
 import io.sirix.page.PathSummaryPage;
+import io.sirix.page.ProjectionIndexPage;
 import io.sirix.page.RevisionRootPage;
 import io.sirix.page.UberPage;
 import io.sirix.cache.BufferManager;
@@ -168,19 +171,39 @@ public final class StorageEngineWriterFactory {
         throw new IllegalStateException("Resource session type not known.");
       }
     } else {
+      // Top-down CoW (task #57), analogous to KeyedTrieWriter.prepareIndirectPage in the document
+      // trie: pre-stage NamePage / CASPage / PathPage / ProjectionIndexPage with a deep-copied
+      // page instance (used as BOTH complete AND modified — exactly the document-trie pattern).
+      // The cached prior-revision instance stays in the buffer cache untouched; the TIL holds the
+      // private deep-copy that the writer mutates. Without this every per-index reference array
+      // (and the rootRef slot) is shared with historical revisions and writer-side mutations
+      // bleed into historical reads. Eager-loading Names dictionaries at copy time keeps the
+      // cached and CoW'd NamePage Names instances aligned (without it, lazy-loads via either
+      // side later create disconnected dictionaries and breaks DELETE event-firing).
       if (log.get(newRevisionRootPage.getNamePageReference()) == null) {
-        final Page namePage = storageEngineReader.getNamePage(newRevisionRootPage);
-        log.put(newRevisionRootPage.getNamePageReference(), PageContainer.getInstance(namePage, namePage));
+        final NamePage cached = storageEngineReader.getNamePage(newRevisionRootPage);
+        final NamePage cowed = new NamePage(cached, storageEngineReader);
+        log.put(newRevisionRootPage.getNamePageReference(), PageContainer.getInstance(cowed, cowed));
       }
 
       if (log.get(newRevisionRootPage.getCASPageReference()) == null) {
-        final Page casPage = storageEngineReader.getCASPage(newRevisionRootPage);
-        log.put(newRevisionRootPage.getCASPageReference(), PageContainer.getInstance(casPage, casPage));
+        final CASPage cached = storageEngineReader.getCASPage(newRevisionRootPage);
+        final CASPage cowed = new CASPage(cached);
+        log.put(newRevisionRootPage.getCASPageReference(), PageContainer.getInstance(cowed, cowed));
       }
 
       if (log.get(newRevisionRootPage.getPathPageReference()) == null) {
-        final Page pathPage = storageEngineReader.getPathPage(newRevisionRootPage);
-        log.put(newRevisionRootPage.getPathPageReference(), PageContainer.getInstance(pathPage, pathPage));
+        final PathPage cached = storageEngineReader.getPathPage(newRevisionRootPage);
+        final PathPage cowed = new PathPage(cached);
+        log.put(newRevisionRootPage.getPathPageReference(), PageContainer.getInstance(cowed, cowed));
+      }
+
+      if (log.get(newRevisionRootPage.getProjectionIndexPageReference()) == null) {
+        final ProjectionIndexPage cached = storageEngineReader.getProjectionIndexPage(newRevisionRootPage);
+        if (cached != null) {
+          final ProjectionIndexPage cowed = new ProjectionIndexPage(cached);
+          log.put(newRevisionRootPage.getProjectionIndexPageReference(), PageContainer.getInstance(cowed, cowed));
+        }
       }
 
       if (log.get(newRevisionRootPage.getDeweyIdPageReference()) == null) {
