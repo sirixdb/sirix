@@ -204,7 +204,7 @@ public final class HOTIndexWriter<K extends Comparable<? super K>> extends Abstr
     byte[] keySlice = keyLen == keyBuf.length
         ? keyBuf
         : Arrays.copyOf(keyBuf, keyLen);
-    LeafNavigationResult navResult = getLeafWithPath(rootReference, keySlice, keyLen);
+    LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keySlice, keyLen);
     HOTLeafPage leaf = navResult.leaf();
     if (leaf == null) {
       return false;

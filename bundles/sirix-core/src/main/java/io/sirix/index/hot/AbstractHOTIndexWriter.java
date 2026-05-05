@@ -94,7 +94,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   protected PageReference rootReference;
 
   // ===== Pre-allocated path-tracking arrays — ZERO allocation per insert on hot path =====
-  // These are overwritten on every getLeafWithPath() call; LeafNavigationResult stores
+  // These are overwritten on every prepareLeafOfTree() call; LeafNavigationResult stores
   // copies only when the path depth is non-zero (a small Arrays.copyOf of depth <= 64).
   private final HOTIndirectPage[] _pathNodes = new HOTIndirectPage[MAX_PATH_DEPTH];
   private final PageReference[] _pathRefs = new PageReference[MAX_PATH_DEPTH];
@@ -257,7 +257,7 @@ public abstract class AbstractHOTIndexWriter<K> {
   /**
    * Mark the index page as dirty so changes are persisted.
    */
-  protected void markIndexPageDirty() {
+  protected void prepareIndexPage() {
     final RevisionRootPage revisionRootPage = storageEngineWriter.getActualRevisionRootPage();
     switch (indexType) {
       case PATH -> {
@@ -318,7 +318,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @param keyLen the key length
    * @return navigation result with leaf and path
    */
-  protected LeafNavigationResult getLeafWithPath(PageReference rootRef, byte[] keyBuf, int keyLen) {
+  protected LeafNavigationResult prepareLeafOfTree(PageReference rootRef, byte[] keyBuf, int keyLen) {
     if (rootRef == null) {
       throw new IllegalStateException("HOT index not initialized");
     }
@@ -333,8 +333,8 @@ public abstract class AbstractHOTIndexWriter<K> {
     // page first so subsequent mutations to the root reference (TIL.put resetting key/page,
     // chain-bump on pageFragments) target a private copy, then re-resolve the root reference
     // from the CoW'd index page so the rest of this method works against the fresh instance.
-    markIndexPageDirty();
-    final PageReference cowedRootRef = resolveCowedRootReference(rootRef);
+    prepareIndexPage();
+    final PageReference cowedRootRef = prepareIndexPageRootReference(rootRef);
 
     // Reset path depth counter — no allocation
     int pathDepth = 0;
@@ -352,7 +352,7 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (pathDepth >= MAX_PATH_DEPTH) {
         throw new IllegalStateException("HOT tree depth exceeds MAX_PATH_DEPTH=" + MAX_PATH_DEPTH);
       }
-      final HOTIndirectPage cowedIndirect = prepareHOTIndirectPage(currentRef, indirectPage);
+      final HOTIndirectPage cowedIndirect = prepareIndirectPage(currentRef, indirectPage);
       _pathNodes[pathDepth] = cowedIndirect;
       _pathRefs[pathDepth] = currentRef;
 
@@ -417,14 +417,14 @@ public abstract class AbstractHOTIndexWriter<K> {
    * Resolve the root reference of this HOT sub-tree from the CoW'd index page now in the
    * transaction log. Required because the cached {@link #rootReference} field points at the
    * pre-CoW index page's slot — that instance is shared with the historical revision's view.
-   * After {@link #markIndexPageDirty()} has put a deep-copied page in the log, the slot returned
+   * After {@link #prepareIndexPage()} has put a deep-copied page in the log, the slot returned
    * by {@code getOrCreateReference(indexNumber)} on the CoW'd page is a fresh
    * {@link PageReference} owned exclusively by this writer's transaction.
    *
    * @param fallbackRef returned when no CoW'd page is in the log (e.g. unsupported index types)
    * @return the writer-private root reference
    */
-  private PageReference resolveCowedRootReference(final PageReference fallbackRef) {
+  private PageReference prepareIndexPageRootReference(final PageReference fallbackRef) {
     final RevisionRootPage rrp = storageEngineWriter.getActualRevisionRootPage();
     final PageReference indexPageRef = switch (indexType) {
       case PATH -> rrp.getPathPageReference();
@@ -461,7 +461,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    * @param indirectPage the resolved indirect page (must not be {@code null})
    * @return the CoW'd indirect page (newly created or already in log)
    */
-  private HOTIndirectPage prepareHOTIndirectPage(final PageReference reference,
+  private HOTIndirectPage prepareIndirectPage(final PageReference reference,
       final HOTIndirectPage indirectPage) {
     final PageContainer cont = storageEngineWriter.getLog().get(reference);
     if (cont != null && cont.getModified() instanceof HOTIndirectPage cowed) {
@@ -515,7 +515,7 @@ public abstract class AbstractHOTIndexWriter<K> {
             navResult.pathDepth(), keyBuf, keyLen, valueBuf, valueLen);
 
         // CRITICAL: Mark index page dirty so updated root reference gets persisted
-        markIndexPageDirty();
+        prepareIndexPage();
 
         if (inserted) {
           return true;
@@ -524,7 +524,7 @@ public abstract class AbstractHOTIndexWriter<K> {
 
       // If neither compact nor split helped, re-navigate for fresh state
       if (attempt < MAX_INSERT_RETRIES - 1) {
-        navResult = getLeafWithPath(rootRef, keyBuf, keyLen);
+        navResult = prepareLeafOfTree(rootRef, keyBuf, keyLen);
         leaf = navResult.leaf();
       }
     }
@@ -752,7 +752,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
     PageReference rootRef = rootReference;
 
-    LeafNavigationResult navResult = getLeafWithPath(rootRef, keyBuf, keyLen);
+    LeafNavigationResult navResult = prepareLeafOfTree(rootRef, keyBuf, keyLen);
     HOTLeafPage leaf = navResult.leaf();
 
     // Merge entry

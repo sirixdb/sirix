@@ -174,7 +174,7 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
     int keyLen = keySerializer.serialize(key, keyBuf, 0);
 
     // Navigate to leaf with path tracking
-    LeafNavigationResult navResult = getLeafWithPath(rootReference, keyBuf, keyLen);
+    LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
     HOTLeafPage leaf = navResult.leaf();
     if (leaf == null) {
       return false;
