@@ -144,27 +144,27 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
   }
 
   /**
-   * Descend to the first entry >= fromKey.
+   * Descend to the first entry {@code >= fromKey} in lex order.
+   *
+   * <p>Reference impl: {@code HOTSingleThreaded::lower_bound} (Binna §4.2). PEXT-routed
+   * point-search alone is incorrect for non-existent fromKeys — it lands at a partial-key
+   * match which can miss the lex-position. The proper algorithm walks back up the search
+   * stack to the branching depth and re-positions in the affected-subtree's first child.
+   * See {@link HOTTrieReader#lowerBound(io.sirix.page.PageReference, byte[])}.</p>
    */
   private void descendToFirstEntry() {
     if (fromKey == null) {
-      // No lower bound - start at leftmost leaf
+      // No lower bound — start at leftmost leaf.
       currentLeaf = reader.navigateToLeftmostLeaf(rootRef);
       currentIndex = 0;
     } else {
-      // Navigate to leaf containing fromKey
-      currentLeaf = reader.navigateToLeaf(rootRef, fromKey);
-      if (currentLeaf == null) {
+      final HOTTrieReader.LowerBoundResult lb = reader.lowerBound(rootRef, fromKey);
+      if (lb == null || lb.leaf == null) {
         exhausted = true;
         return;
       }
-
-      // Find first entry >= fromKey
-      currentIndex = currentLeaf.findEntry(fromKey);
-      if (currentIndex < 0) {
-        // Not found - insertion point is where to start
-        currentIndex = -(currentIndex + 1);
-      }
+      currentLeaf = lb.leaf;
+      currentIndex = lb.indexInLeaf;
     }
 
     if (currentLeaf != null) {
