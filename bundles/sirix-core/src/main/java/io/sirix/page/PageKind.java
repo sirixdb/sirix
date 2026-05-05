@@ -59,6 +59,7 @@ import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
+import io.sirix.settings.VersioningType;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
@@ -3703,7 +3704,17 @@ public enum PageKind {
     @Override
     public void serializePage(ResourceConfiguration resourceConfig, BytesOut<?> sink,
         Page page, SerializationType type) {
-      HOTLeafPage hotLeaf = (HOTLeafPage) page;
+      final HOTLeafPage hotLeaf = (HOTLeafPage) page;
+      // Strategy gate: under non-FULL versioning, when the leaf was COW'd from a complete page
+      // (completePageRef != null), emit ONLY the dirty entries — they are the per-revision delta.
+      // The reader-side combine path (VersioningType.combineHOTLeafPages) reconstructs the full
+      // leaf by walking the older fragments and filling in any keys not present here.
+      // FULL strategy and fresh leaves (no completePageRef) emit every entry.
+      final VersioningType versioningType = resourceConfig.versioningType;
+      final boolean sparseEmit = versioningType != VersioningType.FULL
+          && hotLeaf.getCompletePageRef() != null
+          && hotLeaf.hasDirty();
+
       sink.writeByte(HOT_LEAF_PAGE.id);
       sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
 
@@ -3718,6 +3729,27 @@ public enum PageKind {
       sink.writeShort((short) prefixLen);
       if (prefixLen > 0) {
         sink.write(prefix, 0, prefixLen);
+      }
+
+      if (sparseEmit) {
+        final int dirtyCount = hotLeaf.getDirtyEntryCount();
+        final int dirtyUsed = hotLeaf.getDirtyEntriesUsedSize();
+        sink.writeInt(dirtyCount);
+        sink.writeInt(dirtyUsed);
+
+        if (dirtyCount == 0) {
+          return;
+        }
+
+        final byte[] packed = new byte[dirtyUsed];
+        final int[] packedOffsets = new int[dirtyCount];
+        final int written = hotLeaf.packDirtyEntries(packed, packedOffsets);
+        assert written == dirtyUsed : "packed size mismatch: " + written + " vs " + dirtyUsed;
+        for (int i = 0; i < dirtyCount; i++) {
+          sink.writeInt(packedOffsets[i]);
+        }
+        sink.write(packed);
+        return;
       }
 
       sink.writeInt(hotLeaf.getEntryCount());
