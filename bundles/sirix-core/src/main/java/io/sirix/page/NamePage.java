@@ -172,6 +172,36 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   /**
+   * Copy constructor for write-side CoW. Mirrors {@link IndirectPage#IndirectPage(IndirectPage)}:
+   * the underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so
+   * mutations to a child reference cannot bleed back into the historical revision's view through
+   * cache aliasing. Bookkeeping maps are duplicated; {@link Names} dictionaries are shared because
+   * they are append-only within a wtx and get re-deserialized fresh on historical reads.
+   */
+  public NamePage(final NamePage other) {
+    final Page otherDelegate = other.delegate;
+    if (otherDelegate instanceof io.sirix.page.delegates.ReferencesPage4 ref) {
+      this.delegate = new io.sirix.page.delegates.ReferencesPage4(ref);
+    } else if (otherDelegate instanceof io.sirix.page.delegates.BitmapReferencesPage bmp) {
+      this.delegate = new io.sirix.page.delegates.BitmapReferencesPage(otherDelegate, bmp.getBitmap());
+    } else if (otherDelegate instanceof io.sirix.page.delegates.FullReferencesPage full) {
+      this.delegate = new io.sirix.page.delegates.FullReferencesPage(full);
+    } else {
+      throw new IllegalStateException(
+          "Unknown NamePage delegate type, cannot clone: " + otherDelegate.getClass().getName());
+    }
+    this.maxNodeKeys = new Int2LongOpenHashMap(other.maxNodeKeys);
+    this.maxHotPageKeys = new Int2LongOpenHashMap(other.maxHotPageKeys);
+    this.currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap(other.currentMaxLevelsOfIndirectPages);
+    this.numberOfArrays = other.numberOfArrays;
+    this.attributes = other.attributes;
+    this.elements = other.elements;
+    this.namespaces = other.namespaces;
+    this.processingInstructions = other.processingInstructions;
+    this.jsonObjectKeys = other.jsonObjectKeys;
+  }
+
+  /**
    * Get raw name belonging to name key.
    *
    * @param key name key identifying name

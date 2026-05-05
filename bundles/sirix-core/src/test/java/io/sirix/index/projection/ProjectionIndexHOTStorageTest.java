@@ -568,12 +568,6 @@ final class ProjectionIndexHOTStorageTest {
     }
   }
 
-  @org.junit.jupiter.api.Disabled("Task #57 partially fixed (top-down CoW for HOT indirect pages "
-      + "+ ProjectionIndexPage deep-copy at write start). Remaining gap: rev=N RevisionRootPage's "
-      + "projectionIndexPageReference reads back rev=(N+1)'s offset on disk for reasons not yet "
-      + "diagnosed. Trace at debug time showed `after r1 commit projRef.key=12576` (correct), but "
-      + "fresh-load at r1 read returned key=22544 (rev=2's offset). Suspect commit/serialize "
-      + "ordering somewhere in the RRP indirect tree write path. Remaining work for next session.")
   @Test
   void multiRevision_chunkUpdateInR2DoesNotAffectR1Readers() throws IOException {
     // Revision 1: write leafIndex 5 with a 3-chunk payload.
@@ -603,16 +597,16 @@ final class ProjectionIndexHOTStorageTest {
         storage.putChunk(5L, 1, c1r1);
         storage.putChunk(5L, 2, c2r1);
         wtx.commit();
-        r1Revision = wtx.getRevisionNumber();
       }
+      r1Revision = session.getMostRecentRevisionNumber();
 
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putChunk(5L, 1, c1r2);
         wtx.commit();
-        r2Revision = wtx.getRevisionNumber();
       }
+      r2Revision = session.getMostRecentRevisionNumber();
 
       assertTrue(r2Revision > r1Revision, "r2 must be newer than r1 — sanity");
 

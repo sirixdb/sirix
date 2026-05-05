@@ -148,11 +148,14 @@ final class HOTMultiRevisionFragmentChainTest {
     }
   }
 
-  @Disabled("Task #57 partial fix: top-down CoW landed for HOT indirect pages + index-page-level "
-      + "deep-copy. HEAD reads pass. Intermediate-revision reads still alias the historical RRP's "
-      + "projectionIndexPageReference / namePageReference / etc. — the rev=N RRP's reference reads "
-      + "back rev=(N+1)'s offset on disk. Suspect a deeper aliasing path in the RRP commit / "
-      + "indirect-tree-of-RRPs serialization. Remaining work for next session.")
+  @Disabled("Task #57 partial: NAME-index intermediate-revision reads still alias the latest "
+      + "in-memory state via the cached NamePage. The projection multi-rev case is fully fixed "
+      + "(ProjectionIndexHOTStorage.initializeProjectionIndex deep-copies the page); replicating "
+      + "the same pattern for NamePage breaks unrelated HOTIndexIntegrationTest tests because "
+      + "those tests rely on cross-listener mutation visibility through the cached NamePage "
+      + "instance. Closing this needs a smarter deep-copy strategy that preserves intra-listener "
+      + "mutation visibility — likely deferring the deep-copy until the writer first mutates a "
+      + "slot, or sharing one CoW NamePage across all HOT index writers in the same wtx.")
   @Test
   @DisplayName("read at every intermediate revision sees the cumulative-up-to-that-revision view")
   void readAtIntermediateRevisionsIsCumulative() {
@@ -176,6 +179,8 @@ final class HOTMultiRevisionFragmentChainTest {
     appendItemAndCommit(database, "{\"name\":\"delta\"}");
 
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      // Sirix numbering: bootstrap = rev 0; nth commit = rev n. The test does 4 commits, so
+      // revisions 1..4 are the cumulative views. Card at rev N == N.
       for (int revision = 1; revision <= 4; revision++) {
         try (final var rtx = session.beginNodeReadOnlyTrx(revision)) {
           final var ic = session.getRtxIndexController(rtx.getRevisionNumber());
