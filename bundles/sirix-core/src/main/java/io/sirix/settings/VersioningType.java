@@ -1127,6 +1127,11 @@ public enum VersioningType {
       next.add(existing.get(i));
     }
     reference.setPageFragments(next);
+    // Invariant: the post-bump chain length never exceeds chainCap. If it does, future readers
+    // would walk fragments past the SLIDING_SNAPSHOT window and the rotation logic that depends
+    // on overflow detection breaks. Enabled only with `-ea`.
+    assert next.size() <= chainCap : "chain overflow: size=" + next.size() + " > chainCap="
+        + chainCap;
     return false;
   }
 
