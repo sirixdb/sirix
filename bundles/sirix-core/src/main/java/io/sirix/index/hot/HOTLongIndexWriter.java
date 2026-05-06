@@ -27,13 +27,18 @@
  */
 package io.sirix.index.hot;
 
+import io.sirix.access.trx.page.HOTRangeCursor;
+import io.sirix.access.trx.page.HOTTrieReader;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.index.IndexType;
 import io.sirix.index.SearchMode;
 import io.sirix.index.redblacktree.RBTreeReader;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
 import io.sirix.page.HOTLeafPage;
+import io.sirix.page.PageReference;
 import org.jspecify.annotations.Nullable;
+import org.roaringbitmap.longlong.LongIterator;
+import org.roaringbitmap.longlong.Roaring64Bitmap;
 
 import java.util.Arrays;
 
@@ -61,11 +66,24 @@ import static java.util.Objects.requireNonNull;
 public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
 
   /**
-   * Thread-local buffer for key serialization (8 bytes for long).
+   * Thread-local buffer for composite key serialization (8 bytes long + 4 bytes chunkIdx_be4).
    */
-  private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[8]);
+  private static final ThreadLocal<byte[]> KEY_BUFFER =
+      ThreadLocal.withInitial(() -> new byte[HOTLongKeySerializer.CHUNKED_SERIALIZED_SIZE]);
+
+  /**
+   * Thread-local single-bit chunk-payload reused across writes — see
+   * {@link HOTIndexWriter#SINGLE_BIT_REFS} for rationale.
+   */
+  private static final ThreadLocal<NodeReferences> SINGLE_BIT_REFS = ThreadLocal.withInitial(NodeReferences::new);
+
+  /** Same chunked-bitmap nodeKey range cap as {@link HOTIndexWriter#MAX_NODE_KEY}. */
+  private static final long MAX_NODE_KEY = (1L << 48) - 1L;
 
   private final HOTLongKeySerializer keySerializer;
+
+  /** Lazy reader for chunked reassembly. */
+  private @Nullable HOTTrieReader chunkReader;
 
   /**
    * Private constructor.
@@ -103,111 +121,156 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
   }
 
   /**
-   * Index a primitive long key with NodeReferences.
-   *
-   * <p>
-   * If the key already exists, merges the NodeReferences (OR operation). Uses primitive long to avoid
-   * boxing.
-   * </p>
-   *
-   * <p>
-   * <b>Split Handling:</b> When a leaf page is full, the page is split to accommodate new entries.
-   * This allows the index to grow beyond 512 entries.
-   * </p>
-   *
-   * @param key the index key (primitive long, no boxing)
-   * @param value the node references
-   * @param move cursor movement mode (ignored for HOT)
-   * @return the indexed value
+   * Chunked-bitmap variant of {@link HOTIndexWriter#index} for primitive long keys (PATH).
+   * Splits the input bitmap by {@code chunkIdx = (int)(nodeKey >>> 16)} and ORs each bit16 into
+   * its {@code (longKeyBE ‖ chunkIdx_be4)} chunk slot.
    */
   public NodeReferences index(long key, NodeReferences value, RBTreeReader.MoveCursor move) {
     requireNonNull(value);
-
-    // Serialize key to thread-local buffer (no boxing!)
-    byte[] keyBuf = KEY_BUFFER.get();
-    int keyLen = keySerializer.serialize(key, keyBuf, 0);
-
-    // Serialize value (stores result in lastSerializedValueBuf/Len — no Object[] allocation)
-    serializeValueInto(value);
-
-    // Perform the index operation
-    doIndex(keyBuf, keyLen, lastSerializedValueBuf, lastSerializedValueLen);
-
+    final Roaring64Bitmap bitmap = value.getNodeKeys();
+    if (bitmap.isEmpty()) {
+      return value;
+    }
+    final LongIterator it = bitmap.getLongIterator();
+    while (it.hasNext()) {
+      addNodeKeyToChunk(key, it.next());
+    }
     return value;
   }
 
-  /**
-   * Get the NodeReferences for a primitive long key.
-   *
-   * <p>
-   * Uses primitive long to avoid boxing.
-   * </p>
-   *
-   * @param key the index key (primitive long)
-   * @param mode the search mode
-   * @return the node references, or null if not found
-   */
-  public @Nullable NodeReferences get(long key, SearchMode mode) {
-    // Serialize key (no boxing!)
-    byte[] keyBuf = KEY_BUFFER.get();
-    keySerializer.serialize(key, keyBuf, 0);
-
-    // Get HOT leaf page
-    HOTLeafPage leaf = getLeafForRead(keyBuf);
-    if (leaf == null) {
-      return null;
+  private void addNodeKeyToChunk(long key, long nodeKey) {
+    if (nodeKey < 0L) {
+      throw new IllegalArgumentException("nodeKey must be non-negative: " + nodeKey);
     }
+    if (nodeKey > MAX_NODE_KEY) {
+      throw new IllegalArgumentException("nodeKey " + nodeKey
+          + " exceeds chunked-bitmap range (max " + MAX_NODE_KEY + ")");
+    }
+    final int chunkIdx = (int) (nodeKey >>> 16);
+    final long bit16 = nodeKey & 0xFFFFL;
 
-    return getFromLeaf(leaf, keyBuf);
+    final byte[] keyBuf = KEY_BUFFER.get();
+    final int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
+
+    final NodeReferences singleBit = SINGLE_BIT_REFS.get();
+    final Roaring64Bitmap singleBitmap = singleBit.getNodeKeys();
+    singleBitmap.clear();
+    singleBitmap.add(bit16);
+    serializeValueInto(singleBit);
+
+    doIndex(keyBuf, compLen, lastSerializedValueBuf, lastSerializedValueLen);
   }
 
   /**
-   * Remove a node key from the NodeReferences for a primitive long key.
-   *
-   * @param key the index key (primitive long)
-   * @param nodeKey the node key to remove
-   * @return true if the node key was removed
+   * Reassemble all chunks of {@code key} into a single {@link NodeReferences}. See
+   * {@link HOTIndexReader#get} for the algorithm; this is the primitive-long mirror.
+   */
+  public @Nullable NodeReferences get(long key, SearchMode mode) {
+    final byte[] keyBuf = KEY_BUFFER.get();
+    final int prefixLen = keySerializer.serialize(key, keyBuf, 0);
+
+    final PageReference rootRef = rootReference;
+    if (rootRef == null) {
+      return null;
+    }
+
+    final byte[] fromBytes = new byte[prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES];
+    System.arraycopy(keyBuf, 0, fromBytes, 0, prefixLen);
+    HOTKeySerializer.writeChunkIdxBE(fromBytes, prefixLen, 0);
+
+    final byte[] toBytes = new byte[prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES];
+    System.arraycopy(keyBuf, 0, toBytes, 0, prefixLen);
+    HOTKeySerializer.writeChunkIdxBE(toBytes, prefixLen, 0xFFFFFFFF);
+
+    if (chunkReader == null) {
+      chunkReader = new HOTTrieReader(storageEngineWriter);
+    }
+    Roaring64Bitmap merged = null;
+    try (HOTRangeCursor cursor = chunkReader.range(rootRef, fromBytes, toBytes)) {
+      while (cursor.hasNext()) {
+        final HOTLeafPage leaf = cursor.currentLeafPage();
+        final int idx = cursor.currentEntryIndex();
+        final byte[] composite = leaf.getKey(idx);
+        if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
+            || Arrays.compareUnsigned(composite, 0, prefixLen, keyBuf, 0, prefixLen) != 0) {
+          cursor.advance();
+          continue;
+        }
+        final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
+        final byte[] chunkBytes = leaf.getValue(idx);
+        if (NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
+          cursor.advance();
+          continue;
+        }
+        final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
+        final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
+        if (chunkBitmap.isEmpty()) {
+          cursor.advance();
+          continue;
+        }
+        if (merged == null) {
+          merged = new Roaring64Bitmap();
+        }
+        final long high = ((long) chunkIdx) << 16;
+        final LongIterator bIt = chunkBitmap.getLongIterator();
+        while (bIt.hasNext()) {
+          merged.add(high | (bIt.next() & 0xFFFFL));
+        }
+        cursor.advance();
+      }
+    }
+    if (merged == null || merged.isEmpty()) {
+      return null;
+    }
+    return new NodeReferences(merged);
+  }
+
+  /**
+   * Remove a single nodeKey from the chunked bitmap of {@code key}. Mirrors
+   * {@link HOTIndexWriter#remove}.
    */
   public boolean remove(long key, long nodeKey) {
-    // Serialize key (no boxing!)
-    byte[] keyBuf = KEY_BUFFER.get();
-    int keyLen = keySerializer.serialize(key, keyBuf, 0);
+    if (nodeKey < 0L) {
+      throw new IllegalArgumentException("nodeKey must be non-negative: " + nodeKey);
+    }
+    if (nodeKey > MAX_NODE_KEY) {
+      throw new IllegalArgumentException("nodeKey " + nodeKey
+          + " exceeds chunked-bitmap range (max " + MAX_NODE_KEY + ")");
+    }
+    final int chunkIdx = (int) (nodeKey >>> 16);
+    final long bit16 = nodeKey & 0xFFFFL;
 
-    // Navigate to leaf with path tracking
-    LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
-    HOTLeafPage leaf = navResult.leaf();
+    final byte[] keyBuf = KEY_BUFFER.get();
+    final int compLen = keySerializer.serializeWithChunkIdx(key, chunkIdx, keyBuf, 0);
+    final byte[] keySlice = compLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, compLen);
+
+    final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keySlice, compLen);
+    final HOTLeafPage leaf = navResult.leaf();
     if (leaf == null) {
       return false;
     }
-
-    // Find entry
-    int index = leaf.findEntry(keyBuf);
+    final int index = leaf.findEntry(keySlice);
     if (index < 0) {
       return false;
     }
-
-    // Get current value
-    byte[] valueBytes = leaf.getValue(index);
+    final byte[] valueBytes = leaf.getValue(index);
     if (NodeReferencesSerializer.isTombstone(valueBytes, 0, valueBytes.length)) {
       return false;
     }
-
-    NodeReferences refs = NodeReferencesSerializer.deserialize(valueBytes);
-    boolean removed = refs.removeNodeKey(nodeKey);
-
-    if (removed) {
-      // Pre-check size to avoid buffer overflow
-      byte[] valueBuf = VALUE_BUFFER.get();
-      final int requiredSize = NodeReferencesSerializer.computeSerializedSize(refs);
-      if (requiredSize > valueBuf.length) {
-        valueBuf = new byte[requiredSize];
-        VALUE_BUFFER.set(valueBuf);
-      }
-      final int valueLen = NodeReferencesSerializer.serialize(refs, valueBuf, 0);
-      leaf.updateValue(index, Arrays.copyOf(valueBuf, valueLen));
+    final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(valueBytes);
+    final boolean removed = chunkRefs.removeNodeKey(bit16);
+    if (!removed) {
+      return false;
     }
-
-    return removed;
+    byte[] valueBuf = VALUE_BUFFER.get();
+    final int requiredSize = NodeReferencesSerializer.computeSerializedSize(chunkRefs);
+    if (requiredSize > valueBuf.length) {
+      valueBuf = new byte[requiredSize];
+      VALUE_BUFFER.set(valueBuf);
+    }
+    final int valueLen = NodeReferencesSerializer.serialize(chunkRefs, valueBuf, 0);
+    leaf.updateValue(index, Arrays.copyOf(valueBuf, valueLen));
+    return true;
   }
 
   @Override

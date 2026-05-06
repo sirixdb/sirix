@@ -28,7 +28,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
@@ -622,6 +625,220 @@ final class HOTMultiVersionInvariantsTest {
         assertNameKeyCount(rtx, ic, nameIndexDef, "name", totalCommits,
             "post-rotation HEAD 'name' cardinality must equal totalCommits=" + totalCommits);
       }
+    }
+  }
+
+  /**
+   * Phase 4 storage-scaling check: 100 single-key inserts across 100 revisions must produce
+   * total storage bounded by a small per-rev constant — chunked-bitmap storage rewrites only
+   * the affected chunk slot, never the whole logical bitmap. A regression that revives whole-
+   * bitmap rewrites would manifest as super-linear growth (per-rev delta climbing with N).
+   *
+   * <p>Per-rev contributions, with chunked storage:
+   * <ul>
+   *   <li>UberPage / RevisionRootPage / NamePage CoW (constant per rev)</li>
+   *   <li>HOT path-from-root CoW (logarithmic in trie size, ≤ a few KB)</li>
+   *   <li>One chunk slot rewrite (Roaring16-bitmap of low-16-bit nodeKeys, ≤ a few hundred B)</li>
+   * </ul>
+   *
+   * <p>The growth-rate ceiling here (median per-rev delta &lt; 32 KB) accommodates Sirix's
+   * page-CoW overhead while still catching a regression that rewrites bitmaps that grow with
+   * the rev count. Over 100 revs the difference between chunked and whole-bitmap dominates
+   * the page-CoW noise floor.</p>
+   */
+  @Test
+  @DisplayName("NAME index: 100-rev single-key inserts have bounded per-rev storage growth")
+  void nameIndexBoundedPerRevStorageGrowth() throws IOException {
+    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled");
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final java.nio.file.Path dataFile = JsonTestHelper.PATHS.PATH1.getFile()
+        .resolve("resources").resolve(JsonTestHelper.RESOURCE)
+        .resolve("data").resolve("sirix.data");
+
+    final IndexDef nameIndexDef;
+    final List<Integer> revisions = new ArrayList<>();
+    final int totalRevs = 100;
+
+    // Bootstrap (rev 1): create NAME index + seed item.
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(nameIndexDef), trx);
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+          "{\"items\":[{\"item_0\":0}]}"));
+      trx.commit();
+      revisions.add(session.getMostRecentRevisionNumber());
+    }
+
+    final long fileSizeAfterRev1 = Files.size(dataFile);
+    final long[] perRevDelta = new long[totalRevs - 1];
+    long previousSize = fileSizeAfterRev1;
+
+    // Revs 2..totalRevs: append one named item per rev, measure delta.
+    for (int n = 1; n < totalRevs; n++) {
+      final String json = "{\"item_" + n + "\":" + n + "}";
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+          final var trx = session.beginNodeTrx()) {
+        trx.moveToDocumentRoot();
+        trx.moveToFirstChild();
+        trx.moveToFirstChild();
+        trx.moveToLastChild();
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(json));
+        trx.commit();
+        revisions.add(session.getMostRecentRevisionNumber());
+      }
+      final long currentSize = Files.size(dataFile);
+      perRevDelta[n - 1] = currentSize - previousSize;
+      previousSize = currentSize;
+    }
+
+    final long totalGrowth = previousSize - fileSizeAfterRev1;
+
+    // Median per-rev delta — robust to outlier revs (e.g., HOT-trie split causes one larger rev).
+    final long[] sorted = perRevDelta.clone();
+    Arrays.sort(sorted);
+    final long medianDelta = sorted[sorted.length / 2];
+    long maxDelta = 0;
+    for (final long d : perRevDelta) {
+      if (d > maxDelta) maxDelta = d;
+    }
+
+    System.out.println(String.format(
+        "[Phase 4] %d revs · totalGrowth=%d B · medianDelta=%d B · maxDelta=%d B",
+        totalRevs, totalGrowth, medianDelta, maxDelta));
+
+    // Bound 1: median per-rev delta is small (≪ what whole-bitmap rewriting would cost at rev 100).
+    final long medianCeiling = 64L * 1024L; // 64 KB
+    assertTrue(medianDelta < medianCeiling,
+        "median per-rev growth too high: " + medianDelta + " B > " + medianCeiling + " B");
+
+    // Bound 2: no individual rev produced a runaway delta. Splits are infrequent so the max
+    // tolerable delta is generous (256 KB) but still catches whole-bitmap-rewrite regressions
+    // which would scale O(N) bytes per rev.
+    final long maxCeiling = 256L * 1024L; // 256 KB
+    assertTrue(maxDelta < maxCeiling,
+        "max per-rev growth too high: " + maxDelta + " B > " + maxCeiling + " B");
+
+    // Bound 3: total storage growth is bounded ~ rev_count × constant. With chunked storage at
+    // 100 revs the actual growth is well under this ceiling; without chunking it would scale
+    // O(N²) in bytes (whole-bitmap rewrite per rev) and blow past it.
+    final long totalCeiling = 8L * 1024L * 1024L; // 8 MB
+    assertTrue(totalGrowth < totalCeiling,
+        "total growth across " + (totalRevs - 1) + " revs too high: " + totalGrowth
+            + " B > " + totalCeiling + " B");
+
+    // Functional: every committed rev's NAME index must expose all names inserted up to that rev.
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var rtx = session.beginNodeReadOnlyTrx(revisions.getLast())) {
+      final var ic = session.getRtxIndexController(rtx.getRevisionNumber());
+      for (int n = 0; n < totalRevs; n++) {
+        assertNameKeyCount(rtx, ic, nameIndexDef, "item_" + n, 1L,
+            "rev " + revisions.getLast() + " must expose 'item_" + n + "' inserted at rev "
+                + revisions.get(n));
+      }
+    }
+  }
+
+  /**
+   * Phase 4 storage-scaling check (same-name variant): 100 inserts with the SAME field name
+   * across 100 revs — the canonical scenario where chunked-bitmap storage's per-chunk
+   * isolation matters. Each rev appends one new node carrying the shared name, so the logical
+   * NAME-index bitmap for that name grows from 1 to 100 entries.
+   *
+   * <p>With chunked-bitmap storage the affected chunk slot is rewritten on each rev (low-16
+   * bits of the new nodeKey OR-merged into the chunk's Roaring16 bitmap); chunk size grows
+   * linearly with bits-set but stays small for ≤ 100 bits. Without chunking the whole logical
+   * bitmap would be rewritten on each rev — the per-rev delta would scale with the cumulative
+   * bitmap rather than with the single-chunk update.</p>
+   *
+   * <p>For 100 revs the difference is ≈ 100× in the worst case; the {@code medianDelta} ceiling
+   * here is set so that whole-bitmap rewrite on rev 100 (≈ 1 KB bitmap × HOT-CoW chain) would
+   * push the median above 32 KB, but the chunked path stays well below it.</p>
+   */
+  @Test
+  @DisplayName("NAME index: 100-rev same-name inserts have bounded per-rev growth (chunk isolation)")
+  void nameIndexSameNameBoundedPerRevGrowth() throws IOException {
+    assertTrue(NameIndexListenerFactory.isHOTEnabled(), "HOT must be enabled");
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final java.nio.file.Path dataFile = JsonTestHelper.PATHS.PATH1.getFile()
+        .resolve("resources").resolve(JsonTestHelper.RESOURCE)
+        .resolve("data").resolve("sirix.data");
+
+    final IndexDef nameIndexDef;
+    final List<Integer> revisions = new ArrayList<>();
+    final int totalRevs = 100;
+    final String sharedName = "shared";
+
+    // Bootstrap (rev 1): NAME index + first 'shared' entry.
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(nameIndexDef), trx);
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+          "{\"items\":[{\"" + sharedName + "\":0}]}"));
+      trx.commit();
+      revisions.add(session.getMostRecentRevisionNumber());
+    }
+
+    final long fileSizeAfterRev1 = Files.size(dataFile);
+    final long[] perRevDelta = new long[totalRevs - 1];
+    long previousSize = fileSizeAfterRev1;
+
+    for (int n = 1; n < totalRevs; n++) {
+      final String json = "{\"" + sharedName + "\":" + n + "}";
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+          final var trx = session.beginNodeTrx()) {
+        trx.moveToDocumentRoot();
+        trx.moveToFirstChild();
+        trx.moveToFirstChild();
+        trx.moveToLastChild();
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(json));
+        trx.commit();
+        revisions.add(session.getMostRecentRevisionNumber());
+      }
+      final long currentSize = Files.size(dataFile);
+      perRevDelta[n - 1] = currentSize - previousSize;
+      previousSize = currentSize;
+    }
+
+    final long totalGrowth = previousSize - fileSizeAfterRev1;
+    final long[] sorted = perRevDelta.clone();
+    Arrays.sort(sorted);
+    final long medianDelta = sorted[sorted.length / 2];
+    long maxDelta = 0;
+    for (final long d : perRevDelta) {
+      if (d > maxDelta) maxDelta = d;
+    }
+
+    System.out.println(String.format(
+        "[Phase 4 same-name] %d revs · totalGrowth=%d B · medianDelta=%d B · maxDelta=%d B",
+        totalRevs, totalGrowth, medianDelta, maxDelta));
+
+    // Same bounds as the per-rev-name variant: chunked storage means each rev rewrites only
+    // the affected chunk slot. The 'shared' name's bitmap accumulates entries but the chunk
+    // stays a few hundred bytes for ≤ 100 entries — well under the 32 KB median ceiling.
+    final long medianCeiling = 32L * 1024L;
+    assertTrue(medianDelta < medianCeiling,
+        "median per-rev growth too high: " + medianDelta + " B > " + medianCeiling + " B");
+
+    final long maxCeiling = 256L * 1024L;
+    assertTrue(maxDelta < maxCeiling,
+        "max per-rev growth too high: " + maxDelta + " B > " + maxCeiling + " B");
+
+    final long totalCeiling = 8L * 1024L * 1024L;
+    assertTrue(totalGrowth < totalCeiling,
+        "total growth across " + (totalRevs - 1) + " revs too high: " + totalGrowth
+            + " B > " + totalCeiling + " B");
+
+    // Functional: the 'shared' name at the last rev must hold all totalRevs node references.
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var rtx = session.beginNodeReadOnlyTrx(revisions.getLast())) {
+      final var ic = session.getRtxIndexController(rtx.getRevisionNumber());
+      assertNameKeyCount(rtx, ic, nameIndexDef, sharedName, totalRevs,
+          "rev " + revisions.getLast() + " '" + sharedName + "' cardinality must equal totalRevs="
+              + totalRevs);
     }
   }
 

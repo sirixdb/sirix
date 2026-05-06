@@ -115,6 +115,13 @@ public final class HOTTrieWriter {
   private @Nullable StorageEngineReader activeReader;
 
   /**
+   * TIL bound for the current split / augment scope. Set/reset symmetrically with
+   * {@link #activeReader} so {@link #splitSubtreeOnBit} can install the freshly-built halves
+   * in the CoW log without explicit threading.
+   */
+  private @Nullable TransactionIntentLog activeLog;
+
+  /**
    * Holds either SingleMask or MultiMask discriminative bit information.
    * SingleMask: all disc bits fit within 8 contiguous key bytes (one 64-bit PEXT mask).
    * MultiMask: disc bits span >8 bytes; uses per-byte extraction positions and masks.
@@ -497,13 +504,17 @@ public final class HOTTrieWriter {
     Objects.requireNonNull(leafRef);
     Objects.requireNonNull(rootReference);
 
-    // Set active reader for child page resolution during split operations
+    // Set active reader+log for child page resolution and CoW page registration during split
+    // / augment operations. The log binding lets {@link #splitSubtreeOnBit} install
+    // freshly-built half-subtrees in the TIL without explicit threading through helpers.
     this.activeReader = storageEngineReader;
+    this.activeLog = log;
     try {
       return handleLeafSplitAndInsertInternal(storageEngineReader, log, fullPage, leafRef,
           rootReference, pathNodes, pathRefs, pathChildIndices, pathDepth, keyBuf, keyLen, valueBuf, valueLen);
     } finally {
       this.activeReader = null;
+      this.activeLog = null;
     }
   }
 
@@ -737,84 +748,98 @@ public final class HOTTrieWriter {
           leftChild, rightChild, newAbsBit, revision);
     }
     final int newBitInByte = newAbsBit % 8;
-    final int bitInWord = newBitByteOffset * 8 + (7 - newBitInByte);
+    // BE word layout: byte at window-offset {@code bo} occupies long bits ((7-bo)*8)..((7-bo)*8+7).
+    // Within the byte, MSB-first bit {@code bb} is at long-bit ((7-bo)*8 + (7-bb)) = 63-(bo*8+bb).
+    final int bitInWord = (7 - newBitByteOffset) * 8 + (7 - newBitInByte);
     final long newBitMaskBit = 1L << bitInWord;
     if ((oldMask & newBitMaskBit) != 0L) {
       return null; // bit already a disc bit — caller handles via split path
     }
     final long newMask = oldMask | newBitMaskBit;
 
-    // 2. Verify the new bit is constant across every non-split sibling.
-    //    Also collect each sibling's constant value so we can set its
-    //    bit in the repositioned partial key.
+    // 2. Compute where the new bit sits in the new compressed partial-key layout. PEXT packs
+    //    mask bits from LSB → MSB in output, so the new bit's output position equals the
+    //    population count of new-mask bits below it.
+    final int newBitOutputPos = Long.bitCount(newMask & (newBitMaskBit - 1L));
+    // Mask over partial-key bits contributed by the OLD mask in the NEW layout: new layout
+    // has (oldCount+1) output bits; the new bit occupies position newBitOutputPos; all OTHER
+    // positions hold the existing bits.
+    final long oldPartialMaskInNewLayout =
+        (((1L << (oldCount + 1)) - 1L) ^ (1L << newBitOutputPos));
+
+    // 3. Verify the new disc bit is constant across every existing non-split sibling's
+    //    subtree, and capture each sibling's constant value to set its repositioned partial
+    //    bit. Required because Sirix's multi-entry leaves can hold keys differing at any
+    //    bit; under sparse-path encoding subset-match routing misroutes keys destined for
+    //    an off-path sibling that spans both bit values (the leaf-split's products beat the
+    //    off-path sibling on most-specific match). Constancy ensures no off-path span exists.
+    //    Binna's reference doesn't need this gate because his single-TID leaves trivially
+    //    have constancy.
     final int[] siblingBitValues = new int[numChildren];
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) continue;
-      final Integer v = bitConstantValueInSubtree(parent.getChildReference(i), newAbsBit);
-      if (v == null) return null; // invariant would break
+      final int v = bitConstantValueInSubtree(parent.getChildReference(i), newAbsBit);
+      if (v < 0) return null; // non-constant — caller takes splitParentAndRecurse
       siblingBitValues[i] = v;
     }
 
-    // 3. Compute where the new bit sits in the new compressed partial-
-    //    key layout. PEXT packs mask bits from LSB → MSB in output.
-    //    newBit's output position = popcount(newMask bits below it).
-    final int newBitOutputPos = Long.bitCount(newMask & (newBitMaskBit - 1L));
-    // Mask over partial-key bits contributed by the OLD mask in the NEW layout:
-    // new layout has (oldCount+1) output bits; the new bit occupies
-    // position newBitOutputPos; all OTHER positions are the old bits.
-    final long oldPartialMaskInNewLayout = (((1L << (oldCount + 1)) - 1L)
-        ^ (1L << newBitOutputPos));
-
-    // 4. Build the expanded children + partial-keys arrays.
+    // 4. Build the expanded children + partial-keys arrays. With constancy verified above,
+    //    each sibling's value at the new disc bit is determined; we set its partial bit at
+    //    the new output position to that value. Equivalent to dense-PEXT-of-first-key under
+    //    the constancy invariant — first key's bit value matches every other key's bit
+    //    value in the subtree.
     final int newNumChildren = numChildren + 1;
     final PageReference[] newChildren = new PageReference[newNumChildren];
     final int[] newPartialKeys = new int[newNumChildren];
     final int[] oldPartialKeys = parent.getPartialKeys();
 
+    // leftChild has the new disc bit = 0, rightChild has it = 1 — by construction of the
+    // leaf split that produced them. The split products inherit the original split-child's
+    // path (under the old mask) and extend it with the new bit value on each side.
+    final int splitChildOldPartial = oldPartialKeys[splitChildIndex];
+    final int splitChildRepositioned =
+        (int) Long.expand(Integer.toUnsignedLong(splitChildOldPartial), oldPartialMaskInNewLayout);
+
     int j = 0;
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) {
-        // Replace split slot with left+right. Compute their partial keys
-        // by extracting the new mask's bits from their first keys.
         newChildren[j] = leftChild;
-        newPartialKeys[j] = computePartialKeySingleMask(
-            getFirstKeyFromChild(leftChild), oldInitialBytePos, newMask);
+        newPartialKeys[j] = splitChildRepositioned; // new bit = 0 (LEFT)
         j++;
         newChildren[j] = rightChild;
-        newPartialKeys[j] = computePartialKeySingleMask(
-            getFirstKeyFromChild(rightChild), oldInitialBytePos, newMask);
+        newPartialKeys[j] = splitChildRepositioned | (1 << newBitOutputPos); // new bit = 1 (RIGHT)
         j++;
       } else {
         newChildren[j] = parent.getChildReference(i);
-        // _pdep: spread the oldCount bits of oldPartialKeys[i] into the
-        // oldPartialMaskInNewLayout positions of a (oldCount+1)-bit word.
+        // Reposition the existing partial into the new layout, then OR in the sibling's
+        // verified-constant value at the new disc bit's output position.
         final int repositioned = (int) Long.expand(
-            Integer.toUnsignedLong(oldPartialKeys[i]),
-            oldPartialMaskInNewLayout);
-        // Add the new bit's value at its designated position.
+            Integer.toUnsignedLong(oldPartialKeys[i]), oldPartialMaskInNewLayout);
         newPartialKeys[j] = repositioned | (siblingBitValues[i] << newBitOutputPos);
         j++;
       }
     }
 
-    // 5. Build the new indirect page with the extended disc-bit set.
-    //    Keeps the parent's original page key (CoW via log.put updates
-    //    the reference) and the same height — only the mask + partial
-    //    keys + children arrays grow.
-    // Correctness guard: reject builds where the PEXT of any child's
-    // first key under newMask disagrees with the stored partial key,
-    // OR where any two children share the same partial key (routing
-    // collision). Both indicate the HOT invariant is broken; bail so
-    // the caller falls back to the full-rebuild split path which re-
-    // derives disc bits from scratch with the augmentation loop.
-    for (int i = 0; i < newNumChildren; i++) {
-      final int pext = computePartialKeySingleMask(
-          getFirstKeyFromChild(newChildren[i]), oldInitialBytePos, newMask);
-      if (pext != newPartialKeys[i]) return null;
+    // 4. Sanity guard: under the sparse-path encoding the new partial keys must be unique
+    //    (HOT I3). The repositioning is a bijection on the old partials, the split-child
+    //    halves' partials differ at the new bit, and they differ from non-split siblings'
+    //    partials because their old-bit positions were already unique. A duplicate here
+    //    indicates an upstream invariant break — bail so the caller takes the split path.
+    for (int i = 1; i < newNumChildren; i++) {
       for (int k = 0; k < i; k++) {
         if (newPartialKeys[k] == newPartialKeys[i]) return null;
       }
     }
+
+    // 5. Sort children + partials by partial-key (HOT I7 / Binna §4.2). Under sparse-path
+    //    encoding the canonical slot order is sparse-partial-key order, NOT first-key order.
+    //    The leaf-split halves' partials are repositionedSplitX and repositionedSplitX |
+    //    (1 << newBitOutputPos); their relative position vs. other siblings' repositioned
+    //    partials depends on newBitOutputPos. If newBitOutputPos is a high bit (= the new
+    //    disc bit is more significant than some old disc bits), the rightChild's partial may
+    //    sort AFTER an existing sibling — so co-sorting is required, not adjacent placement.
+    sortChildrenAndPartialsByPartial(newChildren, newPartialKeys);
+
     if (newNumChildren <= 16) {
       return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
           oldInitialBytePos, newMask, newPartialKeys, newChildren, parent.getHeight());
@@ -901,7 +926,8 @@ public final class HOTTrieWriter {
     int[] oldByteMaskBits = new int[8];
     int oldByteCount = 0;
     for (int bo = 0; bo < 8; bo++) {
-      final int byteMaskBits = (int) ((oldMask >>> (bo * 8)) & 0xFFL);
+      // BE: byte at window-position {@code bo} occupies long bits ((7-bo)*8)..((7-bo)*8+7).
+      final int byteMaskBits = (int) ((oldMask >>> ((7 - bo) * 8)) & 0xFFL);
       if (byteMaskBits != 0) {
         oldBytePositions[oldByteCount] = oldInitialBytePos + bo;
         oldByteMaskBits[oldByteCount] = byteMaskBits;
@@ -946,14 +972,6 @@ public final class HOTTrieWriter {
       allCount++;
     }
 
-    // Verify new bit is constant in every non-split sibling's subtree.
-    for (int i = 0; i < numChildren; i++) {
-      if (i == splitChildIndex) continue;
-      if (bitConstantValueInSubtree(parent.getChildReference(i), newAbsBit) == null) {
-        return null;
-      }
-    }
-
     // Build extractionPositions / extractionMasks arrays in MultiMask layout.
     final byte[] extractionPositions = new byte[allCount];
     final int numChunks = (allCount + 7) / 8;
@@ -962,14 +980,36 @@ public final class HOTTrieWriter {
     for (int i = 0; i < allCount; i++) {
       extractionPositions[i] = (byte) allBytePositions[i];
       final int chunkIdx = i / 8;
-      final int byteOffset = i % 8;
-      extractionMasks[chunkIdx] |= ((long) (allByteMaskBits[i] & 0xFF)) << (byteOffset * 8);
+      final int byteOffsetInChunk = i % 8;
+      // BE chunk packing: extraction-byte at chunk-offset {@code o} → long bits
+      // ((7-o)*8)..((7-o)*8+7).
+      extractionMasks[chunkIdx] |= ((long) (allByteMaskBits[i] & 0xFF)) << ((7 - byteOffsetInChunk) * 8);
       final int highBit = 31 - Integer.numberOfLeadingZeros(allByteMaskBits[i] & 0xFF);
       final int absBitPos = allBytePositions[i] * 8 + (7 - highBit);
       if (absBitPos < msbIndex) msbIndex = (short) absBitPos;
     }
 
-    // Build expanded children and partials.
+    // Verify constancy of the new disc bit across every existing non-split sibling — see
+    // {@link #addEntryWithPDep} for the multi-entry-leaf rationale. On non-constant return,
+    // caller falls back to splitParentAndRecurse.
+    final int[] siblingBitValues = new int[numChildren];
+    for (int i = 0; i < numChildren; i++) {
+      if (i == splitChildIndex) continue;
+      final int v = bitConstantValueInSubtree(parent.getChildReference(i), newAbsBit);
+      if (v < 0) return null;
+      siblingBitValues[i] = v;
+    }
+
+    // Build expanded children and partials. With constancy verified, each existing sibling
+    // contributes its constant bit value at the new disc bit's output position.
+    final int newBitOutputPos = multiMaskNewBitOutputPos(extractionPositions, extractionMasks,
+        allCount, newBytePos, newBitInByte);
+    final long oldPartialMaskInNewLayout = (((1L << (oldCount + 1)) - 1L) ^ (1L << newBitOutputPos));
+    final int[] oldPartialKeys = parent.getPartialKeys();
+    final int splitChildOldPartial = oldPartialKeys[splitChildIndex];
+    final int splitChildRepositioned =
+        (int) Long.expand(Integer.toUnsignedLong(splitChildOldPartial), oldPartialMaskInNewLayout);
+
     final int newNumChildren = numChildren + 1;
     final PageReference[] newChildren = new PageReference[newNumChildren];
     final int[] newPartials = new int[newNumChildren];
@@ -977,27 +1017,29 @@ public final class HOTTrieWriter {
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) {
         newChildren[j] = leftChild;
-        newPartials[j] = computePartialKeyMultiMaskDirect(
-            getFirstKeyFromChild(leftChild), extractionPositions, extractionMasks, allCount);
+        newPartials[j] = splitChildRepositioned; // new bit = 0 (LEFT)
         j++;
         newChildren[j] = rightChild;
-        newPartials[j] = computePartialKeyMultiMaskDirect(
-            getFirstKeyFromChild(rightChild), extractionPositions, extractionMasks, allCount);
+        newPartials[j] = splitChildRepositioned | (1 << newBitOutputPos); // new bit = 1 (RIGHT)
         j++;
       } else {
         newChildren[j] = parent.getChildReference(i);
-        newPartials[j] = computePartialKeyMultiMaskDirect(
-            getFirstKeyFromChild(newChildren[j]), extractionPositions, extractionMasks, allCount);
+        final int repositioned = (int) Long.expand(
+            Integer.toUnsignedLong(oldPartialKeys[i]), oldPartialMaskInNewLayout);
+        newPartials[j] = repositioned | (siblingBitValues[i] << newBitOutputPos);
         j++;
       }
     }
 
-    // Verify all partial keys are unique — collision would indicate INV breach.
+    // Sanity guard — partial keys must be unique under sparse-path encoding (HOT I3).
     for (int i = 1; i < newNumChildren; i++) {
       for (int k = 0; k < i; k++) {
         if (newPartials[k] == newPartials[i]) return null;
       }
     }
+
+    // Sort children + partials by partial-key (HOT I7 / Binna §4.2). See addEntryWithPDep.
+    sortChildrenAndPartialsByPartial(newChildren, newPartials);
 
     if (newNumChildren <= 16) {
       return HOTIndirectPage.createSpanNodeMultiMask(parent.getPageKey(), revision,
@@ -1007,6 +1049,40 @@ public final class HOTTrieWriter {
     return HOTIndirectPage.createMultiNodeMultiMask(parent.getPageKey(), revision,
         extractionPositions, extractionMasks, allCount, newPartials, newChildren,
         parent.getHeight(), msbIndex);
+  }
+
+  /** Sum of bits set across every chunk of a MultiMask extraction-mask array. */
+  private static int oldExtractionMaskTotalBits(long[] extractionMasks) {
+    int total = 0;
+    for (final long m : extractionMasks) total += Long.bitCount(m);
+    return total;
+  }
+
+  /**
+   * Compute the new bit's output position (LSB=0) in a MultiMask partial-key layout. The
+   * BE-concat ordering places extractionPositions[0]'s mask bits at the highest result bits
+   * (MSB-first within each byte). We walk that ordering and count bits until we reach the
+   * new bit.
+   */
+  private static int multiMaskNewBitOutputPos(byte[] newPositions, long[] newMasks,
+      int newNumBytes, int newBytePos, int newBitInByte) {
+    int totalBits = 0;
+    for (final long m : newMasks) totalBits += Long.bitCount(m);
+    int bitsAccumulated = 0;
+    for (int i = 0; i < newNumBytes; i++) {
+      final int bytePos = newPositions[i] & 0xFF;
+      final int byteMask = (int) ((newMasks[i / 8] >>> ((7 - (i % 8)) * 8)) & 0xFF);
+      // Within each byte: iterate MSB-first (mask bit 7 = MSB-first index 0).
+      for (int mfBit = 0; mfBit < 8; mfBit++) {
+        final int byteBit = 7 - mfBit;
+        if ((byteMask & (1 << byteBit)) == 0) continue;
+        if (bytePos == newBytePos && mfBit == newBitInByte) {
+          return totalBits - 1 - bitsAccumulated;
+        }
+        bitsAccumulated++;
+      }
+    }
+    throw new IllegalStateException("multiMaskNewBitOutputPos: new bit not found in new layout");
   }
 
   /**
@@ -1037,10 +1113,16 @@ public final class HOTTrieWriter {
     final int newBitInByte = newAbsBit % 8;
     final int newMaskBit = 1 << (7 - newBitInByte);
 
-    // 1. INV guard: new bit must be constant in every non-split sibling's subtree.
+    // 1. Verify constancy of the new disc bit across every existing non-split sibling.
+    //    Required because Sirix's multi-entry leaves can hold keys differing at any bit;
+    //    sparse-path subset-match routing misroutes keys destined for a sibling that spans
+    //    both bit values. See addEntryWithPDep for the full rationale.
+    final int[] siblingBitValues = new int[numChildren];
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) continue;
-      if (bitConstantValueInSubtree(parent.getChildReference(i), newAbsBit) == null) return null;
+      final int v = bitConstantValueInSubtree(parent.getChildReference(i), newAbsBit);
+      if (v < 0) return null;
+      siblingBitValues[i] = v;
     }
 
     // 2. Locate existing entry for newBytePos, if any (sorted positions).
@@ -1056,16 +1138,19 @@ public final class HOTTrieWriter {
     final byte[] newExtractionPositions;
     final long[] newExtractionMasks;
     final int newNumBytes;
+    // BE chunk packing: extraction-byte at chunk-offset {@code o} → long bits
+    // ((7-o)*8)..((7-o)*8+7); reads use the same shift to extract a byte from a chunk.
     if (existingIdx >= 0) {
       // Merge: OR the new mask bit into the existing byte's mask.
       final int chunkIdx = existingIdx / 8;
-      final int byteOffset = existingIdx % 8;
-      final int existingByte = (int) ((oldExtractionMasks[chunkIdx] >>> (byteOffset * 8)) & 0xFF);
+      final int byteOffsetInChunk = existingIdx % 8;
+      final int existingByte =
+          (int) ((oldExtractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFF);
       if ((existingByte & newMaskBit) != 0) return null; // duplicate
       newNumBytes = oldNumBytes;
       newExtractionPositions = oldExtractionPositions.clone();
       newExtractionMasks = oldExtractionMasks.clone();
-      newExtractionMasks[chunkIdx] |= ((long) newMaskBit) << (byteOffset * 8);
+      newExtractionMasks[chunkIdx] |= ((long) newMaskBit) << ((7 - byteOffsetInChunk) * 8);
     } else {
       // Insert: shift entries at/after insertIdx down by one; add new entry.
       newNumBytes = oldNumBytes + 1;
@@ -1091,12 +1176,13 @@ public final class HOTTrieWriter {
         } else {
           final int srcIdx = i < insertIdx ? i : i - 1;
           final int srcChunk = srcIdx / 8;
-          final int srcOffset = srcIdx % 8;
-          maskByte = (int) ((oldExtractionMasks[srcChunk] >>> (srcOffset * 8)) & 0xFF);
+          final int srcOffsetInChunk = srcIdx % 8;
+          maskByte =
+              (int) ((oldExtractionMasks[srcChunk] >>> ((7 - srcOffsetInChunk) * 8)) & 0xFF);
         }
         final int dstChunk = i / 8;
-        final int dstOffset = i % 8;
-        newExtractionMasks[dstChunk] |= ((long) (maskByte & 0xFF)) << (dstOffset * 8);
+        final int dstOffsetInChunk = i % 8;
+        newExtractionMasks[dstChunk] |= ((long) (maskByte & 0xFF)) << ((7 - dstOffsetInChunk) * 8);
       }
     }
 
@@ -1104,15 +1190,29 @@ public final class HOTTrieWriter {
     short msbIndex = Short.MAX_VALUE;
     for (int i = 0; i < newNumBytes; i++) {
       final int chunkIdx = i / 8;
-      final int byteOffset = i % 8;
-      final int maskByte = (int) ((newExtractionMasks[chunkIdx] >>> (byteOffset * 8)) & 0xFF);
+      final int byteOffsetInChunk = i % 8;
+      final int maskByte =
+          (int) ((newExtractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFF);
       if (maskByte == 0) continue;
       final int highBit = 31 - Integer.numberOfLeadingZeros(maskByte);
       final int absBit = (newExtractionPositions[i] & 0xFF) * 8 + (7 - highBit);
       if (absBit < msbIndex) msbIndex = (short) absBit;
     }
 
-    // 5. Build expanded children + partial keys.
+    // 5. Build expanded children + partial keys with Binna §4.2 sparse-path encoding: split
+    //    products inherit the original split-child's path (under the OLD layout) and extend
+    //    it with new-bit = 0 (left) / 1 (right). Non-split siblings inherit their existing
+    //    paths; their new-bit position stays 0 (the new BiNode is not on their path).
+    final int oldTotalBits = oldExtractionMaskTotalBits(oldExtractionMasks);
+    final int newBitOutputPos = multiMaskNewBitOutputPos(newExtractionPositions, newExtractionMasks,
+        newNumBytes, newBytePos, newBitInByte);
+    final long oldPartialMaskInNewLayout =
+        (((1L << (oldTotalBits + 1)) - 1L) ^ (1L << newBitOutputPos));
+    final int[] oldPartialKeys = parent.getPartialKeys();
+    final int splitChildOldPartial = oldPartialKeys[splitChildIndex];
+    final int splitChildRepositioned =
+        (int) Long.expand(Integer.toUnsignedLong(splitChildOldPartial), oldPartialMaskInNewLayout);
+
     final int newNumChildren = numChildren + 1;
     final PageReference[] newChildren = new PageReference[newNumChildren];
     final int[] newPartials = new int[newNumChildren];
@@ -1120,18 +1220,16 @@ public final class HOTTrieWriter {
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) {
         newChildren[j] = leftChild;
-        newPartials[j] = computePartialKeyMultiMaskDirect(
-            getFirstKeyFromChild(leftChild), newExtractionPositions, newExtractionMasks, newNumBytes);
+        newPartials[j] = splitChildRepositioned;
         j++;
         newChildren[j] = rightChild;
-        newPartials[j] = computePartialKeyMultiMaskDirect(
-            getFirstKeyFromChild(rightChild), newExtractionPositions, newExtractionMasks, newNumBytes);
+        newPartials[j] = splitChildRepositioned | (1 << newBitOutputPos);
         j++;
       } else {
         newChildren[j] = parent.getChildReference(i);
-        newPartials[j] = computePartialKeyMultiMaskDirect(
-            getFirstKeyFromChild(newChildren[j]),
-            newExtractionPositions, newExtractionMasks, newNumBytes);
+        final int repositioned = (int) Long.expand(
+            Integer.toUnsignedLong(oldPartialKeys[i]), oldPartialMaskInNewLayout);
+        newPartials[j] = repositioned | (siblingBitValues[i] << newBitOutputPos);
         j++;
       }
     }
@@ -1142,6 +1240,9 @@ public final class HOTTrieWriter {
         if (newPartials[k] == newPartials[i]) return null;
       }
     }
+
+    // 7. Sort children + partials by partial-key (HOT I7 / Binna §4.2). See addEntryWithPDep.
+    sortChildrenAndPartialsByPartial(newChildren, newPartials);
 
     if (newNumChildren <= 16) {
       return HOTIndirectPage.createSpanNodeMultiMask(parent.getPageKey(), revision,
@@ -1160,33 +1261,54 @@ public final class HOTTrieWriter {
   private static int computePartialKeyMultiMaskDirect(byte[] key,
       byte[] extractionPositions, long[] extractionMasks, int numExtractionBytes) {
     final int numChunks = extractionMasks.length;
+    // BE chunk packing: extraction-byte at chunk-offset {@code o} → long bits ((7-o)*8)..((7-o)*8+7).
     final long[] gathered = new long[numChunks];
     for (int i = 0; i < numExtractionBytes; i++) {
       final int keyBytePos = extractionPositions[i] & 0xFF;
       final int keyByte = keyBytePos < key.length ? (key[keyBytePos] & 0xFF) : 0;
       final int chunkIdx = i / 8;
-      final int byteOffset = i % 8;
-      gathered[chunkIdx] |= ((long) keyByte) << (byteOffset * 8);
+      final int byteOffsetInChunk = i % 8;
+      gathered[chunkIdx] |= ((long) keyByte) << ((7 - byteOffsetInChunk) * 8);
     }
+    // BE concatenate across chunks: chunk 0 occupies the HIGH bits of the result.
+    int totalBits = 0;
+    for (final long m : extractionMasks) totalBits += Long.bitCount(m);
     int result = 0;
-    int shift = 0;
+    int shift = totalBits;
     for (int w = 0; w < numChunks; w++) {
       final int extracted = (int) Long.compress(gathered[w], extractionMasks[w]);
+      shift -= Long.bitCount(extractionMasks[w]);
       result |= extracted << shift;
-      shift += Long.bitCount(extractionMasks[w]);
     }
     return result;
   }
 
   /**
-   * @return the value (0 or 1) of bit {@code absBitPos} across every key
-   * stored in the subtree rooted at {@code ref}, or {@code null} if the
-   * bit varies within that subtree. An empty subtree returns 0
-   * (vacuously constant). Unresolvable pages return {@code null} —
-   * callers treat that as "cannot extend", falling back to the split
-   * parent path.
+   * Verify that bit {@code absBitPos} has the same value across every key in the subtree
+   * rooted at {@code ref}.
+   *
+   * <p>Returns {@code 0} or {@code 1} for the constant value, or {@code -1} if the bit
+   * varies within the subtree (or the page can't be loaded). Empty subtrees return {@code 0}
+   * (vacuously constant).
+   *
+   * <p><b>Why this exists.</b> Binna's HOT thesis uses single-TID leaves: every leaf is a
+   * single key, so any disc bit is trivially constant in any leaf-rooted subtree, and
+   * Binna's sparse-path encoding "off-path siblings span both bit values" case never occurs.
+   * Sirix's multi-entry leaves break that property — a single leaf can hold keys differing
+   * at any bit. Under multi-entry leaves, sparse-path subset-match routing misroutes keys
+   * destined for an "off-path" sibling whose subtree has both values at a new disc bit
+   * (the leaf-split's products, with {@code sparseStored} bit set, win the most-specific
+   * subset match over the off-path sibling). The fix is to gate addEntryWithPDep /
+   * addEntryMultiMask / upgradeToMultiMaskWithNewBit on this check: extension is allowed
+   * only when the new bit is constant in every existing non-split sibling. Otherwise the
+   * caller falls back to splitParentAndRecurse, which rebuilds the parent.
+   *
+   * <p><b>HFT grade.</b> Primitive {@code int} return (sentinel {@code -1} for "non-constant"
+   * — no boxing, no allocation, no exception path. Recursion depth bounded by tree height
+   * (≤ 7 in practice). Per-call cost: one byte fetch + bit extract per leaf entry; bounded
+   * by total stored keys in the subtree.
    */
-  private @Nullable Integer bitConstantValueInSubtree(PageReference ref, int absBitPos) {
+  private int bitConstantValueInSubtree(PageReference ref, int absBitPos) {
     Page page = ref.getPage();
     if (page == null && activeReader != null) {
       page = loadPage(activeReader, ref);
@@ -1198,22 +1320,22 @@ public final class HOTTrieWriter {
       final int first = DiscriminativeBitComputer.isBitSet(leaf.getKeySlice(0), absBitPos) ? 1 : 0;
       for (int i = 1; i < n; i++) {
         final int v = DiscriminativeBitComputer.isBitSet(leaf.getKeySlice(i), absBitPos) ? 1 : 0;
-        if (v != first) return null;
+        if (v != first) return -1;
       }
       return first;
     }
     if (page instanceof HOTIndirectPage indirect) {
       final int m = indirect.getNumChildren();
       if (m == 0) return 0;
-      final Integer first = bitConstantValueInSubtree(indirect.getChildReference(0), absBitPos);
-      if (first == null) return null;
+      final int first = bitConstantValueInSubtree(indirect.getChildReference(0), absBitPos);
+      if (first < 0) return -1;
       for (int i = 1; i < m; i++) {
-        final Integer v = bitConstantValueInSubtree(indirect.getChildReference(i), absBitPos);
-        if (v == null || !v.equals(first)) return null;
+        final int v = bitConstantValueInSubtree(indirect.getChildReference(i), absBitPos);
+        if (v < 0 || v != first) return -1;
       }
       return first;
     }
-    return null;
+    return -1;
   }
 
   /**
@@ -1285,11 +1407,16 @@ public final class HOTTrieWriter {
     final DiscBitsInfo discBits = computeDiscBits(newChildren, initialBytePos);
     final int[] partialKeys = computePartialKeysForChildren(newChildren, discBits);
 
+    // Sort by partial-key (HOT I7) — children are sorted by first-key above to drive
+    // adjacent-pair disc-bit collection in computeDiscBits, but the canonical storage
+    // order is partial-key.
+    sortChildrenAndPartialsByPartial(newChildren, partialKeys);
+
     // Create appropriate node type based on child count
     final HOTIndirectPage created;
     if (newNumChildren <= 2) {
-      // Recompute disc bit from sorted children (the passed-in discriminativeBit may
-      // refer to the pre-sort position or be -1 for identical boundary keys)
+      // Recompute disc bit from partial-sorted children (the passed-in discriminativeBit may
+      // refer to the pre-sort position or be -1 for identical boundary keys).
       final byte[] lMax = getLastKeyFromChild(newChildren[0]);
       final byte[] rMin = getFirstKeyFromChild(newChildren[1]);
       final int recomputedDiscBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(lMax, rMin));
@@ -1365,18 +1492,16 @@ public final class HOTTrieWriter {
    * <p>Matches C++ reference: SingleMaskPartialKeyMapping vs MultiMaskPartialKeyMapping.</p>
    */
   private DiscBitsInfo computeDiscBits(PageReference[] children, int initialBytePos) {
-    // Collect all disc bit positions
+    // Sparse-path encoding (Binna §4.2): capture EVERY bit where adjacent children's first-keys
+    // differ — no constancy filter needed. The constancy invariant is no longer required: bits
+    // that vary within a sibling's subtree get encoded as 0 in that sibling's stored partial
+    // (off-path), and routing via subset-match still reaches the correct child. The
+    // adjacent-pair MSB collection is sufficient on sorted children because any pair with
+    // different sparse partials must differ at some adjacent-pair-captured bit.
     int minBytePos = Integer.MAX_VALUE;
     int maxBytePos = 0;
     final TreeMap<Integer, Integer> maskByBytePos = new TreeMap<>();
 
-    // Reference-faithful collection (Binna §4.2): for each adjacent
-    // child pair, every differing bit is a candidate disc bit. Capture
-    // ALL differing bits (not just the MSB), subject to the HOT
-    // invariant that the bit must be constant within every child's
-    // subtree. This avoids partial-key collisions when multiple pairs
-    // differ at the same MSB — a single MSB is not enough to
-    // distinguish N≥3 sorted children.
     for (int i = 0; i < children.length - 1; i++) {
       final byte[] key1 = getLastKeyFromChild(children[i]);
       final byte[] key2 = getFirstKeyFromChild(children[i + 1]);
@@ -1388,17 +1513,8 @@ public final class HOTTrieWriter {
         int diff = (key1[b] ^ key2[b]) & 0xFF;
         while (diff != 0) {
           final int hb = Integer.numberOfLeadingZeros(diff) - 24; // 0..7, 0=MSB
-          final int absBit = b * 8 + hb;
           diff &= ~(1 << (7 - hb));
           if (isDiscBitAlreadyCaptured(maskByBytePos, b, hb)) continue;
-          boolean constantInAllSubtrees = true;
-          for (final PageReference c : children) {
-            if (bitConstantValueInSubtree(c, absBit) == null) {
-              constantInAllSubtrees = false;
-              break;
-            }
-          }
-          if (!constantInAllSubtrees) continue;
           final int maskBit = 1 << (7 - hb);
           maskByBytePos.merge(b, maskBit, (a, b2) -> a | b2);
           if (b < minBytePos) minBytePos = b;
@@ -1411,27 +1527,13 @@ public final class HOTTrieWriter {
       return DiscBitsInfo.singleMask(initialBytePos, 1L);
     }
 
-    // Verify partial keys are unique. If not, the HOT invariant is
-    // violated — augment with additional bits from pairs of NON-
-    // adjacent children (whose first-keys differ but no adjacent pair
-    // of them was captured). This is rare but can happen when the
-    // MSB-only XOR of adjacent pairs all coincides at the same bit.
-    augmentUntilPartialsUnique(children, maskByBytePos);
-
-    // Refresh min/max after augmentation
-    minBytePos = Integer.MAX_VALUE;
-    maxBytePos = 0;
-    for (int bp : maskByBytePos.keySet()) {
-      if (bp < minBytePos) minBytePos = bp;
-      if (bp > maxBytePos) maxBytePos = bp;
-    }
-
     if (maxBytePos - initialBytePos < 8 && minBytePos >= initialBytePos) {
       long mask = 0;
       for (final var entry : maskByBytePos.entrySet()) {
+        // BE word layout: byte at window-position p occupies long-bits ((7-p)*8 .. (7-p)*8+7).
         final int byteOffset = entry.getKey() - initialBytePos;
         final int maskByte = entry.getValue();
-        mask |= ((long) maskByte) << (byteOffset * 8);
+        mask |= ((long) (maskByte & 0xFF)) << ((7 - byteOffset) * 8);
       }
       return DiscBitsInfo.singleMask(initialBytePos, mask);
     }
@@ -1446,81 +1548,12 @@ public final class HOTTrieWriter {
     return (existing & (1 << (7 - bitInByte))) != 0;
   }
 
-  /**
-   * Augment the disc-bit mask with additional bits until all children
-   * produce unique partial keys under the mask. Required because the
-   * adjacent-pair-MSB-only collection misses bits needed to distinguish
-   * 3+ children that share a common XOR-MSB.
-   */
-  private void augmentUntilPartialsUnique(PageReference[] children,
-      TreeMap<Integer, Integer> maskByBytePos) {
-    while (true) {
-      final int[] partials = computePartialKeysForMaskByBytePos(children, maskByBytePos);
-      int collide_i = -1, collide_j = -1;
-      outer: for (int i = 0; i < partials.length; i++) {
-        for (int j = i + 1; j < partials.length; j++) {
-          if (partials[i] == partials[j]) { collide_i = i; collide_j = j; break outer; }
-        }
-      }
-      if (collide_i < 0) return;
-      // Find any differing bit between first-keys of collide_i and collide_j
-      // that is constant in every subtree and not already captured.
-      final byte[] ki = getFirstKeyFromChild(children[collide_i]);
-      final byte[] kj = getFirstKeyFromChild(children[collide_j]);
-      final int minLen = Math.min(ki.length, kj.length);
-      boolean added = false;
-      for (int b = 0; b < minLen && !added; b++) {
-        int diff = (ki[b] ^ kj[b]) & 0xFF;
-        while (diff != 0 && !added) {
-          final int hb = Integer.numberOfLeadingZeros(diff) - 24;
-          final int absBit = b * 8 + hb;
-          if (!isDiscBitAlreadyCaptured(maskByBytePos, b, hb)) {
-            boolean constantInAllSubtrees = true;
-            for (final PageReference c : children) {
-              if (bitConstantValueInSubtree(c, absBit) == null) {
-                constantInAllSubtrees = false;
-                break;
-              }
-            }
-            if (constantInAllSubtrees) {
-              final int maskBit = 1 << (7 - hb);
-              maskByBytePos.merge(b, maskBit, (a, b2) -> a | b2);
-              added = true;
-            }
-          }
-          diff &= ~(1 << (7 - hb));
-        }
-      }
-      if (!added) {
-        // Cannot augment — invariant fundamentally violated. Bail.
-        return;
-      }
-    }
-  }
-
-  /**
-   * Compute partial keys for all children using the current
-   * {@code maskByBytePos} (works for both SingleMask and MultiMask
-   * layouts via byte-gather + per-byte PEXT).
-   */
-  private int[] computePartialKeysForMaskByBytePos(PageReference[] children,
-      TreeMap<Integer, Integer> maskByBytePos) {
-    final int[] partials = new int[children.length];
-    for (int ci = 0; ci < children.length; ci++) {
-      final byte[] key = getFirstKeyFromChild(children[ci]);
-      int partial = 0;
-      int shift = 0;
-      for (final var entry : maskByBytePos.entrySet()) {
-        final int bp = entry.getKey();
-        final int mb = entry.getValue();
-        final int kb = (bp < key.length) ? (key[bp] & 0xFF) : 0;
-        partial |= ((int) Long.compress(kb & 0xFFL, mb & 0xFFL)) << shift;
-        shift += Integer.bitCount(mb & 0xFF);
-      }
-      partials[ci] = partial;
-    }
-    return partials;
-  }
+  // augmentUntilPartialsUnique + computePartialKeysForMaskByBytePos REMOVED — dead under
+  // Binna sparse-path encoding. The disc-bit collection in computeDiscBits captures every
+  // adjacent-pair-differing bit (no constancy filter), and computePartialKeysForChildren
+  // uses the recursive sparse-path partition algorithm (computeSparsePathRecursive). Both
+  // augment + dense-PEXT mask-by-byte-pos extraction were artifacts of the old constancy-
+  // required encoding.
 
   /**
    * Build MultiMask discriminative bit info from grouped disc bits.
@@ -1540,10 +1573,11 @@ public final class HOTTrieWriter {
       final int keyBytePos = entry.getKey();
       final int maskByte = entry.getValue();
       extractionPositions[i] = (byte) keyBytePos;
-      // Pack mask byte into the appropriate long chunk (LE byte order)
+      // BE chunk layout: extraction-byte offset {@code o} within a chunk lands at long-bit
+      // {@code (7-o)*8 .. (7-o)*8+7}. Within {@code maskByte}, bit 7 = byte's MSB.
       final int chunkIdx = i / 8;
-      final int byteOffset = i % 8;
-      extractionMasks[chunkIdx] |= ((long) (maskByte & 0xFF)) << (byteOffset * 8);
+      final int byteOffsetInChunk = i % 8;
+      extractionMasks[chunkIdx] |= ((long) (maskByte & 0xFF)) << ((7 - byteOffsetInChunk) * 8);
 
       // Compute MSB index: the smallest absolute bit position
       final int highBit = 31 - Integer.numberOfLeadingZeros(maskByte & 0xFF);
@@ -1568,13 +1602,127 @@ public final class HOTTrieWriter {
    * to the AND-intersection for valid disc bits. The filter guarantees
    * this by dropping any candidate bit that varies within a subtree.
    */
+  /**
+   * Compute partial keys for {@code children} using Binna §4.2 sparse-path encoding.
+   *
+   * <p>For each disc bit (in absolute-bit-position order, MSB-first), we recursively partition
+   * the sorted children at this bit into LEFT (bit=0) and RIGHT (bit=1) halves. A child's
+   * partial-key bit at position {@code p} (the partial-key bit corresponding to this disc bit)
+   * is set IFF (a) the partition at this bit is non-trivial within the child's current
+   * sub-range — i.e., the BiNode at this disc bit is on the child's path — AND (b) the child
+   * lies in the RIGHT half. Off-path bits stay 0.</p>
+   *
+   * <p>This matches Binna's reference {@code SparsePartialKeys.hpp} where stored partial
+   * keys carry "1" only for path BiNodes and 0 elsewhere. Routing (Sirix's
+   * {@link io.sirix.page.HOTIndirectPage#findChildIndex} subset-match) returns the highest-
+   * specificity match, exactly as Binna's {@code SparsePartialKeys::search}.</p>
+   */
   private int[] computePartialKeysForChildren(PageReference[] children, DiscBitsInfo discBits) {
-    final int[] partialKeys = new int[children.length];
-    for (int i = 0; i < children.length; i++) {
-      final byte[] key = getFirstKeyFromChild(children[i]);
-      partialKeys[i] = computePartialKey(key, discBits);
-    }
+    final int n = children.length;
+    final int[] partialKeys = new int[n];
+    if (n <= 1) return partialKeys;
+
+    // Collect the disc bit positions in MSB-first absolute-bit order. Result-bit position
+    // (totalDiscBits-1) corresponds to the most significant disc bit (smallest absolute
+    // bit index).
+    final int[] discAbsPositions = collectDiscBitsMsbFirst(discBits);
+    final int totalDiscBits = discAbsPositions.length;
+    if (totalDiscBits == 0) return partialKeys;
+
+    // Cache children's first-keys so we don't re-load on every disc-bit step.
+    final byte[][] firstKeys = new byte[n][];
+    for (int i = 0; i < n; i++) firstKeys[i] = getFirstKeyFromChild(children[i]);
+
+    computeSparsePathRecursive(firstKeys, partialKeys, /*rangeStart=*/ 0, /*rangeEnd=*/ n,
+        /*discBitIdx=*/ 0, discAbsPositions, totalDiscBits);
     return partialKeys;
+  }
+
+  /**
+   * Recursive partition for sparse-path encoding. At {@code discBitIdx}, find the split point
+   * within {@code [rangeStart, rangeEnd)}. If the partition is non-trivial, set the
+   * corresponding partial-key bit on every RIGHT-half child and recurse into both halves; the
+   * LEFT half implicitly leaves the bit at 0. If the partition is trivial (all children in
+   * range agree at this bit), the BiNode is NOT on this range's children's paths — leave the
+   * bit at 0 for everyone in range and recurse with the next disc bit.
+   */
+  private void computeSparsePathRecursive(byte[][] firstKeys, int[] partials,
+      int rangeStart, int rangeEnd, int discBitIdx, int[] discAbsPositions, int totalDiscBits) {
+    if (rangeEnd - rangeStart <= 1 || discBitIdx >= totalDiscBits) return;
+    final int absBit = discAbsPositions[discBitIdx];
+    // BE: result bit (totalDiscBits-1) = MSB of partial = first (most-significant) disc bit.
+    final int partialBitPos = totalDiscBits - 1 - discBitIdx;
+
+    int splitIdx = rangeEnd;
+    for (int j = rangeStart; j < rangeEnd; j++) {
+      if (DiscriminativeBitComputer.isBitSet(firstKeys[j], absBit)) {
+        splitIdx = j;
+        break;
+      }
+    }
+
+    if (splitIdx > rangeStart && splitIdx < rangeEnd) {
+      // Non-trivial split: BiNode is on every range-child's path.
+      for (int j = splitIdx; j < rangeEnd; j++) partials[j] |= (1 << partialBitPos);
+      computeSparsePathRecursive(firstKeys, partials, rangeStart, splitIdx,
+          discBitIdx + 1, discAbsPositions, totalDiscBits);
+      computeSparsePathRecursive(firstKeys, partials, splitIdx, rangeEnd,
+          discBitIdx + 1, discAbsPositions, totalDiscBits);
+    } else {
+      // Trivial split (all agree): BiNode is NOT on this range's children's paths. Skip.
+      computeSparsePathRecursive(firstKeys, partials, rangeStart, rangeEnd,
+          discBitIdx + 1, discAbsPositions, totalDiscBits);
+    }
+  }
+
+  /**
+   * Maximum disc bits per node — bounded by partial-key bit width (uint32_t = 32 bits in
+   * Sirix's SpanNode/MultiNode partial). Used to size the stack-cap'd disc-bit position
+   * buffer in {@link #collectDiscBitsMsbFirst}.
+   */
+  private static final int MAX_DISC_BITS = 32;
+
+  /**
+   * Collect disc bit positions in MSB-first absolute-bit order: smallest absolute bit
+   * position first (= most significant). Walks SingleMask or MultiMask layout.
+   *
+   * <p>HFT-grade: writes into a primitive {@code int[]} sized to {@link #MAX_DISC_BITS}
+   * (max disc bits a HOT node can hold = partial-key bit width = 32). Returns a trimmed
+   * copy only when the actual bit count is smaller. No {@code List<Integer>}, no
+   * autoboxing, no {@code ArrayList} growth, single bounded-size allocation per call.
+   */
+  private static int[] collectDiscBitsMsbFirst(DiscBitsInfo discBits) {
+    final int[] buf = new int[MAX_DISC_BITS];
+    int n = 0;
+    if (discBits.isSingleMask()) {
+      final int initialBytePos = discBits.initialBytePos();
+      long mask = discBits.bitMask();
+      while (mask != 0L) {
+        final int highBit = 63 - Long.numberOfLeadingZeros(mask);
+        // BE: byte at window-offset bo occupies long bits ((7-bo)*8)..((7-bo)*8+7).
+        // Within byte, MSB-first bit bb is at long-bit ((7-bo)*8 + (7-bb)).
+        // Solve: highBit = (7-bo)*8 + (7-bb) → bo = 7 - highBit/8, bb = 7 - highBit%8.
+        final int bo = 7 - (highBit / 8);
+        final int bb = 7 - (highBit % 8);
+        buf[n++] = (initialBytePos + bo) * 8 + bb;
+        mask &= ~(1L << highBit);
+      }
+    } else {
+      // MultiMask: iterate extractionPositions in order; within each byte, MSB-first.
+      final byte[] extractionPositions = discBits.extractionPositions();
+      final long[] extractionMasks = discBits.extractionMasks();
+      final int numExtractionBytes = discBits.numExtractionBytes();
+      for (int i = 0; i < numExtractionBytes; i++) {
+        final int bytePos = extractionPositions[i] & 0xFF;
+        final int byteMask = (int) ((extractionMasks[i / 8] >>> ((7 - (i % 8)) * 8)) & 0xFF);
+        for (int bb = 0; bb < 8; bb++) {
+          final int byteBit = 7 - bb;
+          if ((byteMask & (1 << byteBit)) == 0) continue;
+          buf[n++] = bytePos * 8 + bb;
+        }
+      }
+    }
+    return n == MAX_DISC_BITS ? buf : Arrays.copyOf(buf, n);
   }
 
   /**
@@ -1595,20 +1743,24 @@ public final class HOTTrieWriter {
   private static int computePartialKeyMultiMask(byte[] key, byte[] extractionPositions,
       long[] extractionMasks, int numExtractionBytes) {
     final int numChunks = extractionMasks.length;
+    // BE chunk packing: extraction-byte at chunk-offset {@code o} → long bits ((7-o)*8)..((7-o)*8+7).
     final long[] gathered = new long[numChunks];
     for (int i = 0; i < numExtractionBytes; i++) {
       final int keyBytePos = extractionPositions[i] & 0xFF;
       final int keyByte = keyBytePos < key.length ? (key[keyBytePos] & 0xFF) : 0;
       final int chunkIdx = i / 8;
-      final int byteOffset = i % 8;
-      gathered[chunkIdx] |= ((long) keyByte) << (byteOffset * 8);
+      final int byteOffsetInChunk = i % 8;
+      gathered[chunkIdx] |= ((long) keyByte) << ((7 - byteOffsetInChunk) * 8);
     }
+    // BE concatenate across chunks: chunk 0 occupies the HIGH bits of the result.
+    int totalBits = 0;
+    for (final long m : extractionMasks) totalBits += Long.bitCount(m);
     int result = 0;
-    int shift = 0;
+    int shift = totalBits;
     for (int w = 0; w < numChunks; w++) {
       final int extracted = (int) Long.compress(gathered[w], extractionMasks[w]);
+      shift -= Long.bitCount(extractionMasks[w]);
       result |= extracted << shift;
-      shift += Long.bitCount(extractionMasks[w]);
     }
     return result;
   }
@@ -1837,7 +1989,9 @@ public final class HOTTrieWriter {
         return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
       }
       final int bitInByte = splitDiscBitAbs % 8;
-      splitBitMaskBit = 1L << (byteOff * 8 + (7 - bitInByte));
+      // BE: byte at window-offset {@code byteOff} occupies long bits ((7-byteOff)*8)..((7-byteOff)*8+7);
+      // MSB-first bit-in-byte {@code bitInByte} is at long-bit ((7-byteOff)*8 + (7-bitInByte)).
+      splitBitMaskBit = 1L << ((7 - byteOff) * 8 + (7 - bitInByte));
     } else {
       splitDiscBitAbs = -1;
       splitBitMaskBit = 0L;
@@ -1899,16 +2053,10 @@ public final class HOTTrieWriter {
         final int repositioned = (int) Long.expand(
             Integer.toUnsignedLong(compressed),
             oldBitsInNewLayout);
-        int partial = repositioned;
-        if (bothSplitHere) {
-          // Determine splitDiscBit's value across c's subtree.
-          final Integer v = bitConstantValueInSubtree(c, splitDiscBitAbs);
-          if (v == null) {
-            return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
-          }
-          partial |= v.intValue() << splitBitOutputPos;
-        }
-        newPartials[j] = partial;
+        // Sparse-path encoding (Binna §4.2): non-split sibling's path does NOT include the
+        // split-disc-bit's BiNode, so its new-bit position stays 0 regardless of how the
+        // bit varies within its subtree. Constancy check removed.
+        newPartials[j] = repositioned;
       }
     }
 
@@ -1920,6 +2068,11 @@ public final class HOTTrieWriter {
         }
       }
     }
+
+    // Sort by partial-key (HOT I7 / Binna §4.2). The sortedChildren array was sorted by
+    // first-key earlier to drive the relevant-bits derivation; the canonical storage order
+    // under sparse-path encoding is partial-key.
+    sortChildrenAndPartialsByPartial(sortedChildren, newPartials);
 
     // Assemble node.
     if (sortedChildren.length == 2) {
@@ -2072,7 +2225,23 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Create appropriate node type for given children array.
+   * Create an indirect node from a list of children built from scratch (no parent context).
+   *
+   * <p><b>Encoding</b>: this path computes partial keys via dense PEXT of each child's first
+   * key under the derived disc-bit mask, NOT Binna's sparse-path encoding. The two encodings
+   * coincide whenever the constancy invariant holds (every captured disc bit has the same
+   * value across all leaves in each child's subtree). For workloads where constancy holds —
+   * which empirically covers all currently-tested non-adversarial paths through this method
+   * — the dense-PEXT result is valid HOT and indistinguishable from sparse-path.</p>
+   *
+   * <p><b>Limitation</b>: under truly adversarial workloads where constancy can't be achieved
+   * AND the rebuild path enters this method (rare; reached only by buildCompressedHalf
+   * fallbacks for MultiMask layouts and split-cascade halves), the produced node may carry
+   * dense-PEXT partials at positions where sparse-path encoding would store 0. This is
+   * detected by {@link io.sirix.index.hot.HOTInvariantValidator}'s I-Binna check; on tested
+   * workloads no violation surfaces. A full sparse-path rewrite would require deriving each
+   * child's path through the would-be virtual binary patricia trie and zeroing non-path bits
+   * — left as follow-up work.</p>
    */
   private HOTIndirectPage createNodeFromChildren(PageReference[] children, long pageKey, int revision, int height) {
     if (children.length < 2) {
@@ -2093,6 +2262,10 @@ public final class HOTTrieWriter {
       final int initialBytePos = computeInitialBytePos(children);
       final DiscBitsInfo discBits = computeDiscBits(children, initialBytePos);
       final int[] partialKeys = computePartialKeysForChildren(children, discBits);
+      // HOT I7: store children in sparse-partial-key order (children were sorted by first-key
+      // above to drive adjacent-pair disc-bit collection; partial-key order is the canonical
+      // slot order under sparse-path encoding per Binna §4.2).
+      sortChildrenAndPartialsByPartial(children, partialKeys);
       created = createNodeWithDiscBits(pageKey, revision, height, discBits, partialKeys, children);
     }
     return created;
@@ -2100,21 +2273,21 @@ public final class HOTTrieWriter {
 
   /**
    * Compute partial key (SingleMask) by extracting discriminative bits from a key.
-   * Uses little-endian layout matching {@link HOTIndirectPage#getKeyWordAt}:
-   * byte 0 of window → bits 0-7, byte 1 → bits 8-15, etc.
+   * Uses BE layout matching {@link HOTIndirectPage#getKeyWordAt}: byte at {@code initialBytePos}
+   * → long bits 56-63, {@code initialBytePos+1} → 48-55, ..., {@code initialBytePos+7} → 0-7.
    */
   private int computePartialKeySingleMask(byte[] key, int initialBytePos, long bitMask) {
     if (key == null || key.length == 0) {
       return 0;
     }
 
-    // Extract 8 bytes from key starting at initialBytePos (little-endian, matching getKeyWordAt)
+    // BE word: byte at offset i in window lands in long bits ((7-i)*8)..((7-i)*8+7).
     long keyWord = 0;
     for (int i = 0; i < 8 && (initialBytePos + i) < key.length; i++) {
-      keyWord |= ((long) (key[initialBytePos + i] & 0xFF)) << (i * 8);
+      keyWord |= ((long) (key[initialBytePos + i] & 0xFF)) << ((7 - i) * 8);
     }
 
-    // Apply PEXT-style extraction: compress bits selected by mask
+    // Apply PEXT-style extraction: compress bits selected by mask.
     return (int) Long.compress(keyWord, bitMask);
   }
 
@@ -2175,6 +2348,39 @@ public final class HOTTrieWriter {
       return;
     }
     Arrays.sort(children, (a, b) -> Arrays.compareUnsigned(getFirstKeyFromChild(a), getFirstKeyFromChild(b)));
+  }
+
+  /**
+   * Co-sort {@code children} and {@code partials} by ascending partial-key value (HOT I7
+   * invariant: children are stored in sparse-partial-key order, per Binna §4.2 and the
+   * reference {@code SparsePartialKeys}). Since under sparse-path encoding the partial-key
+   * order is the canonical ordering — first-key order can diverge for sibling subtrees with
+   * off-path range overlap — every indirect-node construction site uses this helper.
+   *
+   * <p>HFT-grade: in-place insertion sort over the parallel arrays. Children's count is
+   * bounded by {@link HOTIndirectPage#MAX_NODE_ENTRIES} = 32, so insertion sort is faster
+   * than {@link Arrays#sort} (no comparator allocation, better cache behavior).
+   */
+  private static void sortChildrenAndPartialsByPartial(PageReference[] children, int[] partials) {
+    final int n = children.length;
+    if (n <= 1) return;
+    if (partials.length < n) {
+      throw new IllegalArgumentException(
+          "partials.length=" + partials.length + " < children.length=" + n);
+    }
+    // Insertion sort — partials are unique (HOT I3) so equal pivots can't occur.
+    for (int i = 1; i < n; i++) {
+      final int curPartial = partials[i];
+      final PageReference curChild = children[i];
+      int j = i - 1;
+      while (j >= 0 && Integer.compareUnsigned(partials[j], curPartial) > 0) {
+        partials[j + 1] = partials[j];
+        children[j + 1] = children[j];
+        j--;
+      }
+      partials[j + 1] = curPartial;
+      children[j + 1] = curChild;
+    }
   }
 
   /**

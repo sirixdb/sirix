@@ -81,53 +81,46 @@ class HOTProductionReadinessTest {
     }
 
     @Test
-    @DisplayName("SpanNode routes 4 children correctly with multi-bit LE mask")
-    void testSpanNodeLERoutingMultiBit() {
-      // Two discriminative bits at positions:
-      //   bit 1 in byte 0 (MSB-offset 1 → position 6 in word) → mask bit 6
-      //   bit 0 in byte 1 (MSB-offset 0 → position 7+8=15 in word) → mask bit 15
-      // Wait... let me think more carefully about the LE layout.
+    @DisplayName("SpanNode routes 4 children correctly with multi-bit BE mask")
+    void testSpanNodeBERoutingMultiBit() {
+      // BE layout: byte at window-position {@code i} occupies long bits {@code (7-i)*8 ..
+      // (7-i)*8 + 7}; within that slot, bit-in-byte {@code b} (MSB-first, 0=MSB) is at long bit
+      // {@code (7-i)*8 + (7-b)}. Equivalently, in-window abs bit {@code B} → long bit
+      // {@code 63 - B}.
       //
-      // LE layout: byte[pos+0] → bits 0-7, byte[pos+1] → bits 8-15
-      // Within each byte, MSB (bit 0) → position 7, LSB (bit 7) → position 0
-      //
-      // Absolute disc bit = byteOffset * 8 + bitWithinByte
-      // byteOffset from initialBytePos:
-      //   Disc bit at abs pos 1 (byte 0, bit 1): byteWithinWindow=0, bitInWord = 0*8 + (7-1) = 6
-      //   Disc bit at abs pos 8 (byte 1, bit 0): byteWithinWindow=1, bitInWord = 1*8 + (7-0) = 15
+      // Two discriminative bits at absolute positions:
+      //   bit 1 in byte 0 (MSB-offset 1) → in-window abs bit 1 → long bit 62
+      //   bit 0 in byte 1 (MSB-offset 0) → in-window abs bit 8 → long bit 55
+      // PEXT result has bits in order of mask's set bits from LOW to HIGH long bit position;
+      // so bit 55 (later byte) becomes partial-key bit 0 and bit 62 (earlier byte) becomes
+      // partial-key bit 1. partial key = (byte0_bit1 << 1) | (byte1_bit0 << 0).
+      final long bitMask = (1L << 62) | (1L << 55);
 
-      // Build mask: bits 6 and 15
-      long bitMask = (1L << 6) | (1L << 15);
+      // Lex order on the 2-bit pattern (byte0_bit1, byte1_bit0): (0,0), (0,1), (1,0), (1,1).
+      // BE partial key for each lex-sorted child = (byte0_bit1 << 1) | byte1_bit0:
+      //   (0,0) → 0b00, (0,1) → 0b01, (1,0) → 0b10, (1,1) → 0b11.
+      final int[] partialKeys = new int[] {0b00, 0b01, 0b10, 0b11};
 
-      // 2 disc bits → 4 partial keys: 0b00, 0b01, 0b10, 0b11
-      // PEXT extracts bit6 as position 0, bit15 as position 1
-      // So partial key = (bit6_value << 0) | (bit15_value << 1)
-      int[] partialKeys = new int[] {0b00, 0b01, 0b10, 0b11};
-
-      PageReference[] children = new PageReference[4];
+      final PageReference[] children = new PageReference[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
         children[i].setKey(100L + i);
       }
 
-      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, 0, bitMask, partialKeys, children);
+      final HOTIndirectPage spanNode =
+          HOTIndirectPage.createSpanNode(1L, 1, 0, bitMask, partialKeys, children);
 
-      // Key: byte0=0x00, byte1=0x00 → bit6=0, bit15=0 → pkey=0b00 → child 0
+      // byte0=0x00, byte1=0x00 → byte0_bit1=0, byte1_bit0=0 → pkey=0b00 → child 0
       assertEquals(0, spanNode.findChildIndex(new byte[] {0x00, 0x00}));
 
-      // Key: byte0=0x40 (bit 1 set = 0x40), byte1=0x00 → bit6=1, bit15=0 → pkey=0b01 → child 1?
-      // Wait. bit 1 of byte 0 means MSB-offset 1. In the byte 0b01000000 = 0x40, that's bit 1 set.
-      // LE: byte0 goes to bits 0-7. bit 6 in the word corresponds to bit 6 of byte0.
-      // byte0 = 0x40 = 0b01000000. Bit 6 of that byte = 1. So PEXT extracts 1 at position 0.
-      // byte1 = 0x00. Bit 15 of word = bit 7 of byte1 = MSB of byte1 = 0. PEXT extracts 0 at position 1.
-      // pkey = 0b01 → but wait, PEXT ordering: bit6 (lower) maps to output bit 0, bit15 (higher) maps to output bit 1
-      // So pkey = (bit6=1) | (bit15=0 << 1) = 0b01 → child index matching partial key 0b01 = child 1
-      assertEquals(1, spanNode.findChildIndex(new byte[] {0x40, 0x00, 0x00}));
+      // byte0=0x40 (bit 1 set, 0b01000000), byte1=0x00
+      // → byte0_bit1=1, byte1_bit0=0 → pkey=(1<<1)|0=0b10 → child 2
+      assertEquals(2, spanNode.findChildIndex(new byte[] {0x40, 0x00, 0x00}));
 
-      // Key: byte0=0x00, byte1=0x80 (bit 0 set = MSB = 0x80) → bit6=0, bit15=1 → pkey=0b10 → child 2
-      assertEquals(2, spanNode.findChildIndex(new byte[] {0x00, (byte) 0x80, 0x00}));
+      // byte0=0x00, byte1=0x80 (bit 0 = MSB) → byte0_bit1=0, byte1_bit0=1 → pkey=(0<<1)|1=0b01 → child 1
+      assertEquals(1, spanNode.findChildIndex(new byte[] {0x00, (byte) 0x80, 0x00}));
 
-      // Key: byte0=0x40, byte1=0x80 → bit6=1, bit15=1 → pkey=0b11 → child 3
+      // byte0=0x40, byte1=0x80 → byte0_bit1=1, byte1_bit0=1 → pkey=0b11 → child 3
       assertEquals(3, spanNode.findChildIndex(new byte[] {0x40, (byte) 0x80, 0x00}));
     }
 
@@ -157,35 +150,45 @@ class HOTProductionReadinessTest {
       PageReference leftRef = new PageReference();
       PageReference rightRef = new PageReference();
 
+      // BE word layout: byte at window-position {@code i} occupies long bits {@code (7-i)*8 ..
+      // (7-i)*8 + 7}; within that slot, bit-in-byte {@code b} (MSB-first, 0=MSB) is at long bit
+      // {@code (7-i)*8 + (7-b)}. Equivalently, in-window absolute bit {@code B = i*8 + b} maps
+      // to long bit {@code 63 - B}.
+
       // Case 1: disc bit at absolute position 1 (byte 0, bit 1 within byte)
+      // → in-window abs bit 1 → long bit 62 → mask = 1L << 62 = 0x4000000000000000L
       HOTIndirectPage bi1 = HOTIndirectPage.createBiNode(1L, 1, 1, leftRef, rightRef);
-      assertEquals(0x40L, bi1.getBitMask());
+      assertEquals(0x4000000000000000L, bi1.getBitMask());
       assertEquals(1, bi1.getMostSignificantBitIndex(), "MSB for disc bit at absolute position 1");
       // createBiNode now returns SPAN_NODE
       assertEquals(HOTIndirectPage.NodeType.SPAN_NODE, bi1.getNodeType());
 
       // Case 2: disc bit at absolute position 8 (byte 1, bit 0 = MSB of byte 1)
+      // initialBytePos = 8/8 = 1, in-window abs bit = 0 → long bit 63 → mask = 1L << 63
       HOTIndirectPage bi2 = HOTIndirectPage.createBiNode(1L, 1, 8, leftRef, rightRef);
-      assertEquals(0x80L, bi2.getBitMask());
+      assertEquals(1L << 63, bi2.getBitMask());
       assertEquals(8, bi2.getMostSignificantBitIndex(), "MSB for disc bit at absolute position 8");
 
       // Case 3: SpanNode with two disc bits at positions 1 and 9 (both in window starting at byte 0)
-      // Position 1: byte 0, bit 1 → bitInWord = 6
-      // Position 9: byte 1, bit 1 → bitInWord = 14
-      // mask = (1L << 6) | (1L << 14) = 0x4040
+      // Position 1: in-window abs bit 1 → long bit 62
+      // Position 9: in-window abs bit 9 → long bit 54
+      // mask = (1L << 62) | (1L << 54)
       // MSB should be position 1 (most significant = smallest absolute position)
+      final long beMask_1_and_9 = (1L << 62) | (1L << 54);
       int[] partialKeys = new int[] {0b00, 0b01, 0b10, 0b11};
       PageReference[] children = new PageReference[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
       }
-      HOTIndirectPage span = HOTIndirectPage.createSpanNode(1L, 1, 0, 0x4040L, partialKeys, children);
+      HOTIndirectPage span =
+          HOTIndirectPage.createSpanNode(1L, 1, 0, beMask_1_and_9, partialKeys, children);
       assertEquals(1, span.getMostSignificantBitIndex(), "MSB should be position 1, not 9");
 
       // Case 4: disc bit at high byte position (initialBytePos=10, disc bit at byte 10, bit 3)
-      // absolute = 10*8 + 3 = 83
+      // absolute = 10*8 + 3 = 83. In-window abs bit = 3 → long bit 60.
       HOTIndirectPage bi4 = HOTIndirectPage.createBiNode(1L, 1, 83, leftRef, rightRef);
       assertEquals(10, bi4.getInitialBytePos());
+      assertEquals(1L << 60, bi4.getBitMask());
       assertEquals(83, bi4.getMostSignificantBitIndex(), "MSB for disc bit at absolute position 83");
     }
   }
@@ -425,35 +428,41 @@ class HOTProductionReadinessTest {
     @Test
     @DisplayName("SpanNode with initialBytePos=300 routes 4 children correctly")
     void testSpanNodeInitialBytePosOver255() {
-      // Two disc bits within the 8-byte window starting at byte 300:
-      // byte 300 bit 7 (LSB) → LE word position: 0*8 + (7-7) = 0 → mask bit 0
-      // byte 301 bit 7 (LSB) → LE word position: 1*8 + (7-7) = 8 → mask bit 8
-      long bitMask = (1L << 0) | (1L << 8);
+      // BE layout: byte 300 (window-pos 0) → long bits 56-63; byte 301 (window-pos 1) → 48-55.
+      // Two disc bits both at byte LSB (bit 7 MSB-first = bit-in-slot 0):
+      //   byte 300 bit 7 → in-window abs 7 → long bit 56
+      //   byte 301 bit 7 → in-window abs 15 → long bit 48
+      final long bitMask = (1L << 56) | (1L << 48);
 
-      int[] partialKeys = new int[] {0b00, 0b01, 0b10, 0b11};
-      PageReference[] children = new PageReference[4];
+      // PEXT extracts low-to-high mask bits: bit 48 (byte 301 LSB) → result bit 0,
+      // bit 56 (byte 300 LSB) → result bit 1. Partial key = (byte300_LSB << 1) | byte301_LSB.
+      // Lex-sorted on (byte 300 LSB, byte 301 LSB): (0,0),(0,1),(1,0),(1,1).
+      // Mapping to partial-key values: 0,1,2,3.
+      final int[] partialKeys = new int[] {0b00, 0b01, 0b10, 0b11};
+      final PageReference[] children = new PageReference[4];
       for (int i = 0; i < 4; i++) {
         children[i] = new PageReference();
       }
 
-      HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, 300, bitMask, partialKeys, children);
+      final HOTIndirectPage spanNode =
+          HOTIndirectPage.createSpanNode(1L, 1, 300, bitMask, partialKeys, children);
       assertEquals(300, spanNode.getInitialBytePos());
 
-      // 310-byte key with byte[300]=0x00, byte[301]=0x00 → bits 0,8 both 0 → pkey=0b00 → child 0
+      // byte[300]=0x00, byte[301]=0x00 → byte300_LSB=0, byte301_LSB=0 → pkey=0 → child 0
       byte[] key00 = new byte[310];
       assertEquals(0, spanNode.findChildIndex(key00));
 
-      // byte[300]=0x01 (LSB set), byte[301]=0x00 → bit0=1, bit8=0 → pkey=0b01 → child 1
-      byte[] key01 = new byte[310];
-      key01[300] = 0x01;
-      assertEquals(1, spanNode.findChildIndex(key01));
-
-      // byte[300]=0x00, byte[301]=0x01 (LSB set) → bit0=0, bit8=1 → pkey=0b10 → child 2
+      // byte[300]=0x01 (LSB set), byte[301]=0x00 → byte300_LSB=1, byte301_LSB=0 → pkey=0b10 → child 2
       byte[] key10 = new byte[310];
-      key10[301] = 0x01;
+      key10[300] = 0x01;
       assertEquals(2, spanNode.findChildIndex(key10));
 
-      // byte[300]=0x01, byte[301]=0x01 → bit0=1, bit8=1 → pkey=0b11 → child 3
+      // byte[300]=0x00, byte[301]=0x01 → byte300_LSB=0, byte301_LSB=1 → pkey=0b01 → child 1
+      byte[] key01 = new byte[310];
+      key01[301] = 0x01;
+      assertEquals(1, spanNode.findChildIndex(key01));
+
+      // byte[300]=0x01, byte[301]=0x01 → pkey=0b11 → child 3
       byte[] key11 = new byte[310];
       key11[300] = 0x01;
       key11[301] = 0x01;
@@ -763,11 +772,15 @@ class HOTProductionReadinessTest {
       assertEquals(257, biNode.getInitialBytePos(),
           "initialBytePos must be 257, not truncated to 1 by & 0xFF");
 
-      // Simulate what PageKind.deserializePage does after reading initialBytePos from wire:
-      // It reconstructs discriminativeBitPos = initialBytePos * 8 + bitWithinByte
-      int bitInWord = Long.numberOfTrailingZeros(biNode.getBitMask());
-      int bitWithinByte = 7 - bitInWord;
-      int reconstructed = biNode.getInitialBytePos() * 8 + bitWithinByte;
+      // Simulate what PageKind.deserializePage does after reading initialBytePos and bitMask
+      // from wire. BE encoding: in-window abs bit B = 63 - longBitPos. byte_in_window = B / 8.
+      // bit_in_byte = B % 8 (MSB-first). Reconstructed disc bit pos = (initialBytePos +
+      // byte_in_window) * 8 + bit_in_byte.
+      final int longBitPos = 63 - Long.numberOfLeadingZeros(biNode.getBitMask());
+      final int inWindowAbsBit = 63 - longBitPos;
+      final int byteInWindow = inWindowAbsBit / 8;
+      final int bitWithinByte = inWindowAbsBit % 8;
+      final int reconstructed = (biNode.getInitialBytePos() + byteInWindow) * 8 + bitWithinByte;
       assertEquals(discBitPos, reconstructed,
           "Reconstructed disc bit position must match original");
     }

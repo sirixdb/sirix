@@ -360,18 +360,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     discBytePos = minBytePos;
 
-    // Build LE word bit mask: for each disc bit position, compute its position
-    // within the 8-byte LE word starting at discBytePos
+    // Build BE word bit mask: for each disc bit position, compute its long bit position in the
+    // 8-byte BE word starting at {@code discBytePos}. BE: byte at window-position {@code p}
+    // occupies long bits {@code (7-p)*8 .. (7-p)*8+7}; within that slot, MSB-first bit-in-byte
+    // {@code b} is at long bit {@code (7-p)*8 + (7-b) = 63 - (p*8 + b)}. Formula:
+    // {@code longBit = 63 - inWindowAbsBit}.
     long mask = 0;
     for (int i = 0; i < entryCount - 1; i++) {
       if (diffBits[i] >= 0) {
         final int absBitPos = diffBits[i]; // byte*8 + bitInByte (MSB-first)
         final int bytePos = absBitPos / 8;
         final int bitInByte = absBitPos % 8; // 0=MSB, 7=LSB
-        // LE word layout: byte at bytePos maps to bits [(bytePos-discBytePos)*8 .. +7]
-        // Within byte: MSB(bit 0) → position 7, LSB(bit 7) → position 0
-        final int bitInWord = (bytePos - discBytePos) * 8 + (7 - bitInByte);
-        mask |= 1L << bitInWord;
+        final int inWindowAbsBit = (bytePos - discBytePos) * 8 + bitInByte;
+        mask |= 1L << (63 - inWindowAbsBit);
       }
     }
 
@@ -423,7 +424,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    * Compute PEXT partial key from a MemorySegment suffix.
    */
   private static int computePartialKeyFromSegment(MemorySegment suffix, int bytePos, long bitMask) {
-    final long suffixWord = loadWordLE(suffix, bytePos);
+    final long suffixWord = loadWordBE(suffix, bytePos);
     return (int) Long.compress(suffixWord, bitMask);
   }
 
@@ -431,32 +432,33 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    * Compute PEXT partial key from a byte array suffix (starting at given offset).
    */
   private static int computePartialKeyFromArray(byte[] key, int suffixOffset, int bytePos, long bitMask) {
-    final long suffixWord = loadWordLEFromArray(key, suffixOffset + bytePos);
+    final long suffixWord = loadWordBEFromArray(key, suffixOffset + bytePos);
     return (int) Long.compress(suffixWord, bitMask);
   }
 
   /**
-   * Load up to 8 bytes from a MemorySegment in LE word layout (byte at pos → bits 0-7).
-   * Matches HOTIndirectPage.getKeyWordAt() byte ordering for PEXT consistency.
+   * Load up to 8 bytes from a MemorySegment in BE word layout: byte at {@code pos} → long bits
+   * 56-63, {@code pos+1} → 48-55, ..., {@code pos+7} → 0-7. Matches
+   * {@link io.sirix.page.HOTIndirectPage#getKeyWordAt} for PEXT consistency.
    */
-  private static long loadWordLE(MemorySegment segment, int pos) {
+  private static long loadWordBE(MemorySegment segment, int pos) {
     long result = 0;
     final long segLen = segment.byteSize();
     final int end = (int) Math.min(pos + 8, segLen);
     for (int i = pos; i < end; i++) {
-      result |= ((long) (segment.get(ValueLayout.JAVA_BYTE, i) & 0xFF)) << ((i - pos) * 8);
+      result |= ((long) (segment.get(ValueLayout.JAVA_BYTE, i) & 0xFF)) << ((7 - (i - pos)) * 8);
     }
     return result;
   }
 
   /**
-   * Load up to 8 bytes from a byte array in LE word layout.
+   * Load up to 8 bytes from a byte array in BE word layout.
    */
-  private static long loadWordLEFromArray(byte[] key, int pos) {
+  private static long loadWordBEFromArray(byte[] key, int pos) {
     long result = 0;
     final int end = Math.min(pos + 8, key.length);
     for (int i = pos; i < end; i++) {
-      result |= ((long) (key[i] & 0xFF)) << ((i - pos) * 8);
+      result |= ((long) (key[i] & 0xFF)) << ((7 - (i - pos)) * 8);
     }
     return result;
   }
