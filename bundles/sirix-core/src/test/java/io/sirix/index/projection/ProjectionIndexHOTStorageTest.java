@@ -568,13 +568,6 @@ final class ProjectionIndexHOTStorageTest {
     }
   }
 
-  @org.junit.jupiter.api.Disabled("Pre-existing Sirix limitation tracked as task #57: HOT index "
-      + "sub-trees don't provide per-revision historical read isolation — a chunk updated in "
-      + "revision N bleeds into revision N-1 reads. The test is kept as an executable "
-      + "specification of the target SLIDING_SNAPSHOT contract so the versioning fix can "
-      + "flip @Disabled when it lands. Reproduces today: r2 putChunk at (5,1) → r1 reader "
-      + "sees the r2 bytes when walking via HOTTrieReader. Same underlying issue affects "
-      + "CAS / PATH / NAME indexes equally — not a projection-specific regression.")
   @Test
   void multiRevision_chunkUpdateInR2DoesNotAffectR1Readers() throws IOException {
     // Revision 1: write leafIndex 5 with a 3-chunk payload.
@@ -604,16 +597,16 @@ final class ProjectionIndexHOTStorageTest {
         storage.putChunk(5L, 1, c1r1);
         storage.putChunk(5L, 2, c2r1);
         wtx.commit();
-        r1Revision = wtx.getRevisionNumber();
       }
+      r1Revision = session.getMostRecentRevisionNumber();
 
       try (JsonNodeTrx wtx = session.beginNodeTrx()) {
         final ProjectionIndexHOTStorage storage =
             new ProjectionIndexHOTStorage(wtx.getStorageEngineWriter(), INDEX_NUMBER);
         storage.putChunk(5L, 1, c1r2);
         wtx.commit();
-        r2Revision = wtx.getRevisionNumber();
       }
+      r2Revision = session.getMostRecentRevisionNumber();
 
       assertTrue(r2Revision > r1Revision, "r2 must be newer than r1 — sanity");
 

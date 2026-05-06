@@ -91,8 +91,10 @@ class HOTIndirectPageTest {
       // Partial keys: 0b00, 0b01, 0b10, 0b11 (using 2 bits)
       int[] partialKeys = {0b00, 0b01, 0b10, 0b11};
 
-      // Bit mask extracting bits 6 and 7 of byte 0
-      long bitMask = 0b11L; // Bits 0-1 in little-endian representation
+      // BE bit mask extracting byte 0's two LSB bits. Under BE, byte 0 occupies long bits
+      // 56..63 (bit 0 of byte → long bit 56, bit 7 of byte → long bit 63), so byte 0's two
+      // low bits are at long bit positions 56 and 57.
+      long bitMask = 0b11L << 56;
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, bitMask, partialKeys, children);
 
@@ -130,7 +132,7 @@ class HOTIndirectPageTest {
       }
 
       int[] partialKeys = {0b00, 0b01, 0b10};
-      long bitMask = 0b11L;
+      long bitMask = 0b11L << 56; // BE: byte 0's two LSB bits
 
       HOTIndirectPage original = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, bitMask, partialKeys, children);
 
@@ -154,8 +156,8 @@ class HOTIndirectPageTest {
         partialKeys[i] = i; // Distinct partial keys
       }
 
-      // 4 bits needed to distinguish 16 entries
-      long bitMask = 0b1111L;
+      // 4 bits needed to distinguish 16 entries; BE: byte 0's four LSB bits (long bits 56-59).
+      long bitMask = 0b1111L << 56;
 
       HOTIndirectPage spanNode = HOTIndirectPage.createSpanNode(1L, 1, (byte) 0, bitMask, partialKeys, children);
 
@@ -298,7 +300,7 @@ class HOTIndirectPageTest {
 
       // Avoid sparse key 0 so lookup does not always match index 0.
       final int[] partialKeys = {0b001, 0b010, 0b100};
-      final long bitMask = 0b111L;
+      final long bitMask = 0b111L << 56; // BE: byte 0's three LSB bits
       final HOTIndirectPage original = HOTIndirectPage.createMultiNode(123L, 5, 0, bitMask, partialKeys, children, 9);
 
       final HOTIndirectPage deserialized = serializeAndDeserialize(original, resourceConfig);

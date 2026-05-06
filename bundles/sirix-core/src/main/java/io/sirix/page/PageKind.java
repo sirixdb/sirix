@@ -59,6 +59,7 @@ import io.sirix.page.pax.RegionTable;
 import io.sirix.page.pax.StringRegion;
 import io.sirix.settings.Constants;
 import io.sirix.settings.Fixed;
+import io.sirix.settings.VersioningType;
 import it.unimi.dsi.fastutil.ints.Int2IntMap;
 import it.unimi.dsi.fastutil.ints.Int2IntOpenHashMap;
 import it.unimi.dsi.fastutil.ints.Int2LongMap;
@@ -3703,7 +3704,17 @@ public enum PageKind {
     @Override
     public void serializePage(ResourceConfiguration resourceConfig, BytesOut<?> sink,
         Page page, SerializationType type) {
-      HOTLeafPage hotLeaf = (HOTLeafPage) page;
+      final HOTLeafPage hotLeaf = (HOTLeafPage) page;
+      // Strategy gate: under non-FULL versioning, when the leaf was COW'd from a complete page
+      // (completePageRef != null), emit ONLY the dirty entries — they are the per-revision delta.
+      // The reader-side combine path (VersioningType.combineHOTLeafPages) reconstructs the full
+      // leaf by walking the older fragments and filling in any keys not present here.
+      // FULL strategy and fresh leaves (no completePageRef) emit every entry.
+      final VersioningType versioningType = resourceConfig.versioningType;
+      final boolean sparseEmit = versioningType != VersioningType.FULL
+          && hotLeaf.getCompletePageRef() != null
+          && hotLeaf.hasDirty();
+
       sink.writeByte(HOT_LEAF_PAGE.id);
       sink.writeByte(BinaryEncodingVersion.V0.byteVersion());
 
@@ -3718,6 +3729,27 @@ public enum PageKind {
       sink.writeShort((short) prefixLen);
       if (prefixLen > 0) {
         sink.write(prefix, 0, prefixLen);
+      }
+
+      if (sparseEmit) {
+        final int dirtyCount = hotLeaf.getDirtyEntryCount();
+        final int dirtyUsed = hotLeaf.getDirtyEntriesUsedSize();
+        sink.writeInt(dirtyCount);
+        sink.writeInt(dirtyUsed);
+
+        if (dirtyCount == 0) {
+          return;
+        }
+
+        final byte[] packed = new byte[dirtyUsed];
+        final int[] packedOffsets = new int[dirtyCount];
+        final int written = hotLeaf.packDirtyEntries(packed, packedOffsets);
+        assert written == dirtyUsed : "packed size mismatch: " + written + " vs " + dirtyUsed;
+        for (int i = 0; i < dirtyCount; i++) {
+          sink.writeInt(packedOffsets[i]);
+        }
+        sink.write(packed);
+        return;
       }
 
       sink.writeInt(hotLeaf.getEntryCount());
@@ -3812,12 +3844,21 @@ public enum PageKind {
         }
       }
 
-      // Read child references (simple key-only format)
+      // Read child references with embedded pageFragments — mirrors
+      // SerializationType.readPageFragments so HOT leaf fragment chains survive parent round-trip.
+      // Database/resource ids on PageFragmentKeyImpl are placeholders and patched by
+      // Reader.fixupPageReferenceIds on the parent's references after this returns.
       final PageReference[] children = new PageReference[numChildren];
       for (int i = 0; i < numChildren; i++) {
-        PageReference ref = new PageReference();
-        long childKey = source.readLong();
+        final PageReference ref = new PageReference();
+        final long childKey = source.readLong();
         ref.setKey(childKey);
+        final int fragmentCount = source.readByte() & 0xff;
+        for (int f = 0; f < fragmentCount; f++) {
+          final int fragRevision = source.readInt();
+          final long fragKey = source.readLong();
+          ref.addPageFragment(new PageFragmentKeyImpl(fragRevision, fragKey, 0L, 0L));
+        }
         children[i] = ref;
       }
 
@@ -3904,11 +3945,26 @@ public enum PageKind {
         }
       }
 
-      // Write child references
-      for (int i = 0; i < hotIndirect.getNumChildren(); i++) {
+      // Write child references — embed pageFragments so the leaf fragment chain
+      // (built by VersioningType.bumpHOTPageFragmentChain at CoW time) survives
+      // round-trip through the parent indirect page on disk.
+      final int numChildren = hotIndirect.getNumChildren();
+      for (int i = 0; i < numChildren; i++) {
         final PageReference ref = hotIndirect.getChildReference(i);
-        final long key = ref != null ? ref.getKey() : Constants.NULL_ID_LONG;
-        sink.writeLong(key);
+        if (ref == null) {
+          sink.writeLong(Constants.NULL_ID_LONG);
+          sink.writeByte((byte) 0);
+          continue;
+        }
+        sink.writeLong(ref.getKey());
+        final var fragments = ref.getPageFragments();
+        final int fragmentCount = fragments.size();
+        sink.writeByte((byte) fragmentCount);
+        for (int f = 0; f < fragmentCount; f++) {
+          final var fragKey = fragments.get(f);
+          sink.writeInt(fragKey.revision());
+          sink.writeLong(fragKey.key());
+        }
       }
 
       // For SingleMask MultiNode, write the 256-byte child index array

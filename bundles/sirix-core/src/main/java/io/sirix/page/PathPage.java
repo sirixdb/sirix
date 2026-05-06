@@ -118,6 +118,27 @@ public final class PathPage extends AbstractForwardingPage {
     this.currentMaxLevelsOfIndirectPages = currentMaxLevelsOfIndirectPages;
   }
 
+  /**
+   * Copy constructor for write-side CoW. Deep-copies the delegate's reference array and the
+   * bookkeeping maps so writer-side mutations don't bleed into the historical revision's view.
+   */
+  public PathPage(final PathPage other) {
+    final Page otherDelegate = other.delegate;
+    if (otherDelegate instanceof io.sirix.page.delegates.ReferencesPage4 ref) {
+      this.delegate = new io.sirix.page.delegates.ReferencesPage4(ref);
+    } else if (otherDelegate instanceof io.sirix.page.delegates.BitmapReferencesPage bmp) {
+      this.delegate = new io.sirix.page.delegates.BitmapReferencesPage(otherDelegate, bmp.getBitmap());
+    } else if (otherDelegate instanceof io.sirix.page.delegates.FullReferencesPage full) {
+      this.delegate = new io.sirix.page.delegates.FullReferencesPage(full);
+    } else {
+      throw new IllegalStateException(
+          "Unknown PathPage delegate type, cannot clone: " + otherDelegate.getClass().getName());
+    }
+    this.maxNodeKeys = new Int2LongOpenHashMap(other.maxNodeKeys);
+    this.maxHotPageKeys = new Int2LongOpenHashMap(other.maxHotPageKeys);
+    this.currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap(other.currentMaxLevelsOfIndirectPages);
+  }
+
   @Override
   public String toString() {
     return ToStringHelper.of(this).add("delegate", delegate).toString();

@@ -172,6 +172,84 @@ public final class NamePage extends AbstractForwardingPage {
   }
 
   /**
+   * Copy constructor for write-side CoW. Mirrors {@link IndirectPage#IndirectPage(IndirectPage)}:
+   * the underlying delegate is rebuilt with a fresh {@link PageReference} per occupied slot, so
+   * mutations to a child reference cannot bleed back into the historical revision's view through
+   * cache aliasing. Bookkeeping maps are duplicated.
+   *
+   * <p>Eager-loads any {@link Names} dictionary that is currently {@code null} on {@code other}
+   * before sharing — without this, a subsequent lazy-load via either side creates an independent
+   * instance that diverges from its sibling, and writes via the deep-copy never become visible to
+   * the cached page (and vice-versa). Pass a non-null {@code storageEngineReader} to enable the
+   * eager-load; pass {@code null} only when neither side will be queried before commit.</p>
+   */
+  public NamePage(final NamePage other, final StorageEngineReader storageEngineReader) {
+    final Page otherDelegate = other.delegate;
+    if (otherDelegate instanceof io.sirix.page.delegates.ReferencesPage4 ref) {
+      this.delegate = new io.sirix.page.delegates.ReferencesPage4(ref);
+    } else if (otherDelegate instanceof io.sirix.page.delegates.BitmapReferencesPage bmp) {
+      this.delegate = new io.sirix.page.delegates.BitmapReferencesPage(otherDelegate, bmp.getBitmap());
+    } else if (otherDelegate instanceof io.sirix.page.delegates.FullReferencesPage full) {
+      this.delegate = new io.sirix.page.delegates.FullReferencesPage(full);
+    } else {
+      throw new IllegalStateException(
+          "Unknown NamePage delegate type, cannot clone: " + otherDelegate.getClass().getName());
+    }
+    this.maxNodeKeys = new Int2LongOpenHashMap(other.maxNodeKeys);
+    this.maxHotPageKeys = new Int2LongOpenHashMap(other.maxHotPageKeys);
+    this.currentMaxLevelsOfIndirectPages = new Int2IntOpenHashMap(other.currentMaxLevelsOfIndirectPages);
+    this.numberOfArrays = other.numberOfArrays;
+    if (storageEngineReader != null
+        && storageEngineReader.getResourceSession().getResourceConfig().indexBackendType
+            == io.sirix.access.IndexBackendType.HOT) {
+      // Eager-load any null dictionary on the source so the shared reference is non-null on both
+      // sides; subsequent lazy-loads short-circuit since the field is already populated.
+      //
+      // Gated on the resource's IndexBackendType: under HOT no secondary NAME index ever writes
+      // KVL records into the IndexType.NAME sub-tree that the dictionary lives in (HOT secondary
+      // indexes live on a separate HOT-page chain), so Names.fromStorage's HashEntryNode walk is
+      // safe. Under RBTREE, an RBTree NAME-index writer can interleave RBNodeKey records into
+      // the same sub-tree — Names.fromStorage's unchecked HashEntryNode cast would blow up. The
+      // RBTree code path doesn't need the dictionary pre-shared anyway: name lookups on RBTree-
+      // backed pages flow through different reader paths, so leaving the field null here keeps
+      // behaviour identical to the pre-fix baseline for that backend.
+      if (other.attributes == null) {
+        other.getName(0, NodeKind.ATTRIBUTE, storageEngineReader);
+      }
+      if (other.elements == null) {
+        other.getName(0, NodeKind.ELEMENT, storageEngineReader);
+      }
+      if (other.namespaces == null) {
+        other.getName(0, NodeKind.NAMESPACE, storageEngineReader);
+      }
+      if (other.processingInstructions == null) {
+        other.getName(0, NodeKind.PROCESSING_INSTRUCTION, storageEngineReader);
+      }
+      if (other.jsonObjectKeys == null) {
+        other.getName(0, NodeKind.OBJECT_NAMED_OBJECT, storageEngineReader);
+      }
+    }
+    this.attributes = other.attributes;
+    this.elements = other.elements;
+    this.namespaces = other.namespaces;
+    this.processingInstructions = other.processingInstructions;
+    this.jsonObjectKeys = other.jsonObjectKeys;
+  }
+
+  /**
+   * Convenience copy constructor that doesn't pre-load Names dictionaries. Use only when the
+   * caller can guarantee Names won't be queried via either side.
+   *
+   * @deprecated prefer {@link #NamePage(NamePage, StorageEngineReader)} so Names dictionaries
+   *             stay in sync between cached and CoW'd pages.
+   */
+  @Deprecated
+  public NamePage(final NamePage other) {
+    this(other, null);
+  }
+
+
+  /**
    * Get raw name belonging to name key.
    *
    * @param key name key identifying name

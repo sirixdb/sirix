@@ -58,6 +58,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntConsumer;
 
 /**
  * HOT (Height Optimized Trie) leaf page for cache-friendly secondary indexes.
@@ -187,6 +188,20 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
   // ===== Page references for overflow entries =====
   private final it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap<PageReference> pageReferences;
+
+  // ===== Slot-granular CoW state (mirrors KeyValueLeafPage.preservationBitmap) =====
+  // Each bit at position i in dirtyBitmap tracks whether entry index i has been mutated since
+  // copy(). 8 longs cover MAX_ENTRIES = 512 indices. Insert/delete shift the bitmap with the
+  // same arraycopy direction/length as slotOffsets so bits track entries by INDEX within the
+  // leaf's lifetime; cross-revision merge happens by KEY in combineHOTLeafPages, not by index.
+  private static final int DIRTY_BITMAP_WORDS = MAX_ENTRIES >>> 6;
+  private final long[] dirtyBitmap = new long[DIRTY_BITMAP_WORDS];
+
+  // Reference to the complete page from which non-dirty entries can be lazily materialized at
+  // serialize-time when SLIDING_SNAPSHOT (or other strategies) require a full-fragment emit.
+  // copy() sets this on the new instance and clears the bitmap; the writer never touches this
+  // directly. Acts as the HOT analogue of KeyValueLeafPage.completePageRef.
+  private @Nullable HOTLeafPage completePageRef;
 
   // ===== Diagnostic tracking =====
   @SuppressWarnings("unused")
@@ -345,18 +360,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     discBytePos = minBytePos;
 
-    // Build LE word bit mask: for each disc bit position, compute its position
-    // within the 8-byte LE word starting at discBytePos
+    // Build BE word bit mask: for each disc bit position, compute its long bit position in the
+    // 8-byte BE word starting at {@code discBytePos}. BE: byte at window-position {@code p}
+    // occupies long bits {@code (7-p)*8 .. (7-p)*8+7}; within that slot, MSB-first bit-in-byte
+    // {@code b} is at long bit {@code (7-p)*8 + (7-b) = 63 - (p*8 + b)}. Formula:
+    // {@code longBit = 63 - inWindowAbsBit}.
     long mask = 0;
     for (int i = 0; i < entryCount - 1; i++) {
       if (diffBits[i] >= 0) {
         final int absBitPos = diffBits[i]; // byte*8 + bitInByte (MSB-first)
         final int bytePos = absBitPos / 8;
         final int bitInByte = absBitPos % 8; // 0=MSB, 7=LSB
-        // LE word layout: byte at bytePos maps to bits [(bytePos-discBytePos)*8 .. +7]
-        // Within byte: MSB(bit 0) → position 7, LSB(bit 7) → position 0
-        final int bitInWord = (bytePos - discBytePos) * 8 + (7 - bitInByte);
-        mask |= 1L << bitInWord;
+        final int inWindowAbsBit = (bytePos - discBytePos) * 8 + bitInByte;
+        mask |= 1L << (63 - inWindowAbsBit);
       }
     }
 
@@ -408,7 +424,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    * Compute PEXT partial key from a MemorySegment suffix.
    */
   private static int computePartialKeyFromSegment(MemorySegment suffix, int bytePos, long bitMask) {
-    final long suffixWord = loadWordLE(suffix, bytePos);
+    final long suffixWord = loadWordBE(suffix, bytePos);
     return (int) Long.compress(suffixWord, bitMask);
   }
 
@@ -416,32 +432,33 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    * Compute PEXT partial key from a byte array suffix (starting at given offset).
    */
   private static int computePartialKeyFromArray(byte[] key, int suffixOffset, int bytePos, long bitMask) {
-    final long suffixWord = loadWordLEFromArray(key, suffixOffset + bytePos);
+    final long suffixWord = loadWordBEFromArray(key, suffixOffset + bytePos);
     return (int) Long.compress(suffixWord, bitMask);
   }
 
   /**
-   * Load up to 8 bytes from a MemorySegment in LE word layout (byte at pos → bits 0-7).
-   * Matches HOTIndirectPage.getKeyWordAt() byte ordering for PEXT consistency.
+   * Load up to 8 bytes from a MemorySegment in BE word layout: byte at {@code pos} → long bits
+   * 56-63, {@code pos+1} → 48-55, ..., {@code pos+7} → 0-7. Matches
+   * {@link io.sirix.page.HOTIndirectPage#getKeyWordAt} for PEXT consistency.
    */
-  private static long loadWordLE(MemorySegment segment, int pos) {
+  private static long loadWordBE(MemorySegment segment, int pos) {
     long result = 0;
     final long segLen = segment.byteSize();
     final int end = (int) Math.min(pos + 8, segLen);
     for (int i = pos; i < end; i++) {
-      result |= ((long) (segment.get(ValueLayout.JAVA_BYTE, i) & 0xFF)) << ((i - pos) * 8);
+      result |= ((long) (segment.get(ValueLayout.JAVA_BYTE, i) & 0xFF)) << ((7 - (i - pos)) * 8);
     }
     return result;
   }
 
   /**
-   * Load up to 8 bytes from a byte array in LE word layout.
+   * Load up to 8 bytes from a byte array in BE word layout.
    */
-  private static long loadWordLEFromArray(byte[] key, int pos) {
+  private static long loadWordBEFromArray(byte[] key, int pos) {
     long result = 0;
     final int end = Math.min(pos + 8, key.length);
     for (int i = pos; i < end; i++) {
-      result |= ((long) (key[i] & 0xFF)) << ((i - pos) * 8);
+      result |= ((long) (key[i] & 0xFF)) << ((7 - (i - pos)) * 8);
     }
     return result;
   }
@@ -963,6 +980,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     if (pos < entryCount) {
       System.arraycopy(slotOffsets, pos, slotOffsets, pos + 1, entryCount - pos);
+      shiftDirtyBitmapForInsert(pos);
     }
 
     int offset = usedSlotMemorySize;
@@ -982,6 +1000,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     usedSlotMemorySize += entrySize;
     entryCount++;
+    markEntryDirty(pos);
     pextValid = false;
 
     return true;
@@ -1045,6 +1064,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     if (pos < entryCount) {
       System.arraycopy(slotOffsets, pos, slotOffsets, pos + 1, entryCount - pos);
+      shiftDirtyBitmapForInsert(pos);
     }
 
     int offset = usedSlotMemorySize;
@@ -1066,6 +1086,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     usedSlotMemorySize += entrySize;
     entryCount++;
+    markEntryDirty(pos);
     pextValid = false;
 
     return true;
@@ -1094,6 +1115,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       if (valueLen > 0) {
         MemorySegment.copy(valueSrc, valueOff, slotMemory, valueLenOffset + 2, valueLen);
       }
+      markEntryDirty(index);
       pextValid = false;
       return true;
     }
@@ -1127,6 +1149,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       if (valueLen > 0) {
         MemorySegment.copy(valueBuf, valueOff, slotMemory, ValueLayout.JAVA_BYTE, valueLenOffset + 2, valueLen);
       }
+      markEntryDirty(index);
       pextValid = false;
       return true;
     }
@@ -1289,6 +1312,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     // Shift offsets to make room
     if (pos < entryCount) {
       System.arraycopy(slotOffsets, pos, slotOffsets, pos + 1, entryCount - pos);
+      shiftDirtyBitmapForInsert(pos);
     }
 
     // Write entry to slotMemory
@@ -1309,6 +1333,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     usedSlotMemorySize += entrySize;
     entryCount++;
+    markEntryDirty(pos);
 
     // Invalidate PEXT index
     pextValid = false;
@@ -1556,6 +1581,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     if (newValue.length <= oldValueLen) {
       slotMemory.set(JAVA_SHORT_UNALIGNED, valueOffset, (short) newValue.length);
       MemorySegment.copy(newValue, 0, slotMemory, ValueLayout.JAVA_BYTE, valueOffset + 2, newValue.length);
+      markEntryDirty(index);
       return true;
     }
 
@@ -1583,6 +1609,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     slotOffsets[index] = newOffset;
     usedSlotMemorySize += newEntrySize;
+    markEntryDirty(index);
 
     return true;
   }
@@ -1661,7 +1688,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     final MemorySegment newSlotMemory = allocator.allocate(DEFAULT_SIZE);
     final Runnable newReleaser = () -> allocator.release(newSlotMemory);
 
-    // Bulk copy off-heap data
+    // Bulk copy off-heap data — mutations happen in-place at sub-byte granularity, so the
+    // shadow leaf needs an independent slot heap. The dirty bitmap (cleared below) tracks
+    // which entry indices the writer subsequently mutates; serialize-time logic (Phase 4)
+    // can emit only those entries plus rely on completePageRef for the rest.
     MemorySegment.copy(slotMemory, 0, newSlotMemory, 0, usedSlotMemorySize);
 
     // Deep copy on-heap arrays
@@ -1678,6 +1708,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     for (var entry : pageReferences.long2ObjectEntrySet()) {
       copy.pageReferences.put(entry.getLongKey(), entry.getValue());
     }
+
+    // Slot-granular CoW: the copy starts with a clean dirty bitmap (constructor already zeroed
+    // it, but be explicit) and remembers `this` as its source for lazy fill at serialize time.
+    copy.clearDirtyBitmap();
+    copy.completePageRef = this;
 
     return copy;
   }
@@ -1734,6 +1769,10 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     // Truncate this page to keep only left half
     entryCount = splitPoint;
     recalculateUsedMemory();
+
+    // Truncate dirtyBitmap symmetrically — bits at indices >= splitPoint are no longer
+    // reachable by any iterator. Clearing them keeps hasDirty()/iterateDirtyEntries() honest.
+    truncateDirtyBitmap(splitPoint);
 
     // Recompute prefix for the remaining left half (may have a longer prefix now)
     recomputePrefix();
@@ -1826,6 +1865,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     final int savedUsedMemory = usedSlotMemorySize;
     final byte[] savedPrefix = commonPrefix;
     final int savedPrefixLen = commonPrefixLen;
+    final long[] savedDirtyBitmap = new long[DIRTY_BITMAP_WORDS];
+    snapshotDirtyBitmap(savedDirtyBitmap);
 
     // Truncate self to left half. Do NOT call recomputePrefix() yet — it may rewrite
     // slotMemory/slotOffsets if the prefix grows, which makes rollback impossible.
@@ -1833,6 +1874,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     // mergeWithNodeRefs will produce correct but slightly longer suffixes.
     entryCount = splitPoint;
     recalculateUsedMemory();
+    truncateDirtyBitmap(splitPoint);
 
     // Insert/update the key in the correct half based on disc bit
     final boolean insertOk;
@@ -1848,12 +1890,14 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       usedSlotMemorySize = savedUsedMemory;
       commonPrefix = savedPrefix;
       commonPrefixLen = savedPrefixLen;
+      restoreDirtyBitmap(savedDirtyBitmap);
       pextValid = false;
       // Clear target
       target.entryCount = 0;
       target.usedSlotMemorySize = 0;
       target.commonPrefix = EMPTY_PREFIX;
       target.commonPrefixLen = 0;
+      target.clearDirtyBitmap();
       return false;
     }
 
@@ -2046,6 +2090,96 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Public wrapper around {@link #recomputePrefix()} for cross-package callers (versioning combine).
+   * Intentionally narrow — exposes only what {@link io.sirix.settings.VersioningType} needs.
+   */
+  public void recomputePrefixForCombine() {
+    recomputePrefix();
+  }
+
+  /**
+   * @return total raw byte size of the entries marked dirty in {@link #dirtyBitmap}, computed as
+   *         the sum of {@code 2 + suffixLen + 2 + valueLen} per dirty entry.
+   */
+  public int getDirtyEntriesUsedSize() {
+    int total = 0;
+    for (int w = 0; w < DIRTY_BITMAP_WORDS; w++) {
+      long word = dirtyBitmap[w];
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        final int idx = (w << 6) | bit;
+        if (idx < entryCount) {
+          final int off = slotOffsets[idx];
+          final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, off));
+          final int valueLen =
+              Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, off + 2 + suffixLen));
+          total += 2 + suffixLen + 2 + valueLen;
+        }
+        word &= word - 1L;
+      }
+    }
+    return total;
+  }
+
+  /**
+   * Count the dirty entries (within {@code entryCount}) — exposed for the sparse-emit serializer.
+   */
+  public int getDirtyEntryCount() {
+    int count = 0;
+    for (int w = 0; w < DIRTY_BITMAP_WORDS; w++) {
+      long word = dirtyBitmap[w];
+      // Mask off bits beyond entryCount in the highest word that overlaps it.
+      final int wordEntryStart = w << 6;
+      if (wordEntryStart >= entryCount) {
+        break;
+      }
+      final int wordEntryEnd = wordEntryStart + 64;
+      if (wordEntryEnd > entryCount) {
+        final int rem = entryCount - wordEntryStart;
+        word &= rem == 0 ? 0L : ((1L << rem) - 1L);
+      }
+      count += Long.bitCount(word);
+    }
+    return count;
+  }
+
+  /**
+   * Pack the dirty entries' raw bytes into {@code dst}, starting at offset 0, and write each
+   * entry's new packed offset into {@code newOffsets} in walk order. Returns the total bytes
+   * written.
+   *
+   * <p>Caller must size {@code dst} &gt;= {@link #getDirtyEntriesUsedSize()} and
+   * {@code newOffsets} &gt;= {@link #getDirtyEntryCount()}.</p>
+   *
+   * @param dst        destination byte array (typically a sink-bound scratch)
+   * @param newOffsets per-entry packed offset (for the wire format's slotOffsets table)
+   * @return total bytes packed into {@code dst}
+   */
+  public int packDirtyEntries(final byte[] dst, final int[] newOffsets) {
+    int writeOff = 0;
+    int outIdx = 0;
+    for (int w = 0; w < DIRTY_BITMAP_WORDS; w++) {
+      long word = dirtyBitmap[w];
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        final int idx = (w << 6) | bit;
+        if (idx < entryCount) {
+          final int srcOff = slotOffsets[idx];
+          final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, srcOff));
+          final int valueLen =
+              Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, srcOff + 2 + suffixLen));
+          final int entrySize = 2 + suffixLen + 2 + valueLen;
+          MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, srcOff, dst, writeOff, entrySize);
+          newOffsets[outIdx++] = writeOff;
+          writeOff += entrySize;
+        }
+        word &= word - 1L;
+      }
+    }
+    return writeOff;
+  }
+
+  /**
    * Get the first (minimum) key in this page.
    *
    * @return the first key, or empty array if page is empty (never null)
@@ -2084,6 +2218,48 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       keys[i] = getKey(i);
     }
     return keys;
+  }
+
+  /**
+   * Mark every entry in {@code [0, entryCount)} as dirty. Used when a full-dump emit is needed
+   * (e.g., FULL strategy or window-edge revision under SLIDING_SNAPSHOT) — the serialize path
+   * uses {@link #hasDirty()} / {@link #iterateDirtyEntries(IntConsumer)} to decide what to write,
+   * so flipping every bit on guarantees a full-leaf fragment.
+   */
+  public void markAllEntriesDirty() {
+    final int full = entryCount >>> 6;
+    for (int w = 0; w < full; w++) {
+      dirtyBitmap[w] = -1L;
+    }
+    final int rem = entryCount & 63;
+    if (rem != 0 && full < DIRTY_BITMAP_WORDS) {
+      dirtyBitmap[full] |= (1L << rem) - 1L;
+    }
+  }
+
+  /**
+   * Ensure this leaf carries every entry needed for full-fragment serialization under {@code type}.
+   * Since {@link #copy()} bulk-copies the source slot heap, the modifying leaf already physically
+   * contains every entry from its {@link #completePageRef} — this hook only needs to mark all
+   * entries dirty so the sparse-emit path includes them. If {@code completePageRef} is {@code null}
+   * (fresh leaf), the writer-level mutators have already marked each insert dirty, so this is a
+   * no-op for the dirty bitmap; callers under FULL still get a full emit because every insert is
+   * naturally dirty on a fresh leaf.
+   *
+   * <p>Centralised here so the serializer doesn't reach into private fields.</p>
+   *
+   * @param type the active versioning strategy
+   */
+  public void materializeFromCompletePageRef(final io.sirix.settings.VersioningType type) {
+    Objects.requireNonNull(type);
+    if (type == io.sirix.settings.VersioningType.FULL) {
+      // FULL → every revision is a full dump → mark all entries dirty so sparse-emit equals full-emit.
+      markAllEntriesDirty();
+    }
+    // For non-FULL strategies, sparse-emit happens iff at least one entry is dirty AND a
+    // completePageRef is present. Nothing to do here at the bitmap level — the strategy-specific
+    // "full dump every N revisions" trigger is the writer's responsibility (it can call
+    // markAllEntriesDirty() before commit on revision boundaries).
   }
 
   /**
@@ -2435,6 +2611,204 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    */
   public int getVersion() {
     return version.get();
+  }
+
+  // ===== Slot-granular CoW: dirty bitmap accessors =====
+
+  /**
+   * Mark an entry index as dirty. Centralized in mutators so writers stay oblivious.
+   * No bounds-check — callers already validated against entryCount before invoking a mutator.
+   */
+  void markEntryDirty(final int index) {
+    dirtyBitmap[index >>> 6] |= 1L << (index & 63);
+  }
+
+  /**
+   * Check if an entry index has been mutated since copy().
+   */
+  public boolean isEntryDirty(final int index) {
+    return (dirtyBitmap[index >>> 6] & (1L << (index & 63))) != 0;
+  }
+
+  /**
+   * Clear every bit in the dirty bitmap. Called on copy() so the new leaf starts clean. Public so
+   * cross-package callers (versioning combine) can reset dirty marks on a freshly-merged leaf.
+   */
+  public void clearDirtyBitmap() {
+    for (int i = 0; i < DIRTY_BITMAP_WORDS; i++) {
+      dirtyBitmap[i] = 0L;
+    }
+  }
+
+  /**
+   * Number of entries currently marked dirty in the bitmap. Used by tests pinning the
+   * slot-granular sparse-fragment invariants — a single-key write must leave dirtyEntryCount
+   * equal to 1 so the rev's on-disk fragment carries only that one slot.
+   *
+   * @return total population count across the dirty bitmap, capped at {@link #entryCount}
+   */
+  public int dirtyEntryCount() {
+    int count = 0;
+    for (int i = 0; i < DIRTY_BITMAP_WORDS; i++) {
+      count += Long.bitCount(dirtyBitmap[i]);
+    }
+    return count;
+  }
+
+  /**
+   * @return {@code true} if at least one entry has been marked dirty.
+   */
+  public boolean hasDirty() {
+    for (int i = 0; i < DIRTY_BITMAP_WORDS; i++) {
+      if (dirtyBitmap[i] != 0L) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Read a raw word from the dirty bitmap. Exposed for serialization and tests.
+   */
+  public long getDirtyBitmapWord(final int wordIndex) {
+    return dirtyBitmap[wordIndex];
+  }
+
+  /**
+   * Set this leaf's reference to the complete (post-merge) page. The complete page supplies
+   * preserved entries when a versioning strategy needs a full-fragment emit at serialize time.
+   */
+  public void setCompletePageRef(final @Nullable HOTLeafPage completePage) {
+    this.completePageRef = completePage;
+  }
+
+  /**
+   * @return the complete page reference, or {@code null} if this is a fresh / fully-materialized leaf.
+   */
+  public @Nullable HOTLeafPage getCompletePageRef() {
+    return completePageRef;
+  }
+
+  /**
+   * Walk the dirty-bitmap word-by-word, invoking {@code consumer} on each set bit's index.
+   * Zero-allocation; uses {@link Long#numberOfTrailingZeros} for branchless bit iteration.
+   */
+  public void iterateDirtyEntries(final IntConsumer consumer) {
+    for (int w = 0; w < DIRTY_BITMAP_WORDS; w++) {
+      long word = dirtyBitmap[w];
+      while (word != 0L) {
+        final int bit = Long.numberOfTrailingZeros(word);
+        consumer.accept((w << 6) | bit);
+        word &= word - 1L;
+      }
+    }
+  }
+
+  /**
+   * Shift dirtyBitmap to mirror an insert at {@code pos}: bits in {@code [pos, MAX_ENTRIES-1)}
+   * move up by 1. The bit at position {@code pos} after the shift is cleared; the caller
+   * subsequently marks the inserted index dirty.
+   *
+   * <p>Semantically: dirtyBitmap behaves like a bitwise variant of
+   * {@code System.arraycopy(slotOffsets, pos, slotOffsets, pos + 1, entryCount - pos)}.</p>
+   */
+  void shiftDirtyBitmapForInsert(final int pos) {
+    if (pos < 0 || pos >= MAX_ENTRIES) {
+      return;
+    }
+    final int posWord = pos >>> 6;
+    final int posBit = pos & 63;
+
+    // Walk MSB-word downward so we never overwrite a source word before reading it.
+    for (int w = DIRTY_BITMAP_WORDS - 1; w > posWord; w--) {
+      final long shifted = dirtyBitmap[w] << 1;
+      // Inject bit 63 of the lower word as bit 0 of this word.
+      final long carryIn = (dirtyBitmap[w - 1] >>> 63) & 1L;
+      dirtyBitmap[w] = shifted | carryIn;
+    }
+    // posWord: keep [0, posBit), shift [posBit, 62] up to [posBit+1, 63], drop original bit 63
+    // (the loop above already absorbed it as carry-in).
+    final long lowMask = posBit == 0 ? 0L : (1L << posBit) - 1L;
+    final long lowBits = dirtyBitmap[posWord] & lowMask;
+    final long shiftedHigh = (dirtyBitmap[posWord] & ~lowMask) << 1;
+    long updated = lowBits | shiftedHigh;
+    // Clear the inserted slot's bit; caller marks it explicitly afterwards.
+    updated &= ~(1L << posBit);
+    dirtyBitmap[posWord] = updated;
+  }
+
+  /**
+   * Clear dirty-bitmap bits at indices &gt;= {@code newEntryCount}. Used after a split/truncation
+   * to drop stale bits that no longer correspond to a reachable entry.
+   */
+  void truncateDirtyBitmap(final int newEntryCount) {
+    if (newEntryCount <= 0) {
+      clearDirtyBitmap();
+      return;
+    }
+    if (newEntryCount >= MAX_ENTRIES) {
+      return;
+    }
+    final int word = newEntryCount >>> 6;
+    final int bit = newEntryCount & 63;
+    if (bit == 0) {
+      dirtyBitmap[word] = 0L;
+    } else {
+      dirtyBitmap[word] &= (1L << bit) - 1L;
+    }
+    for (int w = word + 1; w < DIRTY_BITMAP_WORDS; w++) {
+      dirtyBitmap[w] = 0L;
+    }
+  }
+
+  /**
+   * Snapshot the dirty-bitmap into {@code dst} (must have length &gt;= {@link #DIRTY_BITMAP_WORDS}).
+   * Used by {@link #splitToWithInsert} for atomic rollback alongside entryCount/usedSlotMemorySize.
+   */
+  void snapshotDirtyBitmap(final long[] dst) {
+    System.arraycopy(dirtyBitmap, 0, dst, 0, DIRTY_BITMAP_WORDS);
+  }
+
+  /**
+   * Restore the dirty-bitmap from a previously {@link #snapshotDirtyBitmap snapshotted} buffer.
+   */
+  void restoreDirtyBitmap(final long[] src) {
+    System.arraycopy(src, 0, dirtyBitmap, 0, DIRTY_BITMAP_WORDS);
+  }
+
+  /**
+   * Shift dirtyBitmap to mirror a deletion at {@code pos}: bits in {@code (pos, MAX_ENTRIES)}
+   * move down by 1, the bit at {@code pos} is dropped, and the previously-MSB bit becomes 0.
+   *
+   * <p>HOTLeafPage's {@link #delete(byte[])} currently tombstones in place (no slotOffsets shift);
+   * this helper exists for completeness so future compacting-delete code stays correct.</p>
+   */
+  void shiftDirtyBitmapForDelete(final int pos) {
+    if (pos < 0 || pos >= MAX_ENTRIES) {
+      return;
+    }
+    final int posWord = pos >>> 6;
+    final int posBit = pos & 63;
+
+    // posWord: keep [0, posBit), shift (posBit, 63] down by 1 to [posBit, 62]. Bit 63 carries in
+    // from posWord+1 bit 0 (if any).
+    final long lowMask = posBit == 0 ? 0L : (1L << posBit) - 1L;
+    final long lowBits = dirtyBitmap[posWord] & lowMask;
+    final long highMask = posBit == 63 ? 0L : ~((1L << (posBit + 1)) - 1L);
+    final long shiftedHigh = (dirtyBitmap[posWord] & highMask) >>> 1;
+    long updated = lowBits | shiftedHigh;
+    if (posWord + 1 < DIRTY_BITMAP_WORDS) {
+      updated |= (dirtyBitmap[posWord + 1] & 1L) << 63;
+    }
+    dirtyBitmap[posWord] = updated;
+    // Words above posWord: shift down 1, with carry-in from the next word's bit 0.
+    for (int w = posWord + 1; w < DIRTY_BITMAP_WORDS; w++) {
+      long shifted = dirtyBitmap[w] >>> 1;
+      if (w + 1 < DIRTY_BITMAP_WORDS) {
+        shifted |= (dirtyBitmap[w + 1] & 1L) << 63;
+      }
+      dirtyBitmap[w] = shifted;
+    }
   }
 
   @Override

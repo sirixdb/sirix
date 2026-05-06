@@ -126,22 +126,21 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
-   * Compute the most significant discriminative bit index from a bitMask and initialBytePos.
-   * The MSB is the bit closest to the start of the key (smallest absolute position).
-   * In LE word layout: lowest byte group with a set bit, highest bit within that group.
+   * Compute the most significant discriminative bit index from a {@code bitMask} and
+   * {@code initialBytePos}. The MSB is the bit closest to the start of the key (smallest absolute
+   * MSB-first bit position).
+   *
+   * <p><b>BE word layout</b> (byte 0 of the 8-byte window in long bits 56-63, byte 7 in bits 0-7):
+   * for an absolute bit at byte {@code i} of the window, MSB-first bit-in-byte {@code b}, the long
+   * bit position is {@code (7-i)*8 + (7-b) = 63 - (i*8 + b) = 63 - absoluteBitInWindow}. The bit in
+   * the {@code bitMask} with the HIGHEST long bit position is the most significant disc bit.</p>
    */
   public static short computeMostSignificantBitIndex(int initialBytePos, long bitMask) {
     if (bitMask == 0) {
       return (short) (initialBytePos * 8);
     }
-    // Find the lowest set bit in the mask (lowest byte group = earliest key byte)
-    final int lowestSetBit = Long.numberOfTrailingZeros(bitMask);
-    final int byteGroup = lowestSetBit / 8;
-    // Within that byte group, find the highest set bit (MSB of that key byte)
-    final long byteBits = (bitMask >>> (byteGroup * 8)) & 0xFFL;
-    final int highestBitInGroup = 63 - Long.numberOfLeadingZeros(byteBits); // 0-7
-    // Convert LE word position to absolute MSB-first position
-    return (short) ((initialBytePos + byteGroup) * 8 + (7 - highestBitInGroup));
+    final int highestSetBit = 63 - Long.numberOfLeadingZeros(bitMask);
+    return (short) (initialBytePos * 8 + (63 - highestSetBit));
   }
 
   // ===== Page identity =====
@@ -298,11 +297,11 @@ public final class HOTIndirectPage implements Page {
     page.layoutType = LayoutType.SINGLE_MASK;
     page.initialBytePos = discriminativeBitPos / 8;
 
-    // Compute bit mask for PEXT extraction (LE word layout)
-    int byteWithinWindow = (discriminativeBitPos / 8) - page.initialBytePos;
-    int bitWithinByte = discriminativeBitPos % 8; // 0=MSB, 7=LSB
-    int bitInWord = byteWithinWindow * 8 + (7 - bitWithinByte);
-    page.bitMask = 1L << bitInWord;
+    // BE word layout: absolute bit (i*8 + b) in window → long bit (63 - (i*8 + b)).
+    final int byteWithinWindow = (discriminativeBitPos / 8) - page.initialBytePos;
+    final int bitWithinByte = discriminativeBitPos % 8; // 0=MSB, 7=LSB
+    final int absBitInWindow = byteWithinWindow * 8 + bitWithinByte;
+    page.bitMask = 1L << (63 - absBitInWindow);
     page.mostSignificantBitIndex = (short) discriminativeBitPos;
 
     page.partialKeys = new int[] {0, 1};
@@ -616,47 +615,57 @@ public final class HOTIndirectPage implements Page {
       keyVec = ByteVector.fromArray(BYTE_SPECIES, padded, 0);
     }
 
-    // vpshufb: gather extraction bytes into contiguous lanes
+    // vpshufb: gather extraction bytes into contiguous lanes — lane i holds extraction byte i.
     final ByteVector gathered = keyVec.rearrange(gatherShuffle);
 
-    // Reinterpret gathered bytes as longs for PEXT
+    // Reinterpret gathered bytes as longs. Java's reinterpretAsLongs is platform-LE on x86, so
+    // gathered lane 0 (extraction byte 0) maps to long-bit 0..7 of the resulting long. We need
+    // BE chunk layout (extraction byte 0 in long-bits 56..63), so byte-swap each long lane.
     final LongVector gatheredLongs = gathered.reinterpretAsLongs();
 
-    // Apply PEXT per chunk and concatenate
+    // Apply PEXT per chunk; BE concatenate (chunk 0 in HIGH bits of result).
     final int numChunks = extractionMasks.length;
+    int totalBits = 0;
+    for (final long m : extractionMasks) {
+      totalBits += Long.bitCount(m);
+    }
     int result = 0;
-    int shift = 0;
+    int shift = totalBits;
     for (int w = 0; w < numChunks; w++) {
-      final long gatheredWord = gatheredLongs.lane(w);
+      final long gatheredWord = Long.reverseBytes(gatheredLongs.lane(w));
       final int extracted = (int) Long.compress(gatheredWord, extractionMasks[w]);
+      shift -= Long.bitCount(extractionMasks[w]);
       result |= extracted << shift;
-      shift += Long.bitCount(extractionMasks[w]);
     }
     return result;
   }
 
   /**
-   * Scalar fallback for MultiMask partial key extraction.
-   * Used when extraction positions span more than 32 key bytes (exceeds AVX2 vector width).
+   * Scalar fallback for MultiMask partial key extraction. BE within each chunk and
+   * BE concatenation across chunks: extraction byte 0 lands at the MSB of the result.
    */
   private int computeMultiMaskPartialKeyScalar(byte[] key) {
     final int numChunks = extractionMasks.length;
-    // Gather key bytes at extraction positions
+    // Gather key bytes BE per chunk: byte i in chunk i/8 at long-byte position (7 - i%8).
     final long[] gathered = new long[numChunks];
     for (int i = 0; i < numExtractionBytes; i++) {
       final int keyBytePos = extractionPositions[i] & 0xFF;
       final int keyByte = keyBytePos < key.length ? (key[keyBytePos] & 0xFF) : 0;
       final int chunkIdx = i / 8;
-      final int byteOffset = i % 8;
-      gathered[chunkIdx] |= ((long) keyByte) << (byteOffset * 8);
+      final int byteOffsetInChunk = i % 8;
+      gathered[chunkIdx] |= ((long) keyByte) << ((7 - byteOffsetInChunk) * 8);
     }
-    // Apply PEXT per chunk and combine
+    // Apply PEXT per chunk and BE-concatenate (chunk 0 in HIGH bits).
+    int totalBits = 0;
+    for (final long m : extractionMasks) {
+      totalBits += Long.bitCount(m);
+    }
     int result = 0;
-    int shift = 0;
+    int shift = totalBits;
     for (int w = 0; w < numChunks; w++) {
       final int extracted = (int) Long.compress(gathered[w], extractionMasks[w]);
+      shift -= Long.bitCount(extractionMasks[w]);
       result |= extracted << shift;
-      shift += Long.bitCount(extractionMasks[w]);
     }
     return result;
   }
@@ -685,19 +694,24 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
-   * Extract up to 8 bytes from key starting at given position. Uses little-endian byte order for PEXT
-   * compatibility — byte at {@code pos} maps to bits 0-7, byte at {@code pos+1} to bits 8-15, etc.
+   * Extract up to 8 bytes from {@code key} starting at {@code pos} into a 64-bit big-endian word.
+   * Byte at {@code pos} maps to bits 56-63 (the long's MSB byte), {@code pos+1} → bits 48-55,
+   * ..., {@code pos+7} → bits 0-7.
    *
-   * <p><b>Important:</b> Both the construction path ({@code HOTTrieWriter.computeBitMaskForChildren},
-   * {@code computePartialKey}) and this lookup path use the same LE byte layout. Within each byte,
-   * MSB (bit 0) maps to position 7, LSB (bit 7) maps to position 0. {@link DiscriminativeBitComputer}
-   * uses a separate BE convention for its own purposes — it is not involved in the PEXT lookup chain.</p>
+   * <p>Within each byte, the byte's MSB lands on its slot's bit-7 (highest of slot) and the byte's
+   * LSB on its slot's bit-0. Combined: an absolute MSB-first bit position {@code B = i*8 + b}
+   * (within the 8-byte window) maps to long bit {@code 63 - B}.</p>
+   *
+   * <p><b>Why BE:</b> after {@code Long.compress(keyWord_BE, bitMask_BE)} the partial-key's MSB
+   * holds the value of the most-significant disc bit in the key — so integer-comparing partial-keys
+   * yields lex order on the disc-bit subset. This is what makes path-stack forward walks
+   * lex-monotonic across siblings (Binna §4.2).</p>
    */
   private static long getKeyWordAt(byte[] key, int pos) {
     long result = 0;
     int end = Math.min(pos + 8, key.length);
     for (int i = pos; i < end; i++) {
-      result |= ((long) (key[i] & 0xFF)) << ((i - pos) * 8);
+      result |= ((long) (key[i] & 0xFF)) << ((7 - (i - pos)) * 8);
     }
     return result;
   }

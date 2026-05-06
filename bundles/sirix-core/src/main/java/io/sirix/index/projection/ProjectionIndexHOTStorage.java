@@ -247,8 +247,12 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     if (projContainer != null && projContainer.getModified() instanceof ProjectionIndexPage modifiedProj) {
       projPage = modifiedProj;
     } else {
-      projPage = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
-      storageEngineWriter.appendLogRecord(projPageRef, PageContainer.getInstance(projPage, projPage));
+      // Top-down CoW (task #57): the writer must mutate a private deep-copy. Without this the
+      // cached prior-revision instance shares the reference array (and the rootRef slot) with
+      // the historical revisions, so write-side mutations bleed into historical reads.
+      final ProjectionIndexPage cached = storageEngineWriter.getProjectionIndexPage(revisionRootPage);
+      projPage = new ProjectionIndexPage(cached);
+      storageEngineWriter.appendLogRecord(projPageRef, PageContainer.getInstance(cached, projPage));
     }
 
     final PageReference existingRef = projPage.getOrCreateReference(indexNumber);
@@ -306,7 +310,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final int off = i * CHUNK_SIZE;
       final int len = Math.min(CHUNK_SIZE, payload.length - off);
       encodeCompositeKey(leafIndex, i, keyBuf);
-      final LeafNavigationResult navResult = getLeafWithPath(rootReference, keyBuf, keyLen);
+      final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
       writeChunkRangeToLeafOrSplit(navResult.leaf(), navResult, keyBuf, keyLen, payload, off, len);
     }
 
@@ -356,7 +360,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
       final long off = srcOff + (long) i * CHUNK_SIZE;
       final int len = Math.min(CHUNK_SIZE, srcLen - i * CHUNK_SIZE);
       encodeCompositeKey(leafIndex, i, keyBuf);
-      final LeafNavigationResult navResult = getLeafWithPath(rootReference, keyBuf, keyLen);
+      final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
       writeChunkSegmentToLeafOrSplit(navResult.leaf(), navResult, keyBuf, keyLen, src, off, len);
     }
 
@@ -397,7 +401,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         storageEngineWriter, storageEngineWriter.getLog(), currentLeaf, navResult.leafRef(),
         rootReference, navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
         navResult.pathDepth(), keyBuf, keyLen, sized, srcLen);
-    markIndexPageDirty();
+    prepareIndexPage();
     if (!inserted) {
       throw new SirixIOException("Projection HOT chunk insert failed after split");
     }
@@ -443,7 +447,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         storageEngineWriter, storageEngineWriter.getLog(), currentLeaf, navResult.leafRef(),
         rootReference, navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
         navResult.pathDepth(), keyBuf, keyLen, sized, valueLen);
-    markIndexPageDirty();
+    prepareIndexPage();
     if (!inserted) {
       throw new SirixIOException("Projection HOT chunk insert failed after split");
     }
@@ -476,7 +480,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
     final byte[] keyBuf = KEY_BUFFER.get();
     final int keyLen = encodeCompositeKey(leafIndex, chunkIdx, keyBuf);
 
-    final LeafNavigationResult navResult = getLeafWithPath(rootReference, keyBuf, keyLen);
+    final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
     final HOTLeafPage leaf = navResult.leaf();
 
     if (leaf.put(keyBuf, chunk)) {
@@ -494,7 +498,7 @@ public final class ProjectionIndexHOTStorage extends AbstractHOTIndexWriter<Long
         storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
         rootReference, navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
         navResult.pathDepth(), keyBuf, keyLen, chunk, chunk.length);
-    markIndexPageDirty();
+    prepareIndexPage();
 
     if (!inserted) {
       throw new SirixIOException("Projection HOT chunk insert failed after split for leafIndex=" + leafIndex

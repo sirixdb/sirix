@@ -1504,6 +1504,13 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         }
         yield namePage.getOrCreateReference(indexNumber);
       }
+      case PROJECTION -> {
+        final var projPage = getProjectionIndexPage(actualRootPage);
+        if (projPage == null || indexNumber >= projPage.getReferences().size()) {
+          yield null;
+        }
+        yield projPage.getOrCreateReference(indexNumber);
+      }
       default -> null;
     };
 

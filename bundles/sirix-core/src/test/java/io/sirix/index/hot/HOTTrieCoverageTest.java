@@ -608,16 +608,23 @@ class HOTTrieCoverageTest {
     @Test
     @DisplayName("MultiMask SpanNode creation and child lookup")
     void testMultiMaskSpanNodeLookup() {
-      // Create a MultiMask node with disc bits at byte 0 and byte 10 (span > 8 bytes)
-      // Byte 0, bit 3 (MSB-first) → extraction mask = 1 << (7-3) = 0x10
-      // Byte 10, bit 5 (MSB-first) → extraction mask = 1 << (7-5) = 0x04
+      // Create a MultiMask node with disc bits at byte 0 and byte 10 (span > 8 bytes).
+      //   Byte 0,  bit 3 (MSB-first) → maskByte = 1 << (7-3) = 0x10
+      //   Byte 10, bit 5 (MSB-first) → maskByte = 1 << (7-5) = 0x04
       byte[] extractionPositions = {0, 10};
-      // Pack masks into long: byte 0 at bits 0-7, byte 1 at bits 8-15
-      long[] extractionMasks = {0x10L | (0x04L << 8)};
+      // BE chunk packing: extraction-byte index 0 → long bits 56-63, index 1 → 48-55, etc.
+      long[] extractionMasks = {(0x10L << 56) | (0x04L << 48)};
       int numExtractionBytes = 2;
       // Total disc bits = popcount(0x10) + popcount(0x04) = 1 + 1 = 2 → 4 children max
 
-      // 4 children with partial keys 0, 1, 2, 3 (2 disc bits → 4 combinations)
+      // BE PEXT extracts mask-set bits in order from LOW to HIGH long bit; but BE chunk packing
+      // puts extraction-byte 0's bit at long bit 60 and extraction-byte 1's bit at long bit 50.
+      // PEXT's result-bit 0 = lower mask bit = byte 1's bit (key[10] bit 5).
+      // PEXT's result-bit 1 = higher mask bit = byte 0's bit (key[0] bit 3).
+      // Then BE chunk concatenation places chunk 0's PEXT result in HIGH bits of partial-key.
+      // With 1 chunk total, the partial-key directly equals chunk 0's PEXT result.
+      // Lex order on (key[0]-bit3, key[10]-bit5): (0,0),(0,1),(1,0),(1,1).
+      // Mapping each to BE partial-key = (key[0]-bit3 << 1) | key[10]-bit5: 0,1,2,3.
       int[] partialKeys = {0, 1, 2, 3};
       PageReference[] children = new PageReference[4];
       for (int i = 0; i < 4; i++) {
@@ -637,21 +644,21 @@ class HOTTrieCoverageTest {
       assertEquals(2, node.getTotalDiscBits());
       assertEquals(3, node.getMostSignificantBitIndex());
 
-      // Test lookup: key with byte[0]=0, byte[10]=0 → both disc bits 0 → partial key 0 → child 0
+      // (0,0) → pk=0 → child 0
       byte[] key00 = new byte[11];
       assertEquals(0, node.findChildIndex(key00));
 
-      // key with byte[0] bit 3 set (0x10), byte[10]=0 → disc bit 0=1, bit 1=0 → pk=1 → child 1
+      // (1,0) → pk=(1<<1)|0=0b10=2 → child 2
       byte[] key10 = new byte[11];
-      key10[0] = 0x10; // bit 3 from MSB set
-      assertEquals(1, node.findChildIndex(key10));
+      key10[0] = 0x10;
+      assertEquals(2, node.findChildIndex(key10));
 
-      // key with byte[0]=0, byte[10] bit 5 set (0x04) → disc bit 0=0, bit 1=1 → pk=2 → child 2
+      // (0,1) → pk=(0<<1)|1=0b01=1 → child 1
       byte[] key01 = new byte[11];
-      key01[10] = 0x04; // bit 5 from MSB set
-      assertEquals(2, node.findChildIndex(key01));
+      key01[10] = 0x04;
+      assertEquals(1, node.findChildIndex(key01));
 
-      // key with both bits set → pk=3 → child 3
+      // (1,1) → pk=0b11=3 → child 3
       byte[] key11 = new byte[11];
       key11[0] = 0x10;
       key11[10] = 0x04;
@@ -675,8 +682,8 @@ class HOTTrieCoverageTest {
     @DisplayName("MultiMask copy constructor preserves extraction data")
     void testMultiMaskCopyConstructor() {
       byte[] extractionPositions = {2, 15, 25};
-      // 3 extraction bytes: masks packed into one long
-      long[] extractionMasks = {0x80L | (0x01L << 8) | (0x40L << 16)};
+      // BE chunk packing: extraction-byte index 0 → long bits 56-63, index 1 → 48-55, etc.
+      long[] extractionMasks = {(0x80L << 56) | (0x01L << 48) | (0x40L << 40)};
       int numExtractionBytes = 3;
       int[] partialKeys = {0, 1, 2, 3, 4};
       PageReference[] children = new PageReference[5];
@@ -706,11 +713,13 @@ class HOTTrieCoverageTest {
         assertEquals(origPos[i], copyPos[i]);
       }
 
-      // Verify lookup works on copy
+      // Verify lookup works on copy. With BE PEXT, key[2]=0x80 (bit 0 MSB set) sets the highest
+      // mask bit (long bit 63 of chunk 0); after compress, that's result-bit 2 of a 3-bit pk
+      // = 4. partialKey 4 is in our {0..4} array → child 4.
       byte[] key = new byte[26];
-      key[2] = (byte) 0x80; // bit 0 from MSB set at byte 2
+      key[2] = (byte) 0x80;
       int idx = copy.findChildIndex(key);
-      assertTrue(idx >= 0, "Should find child in copy");
+      assertEquals(4, idx, "Should find child 4 (BE: key[2]-MSB → result-bit 2 → pk=4)");
     }
 
     @Test
@@ -721,13 +730,15 @@ class HOTTrieCoverageTest {
       for (int i = 0; i < 10; i++) {
         extractionPositions[i] = (byte) (i * 3); // positions 0, 3, 6, 9, 12, 15, 18, 21, 24, 27
       }
-      // Each extraction byte has bit 0 (MSB) set → mask = 0x80
+      // BE chunk packing: extraction-byte at chunk-offset {@code o} → long bits
+      // {@code (7-o)*8 .. (7-o)*8 + 7}. Each extraction byte has bit 0 (MSB-first) set →
+      // maskByte 0x80 → long-bit (7-o)*8 + 7.
       long[] extractionMasks = new long[2];
       for (int i = 0; i < 8; i++) {
-        extractionMasks[0] |= (0x80L << (i * 8));
+        extractionMasks[0] |= (0x80L << ((7 - i) * 8));
       }
       for (int i = 0; i < 2; i++) {
-        extractionMasks[1] |= (0x80L << (i * 8));
+        extractionMasks[1] |= (0x80L << ((7 - i) * 8));
       }
       int numExtractionBytes = 10;
       // 10 disc bits → partial key width = 2 (short)
@@ -758,16 +769,22 @@ class HOTTrieCoverageTest {
     @DisplayName("SIMD gather path produces correct results for all key patterns")
     void testSIMDGatherAllPatterns() {
       // 3 extraction bytes at positions 1, 8, 20 (span = 20 bytes, fits in 32-byte AVX2 vector)
-      // Each extracts 2 bits → 6 disc bits total → 64 partial key combinations
+      // Each extracts 2 bits → 6 disc bits total → 64 partial key combinations.
+      //   Extraction byte 0 = key[1], MSB-first bits 0,1 → maskByte 0xC0
+      //   Extraction byte 1 = key[8], MSB-first bits 6,7 → maskByte 0x03
+      //   Extraction byte 2 = key[20], MSB-first bits 2,3 → maskByte 0x30
+      // BE chunk packing: extraction-byte 0 → long bits 56-63, byte 1 → 48-55, byte 2 → 40-47.
       byte[] extractionPositions = {1, 8, 20};
-      // Byte 0 (pos 1): bits 0,1 → mask 0xC0
-      // Byte 1 (pos 8): bits 6,7 → mask 0x03
-      // Byte 2 (pos 20): bits 2,3 → mask 0x30
-      long[] extractionMasks = {0xC0L | (0x03L << 8) | (0x30L << 16)};
+      long[] extractionMasks = {(0xC0L << 56) | (0x03L << 48) | (0x30L << 40)};
       int numExtractionBytes = 3;
-      // Total disc bits = 2+2+2 = 6
 
-      // Create 8 children with distinct partial keys covering all first-byte variations
+      // BE PEXT extracts mask bits low-to-high: low mask bits are extraction-byte 2's, then 1's,
+      // then 0's. So result-bit 0 = key[20]-bit3, result-bit 1 = key[20]-bit2, result-bit 2 =
+      // key[8]-bit7, result-bit 3 = key[8]-bit6, result-bit 4 = key[1]-bit1, result-bit 5 =
+      // key[1]-bit0. With 1 chunk total, result IS the partial-key.
+      //
+      // We pre-compute partial keys for the 8 children below for the byte-0-only pattern
+      // (key[1] varies, key[8]=key[20]=0): partial-key = (key[1]-bit0 << 5) | (key[1]-bit1 << 4).
       int[] partialKeys = {0, 1, 2, 3, 4, 5, 6, 7};
       PageReference[] children = new PageReference[8];
       for (int i = 0; i < 8; i++) {
@@ -780,53 +797,65 @@ class HOTTrieCoverageTest {
           30L, 1, extractionPositions, extractionMasks, numExtractionBytes,
           partialKeys, children, 1, msbIndex);
 
-      // PEXT (Long.compress) extracts bits from LSB to MSB of the mask.
-      // Gathered long (LE): byte 0 at bits 0-7 = key[1], byte 1 at bits 8-15 = key[8], byte 2 at bits 16-23 = key[20]
-      // Mask = 0xC0 | (0x03 << 8) | (0x30 << 16) = 0x3003C0
-      // Mask bits set: 6(0xC0), 7(0xC0), 8(0x0300), 9(0x0300), 20(0x300000), 21(0x300000)
-      // PEXT maps: bit6→pk0, bit7→pk1, bit8→pk2, bit9→pk3, bit20→pk4, bit21→pk5
-
-      // All zeros → pk=0
+      // All zeros → pk = 0. Sparse-search: subsetPick on matchMask.
       byte[] key0 = new byte[21];
       assertEquals(0, node.findChildIndex(key0));
 
-      // key[1]=0x80 (bit 7 set) → PEXT bit7→pk1 → pk=0b10=2
-      byte[] key2 = new byte[21];
-      key2[1] = (byte) 0x80;
-      assertEquals(2, node.findChildIndex(key2));
+      // key[1] = 0x80 (bit 0 = MSB set) → pk = (1<<5)|0 = 32. Subset of {0..7}? 32 has no
+      // bits matching any small partial key, so subset search returns -1 (NOT_FOUND).
+      // (See findChildSpanNode: when no partial key is a subset, return NOT_FOUND.)
+      // Switch to a more interesting pattern: set both bits in key[1] →
+      // key[1] = 0xC0 → pk = (1<<5)|(1<<4) = 48. Still doesn't match any small pk.
+      // The original test exercised LE PEXT result mappings; under BE they're permuted. Test
+      // with key combinations that DO hit the {0..7} partial-key set:
+      //   pk=1 requires only result-bit 0 = 1 → key[20]-bit3 = 1 → key[20] = 0x10.
+      byte[] keyPk1 = new byte[21];
+      keyPk1[20] = 0x10;
+      assertEquals(1, node.findChildIndex(keyPk1));
 
-      // key[1]=0xC0 (bits 6,7 set) → pk1=1,pk0=1 → pk=0b11=3
-      byte[] key3 = new byte[21];
-      key3[1] = (byte) 0xC0;
-      assertEquals(3, node.findChildIndex(key3));
+      //   pk=2 requires only result-bit 1 = 1 → key[20]-bit2 = 1 → key[20] = 0x20.
+      byte[] keyPk2 = new byte[21];
+      keyPk2[20] = 0x20;
+      assertEquals(2, node.findChildIndex(keyPk2));
 
-      // key[8]=0x01 (bit 0 set → bit 8 in gathered long) → PEXT bit8→pk2 → pk=0b100=4
-      byte[] key4 = new byte[21];
-      key4[8] = 0x01;
-      assertEquals(4, node.findChildIndex(key4));
+      //   pk=3 → both result-bits 0,1 set → key[20] = 0x30.
+      byte[] keyPk3 = new byte[21];
+      keyPk3[20] = 0x30;
+      assertEquals(3, node.findChildIndex(keyPk3));
 
-      // key[1]=0x80, key[8]=0x01 → bit7 + bit8 → pk=0b110=6
-      byte[] key6 = new byte[21];
-      key6[1] = (byte) 0x80;
-      key6[8] = 0x01;
-      assertEquals(6, node.findChildIndex(key6));
+      //   pk=4 requires only result-bit 2 = 1 → key[8]-bit7 = 1 → key[8] = 0x01.
+      byte[] keyPk4 = new byte[21];
+      keyPk4[8] = 0x01;
+      assertEquals(4, node.findChildIndex(keyPk4));
 
-      // key[1]=0xC0, key[8]=0x03 → bits 6,7,8,9 → pk=0b001111=15
-      // Sparse search: (15 & sparseKey) == sparseKey → pk=7 matches (15 & 7 == 7)
-      byte[] keyF = new byte[21];
-      keyF[1] = (byte) 0xC0;
-      keyF[8] = 0x03;
-      assertEquals(7, node.findChildIndex(keyF));
+      //   pk=5 → result-bits 0,2 → key[20]=0x10, key[8]=0x01.
+      byte[] keyPk5 = new byte[21];
+      keyPk5[20] = 0x10;
+      keyPk5[8] = 0x01;
+      assertEquals(5, node.findChildIndex(keyPk5));
+
+      //   pk=7 → result-bits 0,1,2 → key[20]=0x30, key[8]=0x01.
+      byte[] keyPk7 = new byte[21];
+      keyPk7[20] = 0x30;
+      keyPk7[8] = 0x01;
+      assertEquals(7, node.findChildIndex(keyPk7));
     }
 
     @Test
     @DisplayName("Scalar fallback for wide span (>32 bytes between extraction positions)")
     void testScalarFallbackWideSpan() {
-      // Extraction positions at 0 and 40 → span = 41 bytes > 32 → scalar fallback
+      // Extraction positions at 0 and 40 → span = 41 bytes > 32 → scalar fallback.
+      //   Byte 0, bit 0 (MSB) → maskByte = 0x80
+      //   Byte 40, bit 7 (LSB) → maskByte = 0x01
+      // BE chunk packing: extraction-byte 0 → long bits 56-63, byte 1 → 48-55.
       byte[] extractionPositions = {0, 40};
-      long[] extractionMasks = {0x80L | (0x01L << 8)};
+      long[] extractionMasks = {(0x80L << 56) | (0x01L << 48)};
       int numExtractionBytes = 2;
 
+      // BE PEXT extracts: low mask bit = byte 1's mask bit at long-bit 48 → result-bit 0;
+      // high mask bit = byte 0's mask bit at long-bit 63 → result-bit 1. Partial-key =
+      // (key[0]-bit0 << 1) | key[40]-bit7. Lex order on (key[0]-bit0, key[40]-bit7):
+      // (0,0),(0,1),(1,0),(1,1) → partial keys 0,1,2,3.
       int[] partialKeys = {0, 1, 2, 3};
       PageReference[] children = new PageReference[4];
       for (int i = 0; i < 4; i++) {
@@ -839,25 +868,25 @@ class HOTTrieCoverageTest {
           40L, 1, extractionPositions, extractionMasks, numExtractionBytes,
           partialKeys, children, 1, msbIndex);
 
-      // key all zeros → pk=0
+      // (0,0) → pk=0 → child 0
       byte[] key0 = new byte[41];
       assertEquals(0, node.findChildIndex(key0));
 
-      // key[0]=0x80 → bit 0 set → pk=1
-      byte[] key1 = new byte[41];
-      key1[0] = (byte) 0x80;
-      assertEquals(1, node.findChildIndex(key1));
+      // (1,0) → pk=(1<<1)|0=0b10=2 → child 2
+      byte[] key10 = new byte[41];
+      key10[0] = (byte) 0x80;
+      assertEquals(2, node.findChildIndex(key10));
 
-      // key[40]=0x01 → bit 1 set → pk=2
-      byte[] key2 = new byte[41];
-      key2[40] = 0x01;
-      assertEquals(2, node.findChildIndex(key2));
+      // (0,1) → pk=(0<<1)|1=0b01=1 → child 1
+      byte[] key01 = new byte[41];
+      key01[40] = 0x01;
+      assertEquals(1, node.findChildIndex(key01));
 
-      // key[0]=0x80, key[40]=0x01 → pk=3
-      byte[] key3 = new byte[41];
-      key3[0] = (byte) 0x80;
-      key3[40] = 0x01;
-      assertEquals(3, node.findChildIndex(key3));
+      // (1,1) → pk=0b11=3 → child 3
+      byte[] key11 = new byte[41];
+      key11[0] = (byte) 0x80;
+      key11[40] = 0x01;
+      assertEquals(3, node.findChildIndex(key11));
     }
   }
 
