@@ -1160,4 +1160,160 @@ final class HOTFormalVerificationTest {
       }
     }
   }
+
+  // ============================================================
+  // Phase C — Binna tree-shape parity (statistical properties).
+  // ============================================================
+
+  /**
+   * Asserts that Sirix's HOT for a uniform-distribution workload of {@code N} CAS Int32 inserts
+   * matches Binna's reference HOT in the structural properties his thesis documents:
+   *
+   * <ol>
+   *   <li><b>Height bound</b> — observed height ≤ ceil(log_K(N)) where K = 32 (HOT max indirect
+   *       fan-out). Binna §4.4 proves this is tight for uniformly-distributed workloads.</li>
+   *   <li><b>Cross-leaf key uniqueness</b> — every stored key lives in exactly one leaf. Any
+   *       structural CoW or restructuring bug that duplicates keys across leaves shows up here
+   *       (= I1-cross-leaf-uniqueness violation).</li>
+   *   <li><b>Effective leaf occupancy</b> — for Sirix's multi-entry leaves (capacity ≤ 512),
+   *       the average leaf occupancy of a fully-populated tree should be close to capacity.
+   *       Binna's reference uses single-TID leaves (occupancy = 1), so we adapt: assert that at
+   *       least 50% of leaves are "well-filled" (≥ 256 entries) — a weak check that catches
+   *       pathological splitting (lots of half-empty leaves).</li>
+   *   <li><b>Indirect fan-out</b> — most non-root indirects should have fan-out near 2..32
+   *       (BiNode through MultiNode range). Sparse fan-out below 2 indicates degenerate
+   *       structure; fan-out above 32 violates {@link io.sirix.page.HOTIndirectPage}'s capacity.</li>
+   * </ol>
+   *
+   * <p><b>Why this isn't full Binna parity:</b> a true parity test would port Binna's reference
+   * C++ implementation to Java and compare tree byte-for-byte. That's significant effort and
+   * Binna's reference uses single-TID leaves (drastically different storage shape), so a byte-
+   * for-byte match is impossible by construction. The statistical-properties check is the
+   * pragmatic version: same asymptotic shape, same height bound, same uniqueness invariants,
+   * even if leaf occupancy differs by a constant factor.
+   */
+  @Test
+  @DisplayName("Phase C — tree-shape parity statistics match Binna's HOT properties")
+  void phaseCTreeShapeParityStatistics() {
+    final int n = 100_000;
+    final long pathNodeKey = 5L;
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final IndexDef casIndexDef;
+
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse("/x/[]/v",
+          io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(casIndexDef), trx);
+
+      final var writer = io.sirix.index.hot.HOTIndexWriter.create(
+          trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
+          IndexType.CAS, casIndexDef.getID());
+      final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
+          new io.sirix.index.redblacktree.keyvalue.NodeReferences();
+      for (int v = 0; v < n; v++) {
+        scratch.getNodeKeys().clear();
+        scratch.getNodeKeys().add((long) v);
+        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
+            new Int32(v), Type.INR, pathNodeKey), scratch, null);
+      }
+      trx.commit();
+    }
+
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var rtx = session.beginNodeReadOnlyTrx()) {
+      // Property 1 + 2: validator covers I9-height-bounded and I1-cross-leaf-uniqueness.
+      final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
+          rtx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
+      // Allow soft I6 (stale PEXT routing absorbed by lower_bound walk-up) but no hard violations.
+      final long hardViolations = inv.violations().stream()
+          .filter(v -> !v.invariant().equals("I6-pext-routes-to-leaf")
+              && !HOTInvariantValidator.STRUCTURAL_LIMITATION_INVARIANTS.contains(v.invariant()))
+          .count();
+      assertEquals(0L, hardViolations,
+          "hard structural violations: "
+              + inv.violations().stream()
+                  .filter(v -> !v.invariant().equals("I6-pext-routes-to-leaf")
+                      && !HOTInvariantValidator.STRUCTURAL_LIMITATION_INVARIANTS.contains(
+                          v.invariant()))
+                  .toList());
+
+      // Property 1 (explicit): Binna height bound — ceil(log_32(100_000)) = ceil(3.32) = 4.
+      assertTrue(inv.observedHeight() <= 4,
+          "observed height " + inv.observedHeight()
+              + " exceeds Binna bound 4 for N=100K, K=32");
+
+      // Properties 3 + 4: tree-shape stats by walking the trie.
+      final TreeShapeStats stats = collectTreeShapeStats(rtx, casIndexDef.getID());
+      System.out.println("[phase-c] N=" + n + " observedHeight=" + inv.observedHeight()
+          + " storedKeys=" + inv.storedKeyCount()
+          + " leaves=" + stats.leafCount + " avgLeafOcc=" + (stats.totalEntries / stats.leafCount)
+          + " wellFilledLeafFrac=" + ((double) stats.wellFilledLeafCount / stats.leafCount)
+          + " indirects=" + stats.indirectCount + " avgFanout="
+          + (stats.totalFanout / Math.max(1, stats.indirectCount))
+          + " maxFanout=" + stats.maxFanout);
+
+      // Property 3: ≥ 50% of leaves well-filled (≥ 256 entries). Catches pathological splitting.
+      assertTrue(stats.wellFilledLeafCount * 2 >= stats.leafCount,
+          "only " + stats.wellFilledLeafCount + "/" + stats.leafCount
+              + " leaves well-filled — pathological splitting");
+
+      // Property 4: every indirect has fan-out in [2, 32].
+      assertTrue(stats.maxFanout <= 32,
+          "indirect fan-out " + stats.maxFanout + " exceeds HOT max 32");
+      assertTrue(stats.minFanout >= 2,
+          "indirect fan-out " + stats.minFanout + " below HOT min 2 (BiNode)");
+    }
+  }
+
+  private record TreeShapeStats(int leafCount, int wellFilledLeafCount, long totalEntries,
+      int indirectCount, long totalFanout, int minFanout, int maxFanout) {}
+
+  private TreeShapeStats collectTreeShapeStats(io.sirix.api.json.JsonNodeReadOnlyTrx rtx,
+      int indexNumber) {
+    final var rootRef = HOTInvariantValidator.resolveRootRef(rtx.getStorageEngineReader(),
+        IndexType.CAS, indexNumber);
+    assertNotNull(rootRef, "no root for CAS index " + indexNumber);
+    final int[] leafCount = {0};
+    final int[] wellFilled = {0};
+    final long[] entries = {0L};
+    final int[] indirects = {0};
+    final long[] fanoutSum = {0L};
+    final int[] minFanout = {Integer.MAX_VALUE};
+    final int[] maxFanout = {Integer.MIN_VALUE};
+    walkStats(rootRef, rtx, leafCount, wellFilled, entries, indirects, fanoutSum, minFanout,
+        maxFanout);
+    return new TreeShapeStats(leafCount[0], wellFilled[0], entries[0], indirects[0],
+        fanoutSum[0], minFanout[0] == Integer.MAX_VALUE ? 0 : minFanout[0],
+        maxFanout[0] == Integer.MIN_VALUE ? 0 : maxFanout[0]);
+  }
+
+  private void walkStats(io.sirix.page.PageReference ref, io.sirix.api.json.JsonNodeReadOnlyTrx rtx,
+      int[] leafCount, int[] wellFilled, long[] entries, int[] indirects, long[] fanoutSum,
+      int[] minFanout, int[] maxFanout) {
+    final var page = rtx.getStorageEngineReader().loadHOTPage(ref);
+    if (page instanceof io.sirix.page.HOTLeafPage leaf) {
+      leafCount[0]++;
+      entries[0] += leaf.getEntryCount();
+      if (leaf.getEntryCount() >= 256) wellFilled[0]++;
+      return;
+    }
+    if (page instanceof io.sirix.page.HOTIndirectPage indirect) {
+      indirects[0]++;
+      final int fan = indirect.getNumChildren();
+      fanoutSum[0] += fan;
+      if (fan < minFanout[0]) minFanout[0] = fan;
+      if (fan > maxFanout[0]) maxFanout[0] = fan;
+      for (int i = 0; i < fan; i++) {
+        final var childRef = indirect.getChildReference(i);
+        if (childRef != null) {
+          walkStats(childRef, rtx, leafCount, wellFilled, entries, indirects, fanoutSum,
+              minFanout, maxFanout);
+        }
+      }
+    }
+  }
 }

@@ -135,6 +135,18 @@ public final class HOTInvariantValidator {
       return new Result(List.of(), 0, 0);
     }
     v.walk(root, /*depth=*/ 0, /*ancestorIndirects=*/ List.of());
+    // I1-cross-leaf: no stored key may appear in two leaves. This is the strongest data-
+    // integrity check — distinguishes "stale routing" (one key in one leaf, PEXT goes to a
+    // different leaf, but only one canonical home) from "key duplication" (the SAME key body
+    // present in two leaves, which would imply data divergence under updates).
+    final Set<String> seen = new HashSet<>(v.storedKeys.size() * 2);
+    for (final byte[] k : v.storedKeys) {
+      final String h = bytesHex(k);
+      if (!seen.add(h)) {
+        v.addViolation("I1-cross-leaf-uniqueness",
+            "stored key " + h + " appears in more than one leaf — structural duplication", null);
+      }
+    }
     // I6: every stored key must PEXT-route from rootRef back to its containing leaf.
     if (root instanceof HOTIndirectPage) {
       v.verifyPextRouting(rootRef);
@@ -358,6 +370,8 @@ public final class HOTInvariantValidator {
   // ===== I6 — PEXT routes every stored key to its real leaf =====
 
   private void verifyPextRouting(PageReference rootRef) {
+    final boolean trace = System.getProperty("hot.debug.i6trace") != null;
+    boolean tracedOnce = false;
     for (final byte[] key : storedKeys) {
       final HOTLeafPage routed = pextDescend(rootRef, key);
       if (routed == null) {
@@ -366,6 +380,19 @@ public final class HOTInvariantValidator {
         continue;
       }
       if (routed.findEntry(key) < 0) {
+        if (trace && !tracedOnce) {
+          System.out.println(tracePextDescend(rootRef, key));
+          // Also locate the leaf that ACTUALLY contains this key, by scanning every stored
+          // leaf. This reveals the structural divergence — the descent wanted to go to leaf
+          // X based on partial-key routing, but the key was stored in leaf Y by some prior
+          // tree restructuring.
+          final long actualLeafKey = findActualLeafForKey(rootRef, key);
+          System.out.println("  ACTUAL leaf containing key: pageKey=" + actualLeafKey);
+          if (actualLeafKey >= 0) {
+            System.out.println(tracePathToLeaf(rootRef, actualLeafKey, key));
+          }
+          tracedOnce = true;
+        }
         addViolation("I6-pext-routes-to-leaf",
             "PEXT descent for stored key " + bytesHex(key)
                 + " landed in leaf " + routed.getPageKey() + " which does not contain it",
@@ -387,6 +414,121 @@ public final class HOTInvariantValidator {
       if (ref == null) return null;
     }
     return null;
+  }
+
+  /**
+   * Diagnostic: full-scan every reachable leaf for {@code key} and return its {@code pageKey},
+   * or {@code -1} if no leaf contains it. Used by the I6 trace to identify where a misrouted
+   * stored key actually lives.
+   */
+  private long findActualLeafForKey(PageReference startRef, byte[] key) {
+    return findActualLeafForKeyRec(startRef, key, 0);
+  }
+
+  private long findActualLeafForKeyRec(PageReference ref, byte[] key, int depth) {
+    if (depth > maxHeight + 1) return -1;
+    final Page page = loadPage(ref);
+    if (page instanceof HOTLeafPage leaf) {
+      return leaf.findEntry(key) >= 0 ? leaf.getPageKey() : -1;
+    }
+    if (!(page instanceof HOTIndirectPage indirect)) return -1;
+    for (int i = 0; i < indirect.getNumChildren(); i++) {
+      final PageReference childRef = indirect.getChildReference(i);
+      if (childRef == null) continue;
+      final long found = findActualLeafForKeyRec(childRef, key, depth + 1);
+      if (found >= 0) return found;
+    }
+    return -1;
+  }
+
+  /**
+   * Diagnostic: traces the path from {@code startRef} to leaf with {@code targetLeafKey}, dumping
+   * each indirect's mask, dense PEXT of {@code key}, and the stored partial at the child that
+   * actually leads to the target leaf. Used to compare PEXT routing vs. actual leaf location for
+   * I6 violations.
+   */
+  private String tracePathToLeaf(PageReference startRef, long targetLeafKey, byte[] key) {
+    final StringBuilder sb = new StringBuilder(256);
+    sb.append("  [path-to-actual-leaf=").append(targetLeafKey).append("]\n");
+    tracePathToLeafRec(startRef, targetLeafKey, key, 0, sb);
+    return sb.toString();
+  }
+
+  private boolean tracePathToLeafRec(PageReference ref, long targetLeafKey, byte[] key,
+      int depth, StringBuilder sb) {
+    if (depth > maxHeight + 1) return false;
+    final Page page = loadPage(ref);
+    if (page instanceof HOTLeafPage leaf) {
+      return leaf.getPageKey() == targetLeafKey;
+    }
+    if (!(page instanceof HOTIndirectPage indirect)) return false;
+    for (int i = 0; i < indirect.getNumChildren(); i++) {
+      final PageReference childRef = indirect.getChildReference(i);
+      if (childRef == null) continue;
+      if (tracePathToLeafRec(childRef, targetLeafKey, key, depth + 1, sb)) {
+        // Found a path through child[i] — log this level.
+        final int densePK = computeDensePartialKey(indirect, key);
+        final int[] partials = indirect.getPartialKeys();
+        sb.append("    depth=").append(depth).append(" indirect=").append(indirect.getPageKey())
+            .append(" densePK=0x").append(Integer.toHexString(densePK))
+            .append(" → child[").append(i).append("] partial=0x")
+            .append(partials != null && i < partials.length
+                ? Integer.toHexString(partials[i]) : "?")
+            .append(" (subset-match=")
+            .append(partials != null && i < partials.length
+                ? ((densePK & partials[i]) == partials[i]) : "?")
+            .append(")\n");
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Diagnostic: traces the PEXT-descent path for {@code key} from {@code startRef}. At each
+   * indirect level emits {@code pageKey, mask popcount, dense PEXT of key, child index chosen,
+   * child's stored partial}. Used to debug I6 violations — call from the I6 check site when a
+   * stored key fails to route to its actual leaf.
+   */
+  String tracePextDescend(PageReference startRef, byte[] key) {
+    final StringBuilder sb = new StringBuilder(256);
+    sb.append("[pext-trace] key=").append(bytesHex(key)).append(":\n");
+    PageReference ref = startRef;
+    for (int depth = 0; depth <= maxHeight; depth++) {
+      final Page page = loadPage(ref);
+      if (page == null) { sb.append("  depth=").append(depth).append(" → null\n"); break; }
+      if (page instanceof HOTLeafPage leaf) {
+        sb.append("  depth=").append(depth).append(" leaf=").append(leaf.getPageKey())
+            .append(" ec=").append(leaf.getEntryCount())
+            .append(" contains=").append(leaf.findEntry(key) >= 0).append("\n");
+        break;
+      }
+      if (!(page instanceof HOTIndirectPage indirect)) {
+        sb.append("  depth=").append(depth).append(" unknown page type\n"); break;
+      }
+      final int densePK = computeDensePartialKey(indirect, key);
+      final int childIdx = indirect.findChildIndex(key);
+      final int[] partials = indirect.getPartialKeys();
+      final int nc = indirect.getNumChildren();
+      sb.append("  depth=").append(depth).append(" indirect=").append(indirect.getPageKey())
+          .append(" mask-popcount=").append(Long.bitCount(indirect.getBitMask()))
+          .append(" initialBytePos=").append(indirect.getInitialBytePos())
+          .append(" densePK=0x").append(Integer.toHexString(densePK))
+          .append(" → childIdx=").append(childIdx).append("/").append(nc);
+      if (childIdx >= 0 && partials != null && partials.length > childIdx) {
+        sb.append(" childPartial=0x").append(Integer.toHexString(partials[childIdx]));
+      }
+      sb.append("\n  partials=[");
+      for (int k = 0; partials != null && k < Math.min(nc, partials.length); k++) {
+        if (k > 0) sb.append(',');
+        sb.append("0x").append(Integer.toHexString(partials[k]));
+      }
+      sb.append("]\n");
+      if (childIdx < 0) break;
+      ref = indirect.getChildReference(childIdx);
+      if (ref == null) break;
+    }
+    return sb.toString();
   }
 
   // ===== helpers =====

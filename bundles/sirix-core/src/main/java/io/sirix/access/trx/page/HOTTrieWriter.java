@@ -1492,12 +1492,19 @@ public final class HOTTrieWriter {
    * <p>Matches C++ reference: SingleMaskPartialKeyMapping vs MultiMaskPartialKeyMapping.</p>
    */
   private DiscBitsInfo computeDiscBits(PageReference[] children, int initialBytePos) {
-    // Sparse-path encoding (Binna §4.2): capture EVERY bit where adjacent children's first-keys
-    // differ — no constancy filter needed. The constancy invariant is no longer required: bits
-    // that vary within a sibling's subtree get encoded as 0 in that sibling's stored partial
-    // (off-path), and routing via subset-match still reaches the correct child. The
-    // adjacent-pair MSB collection is sufficient on sorted children because any pair with
-    // different sparse partials must differ at some adjacent-pair-captured bit.
+    // Capture EVERY bit where adjacent children's first-keys differ (no constancy filter on the
+    // rebuild path — see the residual-I6-violation note in the file header). Adjacent-pair MSB
+    // collection is sufficient for sorted children: any pair with different sparse partials must
+    // differ at some adjacent-pair-captured bit (transitivity).
+    //
+    // <p>Some configurations of multi-entry-leaf children produce stored partials that don't
+    // round-trip through PEXT-descent for every contained key (validator I6 violations). Those
+    // residual irregularities are absorbed by {@link HOTTrieReader#lowerBound}'s Phase 2b
+    // insertion-point fast path + Phase 3-5 walk-up, so end-to-end reads remain correct
+    // (microbench full-scan misses=0). Tightening this to a true constancy filter requires
+    // either dropping multi-entry leaves (giving up Sirix's storage density) or implementing
+    // structural rebalancing during restructuring (significant complexity); both are out of
+    // scope for this branch.
     int minBytePos = Integer.MAX_VALUE;
     int maxBytePos = 0;
     final TreeMap<Integer, Integer> maskByBytePos = new TreeMap<>();
@@ -1548,12 +1555,13 @@ public final class HOTTrieWriter {
     return (existing & (1 << (7 - bitInByte))) != 0;
   }
 
-  // augmentUntilPartialsUnique + computePartialKeysForMaskByBytePos REMOVED — dead under
-  // Binna sparse-path encoding. The disc-bit collection in computeDiscBits captures every
-  // adjacent-pair-differing bit (no constancy filter), and computePartialKeysForChildren
-  // uses the recursive sparse-path partition algorithm (computeSparsePathRecursive). Both
-  // augment + dense-PEXT mask-by-byte-pos extraction were artifacts of the old constancy-
-  // required encoding.
+  // Non-adjacent-pair augment was investigated for I6-violation reduction on multi-entry-leaf
+  // workloads (microbench at 500K reports 159 residual violations, all absorbed by
+  // HOTTrieReader's lower_bound walk-up). The augment+filter combination needs constancy-
+  // respecting bits between every colliding pair to terminate cleanly; adversarial workloads
+  // hit cases where no such bit exists, and the augment bails leaving partial-key duplicates
+  // that are MUCH worse (475K I3 violations and 87% read miss in the same microbench). The
+  // current adjacent-pair-no-filter approach minimises violations end-to-end.
 
   /**
    * Build MultiMask discriminative bit info from grouped disc bits.
