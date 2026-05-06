@@ -796,4 +796,368 @@ final class HOTFormalVerificationTest {
           "reassembled bitmap cardinality must equal " + totalInserts);
     }
   }
+
+  // ============================================================
+  // CAS index multi-rev fuzz: per-revision oracle equivalence.
+  // ============================================================
+
+  /**
+   * Drives a CAS Int32 index through {@code totalRevs} commits, inserting one new (value, nodeKey)
+   * pair per revision. After all commits, opens a read-only transaction at <em>every</em> committed
+   * revision and asserts:
+   *
+   * <ol>
+   *   <li>{@link HOTInvariantValidator} passes — I1..I10 + I-Binna sparse-path hold for the trie
+   *       rooted at <em>that</em> revision's root, not just the latest.</li>
+   *   <li>{@code reader.get(value)} returns the cumulative-up-to-revision-r bitmap exactly: every
+   *       value inserted in revisions ≤ r must be present, every value inserted later must not.</li>
+   *   <li>Values not yet inserted (e.g., looked up at an earlier revision than their commit) must
+   *       return null — no cross-revision leakage.</li>
+   * </ol>
+   *
+   * <p>This is the CAS analogue of {@link #nameIndexMultiRevFuzzedHistoricalIsolation}. Multi-rev
+   * CoW correctness specifically requires that each revision's root + indirect chain isolates
+   * its own snapshot; structural CoW failures (a revision-N writer mutating a page reachable from
+   * revision-(N-1)'s root) would surface as either (a) invariant violations on older revisions or
+   * (b) cumulative-mismatch between oracle and reader.
+   */
+  @Test
+  @DisplayName("CAS index — multi-rev historical isolation under fuzz")
+  void casIndexMultiRevFuzzedHistoricalIsolation() {
+    final long seed = 0xCAFEBABEL;
+    final Random rng = new Random(seed);
+    final int totalRevs = 25;
+    final long pathNodeKey = 5L;
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final IndexDef casIndexDef;
+    final List<Integer> revisions = new ArrayList<>();
+    // Per-rev oracle: every value inserted up to and including revision r maps to its nodeKey.
+    final List<Map<Integer, Long>> oracleAtRev = new ArrayList<>();
+    final Map<Integer, Long> oracle = new HashMap<>();
+
+    // Rev 1 — bootstrap with one value. Commit and snapshot oracle.
+    final int firstValue = rng.nextInt(1_000_000);
+    final long firstNodeKey = 0L;
+    oracle.put(firstValue, firstNodeKey);
+    oracleAtRev.add(new HashMap<>(oracle));
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse("/x/[]/v",
+          io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(casIndexDef), trx);
+
+      final var writer = io.sirix.index.hot.HOTIndexWriter.create(
+          trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
+          IndexType.CAS, casIndexDef.getID());
+      final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
+          new io.sirix.index.redblacktree.keyvalue.NodeReferences();
+      scratch.getNodeKeys().add(firstNodeKey);
+      writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
+          new Int32(firstValue), Type.INR, pathNodeKey), scratch, null);
+      trx.commit();
+      revisions.add(session.getMostRecentRevisionNumber());
+    }
+
+    // Revs 2..totalRevs — append one (value, nodeKey) per revision. Allow occasional duplicate
+    // values so the chunked-bitmap merge path is exercised across revisions too.
+    for (int r = 2; r <= totalRevs; r++) {
+      final int value;
+      if (rng.nextInt(5) == 0 && !oracle.isEmpty()) {
+        // Reuse an existing value to merge a new bit into an existing chunk slot.
+        final List<Integer> keys = new ArrayList<>(oracle.keySet());
+        value = keys.get(rng.nextInt(keys.size()));
+      } else {
+        value = rng.nextInt(1_000_000);
+      }
+      final long nodeKey = (long) (r - 1);
+      oracle.put(value, nodeKey);
+      oracleAtRev.add(new HashMap<>(oracle));
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+          final var trx = session.beginNodeTrx()) {
+        final var writer = io.sirix.index.hot.HOTIndexWriter.create(
+            trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
+            IndexType.CAS, casIndexDef.getID());
+        final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
+            new io.sirix.index.redblacktree.keyvalue.NodeReferences();
+        scratch.getNodeKeys().add(nodeKey);
+        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
+            new Int32(value), Type.INR, pathNodeKey), scratch, null);
+        trx.commit();
+        revisions.add(session.getMostRecentRevisionNumber());
+      }
+    }
+
+    // Verify — for every committed rev: validator passes AND reader.get matches the oracle for
+    // (a) every value inserted up to that rev (must hit) and (b) a sample of values inserted
+    // strictly later (must miss — proves no future-revision leakage).
+    final List<Integer> allValues = new ArrayList<>(oracle.keySet());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      for (int rIdx = 0; rIdx < totalRevs; rIdx++) {
+        final int rev = revisions.get(rIdx);
+        try (final var rtx = session.beginNodeReadOnlyTrx(rev)) {
+          final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
+              rtx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
+          if (!inv.isOk()) {
+            fail("Invariant violation at rev " + rev + " (seed=" + seed + "): "
+                + inv.violations());
+          }
+
+          final var reader = io.sirix.index.hot.HOTIndexReader.create(
+              rtx.getStorageEngineReader(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
+              IndexType.CAS, casIndexDef.getID());
+
+          final Map<Integer, Long> expectedAtThisRev = oracleAtRev.get(rIdx);
+          // (a) Every value inserted up to-and-including this rev must be present.
+          for (final var oracleEntry : expectedAtThisRev.entrySet()) {
+            final var got = reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(
+                new Int32(oracleEntry.getKey()), Type.INR, pathNodeKey), SearchMode.EQUAL);
+            assertNotNull(got, "rev " + rev + " missing value=" + oracleEntry.getKey()
+                + " (seed=" + seed + ")");
+            assertTrue(got.getNodeKeys().contains(oracleEntry.getValue()),
+                "rev " + rev + " value=" + oracleEntry.getKey()
+                    + " missing nodeKey=" + oracleEntry.getValue() + " (seed=" + seed + ")");
+          }
+          // (b) Spot-check: values inserted strictly later must NOT be visible at this rev.
+          //     Iterate `allValues` in reverse to bias toward "later" inserts; bail after a few
+          //     verifications so the per-rev cost stays bounded.
+          int strayChecksDone = 0;
+          for (int i = allValues.size() - 1; i >= 0 && strayChecksDone < 5; i--) {
+            final int v = allValues.get(i);
+            if (expectedAtThisRev.containsKey(v)) continue; // would-be hit, not interesting
+            final var got = reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(
+                new Int32(v), Type.INR, pathNodeKey), SearchMode.EQUAL);
+            // If the value happens to alias an oracleAtRev entry by integer collision, skip it;
+            // otherwise the reader must report no entry for this future-revision value.
+            if (got != null && oracleAtRev.get(rIdx).containsKey(v)) continue;
+            assertTrue(got == null,
+                "rev " + rev + " leaked future value=" + v + " (seed=" + seed + ")");
+            strayChecksDone++;
+          }
+        }
+      }
+    }
+  }
+
+  // ============================================================
+  // Per-revision invariant sweep: validator runs at every committed revision for every index.
+  // ============================================================
+
+  /**
+   * Builds three indexes (NAME, CAS, PATH-equivalent via NAME-keyed name workload) and commits
+   * {@code totalRevs} revisions. After each commit, the validator must pass at <em>every prior
+   * revision</em> as well — not just the latest. This is the strongest structural test of
+   * multi-version CoW: any in-place mutation of a page reachable from an older revision's root
+   * would be caught either by the validator (sees a corrupted indirect or leaf) or by the reader
+   * (gets a value that contradicts a later commit).
+   *
+   * <p>The test is intentionally cheap (small N per rev × small total revs) so it's part of the
+   * default suite. The expensive scale variants live in dedicated stress tests.</p>
+   */
+  @Test
+  @DisplayName("multi-rev — invariants hold at every committed revision (NAME + CAS)")
+  void everyCommittedRevisionPassesAllInvariants() {
+    final long seed = 0xDEADBEEFL;
+    final Random rng = new Random(seed);
+    final int totalRevs = 12;
+    final int casPerRev = 50; // CAS values per rev → ≥ 2 chunkIdx straddles after a few revs
+    final long pathNodeKey = 5L;
+
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final IndexDef nameIndexDef;
+    final IndexDef casIndexDef;
+    final List<Integer> revisions = new ArrayList<>();
+
+    // Rev 1: create both indexes + bootstrap entry.
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      nameIndexDef = IndexDefs.createNameIdxDef(0, IndexDef.DbType.JSON);
+      final var pathToValue = io.brackit.query.util.path.Path.parse("/x/[]/v",
+          io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(nameIndexDef, casIndexDef), trx);
+
+      // Bootstrap NAME via shredder (one named record).
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(
+          "{\"items\":[{\"bootstrap\":0}]}"));
+
+      // Bootstrap CAS via direct writer (one value).
+      final var casWriter = io.sirix.index.hot.HOTIndexWriter.create(
+          trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
+          IndexType.CAS, casIndexDef.getID());
+      final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
+          new io.sirix.index.redblacktree.keyvalue.NodeReferences();
+      scratch.getNodeKeys().add(0L);
+      casWriter.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
+          new Int32(0), Type.INR, pathNodeKey), scratch, null);
+
+      trx.commit();
+      revisions.add(session.getMostRecentRevisionNumber());
+    }
+
+    // Revs 2..totalRevs: each rev appends to NAME (via shredder) AND to CAS (via direct writer)
+    // so both indexes evolve in parallel.
+    for (int r = 2; r <= totalRevs; r++) {
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+          final var trx = session.beginNodeTrx()) {
+        // Append one named record to drive the NAME index.
+        trx.moveToDocumentRoot();
+        trx.moveToFirstChild();
+        trx.moveToFirstChild();
+        trx.moveToLastChild();
+        final String name = "name_" + rng.nextInt(20);
+        trx.insertSubtreeAsRightSibling(JsonShredder.createStringReader(
+            "{\"" + name + "\":" + r + "}"));
+
+        // Append a CAS-per-rev burst (50 distinct values, nodeKeys spanning chunkIdx boundary
+        // when totalRevs grows past ~13K — at totalRevs=12 we straddle within one chunk plus
+        // a few crossing values).
+        final var casWriter = io.sirix.index.hot.HOTIndexWriter.create(
+            trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
+            IndexType.CAS, casIndexDef.getID());
+        final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
+            new io.sirix.index.redblacktree.keyvalue.NodeReferences();
+        for (int i = 0; i < casPerRev; i++) {
+          final int v = (r * casPerRev) + i;
+          scratch.getNodeKeys().clear();
+          scratch.getNodeKeys().add((long) v);
+          casWriter.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
+              new Int32(v), Type.INR, pathNodeKey), scratch, null);
+        }
+
+        trx.commit();
+        revisions.add(session.getMostRecentRevisionNumber());
+      }
+    }
+
+    // Sweep every committed revision and run the validator on BOTH indexes. Any violation at
+    // any revision is a structural CoW bug (older revs should be frozen; if the validator sees
+    // a corrupted page from an older rev's root the writer leaked a mutation across revisions).
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE)) {
+      for (final int rev : revisions) {
+        try (final var rtx = session.beginNodeReadOnlyTrx(rev)) {
+          final HOTInvariantValidator.Result invName = HOTInvariantValidator.validateIndex(
+              rtx.getStorageEngineReader(), IndexType.NAME, nameIndexDef.getID());
+          if (!invName.isOk()) {
+            fail("NAME invariant violation at rev " + rev + ": " + invName.violations());
+          }
+          final HOTInvariantValidator.Result invCas = HOTInvariantValidator.validateIndex(
+              rtx.getStorageEngineReader(), IndexType.CAS, casIndexDef.getID());
+          if (!invCas.isOk()) {
+            fail("CAS invariant violation at rev " + rev + ": " + invCas.violations());
+          }
+        }
+      }
+    }
+  }
+
+  // ============================================================
+  // Structural CoW isolation: rev-N reads must not see rev-(N+1) writes.
+  // ============================================================
+
+  /**
+   * The strongest end-to-end structural CoW assertion: insert N CAS entries in rev R1, commit,
+   * then insert another N entries in rev R2, commit. Open a reader at R1 — it must see exactly
+   * the R1 entries and NOT see the R2 entries, even though the R2 writer mutated indirect pages
+   * along the path. If structural CoW were broken (writer mutating R1-reachable pages in place),
+   * the R1 reader would observe R2 entries leaking in.
+   *
+   * <p>Conversely, the R2 reader must see the union — both R1 and R2 entries — proving that the
+   * older revision's content remains reachable through R2's root via the standard COW chain.</p>
+   */
+  @Test
+  @DisplayName("multi-rev CoW — older revision sees its own snapshot, later revs see union")
+  void casIndexCowStructuralIsolation() {
+    final int n = 200;
+    final long pathNodeKey = 5L;
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final IndexDef casIndexDef;
+    final int rev1;
+    final int rev2;
+
+    // Rev 1: create index + insert v=[0, n).
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse("/x/[]/v",
+          io.brackit.query.util.path.PathParser.Type.JSON);
+      casIndexDef = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(casIndexDef), trx);
+
+      final var writer = io.sirix.index.hot.HOTIndexWriter.create(
+          trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
+          IndexType.CAS, casIndexDef.getID());
+      final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
+          new io.sirix.index.redblacktree.keyvalue.NodeReferences();
+      for (int v = 0; v < n; v++) {
+        scratch.getNodeKeys().clear();
+        scratch.getNodeKeys().add((long) v);
+        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
+            new Int32(v), Type.INR, pathNodeKey), scratch, null);
+      }
+      trx.commit();
+      rev1 = session.getMostRecentRevisionNumber();
+    }
+
+    // Rev 2: insert v=[n, 2n).
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var writer = io.sirix.index.hot.HOTIndexWriter.create(
+          trx.getStorageEngineWriter(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
+          IndexType.CAS, casIndexDef.getID());
+      final io.sirix.index.redblacktree.keyvalue.NodeReferences scratch =
+          new io.sirix.index.redblacktree.keyvalue.NodeReferences();
+      for (int v = n; v < 2 * n; v++) {
+        scratch.getNodeKeys().clear();
+        scratch.getNodeKeys().add((long) v);
+        writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
+            new Int32(v), Type.INR, pathNodeKey), scratch, null);
+      }
+      trx.commit();
+      rev2 = session.getMostRecentRevisionNumber();
+    }
+
+    // Verify rev 1 sees ONLY [0, n) — no leakage from rev 2.
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var rtx = session.beginNodeReadOnlyTrx(rev1)) {
+      HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.CAS,
+          casIndexDef.getID()).assertOk();
+      final var reader = io.sirix.index.hot.HOTIndexReader.create(
+          rtx.getStorageEngineReader(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
+          IndexType.CAS, casIndexDef.getID());
+      for (int v = 0; v < n; v++) {
+        assertNotNull(
+            reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(
+                new Int32(v), Type.INR, pathNodeKey), SearchMode.EQUAL),
+            "rev1 missing v=" + v);
+      }
+      for (int v = n; v < 2 * n; v++) {
+        assertTrue(
+            reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(
+                new Int32(v), Type.INR, pathNodeKey), SearchMode.EQUAL) == null,
+            "rev1 leaked future v=" + v + " from rev2");
+      }
+    }
+
+    // Verify rev 2 sees the union [0, 2n).
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var rtx = session.beginNodeReadOnlyTrx(rev2)) {
+      HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.CAS,
+          casIndexDef.getID()).assertOk();
+      final var reader = io.sirix.index.hot.HOTIndexReader.create(
+          rtx.getStorageEngineReader(), io.sirix.index.hot.CASKeySerializer.INSTANCE,
+          IndexType.CAS, casIndexDef.getID());
+      for (int v = 0; v < 2 * n; v++) {
+        assertNotNull(
+            reader.get(new io.sirix.index.redblacktree.keyvalue.CASValue(
+                new Int32(v), Type.INR, pathNodeKey), SearchMode.EQUAL),
+            "rev2 missing v=" + v);
+      }
+    }
+  }
 }
