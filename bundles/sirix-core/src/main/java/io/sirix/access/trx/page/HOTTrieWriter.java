@@ -1694,18 +1694,23 @@ public final class HOTTrieWriter {
    * Collect disc bit positions in MSB-first absolute-bit order: smallest absolute bit
    * position first (= most significant). Walks SingleMask or MultiMask layout.
    *
-   * <p>HFT-grade: writes into a primitive {@code int[]} sized to {@link #MAX_DISC_BITS}
-   * (max disc bits a HOT node can hold = partial-key bit width = 32). Returns a trimmed
-   * copy only when the actual bit count is smaller. No {@code List<Integer>}, no
-   * autoboxing, no {@code ArrayList} growth, single bounded-size allocation per call.
+   * <p>HFT-grade: writes into a primitive {@code int[]} sized to MultiMask theoretical max
+   * (8 extraction bytes × 8 bits = 64). MAX_DISC_BITS = 32 is the partial-key invariant
+   * (HOT I3 — partials must be unique 32-bit values), but collection-time tooling can
+   * temporarily see >32 bits in transient states (e.g., before {@link #augmentUntilPartialsUnique}
+   * trims). The writer downstream treats >32 bits as an INV violation and bails to the
+   * split path; this method must not throw before that bail can trigger. Returns a trimmed
+   * copy. No {@code List<Integer>}, no autoboxing, no growth, single bounded allocation.
    */
   private static int[] collectDiscBitsMsbFirst(DiscBitsInfo discBits) {
-    final int[] buf = new int[MAX_DISC_BITS];
+    // Sized to the theoretical max (8 extraction bytes × 8 bits/byte) so transient
+    // out-of-spec disc-bit counts don't AIOOBE before the downstream INV check fires.
+    final int[] buf = new int[64];
     int n = 0;
     if (discBits.isSingleMask()) {
       final int initialBytePos = discBits.initialBytePos();
       long mask = discBits.bitMask();
-      while (mask != 0L) {
+      while (mask != 0L && n < buf.length) {
         final int highBit = 63 - Long.numberOfLeadingZeros(mask);
         // BE: byte at window-offset bo occupies long bits ((7-bo)*8)..((7-bo)*8+7).
         // Within byte, MSB-first bit bb is at long-bit ((7-bo)*8 + (7-bb)).
@@ -1720,17 +1725,17 @@ public final class HOTTrieWriter {
       final byte[] extractionPositions = discBits.extractionPositions();
       final long[] extractionMasks = discBits.extractionMasks();
       final int numExtractionBytes = discBits.numExtractionBytes();
-      for (int i = 0; i < numExtractionBytes; i++) {
+      for (int i = 0; i < numExtractionBytes && n < buf.length; i++) {
         final int bytePos = extractionPositions[i] & 0xFF;
         final int byteMask = (int) ((extractionMasks[i / 8] >>> ((7 - (i % 8)) * 8)) & 0xFF);
-        for (int bb = 0; bb < 8; bb++) {
+        for (int bb = 0; bb < 8 && n < buf.length; bb++) {
           final int byteBit = 7 - bb;
           if ((byteMask & (1 << byteBit)) == 0) continue;
           buf[n++] = bytePos * 8 + bb;
         }
       }
     }
-    return n == MAX_DISC_BITS ? buf : Arrays.copyOf(buf, n);
+    return n == buf.length ? buf : Arrays.copyOf(buf, n);
   }
 
   /**

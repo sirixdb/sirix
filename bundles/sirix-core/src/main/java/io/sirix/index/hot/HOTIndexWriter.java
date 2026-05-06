@@ -65,10 +65,14 @@ import static java.util.Objects.requireNonNull;
 public final class HOTIndexWriter<K extends Comparable<? super K>> extends AbstractHOTIndexWriter<K> {
 
   /**
-   * Thread-local buffer for key serialization (256 bytes default).
-   * Sized to fit prefix + {@link HOTKeySerializer#CHUNK_IDX_BYTES}.
+   * Thread-local buffer for key serialization. Sized to fit the largest CAS prefix (10-byte
+   * header + {@code MAX_STRING_VALUE_BYTES = 246}) PLUS
+   * {@link HOTKeySerializer#CHUNK_IDX_BYTES} (= 4) chunkIdx trailer = 260 bytes minimum;
+   * rounded to 512 for headroom across future serializer changes. Previously 256, which
+   * overflowed by 4 bytes whenever the prefix maxed out (regression caught by
+   * {@code JsonIntegrationTest.testCreateAndScanCASIndex3} via long-string CAS values).
    */
-  private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[256]);
+  private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[512]);
 
   /**
    * Thread-local single-bit chunk-payload {@link NodeReferences} reused across writes to avoid

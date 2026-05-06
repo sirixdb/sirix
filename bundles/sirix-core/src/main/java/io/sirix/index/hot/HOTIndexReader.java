@@ -68,9 +68,13 @@ import static java.util.Objects.requireNonNull;
 public final class HOTIndexReader<K extends Comparable<? super K>> extends AbstractHOTIndexReader<K> {
 
   /**
-   * Thread-local buffer for key serialization (256 bytes default).
+   * Thread-local buffer for key serialization. Sized to fit the largest CAS prefix (10-byte
+   * header + {@code MAX_STRING_VALUE_BYTES = 246}) PLUS
+   * {@link HOTKeySerializer#CHUNK_IDX_BYTES} (= 4) chunkIdx trailer; rounded to 512 for headroom.
+   * Mirrors {@link HOTIndexWriter#KEY_BUFFER}'s sizing to avoid 4-byte overflow on max-length
+   * string CAS values.
    */
-  private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[256]);
+  private static final ThreadLocal<byte[]> KEY_BUFFER = ThreadLocal.withInitial(() -> new byte[512]);
 
   private final HOTKeySerializer<K> keySerializer;
 
