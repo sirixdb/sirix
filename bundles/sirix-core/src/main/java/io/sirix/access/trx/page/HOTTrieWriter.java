@@ -775,86 +775,60 @@ public final class HOTTrieWriter {
     final long oldPartialMaskInNewLayout =
         (((1L << (oldCount + 1)) - 1L) ^ (1L << newBitOutputPos));
 
-    // 3. Verify the new disc bit is constant across every existing non-split sibling's
-    //    subtree, and capture each sibling's constant value to set its repositioned partial
-    //    bit. Required because Sirix's multi-entry leaves can hold keys differing at any
-    //    bit; under sparse-path encoding subset-match routing misroutes keys destined for
-    //    an off-path sibling that spans both bit values (the leaf-split's products beat the
-    //    off-path sibling on most-specific match). Constancy ensures no off-path span exists.
-    //    Binna's reference doesn't need this gate because his single-TID leaves trivially
-    //    have constancy.
-    //
-    //    <p>Active rebalancing (split offending siblings on newAbsBit) is implemented in
-    //    {@link #splitSubtreeOnBit} but not yet wired here — see Phase 2 of the active-
-    //    rebalancing plan. The naive integration introduced an I8 sort regression because
-    //    splits leave the resulting halves potentially non-constant at OLD mask bits
-    //    inherited from the parent's pre-existing structure; partial-key sort then diverges
-    //    from first-key sort. The proper integration must verify constancy at all (old +
-    //    new) mask bits, splitting siblings as needed at any non-constant position.
-    final int[] siblingBitValues = new int[numChildren];
-    for (int i = 0; i < numChildren; i++) {
-      if (i == splitChildIndex) continue;
-      final int v = bitConstantValueInSubtree(parent.getChildReference(i), newAbsBit);
-      if (v < 0) return null; // non-constant — caller takes splitParentAndRecurse
-      siblingBitValues[i] = v;
-    }
-
-    // 4. Build the expanded children + partial-keys arrays. With constancy verified above,
-    //    each sibling's value at the new disc bit is determined; we set its partial bit at
-    //    the new output position to that value. Equivalent to dense-PEXT-of-first-key under
-    //    the constancy invariant — first key's bit value matches every other key's bit
-    //    value in the subtree.
-    final int newNumChildren = numChildren + 1;
-    final PageReference[] newChildren = new PageReference[newNumChildren];
-    final int[] newPartialKeys = new int[newNumChildren];
+    // 3. Active rebalancing — Phase 2. Build the initial children list (existing children
+    //    with splitChildIndex replaced by leftChild + rightChild), then expand it to strict
+    //    constancy at every disc bit in the new mask via {@link #expandChildrenToConstancy}.
+    //    Splitting on EVERY mask bit (not just newAbsBit) ensures the resulting children all
+    //    have constancy across the full mask, so dense-PEXT-of-first-key partials match the
+    //    actual subtree contents and partial-key sort = first-key sort (HOT I8).
     final int[] oldPartialKeys = parent.getPartialKeys();
-
-    // leftChild has the new disc bit = 0, rightChild has it = 1 — by construction of the
-    // leaf split that produced them. The split products inherit the original split-child's
-    // path (under the old mask) and extend it with the new bit value on each side.
-    final int splitChildOldPartial = oldPartialKeys[splitChildIndex];
-    final int splitChildRepositioned =
-        (int) Long.expand(Integer.toUnsignedLong(splitChildOldPartial), oldPartialMaskInNewLayout);
-
-    int j = 0;
-    for (int i = 0; i < numChildren; i++) {
-      if (i == splitChildIndex) {
-        newChildren[j] = leftChild;
-        newPartialKeys[j] = splitChildRepositioned; // new bit = 0 (LEFT)
-        j++;
-        newChildren[j] = rightChild;
-        newPartialKeys[j] = splitChildRepositioned | (1 << newBitOutputPos); // new bit = 1 (RIGHT)
-        j++;
-      } else {
-        newChildren[j] = parent.getChildReference(i);
-        // Reposition the existing partial into the new layout, then OR in the sibling's
-        // verified-constant value at the new disc bit's output position.
-        final int repositioned = (int) Long.expand(
-            Integer.toUnsignedLong(oldPartialKeys[i]), oldPartialMaskInNewLayout);
-        newPartialKeys[j] = repositioned | (siblingBitValues[i] << newBitOutputPos);
-        j++;
+    final PageReference[] initialChildren = new PageReference[numChildren + 1];
+    {
+      int j = 0;
+      for (int i = 0; i < numChildren; i++) {
+        if (i == splitChildIndex) {
+          initialChildren[j++] = leftChild;
+          initialChildren[j++] = rightChild;
+        } else {
+          initialChildren[j++] = parent.getChildReference(i);
+        }
       }
     }
+    final int[] absBits = collectBitsFromSingleMask(newMask, oldInitialBytePos);
+    final PageReference[] expandedChildren = expandChildrenToConstancy(
+        initialChildren, absBits, revision, parent.getHeight() - 1);
+    if (expandedChildren == null) {
+      return null; // exceeded MAX_CHILDREN — caller takes splitParentAndRecurse
+    }
 
-    // 4. Sanity guard: under the sparse-path encoding the new partial keys must be unique
-    //    (HOT I3). The repositioning is a bijection on the old partials, the split-child
-    //    halves' partials differ at the new bit, and they differ from non-split siblings'
-    //    partials because their old-bit positions were already unique. A duplicate here
-    //    indicates an upstream invariant break — bail so the caller takes the split path.
+    // 4. Compute partials fresh from each child's first-key. Under strict constancy (now
+    //    enforced by expandChildrenToConstancy) the dense PEXT extraction equals the sparse-
+    //    path stored partial: every captured disc bit's value in the first-key matches every
+    //    other key's value in the subtree, so encoding-by-first-key is encoding-by-subtree.
+    final int newNumChildren = expandedChildren.length;
+    final int[] newPartialKeys = new int[newNumChildren];
+    for (int i = 0; i < newNumChildren; i++) {
+      final byte[] fk = getFirstKeyFromChild(expandedChildren[i]);
+      newPartialKeys[i] = computePartialKeySingleMask(fk, oldInitialBytePos, newMask);
+    }
+
+    // 4b. Sanity guard: partial keys must be unique (HOT I3).
     for (int i = 1; i < newNumChildren; i++) {
       for (int k = 0; k < i; k++) {
         if (newPartialKeys[k] == newPartialKeys[i]) return null;
       }
     }
 
-    // 5. Sort children + partials by partial-key (HOT I7 / Binna §4.2). Under sparse-path
-    //    encoding the canonical slot order is sparse-partial-key order, NOT first-key order.
-    //    The leaf-split halves' partials are repositionedSplitX and repositionedSplitX |
-    //    (1 << newBitOutputPos); their relative position vs. other siblings' repositioned
-    //    partials depends on newBitOutputPos. If newBitOutputPos is a high bit (= the new
-    //    disc bit is more significant than some old disc bits), the rightChild's partial may
-    //    sort AFTER an existing sibling — so co-sorting is required, not adjacent placement.
-    sortChildrenAndPartialsByPartial(newChildren, newPartialKeys);
+    final PageReference[] newChildren = expandedChildren;
+
+    // 5. Sort children + partials by FIRST KEY (HOT I8). The reader's
+    //    {@link io.sirix.access.trx.page.HOTTrieReader#lowerOrUpperBound} walk-up logic
+    //    explicitly relies on first-key order for its affected-subtree scan. Partial-key
+    //    sort coincides with first-key sort under strict constancy across every captured
+    //    disc bit, which {@link #expandChildrenToConstancy} now enforces; choosing first-key
+    //    sort makes the contract with the reader explicit and robust to any residual
+    //    constancy gaps at bits outside the mask.
+    sortChildrenAndPartialsByFirstKey(newChildren, newPartialKeys);
 
     if (newNumChildren <= 16) {
       return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
@@ -1055,7 +1029,7 @@ public final class HOTTrieWriter {
     }
 
     // Sort children + partials by partial-key (HOT I7 / Binna §4.2). See addEntryWithPDep.
-    sortChildrenAndPartialsByPartial(newChildren, newPartials);
+    sortChildrenAndPartialsByFirstKey(newChildren, newPartials);
 
     if (newNumChildren <= 16) {
       return HOTIndirectPage.createSpanNodeMultiMask(parent.getPageKey(), revision,
@@ -1259,7 +1233,7 @@ public final class HOTTrieWriter {
     }
 
     // 7. Sort children + partials by partial-key (HOT I7 / Binna §4.2). See addEntryWithPDep.
-    sortChildrenAndPartialsByPartial(newChildren, newPartials);
+    sortChildrenAndPartialsByFirstKey(newChildren, newPartials);
 
     if (newNumChildren <= 16) {
       return HOTIndirectPage.createSpanNodeMultiMask(parent.getPageKey(), revision,
@@ -1392,6 +1366,92 @@ public final class HOTTrieWriter {
    * @param height    the height the new subtree(s) should have
    * @return {@code [bit0Half, bit1Half]}, either may be {@code null} if empty
    */
+  /**
+   * Process every absolute bit in {@code absBits} against {@code children}; whenever a child's
+   * subtree spans both bit values at any of those positions, partition that subtree via
+   * {@link #splitSubtreeOnBit} so each resulting half is constant at the offending bit. Returns
+   * the (possibly grown) children array — every entry is now constant at every bit in
+   * {@code absBits}. Returns {@code null} when the cumulative count would exceed
+   * {@link NodeUpgradeManager#MULTI_NODE_MAX_CHILDREN} (= 32); caller must then take the parent
+   * split path.
+   *
+   * <p><b>Why all bits, not just the new one.</b> Splitting only on the new disc bit (= the
+   * naive Phase 2-attempt) leaves halves potentially non-constant at OLD mask bits inherited
+   * from the parent's pre-existing structure. With non-strict constancy at the old bits, the
+   * dense-PEXT-of-first-key partials don't agree with the actual subtree contents, and
+   * partial-key sort diverges from first-key sort (HOT I8 violation in
+   * {@code casIndexBinnaConformanceSweep}). Splitting on every captured disc bit restores strict
+   * constancy across the entire mask; under strict constancy, partial-key sort = first-key sort.
+   *
+   * <p><b>Termination.</b> Each bit's processing is one linear pass. Splitting child[i] on bit
+   * B can grow the array by at most 1 (one new half added at i+1). After processing bit B,
+   * every child is constant at B; subsequent bit processing doesn't disturb that constancy
+   * (a split on bit B' partitions keys by B' but leaves their B-bit values unchanged within
+   * each half). Total iterations bounded by {@code |absBits|} × max children growth.
+   *
+   * <p><b>HFT-grade.</b> Single fixed-size buffer of {@code MAX_CHILDREN + 1} = 33 references;
+   * in-place shift on split. No {@link java.util.ArrayList}, no boxing. Allocation only at
+   * return-time {@link Arrays#copyOf}.
+   */
+  private @org.jspecify.annotations.Nullable PageReference[] expandChildrenToConstancy(
+      PageReference[] children, int[] absBits, int revision, int height) {
+    final int maxChildren = NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN;
+    if (children.length > maxChildren + 1) return null; // already over capacity
+    final PageReference[] buf = new PageReference[maxChildren + 1];
+    int n = children.length;
+    System.arraycopy(children, 0, buf, 0, n);
+
+    for (final int absBit : absBits) {
+      int i = 0;
+      while (i < n) {
+        final int v = bitConstantValueInSubtree(buf[i], absBit);
+        if (v >= 0) { i++; continue; }
+        final PageReference[] sub = splitSubtreeOnBit(buf[i], absBit, revision, height);
+        if (sub[0] != null && sub[1] != null) {
+          if (n + 1 > maxChildren) return null;
+          // Replace buf[i] with sub[0]; shift buf[i+1..n-1] right; insert sub[1] at i+1.
+          System.arraycopy(buf, i + 1, buf, i + 2, n - i - 1);
+          buf[i] = sub[0];
+          buf[i + 1] = sub[1];
+          n++;
+          ACTIVE_REBAL_COUNT.incrementAndGet();
+          i += 2; // both halves are now constant at absBit
+        } else if (sub[0] != null) {
+          buf[i] = sub[0]; // potentially the same ref; degenerate constant-0 case
+          i++;
+        } else if (sub[1] != null) {
+          buf[i] = sub[1];
+          i++;
+        } else {
+          // Empty subtree — drop.
+          System.arraycopy(buf, i + 1, buf, i, n - i - 1);
+          n--;
+        }
+      }
+    }
+    return n == buf.length ? buf : Arrays.copyOf(buf, n);
+  }
+
+  /**
+   * Collect all set absolute bit positions in a SingleMask {@code (initialBytePos, mask)}
+   * combination, in MSB-first order (most significant first). Used by
+   * {@link #expandChildrenToConstancy}.
+   */
+  private static int[] collectBitsFromSingleMask(long mask, int initialBytePos) {
+    final int n = Long.bitCount(mask);
+    final int[] result = new int[n];
+    int idx = 0;
+    long m = mask;
+    while (m != 0L) {
+      final int highBit = 63 - Long.numberOfLeadingZeros(m);
+      final int bo = 7 - (highBit / 8);
+      final int bb = 7 - (highBit % 8);
+      result[idx++] = (initialBytePos + bo) * 8 + bb;
+      m &= ~(1L << highBit);
+    }
+    return result;
+  }
+
   private PageReference[] splitSubtreeOnBit(PageReference ref, int absBit, int revision,
       int height) {
     // Fast path: bit constant in subtree → return original reference unchanged.
@@ -1576,7 +1636,7 @@ public final class HOTTrieWriter {
     // Sort by partial-key (HOT I7) — children are sorted by first-key above to drive
     // adjacent-pair disc-bit collection in computeDiscBits, but the canonical storage
     // order is partial-key.
-    sortChildrenAndPartialsByPartial(newChildren, partialKeys);
+    sortChildrenAndPartialsByFirstKey(newChildren, partialKeys);
 
     // Create appropriate node type based on child count
     final HOTIndirectPage created;
@@ -2251,7 +2311,7 @@ public final class HOTTrieWriter {
     // Sort by partial-key (HOT I7 / Binna §4.2). The sortedChildren array was sorted by
     // first-key earlier to drive the relevant-bits derivation; the canonical storage order
     // under sparse-path encoding is partial-key.
-    sortChildrenAndPartialsByPartial(sortedChildren, newPartials);
+    sortChildrenAndPartialsByFirstKey(sortedChildren, newPartials);
 
     // Assemble node.
     if (sortedChildren.length == 2) {
@@ -2441,7 +2501,7 @@ public final class HOTTrieWriter {
       final int initialBytePos = computeInitialBytePos(children);
       final DiscBitsInfo discBits = computeDiscBits(children, initialBytePos);
       final int[] partialKeys = computePartialKeysForChildren(children, discBits);
-      sortChildrenAndPartialsByPartial(children, partialKeys);
+      sortChildrenAndPartialsByFirstKey(children, partialKeys);
       created = createNodeWithDiscBits(pageKey, revision, height, discBits, partialKeys, children);
     }
     return created;
@@ -2537,6 +2597,41 @@ public final class HOTTrieWriter {
    * bounded by {@link HOTIndirectPage#MAX_NODE_ENTRIES} = 32, so insertion sort is faster
    * than {@link Arrays#sort} (no comparator allocation, better cache behavior).
    */
+  /**
+   * Co-sort {@code children} and {@code partials} by ascending first-key (HOT I8 invariant
+   * — the reader's {@link io.sirix.access.trx.page.HOTTrieReader#lowerOrUpperBound} walk-up
+   * relies on first-key order to scan the "affected subtree" range at the branching depth).
+   * Each child's first key is fetched once and cached so repeated comparisons during the
+   * insertion sort don't re-load pages. HFT-grade — int[] cache + insertion sort over the
+   * parallel arrays, no comparator allocation.
+   */
+  private void sortChildrenAndPartialsByFirstKey(PageReference[] children, int[] partials) {
+    final int n = children.length;
+    if (n <= 1) return;
+    if (partials.length < n) {
+      throw new IllegalArgumentException(
+          "partials.length=" + partials.length + " < children.length=" + n);
+    }
+    // Cache first-keys once to avoid re-fetching during the O(n²) insertion sort.
+    final byte[][] firstKeys = new byte[n][];
+    for (int i = 0; i < n; i++) firstKeys[i] = getFirstKeyFromChild(children[i]);
+    for (int i = 1; i < n; i++) {
+      final byte[] curKey = firstKeys[i];
+      final int curPartial = partials[i];
+      final PageReference curChild = children[i];
+      int j = i - 1;
+      while (j >= 0 && Arrays.compareUnsigned(firstKeys[j], curKey) > 0) {
+        firstKeys[j + 1] = firstKeys[j];
+        partials[j + 1] = partials[j];
+        children[j + 1] = children[j];
+        j--;
+      }
+      firstKeys[j + 1] = curKey;
+      partials[j + 1] = curPartial;
+      children[j + 1] = curChild;
+    }
+  }
+
   private static void sortChildrenAndPartialsByPartial(PageReference[] children, int[] partials) {
     final int n = children.length;
     if (n <= 1) return;
