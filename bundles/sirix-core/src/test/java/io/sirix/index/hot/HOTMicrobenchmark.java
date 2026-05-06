@@ -293,6 +293,8 @@ final class HOTMicrobenchmark {
       final HOTInvariantValidator.Result inv =
           HOTInvariantValidator.validateIndex(rtx.getStorageEngineReader(), IndexType.CAS,
               casIndexDef.getID());
+      System.out.println("[microbench/diagnostic] addEntry-path active-rebalancing fired "
+          + io.sirix.access.trx.page.HOTTrieWriter.ACTIVE_REBAL_COUNT.get() + " times");
       System.out.println("[microbench/diagnostic] validator: storedKeys=" + inv.storedKeyCount()
           + " observedHeight=" + inv.observedHeight() + " violations=" + inv.violations().size());
       // Print first 5 violations (truncate to avoid log flood).

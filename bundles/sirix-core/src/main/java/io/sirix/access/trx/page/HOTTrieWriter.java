@@ -121,6 +121,14 @@ public final class HOTTrieWriter {
    */
   private @Nullable TransactionIntentLog activeLog;
 
+  /** Static cumulative counter for {@link #addEntryWithPDep} / {@link #addEntryMultiMask} /
+   *  {@link #upgradeToMultiMaskWithNewBit} active-rebalancing splits — incremented every time
+   *  the constancy gate fires {@link #splitSubtreeOnBit} on a non-constant sibling. Diagnostic
+   *  only; used by formal-verification tests + microbench to assert the path is exercised
+   *  under stress. */
+  public static final java.util.concurrent.atomic.AtomicLong ACTIVE_REBAL_COUNT =
+      new java.util.concurrent.atomic.AtomicLong();
+
   /**
    * Holds either SingleMask or MultiMask discriminative bit information.
    * SingleMask: all disc bits fit within 8 contiguous key bytes (one 64-bit PEXT mask).
@@ -775,6 +783,14 @@ public final class HOTTrieWriter {
     //    off-path sibling on most-specific match). Constancy ensures no off-path span exists.
     //    Binna's reference doesn't need this gate because his single-TID leaves trivially
     //    have constancy.
+    //
+    //    <p>Active rebalancing (split offending siblings on newAbsBit) is implemented in
+    //    {@link #splitSubtreeOnBit} but not yet wired here — see Phase 2 of the active-
+    //    rebalancing plan. The naive integration introduced an I8 sort regression because
+    //    splits leave the resulting halves potentially non-constant at OLD mask bits
+    //    inherited from the parent's pre-existing structure; partial-key sort then diverges
+    //    from first-key sort. The proper integration must verify constancy at all (old +
+    //    new) mask bits, splitting siblings as needed at any non-constant position.
     final int[] siblingBitValues = new int[numChildren];
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) continue;
@@ -990,8 +1006,8 @@ public final class HOTTrieWriter {
     }
 
     // Verify constancy of the new disc bit across every existing non-split sibling — see
-    // {@link #addEntryWithPDep} for the multi-entry-leaf rationale. On non-constant return,
-    // caller falls back to splitParentAndRecurse.
+    // addEntryWithPDep for the multi-entry-leaf rationale and the deferred active-
+    // rebalancing integration.
     final int[] siblingBitValues = new int[numChildren];
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) continue;
@@ -1000,8 +1016,8 @@ public final class HOTTrieWriter {
       siblingBitValues[i] = v;
     }
 
-    // Build expanded children and partials. With constancy verified, each existing sibling
-    // contributes its constant bit value at the new disc bit's output position.
+    // Build expanded children and partials. The new bit's output position depends on its
+    // location in the MultiMask BE-concat layout.
     final int newBitOutputPos = multiMaskNewBitOutputPos(extractionPositions, extractionMasks,
         allCount, newBytePos, newBitInByte);
     final long oldPartialMaskInNewLayout = (((1L << (oldCount + 1)) - 1L) ^ (1L << newBitOutputPos));
@@ -1017,10 +1033,10 @@ public final class HOTTrieWriter {
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) {
         newChildren[j] = leftChild;
-        newPartials[j] = splitChildRepositioned; // new bit = 0 (LEFT)
+        newPartials[j] = splitChildRepositioned;
         j++;
         newChildren[j] = rightChild;
-        newPartials[j] = splitChildRepositioned | (1 << newBitOutputPos); // new bit = 1 (RIGHT)
+        newPartials[j] = splitChildRepositioned | (1 << newBitOutputPos);
         j++;
       } else {
         newChildren[j] = parent.getChildReference(i);
@@ -1116,7 +1132,8 @@ public final class HOTTrieWriter {
     // 1. Verify constancy of the new disc bit across every existing non-split sibling.
     //    Required because Sirix's multi-entry leaves can hold keys differing at any bit;
     //    sparse-path subset-match routing misroutes keys destined for a sibling that spans
-    //    both bit values. See addEntryWithPDep for the full rationale.
+    //    both bit values. See addEntryWithPDep for the full rationale and the deferred
+    //    active-rebalancing integration.
     final int[] siblingBitValues = new int[numChildren];
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) continue;
@@ -1336,6 +1353,155 @@ public final class HOTTrieWriter {
       return first;
     }
     return -1;
+  }
+
+  /**
+   * Recursively partition the subtree rooted at {@code ref} by absolute bit
+   * {@code absBit}: returns a 2-element array where {@code [0]} contains all keys with the
+   * bit clear and {@code [1]} contains all keys with the bit set. Either slot may be
+   * {@code null} when its half is empty.
+   *
+   * <p><b>Why this exists.</b> Active rebalancing on disc-bit insertion. When
+   * {@link #addEntryWithPDep} (or its MultiMask siblings) adds a new disc bit at a parent
+   * and a non-split sibling has a subtree spanning both bit values, the constancy invariant
+   * is violated — sparse-path subset-match routing would misroute keys destined for that
+   * "off-path" sibling to the leaf-split's products (most-specific match wins). Binna's
+   * reference doesn't hit this because his single-TID leaves trivially satisfy constancy at
+   * every bit. To preserve Binna's height-optimality strictly under multi-entry leaves we
+   * partition the offending sibling so each resulting half is constant at the new bit.
+   *
+   * <p><b>Algorithm.</b>
+   * <ul>
+   *   <li>If the bit is already constant in the subtree (probed via
+   *       {@link #bitConstantValueInSubtree}), return the original reference in the
+   *       matching slot — no work, no allocation.</li>
+   *   <li>For a multi-entry leaf: scan entries, allocate two new leaves, distribute keys.
+   *       Both halves are non-empty (by the non-constant precondition).</li>
+   *   <li>For an indirect: recurse on every child, accumulate results into two child
+   *       lists, and build two new indirects via {@link #createNodeFromChildren}. Lists of
+   *       size 1 collapse to the single child reference (no wrapping indirect).</li>
+   * </ul>
+   *
+   * <p><b>Cost.</b> O(M) keys touched where M is the size of the subtree. The new pages
+   * are registered in {@link #activeLog}; old pages are eligible for GC at the next commit
+   * via Sirix's revision-based lifetime.
+   *
+   * @param ref       the subtree root reference
+   * @param absBit    the absolute bit position to partition on
+   * @param revision  the revision number to assign new pages
+   * @param height    the height the new subtree(s) should have
+   * @return {@code [bit0Half, bit1Half]}, either may be {@code null} if empty
+   */
+  private PageReference[] splitSubtreeOnBit(PageReference ref, int absBit, int revision,
+      int height) {
+    // Fast path: bit constant in subtree → return original reference unchanged.
+    final int constValue = bitConstantValueInSubtree(ref, absBit);
+    if (constValue == 0) return new PageReference[]{ref, null};
+    if (constValue == 1) return new PageReference[]{null, ref};
+
+    Page page = ref.getPage();
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, ref);
+      if (page != null) ref.setPage(page);
+    }
+    if (page instanceof HOTLeafPage leaf) {
+      return splitLeafOnBit(leaf, absBit, revision);
+    }
+    if (page instanceof HOTIndirectPage indirect) {
+      return splitIndirectOnBit(indirect, absBit, revision, height);
+    }
+    // Unknown — leave as-is in slot 0 (degenerate fallback; caller handles null result).
+    return new PageReference[]{ref, null};
+  }
+
+  /**
+   * Partition a multi-entry leaf into two new leaves by bit {@code absBit}. Precondition:
+   * the bit varies in the leaf (otherwise {@link #splitSubtreeOnBit}'s fast path would have
+   * returned). Returns two non-null page references.
+   */
+  private PageReference[] splitLeafOnBit(HOTLeafPage leaf, int absBit, int revision) {
+    final HOTLeafPage leaf0 = new HOTLeafPage(pageKeyAllocator.getAsLong(),
+        revision, leaf.getIndexType());
+    final HOTLeafPage leaf1 = new HOTLeafPage(pageKeyAllocator.getAsLong(),
+        revision, leaf.getIndexType());
+    final int n = leaf.getEntryCount();
+    for (int i = 0; i < n; i++) {
+      final byte[] k = leaf.getKey(i);
+      final byte[] v = leaf.getValue(i);
+      if (DiscriminativeBitComputer.isBitSet(k, absBit)) {
+        leaf1.put(k, v);
+      } else {
+        leaf0.put(k, v);
+      }
+    }
+    return new PageReference[]{registerNewLeaf(leaf0), registerNewLeaf(leaf1)};
+  }
+
+  /**
+   * Wrap a freshly-built {@link HOTLeafPage} in a {@link PageReference} and register it in
+   * the active TIL.
+   */
+  private PageReference registerNewLeaf(HOTLeafPage leaf) {
+    final PageReference ref = new PageReference();
+    ref.setKey(leaf.getPageKey());
+    ref.setPage(leaf);
+    if (activeLog != null) {
+      activeLog.put(ref, PageContainer.getInstance(leaf, leaf));
+    }
+    return ref;
+  }
+
+  /**
+   * Partition an indirect's subtree into two new indirects by bit {@code absBit}. Recursively
+   * splits each child; one child can produce one or two halves, an empty half is dropped.
+   * Returns two indirects (or single-child pass-throughs) — both will be non-null because the
+   * caller already verified the bit varies in this subtree.
+   */
+  private PageReference[] splitIndirectOnBit(HOTIndirectPage indirect, int absBit, int revision,
+      int height) {
+    final int n = indirect.getNumChildren();
+    final PageReference[] half0 = new PageReference[n];
+    final PageReference[] half1 = new PageReference[n];
+    int i0 = 0, i1 = 0;
+    for (int i = 0; i < n; i++) {
+      final PageReference child = indirect.getChildReference(i);
+      if (child == null) continue;
+      final PageReference[] sub = splitSubtreeOnBit(child, absBit, revision, height - 1);
+      if (sub[0] != null) half0[i0++] = sub[0];
+      if (sub[1] != null) half1[i1++] = sub[1];
+    }
+    return new PageReference[]{
+        wrapPartitionedHalfAsIndirect(half0, i0, revision, height),
+        wrapPartitionedHalfAsIndirect(half1, i1, revision, height)
+    };
+  }
+
+  /**
+   * Wrap an array of {@code n} partitioned children into a new indirect (or pass-through if
+   * {@code n == 1}, or null if {@code n == 0}). Registers the new indirect in the active TIL.
+   * Throws if {@code n} exceeds {@link NodeUpgradeManager#MULTI_NODE_MAX_CHILDREN} — this
+   * shouldn't happen because the source had ≤ 32 children and partitioning can't double that
+   * count at any one level.
+   */
+  private @Nullable PageReference wrapPartitionedHalfAsIndirect(PageReference[] children, int n,
+      int revision, int height) {
+    if (n == 0) return null;
+    if (n == 1) return children[0]; // single child — pass through, avoid wrapping indirect
+    if (n > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      throw new IllegalStateException(
+          "splitIndirectOnBit produced a half with " + n + " children — exceeds MAX="
+              + NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN);
+    }
+    final PageReference[] trimmed = (n == children.length) ? children : Arrays.copyOf(children, n);
+    final long pageKey = pageKeyAllocator.getAsLong();
+    final HOTIndirectPage ind = createNodeFromChildren(trimmed, pageKey, revision, height);
+    final PageReference ref = new PageReference();
+    ref.setKey(pageKey);
+    ref.setPage(ind);
+    if (activeLog != null) {
+      activeLog.put(ref, PageContainer.getInstance(ind, ind));
+    }
+    return ref;
   }
 
   /**
@@ -2275,9 +2441,6 @@ public final class HOTTrieWriter {
       final int initialBytePos = computeInitialBytePos(children);
       final DiscBitsInfo discBits = computeDiscBits(children, initialBytePos);
       final int[] partialKeys = computePartialKeysForChildren(children, discBits);
-      // HOT I7: store children in sparse-partial-key order (children were sorted by first-key
-      // above to drive adjacent-pair disc-bit collection; partial-key order is the canonical
-      // slot order under sparse-path encoding per Binna §4.2).
       sortChildrenAndPartialsByPartial(children, partialKeys);
       created = createNodeWithDiscBits(pageKey, revision, height, discBits, partialKeys, children);
     }
