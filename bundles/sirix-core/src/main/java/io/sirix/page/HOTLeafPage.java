@@ -1908,6 +1908,227 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Split+insert variant that splits on a caller-supplied bit instead of the leaf's
+   * local MSDB. Phase-2-and-beyond infrastructure for the strict-Binna conformance
+   * plan: future writer-level logic chooses {@code explicitSplitBit} based on
+   * parent/sibling state (e.g., Phase 3 lazy retroactive sibling rebalance), then
+   * invokes this method to apply the split.
+   *
+   * <p><b>Important</b>: the caller is responsible for ensuring the chosen bit
+   * preserves contiguous partition (= bit equals MSDB position). Splitting on a
+   * less-significant non-constant bit yields non-contiguous partition, which breaks
+   * the parent's children-sorted-by-firstkey invariant. The writer should use
+   * {@link #computeMsdbWithOptionalNewKey} to pre-compute MSDB and only pass MSDB
+   * itself (or refrain from calling this method).
+   *
+   * <p>The partition algorithm is general (handles non-contiguous), but the post-split
+   * structure is sensible only when the partition IS contiguous.
+   *
+   * <p><b>Edge cases</b>:
+   * <ul>
+   *   <li>{@code explicitSplitBit < 0} → {@code -1} (caller error / sentinel).</li>
+   *   <li>Degenerate split (all keys on one side at this bit): {@code -1} so caller
+   *       falls back to standard {@link #splitToWithInsert}.</li>
+   * </ul>
+   *
+   * <p>HFT-grade: zero allocation beyond the necessary key/value byte arrays for transfer.
+   * Bit-set checks are primitive byte loads + bit masks.
+   *
+   * @param target empty target page to receive the right half
+   * @param key the new key to insert
+   * @param keyLen the key length
+   * @param value the new value to insert
+   * @param valueLen the value length
+   * @param explicitSplitBit absolute MSB-first bit position to use as the split bit.
+   *        Must be a bit at which {@code leaf.keys + key} is non-constant (otherwise
+   *        the partition is degenerate and this method returns {@code -1}). Caller is
+   *        responsible for choosing a parent-friendly bit (= constant in non-split
+   *        siblings, not in parent's mask, in parent's window).
+   * @return the absolute split bit position (≥ 0) on success; {@code -1} on degenerate or
+   *         all-identical keys. The caller must use this bit (NOT the bit derived by
+   *         {@code computeDifferingBit(leftMax, rightMin)}) as the BiNode's disc bit
+   *         because the partition is non-contiguous when {@code explicitSplitBit} is less
+   *         significant than the leaf's MSDB.
+   */
+  public int splitToWithInsertOnBit(HOTLeafPage target, byte[] key, int keyLen,
+      byte[] value, int valueLen, int explicitSplitBit) {
+    Objects.requireNonNull(target);
+    if (explicitSplitBit < 0) {
+      return -1;
+    }
+
+    final int count = entryCount;
+    if (count < 1) {
+      return -1;
+    }
+
+    // Slice key/value to actual length
+    final byte[] keySlice = keyLen == key.length ? key : Arrays.copyOf(key, keyLen);
+    final byte[] valueSlice = valueLen == value.length ? value : Arrays.copyOf(value, valueLen);
+
+    final int searchResult = findEntry(keySlice);
+    final boolean isNew = searchResult < 0;
+
+    final int splitBit = explicitSplitBit;
+
+    // Partition existing keys by splitBit. Note: when splitBit == MSDB the partition is
+    // a contiguous prefix range (left half = sorted prefix). When splitBit < MSDB
+    // (less significant ancestor bit), partition may be non-contiguous: we must scan
+    // and copy each key explicitly. We collect the indices for both halves and process
+    // them in order.
+    final int[] leftIndices = new int[count];
+    final int[] rightIndices = new int[count];
+    int leftN = 0;
+    int rightN = 0;
+    for (int i = 0; i < count; i++) {
+      if (DiscriminativeBitComputer.isBitSet(getKeySlice(i), splitBit)) {
+        rightIndices[rightN++] = i;
+      } else {
+        leftIndices[leftN++] = i;
+      }
+    }
+
+    // Determine new-key side
+    final boolean newKeyOnRight = DiscriminativeBitComputer.isBitSet(keySlice, splitBit);
+
+    // Degenerate split guard: at least one existing key on each side, OR new key alone
+    // makes one side. Check that final halves are non-empty.
+    final int finalLeft = leftN + (isNew && !newKeyOnRight ? 1 : 0);
+    final int finalRight = rightN + (isNew && newKeyOnRight ? 1 : 0);
+    if (finalLeft == 0 || finalRight == 0) {
+      return -1; // degenerate — caller falls back to MSDB-only split
+    }
+
+    // Snapshot full keys + values BEFORE we overwrite slotMemory (re-population on left
+    // truncates entryCount → reuses slotMemory; the previously-stored entries become
+    // unreachable, so we must materialize them now while still readable).
+    final byte[][] allKeys = new byte[count][];
+    final byte[][] allValues = new byte[count][];
+    for (int i = 0; i < count; i++) {
+      allKeys[i] = getKey(i);
+      allValues[i] = getValue(i);
+    }
+
+    // Step 1: Insert right-half existing keys (and possibly new key) into target via put().
+    // Target is empty, so put() establishes its own prefix.
+    for (int i = 0; i < rightN; i++) {
+      final int idx = rightIndices[i];
+      if (!target.put(allKeys[idx], allValues[idx])) {
+        // Allocation failed in target — clear target and return -1.
+        target.entryCount = 0;
+        target.usedSlotMemorySize = 0;
+        target.commonPrefix = EMPTY_PREFIX;
+        target.commonPrefixLen = 0;
+        target.clearDirtyBitmap();
+        return -1;
+      }
+    }
+    if (newKeyOnRight) {
+      if (!target.put(keySlice, valueSlice)) {
+        target.entryCount = 0;
+        target.usedSlotMemorySize = 0;
+        target.commonPrefix = EMPTY_PREFIX;
+        target.commonPrefixLen = 0;
+        target.clearDirtyBitmap();
+        return -1;
+      }
+    }
+
+    // Step 2: Reset this leaf and re-populate from left-half indices. We've already
+    // snapshotted all key/value bytes, so re-insertion via put() into the cleared
+    // slotMemory is safe.
+    entryCount = 0;
+    usedSlotMemorySize = 0;
+    commonPrefix = EMPTY_PREFIX;
+    commonPrefixLen = 0;
+    clearDirtyBitmap();
+    pextValid = false;
+
+    for (int i = 0; i < leftN; i++) {
+      final int idx = leftIndices[i];
+      if (!put(allKeys[idx], allValues[idx])) {
+        // Source page exhausted slotMemory unexpectedly. We've already lost the
+        // original layout (slotOffsets are overwritten); the only sane recovery
+        // is to keep going if possible. Return -1 so caller treats this as
+        // a failed split. The page is in an undefined intermediate state.
+        return -1;
+      }
+    }
+    if (!newKeyOnRight) {
+      if (!put(keySlice, valueSlice)) {
+        return -1;
+      }
+    }
+
+    if (entryCount == 0 || target.entryCount == 0) {
+      return -1;
+    }
+
+    // Recompute prefixes for both halves now that all entries are settled.
+    recomputePrefix();
+    target.recomputePrefix();
+    pextValid = false;
+    return splitBit;
+  }
+
+  /**
+   * Returns true iff the existing leaf entries plus the new key span both bit values at
+   * absolute MSB-first bit position {@code absBit}. Public so writer code can scan
+   * candidate split bits without re-deriving leaf-private state.
+   *
+   * <p>HFT-grade: zero allocation, primitive byte loads + bit masks via
+   * {@link DiscriminativeBitComputer#isBitSet}.
+   */
+  public boolean isBitNonConstantInLeafPlusNewKey(int absBit, byte[] newKey, boolean isNew) {
+    final int n = entryCount;
+    if (n == 0) {
+      // Only the new key — vacuously constant.
+      return false;
+    }
+    final boolean firstBit = DiscriminativeBitComputer.isBitSet(getKeySlice(0), absBit);
+    boolean sawZero = !firstBit;
+    boolean sawOne = firstBit;
+    for (int i = 1; i < n; i++) {
+      final boolean v = DiscriminativeBitComputer.isBitSet(getKeySlice(i), absBit);
+      if (v) sawOne = true;
+      else sawZero = true;
+      if (sawZero && sawOne) return true;
+    }
+    if (isNew) {
+      final boolean v = DiscriminativeBitComputer.isBitSet(newKey, absBit);
+      if (v) sawOne = true;
+      else sawZero = true;
+    }
+    return sawZero && sawOne;
+  }
+
+  /**
+   * Compute the MSDB (most significant disc bit) across the current leaf entries plus
+   * an optional new key. Public so writer code can pre-compute MSDB and test alternative
+   * split bits before invoking {@link #splitToWithInsertOnBit}.
+   *
+   * <p>If {@code newKey} is {@code null} or the leaf already contains it, the MSDB is
+   * computed across existing entries only. Otherwise the new key is virtually inserted
+   * at its sorted position and MSDB is computed across the augmented sequence.
+   *
+   * @param newKey optional new key being virtually inserted (may be {@code null})
+   * @return absolute MSB-first bit position of MSDB, or {@code -1} if all keys are
+   *         identical (no discriminative bit exists)
+   */
+  public int computeMsdbWithOptionalNewKey(byte @Nullable [] newKey) {
+    if (newKey == null) {
+      return findMsdbBit();
+    }
+    final int searchResult = findEntry(newKey);
+    if (searchResult >= 0) {
+      // newKey already present — same as no-new-key case
+      return findMsdbBit();
+    }
+    final int insertPos = -(searchResult + 1);
+    return findMsdbWithNewKey(newKey, insertPos);
+  }
+
+  /**
    * Compute the MSDB bit position across all existing adjacent key pairs.
    *
    * @return the most significant disc bit, or -1 if no discriminative bit exists
