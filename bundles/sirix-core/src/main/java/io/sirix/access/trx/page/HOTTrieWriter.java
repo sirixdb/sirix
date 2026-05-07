@@ -1408,6 +1408,117 @@ public final class HOTTrieWriter {
   }
 
   /**
+   * Collect the union of absolute disc-bit positions captured by every indirect on the
+   * descent path. Returns positions sorted ascending (i.e., MSB-first absolute order:
+   * smallest position = most significant bit).
+   *
+   * <p>Handles both SingleMask and MultiMask layouts. Extracted for Phase 2's
+   * constancy-aware leaf split: when a leaf overflows we need to know which absolute
+   * bit positions the ancestors already use to route, so the split can prefer one of
+   * those bits over the leaf's local MSDB. That keeps both halves constant on every
+   * ancestor disc bit (Binna's HOT invariant).
+   *
+   * <p><b>BE word convention</b> matches {@link HOTIndirectPage#getKeyWordAt}:
+   * <ul>
+   *   <li>SingleMask: long-bit {@code b} corresponds to byte {@code (initialBytePos + 7 - b/8)},
+   *       MSB-numbered bit {@code (7 - b%8)} within that byte. Absolute MSB-first bit position
+   *       = byte * 8 + bitInByte.</li>
+   *   <li>MultiMask: long-bit {@code b} of chunk {@code c} corresponds to byte
+   *       {@code extractionPositions[c*8 + 7 - b/8]} (where {@code b/8} indexes the byte
+   *       within the chunk), MSB-numbered bit {@code (7 - b%8)} within that byte.</li>
+   * </ul>
+   *
+   * <p>HFT-grade: pre-sized buffer, deduplicated via single linear scan, no boxing,
+   * no growth, single bounded allocation for the trimmed return.
+   *
+   * @param pathNodes ancestor path nodes (root → leaf-parent)
+   * @param pathDepth number of valid entries in {@code pathNodes}
+   * @return ascending-sorted absolute disc-bit positions across the path
+   */
+  int[] collectAncestorDiscBits(HOTIndirectPage[] pathNodes, int pathDepth) {
+    if (pathDepth <= 0) {
+      return new int[0];
+    }
+    // Theoretical max: 8 extraction bytes × 8 bits/byte = 64 disc bits per indirect.
+    // Path depth ≤ MAX_TREE_HEIGHT (64). Buffer sized generously to fit transient
+    // out-of-spec disc-bit counts before downstream INV checks fire.
+    final int cap = pathDepth * 64;
+    final int[] buf = new int[cap];
+    int n = 0;
+    for (int i = 0; i < pathDepth; i++) {
+      final HOTIndirectPage node = pathNodes[i];
+      if (node == null) continue;
+      n = appendDiscBitsOfIndirect(node, buf, n);
+    }
+    if (n == 0) {
+      return new int[0];
+    }
+    // Sort ascending (MSB-first), then dedupe in place.
+    Arrays.sort(buf, 0, n);
+    int w = 1;
+    for (int r = 1; r < n; r++) {
+      if (buf[r] != buf[r - 1]) {
+        buf[w++] = buf[r];
+      }
+    }
+    return Arrays.copyOf(buf, w);
+  }
+
+  /**
+   * Append the absolute disc-bit positions captured by a single indirect to {@code buf}
+   * starting at {@code start}. Returns the new write offset.
+   *
+   * <p>Per the BE word convention documented on {@link #collectAncestorDiscBits}:
+   * <ul>
+   *   <li>SingleMask: for each set long-bit {@code b} of {@code bitMask},
+   *       {@code byte = initialBytePos + (7 - b/8)},
+   *       {@code bitInByte = 7 - b%8}; absolute = byte*8 + bitInByte.</li>
+   *   <li>MultiMask: chunk {@code c} of length 8 bytes; for set long-bit {@code b} in
+   *       {@code extractionMasks[c]}, the chunk-local byte index is
+   *       {@code extractionPositionIndex = c*8 + (7 - b/8)}, and the corresponding
+   *       key byte position is {@code extractionPositions[extractionPositionIndex]};
+   *       {@code bitInByte = 7 - b%8}; absolute = bytePos*8 + bitInByte.</li>
+   * </ul>
+   *
+   * <p>HFT-grade: zero allocation, primitive ops only, no autoboxing.
+   */
+  private static int appendDiscBitsOfIndirect(HOTIndirectPage indirect, int[] buf, int start) {
+    int n = start;
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      final int initialBytePos = indirect.getInitialBytePos();
+      long mask = indirect.getBitMask();
+      while (mask != 0L && n < buf.length) {
+        final int b = Long.numberOfTrailingZeros(mask);
+        mask &= mask - 1L;
+        final int bytePos = initialBytePos + (7 - (b / 8));
+        final int bitInByte = 7 - (b % 8);
+        buf[n++] = bytePos * 8 + bitInByte;
+      }
+      return n;
+    }
+    // MultiMask
+    final byte[] extractionPositions = indirect.getExtractionPositions();
+    final long[] extractionMasks = indirect.getExtractionMasks();
+    if (extractionPositions == null || extractionMasks == null) {
+      return n;
+    }
+    final int numChunks = extractionMasks.length;
+    for (int c = 0; c < numChunks && n < buf.length; c++) {
+      long mask = extractionMasks[c];
+      while (mask != 0L && n < buf.length) {
+        final int b = Long.numberOfTrailingZeros(mask);
+        mask &= mask - 1L;
+        final int posIdx = c * 8 + (7 - (b / 8));
+        if (posIdx >= extractionPositions.length) continue;
+        final int bytePos = extractionPositions[posIdx] & 0xFF;
+        final int bitInByte = 7 - (b % 8);
+        buf[n++] = bytePos * 8 + bitInByte;
+      }
+    }
+    return n;
+  }
+
+  /**
    * Get height from a child reference. Falls back to loading from storage if not swizzled.
    */
   private int getHeightFromChild(PageReference childRef, @Nullable StorageEngineReader reader) {
