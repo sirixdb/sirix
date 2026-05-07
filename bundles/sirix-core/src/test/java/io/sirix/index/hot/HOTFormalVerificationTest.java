@@ -413,6 +413,7 @@ final class HOTFormalVerificationTest {
       for (final int n : probeN) {
         // Phase-2 success criterion: intermediate-BiNode fallback firings == 0.
         io.sirix.access.trx.page.HOTTrieWriter.resetIntermediateBiNodeFallbackFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase3RebalanceFirings();
         JsonTestHelper.deleteEverything();
         JsonTestHelper.createTestDocument();
         final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -455,10 +456,13 @@ final class HOTFormalVerificationTest {
                   def.getID());
           final long fallbackFirings =
               io.sirix.access.trx.page.HOTTrieWriter.getIntermediateBiNodeFallbackFirings();
+          final long phase3Firings =
+              io.sirix.access.trx.page.HOTTrieWriter.getPhase3RebalanceFirings();
           System.out.println("[microbench-pattern] N=" + n
               + " · observedHeight=" + inv.observedHeight()
               + " · violations=" + inv.violations().size()
               + " · intermediate-binode-fallbacks=" + fallbackFirings
+              + " · phase3-rebalance-firings=" + phase3Firings
               + " · build=" + buildMs + "ms");
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic

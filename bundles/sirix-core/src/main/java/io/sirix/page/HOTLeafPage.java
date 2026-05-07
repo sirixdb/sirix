@@ -2072,6 +2072,133 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Pure no-insert split: partition this leaf's existing entries by an absolute MSB-first
+   * bit position. Right-half entries (bit value = 1) move to {@code target}; left-half
+   * entries (bit value = 0) remain in {@code this}.
+   *
+   * <p>Used by Phase 3 lazy retroactive sibling rebalance — when an ancestor adds a new
+   * disc bit β that's non-constant in some sibling's subtree, the writer walks down to
+   * each leaf in that subtree and calls this method with β to enforce per-leaf β-constancy.
+   * No new key is inserted; the leaf is purely partitioned.
+   *
+   * <p><b>Edge cases</b>:
+   * <ul>
+   *   <li>{@code splitBit < 0}: returns {@code false}.</li>
+   *   <li>Degenerate (all keys agree on this bit): returns {@code false} so caller knows
+   *       no split was needed.</li>
+   *   <li>Empty leaf: returns {@code false}.</li>
+   * </ul>
+   *
+   * <p>HFT-grade: snapshot of all existing keys+values is unavoidable (re-population
+   * truncates {@code slotMemory}). All other state lives on the call stack. Two index
+   * arrays + the byte-array snapshot total ~2N pointers + N(key+value) bytes, no boxing.
+   *
+   * @param target empty target page to receive the right-half (β=1) entries
+   * @param splitBit absolute MSB-first bit position to partition on
+   * @return {@code true} if the partition was non-degenerate and applied; {@code false}
+   *         if the leaf was empty / the bit was constant / target.put() failed
+   */
+  public boolean splitToOnBit(HOTLeafPage target, int splitBit) {
+    Objects.requireNonNull(target);
+    if (splitBit < 0) {
+      return false;
+    }
+    final int count = entryCount;
+    if (count < 1) {
+      return false;
+    }
+
+    // Partition existing keys by splitBit.
+    final int[] leftIndices = new int[count];
+    final int[] rightIndices = new int[count];
+    int leftN = 0;
+    int rightN = 0;
+    for (int i = 0; i < count; i++) {
+      if (DiscriminativeBitComputer.isBitSet(getKeySlice(i), splitBit)) {
+        rightIndices[rightN++] = i;
+      } else {
+        leftIndices[leftN++] = i;
+      }
+    }
+
+    // Degenerate split guard: caller's bit-constancy check should have ruled this out,
+    // but be defensive.
+    if (leftN == 0 || rightN == 0) {
+      return false;
+    }
+
+    // Snapshot full keys + values BEFORE we overwrite slotMemory.
+    final byte[][] allKeys = new byte[count][];
+    final byte[][] allValues = new byte[count][];
+    for (int i = 0; i < count; i++) {
+      allKeys[i] = getKey(i);
+      allValues[i] = getValue(i);
+    }
+
+    // Step 1: Insert right-half entries into target (target is empty).
+    for (int i = 0; i < rightN; i++) {
+      final int idx = rightIndices[i];
+      if (!target.put(allKeys[idx], allValues[idx])) {
+        target.entryCount = 0;
+        target.usedSlotMemorySize = 0;
+        target.commonPrefix = EMPTY_PREFIX;
+        target.commonPrefixLen = 0;
+        target.clearDirtyBitmap();
+        return false;
+      }
+    }
+
+    // Step 2: Reset this leaf and re-populate from left-half indices.
+    entryCount = 0;
+    usedSlotMemorySize = 0;
+    commonPrefix = EMPTY_PREFIX;
+    commonPrefixLen = 0;
+    clearDirtyBitmap();
+    pextValid = false;
+
+    for (int i = 0; i < leftN; i++) {
+      final int idx = leftIndices[i];
+      if (!put(allKeys[idx], allValues[idx])) {
+        return false;
+      }
+    }
+
+    if (entryCount == 0 || target.entryCount == 0) {
+      return false;
+    }
+
+    recomputePrefix();
+    target.recomputePrefix();
+    pextValid = false;
+    return true;
+  }
+
+  /**
+   * Returns true iff this leaf's existing entries span both bit values at the given
+   * absolute MSB-first bit position. Used by Phase 3 lazy rebalance for cheap
+   * per-leaf β-constancy checks.
+   *
+   * <p>HFT-grade: zero allocation, primitive byte loads + bit masks. Short-circuits as
+   * soon as both 0 and 1 are observed.
+   */
+  public boolean isBitNonConstantInLeaf(int absBit) {
+    final int n = entryCount;
+    if (n < 2) {
+      return false;
+    }
+    final boolean firstBit = DiscriminativeBitComputer.isBitSet(getKeySlice(0), absBit);
+    boolean sawZero = !firstBit;
+    boolean sawOne = firstBit;
+    for (int i = 1; i < n; i++) {
+      final boolean v = DiscriminativeBitComputer.isBitSet(getKeySlice(i), absBit);
+      if (v) sawOne = true;
+      else sawZero = true;
+      if (sawZero && sawOne) return true;
+    }
+    return false;
+  }
+
+  /**
    * Returns true iff the existing leaf entries plus the new key span both bit values at
    * absolute MSB-first bit position {@code absBit}. Public so writer code can scan
    * candidate split bits without re-deriving leaf-private state.

@@ -121,6 +121,26 @@ public final class HOTTrieWriter {
     INTERMEDIATE_BINODE_FALLBACK_FIRINGS.set(0L);
   }
 
+  // ===== Phase 3 lazy retroactive sibling rebalance counter =====
+  // Counts how many times the Phase 3 rebalance fires under -Dhot.strict.binna=true
+  // (i.e., addEntryWithPDep rejected because some non-split sibling was non-constant
+  // on the new disc bit, and rebalanceSiblingsForBit was invoked to resolve it).
+  // Each firing resolves one Case 2b-ii rejection cleanly without growing tree depth.
+  // Compare against INTERMEDIATE_BINODE_FALLBACK_FIRINGS — Phase 3 success means
+  // rebalance firings climb while fallback firings drop to 0.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE3_REBALANCE_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  /** Returns the count of Phase 3 sibling-rebalance firings since the last reset. */
+  public static long getPhase3RebalanceFirings() {
+    return PHASE3_REBALANCE_FIRINGS.get();
+  }
+
+  /** Reset the Phase 3 firing counter. */
+  public static void resetPhase3RebalanceFirings() {
+    PHASE3_REBALANCE_FIRINGS.set(0L);
+  }
+
   /** Memory segment allocator. */
   @SuppressWarnings("unused")
   private final MemorySegmentAllocator allocator;
@@ -722,53 +742,69 @@ public final class HOTTrieWriter {
       }
       if (expandedParent != null) {
         log.put(parentRef, PageContainer.getInstance(expandedParent, expandedParent));
-      } else if (Boolean.getBoolean("hot.strict.binna")
-          && intermediateBiNodePreservesSlotOrder(parent, originalChildIndex, leftChild)) {
-        // Strict-Binna fallback: when {@code addEntry} can't extend the parent's
-        // mask without breaking constancy (or hits cross-window / collision edge
-        // cases), absorb the leaf split by inserting an intermediate BiNode at
-        // the original child's slot. The parent's mask stays unchanged, so
-        // existing routing remains correct; the new BiNode distinguishes the
-        // two halves at a level below the parent. Cost: tree height grows by 1
-        // locally on this path. Benefit: strict I-Binna sparse-path encoding
-        // preserved end-to-end (no recompute from full keys, no construction
-        // of indirect nodes with non-constant disc bits).
-        //
-        // Pre-condition (checked above): leftChild.firstKey must remain >= the
-        // previous slot's firstKey (HOT I8 — children sorted by firstKey). The
-        // leaf split can decrease leftChild.firstKey if a smaller new key was
-        // inserted into the left half; in that rare case the slot's firstKey
-        // would drop below the previous slot's, breaking the I8 invariant. The
-        // helper returns false and we fall through to splitParentAndRecurse.
-        //
-        // Architectural note (per Binna's HOTSingleThreaded.hpp lines 493-547):
-        // this intermediate-BiNode at {@code parent.height == splitEntries.height}
-        // is non-faithful — Binna's reference instead splits the parent
-        // (= {@code splitParentAndRecurse}). However Phase 4b's known bugs in
-        // {@code buildCompressedHalf}'s sparse-path fallbacks make the genuine
-        // split path unsafe today. This fallback is the pragmatic interim choice.
-        long newBiNodePageKey = pageKeyAllocator.getAsLong();
-        HOTIndirectPage newBiNode = createBiNodeTraced("strict-binna-intermediate-biNode",
-            newBiNodePageKey, storageEngineReader.getRevisionNumber(), discriminativeBit,
-            leftChild, rightChild, splitEntriesHeight);
-        PageReference newBiNodeRef = new PageReference();
-        newBiNodeRef.setKey(newBiNodePageKey);
-        newBiNodeRef.setPage(newBiNode);
-        log.put(newBiNodeRef, PageContainer.getInstance(newBiNode, newBiNode));
-        HOTIndirectPage updatedParent =
-            parent.withUpdatedChild(originalChildIndex, newBiNodeRef,
-                storageEngineReader.getRevisionNumber());
-        log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
-        // Diagnostic: track every firing of this fallback. Each firing grows the
-        // tree depth by 1 on the affected path. The counter is queryable via
-        // {@link #getIntermediateBiNodeFallbackFirings} for measurement.
-        INTERMEDIATE_BINODE_FALLBACK_FIRINGS.incrementAndGet();
       } else if (Boolean.getBoolean("hot.strict.binna")) {
-        // I8 would break with the intermediate-BiNode approach — fall through
-        // to splitParentAndRecurse for a genuine split.
-        splitParentAndRecurse(storageEngineReader, log, parentRef, parent,
-            originalChildIndex, leftChild, rightChild, discriminativeBit, rootReference,
-            pathNodes, pathRefs, pathChildIndices, currentPathIdx);
+        // Phase 3: lazy retroactive sibling rebalance. addEntryWithPDep rejected because
+        // the new disc bit β is non-constant in some non-split sibling's subtree
+        // (Case 2b-ii from the formal verification — Sirix's multi-entry-leaf workload
+        // breaks Binna's single-key-leaf trivial-constancy guarantee). Walk down each
+        // non-constant sibling, split its leaves on β, and rebuild the parent with
+        // β-constant children at every slot via {@link #rebalanceAndIntegrate}, which
+        // uses mask inheritance from the original parent (NOT createNodeFromChildren-N's
+        // adjacent-pair re-derivation that would re-introduce Phase-4-class violations).
+        //
+        // If rebalance succeeds, the result is a height-optimal integration (no +1
+        // wrapping BiNode, faithful to Binna's reference at parent.height ==
+        // splitEntries.height). If rebalance can't proceed (fan-out > 32 after expansion,
+        // MultiMask parent, cross-window β, partial-key collision, etc.), fall through
+        // to the intermediate-BiNode fallback / splitParentAndRecurse.
+        //
+        // CoW correctness: every modified leaf/indirect gets a fresh pageKey, fresh
+        // PageReference, and TIL registration. The original sibling subtree is left
+        // untouched. The new parent is constructed at parent.getPageKey() (logically
+        // unchanged identity) with a new content payload, and registered via log.put,
+        // mirroring the pattern used by the addEntry* paths.
+        final HOTIndirectPage rebalancedParent = rebalanceAndIntegrate(parent, originalChildIndex,
+            leftChild, rightChild, discriminativeBit, log,
+            storageEngineReader.getRevisionNumber());
+        if (rebalancedParent != null) {
+          log.put(parentRef, PageContainer.getInstance(rebalancedParent, rebalancedParent));
+          PHASE3_REBALANCE_FIRINGS.incrementAndGet();
+        } else if (intermediateBiNodePreservesSlotOrder(parent, originalChildIndex, leftChild)) {
+          // Phase 3 couldn't resolve — fall back to c868e669c's intermediate-BiNode workaround.
+          // This should be rare on benign workloads; each firing grows tree depth by 1.
+          //
+          // Strict-Binna fallback: when {@code addEntry} can't extend the parent's mask
+          // without breaking constancy (or hits cross-window / collision edge cases), absorb
+          // the leaf split by inserting an intermediate BiNode at the original child's slot.
+          // The parent's mask stays unchanged, so existing routing remains correct; the new
+          // BiNode distinguishes the two halves at a level below the parent.
+          //
+          // Architectural note (per Binna's HOTSingleThreaded.hpp lines 493-547): this
+          // intermediate-BiNode at parent.height == splitEntries.height is non-faithful —
+          // Binna's reference instead splits the parent (= splitParentAndRecurse). However
+          // {@code buildCompressedHalf}'s sparse-path fallbacks have known correctness gaps,
+          // so this fallback remains the pragmatic safety net for the (now rare) cases
+          // Phase 3 can't resolve.
+          final long newBiNodePageKey = pageKeyAllocator.getAsLong();
+          final HOTIndirectPage newBiNode = createBiNodeTraced("strict-binna-intermediate-biNode",
+              newBiNodePageKey, storageEngineReader.getRevisionNumber(), discriminativeBit,
+              leftChild, rightChild, splitEntriesHeight);
+          final PageReference newBiNodeRef = new PageReference();
+          newBiNodeRef.setKey(newBiNodePageKey);
+          newBiNodeRef.setPage(newBiNode);
+          log.put(newBiNodeRef, PageContainer.getInstance(newBiNode, newBiNode));
+          final HOTIndirectPage updatedParent =
+              parent.withUpdatedChild(originalChildIndex, newBiNodeRef,
+                  storageEngineReader.getRevisionNumber());
+          log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
+          INTERMEDIATE_BINODE_FALLBACK_FIRINGS.incrementAndGet();
+        } else {
+          // I8 would break with the intermediate-BiNode approach — fall through to a
+          // genuine parent split.
+          splitParentAndRecurse(storageEngineReader, log, parentRef, parent,
+              originalChildIndex, leftChild, rightChild, discriminativeBit, rootReference,
+              pathNodes, pathRefs, pathChildIndices, currentPathIdx);
+        }
       } else if (currentNumChildren < 20) {
         // Height-optimal fallback ONLY for parents with small-to-medium
         // fan-out. When fan-out is already near-max, rebuild can produce
@@ -968,6 +1004,663 @@ public final class HOTTrieWriter {
     }
     return HOTIndirectPage.createMultiNode(parent.getPageKey(), revision,
         oldInitialBytePos, newMask, newPartialKeys, newChildren, parent.getHeight());
+  }
+
+  // ===========================================================================
+  // Phase 3 — Lazy retroactive sibling rebalance
+  //
+  // When addEntryWithPDep / addEntryMultiMask rejects in updateParentForSplitWithPath
+  // because some non-split sibling i is non-constant on the new disc bit β (Case 2b-ii
+  // from the formal verification), Phase 3 fixes it by walking down sibling i's subtree
+  // and splitting any β-non-constant leaves into β-constant halves. The split products
+  // become two new sibling slots in the parent (replacing slot i with both halves), so
+  // after rebalance every parent slot is β-constant and addEntryWithPDep can succeed.
+  //
+  // Goals (vs. c868e669c's intermediate-BiNode fallback):
+  //   - tree-depth stays optimal (no +1 wrapping BiNode per fallback firing)
+  //   - I-Binna constancy invariant is preserved end-to-end
+  //   - intermediate-BiNode fallback firings drop to 0 on benign workloads
+  //
+  // Bounded recursion: each splitSubtreeOnBit visits each leaf in the sibling subtree
+  // at most once. Worst-case work per rebalance event = O(Σ subtree leaves). Rebalance
+  // events fire only on the rare Case 2b-ii rejection, not on every addEntry.
+  //
+  // CoW correctness: every modified page → fresh pageKey + fresh PageReference + TIL
+  // registration. The original sibling subtree is left untouched — we copy keys+values
+  // into freshly allocated pages and never mutate the original leaves/indirects in place.
+  // ===========================================================================
+
+  /**
+   * Result of a Phase 3 sibling-subtree split: two β-constant halves, each rooted at a
+   * fresh PageReference registered in the TIL.
+   *
+   * <p>HFT-grade: simple value carrier, single allocation per split. Both refs are
+   * non-null on a successful split; the helper that produces this record verifies
+   * non-emptiness before constructing it.
+   */
+  private record SubtreeSplit(PageReference leftRef, PageReference rightRef) {}
+
+  /**
+   * Recursively split the subtree rooted at {@code ref} on absolute MSB-first bit
+   * {@code β}, producing two β-constant subtrees. Both halves are rooted at fresh
+   * PageReferences registered in the TIL.
+   *
+   * <p>Algorithm (mirrors Binna's recursive entry partitioning, adapted for
+   * Sirix's multi-entry leaves):
+   * <ul>
+   *   <li><b>Leaf</b>: if β-constant, place in the appropriate bucket. Otherwise
+   *       allocate two fresh leaves, partition entries by β-bit, register both.</li>
+   *   <li><b>Indirect</b>: recurse on each child. β-constant children go directly to
+   *       their bucket; non-constant children recurse to produce two halves each, both
+   *       contributing to their respective bucket. After all children are classified,
+   *       build two new indirect pages (one per non-empty bucket) using
+   *       {@link #createNodeFromChildren}, or pass through a single ref if a bucket
+   *       has only one child.</li>
+   * </ul>
+   *
+   * <p>Returns {@code null} if the split fails (degenerate partition, allocation failure,
+   * or unloadable page). Caller falls back to {@link #splitParentAndRecurse}.
+   *
+   * <p>HFT-grade: pre-sized buffers (children count bounded by 32). Each leaf's entries
+   * are read once. Recursion depth bounded by tree height.
+   */
+  private @Nullable SubtreeSplit splitSubtreeOnBit(PageReference ref, int absBit,
+      TransactionIntentLog log, int revision) {
+    Page page = ref.getPage();
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, ref);
+      if (page != null) {
+        ref.setPage(page);
+      }
+    }
+    if (page == null) {
+      return null;
+    }
+
+    if (page instanceof HOTLeafPage leaf) {
+      return splitLeafOnBit(leaf, absBit, log, revision);
+    }
+    if (page instanceof HOTIndirectPage indirect) {
+      return splitIndirectOnBit(indirect, absBit, log, revision);
+    }
+    return null;
+  }
+
+  /**
+   * Build a sub-indirect-page from a β-constant bucket of children, INHERITING the
+   * mask from the original parent indirect rather than re-deriving it via adjacent-pair
+   * scan over full keys. This avoids the {@code createNodeFromChildren-N} BUILD-VIOLATION
+   * pathology where the re-derivation captures bits that are non-constant within some
+   * child's subtree (Phase 4-class issue).
+   *
+   * <p>The bucket's children are a subset of the original parent's children, all
+   * β-constant by construction. Their partials in the original parent's layout are
+   * still unique (a subset of unique partials remains unique). We inherit the mask
+   * (with β removed if present) and reuse the original partials.
+   *
+   * <p>Edge cases:
+   * <ul>
+   *   <li>SingleMask original parent → SingleMask bucket node (mask possibly shrunk).</li>
+   *   <li>MultiMask original parent → for now, fall back to {@link #createNodeFromChildren}
+   *       (Phase 4b's MultiMask inheritance not yet implemented). This case may surface
+   *       BUILD-VIOLATIONs but matches the existing non-strict-Binna behavior.</li>
+   *   <li>β not in original mask → mask unchanged.</li>
+   *   <li>β in original mask → remove β, recompute partials for the subset (still
+   *       under the SAME mask but excluding β-bit position). The bucket children all
+   *       share the same β value, so removing β from their partials preserves uniqueness
+   *       (they were unique under the larger mask; removing one bit may collide if two
+   *       children differed ONLY at β — but the bucket is β-constant so that case yields
+   *       a single bucket, not both). We verify uniqueness defensively.</li>
+   * </ul>
+   *
+   * <p>Returns {@code null} on any failure (unloadable parent layout, partial-key
+   * collision, fan-out overflow). Caller falls back appropriately.
+   *
+   * @param parentIndirect the original (pre-split) indirect whose mask we inherit
+   * @param bucketIndices  the indices of {@code parentIndirect}'s children that are in this bucket
+   * @param replacementRefs replacement PageReferences for those bucket-indexed slots —
+   *                        for a kept (β-constant) child, this is the original ref;
+   *                        for a recursively-split child, this is the corresponding
+   *                        half (left or right) of the recursive split. Must have
+   *                        the same length as {@code bucketIndices}.
+   * @param absBit         β bit being removed from the mask if present
+   * @param log            TIL for fresh-page registration
+   * @param revision       current revision number
+   * @return PageReference rooted at the bucket's subtree (single ref for size-1, indirect
+   *         for size > 1), or null on failure
+   */
+  private @Nullable PageReference buildBucketWithInheritedMask(HOTIndirectPage parentIndirect,
+      int[] bucketIndices, PageReference[] replacementRefs, int bucketSize, int absBit,
+      TransactionIntentLog log, int revision) {
+    if (bucketSize == 0) {
+      return null;
+    }
+    if (bucketSize == 1) {
+      return replacementRefs[0];
+    }
+
+    // MultiMask inheritance not yet implemented — fall back to createNodeFromChildren which
+    // may surface BUILD-VIOLATIONs but matches the legacy non-strict-Binna behavior.
+    if (parentIndirect.getLayoutType() != HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      final PageReference[] children = Arrays.copyOf(replacementRefs, bucketSize);
+      return wrapBucketInSubtree(children, bucketSize, parentIndirect.getHeight(), log, revision);
+    }
+
+    final int oldInitialBytePos = parentIndirect.getInitialBytePos();
+    final long oldMask = parentIndirect.getBitMask();
+    final int[] oldPartials = parentIndirect.getPartialKeys();
+
+    // Compute β-bit position in the old mask. If β isn't in oldMask, the new mask = oldMask.
+    final int betaByteOffset = (absBit / 8) - oldInitialBytePos;
+    long betaMaskBit = 0L;
+    if (betaByteOffset >= 0 && betaByteOffset < 8) {
+      final int betaBitInByte = absBit % 8;
+      final int betaBitInWord = (7 - betaByteOffset) * 8 + (7 - betaBitInByte);
+      final long candidate = 1L << betaBitInWord;
+      if ((oldMask & candidate) != 0L) {
+        betaMaskBit = candidate;
+      }
+    }
+    final long newMask = oldMask & ~betaMaskBit;
+
+    // Compute new partials. If newMask == oldMask, partials are identical to the originals
+    // (for each bucket index, the original partial). If newMask != oldMask, we strip the β
+    // bit from each original partial — i.e., compress the partial under the new mask shape.
+    // Sparse-path encoding requires that we actually re-derive partials from the bucket
+    // children's first keys (because the kept children's β-position partial bits were 0 by
+    // sparse-path convention, so removing β just shifts the remaining bits).
+    final int[] newPartials = new int[bucketSize];
+    for (int i = 0; i < bucketSize; i++) {
+      final int srcIdx = bucketIndices[i];
+      if (srcIdx < 0 || srcIdx >= oldPartials.length) {
+        // Recursively-split child — no original partial. Compute via sparse-path semantics:
+        // newMask covers all old non-β bits; the bucket child's first key gives the
+        // sparse-path partial for that child under the new mask. Equivalent to the dense
+        // PEXT under newMask of the child's first key.
+        final byte[] firstKey = getFirstKeyFromChild(replacementRefs[i]);
+        if (firstKey == null || firstKey.length == 0) {
+          return null;
+        }
+        newPartials[i] = computePartialKeySingleMask(firstKey, oldInitialBytePos, newMask);
+        continue;
+      }
+      final int oldPartial = oldPartials[srcIdx];
+      if (betaMaskBit == 0L) {
+        // β not in old mask — partial unchanged.
+        newPartials[i] = oldPartial;
+      } else {
+        // Strip β from partial via PEXT under newMask's shape (compressed-out β slot).
+        // The β-bit's position in the old partial is bitCount(oldMask & (betaMaskBit - 1)).
+        // Removing that bit shifts higher bits down by 1.
+        final int betaOutputPos = Long.bitCount(oldMask & (betaMaskBit - 1L));
+        final int low = oldPartial & ((1 << betaOutputPos) - 1);
+        final int high = (oldPartial >>> (betaOutputPos + 1)) << betaOutputPos;
+        newPartials[i] = low | high;
+      }
+    }
+
+    // Verify uniqueness. If a collision occurs, the bucket isn't representable under the
+    // shrunk mask alone — fall back to createNodeFromChildren.
+    for (int i = 1; i < bucketSize; i++) {
+      for (int k = 0; k < i; k++) {
+        if (newPartials[i] == newPartials[k]) {
+          final PageReference[] children = Arrays.copyOf(replacementRefs, bucketSize);
+          return wrapBucketInSubtree(children, bucketSize, parentIndirect.getHeight(),
+              log, revision);
+        }
+      }
+    }
+
+    // Sort children + partials by partial-key (HOT I7).
+    final PageReference[] children = Arrays.copyOf(replacementRefs, bucketSize);
+    sortChildrenAndPartialsByPartial(children, newPartials);
+
+    final long pageKey = pageKeyAllocator.getAsLong();
+    final HOTIndirectPage built;
+    if (newMask == 0L) {
+      // Empty mask — no disc bits to discriminate. Possible if β was the ONLY bit in
+      // the original mask. Bucket has multiple children but no way to discriminate via
+      // PEXT under the inherited mask. Fall back.
+      final PageReference[] childCopy = Arrays.copyOf(replacementRefs, bucketSize);
+      return wrapBucketInSubtree(childCopy, bucketSize, parentIndirect.getHeight(),
+          log, revision);
+    }
+    if (bucketSize == 2) {
+      // BiNode requires a single explicit disc bit, not a mask. Use the original parent's
+      // most significant remaining bit. computeDifferingBit on the children's boundary is
+      // safer for actual routing. Fall back to wrapBucketInSubtree which handles 2-child
+      // cleanly.
+      final PageReference[] childCopy = Arrays.copyOf(replacementRefs, bucketSize);
+      return wrapBucketInSubtree(childCopy, bucketSize, parentIndirect.getHeight(),
+          log, revision);
+    }
+    if (bucketSize <= 16) {
+      built = HOTIndirectPage.createSpanNode(pageKey, revision, oldInitialBytePos, newMask,
+          newPartials, children, parentIndirect.getHeight());
+    } else if (bucketSize <= NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      built = HOTIndirectPage.createMultiNode(pageKey, revision, oldInitialBytePos, newMask,
+          newPartials, children, parentIndirect.getHeight());
+    } else {
+      return null;
+    }
+    final PageReference ref = new PageReference();
+    ref.setKey(pageKey);
+    ref.setPage(built);
+    log.put(ref, PageContainer.getInstance(built, built));
+    return ref;
+  }
+
+  /**
+   * Split a non-β-constant leaf into two new leaves, one per β-bit value. Both leaves
+   * receive fresh pageKeys and are registered in the TIL.
+   *
+   * <p>The original leaf is left untouched — keys+values are copied out via
+   * {@link HOTLeafPage#getKey}/{@link HOTLeafPage#getValue} and put into fresh pages.
+   *
+   * <p>HFT-grade: two allocations (the two new leaf pages), one register per leaf.
+   * No intermediate copies beyond the per-entry byte[] returned by {@code getKey}/{@code getValue}
+   * (already part of the existing read API).
+   */
+  private @Nullable SubtreeSplit splitLeafOnBit(HOTLeafPage leaf, int absBit,
+      TransactionIntentLog log, int revision) {
+    final int n = leaf.getEntryCount();
+    if (n < 2) {
+      // Single-entry leaf can't be split — caller's bv check should have ruled this out.
+      return null;
+    }
+
+    final long leftKey = pageKeyAllocator.getAsLong();
+    final long rightKey = pageKeyAllocator.getAsLong();
+    final HOTLeafPage leftLeaf = new HOTLeafPage(leftKey, revision, leaf.getIndexType());
+    final HOTLeafPage rightLeaf = new HOTLeafPage(rightKey, revision, leaf.getIndexType());
+
+    int leftCount = 0;
+    int rightCount = 0;
+    for (int i = 0; i < n; i++) {
+      final byte[] key = leaf.getKey(i);
+      final byte[] value = leaf.getValue(i);
+      final boolean bitSet = DiscriminativeBitComputer.isBitSet(key, absBit);
+      final HOTLeafPage target = bitSet ? rightLeaf : leftLeaf;
+      if (!target.put(key, value)) {
+        return null; // out-of-space — bail
+      }
+      if (bitSet) rightCount++;
+      else leftCount++;
+    }
+
+    if (leftCount == 0 || rightCount == 0) {
+      return null; // degenerate — caller's non-constancy check should have ruled this out
+    }
+
+    final PageReference leftRef = new PageReference();
+    leftRef.setKey(leftKey);
+    leftRef.setPage(leftLeaf);
+    log.put(leftRef, PageContainer.getInstance(leftLeaf, leftLeaf));
+
+    final PageReference rightRef = new PageReference();
+    rightRef.setKey(rightKey);
+    rightRef.setPage(rightLeaf);
+    log.put(rightRef, PageContainer.getInstance(rightLeaf, rightLeaf));
+
+    return new SubtreeSplit(leftRef, rightRef);
+  }
+
+  /**
+   * Split a non-β-constant indirect into two β-constant subtrees. Each child is
+   * classified by {@link #bitConstantValueInSubtree}; non-constant children recurse via
+   * {@link #splitSubtreeOnBit}. The two resulting buckets become two new indirect pages
+   * (or pass-through single refs) registered in the TIL.
+   *
+   * <p>HFT-grade: pre-sized child buckets (bounded by 32 children × 2 = 64 worst-case
+   * after recursive splits). All allocations are scoped to the rebalance event.
+   */
+  private @Nullable SubtreeSplit splitIndirectOnBit(HOTIndirectPage indirect, int absBit,
+      TransactionIntentLog log, int revision) {
+    final int m = indirect.getNumChildren();
+    if (m == 0) {
+      return null;
+    }
+    // Worst case bucket size: 2 * m if every child needs splitting.
+    final PageReference[] leftBucket = new PageReference[2 * m];
+    final PageReference[] rightBucket = new PageReference[2 * m];
+    // Track originating slot index in {@code indirect} (or -1 for recursive-split products).
+    // Used by buildBucketWithInheritedMask to look up the original partial-key.
+    final int[] leftBucketIndices = new int[2 * m];
+    final int[] rightBucketIndices = new int[2 * m];
+    int leftN = 0;
+    int rightN = 0;
+
+    for (int i = 0; i < m; i++) {
+      final PageReference childRef = indirect.getChildReference(i);
+      if (childRef == null) {
+        return null;
+      }
+      final int bv = bitConstantValueInSubtree(childRef, absBit);
+      if (bv == 0) {
+        leftBucket[leftN] = childRef;
+        leftBucketIndices[leftN] = i;
+        leftN++;
+      } else if (bv == 1) {
+        rightBucket[rightN] = childRef;
+        rightBucketIndices[rightN] = i;
+        rightN++;
+      } else {
+        // child is non-constant: recurse.
+        final SubtreeSplit childSplit = splitSubtreeOnBit(childRef, absBit, log, revision);
+        if (childSplit == null) {
+          return null;
+        }
+        leftBucket[leftN] = childSplit.leftRef();
+        leftBucketIndices[leftN] = -1; // recursive split — no original partial
+        leftN++;
+        rightBucket[rightN] = childSplit.rightRef();
+        rightBucketIndices[rightN] = -1; // recursive split — no original partial
+        rightN++;
+      }
+    }
+
+    if (leftN == 0 || rightN == 0) {
+      return null; // sibling was actually β-constant, caller's check was wrong
+    }
+
+    // Build leftSubtree from leftBucket using mask inheritance from {@code indirect} —
+    // avoids createNodeFromChildren-N's BUILD-VIOLATION pathology where adjacent-pair
+    // re-derivation captures bits non-constant within some child's subtree (Phase 4 issue).
+    final PageReference leftRef = buildBucketWithInheritedMask(indirect, leftBucketIndices,
+        leftBucket, leftN, absBit, log, revision);
+    if (leftRef == null) return null;
+    final PageReference rightRef = buildBucketWithInheritedMask(indirect, rightBucketIndices,
+        rightBucket, rightN, absBit, log, revision);
+    if (rightRef == null) return null;
+
+    return new SubtreeSplit(leftRef, rightRef);
+  }
+
+  /**
+   * Build a single subtree rooted at a fresh PageReference from a bucket of β-constant
+   * children. Single-child bucket → pass-through ref. Multi-child bucket → new indirect
+   * page via {@link #createNodeFromChildren}, registered in the TIL.
+   *
+   * <p>The new indirect's height matches the original sibling subtree's height (the
+   * caller passes that). A more sophisticated implementation could recompute height to
+   * exactly fit the bucket, but matching the original height is safe and sufficient
+   * for the parent's height invariants.
+   */
+  private @Nullable PageReference wrapBucketInSubtree(PageReference[] bucket, int n, int height,
+      TransactionIntentLog log, int revision) {
+    if (n == 0) {
+      return null;
+    }
+    if (n == 1) {
+      return bucket[0]; // pass-through
+    }
+    // Trim and build new indirect.
+    final PageReference[] children = Arrays.copyOf(bucket, n);
+    if (children.length > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      return null; // bucket too large — caller falls back to splitParentAndRecurse
+    }
+    final long pageKey = pageKeyAllocator.getAsLong();
+    final HOTIndirectPage built;
+    try {
+      built = createNodeFromChildren(children, pageKey, revision, height);
+    } catch (Throwable t) {
+      return null;
+    }
+    final PageReference ref = new PageReference();
+    ref.setKey(pageKey);
+    ref.setPage(built);
+    log.put(ref, PageContainer.getInstance(built, built));
+    return ref;
+  }
+
+  /**
+   * After {@link #rebalanceSiblingsForBit} produces a β-constant children array, build
+   * a parent that integrates β into its mask while preserving Binna's sparse-path encoding.
+   * Inherits the original parent's mask + β (not adjacent-pair re-derived from full keys),
+   * avoiding the {@code createNodeFromChildren-N} BUILD-VIOLATION pathology.
+   *
+   * <p>For each new child slot:
+   * <ul>
+   *   <li><b>Kept (β-constant) sibling</b>: existing partial key, repositioned into the
+   *       new layout via {@code Long.expand}, with β-bit value set from the sibling's
+   *       constant β-value.</li>
+   *   <li><b>Leaf-split product</b> (left/right of original splitChildIdx slot): the old
+   *       splitChild's partial repositioned, with β-bit value 0 (left) or 1 (right).</li>
+   *   <li><b>Recursive sibling-split product</b>: the old sibling's partial (under the
+   *       original mask) repositioned into the new mask, with β-bit value 0 (left) or 1
+   *       (right) per which half of the recursive split it is.</li>
+   * </ul>
+   *
+   * <p>Returns the integrated parent, or {@code null} on any failure (cross-window β,
+   * MultiMask parent, partial-key collision, fan-out overflow). Caller falls back to
+   * the intermediate-BiNode workaround on null.
+   *
+   * <p>HFT-grade: zero allocation beyond the new partial-key array and child-reference
+   * array. Uses {@link Long#expand} (PDEP) intrinsic for repositioning. No boxing,
+   * no auto-collections.
+   *
+   * @param parent          the original (pre-rebalance) parent
+   * @param origChildIdx    slot index of the original split-child in {@code parent}
+   * @param origLeftChild   leaf-split left product (β=0)
+   * @param origRightChild  leaf-split right product (β=1)
+   * @param newAbsBit       β disc bit being added (absolute MSB-first)
+   * @param siblingPlan     parallel arrays describing each non-split sibling slot
+   * @param siblingPlanCount actual count of slots described in {@code siblingPlan}
+   * @param revision        current revision for the new indirect
+   */
+  private @Nullable HOTIndirectPage buildRebalancedParentWithInheritedMask(HOTIndirectPage parent,
+      int origChildIdx, PageReference origLeftChild, PageReference origRightChild, int newAbsBit,
+      RebalancedSibling[] siblingPlan, int siblingPlanCount, int revision) {
+    if (parent.getLayoutType() != HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      diagnoseIntegrateFail("multimask", parent, newAbsBit, -1);
+      return null;
+    }
+    final int oldInitialBytePos = parent.getInitialBytePos();
+    final long oldMask = parent.getBitMask();
+    final int oldCount = Long.bitCount(oldMask);
+
+    // 1. Encode β into PEXT mask (same as addEntryWithPDep step 1).
+    final int newBitByteOffset = (newAbsBit / 8) - oldInitialBytePos;
+    if (newBitByteOffset < 0 || newBitByteOffset >= 8) {
+      diagnoseIntegrateFail("cross-window", parent, newAbsBit, -1);
+      return null;
+    }
+    final int newBitInByte = newAbsBit % 8;
+    final int bitInWord = (7 - newBitByteOffset) * 8 + (7 - newBitInByte);
+    final long newBitMaskBit = 1L << bitInWord;
+    if ((oldMask & newBitMaskBit) != 0L) {
+      // β is already in parent's mask — handled in {@link #rebalanceAndIntegrate}'s
+      // pre-check; should not be reached here.
+      diagnoseIntegrateFail("beta-already-in-mask", parent, newAbsBit, -1);
+      return null;
+    }
+    final long newMask = oldMask | newBitMaskBit;
+
+    // 2. Output position of β in new partial-key layout.
+    final int newBitOutputPos = Long.bitCount(newMask & (newBitMaskBit - 1L));
+    final long oldPartialMaskInNewLayout =
+        (((1L << (oldCount + 1)) - 1L) ^ (1L << newBitOutputPos));
+
+    // 3. Materialize new children array + partial keys. Each old slot contributes 1 or 2
+    //    new slots; for the original split slot it's always 2 (left, right); for siblings
+    //    it depends on whether they were kept (1) or recursively split (2).
+    //
+    //    Total new slots: parent.getNumChildren() + (1 + count_of_split_siblings).
+    //    Sized generously to fit MULTI_NODE_MAX_CHILDREN + 1 without resizing.
+    final int oldNumChildren = parent.getNumChildren();
+    final int maxNew = 2 * oldNumChildren;
+    final PageReference[] newChildren = new PageReference[maxNew];
+    final int[] newPartials = new int[maxNew];
+    int outIdx = 0;
+
+    final int[] oldPartials = parent.getPartialKeys();
+    final int splitChildOldPartial = oldPartials[origChildIdx];
+    final int splitChildRepositioned =
+        (int) Long.expand(Integer.toUnsignedLong(splitChildOldPartial), oldPartialMaskInNewLayout);
+
+    int siblingPlanIdx = 0;
+    for (int i = 0; i < oldNumChildren; i++) {
+      if (i == origChildIdx) {
+        // Original leaf-split: left (β=0), right (β=1). β was NOT in old mask, so the
+        // repositioned partial has β-bit position open for assignment.
+        if (outIdx >= maxNew) return null;
+        newChildren[outIdx] = origLeftChild;
+        newPartials[outIdx] = splitChildRepositioned;
+        outIdx++;
+        if (outIdx >= maxNew) return null;
+        newChildren[outIdx] = origRightChild;
+        newPartials[outIdx] = splitChildRepositioned | (1 << newBitOutputPos);
+        outIdx++;
+      } else {
+        if (siblingPlanIdx >= siblingPlanCount) return null; // plan inconsistent
+        final RebalancedSibling rb = siblingPlan[siblingPlanIdx++];
+        final int oldSibPartial = oldPartials[i];
+        final int repositioned = (int) Long.expand(
+            Integer.toUnsignedLong(oldSibPartial), oldPartialMaskInNewLayout);
+        if (rb.split()) {
+          // Recursive split product: left half (β=0), right half (β=1).
+          if (outIdx >= maxNew) return null;
+          newChildren[outIdx] = rb.leftRef();
+          newPartials[outIdx] = repositioned;
+          outIdx++;
+          if (outIdx >= maxNew) return null;
+          newChildren[outIdx] = rb.rightRef();
+          newPartials[outIdx] = repositioned | (1 << newBitOutputPos);
+          outIdx++;
+        } else {
+          // Kept β-constant sibling: single slot with β-bit set to its constant value.
+          if (outIdx >= maxNew) return null;
+          newChildren[outIdx] = rb.leftRef(); // kept ref stored in leftRef field
+          newPartials[outIdx] = repositioned | (rb.constantBit() << newBitOutputPos);
+          outIdx++;
+        }
+      }
+    }
+
+    if (outIdx > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      diagnoseIntegrateFail("fanout-overflow", parent, newAbsBit, outIdx);
+      return null;
+    }
+
+    // 4. Verify partial-key uniqueness (HOT I3 — sparse-path encoding).
+    for (int i = 1; i < outIdx; i++) {
+      for (int k = 0; k < i; k++) {
+        if (newPartials[i] == newPartials[k]) {
+          diagnoseIntegrateFail("partial-collision", parent, newAbsBit, outIdx);
+          return null;
+        }
+      }
+    }
+
+    // 5. Trim and sort by partial-key (HOT I7).
+    final PageReference[] trimChildren = (outIdx == maxNew) ? newChildren
+        : Arrays.copyOf(newChildren, outIdx);
+    final int[] trimPartials = (outIdx == maxNew) ? newPartials
+        : Arrays.copyOf(newPartials, outIdx);
+    sortChildrenAndPartialsByPartial(trimChildren, trimPartials);
+
+    if (outIdx <= 16) {
+      return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
+          oldInitialBytePos, newMask, trimPartials, trimChildren, parent.getHeight());
+    }
+    return HOTIndirectPage.createMultiNode(parent.getPageKey(), revision,
+        oldInitialBytePos, newMask, trimPartials, trimChildren, parent.getHeight());
+  }
+
+  /**
+   * Plan entry for one non-split sibling slot in Phase 3 rebalance: either KEPT (single
+   * β-constant subtree, bit value known) or SPLIT (two β-constant subtrees from recursive
+   * split — left has β=0, right has β=1).
+   *
+   * <p>HFT-grade: record carrier with primitive {@code int} for {@code constantBit}.
+   * Fields are reused to avoid allocation for kept refs.
+   */
+  private record RebalancedSibling(boolean split, int constantBit, PageReference leftRef,
+                                    PageReference rightRef) {}
+
+  /**
+   * Phase 3 entry point: call from {@link #updateParentForSplitWithPath} when
+   * {@code addEntryWithPDep} returns null due to non-constancy. Walks each non-split
+   * sibling, classifies (kept vs. split), and builds the integrated parent via mask
+   * inheritance. Returns the new parent or {@code null} on any failure.
+   *
+   * <p>HFT-grade: pre-sized stack-style plan array; no boxing; helper allocations are
+   * scoped to the rebalance event.
+   */
+  private @Nullable HOTIndirectPage rebalanceAndIntegrate(HOTIndirectPage parent,
+      int splitChildIdx, PageReference origLeftChild, PageReference origRightChild,
+      int newAbsBit, TransactionIntentLog log, int revision) {
+    if (parent.getLayoutType() != HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      diagnosePhase3Skip("multimask-parent", parent, newAbsBit);
+      return null;
+    }
+
+    // β-already-in-mask case: the leaf split's MSDB is a bit parent already routes on.
+    // This means parent had a violation BEFORE the split (splitChild was non-constant on β
+    // despite parent assigning it a single β-routing slot). Properly resolving this requires
+    // SUBTREE MERGE — the new rightChild belongs in the existing β=1 sibling's subtree, not
+    // as a new slot. Subtree merge is not yet implemented; fall through to the
+    // intermediate-BiNode fallback for this case.
+    final int oldInitialBytePos = parent.getInitialBytePos();
+    final long oldMask = parent.getBitMask();
+    final int newBitByteOffset = (newAbsBit / 8) - oldInitialBytePos;
+    if (newBitByteOffset >= 0 && newBitByteOffset < 8) {
+      final int newBitInByte = newAbsBit % 8;
+      final int bitInWord = (7 - newBitByteOffset) * 8 + (7 - newBitInByte);
+      final long newBitMaskBit = 1L << bitInWord;
+      if ((oldMask & newBitMaskBit) != 0L) {
+        diagnosePhase3Skip("beta-already-in-mask", parent, newAbsBit);
+        return null;
+      }
+    }
+
+    final int oldNumChildren = parent.getNumChildren();
+    final RebalancedSibling[] plan = new RebalancedSibling[oldNumChildren];
+    int planCount = 0;
+
+    for (int i = 0; i < oldNumChildren; i++) {
+      if (i == splitChildIdx) continue;
+      final PageReference sibRef = parent.getChildReference(i);
+      final int bv = bitConstantValueInSubtree(sibRef, newAbsBit);
+      if (bv >= 0) {
+        plan[planCount++] = new RebalancedSibling(false, bv, sibRef, null);
+      } else {
+        final SubtreeSplit split = splitSubtreeOnBit(sibRef, newAbsBit, log, revision);
+        if (split == null) {
+          diagnosePhase3Skip("subtree-split-failed", parent, newAbsBit);
+          return null;
+        }
+        plan[planCount++] = new RebalancedSibling(true, -1, split.leftRef(), split.rightRef());
+      }
+    }
+
+    final HOTIndirectPage result = buildRebalancedParentWithInheritedMask(parent, splitChildIdx,
+        origLeftChild, origRightChild, newAbsBit, plan, planCount, revision);
+    if (result == null) {
+      diagnosePhase3Skip("integrate-failed", parent, newAbsBit);
+    }
+    return result;
+  }
+
+  /** Diagnostic helper — gated on {@code -Dhot.debug.phase3=1}. Counts Phase 3 skips by reason. */
+  private static void diagnosePhase3Skip(String reason, HOTIndirectPage parent, int β) {
+    if (!Boolean.getBoolean("hot.debug.phase3")) return;
+    System.err.println("[hot.phase3] skip reason=" + reason
+        + " parentLayout=" + parent.getLayoutType()
+        + " parentBytePos=" + parent.getInitialBytePos()
+        + " parentMask=" + Long.toHexString(parent.getBitMask())
+        + " parentChildren=" + parent.getNumChildren()
+        + " β=" + β);
+  }
+
+  /** Diagnostic — finer reason for integrate failure. */
+  private static void diagnoseIntegrateFail(String reason, HOTIndirectPage parent, int β, int outIdx) {
+    if (!Boolean.getBoolean("hot.debug.phase3")) return;
+    System.err.println("[hot.phase3] integrate-fail reason=" + reason
+        + " parentBytePos=" + parent.getInitialBytePos()
+        + " parentMask=" + Long.toHexString(parent.getBitMask())
+        + " parentChildren=" + parent.getNumChildren()
+        + " β=" + β + " outIdx=" + outIdx);
   }
 
   /**
