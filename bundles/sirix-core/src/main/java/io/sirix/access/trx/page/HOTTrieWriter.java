@@ -678,28 +678,96 @@ public final class HOTTrieWriter {
               discriminativeBit, storageEngineReader.getRevisionNumber());
         }
       }
-      // Height-optimal fallback ONLY for parents with small-to-medium
-      // fan-out. When fan-out is already near-max, rebuild can produce
-      // subtle INV breaches (the augmented computeDiscBits may not
-      // fully untangle all constancy requirements across 20+ children).
-      // Forcing a genuine split path at high fan-out rebuilds halves
-      // from scratch, which is more robust. The threshold is chosen so
-      // most construction operations still use the efficient rebuild
-      // path (preserving height optimality) while high-density parents
-      // use the robust split path. Empirically: threshold=20 keeps the
-      // tree log₃₂-deep and fixes the 8.3% miss at n=5000 multi.
-      if (expandedParent == null
-          && currentNumChildren < 20) {
-        expandedParent = rebuildParentAbsorbingSplit(parent, originalChildIndex,
-            leftChild, rightChild, storageEngineReader.getRevisionNumber());
-      }
       if (expandedParent != null) {
         log.put(parentRef, PageContainer.getInstance(expandedParent, expandedParent));
+      } else if (Boolean.getBoolean("hot.strict.binna")
+          && intermediateBiNodePreservesSlotOrder(parent, originalChildIndex, leftChild)) {
+        // Strict-Binna fallback: when {@code addEntry} can't extend the parent's
+        // mask without breaking constancy (or hits cross-window / collision edge
+        // cases), absorb the leaf split by inserting an intermediate BiNode at
+        // the original child's slot. The parent's mask stays unchanged, so
+        // existing routing remains correct; the new BiNode distinguishes the
+        // two halves at a level below the parent. Cost: tree height grows by 1
+        // locally on this path. Benefit: strict I-Binna sparse-path encoding
+        // preserved end-to-end (no recompute from full keys, no construction
+        // of indirect nodes with non-constant disc bits).
+        //
+        // Pre-condition (checked above): leftChild.firstKey must remain >= the
+        // previous slot's firstKey (HOT I8 — children sorted by firstKey). The
+        // leaf split can decrease leftChild.firstKey if a smaller new key was
+        // inserted into the left half; in that rare case the slot's firstKey
+        // would drop below the previous slot's, breaking the I8 invariant. The
+        // helper returns false and we fall through to splitParentAndRecurse.
+        long newBiNodePageKey = pageKeyAllocator.getAsLong();
+        HOTIndirectPage newBiNode = createBiNodeTraced("strict-binna-intermediate-biNode",
+            newBiNodePageKey, storageEngineReader.getRevisionNumber(), discriminativeBit,
+            leftChild, rightChild, splitEntriesHeight);
+        PageReference newBiNodeRef = new PageReference();
+        newBiNodeRef.setKey(newBiNodePageKey);
+        newBiNodeRef.setPage(newBiNode);
+        log.put(newBiNodeRef, PageContainer.getInstance(newBiNode, newBiNode));
+        HOTIndirectPage updatedParent =
+            parent.withUpdatedChild(originalChildIndex, newBiNodeRef,
+                storageEngineReader.getRevisionNumber());
+        log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
+      } else if (Boolean.getBoolean("hot.strict.binna")) {
+        // I8 would break with the intermediate-BiNode approach — fall through
+        // to splitParentAndRecurse for a genuine split.
+        splitParentAndRecurse(storageEngineReader, log, parentRef, parent,
+            originalChildIndex, leftChild, rightChild, discriminativeBit, rootReference,
+            pathNodes, pathRefs, pathChildIndices, currentPathIdx);
+      } else if (currentNumChildren < 20) {
+        // Height-optimal fallback ONLY for parents with small-to-medium
+        // fan-out. When fan-out is already near-max, rebuild can produce
+        // subtle INV breaches (the augmented computeDiscBits may not
+        // fully untangle all constancy requirements across 20+ children).
+        // Forcing a genuine split path at high fan-out rebuilds halves
+        // from scratch, which is more robust. The threshold is chosen so
+        // most construction operations still use the efficient rebuild
+        // path (preserving height optimality) while high-density parents
+        // use the robust split path. Empirically: threshold=20 keeps the
+        // tree log₃₂-deep and fixes the 8.3% miss at n=5000 multi.
+        expandedParent = rebuildParentAbsorbingSplit(parent, originalChildIndex,
+            leftChild, rightChild, storageEngineReader.getRevisionNumber());
+        if (expandedParent != null) {
+          log.put(parentRef, PageContainer.getInstance(expandedParent, expandedParent));
+        } else {
+          splitParentAndRecurse(storageEngineReader, log, parentRef, parent,
+              originalChildIndex, leftChild, rightChild, discriminativeBit, rootReference,
+              pathNodes, pathRefs, pathChildIndices, currentPathIdx);
+        }
       } else {
-        splitParentAndRecurse(storageEngineReader, log, parentRef, parent, originalChildIndex, leftChild, rightChild,
-            discriminativeBit, rootReference, pathNodes, pathRefs, pathChildIndices, currentPathIdx);
+        splitParentAndRecurse(storageEngineReader, log, parentRef, parent,
+            originalChildIndex, leftChild, rightChild, discriminativeBit, rootReference,
+            pathNodes, pathRefs, pathChildIndices, currentPathIdx);
       }
     }
+  }
+
+  /**
+   * Verify that placing the intermediate BiNode (with {@code leftChild} as its
+   * left subtree) at slot {@code originalChildIndex} preserves the parent's I8
+   * invariant — child slots strictly ascending by firstKey. The BiNode's
+   * firstKey == leftChild.firstKey; if a leaf split inserted a smaller key into
+   * the left half, the slot's firstKey may have decreased relative to its
+   * predecessor. Returns {@code false} in that case so the caller falls through
+   * to {@link #splitParentAndRecurse}.
+   *
+   * <p>HFT-grade: zero allocation beyond the byte[] firstKey arrays returned by
+   * {@link #getFirstKeyFromChild} (which are unavoidable as compareUnsigned
+   * needs them). All other state lives on the call stack.
+   */
+  private boolean intermediateBiNodePreservesSlotOrder(HOTIndirectPage parent,
+      int originalChildIndex, PageReference leftChild) {
+    if (originalChildIndex == 0) return true; // no predecessor
+    final byte[] leftFirstKey = getFirstKeyFromChild(leftChild);
+    if (leftFirstKey == null || leftFirstKey.length == 0) return true; // unloadable — let caller decide
+    final PageReference prevChild = parent.getChildReference(originalChildIndex - 1);
+    if (prevChild == null) return true;
+    final byte[] prevFirstKey = getFirstKeyFromChild(prevChild);
+    if (prevFirstKey == null || prevFirstKey.length == 0) return true;
+    // I8: prev.firstKey < new.firstKey. If prev >= new, the order would be broken.
+    return Arrays.compareUnsigned(prevFirstKey, leftFirstKey) < 0;
   }
 
   /**
