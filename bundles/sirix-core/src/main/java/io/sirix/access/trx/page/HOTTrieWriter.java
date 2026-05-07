@@ -586,7 +586,7 @@ public final class HOTTrieWriter {
         } else {
           leftChildRef = leafRef;
         }
-        final HOTIndirectPage biNode = HOTIndirectPage.createBiNode(
+        final HOTIndirectPage biNode = createBiNodeTraced("addEntry-promoteToBiNode-589",
             newRootPageKey, revision, discriminativeBit, leftChildRef, rightRef, 1);
         rootReference.setKey(newRootPageKey);
         rootReference.setPage(biNode);
@@ -643,8 +643,9 @@ public final class HOTTrieWriter {
     // Reference line 502: if parent.height > splitEntries.height, create intermediate node
     if (parent.getHeight() > splitEntriesHeight) {
       long newBiNodePageKey = pageKeyAllocator.getAsLong();
-      HOTIndirectPage newBiNode = HOTIndirectPage.createBiNode(newBiNodePageKey, storageEngineReader.getRevisionNumber(),
-          discriminativeBit, leftChild, rightChild, splitEntriesHeight);
+      HOTIndirectPage newBiNode = createBiNodeTraced("addEntry-newBiNode-646", newBiNodePageKey,
+          storageEngineReader.getRevisionNumber(), discriminativeBit, leftChild, rightChild,
+          splitEntriesHeight);
       PageReference newBiNodeRef = new PageReference();
       newBiNodeRef.setKey(newBiNodePageKey);
       newBiNodeRef.setPage(newBiNode);
@@ -1420,8 +1421,8 @@ public final class HOTTrieWriter {
       final byte[] lMax = getLastKeyFromChild(newChildren[0]);
       final byte[] rMin = getFirstKeyFromChild(newChildren[1]);
       final int recomputedDiscBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(lMax, rMin));
-      created = HOTIndirectPage.createBiNode(parent.getPageKey(), revision, recomputedDiscBit, newChildren[0],
-          newChildren[1], parent.getHeight());
+      created = createBiNodeTraced("rebuildParent-1424", parent.getPageKey(), revision,
+          recomputedDiscBit, newChildren[0], newChildren[1], parent.getHeight());
     } else {
       created = createNodeWithDiscBits(parent.getPageKey(), revision, parent.getHeight(),
           discBits, partialKeys, newChildren);
@@ -1909,8 +1910,9 @@ public final class HOTTrieWriter {
     } else {
       // At root - create new root BiNode
       long newRootKey = pageKeyAllocator.getAsLong();
-      HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(newRootKey, storageEngineReader.getRevisionNumber(), newRootDiscrimBit,
-          leftNodeRef, rightNodeRef, parent.getHeight() + 1);
+      HOTIndirectPage newRoot = createBiNodeTraced("splitParent-newRoot-1913", newRootKey,
+          storageEngineReader.getRevisionNumber(), newRootDiscrimBit, leftNodeRef, rightNodeRef,
+          parent.getHeight() + 1);
 
       rootReference.setKey(newRootKey);
       rootReference.setPage(newRoot);
@@ -2091,7 +2093,7 @@ public final class HOTTrieWriter {
     if (sortedChildren.length == 2) {
       final int db = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(
           getLastKeyFromChild(sortedChildren[0]), getFirstKeyFromChild(sortedChildren[1])));
-      return HOTIndirectPage.createBiNode(newPageKey, revision, db,
+      return createBiNodeTraced("buildCompressedHalf-2096", newPageKey, revision, db,
           sortedChildren[0], sortedChildren[1], parent.getHeight());
     }
     if (sortedChildren.length <= 16) {
@@ -2228,8 +2230,9 @@ public final class HOTTrieWriter {
       int rootDiscrimBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(lMax, rMin));
 
       long newRootKey = pageKeyAllocator.getAsLong();
-      HOTIndirectPage newRoot = HOTIndirectPage.createBiNode(newRootKey, storageEngineReader.getRevisionNumber(), rootDiscrimBit,
-          leftNodeRef, rightNodeRef, parent.getHeight() + 1);
+      HOTIndirectPage newRoot = createBiNodeTraced("splitParent-newRoot-2233", newRootKey,
+          storageEngineReader.getRevisionNumber(), rootDiscrimBit, leftNodeRef, rightNodeRef,
+          parent.getHeight() + 1);
 
       rootReference.setKey(newRootKey);
       rootReference.setPage(newRoot);
@@ -2270,18 +2273,105 @@ public final class HOTTrieWriter {
       final byte[] leftMax = getLastKeyFromChild(children[0]);
       final byte[] rightMin = getFirstKeyFromChild(children[1]);
       final int discriminativeBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin));
-      created = HOTIndirectPage.createBiNode(pageKey, revision, discriminativeBit, children[0], children[1], height);
+      created = createBiNodeTraced("createNodeFromChildren-2273", pageKey, revision,
+          discriminativeBit, children[0], children[1], height);
     } else {
-      final int initialBytePos = computeInitialBytePos(children);
-      final DiscBitsInfo discBits = computeDiscBits(children, initialBytePos);
-      final int[] partialKeys = computePartialKeysForChildren(children, discBits);
-      // HOT I7: store children in sparse-partial-key order (children were sorted by first-key
-      // above to drive adjacent-pair disc-bit collection; partial-key order is the canonical
-      // slot order under sparse-path encoding per Binna §4.2).
-      sortChildrenAndPartialsByPartial(children, partialKeys);
-      created = createNodeWithDiscBits(pageKey, revision, height, discBits, partialKeys, children);
+      created = buildFlatNonStrict(children, pageKey, revision, height);
     }
     return created;
+  }
+
+  /**
+   * Flat-build path for the multi-child branch of {@link #createNodeFromChildren}. Computes the
+   * disc-bit set via {@link #computeDiscBits} (adjacent-pair XOR scan over first/last keys) and
+   * stores partials via dense PEXT.
+   *
+   * <p><b>Limitation</b>: under multi-entry leaves with overlapping spans (e.g., warmup + main
+   * keys mixed in the same leaf), {@code computeDiscBits} can capture bits that are non-constant
+   * in some child's subtree — yielding I-Binna constancy violations detected by
+   * {@link io.sirix.index.hot.HOTInvariantValidator}. The proper strict-Binna fix (subset
+   * inheritance via Binna's {@code compressEntriesAndAddOneEntryIntoNewNode}) is tracked
+   * separately and requires MultiMask-aware refactoring of {@link #buildCompressedHalf}'s
+   * fallback paths plus {@link #rebuildParentAbsorbingSplit}.
+   *
+   * @param children sorted children (by first key)
+   * @param pageKey  page key for the new indirect
+   * @param revision revision number
+   * @param height   tree height for the new indirect
+   * @return the new indirect page
+   */
+  private HOTIndirectPage buildFlatNonStrict(PageReference[] children, long pageKey, int revision, int height) {
+    final int initialBytePos = computeInitialBytePos(children);
+    final DiscBitsInfo discBits = computeDiscBits(children, initialBytePos);
+    final int[] partialKeys = computePartialKeysForChildren(children, discBits);
+    // HOT I7: store children in sparse-partial-key order (children were sorted by first-key
+    // above to drive adjacent-pair disc-bit collection; partial-key order is the canonical
+    // slot order under sparse-path encoding per Binna §4.2).
+    sortChildrenAndPartialsByPartial(children, partialKeys);
+    final HOTIndirectPage created = createNodeWithDiscBits(pageKey, revision, height, discBits,
+        partialKeys, children);
+    probeConstancyOnBuild(pageKey, "createNodeFromChildren-N", children,
+        discBitsAsAbsBitArray(discBits));
+    return created;
+  }
+
+
+  /** DIAGNOSTIC tracer — wraps {@link HOTIndirectPage#createBiNode} to probe constancy after
+   *  every BiNode construction in the writer. Argument-compatible with the original. */
+  private HOTIndirectPage createBiNodeTraced(String label, long pageKey, int revision, int discBit,
+      PageReference left, PageReference right, int height) {
+    final HOTIndirectPage page = HOTIndirectPage.createBiNode(pageKey, revision, discBit, left,
+        right, height);
+    probeConstancyOnBuild(pageKey, label, new PageReference[]{left, right}, new int[]{discBit});
+    return page;
+  }
+
+  /** DIAGNOSTIC — gated on {@code -Dhot.debug.constancy=1}. Logs when an indirect is built with
+   *  disc bits that aren't constant in some child's subtree (= the I-Binna stale-route condition).
+   *  Includes a trimmed stack trace so the caller code path is identifiable. */
+  private void probeConstancyOnBuild(long pageKey, String label, PageReference[] children,
+      int[] absBits) {
+    if (!Boolean.getBoolean("hot.debug.constancy")) return;
+    final StringBuilder violations = new StringBuilder();
+    for (final int absBit : absBits) {
+      for (int ci = 0; ci < children.length; ci++) {
+        final int v = bitConstantValueInSubtree(children[ci], absBit);
+        if (v < 0) {
+          if (violations.length() == 0) violations.append(" non-constant: ");
+          else violations.append("; ");
+          violations.append("bit=").append(absBit).append(" childIdx=").append(ci)
+              .append(" childPageKey=").append(children[ci].getLogKey() >= 0
+                  ? children[ci].getLogKey() : children[ci].getKey());
+        }
+      }
+    }
+    if (violations.length() == 0) return;
+    System.err.println("[hot.constancy] BUILD-VIOLATION pageKey=" + pageKey + " label=" + label
+        + " absBits=" + java.util.Arrays.toString(absBits) + violations);
+    final StackTraceElement[] st = Thread.currentThread().getStackTrace();
+    for (int i = 2; i < Math.min(st.length, 12); i++) {
+      System.err.println("    at " + st[i]);
+    }
+  }
+
+  /** DIAGNOSTIC helper — extract the absolute bit positions from a {@link DiscBitsInfo}. */
+  private static int[] discBitsAsAbsBitArray(DiscBitsInfo discBits) {
+    if (discBits.isSingleMask()) {
+      final long mask = discBits.bitMask();
+      final int popcount = Long.bitCount(mask);
+      final int[] out = new int[popcount];
+      int idx = 0;
+      for (int b = 0; b < 64; b++) {
+        if (((mask >>> b) & 1L) != 0) {
+          // BE word: bit b of word == byte (7 - b/8) at position (7 - b%8) → absBit relative
+          final int byteOffset = 7 - (b / 8);
+          final int bitInByte = 7 - (b % 8);
+          out[idx++] = (discBits.initialBytePos() + byteOffset) * 8 + bitInByte;
+        }
+      }
+      return out;
+    }
+    return new int[0]; // MultiMask probe not implemented — diagnostic only covers SingleMask/BiNode
   }
 
   /**
@@ -2440,5 +2530,7 @@ public final class HOTTrieWriter {
     }
     return EMPTY_KEY;
   }
+
+
 }
 

@@ -395,6 +395,151 @@ final class HOTFormalVerificationTest {
     }
   }
 
+  /** TEMPORARY DIAGNOSTIC — mirrors smallCombinedMicrobench's exact insertion pattern (5K warmup
+   *  writes at offset N+1M, then N main writes at [0..N)) to reproduce the 159 stale-route
+   *  violations on a fast small-N reproducer. Not for commit. */
+  @Test
+  @DisplayName("DIAGNOSTIC — microbench-pattern stale-route reproducer")
+  @org.junit.jupiter.api.Timeout(value = 600, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void diagnosticMicrobenchPatternReproducer() {
+    final String prevI6Trace = System.getProperty("hot.debug.i6trace");
+    final String prevConstancy = System.getProperty("hot.debug.constancy");
+    final String prevStrictBinna = System.getProperty("hot.strict.binna");
+    System.setProperty("hot.debug.i6trace", "1");
+    System.setProperty("hot.debug.constancy", "true");
+    System.setProperty("hot.strict.binna", "true");
+    try {
+      final int[] probeN = {50_000};
+      for (final int n : probeN) {
+        JsonTestHelper.deleteEverything();
+        JsonTestHelper.createTestDocument();
+        final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+        final long pathNodeKey = 5L;
+        final IndexDef def;
+        final long buildStart = System.currentTimeMillis();
+        try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+            final var trx = session.beginNodeTrx()) {
+          final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+          final var pathToValue = io.brackit.query.util.path.Path.parse(
+              "/x/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+          def = IndexDefs.createCASIdxDef(false, Type.INR,
+              Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+          ic.createIndexes(Set.of(def), trx);
+          final var writer = io.sirix.index.hot.HOTIndexWriter.create(
+              trx.getStorageEngineWriter(),
+              io.sirix.index.hot.CASKeySerializer.INSTANCE,
+              IndexType.CAS, def.getID());
+          final io.brackit.query.atomic.Int32 zero = new io.brackit.query.atomic.Int32(0);
+          final var scratch = new io.sirix.index.redblacktree.keyvalue.NodeReferences();
+          final int warmupBase = n + 1_000_000;
+          for (int i = 0; i < 5_000; i++) {
+            scratch.getNodeKeys().clear();
+            scratch.getNodeKeys().add(warmupBase + i);
+            writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
+                new io.brackit.query.atomic.Int32(warmupBase + i), Type.INR, pathNodeKey),
+                scratch, null);
+          }
+          for (int i = 0; i < n; i++) {
+            scratch.getNodeKeys().clear();
+            scratch.getNodeKeys().add(i);
+            writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
+                new io.brackit.query.atomic.Int32(i), Type.INR, pathNodeKey),
+                scratch, null);
+          }
+          trx.commit();
+          final long buildMs = System.currentTimeMillis() - buildStart;
+          final HOTInvariantValidator.Result inv =
+              HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS,
+                  def.getID());
+          System.out.println("[microbench-pattern] N=" + n
+              + " · observedHeight=" + inv.observedHeight()
+              + " · violations=" + inv.violations().size()
+              + " · build=" + buildMs + "ms");
+          if (!inv.violations().isEmpty()) {
+            // Count violation types for diagnostic
+            final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
+            for (final var viol : inv.violations()) {
+              final String desc = viol.toString();
+              final int b1 = desc.indexOf('[');
+              final int b2 = desc.indexOf(']');
+              final String type = (b1 >= 0 && b2 > b1) ? desc.substring(b1 + 1, b2) : "<unknown>";
+              typeCounts.merge(type, 1, Integer::sum);
+            }
+            System.out.println("[microbench-pattern]   violation-types: " + typeCounts);
+            int printed = 0;
+            for (final var viol : inv.violations()) {
+              if (printed++ >= 10) break;
+              System.out.println("[microbench-pattern]   " + viol);
+            }
+            return;
+          }
+        }
+      }
+      System.out.println("[microbench-pattern] no violations up to N=" + probeN[probeN.length - 1]);
+    } finally {
+      restoreOrClear("hot.debug.i6trace", prevI6Trace);
+      restoreOrClear("hot.debug.constancy", prevConstancy);
+      restoreOrClear("hot.strict.binna", prevStrictBinna);
+    }
+  }
+
+  private static void restoreOrClear(String key, String prevValue) {
+    if (prevValue == null) System.clearProperty(key);
+    else System.setProperty(key, prevValue);
+  }
+
+  /** TEMPORARY DIAGNOSTIC — finds the smallest N at which the rebuild-path stale-route violations
+   *  appear. Run with {@code -Dhot.debug.i6trace=1} to dump the first violation's structural
+   *  trace. Not for commit. */
+  @Test
+  @DisplayName("DIAGNOSTIC — locate stale-route N threshold")
+  @org.junit.jupiter.api.Timeout(value = 480, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void diagnosticStaleRouteNThreshold() {
+    final int[] probeN = {150_000, 200_000, 250_000, 300_000, 400_000, 500_000};
+    for (final int n : probeN) {
+      JsonTestHelper.deleteEverything();
+      JsonTestHelper.createTestDocument();
+      final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+      final IndexDef def;
+      final long buildStart = System.currentTimeMillis();
+      try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+          final var trx = session.beginNodeTrx()) {
+        final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+        final var pathToValue = io.brackit.query.util.path.Path.parse(
+            "/d/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+        def = IndexDefs.createCASIdxDef(false, Type.INR,
+            Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+        ic.createIndexes(Set.of(def), trx);
+        final StringBuilder json = new StringBuilder("{\"d\":[");
+        for (int i = 0; i < n; i++) {
+          if (i > 0) json.append(',');
+          json.append("{\"v\":").append(i).append('}');
+        }
+        json.append("]}");
+        trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+        trx.commit();
+        final long buildMs = System.currentTimeMillis() - buildStart;
+        final HOTInvariantValidator.Result inv =
+            HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS,
+                def.getID());
+        System.out.println("[diagnostic] N=" + n
+            + " · observedHeight=" + inv.observedHeight()
+            + " · violations=" + inv.violations().size()
+            + " · build=" + buildMs + "ms");
+        if (!inv.violations().isEmpty()) {
+          int printed = 0;
+          for (final var viol : inv.violations()) {
+            if (printed++ >= 5) break;
+            System.out.println("[diagnostic]   " + viol);
+          }
+          // Stop at the first N where violations appear — that's our reproducer threshold.
+          return;
+        }
+      }
+    }
+    System.out.println("[diagnostic] no violations up to N=" + probeN[probeN.length - 1]);
+  }
+
   @org.junit.jupiter.api.Disabled("Million-entry stress: ~7-9 min runtime — exceeds the GitHub-runner "
       + "CI timeout. Verified manually: N=1M, observedHeight=3, violations=0, build=510s on a "
       + "luna-class workstation. Re-enable for local stress runs.")
