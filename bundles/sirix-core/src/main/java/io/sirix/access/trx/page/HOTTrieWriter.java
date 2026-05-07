@@ -90,6 +90,37 @@ public final class HOTTrieWriter {
   /** Shared empty key constant to avoid allocations. */
   private static final byte[] EMPTY_KEY = new byte[0];
 
+  // ===== Strict-Binna intermediate-BiNode fallback firing counter =====
+  // Counts how many times the intermediate-BiNode fallback in
+  // updateParentForSplitWithPath (the c868e669c workaround) fires under
+  // -Dhot.strict.binna=true. Each firing grows tree depth by 1 on the affected path.
+  // Resettable by the test harness; queryable via getIntermediateBiNodeFallbackFirings.
+  // Used by Phase 2 / Phase 3 / Phase 4b regression measurement.
+  private static final java.util.concurrent.atomic.AtomicLong INTERMEDIATE_BINODE_FALLBACK_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  /**
+   * Returns the count of times the intermediate-BiNode fallback in
+   * {@link #updateParentForSplitWithPath} has fired since the last reset.
+   *
+   * <p>Rationale: each firing creates a persisted 2-entry BiNode at the original
+   * child's slot, growing the affected path's depth by 1. Counting these firings
+   * quantifies how often strict-Binna mode falls off the height-optimal path. Phase 3
+   * (lazy retroactive sibling rebalance) and Phase 4b (Binna-faithful rebuild paths)
+   * aim to drive this counter to 0 on benign workloads.
+   *
+   * <p>HFT-grade: atomic increments only fire on the rare fallback branch, not on the
+   * hot common addEntryWithPDep success path.
+   */
+  public static long getIntermediateBiNodeFallbackFirings() {
+    return INTERMEDIATE_BINODE_FALLBACK_FIRINGS.get();
+  }
+
+  /** Reset the diagnostic counter — typically called from a test's setUp. */
+  public static void resetIntermediateBiNodeFallbackFirings() {
+    INTERMEDIATE_BINODE_FALLBACK_FIRINGS.set(0L);
+  }
+
   /** Memory segment allocator. */
   @SuppressWarnings("unused")
   private final MemorySegmentAllocator allocator;
@@ -540,6 +571,17 @@ public final class HOTTrieWriter {
       // MSDB-aware split+insert: splits entries by the most significant discriminative
       // bit (including the new key), then inserts the new key into the correct half.
       // This matches the C++ split(insertInformation, valueToInsert) approach.
+      //
+      // Phase 2 design analysis: the leaf's only contiguous-partition-friendly split
+      // bit is MSDB itself; non-MSDB split bits would yield non-contiguous partition
+      // which breaks the children-sorted-by-firstkey invariant. Sibling-aware
+      // selection of MSDB (= "is MSDB constant in non-split siblings?") doesn't
+      // change the split itself — it would only let us PREDICT whether the parent
+      // will accept the BiNode via addEntryWithPDep. Since the existing fallback
+      // chain (intermediate-BiNode in strict mode, rebuildParentAbsorbingSplit
+      // otherwise) handles parent rejection correctly, the prediction adds no value
+      // here. Real Phase 2 leverage requires Phase 3 (lazy retroactive sibling
+      // rebalance) — see docs/HOT_STRICT_BINNA_DESIGN.md §4.
       if (!fullPage.splitToWithInsert(rightPage, keyBuf, keyLen, valueBuf, valueLen)) {
         return false; // finally block closes rightPage
       }
@@ -698,6 +740,13 @@ public final class HOTTrieWriter {
         // inserted into the left half; in that rare case the slot's firstKey
         // would drop below the previous slot's, breaking the I8 invariant. The
         // helper returns false and we fall through to splitParentAndRecurse.
+        //
+        // Architectural note (per Binna's HOTSingleThreaded.hpp lines 493-547):
+        // this intermediate-BiNode at {@code parent.height == splitEntries.height}
+        // is non-faithful — Binna's reference instead splits the parent
+        // (= {@code splitParentAndRecurse}). However Phase 4b's known bugs in
+        // {@code buildCompressedHalf}'s sparse-path fallbacks make the genuine
+        // split path unsafe today. This fallback is the pragmatic interim choice.
         long newBiNodePageKey = pageKeyAllocator.getAsLong();
         HOTIndirectPage newBiNode = createBiNodeTraced("strict-binna-intermediate-biNode",
             newBiNodePageKey, storageEngineReader.getRevisionNumber(), discriminativeBit,
@@ -710,6 +759,10 @@ public final class HOTTrieWriter {
             parent.withUpdatedChild(originalChildIndex, newBiNodeRef,
                 storageEngineReader.getRevisionNumber());
         log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
+        // Diagnostic: track every firing of this fallback. Each firing grows the
+        // tree depth by 1 on the affected path. The counter is queryable via
+        // {@link #getIntermediateBiNodeFallbackFirings} for measurement.
+        INTERMEDIATE_BINODE_FALLBACK_FIRINGS.incrementAndGet();
       } else if (Boolean.getBoolean("hot.strict.binna")) {
         // I8 would break with the intermediate-BiNode approach — fall through
         // to splitParentAndRecurse for a genuine split.
