@@ -8,9 +8,51 @@
 
 ## TL;DR
 
-Sirix's HOT diverges from Binna's reference in one architectural choice: **multi-entry leaves** (≤ 512 keys/leaf) vs Binna's **single-key leaves** (1 key/leaf). Every other commitment is faithful: M-ary fan-out, PEXT routing, sparse-path encoding, CoW. The single divergence creates a problem state (a leaf containing keys that span an ancestor's potential disc bits) that has *no analog in Binna's algorithm*. Six in-session attempts to bridge this gap have failed because the bridge requires multi-week engineering surgery, not session-scale patching.
+Sirix's HOT diverges from Binna's reference in one architectural choice: **multi-entry leaves** (≤ 512 keys/leaf) vs Binna's **single-key leaves** (1 key/leaf). Every other commitment is faithful: M-ary fan-out, PEXT routing, sparse-path encoding, CoW. The single divergence creates a problem state (a leaf containing keys that span an ancestor's potential disc bits) that has *no analog in Binna's algorithm* — making this a multi-week engineering project, not a session-scale patch.
 
 This document scopes that surgery as a phased project. **Each phase is contained, testable, and PR-reviewable.** Phases must land in order; later phases depend on infrastructure earlier phases create.
+
+## Live status (branch `fix/hot-strict-binna-conformance`)
+
+Commits since `main` (`6a4176da3`):
+
+| Commit | Phase | Status | Effect on 50K reproducer |
+|---|---|---|---|
+| `85cafac2e` | Phase 0 — diagnostic | ✅ landed | (instrumentation only) |
+| `c868e669c` | Phase 4a workaround — intermediate-BiNode fallback | ✅ landed (gated) | 127 → 1 violation, height 7, 53 fallback firings |
+| `c282b1848` | Phase 1 — `collectAncestorDiscBits` helper | ✅ landed | (helper only) |
+| `780453c2e` | Phase 2 measurement — fallback firing counter | ✅ landed | (measurement only) |
+| `0975c8a72` | Phase 2 — leaf-side helpers (`splitToWithInsertOnBit`) | ✅ landed | (helpers only) |
+| `48da0482b` | Phase 3 — sibling rebalance for Case 2b-ii | ✅ landed (gated) | 1 violation, height 6, 48 fallback firings (17 Phase 3 firings replace 5) |
+| (in flight) | Phase 4 — β-already-in-mask subtree merge (SingleMask + MultiMask) | 🟡 in progress | target: 0 violations, height ≤ 4, 0 fallback firings |
+| (deferred) | Phase 4b — `splitParentAndRecurse` correctness + cross-window | ⏸ pending | needed for general-workload soundness |
+| (deferred) | Phase 5 — perf validation + default-on flip | ⏸ pending | |
+| (deferred) | Phase 6 — flag removal | ⏸ pending | |
+
+## Phase 2 lessons learned (after 3 failed variants)
+
+The original plan's Phase 2 — "constancy-aware leaf split: pick split bit from ancestor disc bits" — does **not work**. Three variants tested:
+
+- **Variant A** (most-significant ancestor bit non-constant in leaf as split bit): catastrophic — 5,652 violations, height 9. Root cause: non-MSDB split breaks contiguous-partition invariants. The leaf's keys aren't sorted by an arbitrary middle bit; only MSDB-based splits keep partitions contiguous.
+- **Variant B** (only use ancestor bit when it equals MSDB): behavioral no-op. Constraint too strict.
+- **Variant C** (remove `c868e669c` fallback, force `splitParentAndRecurse`): 27,954 violations from `buildCompressedHalf`'s 4 sparse-path fallback bugs (Phase 4b territory).
+
+**Conclusion**: leaf splits MUST be on MSDB. The fix lives at the parent-integration level, not the leaf level. This shifted the work from leaf-level (Phase 2 as originally scoped) to parent-level (Phase 3 sibling rebalance + Phase 4 subtree merge).
+
+## Updated case taxonomy of `addEntryWithPDep` rejections
+
+When `addEntryWithPDep` (or `addEntryMultiMask`) returns null, classified by failure cause:
+
+| Case | Cause | Status |
+|---|---|---|
+| 2b-i (success) | β not in mask, constant in siblings, parent not full | ✅ no fix needed |
+| 2b-ii | β not in mask, sibling non-constant on β | ✅ Phase 3 (sibling rebalance) |
+| 2b-iii | parent full | ⏸ Phase 4b (`splitParentAndRecurse` correctness) — bypasses addEntryWithPDep |
+| 2b-iv | β already in mask (SingleMask) | 🟡 Phase 4 (subtree merge) |
+| 2b-v | MultiMask parent rejection | 🟡 Phase 4 (MultiMask subtree merge) |
+| 2b-vi | β cross-window | ⏸ Phase 4b (MultiMask upgrade) |
+
+Empirical: on the 50K reproducer, the 48 remaining fallback firings are **2b-iv and 2b-v exclusively** (Phase 3 agent's `-Dhot.debug.phase3` diagnostic). 2b-iii and 2b-vi don't trigger on this workload but remain theoretically reachable on others.
 
 ---
 

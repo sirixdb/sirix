@@ -409,7 +409,7 @@ final class HOTFormalVerificationTest {
     System.setProperty("hot.debug.i6trace", "1");
     System.setProperty("hot.debug.constancy", "true");
     System.setProperty("hot.strict.binna", "true");
-    System.setProperty("hot.debug.phase4", "1");
+    System.setProperty("hot.debug.phase4", "true");
     try {
       final int[] probeN = {50_000};
       for (final int n : probeN) {
