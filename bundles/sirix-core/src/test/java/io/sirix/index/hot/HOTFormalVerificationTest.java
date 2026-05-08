@@ -405,15 +405,18 @@ final class HOTFormalVerificationTest {
     final String prevI6Trace = System.getProperty("hot.debug.i6trace");
     final String prevConstancy = System.getProperty("hot.debug.constancy");
     final String prevStrictBinna = System.getProperty("hot.strict.binna");
+    final String prevPhase4Debug = System.getProperty("hot.debug.phase4");
     System.setProperty("hot.debug.i6trace", "1");
     System.setProperty("hot.debug.constancy", "true");
     System.setProperty("hot.strict.binna", "true");
+    System.setProperty("hot.debug.phase4", "1");
     try {
       final int[] probeN = {50_000};
       for (final int n : probeN) {
         // Phase-2 success criterion: intermediate-BiNode fallback firings == 0.
         io.sirix.access.trx.page.HOTTrieWriter.resetIntermediateBiNodeFallbackFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase3RebalanceFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase4SubtreeMergeFirings();
         JsonTestHelper.deleteEverything();
         JsonTestHelper.createTestDocument();
         final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -458,11 +461,14 @@ final class HOTFormalVerificationTest {
               io.sirix.access.trx.page.HOTTrieWriter.getIntermediateBiNodeFallbackFirings();
           final long phase3Firings =
               io.sirix.access.trx.page.HOTTrieWriter.getPhase3RebalanceFirings();
+          final long phase4Firings =
+              io.sirix.access.trx.page.HOTTrieWriter.getPhase4SubtreeMergeFirings();
           System.out.println("[microbench-pattern] N=" + n
               + " · observedHeight=" + inv.observedHeight()
               + " · violations=" + inv.violations().size()
               + " · intermediate-binode-fallbacks=" + fallbackFirings
               + " · phase3-rebalance-firings=" + phase3Firings
+              + " · phase4-subtree-merge-firings=" + phase4Firings
               + " · build=" + buildMs + "ms");
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
@@ -489,6 +495,7 @@ final class HOTFormalVerificationTest {
       restoreOrClear("hot.debug.i6trace", prevI6Trace);
       restoreOrClear("hot.debug.constancy", prevConstancy);
       restoreOrClear("hot.strict.binna", prevStrictBinna);
+      restoreOrClear("hot.debug.phase4", prevPhase4Debug);
     }
   }
 

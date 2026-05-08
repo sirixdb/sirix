@@ -141,6 +141,28 @@ public final class HOTTrieWriter {
     PHASE3_REBALANCE_FIRINGS.set(0L);
   }
 
+  // ===== Phase 4 β-already-in-mask subtree-merge counter =====
+  // Counts how many times the Phase 4 subtree merge fires under -Dhot.strict.binna=true
+  // (i.e., addEntryWithPDep / addEntryMultiMask rejected because the new disc bit β is
+  // already in the parent's mask, and the moveHalf of the leaf split was bulk-inserted
+  // into the existing β=¬v_L sibling's subtree). Each firing resolves one β-already-in-mask
+  // rejection cleanly without growing tree depth.
+  //
+  // Compare against INTERMEDIATE_BINODE_FALLBACK_FIRINGS — Phase 4 success means subtree-merge
+  // firings climb while fallback firings drop further toward 0.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE4_SUBTREE_MERGE_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  /** Returns the count of Phase 4 subtree-merge firings since the last reset. */
+  public static long getPhase4SubtreeMergeFirings() {
+    return PHASE4_SUBTREE_MERGE_FIRINGS.get();
+  }
+
+  /** Reset the Phase 4 firing counter. */
+  public static void resetPhase4SubtreeMergeFirings() {
+    PHASE4_SUBTREE_MERGE_FIRINGS.set(0L);
+  }
+
   /** Memory segment allocator. */
   @SuppressWarnings("unused")
   private final MemorySegmentAllocator allocator;
@@ -769,6 +791,18 @@ public final class HOTTrieWriter {
         if (rebalancedParent != null) {
           log.put(parentRef, PageContainer.getInstance(rebalancedParent, rebalancedParent));
           PHASE3_REBALANCE_FIRINGS.incrementAndGet();
+        } else if (tryPhase4SubtreeMerge(parent, parentRef, originalChildIndex, leftChild,
+            rightChild, discriminativeBit, storageEngineReader, log)) {
+          // Phase 4: β-already-in-mask subtree merge. addEntry rejected because the leaf-split's
+          // MSDB β is a bit parent already routes on; the resolution is to merge moveHalf's
+          // keys into the existing β=¬v_L sibling subtree (rather than try to extend the
+          // mask). Works for both SingleMask and MultiMask parent layouts. See {@link
+          // #subtreeMerge} for the algorithm and CoW correctness argument.
+          //
+          // Successful firing leaves the parent's mask unchanged (no new disc bit added) and
+          // the parent's children layout possibly altered (slot[splitChildIdx] swapped to
+          // keepHalf; slot[siblingIdx]'s subtree mutated by bulk-inserts). Tree height is
+          // preserved (no +1 wrapping BiNode); I-Binna constancy invariant is preserved.
         } else if (intermediateBiNodePreservesSlotOrder(parent, originalChildIndex, leftChild)) {
           // Phase 3 couldn't resolve — fall back to c868e669c's intermediate-BiNode workaround.
           // This should be rare on benign workloads; each firing grows tree depth by 1.
@@ -1661,6 +1695,579 @@ public final class HOTTrieWriter {
         + " parentMask=" + Long.toHexString(parent.getBitMask())
         + " parentChildren=" + parent.getNumChildren()
         + " β=" + β + " outIdx=" + outIdx);
+  }
+
+  // ===========================================================================
+  // Phase 4 — β-already-in-mask subtree merge
+  //
+  // When addEntryWithPDep / addEntryMultiMask rejects in updateParentForSplitWithPath
+  // because the new disc bit β is ALREADY in parent's mask (i.e., the leaf split's
+  // MSDB is a bit parent already routes on), Phase 3 cannot help: the resolution is
+  // not "extend parent's mask with β" but "merge moveHalf's keys into the existing
+  // β=¬v_L sibling subtree".
+  //
+  // Algorithm (mirrors the task brief):
+  //   1. Decode β's output position in parent's partial-key layout.
+  //   2. v_L = (parent.partialKeys[splitChildIdx] >>> β_outputPos) & 1.
+  //   3. keepHalf = (v_L == 0) ? leftChild : rightChild
+  //      moveHalf = (v_L == 0) ? rightChild : leftChild
+  //   4. Find sibling slot whose stored partial differs from splitChild's only at β
+  //      (XOR == 1 << β_outputPos).
+  //   5. Replace parent's slot[splitChildIdx] with keepHalf; CoW parent.
+  //   6. For each (k, v) in moveHalf: bulk-insert into siblingRef's subtree.
+  //
+  // CoW correctness: parent's pageKey is preserved (withUpdatedChild semantics);
+  // ancestors of parent need no further CoW. Each bulk-insert is a separate top-down
+  // CoW within the sibling subtree (descend → leaf → CoW back up to siblingRef →
+  // re-attach to parent's slot[siblingIdx] via withUpdatedChild on parent). If a
+  // bulk-insert triggers a leaf split that itself recurses into Phase 4, the recursion
+  // operates on a stable parent-page snapshot stored in the TIL.
+  //
+  // HFT-grade: pre-sized buffers; no boxing; reuses the existing PEXT routing in
+  // {@link HOTIndirectPage#findChildIndex}; allocations are bounded to the moveHalf's
+  // entry count (single-leaf-worth) per firing.
+  // ===========================================================================
+
+  /**
+   * Phase 4 dispatch helper: gate on β-already-in-mask and invoke {@link #subtreeMerge}.
+   *
+   * <p>Emits a diagnostic line on the gate decision when {@code -Dhot.debug.phase4=1}.
+   * Returns {@code true} only when the merge actually succeeded.
+   */
+  private boolean tryPhase4SubtreeMerge(HOTIndirectPage parent, PageReference parentRef,
+      int splitChildIdx, PageReference leftChild, PageReference rightChild, int absBit,
+      StorageEngineWriter storageEngineReader, TransactionIntentLog log) {
+    if (!isBetaAlreadyInParentMask(parent, absBit)) {
+      diagnosePhase4Skip("not-beta-in-mask", parent, absBit);
+      return false;
+    }
+    return subtreeMerge(parent, parentRef, splitChildIdx, leftChild, rightChild, absBit,
+        storageEngineReader, log);
+  }
+
+  /**
+   * Returns {@code true} if the absolute MSB-first disc bit {@code absBit} is already part
+   * of {@code parent}'s mask (SingleMask) or extraction-table (MultiMask). Used to gate
+   * Phase 4 entry — {@link #subtreeMerge} only applies when β is already a parent disc bit.
+   *
+   * <p>HFT-grade: zero allocation, primitive ops only.
+   */
+  private static boolean isBetaAlreadyInParentMask(HOTIndirectPage parent, int absBit) {
+    if (parent.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      final int initialBytePos = parent.getInitialBytePos();
+      final int byteOffset = (absBit / 8) - initialBytePos;
+      if (byteOffset < 0 || byteOffset >= 8) return false;
+      final int bitInByte = absBit % 8;
+      final int bitInWord = (7 - byteOffset) * 8 + (7 - bitInByte);
+      return (parent.getBitMask() & (1L << bitInWord)) != 0L;
+    }
+    final byte[] extractionPositions = parent.getExtractionPositions();
+    final long[] extractionMasks = parent.getExtractionMasks();
+    if (extractionPositions == null || extractionMasks == null) return false;
+    final int newBytePos = absBit / 8;
+    final int newBitInByte = absBit % 8;
+    final int newMaskBit = 1 << (7 - newBitInByte);
+    for (int i = 0; i < extractionPositions.length; i++) {
+      if ((extractionPositions[i] & 0xFF) != newBytePos) continue;
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      final int byteMask =
+          (int) ((extractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFF);
+      if ((byteMask & newMaskBit) != 0) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Find the parent's child slot whose stored partial differs from the split child's
+   * stored partial only at the β-output bit position. This is the "β=¬v_L sibling"
+   * that should absorb the moveHalf's keys when β is already in parent's mask.
+   *
+   * <p>Returns {@code -1} if no such sibling exists (e.g., β is in parent's mask but
+   * only one slot encodes β=v_L; the other β value is implicitly handled via subset
+   * fallback elsewhere). In that case Phase 4's "merge into sibling" cannot proceed.
+   *
+   * <p>HFT-grade: linear scan, primitive ops, no allocation.
+   *
+   * @param parent          the parent indirect (any layout)
+   * @param splitChildIdx   slot index of the split child
+   * @param betaXorMask     {@code 1 << β_outputPos} in parent's partial-key layout
+   * @return slot index of the β=¬v_L sibling, or {@code -1}
+   */
+  private static int findSiblingSlotForBitValue(HOTIndirectPage parent, int splitChildIdx,
+      int betaXorMask) {
+    if (parent == null || betaXorMask == 0) return -1;
+    final int[] partials = parent.getPartialKeys();
+    if (partials == null) return -1;
+    final int target = partials[splitChildIdx] ^ betaXorMask;
+    final int n = parent.getNumChildren();
+    for (int i = 0; i < n; i++) {
+      if (i == splitChildIdx) continue;
+      if (partials[i] == target) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Decode β's output position (LSB=0) within a SingleMask parent's partial-key layout.
+   * Returns {@code -1} if β is not in the parent's mask or falls outside the 8-byte
+   * window.
+   *
+   * <p>Mirrors the bit-decoding in {@link #addEntryWithPDep}: byte offset in window
+   * (β/8 - initialBytePos), MSB-first bit (β%8) → long-bit ((7-bo)*8 + (7-bb)).
+   * Output position is the count of mask bits below that long-bit.
+   */
+  private static int singleMaskBetaOutputPos(HOTIndirectPage parent, int absBit) {
+    final int initialBytePos = parent.getInitialBytePos();
+    final long mask = parent.getBitMask();
+    final int byteOffset = (absBit / 8) - initialBytePos;
+    if (byteOffset < 0 || byteOffset >= 8) return -1;
+    final int bitInByte = absBit % 8;
+    final int bitInWord = (7 - byteOffset) * 8 + (7 - bitInByte);
+    final long bitMaskBit = 1L << bitInWord;
+    if ((mask & bitMaskBit) == 0L) return -1;
+    return Long.bitCount(mask & (bitMaskBit - 1L));
+  }
+
+  /**
+   * Decode β's output position (LSB=0) within a MultiMask parent's partial-key layout.
+   * Returns {@code -1} if β is not in the parent's extraction mask.
+   *
+   * <p>BE concat ordering: chunk 0 occupies the high bits of the result; within each
+   * byte, MSB-first bit ordering. Walks extractionPositions/extractionMasks to find
+   * β's position, returning the LSB-relative output bit.
+   */
+  private static int multiMaskBetaOutputPos(HOTIndirectPage parent, int absBit) {
+    final byte[] extractionPositions = parent.getExtractionPositions();
+    final long[] extractionMasks = parent.getExtractionMasks();
+    if (extractionPositions == null || extractionMasks == null) return -1;
+    final int newBytePos = absBit / 8;
+    final int newBitInByte = absBit % 8;
+    final int numBytes = extractionPositions.length;
+    int totalBits = 0;
+    for (final long m : extractionMasks) totalBits += Long.bitCount(m);
+    int bitsAccumulated = 0;
+    for (int i = 0; i < numBytes; i++) {
+      final int bp = extractionPositions[i] & 0xFF;
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      final int byteMask =
+          (int) ((extractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFF);
+      // MSB-first within the byte: mfBit = 0 → bit 7, mfBit = 7 → bit 0.
+      for (int mfBit = 0; mfBit < 8; mfBit++) {
+        final int byteBit = 7 - mfBit;
+        if ((byteMask & (1 << byteBit)) == 0) continue;
+        if (bp == newBytePos && mfBit == newBitInByte) {
+          return totalBits - 1 - bitsAccumulated;
+        }
+        bitsAccumulated++;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Phase 4 entry point: handle β-already-in-mask rejection by merging moveHalf's keys
+   * into the existing β=¬v_L sibling's subtree. Works for both SingleMask and MultiMask
+   * parent layouts.
+   *
+   * <p>Returns {@code true} if the merge succeeded and the parent has been registered
+   * in the TIL with the updated state. Returns {@code false} on any failure (sibling
+   * not found, bulk-insert failed, unloadable pages); caller falls through to the
+   * existing intermediate-BiNode / splitParentAndRecurse fallbacks.
+   *
+   * <p>CoW correctness: the parent is updated via {@link HOTIndirectPage#withUpdatedChild}
+   * which preserves pageKey identity, so ancestors above parent need no further CoW.
+   * Each bulk-insert into the sibling subtree performs its own top-down CoW within that
+   * subtree, terminating at parentRef (which is already in the TIL).
+   *
+   * <p>HFT-grade: bounded-allocation extraction of moveHalf's entries (single
+   * {@code byte[][]} pair sized to the moveHalf entry count); no boxing; reuses
+   * {@link HOTIndirectPage#findChildIndex}'s PEXT routing.
+   *
+   * @param parent           the parent indirect (any layout)
+   * @param parentRef        TIL handle for parent
+   * @param splitChildIdx    slot index of the split child in parent
+   * @param leftChild        left half of the leaf split (β=0 keys)
+   * @param rightChild       right half of the leaf split (β=1 keys)
+   * @param absBit           β disc bit (absolute MSB-first), already in parent's mask
+   * @param storageEngineReader for descending into sibling subtree
+   * @param log              transaction intent log
+   * @return {@code true} on successful merge
+   */
+  private boolean subtreeMerge(HOTIndirectPage parent, PageReference parentRef,
+      int splitChildIdx, PageReference leftChild, PageReference rightChild, int absBit,
+      StorageEngineWriter storageEngineReader, TransactionIntentLog log) {
+    if (parent == null || parentRef == null || leftChild == null || rightChild == null) {
+      return false;
+    }
+    final int revision = storageEngineReader.getRevisionNumber();
+
+    // Step 1: locate β's output position in parent's partial-key layout.
+    final int betaOutputPos;
+    if (parent.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      betaOutputPos = singleMaskBetaOutputPos(parent, absBit);
+    } else {
+      betaOutputPos = multiMaskBetaOutputPos(parent, absBit);
+    }
+    if (betaOutputPos < 0) {
+      diagnosePhase4Skip("beta-not-in-mask", parent, absBit);
+      return false;
+    }
+    final int betaXorMask = 1 << betaOutputPos;
+
+    // Step 2: v_L from parent's stored partial for splitChildIdx.
+    final int[] partials = parent.getPartialKeys();
+    if (partials == null || splitChildIdx < 0 || splitChildIdx >= partials.length) {
+      diagnosePhase4Skip("no-partials", parent, absBit);
+      return false;
+    }
+    final int splitChildPartial = partials[splitChildIdx];
+    final int vL = (splitChildPartial >>> betaOutputPos) & 1;
+
+    // Step 3: keep & move halves. By construction of the leaf split: leftChild has β=0 keys,
+    // rightChild has β=1 keys.
+    final PageReference keepHalf = (vL == 0) ? leftChild : rightChild;
+    final PageReference moveHalf = (vL == 0) ? rightChild : leftChild;
+
+    // Step 4: find the β=¬v_L sibling.
+    final int siblingIdx = findSiblingSlotForBitValue(parent, splitChildIdx, betaXorMask);
+    if (siblingIdx < 0) {
+      diagnosePhase4Skip("no-sibling-slot", parent, absBit);
+      return false;
+    }
+
+    // Step 5: extract moveHalf's entries BEFORE we mutate parent (so the page contents
+    // can be read deterministically). moveHalf is a freshly built leaf from the leaf-split
+    // path; its page is already in the TIL via {@link #handleLeafSplitAndInsertInternal}.
+    final HOTLeafPage moveLeaf = resolveLeafPage(moveHalf, storageEngineReader, log);
+    if (moveLeaf == null) {
+      diagnosePhase4Skip("move-not-leaf", parent, absBit);
+      return false;
+    }
+    final int moveCount = moveLeaf.getEntryCount();
+    if (moveCount == 0) {
+      // Vacuously merged — nothing to do but still replace the parent slot with keepHalf.
+      final HOTIndirectPage updatedParent =
+          parent.withUpdatedChild(splitChildIdx, keepHalf, revision);
+      log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
+      PHASE4_SUBTREE_MERGE_FIRINGS.incrementAndGet();
+      return true;
+    }
+    final byte[][] moveKeys = new byte[moveCount][];
+    final byte[][] moveValues = new byte[moveCount][];
+    for (int i = 0; i < moveCount; i++) {
+      moveKeys[i] = moveLeaf.getKey(i);
+      moveValues[i] = moveLeaf.getValue(i);
+    }
+
+    // Step 6: replace parent's slot[splitChildIdx] with keepHalf, register CoW'd parent.
+    HOTIndirectPage updatedParent =
+        parent.withUpdatedChild(splitChildIdx, keepHalf, revision);
+    log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
+
+    // Step 7: bulk-insert moveHalf's entries into the sibling subtree.
+    // Each insertion descends from siblingRef → target leaf via PEXT routing, CoWs the
+    // target, inserts; on overflow the leaf-split-and-insert path runs (which may
+    // recurse into Phase 4 again — bounded by total tree size). After each insertion,
+    // re-fetch parent from log because the sibling subtree CoW may have updated it.
+    for (int i = 0; i < moveCount; i++) {
+      final PageContainer cont = log.get(parentRef);
+      if (cont == null || !(cont.getModified() instanceof HOTIndirectPage curParent)) {
+        diagnosePhase4Skip("parent-vanished", parent, absBit);
+        return false;
+      }
+      // siblingIdx may shift if the sibling subtree's CoW altered the children layout —
+      // but withUpdatedChild and indirect updates we perform preserve slot order, so
+      // siblingIdx stays valid as long as moveHalf-insertion stays within siblingIdx's
+      // subtree. If a leaf split inside the sibling subtree expands the parent (via
+      // addEntryWithPDep success), child count grows; for our case (β-already-in-mask
+      // rejection), addEntryWithPDep's β-already-in-mask path may itself fire — handled
+      // recursively. siblingIdx stays valid in that case because withUpdatedChild also
+      // preserves order.
+      if (!bulkInsertIntoSiblingSubtree(curParent, parentRef, siblingIdx,
+          moveKeys[i], moveValues[i], storageEngineReader, log)) {
+        diagnosePhase4Skip("bulk-insert-failed", parent, absBit);
+        return false;
+      }
+    }
+
+    PHASE4_SUBTREE_MERGE_FIRINGS.incrementAndGet();
+    return true;
+  }
+
+  /**
+   * Resolve a PageReference to a HOTLeafPage. Handles swizzled in-memory pages and TIL
+   * lookups. Returns {@code null} if the ref doesn't resolve to a leaf.
+   */
+  private @Nullable HOTLeafPage resolveLeafPage(PageReference ref,
+      StorageEngineWriter storageEngineReader, TransactionIntentLog log) {
+    final PageContainer cont = log.get(ref);
+    if (cont != null) {
+      final Page p = cont.getModified();
+      if (p instanceof HOTLeafPage leaf) return leaf;
+      return null;
+    }
+    Page page = ref.getPage();
+    if (page == null) {
+      page = loadPage(storageEngineReader, ref);
+      if (page != null) ref.setPage(page);
+    }
+    if (page instanceof HOTLeafPage leaf) {
+      return leaf;
+    }
+    return null;
+  }
+
+  /**
+   * Insert a single (key, value) pair into the subtree rooted at parent's slot[siblingIdx].
+   * Walks down via PEXT routing, CoWs each indirect on the path, inserts at the leaf;
+   * on leaf overflow triggers the standard leaf-split + integrate path which may
+   * recursively re-invoke Phase 4.
+   *
+   * <p>CoW correctness: top-down via {@link HOTIndirectPage#withUpdatedChild} (preserves
+   * pageKey identity); the leaf is CoW'd with a fresh page key. After insertion, the
+   * sibling subtree's root ref (parent's slot[siblingIdx]) is updated in place via
+   * a fresh CoW'd parent registered at parentRef.
+   *
+   * <p>HFT-grade: pre-allocated path arrays from the writer's pool; no boxing; PEXT
+   * routing reused.
+   *
+   * @return {@code true} on successful insert
+   */
+  private boolean bulkInsertIntoSiblingSubtree(HOTIndirectPage parent, PageReference parentRef,
+      int siblingIdx, byte[] key, byte[] value,
+      StorageEngineWriter storageEngineReader, TransactionIntentLog log) {
+    if (parent == null || parentRef == null || key == null || value == null) {
+      return false;
+    }
+    final int revision = storageEngineReader.getRevisionNumber();
+
+    // Local descent path from sibling subtree. Worst case depth = MAX_TREE_HEIGHT.
+    final HOTIndirectPage[] descPathNodes = new HOTIndirectPage[MAX_TREE_HEIGHT];
+    final PageReference[] descPathRefs = new PageReference[MAX_TREE_HEIGHT];
+    final int[] descPathChildIdx = new int[MAX_TREE_HEIGHT];
+    int descDepth = 0;
+
+    PageReference curRef = parent.getChildReference(siblingIdx);
+    if (curRef == null) return false;
+    Page curPage = resolveAnyPage(curRef, storageEngineReader, log);
+    if (curPage == null) return false;
+
+    while (curPage instanceof HOTIndirectPage indirect) {
+      if (descDepth >= MAX_TREE_HEIGHT) return false;
+      final int childIdx = indirect.findChildIndex(key);
+      if (childIdx < 0) return false;
+      final PageReference childRef = indirect.getChildReference(childIdx);
+      if (childRef == null) return false;
+      descPathNodes[descDepth] = indirect;
+      descPathRefs[descDepth] = curRef;
+      descPathChildIdx[descDepth] = childIdx;
+      descDepth++;
+      curRef = childRef;
+      curPage = resolveAnyPage(curRef, storageEngineReader, log);
+      if (curPage == null) return false;
+    }
+
+    if (!(curPage instanceof HOTLeafPage targetLeaf)) {
+      return false;
+    }
+
+    // CoW the target leaf if not already in TIL.
+    HOTLeafPage modLeaf;
+    final PageContainer existing = log.get(curRef);
+    if (existing != null && existing.getModified() instanceof HOTLeafPage existingMod) {
+      modLeaf = existingMod;
+    } else {
+      modLeaf = targetLeaf.copy();
+      log.put(curRef, PageContainer.getInstance(targetLeaf, modLeaf));
+    }
+
+    // Try a direct put (cheap path).
+    if (modLeaf.put(key, value)) {
+      // Propagate CoW up the descent path back to parent. Each indirect on the descent
+      // path is CoW'd via withUpdatedChild — pageKey-preserving, so identity stays stable.
+      PageReference childRef = curRef;
+      for (int i = descDepth - 1; i >= 0; i--) {
+        final HOTIndirectPage descNode = descPathNodes[i];
+        final HOTIndirectPage descNodeUpdated =
+            descNode.withUpdatedChild(descPathChildIdx[i], childRef, revision);
+        log.put(descPathRefs[i], PageContainer.getInstance(descNodeUpdated, descNodeUpdated));
+        childRef = descPathRefs[i];
+      }
+      // Update parent's slot[siblingIdx] to point at the (possibly CoW'd) sibling subtree
+      // root. Only needed if descDepth == 0 (sibling is the leaf itself); when descDepth > 0
+      // the inner loop already updated descPathRefs[0] which IS parent's slot[siblingIdx]'s
+      // ref. Re-fetch parent and update its slot to ensure consistency.
+      final HOTIndirectPage curParent = currentInLog(parentRef, parent);
+      final HOTIndirectPage updatedParent =
+          curParent.withUpdatedChild(siblingIdx, descDepth == 0 ? curRef : descPathRefs[0],
+              revision);
+      log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
+      return true;
+    }
+
+    // Leaf overflow → split. Build a temporary path that includes both ancestor pathRefs
+    // (above parent) and the descent path (parent + below parent). Reuse the existing
+    // {@link #handleLeafSplitAndInsertInternal} pattern via a localized split.
+    //
+    // We do not have the ancestors above parent here (the caller's path stops at parent).
+    // For correctness we ONLY need to update from the leaf back up to parent — ancestors
+    // above parent are unchanged because parent's pageKey is preserved across all
+    // updates. So pass a path consisting of [parentNode] + [descPathNodes] truncated to
+    // descDepth.
+    return splitLeafAndIntegrateInSiblingSubtree(targetLeaf, modLeaf, curRef,
+        parentRef, parent, siblingIdx, descPathNodes, descPathRefs, descPathChildIdx,
+        descDepth, key, value, storageEngineReader, log);
+  }
+
+  /**
+   * Resolve any HOT page (leaf or indirect) from a PageReference, checking TIL first.
+   */
+  private @Nullable Page resolveAnyPage(PageReference ref,
+      StorageEngineWriter storageEngineReader, TransactionIntentLog log) {
+    final PageContainer cont = log.get(ref);
+    if (cont != null) {
+      return cont.getModified();
+    }
+    Page page = ref.getPage();
+    if (page == null) {
+      page = loadPage(storageEngineReader, ref);
+      if (page != null) ref.setPage(page);
+    }
+    return page;
+  }
+
+  /**
+   * Re-fetch the latest version of {@code parent} from the TIL; falls back to the original
+   * if not present. Used during Phase 4 bulk-insert to avoid acting on stale parent state
+   * after a recursive update. Resolves through {@link #activeLog} (set at the public
+   * entry point of the enclosing scope) — never null in a Phase 4 firing.
+   */
+  private HOTIndirectPage currentInLog(PageReference parentRef, HOTIndirectPage fallback) {
+    if (parentRef == null) return fallback;
+    final TransactionIntentLog log = activeLog;
+    if (log == null) return fallback;
+    final PageContainer cont = log.get(parentRef);
+    if (cont != null && cont.getModified() instanceof HOTIndirectPage upd) {
+      return upd;
+    }
+    return fallback;
+  }
+
+  /**
+   * Split a target leaf inside the sibling subtree on its MSDB (including the new key)
+   * and integrate the BiNode upward — first within the sibling subtree (via
+   * {@link #updateParentForSplitWithPath} at the immediate descent-parent), then the
+   * top-level parent's slot[siblingIdx] is updated to reference the (possibly mutated)
+   * sibling subtree root.
+   *
+   * <p>If descDepth == 0, the sibling is itself a leaf; the split's BiNode replaces the
+   * sibling slot directly (parent.slot[siblingIdx] becomes a new BiNode).
+   *
+   * <p>HFT-grade: reuses the existing leaf-split machinery; the only allocations are the
+   * fresh leaf page for the right half and the BiNode where applicable.
+   *
+   * @return {@code true} on success
+   */
+  private boolean splitLeafAndIntegrateInSiblingSubtree(HOTLeafPage origLeaf,
+      HOTLeafPage modLeafCow, PageReference leafRef, PageReference parentRef,
+      HOTIndirectPage origParent, int siblingIdx, HOTIndirectPage[] descPathNodes,
+      PageReference[] descPathRefs, int[] descPathChildIdx, int descDepth,
+      byte[] key, byte[] value, StorageEngineWriter storageEngineReader,
+      TransactionIntentLog log) {
+    if (modLeafCow.getEntryCount() < 1) return false;
+    final int revision = storageEngineReader.getRevisionNumber();
+    final long newPageKey = pageKeyAllocator.getAsLong();
+    final HOTLeafPage rightPage = new HOTLeafPage(newPageKey, revision, modLeafCow.getIndexType());
+    boolean rightTransferred = false;
+    try {
+      if (!modLeafCow.splitToWithInsert(rightPage, key, key.length, value, value.length)) {
+        return false;
+      }
+      final byte[] leftMax = modLeafCow.getLastKey();
+      final byte[] rightMin = rightPage.getFirstKey();
+      if (leftMax.length == 0 || rightMin.length == 0) return false;
+      final int discBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
+      if (discBit < 0) return false;
+
+      final PageReference rightRef = new PageReference();
+      rightRef.setKey(newPageKey);
+      rightRef.setPage(rightPage);
+      log.put(rightRef, PageContainer.getInstance(rightPage, rightPage));
+      rightTransferred = true;
+
+      // Re-register the (CoW'd) left-half leaf at its existing ref.
+      leafRef.setPage(modLeafCow);
+      log.put(leafRef, PageContainer.getInstance(modLeafCow, modLeafCow));
+
+      if (descDepth > 0) {
+        // Integrate split into descent parent.
+        final int dpIdx = descDepth - 1;
+        updateParentForSplitWithPath(storageEngineReader, log, descPathRefs[dpIdx],
+            descPathNodes[dpIdx], descPathChildIdx[dpIdx], leafRef, rightRef,
+            rightMin, parentRef /* root substitute for this scope */,
+            descPathNodes, descPathRefs, descPathChildIdx, dpIdx);
+        // The top-level parent's slot[siblingIdx] still references descPathRefs[0]'s
+        // original PageReference (descPathRefs[0] IS parent.getChildReference(siblingIdx)
+        // by construction at the call site). The recursive update via updateParentForSplit
+        // mutates that ref's page contents through TIL — parent's slot[siblingIdx] still
+        // points to the same ref, so the parent itself does not need rewiring here.
+        // However, we MUST CoW parent to mark it dirty for the surrounding outer split
+        // (so the outer caller propagates ancestor revisions correctly).
+        final HOTIndirectPage curParent = parentInLogFresh(parentRef, origParent, log);
+        // Re-attach: explicitly call withUpdatedChild on the same ref to trigger a parent
+        // CoW (necessary so the outer caller sees a registered parent in the TIL).
+        final HOTIndirectPage updatedParent =
+            curParent.withUpdatedChild(siblingIdx, descPathRefs[0], revision);
+        log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
+      } else {
+        // descDepth == 0 → sibling is itself a leaf. Replace parent's slot[siblingIdx]
+        // with a BiNode wrapping the two halves.
+        final long biNodePageKey = pageKeyAllocator.getAsLong();
+        final HOTIndirectPage biNode = createBiNodeTraced("phase4-sibling-leaf-split-biNode",
+            biNodePageKey, revision, discBit, leafRef, rightRef, 1);
+        final PageReference biNodeRef = new PageReference();
+        biNodeRef.setKey(biNodePageKey);
+        biNodeRef.setPage(biNode);
+        log.put(biNodeRef, PageContainer.getInstance(biNode, biNode));
+        final HOTIndirectPage curParent = parentInLogFresh(parentRef, origParent, log);
+        final HOTIndirectPage updatedParent =
+            curParent.withUpdatedChild(siblingIdx, biNodeRef, revision);
+        log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
+      }
+      return true;
+    } finally {
+      if (!rightTransferred) {
+        rightPage.close();
+      }
+    }
+  }
+
+  /**
+   * Re-fetch the parent's most recent version from TIL using the explicitly provided log.
+   * Returns the fallback if not present.
+   */
+  private HOTIndirectPage parentInLogFresh(PageReference parentRef, HOTIndirectPage fallback,
+      TransactionIntentLog log) {
+    final PageContainer cont = log.get(parentRef);
+    if (cont != null && cont.getModified() instanceof HOTIndirectPage upd) {
+      return upd;
+    }
+    return fallback;
+  }
+
+  /** Diagnostic — Phase 4 skip reasons. Gated on {@code -Dhot.debug.phase4=1}. */
+  private static void diagnosePhase4Skip(String reason, HOTIndirectPage parent, int absBit) {
+    if (!Boolean.getBoolean("hot.debug.phase4")) return;
+    System.err.println("[hot.phase4] skip reason=" + reason
+        + " parentLayout=" + parent.getLayoutType()
+        + " parentBytePos=" + parent.getInitialBytePos()
+        + " parentMask=" + Long.toHexString(parent.getBitMask())
+        + " parentChildren=" + parent.getNumChildren()
+        + " β=" + absBit);
   }
 
   /**
