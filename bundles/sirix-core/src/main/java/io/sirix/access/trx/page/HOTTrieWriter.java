@@ -1227,6 +1227,141 @@ public final class HOTTrieWriter {
     return (initialBytePos + byteOffset) * 8 + bitInByte;
   }
 
+  /**
+   * Case 2b-iv-b-β handler for MultiMask parents — analog of
+   * {@link #addEntryFreshPolaritySingleMask} for the MultiMask layout. Adds a new child
+   * slot whose stored partial = splitChild.partial XOR β-bit, with the parent's extraction
+   * tables (positions / masks) unchanged.
+   *
+   * <p>Same three gates as the SingleMask version:
+   * <ol>
+   *   <li>HOT I3 — newPartial must not collide with any existing sibling.</li>
+   *   <li>Fresh polarity — every existing sibling must encode β = v_L in its stored partial.</li>
+   *   <li>Subtree-β constancy — declared partial bit must match each sibling's actual subtree
+   *       β value (catches multi-entry-leaf pollution).</li>
+   * </ol>
+   *
+   * <p>The β output position decoding differs from SingleMask: under MultiMask BE-concat
+   * encoding, walks {@code extractionPositions[]} in order, counting set mask bits MSB-first
+   * within each byte until reaching β's (bytePos, bitInByte). Implemented via
+   * {@link #multiMaskBetaOutputPos} which is the same decoder used by Phase 4 subtree-merge.
+   *
+   * <p><b>CoW</b>: returns a fresh page at parent's pageKey (caller registers via TIL).
+   * Identity preserved → no upstream CoW needed.
+   *
+   * <p><b>HFT-grade</b>: pre-sized arrays, single allocation per array, primitive ops, no
+   * boxing.
+   */
+  private @Nullable HOTIndirectPage addEntryFreshPolarityMultiMask(HOTIndirectPage parent,
+      int splitChildIndex, PageReference leftChild, PageReference rightChild,
+      int newAbsBit, int newBytePos, int newBitInByte, int revision) {
+    final int numChildren = parent.getNumChildren();
+    final byte[] extractionPositions = parent.getExtractionPositions();
+    final long[] extractionMasks = parent.getExtractionMasks();
+    if (extractionPositions == null || extractionMasks == null) return null;
+    if (numChildren + 1 > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      return null;
+    }
+
+    // Decode β's output position in the parent's existing partial-key layout.
+    final int betaOutputPos = multiMaskBetaOutputPos(parent, newAbsBit);
+    if (betaOutputPos < 0) {
+      return null; // β not found in mask — should be unreachable from caller's gate
+    }
+    final int betaXor = 1 << betaOutputPos;
+
+    final int[] oldPartialKeys = parent.getPartialKeys();
+    if (oldPartialKeys == null
+        || splitChildIndex < 0
+        || splitChildIndex >= oldPartialKeys.length) {
+      return null;
+    }
+    final int splitChildPartial = oldPartialKeys[splitChildIndex];
+    final int newPartial = splitChildPartial ^ betaXor;
+    final int vL = (splitChildPartial >>> betaOutputPos) & 1;
+
+    // (1) HOT I3 + (2) fresh polarity gates.
+    for (int i = 0; i < numChildren; i++) {
+      if (i == splitChildIndex) continue;
+      if (oldPartialKeys[i] == newPartial) {
+        return null; // (1) Case 2b-iv-a → Phase 4 subtree-merge
+      }
+      final int siblingBeta = (oldPartialKeys[i] >>> betaOutputPos) & 1;
+      if (siblingBeta != vL) {
+        return null; // (2) inverse polarity sibling at non-target slot
+      }
+    }
+
+    // (3) Subtree-β constancy gate.
+    for (int i = 0; i < numChildren; i++) {
+      if (i == splitChildIndex) continue;
+      final int storedBit = (oldPartialKeys[i] >>> betaOutputPos) & 1;
+      final int subtreeBit = bitConstantValueInSubtree(parent.getChildReference(i), newAbsBit);
+      if (subtreeBit < 0 || subtreeBit != storedBit) {
+        return null;
+      }
+    }
+
+    // keepHalf inherits L's stored partial; moveHalf carries newPartial.
+    final PageReference keepHalf = (vL == 0) ? leftChild : rightChild;
+    final PageReference moveHalf = (vL == 0) ? rightChild : leftChild;
+
+    // Build new children + partials with k+1 slots.
+    final int newNumChildren = numChildren + 1;
+    final PageReference[] newChildren = new PageReference[newNumChildren];
+    final int[] newPartials = new int[newNumChildren];
+    for (int i = 0; i < numChildren; i++) {
+      if (i == splitChildIndex) {
+        newChildren[i] = keepHalf;
+        newPartials[i] = splitChildPartial;
+      } else {
+        newChildren[i] = parent.getChildReference(i);
+        newPartials[i] = oldPartialKeys[i];
+      }
+    }
+    newChildren[numChildren] = moveHalf;
+    newPartials[numChildren] = newPartial;
+
+    sortChildrenAndPartialsByPartial(newChildren, newPartials);
+
+    ADDENTRY_FRESH_POLARITY_FIRINGS.incrementAndGet();
+    if (Boolean.getBoolean("hot.debug.phase4")) {
+      System.out.println("[hot.fresh-polarity] absBit=" + newAbsBit
+          + " betaPos=" + betaOutputPos + " vL=" + vL + " splitChildIdx=" + splitChildIndex
+          + " splitPartial=" + splitChildPartial + " newPartial=" + newPartial
+          + " newBytePos=" + newBytePos + " newBitInByte=" + newBitInByte
+          + " k=" + numChildren + " → k+1=" + newNumChildren + " layout=MULTI_MASK");
+    }
+
+    // Mask tables unchanged — newExtractionPositions / newExtractionMasks are clones.
+    final byte[] newExtractionPositions = extractionPositions.clone();
+    final long[] newExtractionMasks = extractionMasks.clone();
+    final int newNumBytes = extractionPositions.length;
+
+    // Recompute MSB index (smallest absolute disc bit) — unchanged from parent's, but
+    // we recompute defensively in case the parent's cached value differs from the truth.
+    short msbIndex = Short.MAX_VALUE;
+    for (int i = 0; i < newNumBytes; i++) {
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      final int maskByte =
+          (int) ((newExtractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFF);
+      if (maskByte == 0) continue;
+      final int highBit = 31 - Integer.numberOfLeadingZeros(maskByte);
+      final int absBit = (newExtractionPositions[i] & 0xFF) * 8 + (7 - highBit);
+      if (absBit < msbIndex) msbIndex = (short) absBit;
+    }
+
+    if (newNumChildren <= 16) {
+      return HOTIndirectPage.createSpanNodeMultiMask(parent.getPageKey(), revision,
+          newExtractionPositions, newExtractionMasks, newNumBytes,
+          newPartials, newChildren, parent.getHeight(), msbIndex);
+    }
+    return HOTIndirectPage.createMultiNodeMultiMask(parent.getPageKey(), revision,
+        newExtractionPositions, newExtractionMasks, newNumBytes,
+        newPartials, newChildren, parent.getHeight(), msbIndex);
+  }
+
   // ===========================================================================
   // Phase 3 — Lazy retroactive sibling rebalance
   //
@@ -2949,7 +3084,16 @@ public final class HOTTrieWriter {
       final int byteOffsetInChunk = existingIdx % 8;
       final int existingByte =
           (int) ((oldExtractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFF);
-      if ((existingByte & newMaskBit) != 0) return null; // duplicate
+      if ((existingByte & newMaskBit) != 0) {
+        // Case 2b-iv-b-β (MultiMask): β already a parent disc bit. Mask unchanged; the
+        // leaf split's moveHalf needs a new sibling slot whose stored partial = splitChild's
+        // partial XOR β-bit. Same gates as the SingleMask analog.
+        if (Boolean.getBoolean("hot.strict.binna")) {
+          return addEntryFreshPolarityMultiMask(parent, splitChildIndex, leftChild, rightChild,
+              newAbsBit, newBytePos, newBitInByte, revision);
+        }
+        return null; // duplicate
+      }
       newNumBytes = oldNumBytes;
       newExtractionPositions = oldExtractionPositions.clone();
       newExtractionMasks = oldExtractionMasks.clone();
