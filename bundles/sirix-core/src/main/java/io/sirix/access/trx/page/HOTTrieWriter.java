@@ -792,7 +792,8 @@ public final class HOTTrieWriter {
           log.put(parentRef, PageContainer.getInstance(rebalancedParent, rebalancedParent));
           PHASE3_REBALANCE_FIRINGS.incrementAndGet();
         } else if (tryPhase4SubtreeMerge(parent, parentRef, originalChildIndex, leftChild,
-            rightChild, discriminativeBit, storageEngineReader, log)) {
+            rightChild, discriminativeBit, storageEngineReader, log,
+            pathNodes, pathRefs, pathChildIndices, currentPathIdx)) {
           // Phase 4: β-already-in-mask subtree merge. addEntry rejected because the leaf-split's
           // MSDB β is a bit parent already routes on; the resolution is to merge moveHalf's
           // keys into the existing β=¬v_L sibling subtree (rather than try to extend the
@@ -1733,16 +1734,29 @@ public final class HOTTrieWriter {
    *
    * <p>Emits a diagnostic line on the gate decision when {@code -Dhot.debug.phase4=1}.
    * Returns {@code true} only when the merge actually succeeded.
+   *
+   * <p>The {@code pathNodes / pathRefs / pathChildIndices / parentPathIdx} arguments expose
+   * the descend path so Phase 4 can hoist when {@link #subtreeMerge} reports
+   * {@code no-sibling-slot} (β is in {@code parent}'s mask but {@code parent} has no slot
+   * with the opposite β value). See {@link #hoistAndReroute}.
    */
   private boolean tryPhase4SubtreeMerge(HOTIndirectPage parent, PageReference parentRef,
       int splitChildIdx, PageReference leftChild, PageReference rightChild, int absBit,
-      StorageEngineWriter storageEngineReader, TransactionIntentLog log) {
+      StorageEngineWriter storageEngineReader, TransactionIntentLog log,
+      HOTIndirectPage[] pathNodes, PageReference[] pathRefs, int[] pathChildIndices,
+      int parentPathIdx) {
     if (!isBetaAlreadyInParentMask(parent, absBit)) {
       diagnosePhase4Skip("not-beta-in-mask", parent, absBit);
       return false;
     }
-    return subtreeMerge(parent, parentRef, splitChildIdx, leftChild, rightChild, absBit,
-        storageEngineReader, log);
+    if (subtreeMerge(parent, parentRef, splitChildIdx, leftChild, rightChild, absBit,
+        storageEngineReader, log)) {
+      return true;
+    }
+    // subtreeMerge rejected (most commonly: no-sibling-slot — β is in parent's mask but
+    // every parent slot encodes the same β value as splitChild). Try hoisting.
+    return hoistAndReroute(parent, parentRef, splitChildIdx, leftChild, rightChild, absBit,
+        storageEngineReader, log, pathNodes, pathRefs, pathChildIndices, parentPathIdx);
   }
 
   /**
@@ -1994,6 +2008,187 @@ public final class HOTTrieWriter {
       }
     }
 
+    PHASE4_SUBTREE_MERGE_FIRINGS.incrementAndGet();
+    return true;
+  }
+
+  /**
+   * Phase 4 hoisting fallback: when {@link #subtreeMerge} rejects because {@code parent} has
+   * no slot with bit β = ¬v_L (the "no-sibling-slot" case), walk UP the descend path looking
+   * for the FIRST ancestor whose mask contains β AND whose stored partials include the
+   * EXACT target — the descend slot's stored partial XOR-ed with the β-bit-position. That
+   * exact-match slot is the unique routing-correct destination for the moveHalf keys
+   * (they share all OTHER ancestor disc-bit values with the descend slot, but have β=¬v_L).
+   * If such an ancestor is found, replace {@code parent}'s slot[splitChildIdx] with the
+   * keep half and bulk-insert the move half's keys into that hoist ancestor's target slot.
+   *
+   * <p><b>Strict-criterion rationale.</b> A loose criterion ("any slot with β=¬v_L") would
+   * route the moveHalf keys into a subtree whose OTHER disc-bit values disagree with the
+   * moveHalf's bit pattern — breaking the I6 PEXT-routing invariant on every subsequent
+   * lookup (the moveHalf keys' lookup descent would still subset-match the descend slot at
+   * hoist ancestor, leading to {@code originalParent} where the keys no longer reside).
+   * Empirical verification: a loose-criterion hoist on the diagnostic 50K reproducer caused
+   * 11,776 I6 violations (every moved key misrouted), while the strict criterion preserves
+   * I6 by guaranteeing exact-match routing for moveHalf keys after the move.
+   *
+   * <p><b>Empirical activation profile.</b> On the diagnostic microbench-pattern reproducer
+   * the strict criterion never fires (all 42 no-sibling-slot cases have no ancestor with
+   * the exact-target slot — β is genuinely vestigial at every level above {@code parent},
+   * either because {@code parent} IS the root or because higher ancestors discriminate on
+   * earlier-byte disc bits and don't carry β at all). Those cases fall through to the
+   * intermediate-BiNode fallback, which is correctness-preserving but adds tree height.
+   *
+   * <p><b>CoW correctness.</b> Two pages are modified: {@code parent} (slot[splitChildIdx]
+   * becomes keepHalf) and the hoist ancestor's target subtree (bulk-inserts of moveHalf
+   * keys). Both updates preserve their respective {@link HOTIndirectPage} {@code pageKey}
+   * via {@link HOTIndirectPage#withUpdatedChild}; ancestors above the hoist ancestor
+   * therefore need no further CoW. Each modified page is registered in the TIL at its
+   * original {@link PageReference}.
+   *
+   * <p><b>HFT-grade.</b> Pre-sized scratch arrays for moveKeys/moveValues, primitive bit
+   * ops, single linear path walk; allocations bounded by the moveHalf's entry count
+   * (single leaf).
+   *
+   * @return {@code true} on successful hoist+merge, {@code false} if no hoist ancestor exists
+   */
+  private boolean hoistAndReroute(HOTIndirectPage parent, PageReference parentRef,
+      int splitChildIdx, PageReference leftChild, PageReference rightChild, int absBit,
+      StorageEngineWriter storageEngineReader, TransactionIntentLog log,
+      HOTIndirectPage[] pathNodes, PageReference[] pathRefs, int[] pathChildIndices,
+      int parentPathIdx) {
+    if (parent == null || parentRef == null || leftChild == null || rightChild == null) {
+      return false;
+    }
+    if (pathNodes == null || pathRefs == null || pathChildIndices == null) {
+      diagnosePhase4Skip("no-hoist-path-arrays", parent, absBit);
+      return false;
+    }
+    final int revision = storageEngineReader.getRevisionNumber();
+
+    // Decode β's output position in parent's layout to recover v_L.
+    final int parentBetaOutputPos;
+    if (parent.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      parentBetaOutputPos = singleMaskBetaOutputPos(parent, absBit);
+    } else {
+      parentBetaOutputPos = multiMaskBetaOutputPos(parent, absBit);
+    }
+    if (parentBetaOutputPos < 0) {
+      diagnosePhase4Skip("hoist-beta-not-in-parent-mask", parent, absBit);
+      return false;
+    }
+    final int[] parentPartials = parent.getPartialKeys();
+    if (parentPartials == null || splitChildIdx < 0 || splitChildIdx >= parentPartials.length) {
+      diagnosePhase4Skip("hoist-no-parent-partials", parent, absBit);
+      return false;
+    }
+    final int vL = (parentPartials[splitChildIdx] >>> parentBetaOutputPos) & 1;
+
+    // keepHalf stays under parent's slot[splitChildIdx]; moveHalf hoists out.
+    final PageReference keepHalf = (vL == 0) ? leftChild : rightChild;
+    final PageReference moveHalf = (vL == 0) ? rightChild : leftChild;
+
+    // Walk UP the path from parent's level upward looking for a hoist ancestor.
+    // path[parentPathIdx] is parent itself; we start scanning at parentPathIdx - 1.
+    //
+    // Hoist ancestor criterion: ancestor's mask contains β, AND ancestor has a slot whose
+    // stored partial matches the slot containing the descend-path child but with bit β
+    // toggled. That slot is the unique routing-correct destination for the moveHalf keys
+    // (which share all OTHER ancestor disc-bit values with the descend slot, but have
+    // β = ¬v_L). Picking ANY β=¬v_L slot is wrong — the OTHER bits must align too,
+    // otherwise insertion lands in a subtree whose OTHER disc-bit values disagree, breaking
+    // the I6 routing invariant.
+    int hoistLevel = -1;
+    int hoistTargetSlot = -1;
+    for (int level = parentPathIdx - 1; level >= 0; level--) {
+      final HOTIndirectPage ancestor = pathNodes[level];
+      if (ancestor == null) continue;
+      final int ancestorBetaOutputPos;
+      if (ancestor.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+        ancestorBetaOutputPos = singleMaskBetaOutputPos(ancestor, absBit);
+      } else {
+        ancestorBetaOutputPos = multiMaskBetaOutputPos(ancestor, absBit);
+      }
+      if (ancestorBetaOutputPos < 0) continue;
+      final int[] ancestorPartials = ancestor.getPartialKeys();
+      if (ancestorPartials == null) continue;
+      final int descendSlot = pathChildIndices[level];
+      if (descendSlot < 0 || descendSlot >= ancestorPartials.length) continue;
+      final int descendPartial = ancestorPartials[descendSlot];
+      // Sanity-check: descend slot's stored β bit must equal v_L (matches what originalParent
+      // would route on if β were truly discriminating). If not, ancestor is structurally
+      // inconsistent for this hoist; skip.
+      if (((descendPartial >>> ancestorBetaOutputPos) & 1) != vL) continue;
+      final int targetPartial = descendPartial ^ (1 << ancestorBetaOutputPos);
+      int targetSlot = -1;
+      final int n = ancestor.getNumChildren();
+      for (int i = 0; i < n; i++) {
+        if (ancestorPartials[i] == targetPartial) { targetSlot = i; break; }
+      }
+      if (targetSlot < 0) continue;
+      hoistLevel = level;
+      hoistTargetSlot = targetSlot;
+      break;
+    }
+    if (hoistLevel < 0) {
+      diagnosePhase4Skip("no-sibling-slot-no-hoist-ancestor", parent, absBit);
+      return false;
+    }
+
+    // Resolve moveHalf to a leaf and snapshot its entries before mutating anything.
+    final HOTLeafPage moveLeaf = resolveLeafPage(moveHalf, storageEngineReader, log);
+    if (moveLeaf == null) {
+      diagnosePhase4Skip("hoist-move-not-leaf", parent, absBit);
+      return false;
+    }
+    final int moveCount = moveLeaf.getEntryCount();
+    final byte[][] moveKeys;
+    final byte[][] moveValues;
+    if (moveCount == 0) {
+      moveKeys = new byte[0][];
+      moveValues = new byte[0][];
+    } else {
+      moveKeys = new byte[moveCount][];
+      moveValues = new byte[moveCount][];
+      for (int i = 0; i < moveCount; i++) {
+        moveKeys[i] = moveLeaf.getKey(i);
+        moveValues[i] = moveLeaf.getValue(i);
+      }
+    }
+
+    // Step 1: replace parent's slot[splitChildIdx] with keepHalf. Preserves parent's pageKey.
+    final HOTIndirectPage updatedParent =
+        parent.withUpdatedChild(splitChildIdx, keepHalf, revision);
+    log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
+
+    // Step 2: bulk-insert moveHalf's entries into the hoist ancestor's β=¬v_L subtree.
+    // bulkInsertIntoSiblingSubtree descends from ancestor.slot[hoistTargetSlot] downward,
+    // routes via PEXT, CoWs each indirect on the descent path, and re-attaches the
+    // (possibly mutated) subtree under ancestor.slot[hoistTargetSlot] preserving the
+    // ancestor's pageKey. So pathRefs above hoistLevel need no further CoW — their
+    // PageReferences still point at the ancestor's preserved pageKey.
+    final PageReference hoistAncestorRef = pathRefs[hoistLevel];
+    for (int i = 0; i < moveCount; i++) {
+      // Re-fetch the ancestor from the TIL to act on its latest content (after possibly
+      // a previous iteration's mutation).
+      final PageContainer cont = log.get(hoistAncestorRef);
+      final HOTIndirectPage curAncestor;
+      if (cont != null && cont.getModified() instanceof HOTIndirectPage upd) {
+        curAncestor = upd;
+      } else {
+        curAncestor = pathNodes[hoistLevel];
+      }
+      if (curAncestor == null) {
+        diagnosePhase4Skip("hoist-ancestor-vanished", parent, absBit);
+        return false;
+      }
+      // hoistTargetSlot stays valid: bulkInsertIntoSiblingSubtree only mutates content
+      // under that slot, never reorders the parent's children.
+      if (!bulkInsertIntoSiblingSubtree(curAncestor, hoistAncestorRef, hoistTargetSlot,
+          moveKeys[i], moveValues[i], storageEngineReader, log)) {
+        diagnosePhase4Skip("hoist-bulk-insert-failed", parent, absBit);
+        return false;
+      }
+    }
     PHASE4_SUBTREE_MERGE_FIRINGS.incrementAndGet();
     return true;
   }
