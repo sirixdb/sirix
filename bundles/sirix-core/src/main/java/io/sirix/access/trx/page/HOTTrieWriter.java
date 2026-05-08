@@ -163,6 +163,25 @@ public final class HOTTrieWriter {
     PHASE4_SUBTREE_MERGE_FIRINGS.set(0L);
   }
 
+  // ===== Case 2b-iv-b-β: addEntry fresh-polarity firing counter =====
+  // Counts how many times {@link #addEntryWithPDep} / {@link #addEntryMultiMask} resolved a
+  // β-already-in-mask rejection by adding a NEW child slot for the moveHalf with stored
+  // partial = splitChildPartial XOR β-bit. The mask stays unchanged; the parent grows by one
+  // child slot (k → k+1). Each firing avoids both the intermediate-BiNode fallback (no depth
+  // growth) and the Phase 4 subtree-merge (no key relocation). Gate: {@code -Dhot.strict.binna=true}.
+  private static final java.util.concurrent.atomic.AtomicLong ADDENTRY_FRESH_POLARITY_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  /** Returns the count of Case 2b-iv-b-β fresh-polarity firings since the last reset. */
+  public static long getAddEntryFreshPolarityFirings() {
+    return ADDENTRY_FRESH_POLARITY_FIRINGS.get();
+  }
+
+  /** Reset the fresh-polarity firing counter. */
+  public static void resetAddEntryFreshPolarityFirings() {
+    ADDENTRY_FRESH_POLARITY_FIRINGS.set(0L);
+  }
+
   /** Memory segment allocator. */
   @SuppressWarnings("unused")
   private final MemorySegmentAllocator allocator;
@@ -946,6 +965,16 @@ public final class HOTTrieWriter {
     final int bitInWord = (7 - newBitByteOffset) * 8 + (7 - newBitInByte);
     final long newBitMaskBit = 1L << bitInWord;
     if ((oldMask & newBitMaskBit) != 0L) {
+      // Case 2b-iv-b-β: β is already a parent disc bit. Mask unchanged; the leaf split's
+      // moveHalf needs a new sibling slot whose stored partial = splitChild's partial XOR
+      // β-bit. If a sibling already has that partial (Case 2b-iv-a), Phase 4 subtree-merge
+      // handles it. Otherwise — "fresh polarity" — we add a new slot here without growing
+      // the mask. Gated on hot.strict.binna so default behavior (intermediate-BiNode
+      // fallback) is unchanged.
+      if (Boolean.getBoolean("hot.strict.binna")) {
+        return addEntryFreshPolaritySingleMask(parent, splitChildIndex, leftChild, rightChild,
+            newBitMaskBit, revision);
+      }
       return null; // bit already a disc bit — caller handles via split path
     }
     final long newMask = oldMask | newBitMaskBit;
@@ -1039,6 +1068,163 @@ public final class HOTTrieWriter {
     }
     return HOTIndirectPage.createMultiNode(parent.getPageKey(), revision,
         oldInitialBytePos, newMask, newPartialKeys, newChildren, parent.getHeight());
+  }
+
+  /**
+   * Case 2b-iv-b-β handler for SingleMask parents — β is already a parent disc bit, no
+   * existing sibling carries the inverse polarity (¬v_L), and we resolve by adding a NEW
+   * child slot for the leaf-split's moveHalf with stored partial = splitChild's partial
+   * XOR β-bit. Mask is unchanged; child count grows from k to k+1.
+   *
+   * <p><b>Algorithm</b>:
+   * <ol>
+   *   <li>Decode β's output bit position in the parent's existing partial-key layout via
+   *       {@code Long.bitCount(oldMask & (newBitMaskBit - 1))}.</li>
+   *   <li>Read v_L from the split child's stored partial at that position.</li>
+   *   <li>keepHalf = (v_L == 0) ? leftChild : rightChild — replaces splitChildIndex in place.
+   *       moveHalf = the other half — gets a new slot with newPartial = oldPartial XOR β-bit.</li>
+   *   <li>Reject (return null) if any sibling already has the newPartial — caller falls
+   *       through to Phase 4 subtree-merge / hoistAndReroute / intermediate-BiNode fallback.</li>
+   *   <li>Verify constancy on β across non-split siblings — required by HOT-Binna invariant
+   *       for SAFETY: every non-split sibling must encode a constant β value matching its
+   *       existing stored partial, otherwise a future addEntry on a different bit would
+   *       misroute keys spanning β within that subtree.</li>
+   *   <li>Build a fresh HOTIndirectPage with same mask, k+1 children, partials sorted by
+   *       partial-key (HOT I7).</li>
+   * </ol>
+   *
+   * <p><b>CoW</b>: returns a fresh page at parent's pageKey (caller registers via
+   * {@code log.put(parentRef, ...)} in {@link #updateParentForSplitWithPath}). Identity
+   * preserved → ancestors above parent need no further CoW propagation.
+   *
+   * <p><b>HFT-grade</b>: pre-sized arrays (k+1 children), single allocation each for
+   * children[] and partials[], no boxing, primitive ops only.
+   *
+   * @return fresh parent page with the new slot, or {@code null} when:
+   *         (a) a sibling already encodes the target partial (Case 2b-iv-a),
+   *         (b) some non-split sibling is non-constant on β (Case 2b-ii-style breach),
+   *         (c) parent is already at fan-out cap (k+1 > MULTI_NODE_MAX_CHILDREN).
+   */
+  private @Nullable HOTIndirectPage addEntryFreshPolaritySingleMask(HOTIndirectPage parent,
+      int splitChildIndex, PageReference leftChild, PageReference rightChild,
+      long newBitMaskBit, int revision) {
+    final int oldInitialBytePos = parent.getInitialBytePos();
+    final long oldMask = parent.getBitMask();
+    final int numChildren = parent.getNumChildren();
+
+    // Fan-out gate: k+1 must fit. Caller already checked k < MULTI_NODE_MAX_CHILDREN before
+    // dispatching here, but defensively re-verify so we never construct an over-cap page.
+    if (numChildren + 1 > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      return null;
+    }
+
+    // β's output bit position in the EXISTING (unchanged) partial-key layout.
+    final int betaOutputPos = Long.bitCount(oldMask & (newBitMaskBit - 1L));
+    final int betaXor = 1 << betaOutputPos;
+
+    final int[] oldPartialKeys = parent.getPartialKeys();
+    if (oldPartialKeys == null
+        || splitChildIndex < 0
+        || splitChildIndex >= oldPartialKeys.length) {
+      return null;
+    }
+    final int splitChildPartial = oldPartialKeys[splitChildIndex];
+    final int newPartial = splitChildPartial ^ betaXor;
+    final int vL = (splitChildPartial >>> betaOutputPos) & 1;
+    final int newAbsBit = decodeAbsBitFromMaskBit(oldInitialBytePos, newBitMaskBit);
+
+    // Two stored-partial gates protect routing soundness when β is already in mask:
+    //
+    // (1) HOT I3 — partials must remain unique. Reject if any sibling already encodes
+    //     newPartial — that's Case 2b-iv-a, handled by Phase 4 subtree-merge.
+    //
+    // (2) "Fresh polarity" — for routing soundness under sparse-path subset-match,
+    //     EVERY existing sibling must encode β = v_L. If some sibling Y has Y[β]=¬v_L
+    //     at a partial != newPartial, then a post-firing lookup for a stored key K
+    //     could subset-match L1 instead of K's actual containing sibling (L1 has β=¬v_L
+    //     and shares splitChild's other bits; if K's densePK ⊇ L1.partial, K mis-routes
+    //     to L1 even though it lives in Y's subtree). Empirical: omitting this gate
+    //     yields 1385 I6 violations on the diagnostic 50K reproducer.
+    for (int i = 0; i < numChildren; i++) {
+      if (i == splitChildIndex) continue;
+      if (oldPartialKeys[i] == newPartial) {
+        return null; // (1) Case 2b-iv-a
+      }
+      final int siblingBeta = (oldPartialKeys[i] >>> betaOutputPos) & 1;
+      if (siblingBeta != vL) {
+        return null; // (2) inverse-polarity sibling exists at non-target slot
+      }
+    }
+
+    // Subtree constancy gate on β across every non-split sibling. Even when stored
+    // partials report β=v_L uniformly, multi-entry-leaf pollution may have accumulated
+    // β=¬v_L keys under a sibling whose declared partial encodes β=v_L. Adding L1 with
+    // β=¬v_L would (post-firing) reroute those polluted keys to L1, breaking I6.
+    for (int i = 0; i < numChildren; i++) {
+      if (i == splitChildIndex) continue;
+      final int storedBit = (oldPartialKeys[i] >>> betaOutputPos) & 1;
+      final int subtreeBit = bitConstantValueInSubtree(parent.getChildReference(i), newAbsBit);
+      if (subtreeBit < 0 || subtreeBit != storedBit) {
+        return null;
+      }
+    }
+
+    // keepHalf inherits L's stored partial (β stays at v_L); moveHalf carries newPartial.
+    final PageReference keepHalf = (vL == 0) ? leftChild : rightChild;
+    final PageReference moveHalf = (vL == 0) ? rightChild : leftChild;
+
+    // Build new children + partials arrays. Replace splitChildIndex with keepHalf, then
+    // append moveHalf with newPartial; final sort by partial-key (HOT I7).
+    final int newNumChildren = numChildren + 1;
+    final PageReference[] newChildren = new PageReference[newNumChildren];
+    final int[] newPartials = new int[newNumChildren];
+    for (int i = 0; i < numChildren; i++) {
+      if (i == splitChildIndex) {
+        newChildren[i] = keepHalf;
+        newPartials[i] = splitChildPartial; // unchanged: keepHalf encodes β = v_L
+      } else {
+        newChildren[i] = parent.getChildReference(i);
+        newPartials[i] = oldPartialKeys[i];
+      }
+    }
+    newChildren[numChildren] = moveHalf;
+    newPartials[numChildren] = newPartial;
+
+    // HOT I3: partials must be unique. The newPartial differs from splitChildPartial at
+    // β-bit and was rejected against every sibling already — the array is unique by
+    // construction. (Defensive duplicate check elided to avoid O(k²) on the hot path.)
+
+    // Sort by partial-key (HOT I7 / Binna §4.2).
+    sortChildrenAndPartialsByPartial(newChildren, newPartials);
+
+    ADDENTRY_FRESH_POLARITY_FIRINGS.incrementAndGet();
+    if (Boolean.getBoolean("hot.debug.phase4")) {
+      System.out.println("[hot.fresh-polarity] absBit=" + newAbsBit
+          + " betaPos=" + betaOutputPos + " vL=" + vL + " splitChildIdx=" + splitChildIndex
+          + " splitPartial=" + splitChildPartial + " newPartial=" + newPartial
+          + " mask=0x" + Long.toHexString(oldMask) + " k=" + numChildren
+          + " → k+1=" + newNumChildren + " layout=SINGLE_MASK");
+    }
+    if (newNumChildren <= 16) {
+      return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
+          oldInitialBytePos, oldMask, newPartials, newChildren, parent.getHeight());
+    }
+    return HOTIndirectPage.createMultiNode(parent.getPageKey(), revision,
+        oldInitialBytePos, oldMask, newPartials, newChildren, parent.getHeight());
+  }
+
+  /**
+   * Decode the absolute MSB-first bit position from a SingleMask {@code newBitMaskBit}
+   * (a single-bit-set long) given the parent's {@code initialBytePos}. Inverse of
+   * {@code (7 - byteOffset) * 8 + (7 - bitInByte)}.
+   *
+   * <p>HFT-grade: primitive ops only, no allocation.
+   */
+  private static int decodeAbsBitFromMaskBit(int initialBytePos, long newBitMaskBit) {
+    final int bitInWord = Long.numberOfTrailingZeros(newBitMaskBit);
+    final int byteOffset = 7 - (bitInWord / 8);
+    final int bitInByte = 7 - (bitInWord % 8);
+    return (initialBytePos + byteOffset) * 8 + bitInByte;
   }
 
   // ===========================================================================

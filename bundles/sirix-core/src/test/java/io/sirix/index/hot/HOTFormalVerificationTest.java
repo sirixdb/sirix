@@ -417,6 +417,7 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetIntermediateBiNodeFallbackFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase3RebalanceFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase4SubtreeMergeFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetAddEntryFreshPolarityFirings();
         JsonTestHelper.deleteEverything();
         JsonTestHelper.createTestDocument();
         final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -463,12 +464,15 @@ final class HOTFormalVerificationTest {
               io.sirix.access.trx.page.HOTTrieWriter.getPhase3RebalanceFirings();
           final long phase4Firings =
               io.sirix.access.trx.page.HOTTrieWriter.getPhase4SubtreeMergeFirings();
+          final long freshPolarityFirings =
+              io.sirix.access.trx.page.HOTTrieWriter.getAddEntryFreshPolarityFirings();
           System.out.println("[microbench-pattern] N=" + n
               + " · observedHeight=" + inv.observedHeight()
               + " · violations=" + inv.violations().size()
               + " · intermediate-binode-fallbacks=" + fallbackFirings
               + " · phase3-rebalance-firings=" + phase3Firings
               + " · phase4-subtree-merge-firings=" + phase4Firings
+              + " · addEntry-fresh-polarity-firings=" + freshPolarityFirings
               + " · build=" + buildMs + "ms");
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
