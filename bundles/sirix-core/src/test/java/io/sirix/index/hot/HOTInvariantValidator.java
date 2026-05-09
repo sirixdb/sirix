@@ -365,6 +365,79 @@ public final class HOTInvariantValidator {
         }
       }
     }
+
+    // I5-strict — leaf-level β-constancy for every ON-PATH bit (= every bit set in
+    // c.stored). For each child c at slot i:
+    //   For every key K in c's subtree (= reachable from c via descend):
+    //     dense_K = PEXT(K, indirect.mask).
+    //     Require c.stored ⊆ dense_K (i.e., (c.stored & ~dense_K) == 0).
+    //
+    // The existing I-Binna-sparse-path check above is the same predicate but only
+    // tested against c.firstKey. I5-strict tests it against EVERY key in c's subtree,
+    // catching multi-entry-leaf β-mixing where firstKey is fine but interior keys
+    // violate the invariant. This is the missed-cases gap the campaign's fix attempts
+    // kept stumbling on.
+    if (partials != null && partials.length >= n) {
+      for (int i = 0; i < n; i++) {
+        final int sparsePK = partials[i];
+        if (sparsePK == 0) continue; // no ON-PATH bit to verify
+        final PageReference cref = indirect.getChildReference(i);
+        if (cref == null) continue;
+        final byte[] firstKey = firstKeyOfSubtree(cref);
+        if (firstKey == null) continue;
+        // Walk the entire subtree, checking each leaf's keys.
+        final int[] failingKeyDensePK = {-1};
+        final byte[][] failingKey = {null};
+        walkLeavesUntilFalse(cref, leaf -> {
+          final int ec = leaf.getEntryCount();
+          for (int k = 0; k < ec; k++) {
+            final byte[] keyK = leaf.getKey(k);
+            if (keyK == null || keyK.length == 0) continue;
+            final int denseK = computeDensePartialKey(indirect, keyK);
+            if ((sparsePK & ~denseK) != 0) {
+              failingKey[0] = keyK;
+              failingKeyDensePK[0] = denseK;
+              return false; // stop walking
+            }
+          }
+          return true; // continue
+        });
+        if (failingKey[0] != null) {
+          addViolation("I5-leaf-constancy",
+              "indirect " + indirect.getPageKey() + " child[" + i + "] stored partial 0x"
+                  + Integer.toHexString(sparsePK) + " has bits NOT in dense PEXT 0x"
+                  + Integer.toHexString(failingKeyDensePK[0]) + " of subtree key "
+                  + bytesHex(failingKey[0]) + " — at least one key in c's subtree fails"
+                  + " the (sparse & ~dense) == 0 condition",
+              indirect);
+          // Continue checking remaining children, since each contributes its own data point.
+        }
+      }
+    }
+  }
+
+  /**
+   * Walk every leaf reachable from {@code ref} and apply {@code visitor}. Stops early
+   * if {@code visitor.test(leaf)} returns {@code false}. Used by I5-strict.
+   */
+  private void walkLeavesUntilFalse(PageReference ref,
+      java.util.function.Predicate<HOTLeafPage> visitor) {
+    if (ref == null) return;
+    final Page page = loadPage(ref);
+    if (page instanceof HOTLeafPage leaf) {
+      visitor.test(leaf);
+      return;
+    }
+    if (page instanceof HOTIndirectPage indirect) {
+      final int n = indirect.getNumChildren();
+      for (int i = 0; i < n; i++) {
+        final PageReference childRef = indirect.getChildReference(i);
+        if (childRef == null) continue;
+        // Could short-circuit on visitor returning false, but the predicate-style
+        // visitor doesn't expose that to the recursive caller. For now, walk all.
+        walkLeavesUntilFalse(childRef, visitor);
+      }
+    }
   }
 
   // ===== I6 — PEXT routes every stored key to its real leaf =====
