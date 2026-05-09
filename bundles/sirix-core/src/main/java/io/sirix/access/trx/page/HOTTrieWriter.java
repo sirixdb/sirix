@@ -3659,18 +3659,31 @@ public final class HOTTrieWriter {
     if (leaf.getEntryCount() == 0) return -1;
     if (pathDepth <= 0) return -1;
 
+    // Phase 2 (constrained): only return a non-negative β when β EQUALS the leaf's
+    // MSDB-after-K-inserted. That's the contiguous-partition case (= safe to split-on-β
+    // because β is by definition the most-significant bit on which keys differ, so the
+    // partition is contiguous in the leaf's natural sort order). For β < MSDB the
+    // partition would be non-contiguous, breaking HOT I8 (= design doc §6 Variant A's
+    // failure mode, 5,652 violations on the original 50K reproducer).
+    //
+    // Rationale: K introducing a NEW MSDB to the leaf = the only case where eager
+    // split-on-MSDB is provably safe. If MSDB happens to coincide with an ancestor
+    // disc bit β, the resulting halves are β-constant for THAT β. If not, no eager
+    // split fires; legacy multi-entry-leaf β-mixing remains.
+    final int msdbWithKey = leaf.computeMsdbWithKey(keyBuf);
+    if (msdbWithKey < 0) return -1; // all keys (incl K) identical — can't split
+
     final int[] ancestorBits = collectAncestorDiscBits(pathNodes, pathDepth);
     if (ancestorBits.length == 0) return -1;
 
-    final byte[] leafFirstKey = leaf.getFirstKey();
-    if (leafFirstKey == null || leafFirstKey.length == 0) return -1;
-
     for (final int beta : ancestorBits) {
-      final boolean leafBit = DiscriminativeBitComputer.isBitSet(leafFirstKey, beta);
-      final boolean keyBit = DiscriminativeBitComputer.isBitSet(keyBuf, beta);
-      if (leafBit != keyBit) return beta; // K would break β-constancy at this ancestor
+      if (beta == msdbWithKey) {
+        // K's MSDB coincides with this ancestor β. Splitting the leaf on β = MSDB
+        // produces a contiguous partition AND restores β-constancy for this ancestor.
+        return msdbWithKey;
+      }
     }
-    return -1; // no constancy break — safe to merge directly
+    return -1; // MSDB doesn't match any ancestor — no safe eager split
   }
 
   /**

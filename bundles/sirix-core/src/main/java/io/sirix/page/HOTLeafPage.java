@@ -2300,6 +2300,22 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Phase 2 helper: compute the MSDB this leaf would have if {@code key} were inserted.
+   * Returns {@code -1} if all keys (including {@code key}) would be identical.
+   *
+   * <p>Used by {@code HOTTrieWriter.findOffendingAncestorBit} to detect when an insert
+   * would introduce a new MSDB that coincides with an ancestor disc bit β — the safe-to-
+   * eager-split case (contiguous partition on β).
+   */
+  public int computeMsdbWithKey(byte[] key) {
+    if (entryCount == 0) return -1;
+    final int searchResult = findEntry(key);
+    final boolean isNew = searchResult < 0;
+    final int insertPos = isNew ? -(searchResult + 1) : searchResult;
+    return isNew ? findMsdbWithNewKey(key, insertPos) : findMsdbBit();
+  }
+
+  /**
    * Compute the MSDB including a new key that would be inserted at {@code insertPos}.
    *
    * <p>

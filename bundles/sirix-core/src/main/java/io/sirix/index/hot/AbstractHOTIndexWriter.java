@@ -755,17 +755,26 @@ public abstract class AbstractHOTIndexWriter<K> {
     LeafNavigationResult navResult = prepareLeafOfTree(rootRef, keyBuf, keyLen);
     HOTLeafPage leaf = navResult.leaf();
 
-    // Phase 2 (constancy-aware leaf split) — DISABLED 2026-05-09 after experiment.
-    // The eager-split-on-ancestor-β approach (= split BEFORE merge if K's β value
-    // differs from leaf's existing first-key's β value at any ancestor disc bit) was
-    // tried but produced 635x violations vs default (1 → 635). Eager splits triggered
-    // on nearly every insert in early-stage trie construction, exploding tree height
-    // 6 → 12. The design doc §6 Variant A warned this would happen ("non-MSDB split
-    // breaks contiguous-partition invariants"). Phase 2 needs Phase 1 (per-leaf
-    // ancestor-bit tracking) infrastructure first, plus careful contiguous-partition
-    // preservation, before it can be re-enabled. Helper {@link
-    // HOTTrieWriter#findOffendingAncestorBit} is left in place for future Phase 1
-    // integration.
+    // Phase 2 (constancy-aware leaf split) — DISABLED 2026-05-09 after two attempts.
+    //
+    // Attempt 1 (eager, any non-constant ancestor β): split BEFORE merge if K's β
+    // value differs from leaf's first-key's value at any ancestor disc bit. Result:
+    // 1 → 635 violations, height 6 → 12 (non-MSDB splits broke HOT I8).
+    //
+    // Attempt 2 (constrained: β must equal leaf's MSDB-with-K for contiguous split):
+    // Result: 1 → 645 violations. Even contiguous splits expose downstream cascade
+    // issues in addEntryWithPDep / splitParentAndRecurse / intermediate-BiNode paths
+    // (these construct stored partials assuming I-Binna invariant, which is the same
+    // assumption the eager split tries to enforce — circular).
+    //
+    // Conclusion: Phase 2 alone insufficient. Requires the broader Phase 4b refactor
+    // (= sparse-path encoding throughout indirect construction, removal of persisted
+    // intermediate-BiNode workaround) FIRST, then Phase 2 to maintain leaf-level
+    // β-constancy. ~3-4 weeks of careful integration.
+    //
+    // Helper {@link HOTTrieWriter#findOffendingAncestorBit} + {@link
+    // HOTLeafPage#computeMsdbWithKey} + {@link HOTTrieWriter#handleLeafSplitAndInsert}
+    // explicit-split-bit overload remain in place for future Phase 1+2 integration.
 
     // Merge entry
     boolean success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
