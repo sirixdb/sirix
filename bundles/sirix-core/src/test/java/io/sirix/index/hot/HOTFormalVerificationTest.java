@@ -444,6 +444,21 @@ final class HOTFormalVerificationTest {
               IndexType.CAS, def.getID());
           final io.brackit.query.atomic.Int32 zero = new io.brackit.query.atomic.Int32(0);
           final var scratch = new io.sirix.index.redblacktree.keyvalue.NodeReferences();
+
+          // Stage D — post-mutation validation gate. Gated on -Dhot.strict.validate=1.
+          // When enabled, captures violation/firing-counter checkpoints during the insert
+          // sequence and runs the per-insert I-leaf-insert-precondition check before each
+          // main-phase insert. Output: a per-checkpoint table consumed by Stage E into
+          // docs/HOT_EMPIRICAL_FAILURE_TABLE.md.
+          final boolean stageDGate = Boolean.getBoolean("hot.strict.validate");
+          final int checkInterval = 250;
+          final java.util.List<String> stageDCheckpoints =
+              stageDGate ? new java.util.ArrayList<>() : null;
+          final java.util.Map<String, Integer> stageDFirstFailure =
+              stageDGate ? new java.util.TreeMap<>() : null;
+          int stageDPrecondHits = 0;
+          long[] stageDPrevCounters = stageDGate ? snapshotWriterFirings() : null;
+
           final int warmupBase = n + 1_000_000;
           for (int i = 0; i < 5_000; i++) {
             scratch.getNodeKeys().clear();
@@ -452,14 +467,56 @@ final class HOTFormalVerificationTest {
                 new io.brackit.query.atomic.Int32(warmupBase + i), Type.INR, pathNodeKey),
                 scratch, null);
           }
+          if (stageDGate) {
+            stageDCheckpoints.add(captureStageDCheckpoint("post-warmup", -1, trx, def,
+                stageDPrevCounters, stageDFirstFailure));
+            stageDPrevCounters = snapshotWriterFirings();
+          }
+
+          final byte[] keyBuf = new byte[64];
           for (int i = 0; i < n; i++) {
+            if (stageDGate) {
+              final int keyLen = io.sirix.index.hot.CASKeySerializer.INSTANCE.serialize(
+                  new io.sirix.index.redblacktree.keyvalue.CASValue(
+                      new io.brackit.query.atomic.Int32(i), Type.INR, pathNodeKey),
+                  keyBuf, 0);
+              final byte[] keyBytes = java.util.Arrays.copyOf(keyBuf, keyLen);
+              final io.sirix.page.PageReference rootRef =
+                  HOTInvariantValidator.resolveRootRef(trx.getStorageEngineReader(),
+                      IndexType.CAS, def.getID());
+              if (rootRef != null) {
+                final java.util.List<HOTInvariantValidator.Violation> precondViolations =
+                    HOTInvariantValidator.checkLeafInsertPreservesI5(
+                        rootRef, keyBytes, trx.getStorageEngineReader());
+                if (!precondViolations.isEmpty()) {
+                  stageDPrecondHits++;
+                  stageDFirstFailure.putIfAbsent("I-leaf-insert-precondition", i);
+                }
+              }
+            }
             scratch.getNodeKeys().clear();
             scratch.getNodeKeys().add(i);
             writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
                 new io.brackit.query.atomic.Int32(i), Type.INR, pathNodeKey),
                 scratch, null);
+            if (stageDGate && (i + 1) % checkInterval == 0) {
+              stageDCheckpoints.add(captureStageDCheckpoint("main+" + (i + 1), i + 1, trx, def,
+                  stageDPrevCounters, stageDFirstFailure));
+              stageDPrevCounters = snapshotWriterFirings();
+            }
           }
           trx.commit();
+          if (stageDGate) {
+            stageDCheckpoints.add(captureStageDCheckpoint("post-commit", n, trx, def,
+                stageDPrevCounters, stageDFirstFailure));
+            System.out.println("[stage-D-gate] N=" + n + " checkInterval=" + checkInterval
+                + " checkpoints=" + stageDCheckpoints.size()
+                + " precondHitsTotal=" + stageDPrecondHits);
+            for (final String line : stageDCheckpoints) {
+              System.out.println("[stage-D-gate] " + line);
+            }
+            System.out.println("[stage-D-gate] first-failure: " + stageDFirstFailure);
+          }
           final long buildMs = System.currentTimeMillis() - buildStart;
           final HOTInvariantValidator.Result inv =
               HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(), IndexType.CAS,
@@ -530,6 +587,57 @@ final class HOTFormalVerificationTest {
   private static void restoreOrClear(String key, String prevValue) {
     if (prevValue == null) System.clearProperty(key);
     else System.setProperty(key, prevValue);
+  }
+
+  /**
+   * Stage D — snapshot all writer firing counters into a fixed-position long[].
+   * Order: [intermediateBN, phase3, phase4, freshPolarity, bchMultiMask, bchIdentical,
+   * bchCrossWindow, bchNewMaskZero, bchUnknown, bchCollision].
+   */
+  private static long[] snapshotWriterFirings() {
+    return new long[] {
+        io.sirix.access.trx.page.HOTTrieWriter.getIntermediateBiNodeFallbackFirings(),
+        io.sirix.access.trx.page.HOTTrieWriter.getPhase3RebalanceFirings(),
+        io.sirix.access.trx.page.HOTTrieWriter.getPhase4SubtreeMergeFirings(),
+        io.sirix.access.trx.page.HOTTrieWriter.getAddEntryFreshPolarityFirings(),
+        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackMultiMaskParent(),
+        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackIdenticalKeys(),
+        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackCrossWindow(),
+        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackNewMaskZero(),
+        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackUnknownChild(),
+        io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackPartialCollision()
+    };
+  }
+
+  /**
+   * Stage D — capture a checkpoint by running the validator and aggregating
+   * violations + counter deltas. Updates {@code firstFailure} for any new
+   * violation type observed. Returns a printable line.
+   */
+  private static String captureStageDCheckpoint(String label, int insertIdx,
+      io.sirix.api.json.JsonNodeTrx trx, IndexDef def, long[] prevCounters,
+      java.util.Map<String, Integer> firstFailure) {
+    final HOTInvariantValidator.Result inv =
+        HOTInvariantValidator.validateIndex(trx.getStorageEngineReader(),
+            IndexType.CAS, def.getID());
+    final java.util.Map<String, Integer> violationsByType = new java.util.TreeMap<>();
+    for (final HOTInvariantValidator.Violation v : inv.violations()) {
+      violationsByType.merge(v.invariant(), 1, Integer::sum);
+      firstFailure.putIfAbsent(v.invariant(), insertIdx);
+    }
+    final long[] now = snapshotWriterFirings();
+    final long bchAllNow = now[4] + now[5] + now[6] + now[7] + now[8] + now[9];
+    final long bchAllPrev = prevCounters[4] + prevCounters[5] + prevCounters[6]
+        + prevCounters[7] + prevCounters[8] + prevCounters[9];
+    return label + "(idx=" + insertIdx + ", h=" + inv.observedHeight()
+        + ", Σ[BN=" + now[0] + ",P3=" + now[1] + ",P4=" + now[2] + ",FP=" + now[3]
+        + ",bchALL=" + bchAllNow + "]"
+        + ", v=" + violationsByType
+        + ", Δ[BN=" + (now[0] - prevCounters[0])
+        + ",P3=" + (now[1] - prevCounters[1])
+        + ",P4=" + (now[2] - prevCounters[2])
+        + ",FP=" + (now[3] - prevCounters[3])
+        + ",bch=" + (bchAllNow - bchAllPrev) + "])";
   }
 
   /**
