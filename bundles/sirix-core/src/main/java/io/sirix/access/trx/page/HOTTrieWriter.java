@@ -1498,6 +1498,37 @@ public final class HOTTrieWriter {
     //    sort AFTER an existing sibling — so co-sorting is required, not adjacent placement.
     sortChildrenAndPartialsByPartial(newChildren, newPartialKeys);
 
+    // Stage G.16 — verify partial-key sort matches first-key sort. If not, re-sort by
+    // first-key + recompute partials directly via PEXT. Same pattern as G.9 for
+    // buildFlatNonStrict. This catches the construction-time inversion observed at
+    // indirect 2 (child[2].firstKey > child[3].firstKey under partial-sort but partial
+    // values say slot 2 should come first).
+    boolean firstKeyMonotone = true;
+    for (int i = 1; i < newNumChildren; i++) {
+      final byte[] prev = getFirstKeyFromChild(newChildren[i - 1]);
+      final byte[] curr = getFirstKeyFromChild(newChildren[i]);
+      if (prev != null && curr != null && prev.length > 0 && curr.length > 0
+          && Arrays.compareUnsigned(prev, curr) >= 0) {
+        firstKeyMonotone = false;
+        break;
+      }
+    }
+    if (!firstKeyMonotone) {
+      sortChildrenByFirstKey(newChildren);
+      // Recompute each partial directly from firstKey under newMask (same approach as G.6).
+      for (int i = 0; i < newNumChildren; i++) {
+        final byte[] cKey = getFirstKeyFromChild(newChildren[i]);
+        newPartialKeys[i] = (cKey == null || cKey.length == 0) ? 0
+            : computePartialKeySingleMask(cKey, oldInitialBytePos, newMask);
+      }
+      // Re-verify uniqueness after recompute (collision possible if firstKeys collide on PEXT).
+      for (int i = 1; i < newNumChildren; i++) {
+        for (int k = 0; k < i; k++) {
+          if (newPartialKeys[k] == newPartialKeys[i]) return null;
+        }
+      }
+    }
+
     if (newNumChildren <= 16) {
       return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
           oldInitialBytePos, newMask, newPartialKeys, newChildren, parent.getHeight());
@@ -3649,6 +3680,32 @@ public final class HOTTrieWriter {
 
     // 7. Sort children + partials by partial-key (HOT I7 / Binna §4.2). See addEntryWithPDep.
     sortChildrenAndPartialsByPartial(newChildren, newPartials);
+
+    // Stage G.16 (MultiMask variant) — first-key-monotone re-sort + recompute partials
+    // if needed. Same logic as the SingleMask path above.
+    boolean mmFirstKeyMonotone = true;
+    for (int i = 1; i < newNumChildren; i++) {
+      final byte[] prev = getFirstKeyFromChild(newChildren[i - 1]);
+      final byte[] curr = getFirstKeyFromChild(newChildren[i]);
+      if (prev != null && curr != null && prev.length > 0 && curr.length > 0
+          && Arrays.compareUnsigned(prev, curr) >= 0) {
+        mmFirstKeyMonotone = false;
+        break;
+      }
+    }
+    if (!mmFirstKeyMonotone) {
+      sortChildrenByFirstKey(newChildren);
+      for (int i = 0; i < newNumChildren; i++) {
+        final byte[] cKey = getFirstKeyFromChild(newChildren[i]);
+        newPartials[i] = (cKey == null || cKey.length == 0) ? 0
+            : computePartialKeyMultiMaskDirect(cKey, newExtractionPositions, newExtractionMasks, newNumBytes);
+      }
+      for (int i = 1; i < newNumChildren; i++) {
+        for (int k = 0; k < i; k++) {
+          if (newPartials[k] == newPartials[i]) return null;
+        }
+      }
+    }
 
     if (newNumChildren <= 16) {
       return HOTIndirectPage.createSpanNodeMultiMask(parent.getPageKey(), revision,
