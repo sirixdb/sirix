@@ -27,17 +27,20 @@ import java.util.Set;
  *
  * <p>Run as: {@code HOTInvariantValidator.validate(rootRef, reader).assertOk()}.
  *
- * <p>Each invariant is named explicitly so a regression points at a specific structural property:
+ * <p>Each invariant is named explicitly so a regression points at a specific structural property.
+ * Numbering matches {@code docs/HOT_INVARIANTS_CATALOG.md} (Stage A of the formal-verification
+ * effort):
  * <ol>
- *   <li><b>I1 — leaf-key-uniqueness</b>: every key within a leaf is unique.</li>
+ *   <li><b>I1 — leaf-key-uniqueness</b>: every key within a leaf is unique; cross-leaf — no
+ *       stored key appears in two leaves.</li>
  *   <li><b>I2 — leaf-lex-sorted</b>: leaf entries are stored in ascending lex order.</li>
  *   <li><b>I3 — partial-key-uniqueness</b>: within an indirect node, no two children share a
  *       partial key (would collide PEXT routing).</li>
- *   <li><b>I4 — partial-key-matches-stored</b>: stored {@code partialKeys[i]} equals the PEXT of
- *       child[i].firstKey under the indirect's mask. (HOT invariant: stored partial-keys are the
- *       actual extract of the first key of each child's subtree.)</li>
- *   <li><b>I5 — bit-constant-in-subtree</b>: every captured discriminative bit is constant
- *       across all leaf-keys reachable from each child of the indirect that captures it.</li>
+ *   <li><b>I4 — first-partial-zero</b>: under sparse-path encoding the leftmost child's stored
+ *       partial is zero (Binna's "first mask always zero" rule — every BiNode on the leftmost
+ *       child's path takes the LEFT side, so all on-path bits are 0).</li>
+ *   <li><b>I5 — leaf-constancy</b>: every captured discriminative bit is constant across all
+ *       leaf-keys reachable from each child of the indirect that captures it.</li>
  *   <li><b>I6 — pext-routes-to-leaf</b>: for every stored key K, descending from the root via
  *       {@code findChildIndex(K)} must terminate at the leaf that actually contains K.</li>
  *   <li><b>I7 — partial-keys-sorted</b>: under BE encoding, child slots appear in ascending
@@ -48,6 +51,20 @@ import java.util.Set;
  *       upper bound for ≤ 2³² entries).</li>
  *   <li><b>I10 — fanout-bounded</b>: every indirect has ≥ 2 children and ≤
  *       {@link HOTIndirectPage#MAX_NODE_ENTRIES} children.</li>
+ *   <li><b>I11 — trie-condition</b>: disc bits become strictly less significant down the tree,
+ *       i.e. for every parent → child indirect edge, every bit in {@code child.mask} has a
+ *       larger absolute bit position than {@code parent.MSB} (= no double-use of disc bits on a
+ *       path; matches C++ {@code HOTSingleThreaded.hpp:521-523} {@code assert(parent.MSB <
+ *       splitBit)}).</li>
+ *   <li><b>I-Binna-sparse-path</b>: per Binna §4.2 — stored partial p_i of child c_i must
+ *       satisfy {@code (p_i & ~PEXT(c_i.firstKey, mask)) == 0} (= every bit set in stored is
+ *       also set in dense PEXT of firstKey). Verified for firstKey only.</li>
+ *   <li><b>I-leaf-insert-precondition</b>: a STATIC helper, not a tree-walk. Given a hypothetical
+ *       new key being inserted, walks the PEXT-descent path and reports whether the insert would
+ *       break I5 at any ancestor (i.e., would a key with disagreeing β value be added to a
+ *       previously β-constant subtree). Used by Stage D's post-mutation gate to surface the
+ *       leaf-insert I5 gap at the operation that creates it. See {@link
+ *       #checkLeafInsertPreservesI5}.</li>
  * </ol>
  *
  * <p>Each violation is collected as a {@link Violation} so the caller can report all problems
@@ -200,7 +217,38 @@ public final class HOTInvariantValidator {
             "indirect[" + indirect.getPageKey() + "].child[" + i + "] could not be loaded", indirect);
         continue;
       }
+      // I11 — trie-condition: disc bits become strictly less significant down the tree.
+      // Equivalent C++ assert: HOTSingleThreaded.hpp:521-523 {@code assert(parent.MSB < splitBit)}.
+      // For every bit b set in childIndirect.mask we require {@code b > parent.MSB} (in
+      // absolute MSB-first bit position numbering — larger position = less significant).
+      if (child instanceof HOTIndirectPage childIndirect) {
+        validateI11TrieCondition(indirect, childIndirect, i);
+      }
       walk(child, depth + 1, nextAncestors);
+    }
+  }
+
+  /**
+   * I11 — trie-condition. For every bit b set in {@code child}'s mask, b must be a less-
+   * significant bit position than {@code parent.MSB} (= b's absolute position is greater
+   * than parent.MSB's). Skips when either side has no mask set (e.g., MultiNode root with
+   * empty bitMask uses childIndex routing instead — handled below).
+   */
+  private void validateI11TrieCondition(HOTIndirectPage parent, HOTIndirectPage child,
+      int childSlot) {
+    final int parentMSB = parent.getMostSignificantBitIndex();
+    if (parentMSB < 0) return; // parent's MSB undefined — skip
+    final int childMSB = child.getMostSignificantBitIndex();
+    if (childMSB < 0) return; // child has no disc bits — vacuously OK (rare)
+    // Equivalent absolute bit positions are MSB-first: smaller position = MORE significant.
+    // Trie condition: parent's most-significant bit MUST be MORE significant than every
+    // bit in child's mask, i.e., parent.MSB < every child bit position.
+    if (childMSB <= parentMSB) {
+      addViolation("I11-trie-condition",
+          "indirect " + parent.getPageKey() + " (MSB=" + parentMSB + ") → child[" + childSlot
+              + "]=" + child.getPageKey() + " (MSB=" + childMSB + "): child.MSB must be > parent.MSB"
+              + " (down-tree disc bits must become less significant — Binna trie condition)",
+          parent);
     }
   }
 
@@ -272,6 +320,30 @@ public final class HOTInvariantValidator {
                   + Integer.toHexString(partials[i]) + " across children", indirect);
           break;
         }
+      }
+    }
+
+    // I4 — first-partial-zero (Binna's "first mask always zero" rule).
+    //
+    // Under sparse-path encoding the leftmost child by partial-key sort takes the LEFT side
+    // at every BiNode on its path → all on-path bits are 0 → its stored partial = 0. Binna's
+    // C++ reference (HOTSingleThreadedNode.hpp:179, 244, 267, 292, 320) emphasizes:
+    // "THIS IS IMPORTANT FOR THE TREE TO HAVE FAST LOOKUP AND MAINTAIN INTEGRITY!! THE FIRST
+    // MASK ALWAYS IS ZERO!!"
+    //
+    // We check the slot whose stored partial is the unsigned-minimum (= leftmost under partial
+    // sort) rather than slot 0 specifically — this is more permissive but exercises the same
+    // semantic property: the smallest stored partial must be zero.
+    if (partials != null && partials.length >= n && n > 0) {
+      int minPartial = partials[0];
+      for (int i = 1; i < n; i++) {
+        if (Integer.compareUnsigned(partials[i], minPartial) < 0) minPartial = partials[i];
+      }
+      if (minPartial != 0) {
+        addViolation("I4-first-partial-zero",
+            "indirect " + indirect.getPageKey() + " smallest stored partial is 0x"
+                + Integer.toHexString(minPartial) + " (must be 0 under sparse-path encoding —"
+                + " Binna's 'first mask always zero' rule)", indirect);
       }
     }
 
@@ -602,6 +674,163 @@ public final class HOTInvariantValidator {
       if (ref == null) break;
     }
     return sb.toString();
+  }
+
+  // ===== I-leaf-insert-precondition (Stage C, surfaces Op 1/2's I5 gap) =====
+
+  /**
+   * Static check: would inserting {@code newKey} into the trie rooted at {@code rootRef}
+   * violate I5 (leaf β-constancy) at any ancestor on the PEXT-descent path?
+   *
+   * <p>Algorithm: walk PEXT-descent path. At each ancestor A:
+   * <ul>
+   *   <li>Compute the chosen child slot c via {@code A.findChildIndex(newKey)}.</li>
+   *   <li>For every disc bit β captured by A's mask: scan c's subtree for existing keys'
+   *       β-bit values. If existing keys agree on a single value v ∈ {0,1} but
+   *       {@code newKey.β != v}, report a violation: inserting newKey would change c's
+   *       subtree from β-constant to β-mixed.</li>
+   *   <li>Mixed existing values do NOT trigger a violation — they indicate either an
+   *       already-broken I5 (separately reported by I5-leaf-constancy on full validation)
+   *       or sparse-path off-path bits (legal under Binna's encoding).</li>
+   * </ul>
+   *
+   * <p>This surfaces the campaign's recurring root cause from {@code
+   * HOT_OPERATIONS_INVARIANTS_MATRIX.md} §5.4: Op 1 (leaf.put) inserts a key with
+   * disagreeing β value into a previously β-constant subtree, silently breaking I5.
+   * Routing soundness alone doesn't prevent it because subset-match routing
+   * {@code (dense & stored) == stored} only enforces a one-sided constraint.
+   *
+   * <p><b>Performance.</b> One full subtree scan per ancestor disc bit. Acceptable for
+   * Stage D's gated post-mutation check on the 50K reproducer; not appropriate for
+   * production paths.
+   *
+   * @return list of violations (empty if insert preserves I5 along the descent path)
+   */
+  public static List<Violation> checkLeafInsertPreservesI5(PageReference rootRef, byte[] newKey,
+      StorageEngineReader reader) {
+    if (rootRef == null || newKey == null || reader == null) return List.of();
+    final HOTInvariantValidator v = new HOTInvariantValidator(reader, DEFAULT_MAX_HEIGHT);
+    PageReference ref = rootRef;
+    for (int depth = 0; depth <= v.maxHeight; depth++) {
+      final Page page = v.loadPage(ref);
+      if (page == null) break;
+      if (page instanceof HOTLeafPage) break;
+      if (!(page instanceof HOTIndirectPage indirect)) break;
+      final int chosenIdx = indirect.findChildIndex(newKey);
+      if (chosenIdx < 0) break;
+      final PageReference chosenRef = indirect.getChildReference(chosenIdx);
+      if (chosenRef == null) break;
+      v.checkPreconditionAtIndirect(indirect, chosenIdx, chosenRef, newKey);
+      ref = chosenRef;
+    }
+    return List.copyOf(v.violations);
+  }
+
+  /**
+   * Per-ancestor logic for {@link #checkLeafInsertPreservesI5}. Iterates each absolute
+   * disc bit position β captured by {@code indirect}'s mask (handling both SingleMask and
+   * MultiMask layouts), runs {@link #scanSubtreeBetaValue} over the chosen child's subtree,
+   * and emits a violation when subtree is β-constant at value v but {@code newKey.β != v}.
+   */
+  private void checkPreconditionAtIndirect(HOTIndirectPage indirect, int chosenIdx,
+      PageReference chosenRef, byte[] newKey) {
+    final long mask = indirect.getBitMask();
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK && mask != 0L) {
+      final int initialBytePos = indirect.getInitialBytePos();
+      long m = mask;
+      while (m != 0L) {
+        final long lowBit = m & -m;
+        final int bitInWord = Long.numberOfTrailingZeros(lowBit);
+        // BE: long-bit b → byteOffset = 7 - b/8, bitInByte = 7 - b%8.
+        final int byteOffset = 7 - bitInWord / 8;
+        final int bitInByte = 7 - (bitInWord % 8);
+        final int absBit = (initialBytePos + byteOffset) * 8 + bitInByte;
+        evaluateBetaPrecondition(indirect, chosenIdx, chosenRef, newKey, absBit);
+        m &= m - 1L;
+      }
+      return;
+    }
+    // MultiMask: iterate the captured bytes via extractionPositions + extractionMasks.
+    final byte[] extractionPositions = indirect.getExtractionPositions();
+    final long[] extractionMasks = indirect.getExtractionMasks();
+    final int numExtractionBytes = indirect.getNumExtractionBytes();
+    if (extractionPositions == null || extractionMasks == null) return;
+    for (int i = 0; i < numExtractionBytes; i++) {
+      final int keyBytePos = extractionPositions[i] & 0xFF;
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      // The 8 bits of this byte sit at long-bits ((7-byteOffsetInChunk)*8) .. +7 in extractionMasks[chunkIdx].
+      final long byteMask = (extractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL;
+      if (byteMask == 0) continue;
+      for (int b = 0; b < 8; b++) {
+        // MSB-first within the byte: bit-in-byte b corresponds to byteMask bit (7-b).
+        if ((byteMask & (1L << (7 - b))) == 0) continue;
+        final int absBit = keyBytePos * 8 + b;
+        evaluateBetaPrecondition(indirect, chosenIdx, chosenRef, newKey, absBit);
+      }
+    }
+  }
+
+  /** Common per-β logic shared by SingleMask and MultiMask layouts. */
+  private void evaluateBetaPrecondition(HOTIndirectPage indirect, int chosenIdx,
+      PageReference chosenRef, byte[] newKey, int absBit) {
+    final int newKeyBetaValue = isBitSetAbsolute(newKey, absBit) ? 1 : 0;
+    final int subtreeBetaState = scanSubtreeBetaValue(chosenRef, absBit);
+    if (subtreeBetaState == 0 && newKeyBetaValue != 0) {
+      addViolation("I-leaf-insert-precondition",
+          "indirect " + indirect.getPageKey() + " child[" + chosenIdx + "]'s subtree is β=0-constant"
+              + " at absBit=" + absBit + " but newKey has β=1 — insert would turn subtree β-mixed",
+          indirect);
+    } else if (subtreeBetaState == 1 && newKeyBetaValue != 1) {
+      addViolation("I-leaf-insert-precondition",
+          "indirect " + indirect.getPageKey() + " child[" + chosenIdx + "]'s subtree is β=1-constant"
+              + " at absBit=" + absBit + " but newKey has β=0 — insert would turn subtree β-mixed",
+          indirect);
+    }
+    // subtreeBetaState == 2 (mixed) or 3 (empty) → don't flag (already-broken or vacuous).
+  }
+
+  /**
+   * Scan every leaf reachable from {@code ref}, evaluate each key's bit at absolute
+   * MSB-first position {@code absBit}, return:
+   * <ul>
+   *   <li>{@code 0} — every key has β=0 (β-constant at value 0)</li>
+   *   <li>{@code 1} — every key has β=1 (β-constant at value 1)</li>
+   *   <li>{@code 2} — at least one key has β=0 AND at least one has β=1 (mixed)</li>
+   *   <li>{@code 3} — no keys observed (empty subtree or unloadable)</li>
+   * </ul>
+   */
+  private int scanSubtreeBetaValue(PageReference ref, int absBit) {
+    final boolean[] seen0 = {false};
+    final boolean[] seen1 = {false};
+    walkLeavesUntilFalse(ref, leaf -> {
+      final int ec = leaf.getEntryCount();
+      for (int k = 0; k < ec; k++) {
+        final byte[] key = leaf.getKey(k);
+        if (key == null || key.length == 0) continue;
+        if (isBitSetAbsolute(key, absBit)) seen1[0] = true;
+        else seen0[0] = true;
+        if (seen0[0] && seen1[0]) return false; // early exit on mixed
+      }
+      return true;
+    });
+    if (seen0[0] && seen1[0]) return 2;
+    if (seen0[0]) return 0;
+    if (seen1[0]) return 1;
+    return 3;
+  }
+
+  /**
+   * MSB-first absolute bit lookup: bit at absolute position {@code absBit} = byte
+   * {@code absBit/8}, bit-within-byte {@code 7-(absBit%8)} (so {@code absBit==0} = MSB
+   * of {@code key[0]}). Returns {@code false} for out-of-range positions (= bit is
+   * implicit zero past the key length).
+   */
+  private static boolean isBitSetAbsolute(byte[] key, int absBit) {
+    final int bytePos = absBit / 8;
+    if (bytePos >= key.length) return false;
+    final int bitInByte = absBit % 8;
+    return (key[bytePos] & (1 << (7 - bitInByte))) != 0;
   }
 
   // ===== helpers =====
