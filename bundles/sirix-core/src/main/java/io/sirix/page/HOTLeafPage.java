@@ -1807,6 +1807,26 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    */
   public boolean splitToWithInsert(HOTLeafPage target, byte[] key, int keyLen,
       byte[] value, int valueLen) {
+    return splitToWithInsert(target, key, keyLen, value, valueLen, null);
+  }
+
+  /**
+   * Same as {@link #splitToWithInsert(HOTLeafPage, byte[], int, byte[], int)} but writes
+   * which half the new key landed in to {@code newSideOut[0]} on success: {@code 0}
+   * (LEFT, β=0 — key stayed in {@code this}) or {@code 1} (RIGHT, β=1 — key went to
+   * {@code target}). Untouched on failure.
+   *
+   * <p>Phase 4b-vb consumers (the C++-faithful integration path) need this so they can
+   * compute {@code valueToInsert} / {@code valueToReplace} per
+   * {@code integrateBiNodeIntoTree}'s semantics — pass the half WITHOUT the new key as
+   * {@code valueToReplace} (replaces splitChild's slot in-place) and the half WITH the
+   * new key as {@code valueToInsert} (the single new entry added at the parent level).
+   *
+   * @param newSideOut optional length-1 array that receives 0 or 1 on success;
+   *                   {@code null} if caller does not need this info
+   */
+  public boolean splitToWithInsert(HOTLeafPage target, byte[] key, int keyLen,
+      byte[] value, int valueLen, int @Nullable [] newSideOut) {
     Objects.requireNonNull(target);
 
     final int count = entryCount;
@@ -1877,8 +1897,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     truncateDirtyBitmap(splitPoint);
 
     // Insert/update the key in the correct half based on disc bit
+    final boolean newKeyToRight = DiscriminativeBitComputer.isBitSet(keySlice, msdb);
     final boolean insertOk;
-    if (DiscriminativeBitComputer.isBitSet(keySlice, msdb)) {
+    if (newKeyToRight) {
       insertOk = target.mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
     } else {
       insertOk = mergeWithNodeRefs(keySlice, keySlice.length, valueSlice, valueSlice.length);
@@ -1904,6 +1925,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     // Success — now safe to recompute prefix with all entries (including the inserted key)
     recomputePrefix();
     pextValid = false;
+    if (newSideOut != null && newSideOut.length > 0) {
+      newSideOut[0] = newKeyToRight ? 1 : 0;
+    }
     return true;
   }
 
