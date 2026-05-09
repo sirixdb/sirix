@@ -3932,6 +3932,53 @@ public final class HOTTrieWriter {
   private static final java.util.concurrent.atomic.AtomicLong OPTION_B_REROUTE_FIRINGS =
       new java.util.concurrent.atomic.AtomicLong(0L);
 
+  /** Stage G.15 — I8 pre-check counter (newKey would become new deep-firstKey, breaking I8). */
+  private static final java.util.concurrent.atomic.AtomicLong G15_I8_REROUTE_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getG15I8RerouteFirings() { return G15_I8_REROUTE_FIRINGS.get(); }
+  public static void resetG15I8Counter() { G15_I8_REROUTE_FIRINGS.set(0L); }
+
+  /**
+   * Stage G.15 — Detect insert-time I8 violations from newKey becoming the new deep-firstKey.
+   *
+   * <p>When newKey is smaller than the target leaf's existing first key, the leaf's
+   * deep-firstKey post-insert would be newKey. If that new firstKey is less than the
+   * predecessor sibling's deep-firstKey at some ancestor, I8 breaks at that ancestor.
+   *
+   * <p>Returns the ancestor index (= position in pathNodes) where I8 would break, or
+   * -1 if no break.
+   */
+  public int findI8OffendingAncestor(HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+      int[] pathChildIndices, int pathDepth, HOTLeafPage leaf, byte[] keyBuf) {
+    if (leaf == null || keyBuf == null || pathDepth <= 0) return -1;
+    final int leafEntryCount = leaf.getEntryCount();
+    if (leafEntryCount == 0) return -1;
+    final byte[] leafFirstKey = leaf.getKey(0);
+    if (leafFirstKey == null) return -1;
+    // newKey must be smaller than leaf's current first key to change the deep-firstKey.
+    if (Arrays.compareUnsigned(keyBuf, leafFirstKey) >= 0) return -1;
+
+    // newKey would become the new deep-firstKey of pathNodes[d-1].descend-slot for every d > 0.
+    // Check if at any ancestor A, this new firstKey violates A's child-sorted-by-firstKey order.
+    for (int d = pathDepth - 1; d >= 0; d--) {
+      final int descendSlot = pathChildIndices[d];
+      if (descendSlot <= 0) continue; // no predecessor to compare against
+      final HOTIndirectPage A = pathNodes[d];
+      if (A == null) continue;
+      final PageReference prevSib = A.getChildReference(descendSlot - 1);
+      if (prevSib == null) continue;
+      final byte[] prevSibFirstKey = getFirstKeyFromChild(prevSib);
+      if (prevSibFirstKey == null || prevSibFirstKey.length == 0) continue;
+      // For I8 to hold post-insert: prevSib.firstKey < descendSlot.firstKey (= newKey).
+      // If prevSib.firstKey >= newKey, I8 breaks at A.
+      if (Arrays.compareUnsigned(prevSibFirstKey, keyBuf) >= 0) {
+        return d;
+      }
+    }
+    return -1;
+  }
+
   public static long getOptionBRerouteFirings() { return OPTION_B_REROUTE_FIRINGS.get(); }
   public static void resetOptionBRerouteFirings() { OPTION_B_REROUTE_FIRINGS.set(0L); }
 

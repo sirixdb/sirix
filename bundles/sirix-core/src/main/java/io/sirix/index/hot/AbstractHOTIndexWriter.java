@@ -764,6 +764,32 @@ public abstract class AbstractHOTIndexWriter<K> {
     // This is the architectural fix from HOT_FIX_DESIGN_V2.md §3.2 Option B. It avoids
     // the multi-entry-leaf β-mixing pathology by routing the offending key away from
     // the "would-make-it-mixed" leaf, into the existing β-correct subtree.
+    // Stage G.15 — I8 pre-check + reroute. When newKey would become the new deep-firstKey
+    // of the leaf's slot AND that new firstKey would be less than the predecessor sibling's
+    // deep-firstKey at some ancestor, route newKey to the predecessor sibling's subtree
+    // instead. Force-leaf-split-on-offending-bit then integrates correctly.
+    if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
+      final byte[] keyBytes = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
+      final int i8AncestorIdx = trieWriter.findI8OffendingAncestor(
+          navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
+          navResult.pathDepth(), leaf, keyBytes);
+      if (i8AncestorIdx >= 0) {
+        // newKey would break I8 at this ancestor. Force leaf split on the leaf's MSDB-with-K
+        // (= the bit where newKey differs from existing leaf keys at most-significant pos).
+        // The standard split-and-integrate path then routes the halves correctly.
+        if (leaf.canSplit()) {
+          final byte[] valueBytes = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
+          final boolean ok = trieWriter.handleLeafSplitAndInsert(
+              storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
+              rootRef, navResult.pathNodes(), navResult.pathRefs(),
+              navResult.pathChildIndices(), navResult.pathDepth(),
+              keyBytes, keyLen, valueBytes, valueLen);
+          prepareIndexPage();
+          if (ok) return;
+        }
+      }
+    }
+
     // Option B (Stage G.13) — RE-ENABLED with diagnostic to trace cascade source.
     if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
       final byte[] keyBytes = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
