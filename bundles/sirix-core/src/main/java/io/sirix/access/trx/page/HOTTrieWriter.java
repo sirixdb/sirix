@@ -4079,6 +4079,47 @@ public final class HOTTrieWriter {
   }
 
   /**
+   * Phase 4b-vb.2 helper: classifies a leaf-split's two products into the C++
+   * {@code valueToInsert} (the side receiving the just-inserted key — the "new entry"
+   * from parent's perspective) and {@code valueToReplace} (the side overwriting
+   * splitChild's existing slot pointer). Mirrors {@code integrateBiNodeIntoTree}
+   * lines 512-514 (HOTSingleThreaded.hpp): {@code valueToInsert =
+   * (newIsRight) ? mRight : mLeft; valueToReplace = (newIsRight) ? mLeft : mRight}.
+   *
+   * <p>The {@code entryOffset} field corresponds to C++'s {@code entryOffset}
+   * variable used at line 512. It encodes which neighbour-slot of the existing
+   * splitChild's index ends up holding the new entry: 0 = newIdx ≤ oldIdx (when
+   * newIsRight, mRight is the new entry but mLeft replaces oldIdx → newIdx is
+   * adjacent at oldIdx+0 from the post-split perspective); 1 = newIdx > oldIdx.
+   * Sirix's addEntryWithPDep already places both products by partial-key sort,
+   * so this offset is consumed only by Phase 4b-vb.3's splitParentAndRecurse
+   * refactor — kept here for parity with the C++ algorithm's bookkeeping.
+   *
+   * @param valueToInsert the leaf-split half holding the just-inserted key
+   * @param valueToReplace the leaf-split half whose pointer overwrites splitChild's slot
+   * @param entryOffset 0 if {@code valueToReplace == leftChild}, 1 otherwise
+   */
+  record SplitProductRoles(PageReference valueToInsert, PageReference valueToReplace,
+      int entryOffset) {
+  }
+
+  /**
+   * Compute {@link SplitProductRoles} for a leaf-split's two products given the
+   * {@code newSide} reported by {@link HOTLeafPage#splitToWithInsert}'s
+   * {@code newSideOut}: 0 = LEFT (new key in {@code leftChild}), 1 = RIGHT (new key
+   * in {@code rightChild}).
+   */
+  static SplitProductRoles classifySplitProducts(PageReference leftChild,
+      PageReference rightChild, int newSide) {
+    if (newSide == 1) {
+      // newIsRight: rightChild is the new entry, leftChild replaces splitChild's slot.
+      return new SplitProductRoles(rightChild, leftChild, /*entryOffset=*/ 0);
+    }
+    // newIsLeft (or newSide < 0 fallback): leftChild is the new entry, rightChild replaces.
+    return new SplitProductRoles(leftChild, rightChild, /*entryOffset=*/ 1);
+  }
+
+  /**
    * Compute the relevant-bits mask for a contiguous range of children (in their
    * stored partial-key order). For each adjacent pair in {@code partials[indices]}
    * (assumed ascending), OR together {@code (p[i] & ~p[i-1])} — the bits that flip

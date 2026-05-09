@@ -285,4 +285,37 @@ final class MultiMaskSubLayoutTest {
     final int[] indices = {0};
     assertEquals(0, HOTTrieWriter.computeRelevantBitsFromPartials(partials, indices));
   }
+
+  @Test
+  @DisplayName("classifySplitProducts: newSide=1 → valueToInsert=right, valueToReplace=left, offset=0")
+  void classifyNewSideRight() {
+    final io.sirix.page.PageReference left = dummyChild(100L);
+    final io.sirix.page.PageReference right = dummyChild(101L);
+    final HOTTrieWriter.SplitProductRoles roles = HOTTrieWriter.classifySplitProducts(left, right, 1);
+    assertEquals(right, roles.valueToInsert());
+    assertEquals(left, roles.valueToReplace());
+    assertEquals(0, roles.entryOffset());
+  }
+
+  @Test
+  @DisplayName("classifySplitProducts: newSide=0 → valueToInsert=left, valueToReplace=right, offset=1")
+  void classifyNewSideLeft() {
+    final io.sirix.page.PageReference left = dummyChild(100L);
+    final io.sirix.page.PageReference right = dummyChild(101L);
+    final HOTTrieWriter.SplitProductRoles roles = HOTTrieWriter.classifySplitProducts(left, right, 0);
+    assertEquals(left, roles.valueToInsert());
+    assertEquals(right, roles.valueToReplace());
+    assertEquals(1, roles.entryOffset());
+  }
+
+  @Test
+  @DisplayName("classifySplitProducts: newSide=-1 (sentinel) → falls through to newSide=0 semantics")
+  void classifyNewSideSentinel() {
+    final io.sirix.page.PageReference left = dummyChild(100L);
+    final io.sirix.page.PageReference right = dummyChild(101L);
+    final HOTTrieWriter.SplitProductRoles roles = HOTTrieWriter.classifySplitProducts(left, right, -1);
+    assertEquals(left, roles.valueToInsert());
+    assertEquals(right, roles.valueToReplace());
+    assertEquals(1, roles.entryOffset());
+  }
 }
