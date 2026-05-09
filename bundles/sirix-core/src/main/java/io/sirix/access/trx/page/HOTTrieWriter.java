@@ -256,6 +256,51 @@ public final class HOTTrieWriter {
            .append(" excess=0x").append(Integer.toHexString(stored & ~dense))
            .append(" firstKey=").append(bytesToHex(fk)).append('\n');
       }
+      // I5-strict at-build probe: walk c's swizzled subtree, find any interior key whose
+      // dense PEXT misses bits set in c.stored. Catches multi-entry-leaf β-mixing at
+      // CONSTRUCTION TIME (= the offending build site), not at end-of-test validator time.
+      if (stored != 0 && child.getPage() != null) {
+        final byte[][] failingKey = {null};
+        final int[] failingDense = {-1};
+        staticWalkLeavesUntilFalse(child, leaf -> {
+          final int ec = leaf.getEntryCount();
+          for (int kk = 0; kk < ec; kk++) {
+            final byte[] keyK = leaf.getKey(kk);
+            if (keyK == null || keyK.length == 0) continue;
+            final int denseK;
+            if (isSingleMask) {
+              denseK = computePartialKeySingleMask(keyK, initialBytePos, bitMask);
+            } else if (extPos != null && extMasks != null) {
+              denseK = computePartialKeyMultiMaskDirect(keyK, extPos, extMasks, extPos.length);
+            } else {
+              continue;
+            }
+            if ((stored & ~denseK) != 0) {
+              failingKey[0] = keyK;
+              failingDense[0] = denseK;
+              return false;
+            }
+          }
+          return true;
+        });
+        if (failingKey[0] != null) {
+          if (log == null) {
+            log = new StringBuilder(512);
+            log.append("[hot.sparsepath] I5-LEAF-CONSTANCY-AT-BUILD pageKey=")
+               .append(built.getPageKey())
+               .append(" label=").append(label)
+               .append(" layout=").append(built.getLayoutType())
+               .append(" mask=0x").append(Long.toHexString(bitMask))
+               .append(" initialBytePos=").append(initialBytePos)
+               .append(" numChildren=").append(n).append('\n');
+          }
+          log.append("  [child ").append(i).append("] stored=0x").append(Integer.toHexString(stored))
+             .append(" subtreeKey.dense=0x").append(Integer.toHexString(failingDense[0]))
+             .append(" excess=0x").append(Integer.toHexString(stored & ~failingDense[0]))
+             .append(" firstKey=").append(bytesToHex(fk))
+             .append(" failingKey=").append(bytesToHex(failingKey[0])).append('\n');
+        }
+      }
     }
     if (log != null) {
       final StackTraceElement[] st = Thread.currentThread().getStackTrace();
@@ -289,6 +334,97 @@ public final class HOTTrieWriter {
       return c != null ? staticGetFirstKeyFromChild(c) : null;
     }
     return null;
+  }
+
+  /**
+   * Phase 4b-vb sparse-path-strict: compute the AND of dense PEXT over every key
+   * in {@code c}'s subtree under SingleMask {@code newMask}. The result is the
+   * "weakest" stored partial that still subset-matches every key in c's subtree,
+   * guaranteeing the I5-strict invariant (sparse ⊆ dense_K for every K in subtree)
+   * holds for inherited children regardless of multi-entry-leaf β-mixing in their
+   * subtrees.
+   *
+   * <p>HFT note: walks the entire subtree once. Cost O(N_subtree × bit-extract).
+   */
+  private int computeSubtreeIntersectionDenseSingleMask(PageReference c,
+      int initialBytePos, long newMask) {
+    final int[] result = {-1}; // -1 = uninitialized
+    walkLeavesUntilFalseInstance(c, leaf -> {
+      final int ec = leaf.getEntryCount();
+      for (int k = 0; k < ec; k++) {
+        final byte[] key = leaf.getKey(k);
+        if (key == null || key.length == 0) continue;
+        final int dense = computePartialKeySingleMask(key, initialBytePos, newMask);
+        result[0] = result[0] == -1 ? dense : (result[0] & dense);
+        if (result[0] == 0) return false; // can't get smaller; early exit
+      }
+      return true;
+    });
+    return result[0] == -1 ? 0 : result[0];
+  }
+
+  /**
+   * Phase 4b-vb sparse-path-strict (MultiMask): same as
+   * {@link #computeSubtreeIntersectionDenseSingleMask} but for MultiMask layouts.
+   */
+  private int computeSubtreeIntersectionDenseMultiMask(PageReference c,
+      byte[] extPos, long[] extMasks, int numExtractionBytes) {
+    final int[] result = {-1};
+    walkLeavesUntilFalseInstance(c, leaf -> {
+      final int ec = leaf.getEntryCount();
+      for (int k = 0; k < ec; k++) {
+        final byte[] key = leaf.getKey(k);
+        if (key == null || key.length == 0) continue;
+        final int dense = computePartialKeyMultiMaskDirect(key, extPos, extMasks, numExtractionBytes);
+        result[0] = result[0] == -1 ? dense : (result[0] & dense);
+        if (result[0] == 0) return false;
+      }
+      return true;
+    });
+    return result[0] == -1 ? 0 : result[0];
+  }
+
+  /** Instance-method walk: uses {@code activeReader} to load any non-swizzled child pages. */
+  private void walkLeavesUntilFalseInstance(PageReference ref,
+      java.util.function.Predicate<HOTLeafPage> visitor) {
+    if (ref == null) return;
+    Page page = ref.getPage();
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, ref);
+      if (page != null) ref.setPage(page);
+    }
+    if (page instanceof HOTLeafPage leaf) {
+      visitor.test(leaf);
+      return;
+    }
+    if (page instanceof HOTIndirectPage indirect) {
+      final int n = indirect.getNumChildren();
+      for (int i = 0; i < n; i++) {
+        final PageReference childRef = indirect.getChildReference(i);
+        if (childRef == null) continue;
+        walkLeavesUntilFalseInstance(childRef, visitor);
+      }
+    }
+  }
+
+  /** Walk every leaf reachable from {@code ref} via swizzled pages only. Stops early when
+   * {@code visitor} returns {@code false}. Used by I5-strict at-build probe. */
+  private static void staticWalkLeavesUntilFalse(PageReference ref,
+      java.util.function.Predicate<HOTLeafPage> visitor) {
+    if (ref == null) return;
+    final Page page = ref.getPage();
+    if (page instanceof HOTLeafPage leaf) {
+      visitor.test(leaf);
+      return;
+    }
+    if (page instanceof HOTIndirectPage indirect) {
+      final int n = indirect.getNumChildren();
+      for (int i = 0; i < n; i++) {
+        final PageReference childRef = indirect.getChildReference(i);
+        if (childRef == null) continue;
+        staticWalkLeavesUntilFalse(childRef, visitor);
+      }
+    }
   }
 
   /**
@@ -1284,19 +1420,12 @@ public final class HOTTrieWriter {
       siblingBitValues[i] = v;
     }
 
-    // 4. Build the expanded children + partial-keys arrays. With constancy verified above,
-    //    each sibling's value at the new disc bit is determined; we set its partial bit at
-    //    the new output position to that value. Equivalent to dense-PEXT-of-first-key under
-    //    the constancy invariant — first key's bit value matches every other key's bit
-    //    value in the subtree.
+    // 4. Build the expanded children + partial-keys arrays.
     final int newNumChildren = numChildren + 1;
     final PageReference[] newChildren = new PageReference[newNumChildren];
     final int[] newPartialKeys = new int[newNumChildren];
     final int[] oldPartialKeys = parent.getPartialKeys();
 
-    // leftChild has the new disc bit = 0, rightChild has it = 1 — by construction of the
-    // leaf split that produced them. The split products inherit the original split-child's
-    // path (under the old mask) and extend it with the new bit value on each side.
     final int splitChildOldPartial = oldPartialKeys[splitChildIndex];
     final int splitChildRepositioned =
         (int) Long.expand(Integer.toUnsignedLong(splitChildOldPartial), oldPartialMaskInNewLayout);
@@ -1312,8 +1441,6 @@ public final class HOTTrieWriter {
         j++;
       } else {
         newChildren[j] = parent.getChildReference(i);
-        // Reposition the existing partial into the new layout, then OR in the sibling's
-        // verified-constant value at the new disc bit's output position.
         final int repositioned = (int) Long.expand(
             Integer.toUnsignedLong(oldPartialKeys[i]), oldPartialMaskInNewLayout);
         newPartialKeys[j] = repositioned | (siblingBitValues[i] << newBitOutputPos);
