@@ -3985,6 +3985,17 @@ public final class HOTTrieWriter {
     // MSB-based partitioning above map children by key/value, not by
     // partial-key index, so we compute the per-half partial sets by
     // ordering children by their original index.
+    //
+    // NOTE (Phase 4b-vb.3 attempt 2026-05-09, reverted): including
+    // originalChildIndex in parentIndices to capture bits distinguishing
+    // splitChild's projection from siblings' (matching C++'s
+    // getRelevantBitsForRange that operates on a contiguous range INCLUDING
+    // splitChild) produced incorrect stored partials in the resulting indirect
+    // (I-Binna-sparse-path violations: stored partials had bits not present in
+    // dense PEXT under the new mask). The interaction between the extended
+    // relevant set, newMask construction, and the inherited-child encoding via
+    // compress→expand has additional subtleties beyond the lemma. Fix deferred
+    // to a deeper analysis session.
     final int[] leftIndices = new int[smallerCount];
     final int[] rightIndices = new int[largerCount];
     int li = 0, ri = 0;
@@ -4405,8 +4416,13 @@ public final class HOTTrieWriter {
     // under sparse-path encoding is partial-key.
     sortChildrenAndPartialsByPartial(sortedChildren, newPartials);
 
-    // Assemble node.
-    if (sortedChildren.length == 2) {
+    // Assemble node. For 2 children we can use a BiNode IFF newMask has exactly one
+    // bit (the BiNode's single disc-bit suffices). Otherwise the 2-child case still
+    // needs the full multi-bit mask via SpanNode — using a BiNode here with db
+    // computed from boundary keys is unsound on multi-entry-leaf trees because
+    // child[0]'s subtree may span both values of bit `db` (the boundary keys
+    // disambiguate but interior keys may not).
+    if (sortedChildren.length == 2 && Long.bitCount(newMask) == 1) {
       final int db = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(
           getLastKeyFromChild(sortedChildren[0]), getFirstKeyFromChild(sortedChildren[1])));
       return createBiNodeTraced("buildCompressedHalf-2096", newPageKey, revision, db,
@@ -4614,8 +4630,11 @@ public final class HOTTrieWriter {
     // Step 7: HOT I7 — sort by partial-key under sparse-path encoding.
     sortChildrenAndPartialsByPartial(sortedChildren, newPartials);
 
-    // Step 8: assemble. BiNode for length 2; SpanNode-MM for ≤16; MultiNode-MM for >16.
-    if (sortedChildren.length == 2) {
+    // Step 8: assemble. For 2 children, BiNode is sound only when finalTotalBits == 1;
+    // otherwise the BiNode's single disc-bit can't capture the multi-bit disambiguation
+    // (and computing db from boundary keys is unsound on multi-entry-leaf trees because
+    // child[0]'s subtree may span both values). For multi-bit cases use SpanNode-MM.
+    if (sortedChildren.length == 2 && finalTotalBits == 1) {
       final int db = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(
           getLastKeyFromChild(sortedChildren[0]), getFirstKeyFromChild(sortedChildren[1])));
       return createBiNodeTraced("buildCompressedHalfMultiMask-binode", newPageKey, revision, db,
