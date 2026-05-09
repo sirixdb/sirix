@@ -427,6 +427,40 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetG1G3Counters();
         io.sirix.access.trx.page.HOTTrieWriter.resetOptionBRerouteFirings();
 
+        // i8-trace POST_CREATE_HOOK to locate the violating construction.
+        final int[] i8LogCount = {0};
+        io.sirix.page.HOTIndirectPage.POST_CREATE_HOOK = page -> {
+          if (i8LogCount[0] >= 3) return;
+          final int nc = page.getNumChildren();
+          if (nc < 2) return;
+          byte[] prevFK = null;
+          int violatingSlot = -1;
+          for (int i = 0; i < nc; i++) {
+            final io.sirix.page.PageReference ref = page.getChildReference(i);
+            if (ref == null) continue;
+            final byte[] fk = stageGFirstKeyOfRef(ref);
+            if (fk == null) continue;
+            if (prevFK != null && java.util.Arrays.compareUnsigned(prevFK, fk) >= 0) {
+              violatingSlot = i;
+              break;
+            }
+            prevFK = fk;
+          }
+          if (violatingSlot < 0) return;
+          i8LogCount[0]++;
+          final StringBuilder sb = new StringBuilder(2048);
+          sb.append("[i8-trace G.14] page=").append(page.getPageKey())
+              .append(" layout=").append(page.getLayoutType())
+              .append(" nc=").append(nc).append(" violatingSlot=").append(violatingSlot).append('\n');
+          for (final StackTraceElement ste : Thread.currentThread().getStackTrace()) {
+            final String s = ste.toString();
+            if (s.startsWith("java.") || s.startsWith("jdk.")) continue;
+            sb.append("  at ").append(s).append('\n');
+            if (sb.length() > 1500) break;
+          }
+          System.out.println(sb);
+        };
+
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
         // zero partial is built. Helps Stage G locate the offending happy-path operation.
@@ -630,6 +664,24 @@ final class HOTFormalVerificationTest {
   private static void restoreOrClear(String key, String prevValue) {
     if (prevValue == null) System.clearProperty(key);
     else System.setProperty(key, prevValue);
+  }
+
+  /** Walk leftmost path of a ref to extract firstKey. */
+  private static byte[] stageGFirstKeyOfRef(io.sirix.page.PageReference ref) {
+    io.sirix.page.PageReference cur = ref;
+    for (int depth = 0; depth <= 32; depth++) {
+      final io.sirix.page.interfaces.Page page = cur.getPage();
+      if (page == null) return null;
+      if (page instanceof io.sirix.page.HOTLeafPage leaf) {
+        if (leaf.getEntryCount() == 0) return null;
+        return leaf.getKey(0);
+      }
+      if (!(page instanceof io.sirix.page.HOTIndirectPage indirect)) return null;
+      if (indirect.getNumChildren() == 0) return null;
+      cur = indirect.getChildReference(0);
+      if (cur == null) return null;
+    }
+    return null;
   }
 
   /**

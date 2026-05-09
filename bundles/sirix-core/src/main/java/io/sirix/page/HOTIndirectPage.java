@@ -982,7 +982,7 @@ public final class HOTIndirectPage implements Page {
     // Update the specified child reference
     copy.childReferences[childIndex] = newChildRef;
 
-    return copy;
+    return runPostCreateHook(copy);
   }
 
   /**

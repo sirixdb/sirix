@@ -764,22 +764,21 @@ public abstract class AbstractHOTIndexWriter<K> {
     // This is the architectural fix from HOT_FIX_DESIGN_V2.md §3.2 Option B. It avoids
     // the multi-entry-leaf β-mixing pathology by routing the offending key away from
     // the "would-make-it-mixed" leaf, into the existing β-correct subtree.
-    // Option B (Stage G.13) — DISABLED 2026-05-09. The reroute infrastructure
-    // (findAnyOffendingAncestorBit + tryReRouteOffendingKey) is in place at the
-    // HOTTrieWriter level for future integration. Two attempts of dispatch wiring
-    // both cascaded:
-    //
-    //   Attempt 1 (any β disagreement) — fired 36420×, cascade 1 → 37257 violations.
-    //   Attempt 2 (β-constant leaf only) — fired 23865×, cascade 1 → 28706 violations.
-    //
-    // Root cause of cascade: when a key reroutes to a sibling subtree via
-    // bulkInsertIntoSiblingSubtree, the destination subtree may have its OWN β-constancy
-    // claims that the moved key breaks. The bulk-insert doesn't run Option B recursively
-    // at the destination, so violations cascade into the new subtree.
-    //
-    // Required architectural fix (next session): integrate Option B's check at every
-    // descent level inside bulkInsertIntoSiblingSubtree. Effectively making the writer's
-    // routing constancy-aware all the way down.
+    // Option B (Stage G.13) — RE-ENABLED with diagnostic to trace cascade source.
+    if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
+      final byte[] keyBytes = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
+      final int offendingBeta = trieWriter.findAnyOffendingAncestorBit(
+          navResult.pathNodes(), navResult.pathDepth(), leaf, keyBytes);
+      if (offendingBeta >= 0) {
+        final byte[] valueBytes = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
+        final boolean rerouted = trieWriter.tryReRouteOffendingKey(
+            navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
+            navResult.pathDepth(), offendingBeta, keyBytes, valueBytes,
+            storageEngineWriter, storageEngineWriter.getLog());
+        prepareIndexPage();
+        if (rerouted) return;
+      }
+    }
 
     // Phase 2 (constancy-aware leaf split) — DISABLED 2026-05-09. Three attempts:
     //

@@ -3378,16 +3378,17 @@ public final class HOTTrieWriter {
       siblingBitValues[i] = v;
     }
 
-    // Build expanded children and partials. With constancy verified, each existing sibling
-    // contributes its constant bit value at the new disc bit's output position.
-    final int newBitOutputPos = multiMaskNewBitOutputPos(extractionPositions, extractionMasks,
-        allCount, newBytePos, newBitInByte);
-    final long oldPartialMaskInNewLayout = (((1L << (oldCount + 1)) - 1L) ^ (1L << newBitOutputPos));
-    final int[] oldPartialKeys = parent.getPartialKeys();
-    final int splitChildOldPartial = oldPartialKeys[splitChildIndex];
-    final int splitChildRepositioned =
-        (int) Long.expand(Integer.toUnsignedLong(splitChildOldPartial), oldPartialMaskInNewLayout);
-
+    // Stage G.14 fix — replace PDEP+OR repositioning with DIRECT PEXT from each child's
+    // firstKey under the new MultiMask layout. The old logic produced I8/I11-violating
+    // pages when the leftmost original sibling's β=1 (Stage E i8-trace at indirect 2:
+    // page 2 created by upgradeToMultiMaskWithNewBit:3423 with non-monotone slot order).
+    // Direct PEXT is structurally correct: each child's stored partial = PEXT(firstKey,
+    // newLayout). Routing for any key K with K.firstKey-bits at extraction positions
+    // routes to the correct slot as long as firstKeys are distinct.
+    //
+    // Trade-off: drops the bit-elision optimization that PDEP+OR provided (= sparse
+    // partial encoding for off-path bits). For Sirix's multi-entry-leaf workload this
+    // optimization wasn't sound anyway — the same pattern as G.6 in buildCompressedHalf.
     final int newNumChildren = numChildren + 1;
     final PageReference[] newChildren = new PageReference[newNumChildren];
     final int[] newPartials = new int[newNumChildren];
@@ -3395,16 +3396,20 @@ public final class HOTTrieWriter {
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) {
         newChildren[j] = leftChild;
-        newPartials[j] = splitChildRepositioned; // new bit = 0 (LEFT)
+        final byte[] leftKey = getFirstKeyFromChild(leftChild);
+        newPartials[j] = (leftKey == null || leftKey.length == 0) ? 0
+            : computePartialKeyMultiMaskDirect(leftKey, extractionPositions, extractionMasks, allCount);
         j++;
         newChildren[j] = rightChild;
-        newPartials[j] = splitChildRepositioned | (1 << newBitOutputPos); // new bit = 1 (RIGHT)
+        final byte[] rightKey = getFirstKeyFromChild(rightChild);
+        newPartials[j] = (rightKey == null || rightKey.length == 0) ? 0
+            : computePartialKeyMultiMaskDirect(rightKey, extractionPositions, extractionMasks, allCount);
         j++;
       } else {
         newChildren[j] = parent.getChildReference(i);
-        final int repositioned = (int) Long.expand(
-            Integer.toUnsignedLong(oldPartialKeys[i]), oldPartialMaskInNewLayout);
-        newPartials[j] = repositioned | (siblingBitValues[i] << newBitOutputPos);
+        final byte[] cKey = getFirstKeyFromChild(newChildren[j]);
+        newPartials[j] = (cKey == null || cKey.length == 0) ? 0
+            : computePartialKeyMultiMaskDirect(cKey, extractionPositions, extractionMasks, allCount);
         j++;
       }
     }
