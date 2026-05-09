@@ -126,6 +126,23 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
+   * Diagnostic post-creation hook (Phase 4b-vb.3 deep dive). When non-null, every
+   * {@code createSpanNode/createMultiNode/createSpanNodeMultiMask/createMultiNodeMultiMask/
+   * createBiNode} invocation calls this consumer with the just-built page. The hook is
+   * an instrumentation seam for {@code HOTTrieWriter} — it does NOT participate in
+   * normal page lifecycle and must not retain references.
+   *
+   * <p>Set to non-null only in test/debug contexts; clear in production.
+   */
+  public static volatile java.util.function.Consumer<HOTIndirectPage> POST_CREATE_HOOK;
+
+  private static HOTIndirectPage runPostCreateHook(HOTIndirectPage page) {
+    final java.util.function.Consumer<HOTIndirectPage> hook = POST_CREATE_HOOK;
+    if (hook != null) hook.accept(page);
+    return page;
+  }
+
+  /**
    * Compute the most significant discriminative bit index from a {@code bitMask} and
    * {@code initialBytePos}. The MSB is the bit closest to the start of the key (smallest absolute
    * MSB-first bit position).
@@ -308,7 +325,7 @@ public final class HOTIndirectPage implements Page {
     page.sparsePartialKeys = createSparsePartialKeys(page.partialKeys, 2, 1);
     page.childReferences[0] = leftChild;
     page.childReferences[1] = rightChild;
-    return page;
+    return runPostCreateHook(page);
   }
 
   /**
@@ -340,7 +357,7 @@ public final class HOTIndirectPage implements Page {
     page.partialKeys = partialKeys.clone();
     page.sparsePartialKeys = createSparsePartialKeys(partialKeys, children.length, determinePartialKeyWidth(bitMask));
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return page;
+    return runPostCreateHook(page);
   }
 
   /**
@@ -365,7 +382,7 @@ public final class HOTIndirectPage implements Page {
     page.mostSignificantBitIndex = (short) (discriminativeByte * 8);
     page.childIndex = childIndex.clone();
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return page;
+    return runPostCreateHook(page);
   }
 
   /**
@@ -993,7 +1010,7 @@ public final class HOTIndirectPage implements Page {
     page.partialKeys = partialKeys.clone();
     page.sparsePartialKeys = createSparsePartialKeys(partialKeys, children.length, determinePartialKeyWidth(bitMask));
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return page;
+    return runPostCreateHook(page);
   }
 
   /**
@@ -1021,7 +1038,7 @@ public final class HOTIndirectPage implements Page {
     page.partialKeys = partialKeys.clone();
     page.sparsePartialKeys = createSparsePartialKeys(partialKeys, children.length, determinePartialKeyWidth(bitMask));
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return page;
+    return runPostCreateHook(page);
   }
 
   // ===== MultiMask factory methods (C++ reference: MultiMaskPartialKeyMapping) =====
@@ -1060,7 +1077,7 @@ public final class HOTIndirectPage implements Page {
     page.sparsePartialKeys = createSparsePartialKeys(partialKeys, children.length,
         determinePartialKeyWidthFromBitCount(totalDiscBits));
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return page;
+    return runPostCreateHook(page);
   }
 
   /**
@@ -1097,7 +1114,7 @@ public final class HOTIndirectPage implements Page {
     page.sparsePartialKeys = createSparsePartialKeys(partialKeys, children.length,
         determinePartialKeyWidthFromBitCount(totalDiscBits));
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return page;
+    return runPostCreateHook(page);
   }
 
   // ===== Page interface implementation =====

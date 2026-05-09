@@ -412,6 +412,8 @@ final class HOTFormalVerificationTest {
     System.setProperty("hot.strict.binna", "true");
     System.setProperty("hot.debug.phase4", "true");
     System.setProperty("hot.debug.bchfallback", "true");
+    System.setProperty("hot.debug.bch.encoding", "true");
+    System.setProperty("hot.debug.sparsepath", "true");
     try {
       final int[] probeN = {50_000};
       for (final int n : probeN) {
@@ -421,6 +423,7 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase4SubtreeMergeFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetAddEntryFreshPolarityFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetBuildCompressedHalfFallbackCounters();
+        io.sirix.access.trx.page.HOTTrieWriter.resetBchEncodingDiagnostics();
         JsonTestHelper.deleteEverything();
         JsonTestHelper.createTestDocument();
         final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -489,6 +492,10 @@ final class HOTFormalVerificationTest {
               + " new-mask-zero=" + bchNewMaskZero
               + " unknown-child=" + bchUnknown
               + " partial-collision=" + bchCollision);
+          System.out.println("[microbench-pattern]   bch-encoding: singlemask-entries="
+              + io.sirix.access.trx.page.HOTTrieWriter.getBchSingleMaskEntries()
+              + " encoding-mismatches="
+              + io.sirix.access.trx.page.HOTTrieWriter.getBchEncodingMismatches());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
@@ -516,6 +523,7 @@ final class HOTFormalVerificationTest {
       restoreOrClear("hot.strict.binna", prevStrictBinna);
       restoreOrClear("hot.debug.phase4", prevPhase4Debug);
       restoreOrClear("hot.debug.bchfallback", prevBchFallback);
+      System.clearProperty("hot.debug.bch.encoding");
     }
   }
 

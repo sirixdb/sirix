@@ -243,5 +243,52 @@ The user's question was "find out what's wrong" — answered: Sirix's two-produc
 
 - `BCH_FALLBACK_*` per-fallback counters (committed `fdaba3c67`)
 - Phase 4b.0 helpers + round-trip test (committed `378e976ee`)
-- Phase 4b.2 MultiMask-parent structural port (committed in this commit) — handles all healthy cases; bothSplitHere with multi-entry-leaf pathology still falls back via `BCH_FALLBACK_PARTIAL_COLLISION`
+- Phase 4b.2 MultiMask-parent structural port (`a4646a714`) — handles all healthy cases; bothSplitHere with multi-entry-leaf pathology still falls back via `BCH_FALLBACK_PARTIAL_COLLISION`
 - This diagnosis update with the virtual-BiNode insight
+
+## Deep-dive session 2026-05-09 PM (continued)
+
+After the user said "no time/token budget — fix it", a second session went deeper:
+
+**Phase 4b-vb.3 attempt 1**: include `originalChildIndex` in `parentIndices` to capture bits distinguishing splitChild's projection from inherited siblings (matching C++'s `getRelevantBitsForRange` semantics). Result: produced 9000+ I-Binna-sparse-path violations on the reproducer + I8 gate tightened. Reverted.
+
+**Phase 4b-vb.3 attempt 2**: remove the `repositioned | (siblingBitValues[i] << newBitOutputPos)` OR in `addEntryWithPDep` (use sparse-path encoding consistent with `buildCompressedHalf`, drop the constancy gate). Result: same 9231 violations (the issue isn't the OR for inherited siblings — it's `rightChild` from leaf-split whose stored partial gets β=1 set correctly at construction-time but later inserts break β-constancy). Reverted.
+
+**Phase 2 attempt**: eager constancy-aware leaf split. Added `findOffendingAncestorBit` helper + `handleLeafSplitAndInsert(explicitSplitBit)` overload. At every `doIndex`, if K's β value differs from leaf's existing first-key's β value at any ancestor disc bit, force a leaf-split-on-β BEFORE merge. **Result: violations exploded 1 → 635, height 6 → 12, intermediate-binode-fallbacks 48 → 1994.** The design doc §6 Variant A warned exactly this would happen — non-MSDB splits break contiguous-partition invariants. Reverted.
+
+### Definitive diagnosis (after deep dive)
+
+The I-Binna-sparse-path violation has a 4-step causal chain:
+1. `addEntryWithPDep` adds a new disc bit β to parent's mask. `bitConstantValueInSubtree(c, β)` returns 1 (= c's subtree is β=1-constant *at construction time*).
+2. `addEntryWithPDep` ORs `siblingBitValues[c] << newBitOutputPos` into c's stored partial → c.stored.β = 1.
+3. **Subsequent inserts into c's subtree silently break β-constancy.** A smaller key with β=0 gets routed to c (subset-match: any β-value matches stored.β=0... wait stored.β=1 here, hmm — actually inserts can break it because the leaf-split's products of c get OWN inserts that cascade).
+4. At validator time: c.firstKey now has β=0 (= the smallest β=0 key in c's subtree), but parent.stored[c] = 0x...|1<<newBitOutputPos still has β=1 → `(stored & ~dense) != 0` violation.
+
+**Root cause**: Sirix's multi-entry leaves can hold β-mixed keys after subsequent inserts even though they were β-constant at the time some ancestor added β to its mask. C++ avoids this because Binna's leaves are single-key (= trivially β-constant). Sirix's HOT cannot fix this at the indirect-construction level (Phase 4) — it requires leaf-level invariant maintenance.
+
+The original design doc §3 (a) "Eager" approach correctly identifies the fix: split a leaf on β BEFORE inserting a key that would break β-constancy. But the implementation requires:
+- Phase 1: per-leaf ancestor-bit tracking, OR on-demand walk of descend path.
+- Phase 2 with **contiguous-partition preservation**: split-on-β only when the leaf's keys are sorted such that β cleanly partitions them. Non-contiguous β-splits violate HOT I8 (children sorted by firstKey).
+
+The naive Phase 2 attempt (split-on-β regardless of contiguity) demonstrated the warning was correct: 1 → 635 violation explosion.
+
+### Diagnostic instrumentation landed (this session)
+
+- `HOTIndirectPage.POST_CREATE_HOOK` — global hook called after every indirect creation. Default: null (no overhead). HOTTrieWriter installs it on class load to dispatch to `probeSparsePathStatic`.
+- `probeSparsePathStatic(built, label)` — runs sparse-path NECESSARY check `(stored & ~dense) == 0` on every child. Logs to `/tmp/sirix-sparse-path-violations.log` with stack trace. Gated on `-Dhot.debug.sparsepath=true`.
+- `staticGetFirstKeyFromChild(ref)` — null-safe first-key access from already-attached pages.
+- `BCH_SINGLEMASK_ENTRIES` + `BCH_ENCODING_MISMATCHES` counters + accessors.
+- `findOffendingAncestorBit(pathNodes, pathDepth, leaf, key)` — Phase 2 helper, currently unused but kept for future Phase 1+2 integration.
+- `handleLeafSplitAndInsert(explicitSplitBit)` overload — Phase 2 plumbing, currently unused.
+- Reproducer test prints `bch-encoding: singlemask-entries=N encoding-mismatches=M` per run.
+
+### Path forward (next session, or future sessions)
+
+The actual fix is multi-week:
+1. **Phase 1**: per-leaf ancestor-bit tracking. Either:
+   - On-demand: `collectAncestorDiscBits(pathNodes, pathDepth)` (already exists). Compute at every leaf-overflow + every insert.
+   - Persisted: `long[] ancestorDiscBits` on `HOTLeafPage`, maintained on insert + parent restructuring.
+2. **Phase 2 (proper)**: at insert/leaf-overflow time, if K's β at any ancestor differs AND splitting on β yields contiguous halves, split on β. Otherwise fall back to MSDB. The contiguous-halves check requires the leaf's keys to be sorted on β (= β is a *prefix bit* of the leaf's natural sort order). Likely requires choosing the *most significant* ancestor disc bit that's both non-constant AND contiguous.
+3. **Phase 3**: lazy retroactive rebalance — when an ancestor adds β to mask, mark all descendant leaves as β-non-constant. On next read/insert touching such a leaf, fix it.
+
+These three together restore the leaf-level β-constancy invariant that HOT's PEXT routing assumes.

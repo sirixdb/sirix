@@ -186,6 +186,193 @@ public final class HOTTrieWriter {
     BCH_FALLBACK_PARTIAL_COLLISION.set(0L);
   }
 
+  /** Diagnostic counter: how many times buildCompressedHalf SingleMask path was entered. */
+  static final java.util.concurrent.atomic.AtomicLong BCH_SINGLEMASK_ENTRIES =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Diagnostic counter: encoding mismatches detected (repositioned != directDense). */
+  static final java.util.concurrent.atomic.AtomicLong BCH_ENCODING_MISMATCHES =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getBchSingleMaskEntries() { return BCH_SINGLEMASK_ENTRIES.get(); }
+  public static long getBchEncodingMismatches() { return BCH_ENCODING_MISMATCHES.get(); }
+  public static void resetBchEncodingDiagnostics() {
+    BCH_SINGLEMASK_ENTRIES.set(0L);
+    BCH_ENCODING_MISMATCHES.set(0L);
+  }
+
+  static {
+    // Phase 4b-vb.3 deep-dive: install a global post-creation hook on HOTIndirectPage
+    // that runs the sparse-path probe. The hook checks the {@code hot.debug.sparsepath}
+    // system property at every invocation — gated at runtime so production has zero
+    // overhead AND tests that set the property after class load still get the probe.
+    HOTIndirectPage.POST_CREATE_HOOK = page -> {
+      if (Boolean.getBoolean("hot.debug.sparsepath")) {
+        probeSparsePathStatic(page, "post-create-hook");
+      }
+    };
+  }
+
+  /**
+   * Static variant of probeSparsePathOnBuild — for use from the global
+   * {@link HOTIndirectPage#POST_CREATE_HOOK}. Cannot use {@code activeReader} so it only
+   * checks children whose first key can be obtained without a load (page-attached refs).
+   */
+  private static void probeSparsePathStatic(HOTIndirectPage built, String label) {
+    final int[] partials = built.getPartialKeys();
+    if (partials == null) return;
+    final int n = built.getNumChildren();
+    final boolean isSingleMask = built.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK;
+    final int initialBytePos = built.getInitialBytePos();
+    final long bitMask = built.getBitMask();
+    final byte[] extPos = built.getExtractionPositions();
+    final long[] extMasks = built.getExtractionMasks();
+
+    StringBuilder log = null;
+    for (int i = 0; i < n; i++) {
+      final PageReference child = built.getChildReference(i);
+      if (child == null) continue;
+      final byte[] fk = staticGetFirstKeyFromChild(child);
+      if (fk == null || fk.length == 0) continue;
+      final int dense;
+      if (isSingleMask) {
+        dense = computePartialKeySingleMask(fk, initialBytePos, bitMask);
+      } else if (extPos != null && extMasks != null) {
+        dense = computePartialKeyMultiMaskDirect(fk, extPos, extMasks, extPos.length);
+      } else {
+        continue;
+      }
+      final int stored = partials[i];
+      if ((stored & ~dense) != 0) {
+        if (log == null) {
+          log = new StringBuilder(512);
+          log.append("[hot.sparsepath] BUILD-VIOLATION pageKey=").append(built.getPageKey())
+             .append(" label=").append(label)
+             .append(" layout=").append(built.getLayoutType())
+             .append(" mask=0x").append(Long.toHexString(bitMask))
+             .append(" initialBytePos=").append(initialBytePos)
+             .append(" numChildren=").append(n).append('\n');
+        }
+        log.append("  [child ").append(i).append("] stored=0x").append(Integer.toHexString(stored))
+           .append(" dense=0x").append(Integer.toHexString(dense))
+           .append(" excess=0x").append(Integer.toHexString(stored & ~dense))
+           .append(" firstKey=").append(bytesToHex(fk)).append('\n');
+      }
+    }
+    if (log != null) {
+      final StackTraceElement[] st = Thread.currentThread().getStackTrace();
+      for (int i = 1; i < Math.min(st.length, 18); i++) {
+        log.append("  at ").append(st[i].getClassName()).append('.').append(st[i].getMethodName())
+           .append('(').append(st[i].getFileName()).append(':').append(st[i].getLineNumber())
+           .append(")\n");
+      }
+      log.append('\n');
+      try {
+        java.nio.file.Files.writeString(
+            java.nio.file.Paths.get("/tmp/sirix-sparse-path-violations.log"),
+            log.toString(),
+            java.nio.file.StandardOpenOption.CREATE,
+            java.nio.file.StandardOpenOption.APPEND);
+      } catch (java.io.IOException ignore) { /* best-effort */ }
+    }
+  }
+
+  /**
+   * Static fallback for getFirstKeyFromChild — only consults the page already attached
+   * to the reference. Returns null if not loadable without an activeReader. Sufficient
+   * for the post-create probe because at construction time, freshly-built children
+   * always have their pages attached via setPage.
+   */
+  private static byte[] staticGetFirstKeyFromChild(PageReference ref) {
+    final Page page = ref.getPage();
+    if (page instanceof HOTLeafPage leaf) return leaf.getFirstKey();
+    if (page instanceof HOTIndirectPage indirect) {
+      final PageReference c = indirect.getChildReference(0);
+      return c != null ? staticGetFirstKeyFromChild(c) : null;
+    }
+    return null;
+  }
+
+  /**
+   * Diagnostic probe (Phase 4b-vb.3 deep dive): for an indirect just constructed in the
+   * writer, verify the sparse-path NECESSARY condition holds for every child:
+   * {@code (stored & ~dense) == 0}. If a child's stored partial has bits not in its
+   * dense PEXT under the indirect's mask, log the violation + a trimmed stack trace
+   * so the offending construction code path is identifiable.
+   *
+   * <p>Gated on {@code -Dhot.debug.sparsepath=true}. Logs to
+   * {@code /tmp/sirix-sparse-path-violations.log}.
+   *
+   * <p>Call this after EVERY indirect-creation site in the writer. The probe is heavy
+   * (loads child first keys), so do not enable in production.
+   */
+  private void probeSparsePathOnBuild(HOTIndirectPage built, String label) {
+    if (!Boolean.getBoolean("hot.debug.sparsepath")) return;
+    final int[] partials = built.getPartialKeys();
+    if (partials == null) return;
+    final int n = built.getNumChildren();
+    final boolean isSingleMask = built.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK;
+    final int initialBytePos = built.getInitialBytePos();
+    final long bitMask = built.getBitMask();
+    final byte[] extPos = built.getExtractionPositions();
+    final long[] extMasks = built.getExtractionMasks();
+
+    StringBuilder log = null;
+    for (int i = 0; i < n; i++) {
+      final PageReference child = built.getChildReference(i);
+      if (child == null) continue;
+      final byte[] fk = getFirstKeyFromChild(child);
+      if (fk == null || fk.length == 0) continue;
+      final int dense;
+      if (isSingleMask) {
+        dense = computePartialKeySingleMask(fk, initialBytePos, bitMask);
+      } else if (extPos != null && extMasks != null) {
+        dense = computePartialKeyMultiMaskDirect(fk, extPos, extMasks, extPos.length);
+      } else {
+        continue;
+      }
+      final int stored = partials[i];
+      if ((stored & ~dense) != 0) {
+        if (log == null) {
+          log = new StringBuilder(512);
+          log.append("[hot.sparsepath] BUILD-VIOLATION pageKey=").append(built.getPageKey())
+             .append(" label=").append(label)
+             .append(" layout=").append(built.getLayoutType())
+             .append(" mask=0x").append(Long.toHexString(bitMask))
+             .append(" initialBytePos=").append(initialBytePos)
+             .append(" numChildren=").append(n).append('\n');
+        }
+        log.append("  [child ").append(i).append("] stored=0x").append(Integer.toHexString(stored))
+           .append(" dense=0x").append(Integer.toHexString(dense))
+           .append(" excess=0x").append(Integer.toHexString(stored & ~dense))
+           .append(" firstKey=").append(bytesToHex(fk)).append('\n');
+      }
+    }
+    if (log != null) {
+      final StackTraceElement[] st = Thread.currentThread().getStackTrace();
+      for (int i = 1; i < Math.min(st.length, 12); i++) {
+        log.append("  at ").append(st[i].getClassName()).append('.').append(st[i].getMethodName())
+           .append('(').append(st[i].getFileName()).append(':').append(st[i].getLineNumber())
+           .append(")\n");
+      }
+      try {
+        java.nio.file.Files.writeString(
+            java.nio.file.Paths.get("/tmp/sirix-sparse-path-violations.log"),
+            log.toString(),
+            java.nio.file.StandardOpenOption.CREATE,
+            java.nio.file.StandardOpenOption.APPEND);
+      } catch (java.io.IOException ignore) { /* best-effort */ }
+    }
+  }
+
+  /** Diagnostic-only helper: format a byte array as a hex string. */
+  private static String bytesToHex(byte[] b) {
+    if (b == null) return "null";
+    final StringBuilder sb = new StringBuilder(b.length * 2);
+    for (final byte v : b) {
+      sb.append(String.format("%02x", v & 0xFF));
+    }
+    return sb.toString();
+  }
+
   // ===== Phase 4 β-already-in-mask subtree-merge counter =====
   // Counts how many times the Phase 4 subtree merge fires under -Dhot.strict.binna=true
   // (i.e., addEntryWithPDep / addEntryMultiMask rejected because the new disc bit β is
@@ -634,6 +821,22 @@ public final class HOTTrieWriter {
       TransactionIntentLog log, HOTLeafPage fullPage, PageReference leafRef,
       PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
       int[] pathChildIndices, int pathDepth, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen) {
+    return handleLeafSplitAndInsert(storageEngineReader, log, fullPage, leafRef, rootReference,
+        pathNodes, pathRefs, pathChildIndices, pathDepth, keyBuf, keyLen, valueBuf, valueLen,
+        /*explicitSplitBit=*/ -1);
+  }
+
+  /**
+   * Phase 2 variant: split the leaf on an explicit ancestor disc bit β rather than the
+   * leaf's local MSDB. Used to maintain ancestor β-constancy when inserting a key would
+   * otherwise span both β values within a single leaf. {@code explicitSplitBit < 0}
+   * falls back to MSDB-based split (= original behavior).
+   */
+  public boolean handleLeafSplitAndInsert(StorageEngineWriter storageEngineReader,
+      TransactionIntentLog log, HOTLeafPage fullPage, PageReference leafRef,
+      PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+      int[] pathChildIndices, int pathDepth, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen,
+      int explicitSplitBit) {
 
     Objects.requireNonNull(storageEngineReader);
     Objects.requireNonNull(log);
@@ -648,7 +851,8 @@ public final class HOTTrieWriter {
     this.activeLog = log;
     try {
       return handleLeafSplitAndInsertInternal(storageEngineReader, log, fullPage, leafRef,
-          rootReference, pathNodes, pathRefs, pathChildIndices, pathDepth, keyBuf, keyLen, valueBuf, valueLen);
+          rootReference, pathNodes, pathRefs, pathChildIndices, pathDepth, keyBuf, keyLen,
+          valueBuf, valueLen, explicitSplitBit);
     } finally {
       this.activeReader = null;
       this.activeLog = null;
@@ -658,7 +862,8 @@ public final class HOTTrieWriter {
   private boolean handleLeafSplitAndInsertInternal(StorageEngineWriter storageEngineReader,
       TransactionIntentLog log, HOTLeafPage fullPage, PageReference leafRef,
       PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
-      int[] pathChildIndices, int pathDepth, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen) {
+      int[] pathChildIndices, int pathDepth, byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen,
+      int explicitSplitBit) {
 
     // If page has < 1 entry, can't split
     if (fullPage.getEntryCount() < 1) {
@@ -674,42 +879,47 @@ public final class HOTTrieWriter {
     boolean rightPageOwnershipTransferred = false;
 
     try {
-      // MSDB-aware split+insert: splits entries by the most significant discriminative
-      // bit (including the new key), then inserts the new key into the correct half.
-      // This matches the C++ split(insertInformation, valueToInsert) approach.
-      //
-      // Phase 2 design analysis: the leaf's only contiguous-partition-friendly split
-      // bit is MSDB itself; non-MSDB split bits would yield non-contiguous partition
-      // which breaks the children-sorted-by-firstkey invariant. Sibling-aware
-      // selection of MSDB (= "is MSDB constant in non-split siblings?") doesn't
-      // change the split itself — it would only let us PREDICT whether the parent
-      // will accept the BiNode via addEntryWithPDep. Since the existing fallback
-      // chain (intermediate-BiNode in strict mode, rebuildParentAbsorbingSplit
-      // otherwise) handles parent rejection correctly, the prediction adds no value
-      // here. Real Phase 2 leverage requires Phase 3 (lazy retroactive sibling
-      // rebalance) — see docs/HOT_STRICT_BINNA_DESIGN.md §4.
-      // Capture which half got the just-inserted key (Phase 4b-vb.0). Required by
-      // updateParentForSplitWithPath / splitParentAndRecurse to compute valueToInsert
-      // vs valueToReplace per integrateBiNodeIntoTree's semantics. 0 = LEFT (key
-      // stayed in `fullPage`), 1 = RIGHT (key went to `rightPage`).
+      // Phase 2 (constancy-aware leaf split): when {@code explicitSplitBit >= 0} the
+      // caller has detected that adding {@code keyBuf} would break β-constancy at
+      // ancestor disc bit {@code explicitSplitBit}. Split on that bit instead of MSDB
+      // so the resulting halves are β-constant at every ancestor's β. Otherwise use
+      // the MSDB-aware split (original behavior).
       final int[] newSideOut = new int[]{-1};
-      if (!fullPage.splitToWithInsert(rightPage, keyBuf, keyLen, valueBuf, valueLen, newSideOut)) {
-        return false; // finally block closes rightPage
+      final int discriminativeBit;
+      if (explicitSplitBit >= 0) {
+        final int actualBit = fullPage.splitToWithInsertOnBit(
+            rightPage, keyBuf, keyLen, valueBuf, valueLen, explicitSplitBit);
+        if (actualBit < 0) {
+          // Degenerate (= partition is empty on one side, e.g., all keys + new key
+          // share β value at explicitSplitBit). Fall back to MSDB-based split.
+          if (!fullPage.splitToWithInsert(rightPage, keyBuf, keyLen, valueBuf, valueLen, newSideOut)) {
+            return false;
+          }
+          final byte[] lm0 = fullPage.getLastKey();
+          final byte[] rm0 = rightPage.getFirstKey();
+          if (lm0.length == 0 || rm0.length == 0) return false;
+          discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(lm0, rm0);
+          if (discriminativeBit < 0) return false;
+        } else {
+          // Successful split on explicitSplitBit. Derive newSide from key's β value.
+          newSideOut[0] = DiscriminativeBitComputer.isBitSet(keyBuf, actualBit) ? 1 : 0;
+          discriminativeBit = actualBit;
+        }
+      } else {
+        // MSDB-aware split+insert (original path).
+        if (!fullPage.splitToWithInsert(rightPage, keyBuf, keyLen, valueBuf, valueLen, newSideOut)) {
+          return false;
+        }
+        final byte[] lm = fullPage.getLastKey();
+        final byte[] rm = rightPage.getFirstKey();
+        if (lm.length == 0 || rm.length == 0) return false;
+        discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(lm, rm);
+        if (discriminativeBit < 0) return false;
       }
       final int leafSplitNewSide = newSideOut[0];
 
-      // Boundary keys now include the new key — BiNode disc bit is correct
-      final byte[] leftMax = fullPage.getLastKey();
+      // Boundary keys for log lookups (used by parent integration).
       final byte[] rightMin = rightPage.getFirstKey();
-
-      if (leftMax.length == 0 || rightMin.length == 0) {
-        return false; // finally block closes rightPage
-      }
-
-      final int discriminativeBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
-      if (discriminativeBit < 0) {
-        return false; // finally block closes rightPage
-      }
 
       // Store right page in TIL
       final PageReference rightRef = new PageReference();
@@ -3416,6 +3626,54 @@ public final class HOTTrieWriter {
   }
 
   /**
+   * Phase 2 (eager constancy-aware leaf split) — find the FIRST ancestor disc bit β
+   * where the new key {@code keyBuf}'s β value differs from the leaf's existing first
+   * key's β value. Such β indicates that inserting {@code keyBuf} into {@code leaf}
+   * would break the β-constancy invariant required by ancestor's PEXT routing.
+   *
+   * <p>Returns {@code -1} if no constancy break would occur (= insertion preserves
+   * β-constancy on every ancestor disc bit).
+   *
+   * <p>Iterates ancestor disc bits MSB-first (= sorted ascending absolute position).
+   * Returning the first differ allows the caller to split the leaf on that bit before
+   * inserting {@code keyBuf}, preventing the multi-entry-leaf pathology where stored
+   * partials get out of sync with their child's first-key dense PEXT after subsequent
+   * inserts.
+   *
+   * <p>Reference: design doc §3 (a) Eager — "when inserting a key K into leaf L, if K's
+   * value at any ancestor disc bit β differs from existing entries' bit-β values, split
+   * L on β before inserting. Maintains constancy continuously."
+   *
+   * <p>HFT-grade: reuses {@link #collectAncestorDiscBits}'s allocation pattern; one
+   * pass over ancestor bits + one bit-test per bit per key.
+   *
+   * @param pathNodes ancestor path nodes (root → leaf-parent)
+   * @param pathDepth number of valid entries in {@code pathNodes}
+   * @param leaf the leaf about to receive {@code keyBuf}
+   * @param keyBuf the new key
+   * @return offending β (≥ 0) or {@code -1} if no break
+   */
+  public int findOffendingAncestorBit(HOTIndirectPage[] pathNodes, int pathDepth,
+      HOTLeafPage leaf, byte[] keyBuf) {
+    if (leaf == null || keyBuf == null) return -1;
+    if (leaf.getEntryCount() == 0) return -1;
+    if (pathDepth <= 0) return -1;
+
+    final int[] ancestorBits = collectAncestorDiscBits(pathNodes, pathDepth);
+    if (ancestorBits.length == 0) return -1;
+
+    final byte[] leafFirstKey = leaf.getFirstKey();
+    if (leafFirstKey == null || leafFirstKey.length == 0) return -1;
+
+    for (final int beta : ancestorBits) {
+      final boolean leafBit = DiscriminativeBitComputer.isBitSet(leafFirstKey, beta);
+      final boolean keyBit = DiscriminativeBitComputer.isBitSet(keyBuf, beta);
+      if (leafBit != keyBit) return beta; // K would break β-constancy at this ancestor
+    }
+    return -1; // no constancy break — safe to merge directly
+  }
+
+  /**
    * Append the absolute disc-bit positions captured by a single indirect to {@code buf}
    * starting at {@code start}. Returns the new write offset.
    *
@@ -3986,16 +4244,19 @@ public final class HOTTrieWriter {
     // partial-key index, so we compute the per-half partial sets by
     // ordering children by their original index.
     //
-    // NOTE (Phase 4b-vb.3 attempt 2026-05-09, reverted): including
-    // originalChildIndex in parentIndices to capture bits distinguishing
-    // splitChild's projection from siblings' (matching C++'s
-    // getRelevantBitsForRange that operates on a contiguous range INCLUDING
-    // splitChild) produced incorrect stored partials in the resulting indirect
-    // (I-Binna-sparse-path violations: stored partials had bits not present in
-    // dense PEXT under the new mask). The interaction between the extended
-    // relevant set, newMask construction, and the inherited-child encoding via
-    // compress→expand has additional subtleties beyond the lemma. Fix deferred
-    // to a deeper analysis session.
+    // NOTE (Phase 4b-vb.3 attempt 2026-05-09, reverted): including originalChildIndex
+    // in parentIndices to capture bits distinguishing splitChild's projection from
+    // siblings' (matching C++'s getRelevantBitsForRange semantics) was tried + reverted.
+    // The deeper investigation (this session, 2026-05-09 PM) revealed the
+    // I-Binna-sparse-path violations come from rightChild (= leaf-split product) whose
+    // stored partial gets β=1 set at construction-time, but later inserts into
+    // rightChild's subtree silently break β-constancy: a smaller key with β=0 makes
+    // rightChild.firstKey have β=0 while parent's stored partial still has β=1. The
+    // root cause is multi-entry-leaf pathology — fixable only via Phase 2 of the
+    // original design plan (constancy-aware leaf split: when inserting a key K into
+    // leaf L, if K's value at any ancestor disc bit β differs from existing entries'
+    // bit-β values, split L on β before inserting). Phase 4b-vb.3 alone cannot resolve
+    // this; the fix needs leaf-level invariant maintenance.
     final int[] leftIndices = new int[smallerCount];
     final int[] rightIndices = new int[largerCount];
     int li = 0, ri = 0;
@@ -4278,6 +4539,7 @@ public final class HOTTrieWriter {
     // i<j with p[i] < p[j], the highest differing bit has p[j]=1 and
     // p[i]=0, and by sorted-integer monotonicity that bit must flip 0→1
     // at some adjacent step in the sequence, so it ends up in 'relevant'.
+    BCH_SINGLEMASK_ENTRIES.incrementAndGet();
     if (parent.getLayoutType() != HOTIndirectPage.LayoutType.SINGLE_MASK) {
       // Phase 4b.2: MultiMask-parent path. Inherits a subset of parent's MultiMask
       // disc-bit set into a new MultiMask layout (or extended MultiMask if the
@@ -4375,12 +4637,41 @@ public final class HOTTrieWriter {
     sortChildrenByFirstKey(sortedChildren);
     final int[] newPartials = new int[sortedChildren.length];
 
+    final boolean dbgEnc = Boolean.getBoolean("hot.debug.bch.encoding");
+    final StringBuilder dbgEncBuf = dbgEnc ? new StringBuilder(2048) : null;
+    if (dbgEnc) {
+      dbgEncBuf.append("[bch.enc] entering SingleMask path")
+          .append(" newPageKey=").append(newPageKey)
+          .append(" parent.pageKey=").append(parent.getPageKey())
+          .append(" parent.height=").append(parent.getHeight())
+          .append(" oldInitialBytePos=").append(oldInitialBytePos)
+          .append(" oldMask=0x").append(Long.toHexString(oldMask))
+          .append(" bothSplitHere=").append(bothSplitHere)
+          .append(" splitDiscBitAbs=").append(splitDiscBitAbs)
+          .append(" splitBitMaskBit=0x").append(Long.toHexString(splitBitMaskBit))
+          .append(" relevant=0x").append(Integer.toHexString(relevant))
+          .append(" newMaskFromOld=0x").append(Long.toHexString(newMaskFromOld))
+          .append(" newMask=0x").append(Long.toHexString(newMask))
+          .append(" totalNewBits=").append(totalNewBits)
+          .append(" splitBitOutputPos=").append(splitBitOutputPos)
+          .append(" oldBitsInNewLayout=0x").append(Long.toHexString(oldBitsInNewLayout))
+          .append(" parentIndices=").append(java.util.Arrays.toString(parentIndices))
+          .append(" halfChildren.length=").append(halfChildren.length).append('\n');
+    }
+
+    boolean anyMismatch = false;
     for (int j = 0; j < sortedChildren.length; j++) {
       final PageReference c = sortedChildren[j];
       if (c == splitLeft || c == splitRight) {
         // Split products: compute partial directly from first key under newMask.
         newPartials[j] = computePartialKeySingleMask(
             getFirstKeyFromChild(c), oldInitialBytePos, newMask);
+        if (dbgEnc) {
+          dbgEncBuf.append("[bch.enc]   j=").append(j).append(" split-product ")
+              .append(c == splitLeft ? "LEFT" : "RIGHT")
+              .append(" firstKey=").append(bytesToHex(getFirstKeyFromChild(c)))
+              .append(" newPartial=0x").append(Integer.toHexString(newPartials[j])).append('\n');
+        }
       } else {
         // Inherited child: find in parent, PEXT via relevant, PDEP into new layout.
         final int pIdx = indexOfInParent(parent, c, parentIndices);
@@ -4388,8 +4679,9 @@ public final class HOTTrieWriter {
           BCH_FALLBACK_UNKNOWN_CHILD.incrementAndGet();
           return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
         }
+        final int oldPartial = oldPartials[pIdx];
         final int compressed = (int) Long.compress(
-            Integer.toUnsignedLong(oldPartials[pIdx]),
+            Integer.toUnsignedLong(oldPartial),
             Integer.toUnsignedLong(relevant));
         final int repositioned = (int) Long.expand(
             Integer.toUnsignedLong(compressed),
@@ -4398,7 +4690,36 @@ public final class HOTTrieWriter {
         // split-disc-bit's BiNode, so its new-bit position stays 0 regardless of how the
         // bit varies within its subtree. Constancy check removed.
         newPartials[j] = repositioned;
+        if (dbgEnc) {
+          final byte[] cKey = getFirstKeyFromChild(c);
+          final int directDense = computePartialKeySingleMask(cKey, oldInitialBytePos, newMask);
+          final boolean mismatch = (repositioned != directDense);
+          if (mismatch) {
+            anyMismatch = true;
+            BCH_ENCODING_MISMATCHES.incrementAndGet();
+          }
+          dbgEncBuf.append("[bch.enc]   j=").append(j).append(" inherited pIdx=").append(pIdx)
+              .append(" firstKey=").append(bytesToHex(cKey))
+              .append(" oldPartial=0x").append(Integer.toHexString(oldPartial))
+              .append(" compressed=0x").append(Integer.toHexString(compressed))
+              .append(" repositioned=0x").append(Integer.toHexString(repositioned))
+              .append(" denseUnderNewMask=0x").append(Integer.toHexString(directDense))
+              .append(mismatch ? "  ★ MISMATCH ★" : "").append('\n');
+        }
       }
+    }
+
+    if (dbgEnc) {
+      if (anyMismatch) dbgEncBuf.append("[bch.enc] *** ENCODING MISMATCH DETECTED ***\n");
+      dbgEncBuf.append("[bch.enc] final newPartials=")
+          .append(java.util.Arrays.toString(newPartials)).append('\n');
+      try {
+        java.nio.file.Files.writeString(
+            java.nio.file.Paths.get("/tmp/sirix-bch-encoding-debug.log"),
+            dbgEncBuf.toString(),
+            java.nio.file.StandardOpenOption.CREATE,
+            java.nio.file.StandardOpenOption.APPEND);
+      } catch (java.io.IOException ignore) { /* best-effort diagnostic */ }
     }
 
     // Verify all partials are unique (collision indicates INV breach upstream).
@@ -4926,7 +5247,7 @@ public final class HOTTrieWriter {
    * Uses BE layout matching {@link HOTIndirectPage#getKeyWordAt}: byte at {@code initialBytePos}
    * → long bits 56-63, {@code initialBytePos+1} → 48-55, ..., {@code initialBytePos+7} → 0-7.
    */
-  private int computePartialKeySingleMask(byte[] key, int initialBytePos, long bitMask) {
+  private static int computePartialKeySingleMask(byte[] key, int initialBytePos, long bitMask) {
     if (key == null || key.length == 0) {
       return 0;
     }

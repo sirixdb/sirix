@@ -755,6 +755,18 @@ public abstract class AbstractHOTIndexWriter<K> {
     LeafNavigationResult navResult = prepareLeafOfTree(rootRef, keyBuf, keyLen);
     HOTLeafPage leaf = navResult.leaf();
 
+    // Phase 2 (constancy-aware leaf split) — DISABLED 2026-05-09 after experiment.
+    // The eager-split-on-ancestor-β approach (= split BEFORE merge if K's β value
+    // differs from leaf's existing first-key's β value at any ancestor disc bit) was
+    // tried but produced 635x violations vs default (1 → 635). Eager splits triggered
+    // on nearly every insert in early-stage trie construction, exploding tree height
+    // 6 → 12. The design doc §6 Variant A warned this would happen ("non-MSDB split
+    // breaks contiguous-partition invariants"). Phase 2 needs Phase 1 (per-leaf
+    // ancestor-bit tracking) infrastructure first, plus careful contiguous-partition
+    // preservation, before it can be re-enabled. Helper {@link
+    // HOTTrieWriter#findOffendingAncestorBit} is left in place for future Phase 1
+    // integration.
+
     // Merge entry
     boolean success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
 
