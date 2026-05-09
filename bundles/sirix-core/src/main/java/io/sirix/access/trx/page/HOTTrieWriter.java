@@ -4203,22 +4203,17 @@ public final class HOTTrieWriter {
     // p[i]=0, and by sorted-integer monotonicity that bit must flip 0→1
     // at some adjacent step in the sequence, so it ends up in 'relevant'.
     if (parent.getLayoutType() != HOTIndirectPage.LayoutType.SINGLE_MASK) {
-      // MultiMask parent not yet ported to compressed-half path — fall
-      // back to fresh rebuild with constancy-filtered disc bits.
-      BCH_FALLBACK_MULTIMASK_PARENT.incrementAndGet();
-      if (Boolean.getBoolean("hot.debug.bchfallback")) {
-        final byte[] parentExtractionPositions = parent.getExtractionPositions();
-        final long[] parentExtractionMasks = parent.getExtractionMasks();
-        System.err.println("[bch.multimask] parent.numChildren=" + parent.getNumChildren()
-            + " parent.height=" + parent.getHeight()
-            + " halfChildren.length=" + halfChildren.length
-            + " isRightHalf=" + isRightHalf
-            + " msbPosition=" + msbPosition
-            + " parent.extractionPositions=" + java.util.Arrays.toString(parentExtractionPositions)
-            + " parent.extractionMasks=" + (parentExtractionMasks == null ? "null"
-                : java.util.Arrays.stream(parentExtractionMasks)
-                    .mapToObj(Long::toHexString).toList()));
-      }
+      // Phase 4b.2: MultiMask-parent path. Inherits a subset of parent's MultiMask
+      // disc-bit set into a new MultiMask layout (or extended MultiMask if the
+      // leaf-split's β contributes a new bit). Mirrors the C++ template
+      // {@code DiscriminativeBitsRepresentation.extract(relevantBits)} +
+      // {@code .insert(newKeyInfo)} chain.
+      final HOTIndirectPage built = buildCompressedHalfMultiMask(parent, halfChildren,
+          parentIndices, splitLeft, splitRight, newPageKey, revision);
+      if (built != null) return built;
+      // MultiMask path returned null = degenerate case (sub-layout has no bits AND
+      // !bothSplitHere, or split-bit computeDifferingBit returned -1). Fall back to
+      // fresh rebuild — counter already incremented inside the helper.
       return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
     }
 
@@ -4358,6 +4353,217 @@ public final class HOTTrieWriter {
     }
     return HOTIndirectPage.createMultiNode(newPageKey, revision,
         oldInitialBytePos, newMask, newPartials, sortedChildren, parent.getHeight());
+  }
+
+  /**
+   * Phase 4b.2: MultiMask analog of {@link #buildCompressedHalf}'s SingleMask body.
+   * Builds a new MultiMask indirect for one half of a split, inheriting only the
+   * parent's MultiMask disc bits that actually differ within this half's children
+   * (computed via {@link #computeRelevantBitsFromPartials} +
+   * {@link #extractMultiMaskSubset}), and — if both leaves of a child-split land here —
+   * extending the layout with the new disc bit β separating them.
+   *
+   * <p>Existing children's partials are repositioned via {@code Long.compress} (PEXT
+   * with {@code relevant}) followed by {@code Long.expand} (PDEP with the
+   * inherited-bit positions in the new layout). Split-product children's partials
+   * are encoded directly from their first key under the final layout via
+   * {@link #computePartialKeyMultiMaskDirect}.
+   *
+   * <p>Returns {@code null} on degenerate cases the caller falls back on:
+   * sub-layout empty AND !bothSplitHere; identical-keys (computeDifferingBit
+   * returned -1); unknown child; partial-key collision. Each null path increments
+   * the corresponding {@link #BCH_FALLBACK_*} counter.
+   *
+   * <p>HFT-grade: bounded allocations sized exactly to the new layout (extraction
+   * arrays at most one larger than parent's; partials and children proportional to
+   * halfChildren). Reuses {@link Long#compress}/{@link Long#expand} (=
+   * {@code _pext_u64}/{@code _pdep_u64}) for partial repositioning. No boxing.
+   *
+   * @return new MultiMask indirect, or {@code null} if the case is degenerate
+   */
+  private @Nullable HOTIndirectPage buildCompressedHalfMultiMask(HOTIndirectPage parent,
+      PageReference[] halfChildren, int[] parentIndices, PageReference splitLeft,
+      PageReference splitRight, long newPageKey, int revision) {
+    final int[] oldPartials = parent.getPartialKeys();
+
+    final boolean leftHere = isChildInHalf(halfChildren, splitLeft);
+    final boolean rightHere = isChildInHalf(halfChildren, splitRight);
+    final boolean bothSplitHere = leftHere && rightHere;
+
+    // Step 1: relevant bits over the half's partial-key sequence.
+    //
+    // NOTE: the bothSplitHere case has a known routing-soundness gap on Sirix's
+    // multi-entry-leaf trees. When parent's MultiMask doesn't have bits that
+    // distinguish splitChild's projection from an inherited sibling's, splitLeft's
+    // or splitRight's partial may collide with a sibling's after the compress→expand
+    // round-trip. C++ avoids this because its single-key leaves trivially have a
+    // constant β in every sibling's subtree (β alone disambiguates). The Sirix-
+    // specific resolution is the "virtual BiNode" architecture (Phase 4b-vb): the
+    // leaf-split's two halves are integrated as ONE replace + ONE insert (per C++
+    // integrateBiNodeIntoTree) rather than as TWO separate split products as today.
+    // That refactor is a deeper change than this single helper. For now this helper
+    // catches the collision via BCH_FALLBACK_PARTIAL_COLLISION and falls back to
+    // createNodeFromChildren (no worse than pre-Phase-4b on that case).
+    final int relevant = computeRelevantBitsFromPartials(oldPartials, parentIndices);
+
+    // Step 2: extract subset MultiMask layout from parent.
+    final MultiMaskSubLayout sub = extractMultiMaskSubset(parent, relevant);
+    if (sub == null) {
+      BCH_FALLBACK_MULTIMASK_PARENT.incrementAndGet();
+      return null;
+    }
+
+    // Step 3: optionally extend with split disc bit.
+    byte[] finalExtractionPositions = sub.extractionPositions();
+    long[] finalExtractionMasks = sub.extractionMasks();
+    int finalNumBytes = sub.numExtractionBytes();
+    int finalTotalBits = sub.totalBits();
+    short finalMsbIndex = sub.msbIndex();
+    int splitBitOutputPos = -1;
+    boolean splitBitWasInOldLayout = false;
+
+    if (bothSplitHere) {
+      final int splitDiscBitAbs = DiscriminativeBitComputer.computeDifferingBit(
+          getLastKeyFromChild(splitLeft), getFirstKeyFromChild(splitRight));
+      if (splitDiscBitAbs < 0) {
+        BCH_FALLBACK_IDENTICAL_KEYS.incrementAndGet();
+        return null;
+      }
+      final int newBytePos = splitDiscBitAbs / 8;
+      final int newBitInByte = splitDiscBitAbs % 8;
+      final int newMaskBit = 1 << (7 - newBitInByte);
+
+      // Locate newBytePos in finalExtractionPositions (sorted).
+      int existingIdx = -1;
+      int insertIdx = finalNumBytes;
+      for (int i = 0; i < finalNumBytes; i++) {
+        final int bp = finalExtractionPositions[i] & 0xFF;
+        if (bp == newBytePos) { existingIdx = i; break; }
+        if (bp > newBytePos) { insertIdx = i; break; }
+      }
+
+      if (existingIdx >= 0) {
+        // Merge into existing byte's mask (or detect already-present).
+        final int chunkIdx = existingIdx / 8;
+        final int byteOffsetInChunk = existingIdx % 8;
+        final int oldByteMask =
+            (int) ((finalExtractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFF);
+        if ((oldByteMask & newMaskBit) != 0) {
+          // β was kept in subLayout — it's already an output bit, not a new one.
+          splitBitWasInOldLayout = true;
+        } else {
+          finalExtractionMasks = finalExtractionMasks.clone();
+          finalExtractionMasks[chunkIdx] |=
+              ((long) (newMaskBit & 0xFF)) << ((7 - byteOffsetInChunk) * 8);
+          finalTotalBits++;
+        }
+      } else {
+        // Brand-new byte position — insert at insertIdx, shift mask bytes.
+        final int newNumBytes = finalNumBytes + 1;
+        final int newNumChunks = Math.max(1, (newNumBytes + 7) / 8);
+        final byte[] newPositions = new byte[newNumBytes];
+        System.arraycopy(finalExtractionPositions, 0, newPositions, 0, insertIdx);
+        newPositions[insertIdx] = (byte) newBytePos;
+        if (insertIdx < finalNumBytes) {
+          System.arraycopy(finalExtractionPositions, insertIdx, newPositions, insertIdx + 1,
+              finalNumBytes - insertIdx);
+        }
+        final long[] newMasks = new long[newNumChunks];
+        int srcIdx = 0;
+        for (int dstIdx = 0; dstIdx < newNumBytes; dstIdx++) {
+          final int dstChunk = dstIdx / 8;
+          final int dstOff = dstIdx % 8;
+          final int byteMaskValue;
+          if (dstIdx == insertIdx) {
+            byteMaskValue = newMaskBit;
+          } else {
+            final int srcChunk = srcIdx / 8;
+            final int srcOff = srcIdx % 8;
+            byteMaskValue =
+                (int) ((finalExtractionMasks[srcChunk] >>> ((7 - srcOff) * 8)) & 0xFF);
+            srcIdx++;
+          }
+          newMasks[dstChunk] |= ((long) (byteMaskValue & 0xFF)) << ((7 - dstOff) * 8);
+        }
+        finalExtractionPositions = newPositions;
+        finalExtractionMasks = newMasks;
+        finalNumBytes = newNumBytes;
+        finalTotalBits++;
+      }
+
+      final int absBitPos = newBytePos * 8 + newBitInByte;
+      if (absBitPos < (finalMsbIndex & 0xFFFF)) finalMsbIndex = (short) absBitPos;
+
+      splitBitOutputPos = multiMaskNewBitOutputPos(finalExtractionPositions,
+          finalExtractionMasks, finalNumBytes, newBytePos, newBitInByte);
+    }
+
+    if (finalTotalBits == 0) {
+      BCH_FALLBACK_NEW_MASK_ZERO.incrementAndGet();
+      return null;
+    }
+
+    // Step 4: oldBitsInNewLayout — output-bit positions inherited from sub-layout.
+    final long oldBitsInNewLayout;
+    if (bothSplitHere && !splitBitWasInOldLayout) {
+      oldBitsInNewLayout = ((1L << finalTotalBits) - 1L) ^ (1L << splitBitOutputPos);
+    } else {
+      oldBitsInNewLayout = (1L << finalTotalBits) - 1L;
+    }
+
+    // Step 5: sort half children by first key (canonical pre-partial sort).
+    final PageReference[] sortedChildren = halfChildren.clone();
+    sortChildrenByFirstKey(sortedChildren);
+    final int[] newPartials = new int[sortedChildren.length];
+
+    for (int j = 0; j < sortedChildren.length; j++) {
+      final PageReference c = sortedChildren[j];
+      if (c == splitLeft || c == splitRight) {
+        newPartials[j] = computePartialKeyMultiMaskDirect(getFirstKeyFromChild(c),
+            finalExtractionPositions, finalExtractionMasks, finalNumBytes);
+      } else {
+        final int pIdx = indexOfInParent(parent, c, parentIndices);
+        if (pIdx < 0) {
+          BCH_FALLBACK_UNKNOWN_CHILD.incrementAndGet();
+          return null;
+        }
+        final int compressed = (int) Long.compress(
+            Integer.toUnsignedLong(oldPartials[pIdx]),
+            Integer.toUnsignedLong(relevant));
+        final int repositioned = (int) Long.expand(
+            Integer.toUnsignedLong(compressed), oldBitsInNewLayout);
+        newPartials[j] = repositioned;
+      }
+    }
+
+    // Step 6: HOT I3 — partial-key uniqueness.
+    for (int i = 1; i < newPartials.length; i++) {
+      for (int k = 0; k < i; k++) {
+        if (newPartials[i] == newPartials[k]) {
+          BCH_FALLBACK_PARTIAL_COLLISION.incrementAndGet();
+          return null;
+        }
+      }
+    }
+
+    // Step 7: HOT I7 — sort by partial-key under sparse-path encoding.
+    sortChildrenAndPartialsByPartial(sortedChildren, newPartials);
+
+    // Step 8: assemble. BiNode for length 2; SpanNode-MM for ≤16; MultiNode-MM for >16.
+    if (sortedChildren.length == 2) {
+      final int db = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(
+          getLastKeyFromChild(sortedChildren[0]), getFirstKeyFromChild(sortedChildren[1])));
+      return createBiNodeTraced("buildCompressedHalfMultiMask-binode", newPageKey, revision, db,
+          sortedChildren[0], sortedChildren[1], parent.getHeight());
+    }
+    if (sortedChildren.length <= 16) {
+      return HOTIndirectPage.createSpanNodeMultiMask(newPageKey, revision,
+          finalExtractionPositions, finalExtractionMasks, finalNumBytes,
+          newPartials, sortedChildren, parent.getHeight(), finalMsbIndex);
+    }
+    return HOTIndirectPage.createMultiNodeMultiMask(newPageKey, revision,
+        finalExtractionPositions, finalExtractionMasks, finalNumBytes,
+        newPartials, sortedChildren, parent.getHeight(), finalMsbIndex);
   }
 
   private static boolean isChildInHalf(PageReference[] halfChildren, PageReference c) {

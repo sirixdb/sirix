@@ -161,16 +161,87 @@ This matches the design doc §4's "Phase 4 ≈ 2 weeks" estimate.
 - **After 4b.4**: 50K reproducer at 0 violations, height ≤ 4, fallback firings = 0. Phase 4 target met.
 - **After 4b.6**: `createNodeFromChildren-N` is unreachable in rebuild contexts (assertion never trips on full test suite).
 
-## Why this won't be the only thing
+## ARCHITECTURAL CORRECTION (2026-05-09): "BiNodes are virtual" in C++
 
-After Phase 4b lands, the campaign needs Phases 5 (perf validation) and 6 (flag flip + cleanup). Those are smaller. But this file is scoped to 4b — the load-bearing piece.
+**Key finding from re-reading the C++ reference**: `BiNode` in C++ is a **plain value-type struct**:
 
-The 44 SingleMask "no-sibling-slot" cases revealed by the previous session's `[hot.phase4]` diagnostic on the *current* (pre-fix) reproducer are NOT addressed by Phase 4b directly. They're cases that today reach `intermediateBiNodePreservesSlotOrder` and pass — i.e., the BiNode fallback accepts them. Whether they need re-treatment after 4b lands depends on whether tightening the gate removes them too. Likely yes (they're *additional* 2b-iv-b-α cases that the loose gate accepts; the tightened gate would route them to `splitParentAndRecurse` → `buildCompressedHalf` → MultiMask-parent path → handled correctly).
+```cpp
+template<typename ChildPointerType> struct BiNode {
+    uint16_t mDiscriminativeBitIndex;
+    uint16_t mHeight;
+    ChildPointerType mLeft;
+    ChildPointerType mRight;
+};
+```
 
-## What to verify next session
+It is **never persisted as a tree node**. It's a transient carrier for `(β, leftChild, rightChild)` used during split integration. The actual tree's nodes are `HOTSingleThreadedNode` instances (with internal SpanNode/MultiNode layout types), which CAN have any number of children.
 
-1. Read this doc + `HOT_STRICT_BINNA_DESIGN.md` end-to-end.
-2. Run reproducer with default settings; confirm 1 I8 violation, bch-fallbacks all 0.
-3. Re-introduce I8-gate next-side check; confirm bch-fallbacks: `multimask-parent=1, others=0`.
-4. Read C++ reference at `/home/johannes/IdeaProjects/hot-reference/.../HOTSingleThreadedNode.hpp` lines 488–537 for the exact compress-entries algorithm + DiscriminativeBitsRepresentation.hpp's extract template.
-5. Start step 4b.0 (helpers + round-trip test). Land per phase, run reproducer after each.
+**Sirix's `c868e669c` intermediate-BiNode workaround** materializes a `HOTIndirectPage` (a real persisted node) where C++ uses a stack-local struct. That extra persisted node is what creates the marginal I8 violation: its first-key squeezes between parent's existing slots.
+
+**`HOTSingleThreaded.hpp::integrateBiNodeIntoTree`** (lines 493–547) shows the C++ flow:
+
+```
+if parent.height > splitEntries.height:
+   create a new TwoEntries node holding (leftChild, rightChild)  // ONLY case persisted
+else:  // parent.height == splitEntries.height
+   newIsRight = (newKey.β value == 1)  // which side is the just-inserted key
+   valueToInsert = (newIsRight) ? splitEntries.mRight : splitEntries.mLeft
+   valueToReplace = (newIsRight) ? splitEntries.mLeft : splitEntries.mRight
+   if !parent.isFull:
+      newParent = parent.addEntry(insertInformation, valueToInsert)
+      newParent.pointers[oldIdx + entryOffset] = valueToReplace  // replace splitChild slot
+   else:
+      newSplitEntries = parent.split(insertInformation, valueToInsert)  // recursive
+      ... place valueToReplace in correct half ...
+```
+
+**The C++ algorithm treats the leaf-split as ONE addition (valueToInsert) + ONE replacement (valueToReplace).** It is NOT two separate sibling additions.
+
+## Sirix's actual problem (corrected)
+
+`splitParentAndRecurse` and `buildCompressedHalf` treat leftChild + rightChild as TWO independent split products to integrate. When both land in the same half (`bothSplitHere`), Sirix adds β to that half's layout to disambiguate. C++ never has bothSplitHere because it adds only ONE entry (valueToInsert) and replaces an existing slot's pointer with the OTHER (valueToReplace).
+
+**Consequence on the reproducer**: with the I8 gate tightened, ONE case routes from intermediate-BiNode-fallback to `splitParentAndRecurse`, which under Phase 4b.2 invokes `buildCompressedHalfMultiMask` with `bothSplitHere=true`. The relevant computation excludes splitChildIdx so it cannot capture bits distinguishing splitChild's projection from a sibling's. Result: `BCH_FALLBACK_PARTIAL_COLLISION=1` → fall back to `createNodeFromChildren-N` → 5993 cascaded I6 violations.
+
+**This is fixable** — but not by patching `bothSplitHere` in `buildCompressedHalf`. The fix is to adopt the C++ "valueToInsert + valueToReplace" semantics throughout the integration path. This is the **virtual-BiNode refactor**.
+
+## Updated fix plan (Phase 4b-vb: virtual-BiNode refactor)
+
+| Step | Work | Effort |
+|---|---|---|
+| 4b.0 | MultiMask helpers + round-trip test | ✅ landed (`378e976ee`) |
+| 4b.2 | MultiMask-parent path in buildCompressedHalf (structural port; bothSplitHere case ❗ still has routing-soundness gap until 4b-vb lands) | ✅ landed (this commit) |
+| 4b-vb.0 | Modify `HOTLeafPage.splitToWithInsert` to return `newSide` (which half got the new key). Same-package round-trip test. | 1 day |
+| 4b-vb.1 | Thread `newSide` through `JsonNodeTrxImpl` / `XmlNodeTrxImpl` leaf-overflow path → `updateParentForSplitWithPath` → `splitParentAndRecurse`. Adds one parameter to ~5 method signatures. | 2 days |
+| 4b-vb.2 | Refactor `updateParentForSplitWithPath` to compute (valueToInsert, valueToReplace) from (leftChild, rightChild, newSide). Pass valueToInsert as the single new entry to `addEntryWithPDep` / `addEntryMultiMask`; assign valueToReplace into splitChildIdx's slot via a follow-up `withUpdatedChild`. Mirror `integrateBiNodeIntoTree` lines 516–519. | 2–3 days |
+| 4b-vb.3 | Refactor `splitParentAndRecurse` similarly: partition only valueToInsert (one entity, one MSB check), assign valueToReplace into the appropriate half's splitChildIdx slot post-build. Eliminate `bothSplitHere`. Mirror `integrateBiNodeIntoTree` lines 520–535. | 3–4 days |
+| 4b-vb.4 | **Remove the persisted intermediate-BiNode workaround.** With C++-faithful integration, the workaround is unnecessary — the marginal I8 violation case is now handled via parent split (which has correct layout via 4b.2's MultiMask path). | 0.5 day |
+| 4b-vb.5 | Re-introduce I8 gate next-side check (now redundant — gate becomes always-true since the workaround is gone). | 0.5 day |
+| 4b-vb.6 | Hard-gate `createNodeFromChildren-N`. Phase 4d. | 1 day |
+| Test/regression sweep | Per phase | 2–3 days |
+| **Total** | | **~3 weeks** |
+
+## Test gates per step
+
+- **After 4b-vb.0**: round-trip test green (`splitToWithInsert` returns correct `newSide` for synthetic insert positions); existing tests unchanged.
+- **After 4b-vb.2**: `addEntryWithPDep` integration on the existing reproducer behaves bit-identically to today (= 1 I8 violation, default mode). Phase 4 fresh-polarity firings unchanged.
+- **After 4b-vb.3**: with strict-Binna ON AND the (now-redundant) I8 gate tightened, `splitParentAndRecurse` produces 0 partial-collision firings (no `bothSplitHere`). Some test runs may reach `splitParentAndRecurse` more often, but `buildCompressedHalfMultiMask` handles every case via the SingleMask-parent or MultiMask-parent branch with one valueToInsert + one valueToReplace.
+- **After 4b-vb.4**: 50K reproducer at **0 violations**, height ≤ 4, intermediate-binode-fallback firings = 0. Campaign target met.
+- **After 4b-vb.6**: `createNodeFromChildren-N` is unreachable in rebuild contexts.
+
+## Why this doesn't shrink in scope further
+
+The user's question was "find out what's wrong" — answered: Sirix's two-products integration semantics differ from C++'s one-insert-one-replace. The fix touches the integration backbone, not just one helper. ~3 weeks is the honest minimum estimate.
+
+## Open issues for next session
+
+1. Confirm with the user that Phase 4b-vb (virtual-BiNode refactor) is the right architectural direction. The alternative — including splitChildIdx in `relevant` for the `bothSplitHere` case — was tried inline and rejected (not a clean port; it papers over a structural mismatch).
+2. Read C++ `HOTSingleThreaded.hpp::integrateBiNodeIntoTree` end-to-end (lines 493–547) — the algorithm is concise but every line carries weight.
+3. Plan the `newSide` plumbing: where does `splitToWithInsert` know which half got the new key? Likely from the comparison of new key's β-bit-value against the leaf's MSDB at split time.
+
+## What this session delivered
+
+- `BCH_FALLBACK_*` per-fallback counters (committed `fdaba3c67`)
+- Phase 4b.0 helpers + round-trip test (committed `378e976ee`)
+- Phase 4b.2 MultiMask-parent structural port (committed in this commit) — handles all healthy cases; bothSplitHere with multi-entry-leaf pathology still falls back via `BCH_FALLBACK_PARTIAL_COLLISION`
+- This diagnosis update with the virtual-BiNode insight
