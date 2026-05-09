@@ -141,6 +141,51 @@ public final class HOTTrieWriter {
     PHASE3_REBALANCE_FIRINGS.set(0L);
   }
 
+  // ===== Phase 4b diagnostic — buildCompressedHalf fallback counters =====
+  // Each counter increments when buildCompressedHalf takes the corresponding fallback to
+  // createNodeFromChildren (which uses the buggy adjacent-pair XOR scan and produces
+  // I-Binna constancy violations). These make explicit which fallback case is firing on a
+  // given workload — actionable input for Phase 4b's MultiMask / identical-keys /
+  // cross-window / newMask==0 fixes.
+  //
+  // Reset via {@link #resetBuildCompressedHalfFallbackCounters}; read via the per-counter
+  // accessors below. Diagnostic only; default zero, no behavior impact when not consulted.
+  private static final java.util.concurrent.atomic.AtomicLong BCH_FALLBACK_MULTIMASK_PARENT =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong BCH_FALLBACK_IDENTICAL_KEYS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong BCH_FALLBACK_CROSS_WINDOW =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong BCH_FALLBACK_NEW_MASK_ZERO =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong BCH_FALLBACK_UNKNOWN_CHILD =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong BCH_FALLBACK_PARTIAL_COLLISION =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  /** Returns the count of MultiMask-parent fallbacks since the last reset. */
+  public static long getBchFallbackMultiMaskParent() { return BCH_FALLBACK_MULTIMASK_PARENT.get(); }
+  /** Returns the count of identical-keys fallbacks since the last reset. */
+  public static long getBchFallbackIdenticalKeys() { return BCH_FALLBACK_IDENTICAL_KEYS.get(); }
+  /** Returns the count of cross-window-split-bit fallbacks since the last reset. */
+  public static long getBchFallbackCrossWindow() { return BCH_FALLBACK_CROSS_WINDOW.get(); }
+  /** Returns the count of newMask==0 fallbacks since the last reset. */
+  public static long getBchFallbackNewMaskZero() { return BCH_FALLBACK_NEW_MASK_ZERO.get(); }
+  /** Returns the count of unknown-child fallbacks since the last reset. */
+  public static long getBchFallbackUnknownChild() { return BCH_FALLBACK_UNKNOWN_CHILD.get(); }
+  /** Returns the count of partial-collision fallbacks since the last reset. */
+  public static long getBchFallbackPartialCollision() { return BCH_FALLBACK_PARTIAL_COLLISION.get(); }
+
+  /** Reset all buildCompressedHalf-fallback counters. */
+  public static void resetBuildCompressedHalfFallbackCounters() {
+    BCH_FALLBACK_MULTIMASK_PARENT.set(0L);
+    BCH_FALLBACK_IDENTICAL_KEYS.set(0L);
+    BCH_FALLBACK_CROSS_WINDOW.set(0L);
+    BCH_FALLBACK_NEW_MASK_ZERO.set(0L);
+    BCH_FALLBACK_UNKNOWN_CHILD.set(0L);
+    BCH_FALLBACK_PARTIAL_COLLISION.set(0L);
+  }
+
   // ===== Phase 4 β-already-in-mask subtree-merge counter =====
   // Counts how many times the Phase 4 subtree merge fires under -Dhot.strict.binna=true
   // (i.e., addEntryWithPDep / addEntryMultiMask rejected because the new disc bit β is
@@ -895,6 +940,15 @@ public final class HOTTrieWriter {
    * the left half, the slot's firstKey may have decreased relative to its
    * predecessor. Returns {@code false} in that case so the caller falls through
    * to {@link #splitParentAndRecurse}.
+   *
+   * <p><b>Note: only the prev-side check is enforced.</b> A symmetric next-side check
+   * (leftChild.firstKey &lt; next.firstKey) would catch one additional pathological
+   * case on the {@code diagnosticMicrobenchPatternReproducer} (the lone
+   * I8-children-sorted-by-firstkey violation), but routing the rejected case to
+   * {@link #splitParentAndRecurse} cascades into Phase 4b's deferred sparse-path bugs
+   * in {@link #buildCompressedHalf}, producing 5993 I6-pext-routes-to-leaf violations.
+   * The 1 marginal I8 violation is the design's accepted "lesser evil" until Phase 4b
+   * lands. See {@code docs/HOT_STRICT_BINNA_DESIGN.md} §4.4 (Phase 4b deferred work).
    *
    * <p>HFT-grade: zero allocation beyond the byte[] firstKey arrays returned by
    * {@link #getFirstKeyFromChild} (which are unavoidable as compareUnsigned
@@ -4016,6 +4070,20 @@ public final class HOTTrieWriter {
     if (parent.getLayoutType() != HOTIndirectPage.LayoutType.SINGLE_MASK) {
       // MultiMask parent not yet ported to compressed-half path — fall
       // back to fresh rebuild with constancy-filtered disc bits.
+      BCH_FALLBACK_MULTIMASK_PARENT.incrementAndGet();
+      if (Boolean.getBoolean("hot.debug.bchfallback")) {
+        final byte[] parentExtractionPositions = parent.getExtractionPositions();
+        final long[] parentExtractionMasks = parent.getExtractionMasks();
+        System.err.println("[bch.multimask] parent.numChildren=" + parent.getNumChildren()
+            + " parent.height=" + parent.getHeight()
+            + " halfChildren.length=" + halfChildren.length
+            + " isRightHalf=" + isRightHalf
+            + " msbPosition=" + msbPosition
+            + " parent.extractionPositions=" + java.util.Arrays.toString(parentExtractionPositions)
+            + " parent.extractionMasks=" + (parentExtractionMasks == null ? "null"
+                : java.util.Arrays.stream(parentExtractionMasks)
+                    .mapToObj(Long::toHexString).toList()));
+      }
       return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
     }
 
@@ -4052,12 +4120,14 @@ public final class HOTTrieWriter {
       splitDiscBitAbs = DiscriminativeBitComputer.computeDifferingBit(
           getLastKeyFromChild(splitLeft), getFirstKeyFromChild(splitRight));
       if (splitDiscBitAbs < 0) {
+        BCH_FALLBACK_IDENTICAL_KEYS.incrementAndGet();
         return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
       }
       final int byteOff = (splitDiscBitAbs / 8) - oldInitialBytePos;
       if (byteOff < 0 || byteOff >= 8) {
         // Cross-window split bit: must upgrade to MultiMask. Defer by
         // falling back to fresh rebuild (which chooses its own layout).
+        BCH_FALLBACK_CROSS_WINDOW.incrementAndGet();
         return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
       }
       final int bitInByte = splitDiscBitAbs % 8;
@@ -4084,6 +4154,7 @@ public final class HOTTrieWriter {
     }
     final long newMask = newMaskFromOld | splitBitMaskBit;
     if (newMask == 0L) {
+      BCH_FALLBACK_NEW_MASK_ZERO.incrementAndGet();
       return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
     }
 
@@ -4117,6 +4188,7 @@ public final class HOTTrieWriter {
         // Inherited child: find in parent, PEXT via relevant, PDEP into new layout.
         final int pIdx = indexOfInParent(parent, c, parentIndices);
         if (pIdx < 0) {
+          BCH_FALLBACK_UNKNOWN_CHILD.incrementAndGet();
           return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
         }
         final int compressed = (int) Long.compress(
@@ -4136,6 +4208,7 @@ public final class HOTTrieWriter {
     for (int i = 1; i < newPartials.length; i++) {
       for (int k = 0; k < i; k++) {
         if (newPartials[i] == newPartials[k]) {
+          BCH_FALLBACK_PARTIAL_COLLISION.incrementAndGet();
           return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
         }
       }

@@ -406,10 +406,12 @@ final class HOTFormalVerificationTest {
     final String prevConstancy = System.getProperty("hot.debug.constancy");
     final String prevStrictBinna = System.getProperty("hot.strict.binna");
     final String prevPhase4Debug = System.getProperty("hot.debug.phase4");
+    final String prevBchFallback = System.getProperty("hot.debug.bchfallback");
     System.setProperty("hot.debug.i6trace", "1");
     System.setProperty("hot.debug.constancy", "true");
     System.setProperty("hot.strict.binna", "true");
     System.setProperty("hot.debug.phase4", "true");
+    System.setProperty("hot.debug.bchfallback", "true");
     try {
       final int[] probeN = {50_000};
       for (final int n : probeN) {
@@ -418,6 +420,7 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase3RebalanceFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase4SubtreeMergeFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetAddEntryFreshPolarityFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetBuildCompressedHalfFallbackCounters();
         JsonTestHelper.deleteEverything();
         JsonTestHelper.createTestDocument();
         final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
@@ -466,6 +469,12 @@ final class HOTFormalVerificationTest {
               io.sirix.access.trx.page.HOTTrieWriter.getPhase4SubtreeMergeFirings();
           final long freshPolarityFirings =
               io.sirix.access.trx.page.HOTTrieWriter.getAddEntryFreshPolarityFirings();
+          final long bchMultiMask = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackMultiMaskParent();
+          final long bchIdentical = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackIdenticalKeys();
+          final long bchCrossWindow = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackCrossWindow();
+          final long bchNewMaskZero = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackNewMaskZero();
+          final long bchUnknown = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackUnknownChild();
+          final long bchCollision = io.sirix.access.trx.page.HOTTrieWriter.getBchFallbackPartialCollision();
           System.out.println("[microbench-pattern] N=" + n
               + " · observedHeight=" + inv.observedHeight()
               + " · violations=" + inv.violations().size()
@@ -474,6 +483,12 @@ final class HOTFormalVerificationTest {
               + " · phase4-subtree-merge-firings=" + phase4Firings
               + " · addEntry-fresh-polarity-firings=" + freshPolarityFirings
               + " · build=" + buildMs + "ms");
+          System.out.println("[microbench-pattern]   bch-fallbacks: multimask-parent=" + bchMultiMask
+              + " identical-keys=" + bchIdentical
+              + " cross-window=" + bchCrossWindow
+              + " new-mask-zero=" + bchNewMaskZero
+              + " unknown-child=" + bchUnknown
+              + " partial-collision=" + bchCollision);
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
@@ -500,12 +515,135 @@ final class HOTFormalVerificationTest {
       restoreOrClear("hot.debug.constancy", prevConstancy);
       restoreOrClear("hot.strict.binna", prevStrictBinna);
       restoreOrClear("hot.debug.phase4", prevPhase4Debug);
+      restoreOrClear("hot.debug.bchfallback", prevBchFallback);
     }
   }
 
   private static void restoreOrClear(String key, String prevValue) {
     if (prevValue == null) System.clearProperty(key);
     else System.setProperty(key, prevValue);
+  }
+
+  /**
+   * Sweep workload shapes under strict-Binna to find any configuration that fires Phase 4
+   * subtree-merge (Case 2b-iv-a — leaf split's MSDB β is already a parent disc bit AND a
+   * sibling exists at exactly {@code splitChild.partial XOR β-bit}). The firing condition
+   * is narrow: parent's children must densely cover the relevant 2^k partial-key cube AND
+   * the leaf-split-MSDB must coincide with one of those mask bits.
+   *
+   * <p>Empirical result (4 seeds × 3 ranges × 3 sizes, 21 feasible configs after density
+   * filter): <b>zero firings</b>. Confirms Case 2b-iv-a does not arise from CAS-index
+   * Sirix workloads — the case requires both (a) pre-existing leaf-level constancy
+   * violation AND (b) the exact-XOR sibling to coincidentally exist. On Binna-conformant
+   * trees, (a) cannot happen because every leaf is β-constant for every ancestor disc bit.
+   *
+   * <p>Disabled by default to keep CI fast. Re-enable as a diagnostic when changing
+   * Phase 4 routing to verify natural-workload behavior remains a no-op (or, if the fresh-
+   * polarity / hoisting paths get tightened so 2b-iv-a starts firing, codify the first
+   * triggering config as a focused regression test).
+   */
+  @org.junit.jupiter.api.Disabled("Diagnostic probe — not a correctness gate. Re-enable when "
+      + "changing Phase 4 dispatch to verify the empirical 'zero firings on natural CAS workloads' "
+      + "result still holds, or to discover a triggering config for codification.")
+  @Test
+  @DisplayName("DIAGNOSTIC — sweep for Phase 4 subtree-merge firings")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void diagnosticPhase4SubtreeMergeFiringSweep() {
+    final String prevStrictBinna = System.getProperty("hot.strict.binna");
+    System.setProperty("hot.strict.binna", "true");
+    try {
+      final long[] seeds = {0xC0FFEEL, 0xDEADBEEFL, 0xBADC0DEL, 0xFEEDFACEL};
+      final int[] valueRanges = {500, 2000, 8000};
+      final int[] sizes = {1_000, 10_000, 50_000};
+
+      long totalFirings = 0L;
+      int firingConfigs = 0;
+      long firstFiringSeed = 0L;
+      int firstFiringRange = 0;
+      int firstFiringSize = 0;
+      long firstFiringFirings = 0L;
+
+      int skipped = 0;
+      for (final long seed : seeds) {
+        for (final int valueRange : valueRanges) {
+          for (final int n : sizes) {
+            // Filter density: CAS leaf capacity is 512 entries per chunked-bitmap leaf, so
+            // n / valueRange must stay below ~25 to avoid per-value-leaf overflow under
+            // adversarial seeds. Skip configs known to bust the cap.
+            if (n / valueRange > 25) {
+              skipped++;
+              continue;
+            }
+            JsonTestHelper.deleteEverything();
+            JsonTestHelper.createTestDocument();
+            final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+            io.sirix.access.trx.page.HOTTrieWriter.resetPhase4SubtreeMergeFirings();
+
+            final IndexDef def;
+            final Random rng = new Random(seed);
+            long firings = 0L;
+            boolean infeasible = false;
+            try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+                final var trx = session.beginNodeTrx()) {
+              final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+              final var pathToValue = io.brackit.query.util.path.Path.parse(
+                  "/p/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+              def = IndexDefs.createCASIdxDef(false, Type.INR,
+                  Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+              ic.createIndexes(Set.of(def), trx);
+
+              final StringBuilder json = new StringBuilder(n * 12);
+              json.append("{\"p\":[");
+              for (int i = 0; i < n; i++) {
+                if (i > 0) json.append(',');
+                json.append("{\"v\":").append(rng.nextInt(valueRange)).append('}');
+              }
+              json.append("]}");
+              try {
+                trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+                trx.commit();
+                firings = io.sirix.access.trx.page.HOTTrieWriter.getPhase4SubtreeMergeFirings();
+              } catch (final RuntimeException ex) {
+                // Workload-specific infeasibility (e.g., per-value duplicate count exceeded
+                // chunked-bitmap leaf cap). Roll back so the trx closes cleanly, mark as
+                // skipped, and move on — this is a probe, not a correctness gate.
+                trx.rollback();
+                infeasible = true;
+              }
+            }
+            if (infeasible) {
+              skipped++;
+              continue;
+            }
+
+            totalFirings += firings;
+            if (firings > 0L) {
+              firingConfigs++;
+              if (firstFiringSize == 0) {
+                firstFiringSeed = seed;
+                firstFiringRange = valueRange;
+                firstFiringSize = n;
+                firstFiringFirings = firings;
+              }
+              System.out.println("[phase4-sweep]   firing config: seed=0x"
+                  + Long.toHexString(seed) + " range=" + valueRange + " n=" + n
+                  + " firings=" + firings);
+            }
+          }
+        }
+      }
+
+      final int total = seeds.length * valueRanges.length * sizes.length;
+      System.out.println("[phase4-sweep] summary: totalFirings=" + totalFirings
+          + " firingConfigs=" + firingConfigs + "/" + (total - skipped) + " feasible"
+          + " (skipped=" + skipped + "/" + total + ")"
+          + (firstFiringSize == 0 ? " — NO config triggered Phase 4 subtree-merge"
+              : " · firstFiring(seed=0x" + Long.toHexString(firstFiringSeed)
+                  + ", range=" + firstFiringRange + ", n=" + firstFiringSize
+                  + ", firings=" + firstFiringFirings + ")"));
+    } finally {
+      restoreOrClear("hot.strict.binna", prevStrictBinna);
+    }
   }
 
   /** TEMPORARY DIAGNOSTIC — finds the smallest N at which the rebuild-path stale-route violations
