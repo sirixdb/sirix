@@ -163,6 +163,19 @@ public final class HOTTrieWriter {
   private static final java.util.concurrent.atomic.AtomicLong BCH_FALLBACK_PARTIAL_COLLISION =
       new java.util.concurrent.atomic.AtomicLong(0L);
 
+  /** Stage G — count of addEntryWithPDep / buildCompressedHalf I4-violation rejects. */
+  private static final java.util.concurrent.atomic.AtomicLong G1_I4_REJECT_ADDENTRY =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong G3_I4_REJECT_BCH =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getG1I4RejectAddEntry() { return G1_I4_REJECT_ADDENTRY.get(); }
+  public static long getG3I4RejectBch() { return G3_I4_REJECT_BCH.get(); }
+  public static void resetG1G3Counters() {
+    G1_I4_REJECT_ADDENTRY.set(0L);
+    G3_I4_REJECT_BCH.set(0L);
+  }
+
   /** Returns the count of MultiMask-parent fallbacks since the last reset. */
   public static long getBchFallbackMultiMaskParent() { return BCH_FALLBACK_MULTIMASK_PARENT.get(); }
   /** Returns the count of identical-keys fallbacks since the last reset. */
@@ -1325,6 +1338,11 @@ public final class HOTTrieWriter {
     final byte[] prevFirstKey = getFirstKeyFromChild(prevChild);
     if (prevFirstKey == null || prevFirstKey.length == 0) return true;
     // I8: prev.firstKey < new.firstKey. If prev >= new, the order would be broken.
+    // Note: only the prev-side check is enforced. Stage G.4 attempt (2026-05-09) added
+    // a symmetric next-side check; it cascaded into 5998 I6/I5 violations because
+    // splitParentAndRecurse's sparse-path encoding in buildCompressedHalf has known
+    // correctness gaps. Until those are fixed, the prev-only check is the lesser-evil
+    // bypass — accepts 1 marginal I8 violation rather than 5998.
     return Arrays.compareUnsigned(prevFirstKey, leftFirstKey) < 0;
   }
 
@@ -1457,6 +1475,24 @@ public final class HOTTrieWriter {
       for (int k = 0; k < i; k++) {
         if (newPartialKeys[k] == newPartialKeys[i]) return null;
       }
+    }
+
+    // Stage G.1 fix (Bug B1) — I4 self-check: under sparse-path encoding the leftmost slot
+    // in partial-key order must have stored partial = 0 (Binna's "first mask always zero",
+    // C++ HOTSingleThreadedNode.hpp:179-320). The PDEP-repositioning above produces partial
+    // 0 only when (a) splitChildIndex was originally slot 0 (LEFT half inherits 0) OR (b)
+    // some non-split sibling i has both oldPartial[i] == 0 AND siblingBitValues[i] == 0
+    // (= leftmost original sibling stays β=0). When neither holds, the layout has no
+    // β-leftmost child — addEntry can't preserve sparse-path encoding without restructuring.
+    // Reject so the caller takes splitParentAndRecurse, which rebuilds halves from scratch
+    // and (per Stage F design) applies its own I4 verification.
+    boolean hasZeroPartial = false;
+    for (int i = 0; i < newNumChildren; i++) {
+      if (newPartialKeys[i] == 0) { hasZeroPartial = true; break; }
+    }
+    if (!hasZeroPartial) {
+      G1_I4_REJECT_ADDENTRY.incrementAndGet();
+      return null;
     }
 
     // 5. Sort children + partials by partial-key (HOT I7 / Binna §4.2). Under sparse-path
@@ -3598,6 +3634,20 @@ public final class HOTTrieWriter {
       }
     }
 
+    // Stage G.1b fix (Bug B1, MultiMask variant) — I4 self-check. The PDEP+OR repositioning
+    // can produce a layout where no slot has partial 0 when the leftmost original sibling's
+    // β-bit value at the new disc bit equals 1 AND splitChildIndex > 0. This is the
+    // empirical root cause of the "indirect 11 smallest partial 0x38" violation Stage E
+    // attributed to a happy-path operation. Reject so caller takes splitParentAndRecurse.
+    boolean mmHasZero = false;
+    for (final int p : newPartials) {
+      if (p == 0) { mmHasZero = true; break; }
+    }
+    if (!mmHasZero) {
+      G1_I4_REJECT_ADDENTRY.incrementAndGet();
+      return null;
+    }
+
     // 7. Sort children + partials by partial-key (HOT I7 / Binna §4.2). See addEntryWithPDep.
     sortChildrenAndPartialsByPartial(newChildren, newPartials);
 
@@ -4870,6 +4920,21 @@ public final class HOTTrieWriter {
           return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
         }
       }
+    }
+
+    // Stage G.3 fix (Bug B3) — I4 self-check: under sparse-path encoding the smallest
+    // stored partial must be 0. The PEXT+PDEP repositioning in this loop doesn't
+    // guarantee this — if neither split products land at partial 0 nor any inherited
+    // child's repositioned partial is 0, the layout is structurally invalid.
+    // Falls back to createNodeFromChildren-N (which has its own I5 issues, tracked
+    // by pending task #21; trade-off documented in Stage F).
+    boolean bchHasZeroPartial = false;
+    for (final int p : newPartials) {
+      if (p == 0) { bchHasZeroPartial = true; break; }
+    }
+    if (!bchHasZeroPartial) {
+      G3_I4_REJECT_BCH.incrementAndGet();
+      return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
     }
 
     // Sort by partial-key (HOT I7 / Binna §4.2). The sortedChildren array was sorted by
