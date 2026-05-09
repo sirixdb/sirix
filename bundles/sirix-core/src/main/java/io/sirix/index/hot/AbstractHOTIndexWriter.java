@@ -755,6 +755,32 @@ public abstract class AbstractHOTIndexWriter<K> {
     LeafNavigationResult navResult = prepareLeafOfTree(rootRef, keyBuf, keyLen);
     HOTLeafPage leaf = navResult.leaf();
 
+    // Option B (Stage G.13) — insert-time re-route via Phase 4 subtree-merge logic.
+    // When inserting newKey would break β-constancy at some ancestor A's mask bit β,
+    // detect it BEFORE the leaf insert and re-route newKey to A's exact-XOR sibling
+    // slot. The existing leaf stays β-constant; newKey gets routed to the right
+    // subtree via PEXT descent from the sibling.
+    //
+    // This is the architectural fix from HOT_FIX_DESIGN_V2.md §3.2 Option B. It avoids
+    // the multi-entry-leaf β-mixing pathology by routing the offending key away from
+    // the "would-make-it-mixed" leaf, into the existing β-correct subtree.
+    // Option B (Stage G.13) — DISABLED 2026-05-09. The reroute infrastructure
+    // (findAnyOffendingAncestorBit + tryReRouteOffendingKey) is in place at the
+    // HOTTrieWriter level for future integration. Two attempts of dispatch wiring
+    // both cascaded:
+    //
+    //   Attempt 1 (any β disagreement) — fired 36420×, cascade 1 → 37257 violations.
+    //   Attempt 2 (β-constant leaf only) — fired 23865×, cascade 1 → 28706 violations.
+    //
+    // Root cause of cascade: when a key reroutes to a sibling subtree via
+    // bulkInsertIntoSiblingSubtree, the destination subtree may have its OWN β-constancy
+    // claims that the moved key breaks. The bulk-insert doesn't run Option B recursively
+    // at the destination, so violations cascade into the new subtree.
+    //
+    // Required architectural fix (next session): integrate Option B's check at every
+    // descent level inside bulkInsertIntoSiblingSubtree. Effectively making the writer's
+    // routing constancy-aware all the way down.
+
     // Phase 2 (constancy-aware leaf split) — DISABLED 2026-05-09. Three attempts:
     //
     // Attempt 1 (eager, any non-constant ancestor β): 1 → 635 violations, height 6 → 12.

@@ -3858,6 +3858,139 @@ public final class HOTTrieWriter {
   }
 
   /**
+   * Option B (Stage G.13) — Return ANY ancestor disc bit β where inserting {@code keyBuf}
+   * into {@code leaf} would break β-constancy. Unlike {@link #findOffendingAncestorBit},
+   * this does NOT restrict β to leaf's MSDB-with-K — it returns ANY β where the new
+   * key's bit value disagrees with at least one existing leaf key's bit value at β.
+   *
+   * <p>Returns the MOST SIGNIFICANT (= numerically smallest absolute bit position)
+   * such β, so the caller can split on the highest-priority β first. Callers must
+   * handle the non-contiguous partition case (β &lt; MSDB) via subtree-merge style
+   * reroute rather than naive contiguous split (which breaks parent's I8).
+   *
+   * <p>Returns {@code -1} if no break would occur (= insert preserves β-constancy on
+   * every ancestor β).
+   *
+   * @param pathNodes ancestor path (root → leaf-parent)
+   * @param pathDepth number of valid entries in pathNodes
+   * @param leaf the leaf about to receive keyBuf
+   * @param keyBuf the new key
+   * @return offending β (≥ 0, MSB-first absolute position) or -1 if none
+   */
+  public int findAnyOffendingAncestorBit(HOTIndirectPage[] pathNodes, int pathDepth,
+      HOTLeafPage leaf, byte[] keyBuf) {
+    if (leaf == null || keyBuf == null) return -1;
+    if (leaf.getEntryCount() == 0) return -1;
+    if (pathDepth <= 0) return -1;
+
+    final int[] ancestorBits = collectAncestorDiscBits(pathNodes, pathDepth);
+    if (ancestorBits.length == 0) return -1;
+
+    // ancestorBits is sorted ascending (= most-significant first). Return β iff:
+    //   (a) leaf is β-CONSTANT at some value v across ALL its keys, AND
+    //   (b) newKey.β = ¬v (= newKey would break the leaf's β-constancy at β).
+    //
+    // Partial mismatches (where leaf has both β=0 and β=1 keys) mean the leaf is already
+    // β-mixed AT THIS β regardless of newKey — Option B can't fix that case. Only the
+    // β-constant-leaf case is fixable: routing newKey elsewhere preserves the leaf.
+    final int entryCount = leaf.getEntryCount();
+    for (final int beta : ancestorBits) {
+      final boolean newKeyBetaSet = isAbsBitSet(keyBuf, beta);
+      // Determine leaf's β-constancy: scan all entries. If mixed → skip this β.
+      boolean seen0 = false, seen1 = false;
+      for (int i = 0; i < entryCount; i++) {
+        final byte[] existing = leaf.getKey(i);
+        if (existing == null || existing.length == 0) continue;
+        if (isAbsBitSet(existing, beta)) seen1 = true;
+        else seen0 = true;
+        if (seen0 && seen1) break;
+      }
+      if (seen0 && seen1) continue; // already β-mixed → Option B can't help
+      // Leaf is β-constant at value v ∈ {0,1}. Check newKey.β disagrees.
+      final boolean leafBetaValue = seen1; // (only-seen value)
+      if (leafBetaValue != newKeyBetaSet) {
+        return beta; // would break β-constancy
+      }
+    }
+    return -1;
+  }
+
+  /** MSB-first absolute bit lookup: bit 0 = MSB of byte 0. Returns false past length. */
+  private static boolean isAbsBitSet(byte[] key, int absBit) {
+    final int bytePos = absBit / 8;
+    if (bytePos >= key.length) return false;
+    final int bitInByte = absBit % 8;
+    return (key[bytePos] & (1 << (7 - bitInByte))) != 0;
+  }
+
+  /** Stage G.13 — Option B counter for insert-time re-route firings. */
+  private static final java.util.concurrent.atomic.AtomicLong OPTION_B_REROUTE_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getOptionBRerouteFirings() { return OPTION_B_REROUTE_FIRINGS.get(); }
+  public static void resetOptionBRerouteFirings() { OPTION_B_REROUTE_FIRINGS.set(0L); }
+
+  /**
+   * Option B (Stage G.13) — Insert-time re-route. When the leaf-insert pre-condition
+   * detects that newKey would break β-constancy at some ancestor A, bypass the standard
+   * leaf insert and re-route newKey to A's exact-XOR sibling slot via Phase 4-style
+   * bulk-insert-into-sibling-subtree.
+   *
+   * <p>Algorithm:
+   * <ol>
+   *   <li>Walk up the path looking for the highest (= numerically smallest absBit) ancestor
+   *       A whose mask captures β.</li>
+   *   <li>At A, compute β's output position in A's partial-key layout.</li>
+   *   <li>Compute the target sibling's stored partial = descend-slot's stored XOR
+   *       (1 &lt;&lt; outputPos). Find the slot whose stored matches exactly.</li>
+   *   <li>If sibling exists, call {@link #bulkInsertIntoSiblingSubtree} to descend from
+   *       sibling and insert newKey there. Existing leaf at descend-slot stays β-constant.</li>
+   *   <li>If no exact-XOR sibling exists, return false (caller falls through to standard
+   *       insert; future work can add addEntry-style mask extension at A).</li>
+   * </ol>
+   *
+   * @return {@code true} on successful re-route, {@code false} otherwise (caller falls
+   *         through to standard insert path)
+   */
+  public boolean tryReRouteOffendingKey(HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+      int[] pathChildIndices, int pathDepth, int offendingBeta,
+      byte[] keyBuf, byte[] valueBuf,
+      StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
+    if (pathDepth <= 0 || offendingBeta < 0) return false;
+    // Find ancestor A whose mask captures offendingBeta. Walk DOWN the path (root → leaf-parent)
+    // so we route at the HIGHEST ancestor that captures β (= the most-significant routing decision).
+    for (int i = 0; i < pathDepth; i++) {
+      final HOTIndirectPage A = pathNodes[i];
+      if (A == null) continue;
+      final int betaOutputPos = (A.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK)
+          ? singleMaskBetaOutputPos(A, offendingBeta)
+          : multiMaskBetaOutputPos(A, offendingBeta);
+      if (betaOutputPos < 0) continue; // β not in A's mask
+      final int descendSlot = pathChildIndices[i];
+      final int[] partials = A.getPartialKeys();
+      if (partials == null || descendSlot < 0 || descendSlot >= partials.length) continue;
+      final int descendStored = partials[descendSlot];
+      final int targetStored = descendStored ^ (1 << betaOutputPos);
+      // Look for exact-XOR sibling.
+      int siblingIdx = -1;
+      final int n = A.getNumChildren();
+      for (int j = 0; j < n; j++) {
+        if (j == descendSlot) continue;
+        if (partials[j] == targetStored) { siblingIdx = j; break; }
+      }
+      if (siblingIdx < 0) continue; // no exact-XOR sibling at this ancestor — try further down
+      // Bulk-insert keyBuf into sibling's subtree.
+      final boolean ok = bulkInsertIntoSiblingSubtree(A, pathRefs[i], siblingIdx,
+          keyBuf, valueBuf, storageEngineWriter, log);
+      if (ok) {
+        OPTION_B_REROUTE_FIRINGS.incrementAndGet();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Append the absolute disc-bit positions captured by a single indirect to {@code buf}
    * starting at {@code start}. Returns the new write offset.
    *

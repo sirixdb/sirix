@@ -425,6 +425,7 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetBuildCompressedHalfFallbackCounters();
         io.sirix.access.trx.page.HOTTrieWriter.resetBchEncodingDiagnostics();
         io.sirix.access.trx.page.HOTTrieWriter.resetG1G3Counters();
+        io.sirix.access.trx.page.HOTTrieWriter.resetOptionBRerouteFirings();
 
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
@@ -593,7 +594,8 @@ final class HOTFormalVerificationTest {
               + io.sirix.access.trx.page.HOTTrieWriter.getBchEncodingMismatches());
           System.out.println("[microbench-pattern]   stage-G rejects: G1-i4-addEntry="
               + io.sirix.access.trx.page.HOTTrieWriter.getG1I4RejectAddEntry()
-              + " G3-i4-bch=" + io.sirix.access.trx.page.HOTTrieWriter.getG3I4RejectBch());
+              + " G3-i4-bch=" + io.sirix.access.trx.page.HOTTrieWriter.getG3I4RejectBch()
+              + " optionB-reroute=" + io.sirix.access.trx.page.HOTTrieWriter.getOptionBRerouteFirings());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
