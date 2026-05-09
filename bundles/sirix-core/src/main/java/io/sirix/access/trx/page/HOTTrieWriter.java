@@ -3041,7 +3041,12 @@ public final class HOTTrieWriter {
 
     while (curPage instanceof HOTIndirectPage indirect) {
       if (descDepth >= MAX_TREE_HEIGHT) return false;
-      final int childIdx = indirect.findChildIndex(key);
+      // Stage G.17 — constancy-aware descent. Pick the child slot whose subtree is
+      // β-constant at value matching key's β-value (if such a slot exists) instead of
+      // blindly following findChildIndex. This prevents bulk-insert from creating
+      // β-mixing in the destination subtree (= the cascade source of Option B's earlier
+      // dispatch attempts).
+      final int childIdx = pickConstancyCorrectChildSlot(indirect, key, storageEngineReader, log);
       if (childIdx < 0) return false;
       final PageReference childRef = indirect.getChildReference(childIdx);
       if (childRef == null) return false;
@@ -3992,6 +3997,60 @@ public final class HOTTrieWriter {
   /** Stage G.15 — I8 pre-check counter (newKey would become new deep-firstKey, breaking I8). */
   private static final java.util.concurrent.atomic.AtomicLong G15_I8_REROUTE_FIRINGS =
       new java.util.concurrent.atomic.AtomicLong(0L);
+
+  /** Stage G.17 — constancy-aware descent counter (slot redirected to avoid β-mixing). */
+  private static final java.util.concurrent.atomic.AtomicLong G17_CONSTANCY_REDIRECTS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getG17ConstancyRedirects() { return G17_CONSTANCY_REDIRECTS.get(); }
+  public static void resetG17ConstancyRedirects() { G17_CONSTANCY_REDIRECTS.set(0L); }
+
+  /**
+   * Stage G.17 — Pick the child slot for {@code key} at {@code indirect} that preserves
+   * β-constancy in the chosen subtree. If the natural PEXT-routing pick (findChildIndex)
+   * would force β-mixing at some β in indirect.mask, look for an alternate slot whose
+   * subtree's β-value matches key.β. Falls back to findChildIndex if no alternate works.
+   */
+  private int pickConstancyCorrectChildSlot(HOTIndirectPage indirect, byte[] key,
+      StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
+    final int natural = indirect.findChildIndex(key);
+    if (natural < 0) return natural;
+    // Iterate β bits in indirect.mask via collectAncestorDiscBits-style enumeration.
+    final int[] betas = collectDiscBitsOf(indirect);
+    if (betas.length == 0) return natural;
+    final PageReference naturalRef = indirect.getChildReference(natural);
+    if (naturalRef == null) return natural;
+    for (final int beta : betas) {
+      final int subtreeV = bitConstantValueInSubtree(naturalRef, beta);
+      if (subtreeV < 0) continue; // already β-mixed → can't worsen it
+      final int keyBetaValue = isAbsBitSet(key, beta) ? 1 : 0;
+      if (keyBetaValue == subtreeV) continue; // key matches subtree's β → no break
+      // Look for a sibling slot whose subtree is β-constant at keyBetaValue.
+      final int n = indirect.getNumChildren();
+      int alt = -1;
+      for (int i = 0; i < n; i++) {
+        if (i == natural) continue;
+        final PageReference sib = indirect.getChildReference(i);
+        if (sib == null) continue;
+        final int sibV = bitConstantValueInSubtree(sib, beta);
+        if (sibV == keyBetaValue) { alt = i; break; }
+      }
+      if (alt >= 0) {
+        G17_CONSTANCY_REDIRECTS.incrementAndGet();
+        return alt;
+      }
+      // No alternate at this β — try next β. (Some β might have a redirectable sibling
+      // even if this one doesn't.)
+    }
+    return natural;
+  }
+
+  /** Helper: collect indirect's mask bits as absolute MSB-first positions. */
+  private static int[] collectDiscBitsOf(HOTIndirectPage indirect) {
+    final int[] tmp = new int[64];
+    final int n = appendDiscBitsOfIndirect(indirect, tmp, 0);
+    return n == 0 ? new int[0] : Arrays.copyOf(tmp, n);
+  }
 
   public static long getG15I8RerouteFirings() { return G15_I8_REROUTE_FIRINGS.get(); }
   public static void resetG15I8Counter() { G15_I8_REROUTE_FIRINGS.set(0L); }
