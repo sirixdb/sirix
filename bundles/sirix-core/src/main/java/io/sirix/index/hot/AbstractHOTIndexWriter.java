@@ -755,26 +755,30 @@ public abstract class AbstractHOTIndexWriter<K> {
     LeafNavigationResult navResult = prepareLeafOfTree(rootRef, keyBuf, keyLen);
     HOTLeafPage leaf = navResult.leaf();
 
-    // Phase 2 (constancy-aware leaf split) — DISABLED 2026-05-09 after two attempts.
+    // Phase 2 (constancy-aware leaf split) — DISABLED 2026-05-09. Three attempts:
     //
-    // Attempt 1 (eager, any non-constant ancestor β): split BEFORE merge if K's β
-    // value differs from leaf's first-key's value at any ancestor disc bit. Result:
-    // 1 → 635 violations, height 6 → 12 (non-MSDB splits broke HOT I8).
+    // Attempt 1 (eager, any non-constant ancestor β): 1 → 635 violations, height 6 → 12.
+    // Attempt 2 (constrained: β must equal leaf MSDB-with-K): 1 → 645 violations.
+    // Attempt 3 (Stage G.7 retry, with G.1/G.1b/G.3/G.5/G.6 in place): 1 → 517 violations
+    // (512 I6, 2 I-Binna-sparse-path, 2 I5, 1 I8). The G-fixes' I4 self-checks didn't
+    // prevent the cascade because the cascade source is leaf-level β-mixing AT INDIRECT
+    // 26's child[0] slot — partial 0x0 ("don't care") matches keys with bit 0x8000=1
+    // even though child[0]'s subtree was originally β=0-only (Stage G empirical trace).
     //
-    // Attempt 2 (constrained: β must equal leaf's MSDB-with-K for contiguous split):
-    // Result: 1 → 645 violations. Even contiguous splits expose downstream cascade
-    // issues in addEntryWithPDep / splitParentAndRecurse / intermediate-BiNode paths
-    // (these construct stored partials assuming I-Binna invariant, which is the same
-    // assumption the eager split tries to enforce — circular).
+    // The fundamental issue: under sparse-path encoding, partial 0x0 means BOTH
+    // "leftmost on every BiNode" AND "subtree has all bit-0 paths". Multi-entry-leaf
+    // β-mixing breaks the second claim AT INSERT TIME, but routing soundness only
+    // verifies the first. Phase 2 split-on-β fixes ONE leaf but the broken indirect
+    // partial structure cascades through ancestor lookups.
     //
-    // Conclusion: Phase 2 alone insufficient. Requires the broader Phase 4b refactor
-    // (= sparse-path encoding throughout indirect construction, removal of persisted
-    // intermediate-BiNode workaround) FIRST, then Phase 2 to maintain leaf-level
-    // β-constancy. ~3-4 weeks of careful integration.
+    // Required fix: split-on-β + REROUTE the misfit half to a new sibling slot at the
+    // appropriate ancestor level (= Phase 4 subtree-merge for the leaf-insert case).
+    // Phase 4 currently only fires for addEntryWithPDep-rejection cases, not for
+    // pre-emptive leaf-level splits. Multi-week integration item.
     //
-    // Helper {@link HOTTrieWriter#findOffendingAncestorBit} + {@link
-    // HOTLeafPage#computeMsdbWithKey} + {@link HOTTrieWriter#handleLeafSplitAndInsert}
-    // explicit-split-bit overload remain in place for future Phase 1+2 integration.
+    // Helpers in place for future integration: {@link
+    // HOTTrieWriter#findOffendingAncestorBit}, {@link HOTLeafPage#computeMsdbWithKey},
+    // {@link HOTTrieWriter#handleLeafSplitAndInsert} explicit-split-bit overload.
 
     // Merge entry
     boolean success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
