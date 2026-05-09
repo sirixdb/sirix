@@ -1330,19 +1330,13 @@ public final class HOTTrieWriter {
    */
   private boolean intermediateBiNodePreservesSlotOrder(HOTIndirectPage parent,
       int originalChildIndex, PageReference leftChild) {
-    if (originalChildIndex == 0) return true; // no predecessor
+    if (originalChildIndex == 0) return true;
     final byte[] leftFirstKey = getFirstKeyFromChild(leftChild);
-    if (leftFirstKey == null || leftFirstKey.length == 0) return true; // unloadable — let caller decide
+    if (leftFirstKey == null || leftFirstKey.length == 0) return true;
     final PageReference prevChild = parent.getChildReference(originalChildIndex - 1);
     if (prevChild == null) return true;
     final byte[] prevFirstKey = getFirstKeyFromChild(prevChild);
     if (prevFirstKey == null || prevFirstKey.length == 0) return true;
-    // I8: prev.firstKey < new.firstKey. If prev >= new, the order would be broken.
-    // Note: only the prev-side check is enforced. Stage G.4 attempt (2026-05-09) added
-    // a symmetric next-side check; it cascaded into 5998 I6/I5 violations because
-    // splitParentAndRecurse's sparse-path encoding in buildCompressedHalf has known
-    // correctness gaps. Until those are fixed, the prev-only check is the lesser-evil
-    // bypass — accepts 1 marginal I8 violation rather than 5998.
     return Arrays.compareUnsigned(prevFirstKey, leftFirstKey) < 0;
   }
 
@@ -4599,16 +4593,28 @@ public final class HOTTrieWriter {
    * @return bitmask of relevant bit positions in the partial-key encoding (LSB=0)
    */
   static int computeRelevantBitsFromPartials(int[] partials, int[] indices) {
-    int relevant = 0;
-    int prev = -1;
-    for (int i = 0; i < indices.length; i++) {
+    // Stage G.5 fix (Bug B2/B3 — strengthens "relevant" for buildCompressedHalf I6).
+    //
+    // The original adjacent-XOR formula `OR (p[i] & ~p[i-1])` is only correct when the
+    // sequence is monotonically sorted AND captures all pairwise differences via adjacent
+    // transitions. Under multi-entry-leaf workloads the half-partition produced by
+    // splitParentAndRecurse may yield partial sequences where some pairwise difference
+    // bits are NOT covered by adjacent XORs (e.g., partials drawn from a non-contiguous
+    // subset of parent's partial-key cube).
+    //
+    // The structurally-correct definition of "relevant" = "any bit at which two partials
+    // in the half differ" = `OR(partials) XOR AND(partials)`. Computing this in O(n)
+    // strictly dominates the adjacent-XOR (since adjacent-XOR ⊆ pairwise-XOR-OR),
+    // strengthening the I6 invariant at the cost of fewer mask-bit eliminations.
+    if (indices == null || indices.length == 0) return 0;
+    int orAll = partials[indices[0]];
+    int andAll = partials[indices[0]];
+    for (int i = 1; i < indices.length; i++) {
       final int p = partials[indices[i]];
-      if (prev >= 0) {
-        relevant |= (p & ~prev);
-      }
-      prev = p;
+      orAll |= p;
+      andAll &= p;
     }
-    return relevant;
+    return orAll ^ andAll;
   }
 
   /**
@@ -4863,38 +4869,31 @@ public final class HOTTrieWriter {
               .append(" newPartial=0x").append(Integer.toHexString(newPartials[j])).append('\n');
         }
       } else {
-        // Inherited child: find in parent, PEXT via relevant, PDEP into new layout.
-        final int pIdx = indexOfInParent(parent, c, parentIndices);
-        if (pIdx < 0) {
+        // Stage G.6 fix (Bug B2 root cause) — inherited children get DIRECT PEXT under
+        // newMask from their firstKey instead of the sparse PEXT+PDEP repositioning.
+        //
+        // The original sparse-path encoding stored only the bits that vary within the
+        // half (via `relevant` mask) and assumed the dropped bits were β-constant in the
+        // child's subtree. Under Sirix's multi-entry-leaf workload that assumption breaks:
+        // when downstream inserts violate β-constancy, dropped bits actually do vary and
+        // routing breaks. The cascade observed at Stage G.4 retry: 5993 I6 violations.
+        //
+        // Direct PEXT from firstKey is structurally correct for I6 routing of the firstKey
+        // itself, and for any key K in the subtree that agrees with firstKey at every bit
+        // captured by newMask. When K disagrees (= leaf-level β-mixing), the I-leaf-insert-
+        // precondition still fires, but I6 is preserved at this level. Trade-off: lose the
+        // sparse-path's bit-elision optimization (~few mask bits per half), gain routing
+        // correctness on the happy-path cascade.
+        final byte[] cKey = getFirstKeyFromChild(c);
+        if (cKey == null || cKey.length == 0) {
           BCH_FALLBACK_UNKNOWN_CHILD.incrementAndGet();
           return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
         }
-        final int oldPartial = oldPartials[pIdx];
-        final int compressed = (int) Long.compress(
-            Integer.toUnsignedLong(oldPartial),
-            Integer.toUnsignedLong(relevant));
-        final int repositioned = (int) Long.expand(
-            Integer.toUnsignedLong(compressed),
-            oldBitsInNewLayout);
-        // Sparse-path encoding (Binna §4.2): non-split sibling's path does NOT include the
-        // split-disc-bit's BiNode, so its new-bit position stays 0 regardless of how the
-        // bit varies within its subtree. Constancy check removed.
-        newPartials[j] = repositioned;
+        newPartials[j] = computePartialKeySingleMask(cKey, oldInitialBytePos, newMask);
         if (dbgEnc) {
-          final byte[] cKey = getFirstKeyFromChild(c);
-          final int directDense = computePartialKeySingleMask(cKey, oldInitialBytePos, newMask);
-          final boolean mismatch = (repositioned != directDense);
-          if (mismatch) {
-            anyMismatch = true;
-            BCH_ENCODING_MISMATCHES.incrementAndGet();
-          }
-          dbgEncBuf.append("[bch.enc]   j=").append(j).append(" inherited pIdx=").append(pIdx)
+          dbgEncBuf.append("[bch.enc]   j=").append(j).append(" inherited (direct-PEXT)")
               .append(" firstKey=").append(bytesToHex(cKey))
-              .append(" oldPartial=0x").append(Integer.toHexString(oldPartial))
-              .append(" compressed=0x").append(Integer.toHexString(compressed))
-              .append(" repositioned=0x").append(Integer.toHexString(repositioned))
-              .append(" denseUnderNewMask=0x").append(Integer.toHexString(directDense))
-              .append(mismatch ? "  ★ MISMATCH ★" : "").append('\n');
+              .append(" newPartial=0x").append(Integer.toHexString(newPartials[j])).append('\n');
         }
       }
     }
