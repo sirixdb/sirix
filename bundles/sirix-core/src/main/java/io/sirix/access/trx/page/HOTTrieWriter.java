@@ -3259,7 +3259,7 @@ public final class HOTTrieWriter {
    * Compute MultiMask partial key for a single key (byte-gather + per-byte PEXT).
    * Matches the read path's {@link HOTIndirectPage#computeMultiMaskPartialKeyScalar}.
    */
-  private static int computePartialKeyMultiMaskDirect(byte[] key,
+  static int computePartialKeyMultiMaskDirect(byte[] key,
       byte[] extractionPositions, long[] extractionMasks, int numExtractionBytes) {
     final int numChunks = extractionMasks.length;
     // BE chunk packing: extraction-byte at chunk-offset {@code o} → long bits ((7-o)*8)..((7-o)*8+7).
@@ -4031,6 +4031,141 @@ public final class HOTTrieWriter {
     }
   }
 
+  // ===========================================================================
+  // Phase 4b.0 — MultiMask helpers for buildCompressedHalf's MultiMask-parent path
+  //
+  // These three helpers and the {@link MultiMaskSubLayout} record provide a
+  // layout-independent way to derive a "subset" MultiMask layout from a parent
+  // MultiMask layout, given the {@code relevant} bits of parent's mask that actually
+  // differ within a contiguous range of children. Mirrors the C++ reference's
+  // {@code DiscriminativeBitsRepresentation.extract(relevantBits)} template; Java
+  // can't unify SingleMask + MultiMask via templates, so we explicitly branch on
+  // {@code parent.getLayoutType()} and call this MultiMask path when needed.
+  //
+  // Used by Phase 4b.2 (MultiMask-parent path in {@link #buildCompressedHalf}).
+  // ===========================================================================
+
+  /**
+   * Subset MultiMask layout produced by {@link #extractMultiMaskSubset}. The
+   * {@code extractionMasks} array is sized to the smallest number of long-chunks
+   * that holds {@code numExtractionBytes} extraction-bytes (8 per chunk).
+   */
+  record MultiMaskSubLayout(byte[] extractionPositions, long[] extractionMasks,
+      int numExtractionBytes, int totalBits, short msbIndex) {
+  }
+
+  /**
+   * Compute the relevant-bits mask for a contiguous range of children (in their
+   * stored partial-key order). For each adjacent pair in {@code partials[indices]}
+   * (assumed ascending), OR together {@code (p[i] & ~p[i-1])} — the bits that flip
+   * 0→1 across the pair. The union captures every bit that distinguishes any pair
+   * of partials in the range (Binna §4.2 lemma: by sorted-integer monotonicity
+   * every differing bit must flip at some adjacent step).
+   *
+   * <p>Layout-independent: works on partial-key INTs regardless of whether parent
+   * uses SingleMask or MultiMask layout.
+   *
+   * <p>HFT-grade: zero allocation, single pass.
+   *
+   * @param partials parent's partial-key array
+   * @param indices sorted indices into {@code partials} for this half
+   * @return bitmask of relevant bit positions in the partial-key encoding (LSB=0)
+   */
+  static int computeRelevantBitsFromPartials(int[] partials, int[] indices) {
+    int relevant = 0;
+    int prev = -1;
+    for (int i = 0; i < indices.length; i++) {
+      final int p = partials[indices[i]];
+      if (prev >= 0) {
+        relevant |= (p & ~prev);
+      }
+      prev = p;
+    }
+    return relevant;
+  }
+
+  /**
+   * Build a subset MultiMask layout containing only the disc bits of {@code parent}'s
+   * mask whose output positions are set in {@code relevant} (LSB=output-bit-0). Walks
+   * parent's MultiMask layout in BE concatenation order — extraction-byte 0's
+   * MSB-first bit-0 is the HIGHEST output bit; the last byte's MSB-first bit-7 (if set)
+   * is output bit 0. For each set bit in parent's mask, computes its output position
+   * as {@code totalBits - 1 - bitsAccumulated} and tests against {@code relevant}.
+   *
+   * <p>The resulting layout drops bytes whose mask bits are entirely excluded by
+   * {@code relevant}. Returns {@code null} if {@code parent} isn't MultiMask.
+   *
+   * <p>HFT-grade: bounded allocation (new {@code byte[]} and {@code long[]} sized
+   * exactly to the kept extraction-byte count). No boxing, no nested collections.
+   *
+   * @param parent the source MultiMask parent
+   * @param relevant bitmask of output-bit positions to retain (LSB=0)
+   * @return the subset layout, or {@code null} if parent isn't MultiMask
+   */
+  static @Nullable MultiMaskSubLayout extractMultiMaskSubset(HOTIndirectPage parent,
+      int relevant) {
+    if (parent.getLayoutType() != HOTIndirectPage.LayoutType.MULTI_MASK) return null;
+    final byte[] oldExtractionPositions = parent.getExtractionPositions();
+    final long[] oldExtractionMasks = parent.getExtractionMasks();
+    if (oldExtractionPositions == null || oldExtractionMasks == null) return null;
+    final int oldNumBytes = oldExtractionPositions.length;
+    int oldTotalBits = 0;
+    for (final long m : oldExtractionMasks) oldTotalBits += Long.bitCount(m);
+
+    // Walk parent layout, classify each set bit as kept or dropped by `relevant`.
+    final int[] keepBytePos = new int[oldNumBytes];
+    final int[] keepByteMaskBits = new int[oldNumBytes];
+    int keepCount = 0;
+    int bitsAccumulated = 0;
+    for (int i = 0; i < oldNumBytes; i++) {
+      final int bytePos = oldExtractionPositions[i] & 0xFF;
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      final int byteMask =
+          (int) ((oldExtractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFF);
+      int keepMaskBitsForThisByte = 0;
+      for (int mfBit = 0; mfBit < 8; mfBit++) {
+        final int byteBit = 7 - mfBit;
+        if ((byteMask & (1 << byteBit)) == 0) continue;
+        final int outputPos = oldTotalBits - 1 - bitsAccumulated;
+        if ((relevant & (1 << outputPos)) != 0) {
+          keepMaskBitsForThisByte |= (1 << byteBit);
+        }
+        bitsAccumulated++;
+      }
+      if (keepMaskBitsForThisByte != 0) {
+        keepBytePos[keepCount] = bytePos;
+        keepByteMaskBits[keepCount] = keepMaskBitsForThisByte;
+        keepCount++;
+      }
+    }
+
+    // Pack into BE chunk layout. Allocate at least 1 chunk so callers can index even
+    // when keepCount == 0 (degenerate-but-safe).
+    final byte[] newExtractionPositions = new byte[keepCount];
+    final int newNumChunks = Math.max(1, (keepCount + 7) / 8);
+    final long[] newExtractionMasks = new long[newNumChunks];
+    short msbIndex = Short.MAX_VALUE;
+    int newTotalBits = 0;
+    for (int i = 0; i < keepCount; i++) {
+      newExtractionPositions[i] = (byte) keepBytePos[i];
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      newExtractionMasks[chunkIdx] |=
+          ((long) (keepByteMaskBits[i] & 0xFF)) << ((7 - byteOffsetInChunk) * 8);
+      newTotalBits += Integer.bitCount(keepByteMaskBits[i]);
+      final int highBit = 31 - Integer.numberOfLeadingZeros(keepByteMaskBits[i] & 0xFF);
+      final int absBitPos = keepBytePos[i] * 8 + (7 - highBit);
+      if (absBitPos < msbIndex) msbIndex = (short) absBitPos;
+    }
+    return new MultiMaskSubLayout(newExtractionPositions, newExtractionMasks, keepCount,
+        newTotalBits, msbIndex);
+  }
+
+  // ===========================================================================
+  // End Phase 4b.0 helpers
+  // ===========================================================================
+
   /**
    * Reference-faithful {@code compressEntriesAndAddOneEntryIntoNewNode}
    * (Binna §4.2 split integration): build a new indirect node for a
@@ -4102,16 +4237,7 @@ public final class HOTTrieWriter {
     // (HOT invariant), parent.getPartialKeys() is sorted ascending, so
     // iterating indices in ascending order gives us the sorted partial
     // sequence for this half.
-    int relevant = 0;
-    int prevPartial = -1;
-    for (int i = 0; i < parentIndices.length; i++) {
-      final int pi = parentIndices[i];
-      final int p = oldPartials[pi];
-      if (prevPartial >= 0) {
-        relevant |= (p & ~prevPartial);
-      }
-      prevPartial = p;
-    }
+    final int relevant = computeRelevantBitsFromPartials(oldPartials, parentIndices);
 
     // Encode split disc bit (if both halves land here, we need to add it).
     final int splitDiscBitAbs;
