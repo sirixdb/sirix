@@ -688,9 +688,15 @@ public final class HOTTrieWriter {
       // otherwise) handles parent rejection correctly, the prediction adds no value
       // here. Real Phase 2 leverage requires Phase 3 (lazy retroactive sibling
       // rebalance) — see docs/HOT_STRICT_BINNA_DESIGN.md §4.
-      if (!fullPage.splitToWithInsert(rightPage, keyBuf, keyLen, valueBuf, valueLen)) {
+      // Capture which half got the just-inserted key (Phase 4b-vb.0). Required by
+      // updateParentForSplitWithPath / splitParentAndRecurse to compute valueToInsert
+      // vs valueToReplace per integrateBiNodeIntoTree's semantics. 0 = LEFT (key
+      // stayed in `fullPage`), 1 = RIGHT (key went to `rightPage`).
+      final int[] newSideOut = new int[]{-1};
+      if (!fullPage.splitToWithInsert(rightPage, keyBuf, keyLen, valueBuf, valueLen, newSideOut)) {
         return false; // finally block closes rightPage
       }
+      final int leafSplitNewSide = newSideOut[0];
 
       // Boundary keys now include the new key — BiNode disc bit is correct
       final byte[] leftMax = fullPage.getLastKey();
@@ -721,7 +727,8 @@ public final class HOTTrieWriter {
         final int parentIdx = pathDepth - 1;
         updateParentForSplitWithPath(storageEngineReader, log, pathRefs[parentIdx],
             pathNodes[parentIdx], pathChildIndices[parentIdx], leafRef, rightRef,
-            rightMin, rootReference, pathNodes, pathRefs, pathChildIndices, parentIdx);
+            rightMin, rootReference, pathNodes, pathRefs, pathChildIndices, parentIdx,
+            leafSplitNewSide);
       } else {
         // Root split — create BiNode as new root.
         final long newRootPageKey = pageKeyAllocator.getAsLong();
@@ -775,7 +782,15 @@ public final class HOTTrieWriter {
       PageReference parentRef, HOTIndirectPage parent, int originalChildIndex,
       PageReference leftChild, PageReference rightChild, byte[] splitKey,
       PageReference rootReference, HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
-      int[] pathChildIndices, int currentPathIdx) {
+      int[] pathChildIndices, int currentPathIdx, int newSide) {
+    // {@code newSide} (Phase 4b-vb.1): which of (leftChild, rightChild) contains the
+    // just-inserted key. 0 = LEFT (newly-inserted key landed in leftChild), 1 = RIGHT
+    // (newly-inserted key in rightChild). Threaded from {@code splitToWithInsert}'s
+    // {@code newSideOut} all the way through indirect-level recursions. Phase 4b-vb.2
+    // and 4b-vb.3 will consume it to compute valueToInsert / valueToReplace per
+    // C++'s integrateBiNodeIntoTree semantics. Unused at present; the parameter exists
+    // so the threading is a one-shot mechanical change rather than threading through
+    // every nested call site each time we extend the integration logic.
 
     // Compute discriminative bit between the two split children.
     // Guard against -1 (identical keys, e.g., when pages can't be loaded and both return EMPTY_KEY).
@@ -2754,9 +2769,12 @@ public final class HOTTrieWriter {
     final HOTLeafPage rightPage = new HOTLeafPage(newPageKey, revision, modLeafCow.getIndexType());
     boolean rightTransferred = false;
     try {
-      if (!modLeafCow.splitToWithInsert(rightPage, key, key.length, value, value.length)) {
+      final int[] subtreeNewSideOut = new int[]{-1};
+      if (!modLeafCow.splitToWithInsert(rightPage, key, key.length, value, value.length,
+          subtreeNewSideOut)) {
         return false;
       }
+      final int subtreeLeafSplitNewSide = subtreeNewSideOut[0];
       final byte[] leftMax = modLeafCow.getLastKey();
       final byte[] rightMin = rightPage.getFirstKey();
       if (leftMax.length == 0 || rightMin.length == 0) return false;
@@ -2779,7 +2797,8 @@ public final class HOTTrieWriter {
         updateParentForSplitWithPath(storageEngineReader, log, descPathRefs[dpIdx],
             descPathNodes[dpIdx], descPathChildIdx[dpIdx], leafRef, rightRef,
             rightMin, parentRef /* root substitute for this scope */,
-            descPathNodes, descPathRefs, descPathChildIdx, dpIdx);
+            descPathNodes, descPathRefs, descPathChildIdx, dpIdx,
+            subtreeLeafSplitNewSide);
         // The top-level parent's slot[siblingIdx] still references descPathRefs[0]'s
         // original PageReference (descPathRefs[0] IS parent.getChildReference(siblingIdx)
         // by construction at the call site). The recursive update via updateParentForSplit
@@ -4012,12 +4031,17 @@ public final class HOTTrieWriter {
     // Reference: uses mMostSignificantDiscriminativeBitIndex for new BiNode
     int newRootDiscrimBit = msbPosition;
 
-    // Recurse up to integrate [leftNode, rightNode] into grandparent
+    // Recurse up to integrate [leftNode, rightNode] into grandparent.
+    // newSide=1 (the recursive C++ convention: integrateBiNodeIntoTree always passes
+    // newIsRight=true on recursion because parentNode.split() places the new entry
+    // in mRight by construction at the upper level). Phase 4b-vb.3 will refine this
+    // when splitParentAndRecurse adopts one-insert-one-replace semantics.
     if (currentPathIdx > 0) {
       int grandparentIdx = currentPathIdx - 1;
       updateParentForSplitWithPath(storageEngineReader, log, pathRefs[grandparentIdx], pathNodes[grandparentIdx],
           pathChildIndices[grandparentIdx], leftNodeRef, rightNodeRef, getFirstKeyFromChild(rightNodeRef),
-          rootReference, pathNodes, pathRefs, pathChildIndices, grandparentIdx);
+          rootReference, pathNodes, pathRefs, pathChildIndices, grandparentIdx,
+          /*newSide=*/ 1);
     } else {
       // At root - create new root BiNode
       long newRootKey = pageKeyAllocator.getAsLong();
@@ -4685,7 +4709,8 @@ public final class HOTTrieWriter {
       int grandparentIdx = currentPathIdx - 1;
       updateParentForSplitWithPath(storageEngineReader, log, pathRefs[grandparentIdx], pathNodes[grandparentIdx],
           pathChildIndices[grandparentIdx], leftNodeRef, rightNodeRef, getFirstKeyFromChild(rightNodeRef),
-          rootReference, pathNodes, pathRefs, pathChildIndices, grandparentIdx);
+          rootReference, pathNodes, pathRefs, pathChildIndices, grandparentIdx,
+          /*newSide=*/ 1); // C++ recursive convention; refined in Phase 4b-vb.3
     } else {
       byte[] lMax = getLastKeyFromChild(leftNodeRef);
       byte[] rMin = getFirstKeyFromChild(rightNodeRef);
