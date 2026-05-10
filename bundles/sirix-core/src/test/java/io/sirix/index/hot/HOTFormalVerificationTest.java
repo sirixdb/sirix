@@ -598,6 +598,25 @@ final class HOTFormalVerificationTest {
               }
             }
 
+            // Phase 5z — track when end-state-style violation first appears (without throwing).
+            // Logs FIRST occurrence per insert idx, helps identify the exact insert that
+            // creates the persistent end-state violation that doesn't get fixed.
+            if (Boolean.getBoolean("hot.trace.persistent")) {
+              final HOTInvariantValidator.Result invStep = HOTInvariantValidator.validateIndex(
+                  trx.getStorageEngineReader(), IndexType.CAS, def.getID());
+              for (final var v : invStep.violations()) {
+                if (v.invariant().equals("I8-children-sorted-by-firstkey")) {
+                  final String desc = v.toString();
+                  // Match the END-STATE pattern: indirect 2 child[2/3] with c0a002/c08008 firstKeys.
+                  if (desc.contains("c0a002") || desc.contains("c08008")) {
+                    System.out.println("[persistent-trace] FOUND-END-STATE-LIKE at idx=" + i
+                        + " : " + v);
+                    break;
+                  }
+                }
+              }
+            }
+
             // Stage G.23 — per-insert I8 bisection (also reports first I4/I11).
             if (bisectI8 && i >= bisectFrom && i < bisectTo) {
               final HOTInvariantValidator.Result inv1 = HOTInvariantValidator.validateIndex(
