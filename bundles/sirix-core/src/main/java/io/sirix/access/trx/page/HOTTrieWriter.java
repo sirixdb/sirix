@@ -4057,27 +4057,59 @@ public final class HOTTrieWriter {
    */
   private @Nullable HOTIndirectPage extendIndirectMaskForClosure(HOTIndirectPage indirect,
       int beta, TransactionIntentLog log, int revision) {
-    if (indirect == null || beta < 0) return null;
+    final boolean dbg = Boolean.getBoolean("hot.debug.g30");
+    if (indirect == null || beta < 0) {
+      if (dbg) System.err.println("[g30] reject reason=null-or-neg-beta beta=" + beta);
+      return null;
+    }
     final int oldNumChildren = indirect.getNumChildren();
-    if (oldNumChildren < 2) return null;
+    if (oldNumChildren < 2) {
+      if (dbg) System.err.println("[g30] reject reason=fewer-than-2-children beta=" + beta
+          + " n=" + oldNumChildren);
+      return null;
+    }
+
+    // Pre-flight: bail out if any child is a placeholder (NULL_ID_LONG key from stale CoW
+    // shadow or in-flight construction). Closure on partially-formed indirects is not
+    // meaningful — the next insert will rebuild the indirect and trigger closure on the
+    // fully-formed result.
+    for (int i = 0; i < oldNumChildren; i++) {
+      final PageReference ref = indirect.getChildReference(i);
+      if (ref == null || ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG) {
+        if (dbg) System.err.println("[g30] reject reason=placeholder-child beta=" + beta
+            + " childIdx=" + i + " childPageKey=" + (ref == null ? "null" : ref.getKey()));
+        return null;
+      }
+    }
 
     // Pre-split β-mixed children.
     final java.util.ArrayList<PageReference> newRefs = new java.util.ArrayList<>(oldNumChildren * 2);
     for (int i = 0; i < oldNumChildren; i++) {
       final PageReference ref = indirect.getChildReference(i);
-      if (ref == null) return null;
+      if (ref == null) {
+        if (dbg) System.err.println("[g30] reject reason=null-child-ref beta=" + beta + " idx=" + i);
+        return null;
+      }
       final int v = bitConstantValueInSubtree(ref, beta);
       if (v >= 0) {
         newRefs.add(ref);
       } else {
         final SubtreeSplit ss = splitSubtreeOnBit(ref, beta, log, revision);
-        if (ss == null) return null;
+        if (ss == null) {
+          if (dbg) System.err.println("[g30] reject reason=split-subtree-failed beta=" + beta
+              + " childIdx=" + i + " childPageKey=" + ref.getKey());
+          return null;
+        }
         newRefs.add(ss.leftRef());
         newRefs.add(ss.rightRef());
       }
     }
     final int newCount = newRefs.size();
-    if (newCount > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) return null;
+    if (newCount > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      if (dbg) System.err.println("[g30] reject reason=fanout-overflow beta=" + beta
+          + " newCount=" + newCount);
+      return null;
+    }
 
     // Build new layout. If β's byte fits in indirect's existing 8-byte window,
     // could keep SingleMask; for simplicity always rebuild as MultiMask if β
@@ -4173,7 +4205,12 @@ public final class HOTTrieWriter {
 
     for (int i = 1; i < newCount; i++) {
       for (int k = 0; k < i; k++) {
-        if (newPartials[k] == newPartials[i]) return null;
+        if (newPartials[k] == newPartials[i]) {
+          if (dbg) System.err.println("[g30] reject reason=partial-collision beta=" + beta
+              + " i=" + i + " k=" + k + " partial=" + Integer.toHexString(newPartials[i])
+              + " newCount=" + newCount);
+          return null;
+        }
       }
     }
     sortChildrenAndPartialsByPartial(newChildren, newPartials);
@@ -4181,8 +4218,19 @@ public final class HOTTrieWriter {
     for (final int p : newPartials) {
       if (p == 0) { hasZero = true; break; }
     }
-    if (!hasZero) return null;
+    if (!hasZero) {
+      if (dbg) {
+        StringBuilder sb = new StringBuilder("[g30] reject reason=no-zero-partial beta=" + beta
+            + " newCount=" + newCount + " partials=[");
+        for (int i = 0; i < newCount; i++) sb.append(Integer.toHexString(newPartials[i])).append(',');
+        sb.append("]");
+        System.err.println(sb);
+      }
+      return null;
+    }
 
+    if (dbg) System.err.println("[g30] EXTEND-OK beta=" + beta + " newCount=" + newCount
+        + " msbIndex=" + msbIndex + " allCount=" + allCount);
     G28_CLOSURE_FIRINGS.incrementAndGet();
     if (newCount <= 16) {
       return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
@@ -4232,24 +4280,31 @@ public final class HOTTrieWriter {
   }
 
   /** Find ALL closure bits: every absolute bit position where any pair of children's
-   *  firstKeys differ. Returns sorted ascending. */
+   *  firstKeys differ. Returns sorted ascending. Skips null/empty firstKeys (= placeholder
+   *  refs from CoW shadowing or unallocated slots) — these would otherwise appear as
+   *  "all-zero" keys and pollute the closure with spurious differing-bit positions. */
   private int[] findClosureBits(HOTIndirectPage indirect) {
     final int n = indirect.getNumChildren();
     if (n < 2) return new int[0];
     final byte[][] firstKeys = new byte[n][];
+    int validCount = 0;
     int maxLen = 0;
     for (int i = 0; i < n; i++) {
       final PageReference cref = indirect.getChildReference(i);
       if (cref == null) continue;
       firstKeys[i] = getFirstKeyFromChild(cref);
-      if (firstKeys[i] != null && firstKeys[i].length > maxLen) maxLen = firstKeys[i].length;
+      if (firstKeys[i] != null && firstKeys[i].length > 0) {
+        validCount++;
+        if (firstKeys[i].length > maxLen) maxLen = firstKeys[i].length;
+      }
     }
+    if (validCount < 2) return new int[0];
     final int[] tmp = new int[maxLen * 8];
     int count = 0;
     for (int absBit = 0; absBit < maxLen * 8; absBit++) {
       boolean seen0 = false, seen1 = false;
       for (int i = 0; i < n; i++) {
-        if (firstKeys[i] == null) continue;
+        if (firstKeys[i] == null || firstKeys[i].length == 0) continue;
         if (isAbsBitSet(firstKeys[i], absBit)) seen1 = true;
         else seen0 = true;
         if (seen0 && seen1) break;
