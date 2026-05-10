@@ -142,6 +142,7 @@ test {
     systemProperty "hot.debug.phase5e", System.getProperty("hot.debug.phase5e", "false")
     systemProperty "hot.strict.phase5e", System.getProperty("hot.strict.phase5e", "false")
     systemProperty "hot.trace.persistent", System.getProperty("hot.trace.persistent", "false")
+    systemProperty "hot.strict.phase6d", System.getProperty("hot.strict.phase6d", "false")
     systemProperty "hot.debug.g30", System.getProperty("hot.debug.g30", "false")
     systemProperty "hot.debug.g32", System.getProperty("hot.debug.g32", "false")
     

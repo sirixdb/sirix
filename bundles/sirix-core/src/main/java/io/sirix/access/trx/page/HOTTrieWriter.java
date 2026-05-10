@@ -1443,16 +1443,39 @@ public final class HOTTrieWriter {
     //    off-path sibling on most-specific match). Constancy ensures no off-path span exists.
     //    Binna's reference doesn't need this gate because his single-TID leaves trivially
     //    have constancy.
+    // Phase 6d — β-mixed siblings get split on β to maintain constancy. Each split
+    // adds one extra sibling slot (= β=0 half + β=1 half replace the original mixed
+    // sibling). The new mask captures β; partials are repositioned accordingly.
+    // Refuses (returns null) only if a split fails or fanout would exceed the limit.
+    final boolean phase6dEnabled = Boolean.getBoolean("hot.strict.phase6d");
     final int[] siblingBitValues = new int[numChildren];
+    final boolean[] siblingNeedsSplit = phase6dEnabled ? new boolean[numChildren] : null;
+    final SubtreeSplit[] siblingSplits = phase6dEnabled ? new SubtreeSplit[numChildren] : null;
+    int extraSlotsFromSplits = 0;
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) continue;
       final int v = bitConstantValueInSubtree(parent.getChildReference(i), newAbsBit);
-      if (v < 0) return null; // non-constant — caller takes splitParentAndRecurse
+      if (v < 0) {
+        if (!phase6dEnabled) return null; // non-constant — caller takes splitParentAndRecurse
+        // Phase 6d: split this sibling on β. Recursive within the sibling subtree.
+        final SubtreeSplit ss = splitSubtreeOnBit(parent.getChildReference(i), newAbsBit, activeLog, revision);
+        if (ss == null) return null;
+        siblingNeedsSplit[i] = true;
+        siblingSplits[i] = ss;
+        extraSlotsFromSplits++;
+        siblingBitValues[i] = -1; // sentinel — will be expanded into two slots
+        continue;
+      }
       siblingBitValues[i] = v;
+    }
+    if (extraSlotsFromSplits > 0
+        && (numChildren + 1 + extraSlotsFromSplits) > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      return null; // fanout overflow — caller falls back
     }
 
     // 4. Build the expanded children + partial-keys arrays.
-    final int newNumChildren = numChildren + 1;
+    // Phase 6d: each β-mixed sibling is expanded into TWO slots (left=β=0, right=β=1).
+    final int newNumChildren = numChildren + 1 + extraSlotsFromSplits;
     final PageReference[] newChildren = new PageReference[newNumChildren];
     final int[] newPartialKeys = new int[newNumChildren];
     final int[] oldPartialKeys = parent.getPartialKeys();
@@ -1471,11 +1494,21 @@ public final class HOTTrieWriter {
         newPartialKeys[j] = splitChildRepositioned | (1 << newBitOutputPos); // new bit = 1 (RIGHT)
         j++;
       } else {
-        newChildren[j] = parent.getChildReference(i);
         final int repositioned = (int) Long.expand(
             Integer.toUnsignedLong(oldPartialKeys[i]), oldPartialMaskInNewLayout);
-        newPartialKeys[j] = repositioned | (siblingBitValues[i] << newBitOutputPos);
-        j++;
+        if (phase6dEnabled && siblingNeedsSplit != null && siblingNeedsSplit[i]) {
+          // Phase 6d: expand split sibling into two β-constant halves.
+          newChildren[j] = siblingSplits[i].leftRef();
+          newPartialKeys[j] = repositioned; // β=0 half
+          j++;
+          newChildren[j] = siblingSplits[i].rightRef();
+          newPartialKeys[j] = repositioned | (1 << newBitOutputPos); // β=1 half
+          j++;
+        } else {
+          newChildren[j] = parent.getChildReference(i);
+          newPartialKeys[j] = repositioned | (siblingBitValues[i] << newBitOutputPos);
+          j++;
+        }
       }
     }
 
