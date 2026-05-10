@@ -790,22 +790,34 @@ public abstract class AbstractHOTIndexWriter<K> {
         }
       }
     } else if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
-      // Read-only detection (default).
       final byte[] keyBytesG18 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
       trieWriter.findAmbiguousAncestor(navResult.pathNodes(),
           navResult.pathChildIndices(), navResult.pathDepth(), keyBytesG18);
 
-      // Stage G.20 read-only — count how many buckets a recursive constancy-aware
-      // split would produce. Increments G20_RECURSIVE_SPLIT_FIRINGS when ≥ 2 buckets
-      // (= split would actually fire).
       final byte[] valueBytesG20 = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
       final int[] ancestorBits = trieWriter.collectAncestorDiscBits(
           navResult.pathNodes(), navResult.pathDepth());
       if (ancestorBits.length > 0 && ancestorBits.length <= 6) {
-        // Only count when bits fit in 6 (= ≤ 64 buckets).
         final byte[][][] buckets = new byte[1 << ancestorBits.length][][];
         trieWriter.recursiveConstancyAwareSplit(leaf, keyBytesG18, valueBytesG20,
             ancestorBits, buckets);
+      }
+
+      // Stage G.21 — Wire constancy-aware split. When leaf would become β-mixed at
+      // ancestor β, split on that β before inserting. Uses handleLeafSplitAndInsert's
+      // explicit-bit overload. Gated on -Dhot.strict.constancy.split=true.
+      if (Boolean.getBoolean("hot.strict.constancy.split") && ancestorBits.length > 0
+          && leaf.canSplit()) {
+        final int mixedBit = trieWriter.findFirstMixedAncestorBit(leaf, keyBytesG18, ancestorBits);
+        if (mixedBit >= 0) {
+          final boolean ok = trieWriter.handleLeafSplitAndInsert(
+              storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
+              rootRef, navResult.pathNodes(), navResult.pathRefs(),
+              navResult.pathChildIndices(), navResult.pathDepth(),
+              keyBytesG18, keyLen, valueBytesG20, valueLen, mixedBit);
+          prepareIndexPage();
+          if (ok) return;
+        }
       }
     }
 

@@ -4010,6 +4010,36 @@ public final class HOTTrieWriter {
   private static final java.util.concurrent.atomic.AtomicLong G20_RECURSIVE_SPLIT_FIRINGS =
       new java.util.concurrent.atomic.AtomicLong(0L);
 
+  /**
+   * Stage G.21 — Find the highest-significance ancestor bit β where the leaf is β-mixed
+   * (= contains keys with both β=0 and β=1) AFTER inserting newKey. This is the bit
+   * to split on for constancy-aware partition.
+   *
+   * <p>Returns -1 if the leaf would remain β-constant at every ancestor β (no split
+   * needed for β-constancy reasons).
+   */
+  public int findFirstMixedAncestorBit(HOTLeafPage leaf, byte[] newKey, int[] ancestorBits) {
+    if (leaf == null || newKey == null || ancestorBits == null) return -1;
+    final int leafCount = leaf.getEntryCount();
+    if (leafCount == 0) return -1;
+    // ancestorBits is sorted ascending (= MSB-first absolute bit positions).
+    // Most-significant first means smallest absBit value.
+    for (final int beta : ancestorBits) {
+      final boolean newKeyBetaSet = isAbsBitSet(newKey, beta);
+      boolean seen0 = newKeyBetaSet ? false : true;
+      boolean seen1 = newKeyBetaSet;
+      for (int i = 0; i < leafCount; i++) {
+        final byte[] existing = leaf.getKey(i);
+        if (existing == null || existing.length == 0) continue;
+        if (isAbsBitSet(existing, beta)) seen1 = true;
+        else seen0 = true;
+        if (seen0 && seen1) break;
+      }
+      if (seen0 && seen1) return beta; // mixed at this β
+    }
+    return -1;
+  }
+
   public static long getG20RecursiveSplitFirings() { return G20_RECURSIVE_SPLIT_FIRINGS.get(); }
   public static void resetG20RecursiveSplitFirings() { G20_RECURSIVE_SPLIT_FIRINGS.set(0L); }
 
