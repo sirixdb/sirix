@@ -1202,6 +1202,25 @@ public final class HOTTrieWriter {
       }
       if (expandedParent != null) {
         log.put(parentRef, PageContainer.getInstance(expandedParent, expandedParent));
+        // Stage G.25 — β propagation up the path. When the addEntry at parent introduced
+        // a NEW disc bit β at a byte position OUTSIDE some grandparent's mask window,
+        // grandparent's stored partial for parent's slot doesn't reflect β. = grandparent
+        // can route keys with mismatched β to parent's slot, breaking I8 when those keys
+        // become parent's new deep-firstKey.
+        //
+        // Solution: walk up the path. For each ancestor A whose mask doesn't include β
+        // AND whose subtree at the chosen slot now contains keys with both β values,
+        // recursively split and addEntry-extend at that ancestor.
+        //
+        // For the surgical fix here: only fire on the cross-window upgrade case (= when
+        // newBitByteOffset was out of parent's window). Other addEntry success paths
+        // don't introduce a NEW byte position; they just add a bit within an existing
+        // byte. Ancestors' masks already cover those bytes (= no propagation needed).
+        if (Boolean.getBoolean("hot.strict.g25.propagate") && currentPathIdx > 0) {
+          propagateBetaToAncestors(storageEngineReader, log, parent, parentRef,
+              expandedParent, originalChildIndex, leftChild, rightChild, discriminativeBit,
+              pathNodes, pathRefs, pathChildIndices, currentPathIdx);
+        }
       } else if (Boolean.getBoolean("hot.strict.binna")) {
         // Phase 3: lazy retroactive sibling rebalance. addEntryWithPDep rejected because
         // the new disc bit β is non-constant in some non-split sibling's subtree
@@ -4009,6 +4028,100 @@ public final class HOTTrieWriter {
   /** Stage G.20 — recursive constancy-aware split firings. */
   private static final java.util.concurrent.atomic.AtomicLong G20_RECURSIVE_SPLIT_FIRINGS =
       new java.util.concurrent.atomic.AtomicLong(0L);
+
+  /** Stage G.25 — β propagation up the path from leaf-overflow upgrade. */
+  private static final java.util.concurrent.atomic.AtomicLong G25_BETA_PROPAGATIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getG25BetaPropagations() { return G25_BETA_PROPAGATIONS.get(); }
+  public static void resetG25BetaPropagations() { G25_BETA_PROPAGATIONS.set(0L); }
+
+  /**
+   * Stage G.25 — Propagate a new disc bit β up the path from the immediate parent that
+   * absorbed it (via cross-window upgrade) to ancestors whose subtree at the chosen
+   * descend slot now contains β-mixed keys.
+   *
+   * <p>Scenario: leaf overflow at depth D split on MSDB β (= byte at position OUTSIDE
+   * D-1's window). Parent at depth D-1 absorbs β via upgradeToMultiMaskWithNewBit. But
+   * if β's byte position is also OUTSIDE depth D-2's mask window, the grandparent's
+   * stored partial for D-1's slot doesn't distinguish keys with different β values.
+   * Routing for the new key from root reaches D-1's slot at grandparent, but the slot's
+   * deep-firstKey has changed (= I8 break).
+   *
+   * <p>Solution: at each ancestor A whose mask doesn't include β AND whose chosen
+   * subtree is now β-mixed, split A's slot's subtree on β + addEntry at A.
+   */
+  private void propagateBetaToAncestors(StorageEngineWriter storageEngineWriter,
+      TransactionIntentLog log, HOTIndirectPage parent, PageReference parentRef,
+      HOTIndirectPage expandedParent, int originalChildIndex, PageReference leftChild,
+      PageReference rightChild, int beta,
+      HOTIndirectPage[] pathNodes, PageReference[] pathRefs, int[] pathChildIndices,
+      int currentPathIdx) {
+    final boolean dbgEntry = Boolean.getBoolean("hot.debug.g25");
+    if (dbgEntry) {
+      System.out.println("[g25-propagate] entry parent.layout=" + parent.getLayoutType()
+          + " expandedParent.layout=" + expandedParent.getLayoutType()
+          + " beta=" + beta + " currentPathIdx=" + currentPathIdx);
+    }
+    // Only propagate when expandedParent absorbed β via cross-window upgrade
+    // (= layout changed from SingleMask to MultiMask).
+    if (parent.getLayoutType() != HOTIndirectPage.LayoutType.SINGLE_MASK) return;
+    if (expandedParent.getLayoutType() != HOTIndirectPage.LayoutType.MULTI_MASK) return;
+    final int revision = storageEngineWriter.getRevisionNumber();
+    final boolean dbg = Boolean.getBoolean("hot.debug.g25");
+    PageReference subtreeRef = parentRef;
+    for (int i = currentPathIdx - 1; i >= 0; i--) {
+      final HOTIndirectPage A = pathNodes[i];
+      final PageReference Aref = pathRefs[i];
+      if (A == null || Aref == null) break;
+      final int betaOutPos = A.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK
+          ? singleMaskBetaOutputPos(A, beta)
+          : multiMaskBetaOutputPos(A, beta);
+      if (dbg) System.out.println("[g25-propagate]   step i=" + i + " A.pageKey=" + A.getPageKey()
+          + " A.layout=" + A.getLayoutType() + " betaOutPos=" + betaOutPos);
+      if (betaOutPos >= 0) { if (dbg) System.out.println("[g25-propagate]     β in mask, halt"); break; }
+      final int chosenSlot = pathChildIndices[i];
+      if (chosenSlot < 0 || chosenSlot >= A.getNumChildren()) {
+        if (dbg) System.out.println("[g25-propagate]     bad chosenSlot=" + chosenSlot); break;
+      }
+      final PageReference chosenRef = A.getChildReference(chosenSlot);
+      if (chosenRef == null) { if (dbg) System.out.println("[g25-propagate]     null chosenRef"); break; }
+      // Read latest version from log (= post-upgrade state, not pre-mod cached page).
+      final PageContainer chosenCont = log.get(chosenRef);
+      final Page chosenPage = chosenCont != null ? chosenCont.getModified() : chosenRef.getPage();
+      if (dbg) System.out.println("[g25-propagate]     chosenSlot=" + chosenSlot
+          + " chosenPage=" + (chosenPage == null ? "null" : chosenPage.getClass().getSimpleName()
+              + (chosenPage instanceof HOTIndirectPage cp ? "/" + cp.getLayoutType() : "")));
+      final int v = bitConstantValueInSubtree(chosenRef, beta);
+      if (dbg) System.out.println("[g25-propagate]     β-constancy v=" + v);
+      if (v >= 0) { if (dbg) System.out.println("[g25-propagate]     β-constant, halt"); break; }
+      final SubtreeSplit split = splitSubtreeOnBit(chosenRef, beta, log, revision);
+      if (dbg) System.out.println("[g25-propagate]     split " + (split == null ? "null" : "ok"));
+      if (split == null) break;
+      HOTIndirectPage updatedA;
+      if (A.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+        updatedA = addEntryWithPDep(A, chosenSlot, split.leftRef(), split.rightRef(),
+            beta, revision);
+      } else {
+        updatedA = addEntryMultiMask(A, chosenSlot, split.leftRef(), split.rightRef(),
+            beta, revision);
+      }
+      if (dbg) System.out.println("[g25-propagate]     addEntry result="
+          + (updatedA == null ? "null" : "ok layout=" + updatedA.getLayoutType()));
+      if (updatedA == null) {
+        // Fall to Phase 3 — rebalanceAndIntegrate splits β-mixed siblings on β before
+        // rebuilding the parent.
+        updatedA = rebalanceAndIntegrate(A, chosenSlot, split.leftRef(), split.rightRef(),
+            beta, log, revision);
+        if (dbg) System.out.println("[g25-propagate]     phase3 result="
+            + (updatedA == null ? "null" : "ok"));
+        if (updatedA == null) break;
+      }
+      log.put(Aref, PageContainer.getInstance(updatedA, updatedA));
+      G25_BETA_PROPAGATIONS.incrementAndGet();
+      if (dbg) System.out.println("[g25-propagate]     PROPAGATED at i=" + i);
+    }
+  }
 
   /**
    * Stage G.21 — Find the highest-significance ancestor bit β where the leaf is β-mixed

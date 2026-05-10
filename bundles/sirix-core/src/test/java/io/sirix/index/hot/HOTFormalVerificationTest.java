@@ -429,6 +429,7 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetG17ConstancyRedirects();
         io.sirix.access.trx.page.HOTTrieWriter.resetG18AmbiguousDetections();
         io.sirix.access.trx.page.HOTTrieWriter.resetG20RecursiveSplitFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetG25BetaPropagations();
 
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
@@ -515,6 +516,17 @@ final class HOTFormalVerificationTest {
             stageDPrevCounters = snapshotWriterFirings();
           }
 
+          // Stage G.23 — per-insert I8 bisection.
+          final boolean bisectI8 = Boolean.getBoolean("hot.bisect.i8");
+          final int bisectFrom = Integer.getInteger("hot.bisect.from", 0);
+          final int bisectTo = Integer.getInteger("hot.bisect.to", 600);
+          int firstI8At = -1;
+          int firstI8Count = -1;
+          // Stage G.24 — tree dump at specific insert.
+          final int dumpAtIdx = Integer.getInteger("hot.dump.at", -1);
+          // Counter snapshots BEFORE the dumpAt insert.
+          long[] preDumpCounters = null;
+
           final byte[] keyBuf = new byte[64];
           for (int i = 0; i < n; i++) {
             if (stageDGate) {
@@ -536,11 +548,50 @@ final class HOTFormalVerificationTest {
                 }
               }
             }
+            // Stage G.24 — pre-insert tree dump.
+            if (i == dumpAtIdx) {
+              preDumpCounters = snapshotWriterFirings();
+              System.out.println("[dump] === BEFORE insert idx=" + i + " ===");
+              dumpTreeState(trx, def, "BEFORE");
+            }
+
             scratch.getNodeKeys().clear();
             scratch.getNodeKeys().add(i);
             writer.index(new io.sirix.index.redblacktree.keyvalue.CASValue(
                 new io.brackit.query.atomic.Int32(i), Type.INR, pathNodeKey),
                 scratch, null);
+
+            // Stage G.24 — post-insert tree dump.
+            if (i == dumpAtIdx) {
+              final long[] postCounters = snapshotWriterFirings();
+              System.out.println("[dump] === AFTER insert idx=" + i + " ===");
+              System.out.println("[dump] counter deltas: BN=" + (postCounters[0] - preDumpCounters[0])
+                  + " P3=" + (postCounters[1] - preDumpCounters[1])
+                  + " P4=" + (postCounters[2] - preDumpCounters[2])
+                  + " FP=" + (postCounters[3] - preDumpCounters[3])
+                  + " bchAll=" + ((postCounters[4]+postCounters[5]+postCounters[6]+postCounters[7]+postCounters[8]+postCounters[9])
+                                  - (preDumpCounters[4]+preDumpCounters[5]+preDumpCounters[6]+preDumpCounters[7]+preDumpCounters[8]+preDumpCounters[9])));
+              dumpTreeState(trx, def, "AFTER");
+            }
+
+            // Stage G.23 — per-insert I8 bisection.
+            if (bisectI8 && i >= bisectFrom && i < bisectTo) {
+              final HOTInvariantValidator.Result inv1 = HOTInvariantValidator.validateIndex(
+                  trx.getStorageEngineReader(), IndexType.CAS, def.getID());
+              long i8Count = inv1.violations().stream()
+                  .filter(v -> v.invariant().equals("I8-children-sorted-by-firstkey")).count();
+              if (i8Count > 0 && firstI8At < 0) {
+                firstI8At = i;
+                firstI8Count = (int) i8Count;
+                System.out.println("[bisect-i8] FIRST I8 at insert idx=" + i
+                    + " count=" + i8Count);
+                for (final var v : inv1.violations()) {
+                  if (v.invariant().equals("I8-children-sorted-by-firstkey")) {
+                    System.out.println("[bisect-i8]   " + v);
+                  }
+                }
+              }
+            }
             if (stageDGate && (i + 1) % checkInterval == 0) {
               stageDCheckpoints.add(captureStageDCheckpoint("main+" + (i + 1), i + 1, trx, def,
                   stageDPrevCounters, stageDFirstFailure));
@@ -601,7 +652,8 @@ final class HOTFormalVerificationTest {
               + " optionB-reroute=" + io.sirix.access.trx.page.HOTTrieWriter.getOptionBRerouteFirings()
               + " G17-redirects=" + io.sirix.access.trx.page.HOTTrieWriter.getG17ConstancyRedirects()
               + " G18-ambiguous=" + io.sirix.access.trx.page.HOTTrieWriter.getG18AmbiguousDetections()
-              + " G20-rec-splits=" + io.sirix.access.trx.page.HOTTrieWriter.getG20RecursiveSplitFirings());
+              + " G20-rec-splits=" + io.sirix.access.trx.page.HOTTrieWriter.getG20RecursiveSplitFirings()
+              + " G25-propagations=" + io.sirix.access.trx.page.HOTTrieWriter.getG25BetaPropagations());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
@@ -636,6 +688,59 @@ final class HOTFormalVerificationTest {
   private static void restoreOrClear(String key, String prevValue) {
     if (prevValue == null) System.clearProperty(key);
     else System.setProperty(key, prevValue);
+  }
+
+  /** Stage G.24 — Recursive tree dump showing pageKey, layout, mask, partials, deep-firstKey. */
+  private static void dumpTreeState(io.sirix.api.json.JsonNodeTrx trx, IndexDef def, String label) {
+    final io.sirix.page.PageReference rootRef = HOTInvariantValidator.resolveRootRef(
+        trx.getStorageEngineReader(), IndexType.CAS, def.getID());
+    if (rootRef == null) {
+      System.out.println("[dump-" + label + "] root null");
+      return;
+    }
+    dumpTreeStateRec(trx, rootRef, label, 0);
+  }
+
+  private static void dumpTreeStateRec(io.sirix.api.json.JsonNodeTrx trx,
+      io.sirix.page.PageReference ref, String label, int depth) {
+    if (depth > 6) return;
+    final io.sirix.page.interfaces.Page page = ref.getPage() != null
+        ? ref.getPage() : trx.getStorageEngineReader().loadHOTPage(ref);
+    if (page == null) {
+      System.out.println("[dump-" + label + "] " + "  ".repeat(depth) + "null");
+      return;
+    }
+    final String indent = "  ".repeat(depth);
+    if (page instanceof io.sirix.page.HOTLeafPage leaf) {
+      final byte[] fk = leaf.getEntryCount() > 0 ? leaf.getKey(0) : null;
+      System.out.println("[dump-" + label + "] " + indent + "leaf pageKey=" + leaf.getPageKey()
+          + " entries=" + leaf.getEntryCount()
+          + " firstKey=" + (fk == null ? "null" : java.util.HexFormat.of().formatHex(fk)));
+      return;
+    }
+    if (page instanceof io.sirix.page.HOTIndirectPage ind) {
+      final int[] partials = ind.getPartialKeys();
+      final byte[] deepFk = stageGFirstKeyOfRef(ref);
+      final StringBuilder pStr = new StringBuilder();
+      if (partials != null) {
+        for (int i = 0; i < ind.getNumChildren(); i++) {
+          if (i > 0) pStr.append(',');
+          pStr.append("0x").append(Integer.toHexString(partials[i]));
+        }
+      }
+      System.out.println("[dump-" + label + "] " + indent + "indirect pageKey=" + ind.getPageKey()
+          + " layout=" + ind.getLayoutType() + " mask=0x" + Long.toHexString(ind.getBitMask())
+          + " initBytePos=" + ind.getInitialBytePos() + " MSB=" + ind.getMostSignificantBitIndex()
+          + " nc=" + ind.getNumChildren() + " partials=[" + pStr + "]"
+          + " deepFK=" + (deepFk == null ? "null" : java.util.HexFormat.of().formatHex(deepFk)));
+      for (int i = 0; i < ind.getNumChildren(); i++) {
+        final io.sirix.page.PageReference cref = ind.getChildReference(i);
+        if (cref == null) continue;
+        System.out.println("[dump-" + label + "] " + indent + "  child[" + i + "] partial=0x"
+            + (partials != null ? Integer.toHexString(partials[i]) : "null"));
+        dumpTreeStateRec(trx, cref, label, depth + 1);
+      }
+    }
   }
 
   /** Walk leftmost path of a ref to extract firstKey. */
