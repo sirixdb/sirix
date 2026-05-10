@@ -4036,6 +4036,234 @@ public final class HOTTrieWriter {
   public static long getG25BetaPropagations() { return G25_BETA_PROPAGATIONS.get(); }
   public static void resetG25BetaPropagations() { G25_BETA_PROPAGATIONS.set(0L); }
 
+  /** Stage G.28 — mask closure firings (= when a missing-β extension fires). */
+  private static final java.util.concurrent.atomic.AtomicLong G28_CLOSURE_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getG28ClosureFirings() { return G28_CLOSURE_FIRINGS.get(); }
+  public static void resetG28ClosureFirings() { G28_CLOSURE_FIRINGS.set(0L); }
+
+  /**
+   * Stage G.28 — Generic mask extension for closure. Adds β to {@code indirect}'s mask
+   * (without a leaf-split context). For each child:
+   * <ul>
+   *   <li>If subtree is β-constant: keep child, set β-bit in stored partial accordingly.</li>
+   *   <li>If subtree is β-mixed: split via splitSubtreeOnBit, contribute both halves.</li>
+   * </ul>
+   * Builds a new MultiMask layout combining indirect's existing bytes + β's byte (or
+   * SingleMask if β fits in window).
+   *
+   * <p>Returns the rebuilt indirect, or null if rebuild infeasible.
+   */
+  private @Nullable HOTIndirectPage extendIndirectMaskForClosure(HOTIndirectPage indirect,
+      int beta, TransactionIntentLog log, int revision) {
+    if (indirect == null || beta < 0) return null;
+    final int oldNumChildren = indirect.getNumChildren();
+    if (oldNumChildren < 2) return null;
+
+    // Pre-split β-mixed children.
+    final java.util.ArrayList<PageReference> newRefs = new java.util.ArrayList<>(oldNumChildren * 2);
+    for (int i = 0; i < oldNumChildren; i++) {
+      final PageReference ref = indirect.getChildReference(i);
+      if (ref == null) return null;
+      final int v = bitConstantValueInSubtree(ref, beta);
+      if (v >= 0) {
+        newRefs.add(ref);
+      } else {
+        final SubtreeSplit ss = splitSubtreeOnBit(ref, beta, log, revision);
+        if (ss == null) return null;
+        newRefs.add(ss.leftRef());
+        newRefs.add(ss.rightRef());
+      }
+    }
+    final int newCount = newRefs.size();
+    if (newCount > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) return null;
+
+    // Build new layout. If β's byte fits in indirect's existing 8-byte window,
+    // could keep SingleMask; for simplicity always rebuild as MultiMask if β
+    // adds a new byte position.
+    final int oldInitialBytePos = indirect.getInitialBytePos();
+    final long oldMask = indirect.getBitMask();
+    final int newBytePos = beta / 8;
+    final int newBitInByte = beta % 8;
+    final int newMaskBitInByte = 1 << (7 - newBitInByte);
+
+    int[] oldBytePositions = new int[8];
+    int[] oldByteMaskBits = new int[8];
+    int oldByteCount = 0;
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      for (int bo = 0; bo < 8; bo++) {
+        final int byteMaskBits = (int) ((oldMask >>> ((7 - bo) * 8)) & 0xFFL);
+        if (byteMaskBits != 0) {
+          oldBytePositions[oldByteCount] = oldInitialBytePos + bo;
+          oldByteMaskBits[oldByteCount] = byteMaskBits;
+          oldByteCount++;
+        }
+      }
+    } else {
+      // MultiMask source: copy existing extractionPositions/Masks.
+      final byte[] ep = indirect.getExtractionPositions();
+      final long[] em = indirect.getExtractionMasks();
+      final int neb = indirect.getNumExtractionBytes();
+      for (int i = 0; i < neb; i++) {
+        final int chunkIdx = i / 8;
+        final int byteOffsetInChunk = i % 8;
+        final int byteMaskBits = (int) ((em[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+        if (byteMaskBits != 0) {
+          oldBytePositions[oldByteCount] = ep[i] & 0xFF;
+          oldByteMaskBits[oldByteCount] = byteMaskBits;
+          oldByteCount++;
+        }
+      }
+    }
+
+    int[] allBytePositions = new int[oldByteCount + 1];
+    int[] allByteMaskBits = new int[oldByteCount + 1];
+    int allCount = 0;
+    boolean merged = false;
+    for (int i = 0; i < oldByteCount; i++) {
+      if (!merged && oldBytePositions[i] == newBytePos) {
+        allBytePositions[allCount] = newBytePos;
+        allByteMaskBits[allCount] = oldByteMaskBits[i] | newMaskBitInByte;
+        allCount++;
+        merged = true;
+      } else if (!merged && oldBytePositions[i] > newBytePos) {
+        allBytePositions[allCount] = newBytePos;
+        allByteMaskBits[allCount] = newMaskBitInByte;
+        allCount++;
+        merged = true;
+        allBytePositions[allCount] = oldBytePositions[i];
+        allByteMaskBits[allCount] = oldByteMaskBits[i];
+        allCount++;
+      } else {
+        allBytePositions[allCount] = oldBytePositions[i];
+        allByteMaskBits[allCount] = oldByteMaskBits[i];
+        allCount++;
+      }
+    }
+    if (!merged) {
+      allBytePositions[allCount] = newBytePos;
+      allByteMaskBits[allCount] = newMaskBitInByte;
+      allCount++;
+    }
+
+    final byte[] extractionPositions = new byte[allCount];
+    final int numChunks = (allCount + 7) / 8;
+    final long[] extractionMasks = new long[numChunks];
+    short msbIndex = Short.MAX_VALUE;
+    for (int i = 0; i < allCount; i++) {
+      extractionPositions[i] = (byte) allBytePositions[i];
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      extractionMasks[chunkIdx] |= ((long) (allByteMaskBits[i] & 0xFF)) << ((7 - byteOffsetInChunk) * 8);
+      final int highBit = 31 - Integer.numberOfLeadingZeros(allByteMaskBits[i] & 0xFF);
+      final int absBitPos = allBytePositions[i] * 8 + (7 - highBit);
+      if (absBitPos < msbIndex) msbIndex = (short) absBitPos;
+    }
+
+    final int[] newPartials = new int[newCount];
+    final PageReference[] newChildren = new PageReference[newCount];
+    for (int i = 0; i < newCount; i++) {
+      final PageReference cref = newRefs.get(i);
+      newChildren[i] = cref;
+      final byte[] cKey = getFirstKeyFromChild(cref);
+      newPartials[i] = (cKey == null || cKey.length == 0) ? 0
+          : computePartialKeyMultiMaskDirect(cKey, extractionPositions, extractionMasks, allCount);
+    }
+
+    for (int i = 1; i < newCount; i++) {
+      for (int k = 0; k < i; k++) {
+        if (newPartials[k] == newPartials[i]) return null;
+      }
+    }
+    sortChildrenAndPartialsByPartial(newChildren, newPartials);
+    boolean hasZero = false;
+    for (final int p : newPartials) {
+      if (p == 0) { hasZero = true; break; }
+    }
+    if (!hasZero) return null;
+
+    G28_CLOSURE_FIRINGS.incrementAndGet();
+    if (newCount <= 16) {
+      return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+          extractionPositions, extractionMasks, allCount, newPartials, newChildren,
+          indirect.getHeight(), msbIndex);
+    }
+    return HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
+        extractionPositions, extractionMasks, allCount, newPartials, newChildren,
+        indirect.getHeight(), msbIndex);
+  }
+
+  /**
+   * Stage G.28 — Post-insert mask-closure verification. Walks the path from root to leaf
+   * after an insert. At each indirect, computes MSDB-closure of children's firstKeys.
+   * If indirect's mask doesn't cover all closure bits, extends via
+   * {@link #extendIndirectMaskForClosure}.
+   *
+   * <p>This is the architectural fix for the under-discriminated mask issue: ensures
+   * every indirect's mask captures all bits where any pair of children's firstKeys
+   * differ. Multi-entry-leaf workloads that diverge sibling firstKey ranges over time
+   * are now properly resolved.
+   */
+  public void ensureMaskClosure(PageReference rootRef, byte[] keyBuf,
+      StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
+    if (rootRef == null || keyBuf == null) return;
+    final int revision = storageEngineWriter.getRevisionNumber();
+    PageReference curRef = rootRef;
+    for (int depth = 0; depth < MAX_TREE_HEIGHT; depth++) {
+      Page curPage = log.get(curRef) != null ? log.get(curRef).getModified() : curRef.getPage();
+      if (curPage == null) curPage = loadPage(storageEngineWriter, curRef);
+      if (!(curPage instanceof HOTIndirectPage indirect)) break;
+      // Find MSDB-closure of children's firstKeys.
+      final int[] closureBits = findClosureBits(indirect);
+      // For each closure bit not in mask, extend.
+      HOTIndirectPage current = indirect;
+      for (final int beta : closureBits) {
+        final int outPos = current.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK
+            ? singleMaskBetaOutputPos(current, beta)
+            : multiMaskBetaOutputPos(current, beta);
+        if (outPos >= 0) continue;
+        final HOTIndirectPage extended = extendIndirectMaskForClosure(current, beta, log, revision);
+        if (extended == null) break;
+        log.put(curRef, PageContainer.getInstance(extended, extended));
+        current = extended;
+      }
+      // Descend toward keyBuf.
+      final int idx = current.findChildIndex(keyBuf);
+      if (idx < 0) break;
+      curRef = current.getChildReference(idx);
+      if (curRef == null) break;
+    }
+  }
+
+  /** Find ALL closure bits: every absolute bit position where any pair of children's
+   *  firstKeys differ. Returns sorted ascending. */
+  private int[] findClosureBits(HOTIndirectPage indirect) {
+    final int n = indirect.getNumChildren();
+    if (n < 2) return new int[0];
+    final byte[][] firstKeys = new byte[n][];
+    int maxLen = 0;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) continue;
+      firstKeys[i] = getFirstKeyFromChild(cref);
+      if (firstKeys[i] != null && firstKeys[i].length > maxLen) maxLen = firstKeys[i].length;
+    }
+    final int[] tmp = new int[maxLen * 8];
+    int count = 0;
+    for (int absBit = 0; absBit < maxLen * 8; absBit++) {
+      boolean seen0 = false, seen1 = false;
+      for (int i = 0; i < n; i++) {
+        if (firstKeys[i] == null) continue;
+        if (isAbsBitSet(firstKeys[i], absBit)) seen1 = true;
+        else seen0 = true;
+        if (seen0 && seen1) break;
+      }
+      if (seen0 && seen1) tmp[count++] = absBit;
+    }
+    return Arrays.copyOf(tmp, count);
+  }
+
   /**
    * Stage G.27 — Find the MSDB of an indirect's children's deep-firstKeys (= the
    * most-significant absolute bit position where any pair of children's firstKeys

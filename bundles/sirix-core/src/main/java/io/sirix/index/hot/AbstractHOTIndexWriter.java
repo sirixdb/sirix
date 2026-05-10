@@ -891,9 +891,26 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Merge entry
     boolean success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
 
+    // Stage G.28 — post-insert mask-closure verification. Walk path from root, verify
+    // each indirect's mask covers MSDB-closure of children's firstKeys. Extend if not.
+    // Gated on -Dhot.strict.g28.closure=true.
+    if (success && Boolean.getBoolean("hot.strict.g28.closure")) {
+      final byte[] keyBytesG28 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
+      trieWriter.ensureMaskClosure(rootRef, keyBytesG28, storageEngineWriter,
+          storageEngineWriter.getLog());
+      prepareIndexPage();
+    }
+
     // If merge failed, we need to split or compact
     if (!success) {
       success = handleInsertFailure(rootRef, navResult, keyBuf, keyLen, valueBuf, valueLen);
+      // After failure-recovery insert, also run closure verification.
+      if (success && Boolean.getBoolean("hot.strict.g28.closure")) {
+        final byte[] keyBytesG28 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
+        trieWriter.ensureMaskClosure(rootRef, keyBytesG28, storageEngineWriter,
+            storageEngineWriter.getLog());
+        prepareIndexPage();
+      }
 
       if (!success) {
         // Last resort: check if this is a case of a single huge value

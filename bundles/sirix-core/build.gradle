@@ -131,6 +131,7 @@ test {
     systemProperty "hot.debug.g25", System.getProperty("hot.debug.g25", "false")
     systemProperty "hot.debug.phase3", System.getProperty("hot.debug.phase3", "false")
     systemProperty "hot.debug.phase4", System.getProperty("hot.debug.phase4", "false")
+    systemProperty "hot.strict.g28.closure", System.getProperty("hot.strict.g28.closure", "false")
     
     // Show test output for diagnostics
     testLogging {
