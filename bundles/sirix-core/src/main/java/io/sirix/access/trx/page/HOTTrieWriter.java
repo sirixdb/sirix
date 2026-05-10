@@ -4368,6 +4368,31 @@ public final class HOTTrieWriter {
         }
       }
       if (extended == null) {
+        // Split-aware on closure bits failed. Try LIFTING: for each child's MSB bit,
+        // attempt to split that child on its own MSB and add the MSB to root's mask.
+        // This is the recursive lift operation — children DROP their MSB (= absorbed
+        // into root), children's MSB shifts to less-significant. Eventually root's
+        // mask has enough bits to discriminate via PEXT.
+        final java.util.TreeSet<Integer> childMsbs = new java.util.TreeSet<>();
+        for (int i = 0; i < n; i++) {
+          final PageReference cref = indirect.getChildReference(i);
+          if (cref == null) continue;
+          final Page cp = cref.getPage();
+          if (cp instanceof HOTIndirectPage ci) {
+            final int cmsb = ci.getMostSignificantBitIndex();
+            if (cmsb > parentMsb) childMsbs.add(cmsb);
+          }
+        }
+        for (final int liftBit : childMsbs) {
+          extended = extendIndirectMaskForClosureI11Safe(indirect, liftBit, parentMsb, log, revision);
+          if (extended != null) {
+            chosenBit = liftBit;
+            if (dbg) System.err.println("[g32] LIFT extend OK bit=" + liftBit);
+            break;
+          }
+        }
+      }
+      if (extended == null) {
         if (dbg) System.err.println("[g32] reject reason=no-bit-works parentMsb=" + parentMsb
             + " offK=" + offK + " offI=" + offI);
         return;
