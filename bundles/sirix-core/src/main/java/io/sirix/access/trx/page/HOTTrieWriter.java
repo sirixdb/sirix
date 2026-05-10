@@ -3834,7 +3834,7 @@ public final class HOTTrieWriter {
    * @param pathDepth number of valid entries in {@code pathNodes}
    * @return ascending-sorted absolute disc-bit positions across the path
    */
-  int[] collectAncestorDiscBits(HOTIndirectPage[] pathNodes, int pathDepth) {
+  public int[] collectAncestorDiscBits(HOTIndirectPage[] pathNodes, int pathDepth) {
     if (pathDepth <= 0) {
       return new int[0];
     }
@@ -4005,6 +4005,87 @@ public final class HOTTrieWriter {
   /** Stage G.18 — ambiguous-ancestor detection counter (insert would route ambiguously). */
   private static final java.util.concurrent.atomic.AtomicLong G18_AMBIGUOUS_DETECTIONS =
       new java.util.concurrent.atomic.AtomicLong(0L);
+
+  /** Stage G.20 — recursive constancy-aware split firings. */
+  private static final java.util.concurrent.atomic.AtomicLong G20_RECURSIVE_SPLIT_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getG20RecursiveSplitFirings() { return G20_RECURSIVE_SPLIT_FIRINGS.get(); }
+  public static void resetG20RecursiveSplitFirings() { G20_RECURSIVE_SPLIT_FIRINGS.set(0L); }
+
+  /**
+   * Stage G.20 — Recursive constancy-aware leaf split.
+   *
+   * <p>For each ancestor β bit captured by some indirect on the path, partition the
+   * leaf's keys (+ the new key) into β-buckets. Each bucket is β-constant at every
+   * ancestor β simultaneously (= up to 2^k buckets where k = total ancestor β bits).
+   *
+   * <p>Returns the bucket count. Buckets are written into {@code outBuckets} as
+   * {@code byte[][]} arrays where {@code outBuckets[bucketIdx][2*i]} is the i-th key
+   * in bucket and {@code [2*i+1]} is its value. Returns 0 if no β-constancy needed.
+   *
+   * <p>This is the comprehensive form of Phase 2's constancy-aware split. It exists
+   * to provide β-constant halves to addEntry / Phase 4 / intermediate-BiNode integration
+   * paths, ensuring routing remains unambiguous post-integration.
+   *
+   * @return number of buckets produced (1 if no split needed, ≥ 2 otherwise)
+   */
+  public int recursiveConstancyAwareSplit(HOTLeafPage leaf, byte[] newKey, byte[] newValue,
+      int[] ancestorBits, byte[][][] outBuckets) {
+    if (leaf == null || newKey == null) return 0;
+    if (ancestorBits == null || ancestorBits.length == 0) return 1;
+    final int leafCount = leaf.getEntryCount();
+    final int totalKeys = leafCount + 1;
+    final byte[][] keys = new byte[totalKeys][];
+    final byte[][] values = new byte[totalKeys][];
+    for (int i = 0; i < leafCount; i++) {
+      keys[i] = leaf.getKey(i);
+      values[i] = leaf.getValue(i);
+    }
+    keys[leafCount] = newKey;
+    values[leafCount] = newValue;
+
+    // Partition by all ancestor bits simultaneously: each bucket index encodes the
+    // pattern of bits ((β_0, β_1, ..., β_{k-1}) → bit value). Up to 2^k buckets.
+    final int k = ancestorBits.length;
+    final int maxBuckets = 1 << k;
+    if (maxBuckets > 64 || outBuckets.length < maxBuckets) {
+      // Too many ancestor bits — fall back to MSDB split (= 2 buckets only).
+      return 0;
+    }
+    final int[] bucketIdxOf = new int[totalKeys];
+    final int[] bucketCounts = new int[maxBuckets];
+    for (int i = 0; i < totalKeys; i++) {
+      int idx = 0;
+      for (int b = 0; b < k; b++) {
+        if (isAbsBitSet(keys[i], ancestorBits[b])) {
+          idx |= (1 << b);
+        }
+      }
+      bucketIdxOf[i] = idx;
+      bucketCounts[idx]++;
+    }
+    int activeBuckets = 0;
+    for (int b = 0; b < maxBuckets; b++) {
+      if (bucketCounts[b] > 0) activeBuckets++;
+    }
+    if (activeBuckets <= 1) return 1; // already β-constant — no split needed
+    G20_RECURSIVE_SPLIT_FIRINGS.incrementAndGet();
+    // Allocate per-bucket arrays + populate.
+    final int[] bucketWriteCursor = new int[maxBuckets];
+    for (int b = 0; b < maxBuckets; b++) {
+      if (bucketCounts[b] > 0) {
+        outBuckets[b] = new byte[2 * bucketCounts[b]][];
+      }
+    }
+    for (int i = 0; i < totalKeys; i++) {
+      final int idx = bucketIdxOf[i];
+      final int cur = bucketWriteCursor[idx]++;
+      outBuckets[idx][2 * cur] = keys[i];
+      outBuckets[idx][2 * cur + 1] = values[i];
+    }
+    return activeBuckets;
+  }
 
   public static long getG18AmbiguousDetections() { return G18_AMBIGUOUS_DETECTIONS.get(); }
   public static void resetG18AmbiguousDetections() { G18_AMBIGUOUS_DETECTIONS.set(0L); }

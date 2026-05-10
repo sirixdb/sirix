@@ -428,6 +428,7 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetOptionBRerouteFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetG17ConstancyRedirects();
         io.sirix.access.trx.page.HOTTrieWriter.resetG18AmbiguousDetections();
+        io.sirix.access.trx.page.HOTTrieWriter.resetG20RecursiveSplitFirings();
 
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
@@ -599,7 +600,8 @@ final class HOTFormalVerificationTest {
               + " G3-i4-bch=" + io.sirix.access.trx.page.HOTTrieWriter.getG3I4RejectBch()
               + " optionB-reroute=" + io.sirix.access.trx.page.HOTTrieWriter.getOptionBRerouteFirings()
               + " G17-redirects=" + io.sirix.access.trx.page.HOTTrieWriter.getG17ConstancyRedirects()
-              + " G18-ambiguous=" + io.sirix.access.trx.page.HOTTrieWriter.getG18AmbiguousDetections());
+              + " G18-ambiguous=" + io.sirix.access.trx.page.HOTTrieWriter.getG18AmbiguousDetections()
+              + " G20-rec-splits=" + io.sirix.access.trx.page.HOTTrieWriter.getG20RecursiveSplitFirings());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();

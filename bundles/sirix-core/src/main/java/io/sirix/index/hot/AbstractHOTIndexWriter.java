@@ -794,6 +794,19 @@ public abstract class AbstractHOTIndexWriter<K> {
       final byte[] keyBytesG18 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
       trieWriter.findAmbiguousAncestor(navResult.pathNodes(),
           navResult.pathChildIndices(), navResult.pathDepth(), keyBytesG18);
+
+      // Stage G.20 read-only — count how many buckets a recursive constancy-aware
+      // split would produce. Increments G20_RECURSIVE_SPLIT_FIRINGS when ≥ 2 buckets
+      // (= split would actually fire).
+      final byte[] valueBytesG20 = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
+      final int[] ancestorBits = trieWriter.collectAncestorDiscBits(
+          navResult.pathNodes(), navResult.pathDepth());
+      if (ancestorBits.length > 0 && ancestorBits.length <= 6) {
+        // Only count when bits fit in 6 (= ≤ 64 buckets).
+        final byte[][][] buckets = new byte[1 << ancestorBits.length][][];
+        trieWriter.recursiveConstancyAwareSplit(leaf, keyBytesG18, valueBytesG20,
+            ancestorBits, buckets);
+      }
     }
 
     // Stage G.15 — I8 pre-check + reroute. When newKey would become the new deep-firstKey
