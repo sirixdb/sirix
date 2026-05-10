@@ -626,6 +626,24 @@ final class HOTFormalVerificationTest {
               stageDPrevCounters = snapshotWriterFirings();
             }
           }
+          // Phase 5e — commit-time global reconciliation. Walks the trie post-insert
+          // and lifts each child's MSB into its parent's mask if safe (= β-constant in
+          // other children). Fixes stale-firstKey artifacts that post-hoc closure can't.
+          if (Boolean.getBoolean("hot.strict.phase5e")) {
+            try {
+              final var trieWriter = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRefForLift =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRefForLift != null) {
+                final int lifts = trieWriter.commitTimeLiftAllChildMsbs(rootRefForLift,
+                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
+                System.out.println("[phase5e] commit-time lifts=" + lifts);
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase5e] failed: " + t);
+            }
+          }
           trx.commit();
           if (stageDGate) {
             stageDCheckpoints.add(captureStageDCheckpoint("post-commit", n, trx, def,

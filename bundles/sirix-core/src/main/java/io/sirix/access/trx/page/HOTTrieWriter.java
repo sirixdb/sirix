@@ -4513,6 +4513,78 @@ public final class HOTTrieWriter {
   }
 
   /**
+   * Phase 5e — Commit-time global reconciliation. Walks the ENTIRE trie post-insert
+   * and proactively lifts each child's MSB into its parent's mask if the lift is safe
+   * (= β-constant in all OTHER children's subtrees). This fixes stale-firstKey
+   * artifacts where parent's mask doesn't capture bits needed to discriminate current
+   * children's firstKeys.
+   *
+   * <p>Bounded: per indirect, at most 4 lifts. Total work is O(N × 4) = O(N).
+   * Returns count of successful lifts for telemetry.
+   */
+  public int commitTimeLiftAllChildMsbs(PageReference rootRef,
+      StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
+    if (rootRef == null) return 0;
+    final int revision = storageEngineWriter.getRevisionNumber();
+    Page rootPage = log.get(rootRef) != null ? log.get(rootRef).getModified() : rootRef.getPage();
+    if (rootPage == null) rootPage = loadPage(storageEngineWriter, rootRef);
+    if (!(rootPage instanceof HOTIndirectPage rootInd)) return 0;
+    int totalLifts = 0;
+    for (int round = 0; round < 4; round++) {
+      final int liftsThisRound = liftMsbsAtIndirect(rootRef, rootInd, storageEngineWriter, log, revision);
+      if (liftsThisRound == 0) break;
+      totalLifts += liftsThisRound;
+      // Refresh rootInd reference.
+      final Page refreshed = log.get(rootRef) != null ? log.get(rootRef).getModified() : rootRef.getPage();
+      if (refreshed instanceof HOTIndirectPage rfresh) rootInd = rfresh;
+      else break;
+    }
+    return totalLifts;
+  }
+
+  /** Helper: lift one child's MSB into the indirect's mask if safe. */
+  private int liftMsbsAtIndirect(PageReference indirectRef, HOTIndirectPage indirect,
+      StorageEngineWriter storageEngineWriter, TransactionIntentLog log, int revision) {
+    final int n = indirect.getNumChildren();
+    if (n < 2) return 0;
+    final int parentMsb = indirect.getMostSignificantBitIndex() & 0xFFFF;
+    // For each child, get its MSB, try lift if β-constant in all other children.
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) continue;
+      Page cp = cref.getPage();
+      if (cp == null) {
+        final var pc = log.get(cref);
+        if (pc != null) cp = pc.getModified();
+      }
+      if (cp == null) cp = loadPage(storageEngineWriter, cref);
+      if (!(cp instanceof HOTIndirectPage ci)) continue;
+      final int childMsb = ci.getMostSignificantBitIndex() & 0xFFFF;
+      if (childMsb < 0 || childMsb > 200) continue;
+      if (childMsb <= parentMsb) continue; // already in parent's mask range — skip
+      // Check if childMsb is constant in EVERY other child's subtree.
+      boolean allOthersConstant = true;
+      for (int j = 0; j < n; j++) {
+        if (j == i) continue;
+        final int v = bitConstantValueInSubtree(indirect.getChildReference(j), childMsb);
+        if (v < 0) { allOthersConstant = false; break; }
+      }
+      if (!allOthersConstant) continue;
+      // Try lift via extendIndirectMaskForClosure.
+      final HOTIndirectPage extended = extendIndirectMaskForClosure(indirect, childMsb, log, revision);
+      if (extended == null) continue;
+      log.put(indirectRef, PageContainer.getInstance(extended, extended));
+      indirectRef.setPage(extended);
+      if (Boolean.getBoolean("hot.debug.phase5e")) {
+        System.err.println("[phase5e] LIFT-OK indirect=" + indirect.getPageKey()
+            + " childIdx=" + i + " liftedBit=" + childMsb + " oldParentMsb=" + parentMsb);
+      }
+      return 1;
+    }
+    return 0;
+  }
+
+  /**
    * Phase 5d — Walk the path from root to leaf-parent, fixing I11 violations by lifting
    * child.MSB into parent.mask. For each (parent, child) pair where child.MSB.absBit
    * &lt; parent.MSB.absBit (= child has a more-significant disc bit than parent — Binna
