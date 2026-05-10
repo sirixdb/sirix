@@ -1491,6 +1491,42 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     return entryCount;
   }
 
+  /**
+   * Phase 6a — Check whether bit at MSB-first absolute position {@code absBit} is constant
+   * across all keys in this leaf. Returns:
+   * <ul>
+   *   <li>0 — all keys have bit {@code absBit} = 0</li>
+   *   <li>1 — all keys have bit {@code absBit} = 1</li>
+   *   <li>-1 — leaf is β-mixed at this bit (= some keys have 0, some have 1) OR leaf is empty</li>
+   * </ul>
+   *
+   * <p>O(N) scan over leaf entries. Keys past their length contribute 0 to the bit lookup
+   * (= bit position beyond key length is treated as 0).
+   *
+   * <p>Used by Phase 5 / Phase 6 helpers in HOTTrieWriter to determine whether extending
+   * an ancestor's mask with bit {@code absBit} would preserve β-constancy at this leaf
+   * without splitting.
+   */
+  public int isBitConstantAtAbsBit(int absBit) {
+    if (absBit < 0 || entryCount == 0) return -1;
+    boolean seen0 = false;
+    boolean seen1 = false;
+    for (int i = 0; i < entryCount; i++) {
+      final byte[] key = getKey(i);
+      if (key == null) continue;
+      final int bytePos = absBit / 8;
+      final int bitInByte = absBit % 8;
+      final boolean bitSet = (bytePos < key.length)
+          && ((key[bytePos] & (1 << (7 - bitInByte))) != 0);
+      if (bitSet) seen1 = true;
+      else seen0 = true;
+      if (seen0 && seen1) return -1;
+    }
+    if (seen1 && !seen0) return 1;
+    if (seen0 && !seen1) return 0;
+    return -1;
+  }
+
   // ===== Delete operations =====
 
   /**
