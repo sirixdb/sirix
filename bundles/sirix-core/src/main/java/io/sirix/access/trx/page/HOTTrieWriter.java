@@ -4069,10 +4069,17 @@ public final class HOTTrieWriter {
       return null;
     }
 
-    // Pre-flight: bail out if any child is a placeholder (NULL_ID_LONG key from stale CoW
-    // shadow or in-flight construction). Closure on partially-formed indirects is not
-    // meaningful — the next insert will rebuild the indirect and trigger closure on the
-    // fully-formed result.
+    // Pre-flight: bail out if any child reference has NULL_ID_LONG pageKey. This is the
+    // SAFETY GUARD from G.30 — when any child is a fresh TIL-only page (= pageKey not yet
+    // assigned), running closure produces I11-violating cascades because subsequent
+    // splitSubtreeOnBit / buildBucketWithInheritedMask construct child indirects with
+    // masks containing bits more significant than parent's new MSB. The architecture
+    // doesn't preserve I11 across closure-triggered splits in this state.
+    //
+    // Effect: in our test scenarios, root almost ALWAYS has TIL-only children, so closure
+    // is effectively a no-op. This is the architectural ceiling documented in
+    // HOT_CAMPAIGN_RESULTS.md §5 — eliminating the 1 marginal violation requires
+    // multi-week rewrite of indirect construction operations.
     for (int i = 0; i < oldNumChildren; i++) {
       final PageReference ref = indirect.getChildReference(i);
       if (ref == null || ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG) {
