@@ -137,6 +137,8 @@ test {
     systemProperty "hot.strict.option-b-phase-5", System.getProperty("hot.strict.option-b-phase-5", "false")
     systemProperty "hot.debug.phase5", System.getProperty("hot.debug.phase5", "false")
     systemProperty "hot.strict.phase5c", System.getProperty("hot.strict.phase5c", "false")
+    systemProperty "hot.strict.phase5d", System.getProperty("hot.strict.phase5d", "false")
+    systemProperty "hot.debug.phase5d", System.getProperty("hot.debug.phase5d", "false")
     systemProperty "hot.debug.g30", System.getProperty("hot.debug.g30", "false")
     systemProperty "hot.debug.g32", System.getProperty("hot.debug.g32", "false")
     

@@ -4513,6 +4513,78 @@ public final class HOTTrieWriter {
   }
 
   /**
+   * Phase 5d — Walk the path from root to leaf-parent, fixing I11 violations by lifting
+   * child.MSB into parent.mask. For each (parent, child) pair where child.MSB.absBit
+   * &lt; parent.MSB.absBit (= child has a more-significant disc bit than parent — Binna
+   * trie-condition violation), extend parent.mask with that bit. Splits child on β
+   * to maintain β-constancy in the resulting halves.
+   *
+   * <p>Bounded: at most one lift per ancestor. Aborts on first failure (caller observes
+   * via formal verifier). Returns true on any progress, false if no I11 violations
+   * detected (= no work needed).
+   */
+  public boolean liftChildMsbsForI11(PageReference rootRef,
+      HOTIndirectPage[] pathNodes, PageReference[] pathRefs, int[] pathChildIndices, int pathDepth,
+      StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
+    if (pathDepth <= 0) return false;
+    final int revision = storageEngineWriter.getRevisionNumber();
+    final boolean dbg = Boolean.getBoolean("hot.debug.phase5d");
+    boolean anyProgress = false;
+    // Top-down: root → leaf-parent.
+    for (int aIdx = 0; aIdx < pathDepth; aIdx++) {
+      final HOTIndirectPage A = currentInLog(pathRefs[aIdx], pathNodes[aIdx]);
+      if (A == null) continue;
+      final int aMsb = A.getMostSignificantBitIndex() & 0xFFFF;
+      final int n = A.getNumChildren();
+      // Find a child whose MSB.absBit ≤ aMsb (= I11 violation).
+      int violatingChildIdx = -1;
+      int violatingChildMsb = -1;
+      for (int i = 0; i < n; i++) {
+        final PageReference cref = A.getChildReference(i);
+        if (cref == null) continue;
+        // Resolve page from log if not in memory.
+        Page cp = cref.getPage();
+        if (cp == null) {
+          final var pc = log.get(cref);
+          if (pc != null) cp = pc.getModified();
+        }
+        if (cp == null) cp = loadPage(storageEngineWriter, cref);
+        if (!(cp instanceof HOTIndirectPage ci)) continue;
+        final int cMsb = ci.getMostSignificantBitIndex() & 0xFFFF;
+        if (dbg) System.err.println("[phase5d-scan] aIdx=" + aIdx + " aMsb=" + aMsb
+            + " childIdx=" + i + " childMsb=" + cMsb);
+        if (cMsb >= 0 && cMsb <= aMsb) {
+          violatingChildIdx = i;
+          violatingChildMsb = cMsb;
+          break;
+        }
+      }
+      if (violatingChildIdx < 0) continue;
+      // Lift: extend A.mask with bit violatingChildMsb. extendIndirectMaskForClosure
+      // splits β-mixed children (= the violating child gets split on its own MSB,
+      // becoming β-constant halves at A's level).
+      final HOTIndirectPage extended = extendIndirectMaskForClosure(A, violatingChildMsb, log, revision);
+      if (extended == null) continue;
+      log.put(pathRefs[aIdx], PageContainer.getInstance(extended, extended));
+      // Propagate CoW up.
+      PageReference upRef = pathRefs[aIdx];
+      for (int i = aIdx - 1; i >= 0; i--) {
+        final HOTIndirectPage curNode = currentInLog(pathRefs[i], pathNodes[i]);
+        final HOTIndirectPage updatedNode = curNode.withUpdatedChild(pathChildIndices[i], upRef, revision);
+        log.put(pathRefs[i], PageContainer.getInstance(updatedNode, updatedNode));
+        upRef = pathRefs[i];
+      }
+      if (Boolean.getBoolean("hot.debug.phase5d")) {
+        System.err.println("[phase5d] LIFT-OK ancestorIdx=" + aIdx
+            + " childIdx=" + violatingChildIdx
+            + " liftedBit=" + violatingChildMsb + " oldParentMsb=" + aMsb);
+      }
+      anyProgress = true;
+    }
+    return anyProgress;
+  }
+
+  /**
    * Option B Phase 5 — Find the MSDB between {@code keyBuf} and the previous sibling's
    * firstKey at any ancestor where I8 would break. This is the ACTUAL β bit (not the
    * ancestor depth), so it can be passed to splitLeafAndRerouteWrongHalf as a bit

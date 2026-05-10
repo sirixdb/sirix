@@ -926,6 +926,16 @@ public abstract class AbstractHOTIndexWriter<K> {
       prepareIndexPage();
     }
 
+    // Phase 5d — lift child.MSB into parent when child.MSB.absBit ≤ parent.MSB.absBit
+    // (= I11 violation). Walks path from root, applies extendIndirectMaskForClosure with
+    // β = violating child's MSB. Bounded: one lift per ancestor per insert.
+    if (success && Boolean.getBoolean("hot.strict.phase5d")) {
+      trieWriter.liftChildMsbsForI11(rootRef, navResult.pathNodes(), navResult.pathRefs(),
+          navResult.pathChildIndices(), navResult.pathDepth(),
+          storageEngineWriter, storageEngineWriter.getLog());
+      prepareIndexPage();
+    }
+
     // Stage G.32 — I11-safe root mask reconciliation. Gated on -Dhot.strict.g32=true.
     // Empirical finding: the closure-added bits aren't β-constant in children's subtrees
     // (= multi-entry leaves can hold any bit value at any position), so adding them to
@@ -945,6 +955,13 @@ public abstract class AbstractHOTIndexWriter<K> {
         final byte[] keyBytesG28 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
         trieWriter.ensureMaskClosure(rootRef, keyBytesG28, storageEngineWriter,
             storageEngineWriter.getLog());
+        prepareIndexPage();
+      }
+      // Phase 5d post-failure-recovery — fix I11 violations from leaf splits.
+      if (success && Boolean.getBoolean("hot.strict.phase5d")) {
+        trieWriter.liftChildMsbsForI11(rootRef, navResult.pathNodes(), navResult.pathRefs(),
+            navResult.pathChildIndices(), navResult.pathDepth(),
+            storageEngineWriter, storageEngineWriter.getLog());
         prepareIndexPage();
       }
       // G.32 reconcile also runs after failure-recovery insert (gated).
