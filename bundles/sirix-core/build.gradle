@@ -132,6 +132,7 @@ test {
     systemProperty "hot.debug.phase3", System.getProperty("hot.debug.phase3", "false")
     systemProperty "hot.debug.phase4", System.getProperty("hot.debug.phase4", "false")
     systemProperty "hot.strict.g28.closure", System.getProperty("hot.strict.g28.closure", "false")
+    systemProperty "hot.strict.g32", System.getProperty("hot.strict.g32", "false")
     systemProperty "hot.debug.g30", System.getProperty("hot.debug.g30", "false")
     systemProperty "hot.debug.g32", System.getProperty("hot.debug.g32", "false")
     
