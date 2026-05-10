@@ -576,6 +576,28 @@ final class HOTFormalVerificationTest {
               dumpTreeState(trx, def, "AFTER");
             }
 
+            // Phase 5 — per-insert formal verification gate. When -Dhot.formal.verify=true,
+            // validate after EVERY insert and capture first-failure context for bisection.
+            if (Boolean.getBoolean("hot.formal.verify")) {
+              final HOTInvariantValidator.Result invStep = HOTInvariantValidator.validateIndex(
+                  trx.getStorageEngineReader(), IndexType.CAS, def.getID());
+              if (!invStep.violations().isEmpty()) {
+                System.out.println("[formal-verify] FIRST-FAILURE at idx=" + i
+                    + " violations=" + invStep.violations().size());
+                final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
+                for (final var v : invStep.violations()) {
+                  typeCounts.merge(v.invariant(), 1, Integer::sum);
+                }
+                System.out.println("[formal-verify]   types: " + typeCounts);
+                int printed = 0;
+                for (final var v : invStep.violations()) {
+                  if (printed++ >= 5) break;
+                  System.out.println("[formal-verify]   " + v);
+                }
+                throw new AssertionError("Phase 5 per-insert validator detected violation at idx=" + i);
+              }
+            }
+
             // Stage G.23 — per-insert I8 bisection (also reports first I4/I11).
             if (bisectI8 && i >= bisectFrom && i < bisectTo) {
               final HOTInvariantValidator.Result inv1 = HOTInvariantValidator.validateIndex(
