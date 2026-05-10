@@ -4325,12 +4325,59 @@ public final class HOTTrieWriter {
       if (partials[j] == targetStored) { siblingIdx = j; break; }
     }
     if (siblingIdx < 0) {
-      if (Boolean.getBoolean("hot.debug.phase5")) {
-        System.err.println("[phase5] reject reason=no-sibling beta=" + offendingBeta
-            + " ancestorIdx=" + ancestorIdx + " descendSlot=" + descendSlot
-            + " targetStored=0x" + Integer.toHexString(targetStored));
+      // Phase 5b — no exact-XOR sibling. Try CREATING one via addEntryWithPDep.
+      // Builds a new ancestor with mask = ancestor.mask + β-bit + a new slot for wrongHalf.
+      // matchHalfRef replaces ancestor.children[descendSlot]; wrongHalfRef is the new slot.
+      //
+      // The new slot's stored partial = descendSlot.partial XOR (1 << β-bit-output-pos).
+      // After this, matchHalfRef contains K (= merged in step 5 below) and is β-constant
+      // for β = K's value. wrongHalfRef contains existing keys with β = ¬K's value.
+      //
+      // SAFETY: addEntryWithPDep verifies β-constancy of every non-split sibling
+      // (line 1446-1452). If any sibling has β-mixed subtree, it returns null and we fall
+      // back. This is the safety net that prevents the cascade Phase 2 attempts showed.
+      //
+      // Merge K into matchHalf NOW, before the addEntry call (so matchHalf has K when
+      // addEntryWithPDep recomputes its firstKey for the new partial layout).
+      final HOTLeafPage matchHalfLeafForCreate = (HOTLeafPage) log.get(matchHalfRef).getModified();
+      if (!matchHalfLeafForCreate.mergeWithNodeRefs(keyBuf, keyBuf.length, valueBuf, valueBuf.length)) {
+        if (Boolean.getBoolean("hot.debug.phase5")) {
+          System.err.println("[phase5] reject reason=create-sibling-match-overflow beta=" + offendingBeta);
+        }
+        return false;
       }
-      return false;
+      log.put(matchHalfRef, PageContainer.getInstance(matchHalfLeafForCreate, matchHalfLeafForCreate));
+
+      // Determine left/right placement for addEntryWithPDep based on K's β-value.
+      // K is in matchHalf; wrongHalf is the OTHER side. addEntryWithPDep expects left
+      // and right children where left = β=0 product, right = β=1 product.
+      final PageReference newLeftChild = kBetaSet ? wrongHalfRef : matchHalfRef;
+      final PageReference newRightChild = kBetaSet ? matchHalfRef : wrongHalfRef;
+
+      final HOTIndirectPage extended = addEntryWithPDep(ancestor, descendSlot,
+          newLeftChild, newRightChild, offendingBeta, revision);
+      if (extended == null) {
+        if (Boolean.getBoolean("hot.debug.phase5")) {
+          System.err.println("[phase5] reject reason=addEntry-failed beta=" + offendingBeta
+              + " ancestorIdx=" + ancestorIdx);
+        }
+        return false;
+      }
+      // Install extended ancestor + CoW up.
+      log.put(pathRefs[ancestorIdx], PageContainer.getInstance(extended, extended));
+      PageReference upRef = pathRefs[ancestorIdx];
+      for (int i = ancestorIdx - 1; i >= 0; i--) {
+        final HOTIndirectPage curNode = currentInLog(pathRefs[i], pathNodes[i]);
+        final HOTIndirectPage updatedNode = curNode.withUpdatedChild(pathChildIndices[i], upRef, revision);
+        log.put(pathRefs[i], PageContainer.getInstance(updatedNode, updatedNode));
+        upRef = pathRefs[i];
+      }
+      PHASE5_SPLIT_REROUTE_FIRINGS.incrementAndGet();
+      if (Boolean.getBoolean("hot.debug.phase5")) {
+        System.err.println("[phase5] CREATE-SIBLING-OK beta=" + offendingBeta
+            + " ancestorIdx=" + ancestorIdx);
+      }
+      return true;
     }
 
     if (Boolean.getBoolean("hot.debug.phase5")) {
