@@ -3988,14 +3988,9 @@ public final class HOTTrieWriter {
       if (page != null) ref.setPage(page);
     }
     if (page instanceof HOTLeafPage leaf) {
-      final int n = leaf.getEntryCount();
-      if (n == 0) return 0;
-      final int first = DiscriminativeBitComputer.isBitSet(leaf.getKeySlice(0), absBitPos) ? 1 : 0;
-      for (int i = 1; i < n; i++) {
-        final int v = DiscriminativeBitComputer.isBitSet(leaf.getKeySlice(i), absBitPos) ? 1 : 0;
-        if (v != first) return -1;
-      }
-      return first;
+      // Phase 6c — delegate to HOTLeafPage's API which has the same semantics. Future
+      // 6b work will make this O(1) via incremental non-constant-bits tracking.
+      return leaf.isBitConstantAtAbsBit(absBitPos);
     }
     if (page instanceof HOTIndirectPage indirect) {
       final int m = indirect.getNumChildren();
