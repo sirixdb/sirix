@@ -4037,6 +4037,39 @@ public final class HOTTrieWriter {
   public static void resetG25BetaPropagations() { G25_BETA_PROPAGATIONS.set(0L); }
 
   /**
+   * Stage G.27 — Find the MSDB of an indirect's children's deep-firstKeys (= the
+   * most-significant absolute bit position where any pair of children's firstKeys
+   * differ). Used by G.25 propagation to pick the right β at each ancestor — the
+   * one that preserves I7/I8 sort coincidence.
+   *
+   * <p>Returns -1 if all children have identical firstKeys (= can't be distinguished).
+   */
+  private int findMsdbOfChildrenFirstKeys(HOTIndirectPage indirect) {
+    final int n = indirect.getNumChildren();
+    if (n < 2) return -1;
+    // Collect firstKeys.
+    final byte[][] firstKeys = new byte[n][];
+    int maxLen = 0;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) continue;
+      firstKeys[i] = getFirstKeyFromChild(cref);
+      if (firstKeys[i] != null && firstKeys[i].length > maxLen) maxLen = firstKeys[i].length;
+    }
+    // Walk from MSB to LSB. First bit position where any pair differs = the MSDB.
+    for (int absBit = 0; absBit < maxLen * 8; absBit++) {
+      boolean seen0 = false, seen1 = false;
+      for (int i = 0; i < n; i++) {
+        if (firstKeys[i] == null) continue;
+        if (isAbsBitSet(firstKeys[i], absBit)) seen1 = true;
+        else seen0 = true;
+        if (seen0 && seen1) return absBit;
+      }
+    }
+    return -1;
+  }
+
+  /**
    * Stage G.26 — Cross-window MultiMask upgrade with sibling pre-splitting. When a
    * SingleMask parent needs β added but β is outside the window AND some non-split
    * siblings are β-mixed, pre-split those siblings on β and rebuild the parent as
@@ -4224,11 +4257,22 @@ public final class HOTTrieWriter {
       final HOTIndirectPage A = pathNodes[i];
       final PageReference Aref = pathRefs[i];
       if (A == null || Aref == null) break;
+      // Stage G.27 — At each ancestor, find the MSDB of its children's firstKeys (not
+      // the leaf's β!) and extend with THAT bit. The leaf's β may be a low-order bit
+      // that produces partial-key/first-key sort disagreement at the ancestor level.
+      // The ancestor's children's MSDB is the bit where their firstKeys most-significantly
+      // differ, which preserves I7/I8 coincidence.
+      final int ancestorBeta = findMsdbOfChildrenFirstKeys(A);
+      if (ancestorBeta < 0) {
+        if (dbg) System.out.println("[g25-propagate]   step i=" + i + " no msdb-of-children");
+        break;
+      }
       final int betaOutPos = A.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK
-          ? singleMaskBetaOutputPos(A, beta)
-          : multiMaskBetaOutputPos(A, beta);
+          ? singleMaskBetaOutputPos(A, ancestorBeta)
+          : multiMaskBetaOutputPos(A, ancestorBeta);
       if (dbg) System.out.println("[g25-propagate]   step i=" + i + " A.pageKey=" + A.getPageKey()
-          + " A.layout=" + A.getLayoutType() + " betaOutPos=" + betaOutPos);
+          + " A.layout=" + A.getLayoutType() + " ancestorBeta=" + ancestorBeta
+          + " betaOutPos=" + betaOutPos);
       if (betaOutPos >= 0) { if (dbg) System.out.println("[g25-propagate]     β in mask, halt"); break; }
       final int chosenSlot = pathChildIndices[i];
       if (chosenSlot < 0 || chosenSlot >= A.getNumChildren()) {
@@ -4236,38 +4280,32 @@ public final class HOTTrieWriter {
       }
       final PageReference chosenRef = A.getChildReference(chosenSlot);
       if (chosenRef == null) { if (dbg) System.out.println("[g25-propagate]     null chosenRef"); break; }
-      // Read latest version from log (= post-upgrade state, not pre-mod cached page).
-      final PageContainer chosenCont = log.get(chosenRef);
-      final Page chosenPage = chosenCont != null ? chosenCont.getModified() : chosenRef.getPage();
-      if (dbg) System.out.println("[g25-propagate]     chosenSlot=" + chosenSlot
-          + " chosenPage=" + (chosenPage == null ? "null" : chosenPage.getClass().getSimpleName()
-              + (chosenPage instanceof HOTIndirectPage cp ? "/" + cp.getLayoutType() : "")));
-      final int v = bitConstantValueInSubtree(chosenRef, beta);
+      final int v = bitConstantValueInSubtree(chosenRef, ancestorBeta);
       if (dbg) System.out.println("[g25-propagate]     β-constancy v=" + v);
       if (v >= 0) { if (dbg) System.out.println("[g25-propagate]     β-constant, halt"); break; }
-      final SubtreeSplit split = splitSubtreeOnBit(chosenRef, beta, log, revision);
+      final SubtreeSplit split = splitSubtreeOnBit(chosenRef, ancestorBeta, log, revision);
       if (dbg) System.out.println("[g25-propagate]     split " + (split == null ? "null" : "ok"));
       if (split == null) break;
+      // Use ancestorBeta in addEntry/upgrade calls below.
+      final int beta_ = ancestorBeta;
       HOTIndirectPage updatedA;
       if (A.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
         updatedA = addEntryWithPDep(A, chosenSlot, split.leftRef(), split.rightRef(),
-            beta, revision);
+            beta_, revision);
       } else {
         updatedA = addEntryMultiMask(A, chosenSlot, split.leftRef(), split.rightRef(),
-            beta, revision);
+            beta_, revision);
       }
       if (dbg) System.out.println("[g25-propagate]     addEntry result="
           + (updatedA == null ? "null" : "ok layout=" + updatedA.getLayoutType()));
       if (updatedA == null) {
-        // Fall to Phase 3 (SingleMask-only).
         updatedA = rebalanceAndIntegrate(A, chosenSlot, split.leftRef(), split.rightRef(),
-            beta, log, revision);
+            beta_, log, revision);
         if (dbg) System.out.println("[g25-propagate]     phase3 result="
             + (updatedA == null ? "null" : "ok"));
         if (updatedA == null) {
-          // Fall to G.25 cross-window MultiMask: pre-split β-mixed siblings and upgrade.
           updatedA = upgradeToMultiMaskWithSiblingSplits(A, chosenSlot, split.leftRef(),
-              split.rightRef(), beta, log, revision);
+              split.rightRef(), beta_, log, revision);
           if (dbg) System.out.println("[g25-propagate]     g25-multimask result="
               + (updatedA == null ? "null" : "ok"));
           if (updatedA == null) break;

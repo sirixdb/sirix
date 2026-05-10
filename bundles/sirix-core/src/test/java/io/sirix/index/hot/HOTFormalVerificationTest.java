@@ -522,6 +522,7 @@ final class HOTFormalVerificationTest {
           final int bisectTo = Integer.getInteger("hot.bisect.to", 600);
           int firstI8At = -1;
           int firstI8Count = -1;
+          final java.util.Set<String> seenFirstFailures = new java.util.HashSet<>();
           // Stage G.24 — tree dump at specific insert.
           final int dumpAtIdx = Integer.getInteger("hot.dump.at", -1);
           // Counter snapshots BEFORE the dumpAt insert.
@@ -574,20 +575,24 @@ final class HOTFormalVerificationTest {
               dumpTreeState(trx, def, "AFTER");
             }
 
-            // Stage G.23 — per-insert I8 bisection.
+            // Stage G.23 — per-insert I8 bisection (also reports first I4/I11).
             if (bisectI8 && i >= bisectFrom && i < bisectTo) {
               final HOTInvariantValidator.Result inv1 = HOTInvariantValidator.validateIndex(
                   trx.getStorageEngineReader(), IndexType.CAS, def.getID());
-              long i8Count = inv1.violations().stream()
-                  .filter(v -> v.invariant().equals("I8-children-sorted-by-firstkey")).count();
-              if (i8Count > 0 && firstI8At < 0) {
-                firstI8At = i;
-                firstI8Count = (int) i8Count;
-                System.out.println("[bisect-i8] FIRST I8 at insert idx=" + i
-                    + " count=" + i8Count);
-                for (final var v : inv1.violations()) {
-                  if (v.invariant().equals("I8-children-sorted-by-firstkey")) {
-                    System.out.println("[bisect-i8]   " + v);
+              for (final var v : inv1.violations()) {
+                final String inv = v.invariant();
+                if ((inv.equals("I8-children-sorted-by-firstkey")
+                    || inv.equals("I4-first-partial-zero")
+                    || inv.equals("I11-trie-condition")
+                    || inv.equals("I-Binna-sparse-path"))) {
+                  if (firstI8Count == -1 || i % 100 == 0) {
+                    // Throttle output, but capture first occurrence per-type.
+                    String key = "[bisect-i8] " + inv + " idx=" + i;
+                    if (!seenFirstFailures.contains(inv)) {
+                      seenFirstFailures.add(inv);
+                      System.out.println("[bisect-i8] FIRST " + inv + " at idx=" + i + " : " + v);
+                      firstI8Count = 0;
+                    }
                   }
                 }
               }
