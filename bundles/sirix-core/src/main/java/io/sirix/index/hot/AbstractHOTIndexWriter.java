@@ -764,15 +764,36 @@ public abstract class AbstractHOTIndexWriter<K> {
     // This is the architectural fix from HOT_FIX_DESIGN_V2.md §3.2 Option B. It avoids
     // the multi-entry-leaf β-mixing pathology by routing the offending key away from
     // the "would-make-it-mixed" leaf, into the existing β-correct subtree.
-    // Stage G.18 — ambiguous-routing detection (read-only). When PEXT-routing for newKey
-    // is ambiguous at any ancestor (= chosen slot's stored partial doesn't equal
-    // densePK(newKey) at that ancestor's mask), this surfaces in the G18_AMBIGUOUS_DETECTIONS
-    // counter. Read-only diagnostic — Phase 2 will add proactive disc-bit extension.
-    if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
+    // Stage G.18+G.19 — ambiguous-routing detection + reactive split.
+    // When PEXT-routing for newKey is ambiguous at ancestor A (= densePK(newKey, A.mask)
+    // differs from chosen slot's stored), find the offending bit β and force a leaf
+    // split-and-insert on β. The split-and-integrate path then routes the halves
+    // correctly via the existing addEntry → Phase3/4 → fallback dispatch.
+    if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0
+        && Boolean.getBoolean("hot.strict.ambig.split")) {
+      final byte[] keyBytesG18 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
+      final int ambigIdx = trieWriter.findAmbiguousAncestor(navResult.pathNodes(),
+          navResult.pathChildIndices(), navResult.pathDepth(), keyBytesG18);
+      if (ambigIdx >= 0 && leaf.canSplit()) {
+        final HOTIndirectPage A = navResult.pathNodes()[ambigIdx];
+        final int chosenSlot = navResult.pathChildIndices()[ambigIdx];
+        final int offendingBit = trieWriter.findOffendingBitAtAncestor(A, chosenSlot, keyBytesG18);
+        if (offendingBit >= 0) {
+          final byte[] valueBytes = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
+          final boolean ok = trieWriter.handleLeafSplitAndInsert(
+              storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
+              rootRef, navResult.pathNodes(), navResult.pathRefs(),
+              navResult.pathChildIndices(), navResult.pathDepth(),
+              keyBytesG18, keyLen, valueBytes, valueLen, offendingBit);
+          prepareIndexPage();
+          if (ok) return;
+        }
+      }
+    } else if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
+      // Read-only detection (default).
       final byte[] keyBytesG18 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
       trieWriter.findAmbiguousAncestor(navResult.pathNodes(),
           navResult.pathChildIndices(), navResult.pathDepth(), keyBytesG18);
-      // Detected ambiguities increment the counter. No action taken here.
     }
 
     // Stage G.15 — I8 pre-check + reroute. When newKey would become the new deep-firstKey

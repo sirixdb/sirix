@@ -4046,6 +4046,72 @@ public final class HOTTrieWriter {
     return -1;
   }
 
+  /**
+   * Stage G.19 — Find a bit position β where {@code keyBuf}'s densePK at the ancestor's
+   * mask differs from the chosen slot's stored partial. Returns the absolute MSB-first
+   * bit position, or -1 if no such bit exists in the mask.
+   *
+   * <p>Used by Phase 2 of the routing-encoding rewrite: when ambiguity is detected at
+   * an ancestor, this picks the splitting bit. The leaf-split-and-integrate path then
+   * uses this β to partition the offending leaf so newKey ends up in a slot with
+   * matching stored partial.
+   */
+  public int findOffendingBitAtAncestor(HOTIndirectPage A, int chosenSlot, byte[] keyBuf) {
+    if (A == null || keyBuf == null) return -1;
+    final int[] partials = A.getPartialKeys();
+    if (partials == null || chosenSlot < 0 || chosenSlot >= partials.length) return -1;
+    final int densePK = computeDensePartialKey(A, keyBuf);
+    final int chosenStored = partials[chosenSlot];
+    final int diff = densePK ^ chosenStored;
+    if (diff == 0) return -1; // no difference
+    // Find the most-significant differing bit in the partial-key space, then convert
+    // to absolute MSB-first bit position.
+    final int outputPos = 31 - Integer.numberOfLeadingZeros(diff);
+    return outputPosToAbsBit(A, outputPos);
+  }
+
+  /** Convert a partial-key output position to absolute MSB-first bit position via the mask. */
+  private static int outputPosToAbsBit(HOTIndirectPage indirect, int outputPos) {
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      final int initialBytePos = indirect.getInitialBytePos();
+      long m = indirect.getBitMask();
+      int op = 0;
+      while (m != 0L) {
+        final long lowBit = m & -m;
+        if (op == outputPos) {
+          final int b = Long.numberOfTrailingZeros(lowBit);
+          final int byteOffset = 7 - b / 8;
+          final int bitInByte = 7 - (b % 8);
+          return (initialBytePos + byteOffset) * 8 + bitInByte;
+        }
+        m &= m - 1L;
+        op++;
+      }
+      return -1;
+    }
+    // MultiMask: walk extractionPositions / extractionMasks, count outputPos.
+    final byte[] extractionPositions = indirect.getExtractionPositions();
+    final long[] extractionMasks = indirect.getExtractionMasks();
+    final int numExtractionBytes = indirect.getNumExtractionBytes();
+    if (extractionPositions == null || extractionMasks == null) return -1;
+    int totalBits = 0;
+    for (final long em : extractionMasks) totalBits += Long.bitCount(em);
+    int bitsBefore = totalBits;
+    for (int i = 0; i < numExtractionBytes; i++) {
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      final long byteMask = (extractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL;
+      for (int b = 7; b >= 0; b--) {
+        if ((byteMask & (1L << b)) == 0) continue;
+        bitsBefore--;
+        if (bitsBefore == outputPos) {
+          return (extractionPositions[i] & 0xFF) * 8 + (7 - b);
+        }
+      }
+    }
+    return -1;
+  }
+
   /** Compute densePK for a key under any indirect's layout (SingleMask or MultiMask). */
   private static int computeDensePartialKey(HOTIndirectPage indirect, byte[] key) {
     if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
