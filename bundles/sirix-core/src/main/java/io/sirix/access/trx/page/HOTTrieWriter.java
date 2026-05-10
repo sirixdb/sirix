@@ -1423,7 +1423,7 @@ public final class HOTTrieWriter {
       }
       return null; // bit already a disc bit — caller handles via split path
     }
-    final long newMask = oldMask | newBitMaskBit;
+    long newMask = oldMask | newBitMaskBit;
 
     // 2. Compute where the new bit sits in the new compressed partial-key layout. PEXT packs
     //    mask bits from LSB → MSB in output, so the new bit's output position equals the
@@ -1519,9 +1519,13 @@ public final class HOTTrieWriter {
 
     // Stage G.16 — verify partial-key sort matches first-key sort. If not, re-sort by
     // first-key + recompute partials directly via PEXT. Same pattern as G.9 for
-    // buildFlatNonStrict. This catches the construction-time inversion observed at
-    // indirect 2 (child[2].firstKey > child[3].firstKey under partial-sort but partial
-    // values say slot 2 should come first).
+    // buildFlatNonStrict.
+    //
+    // Stage G.31 — when after firstKey re-sort, two partials collide (different firstKeys
+    // route to same partial under current newMask), iteratively find the MSDB between the
+    // colliding pair and ADD it to newMask. Repeat until partials are unique OR mask is
+    // saturated. This is INSERT-TIME MSDB closure — the architectural fix to ensure the
+    // mask captures every bit needed to discriminate adjacent siblings by firstKey.
     boolean firstKeyMonotone = true;
     for (int i = 1; i < newNumChildren; i++) {
       final byte[] prev = getFirstKeyFromChild(newChildren[i - 1]);
@@ -1540,12 +1544,61 @@ public final class HOTTrieWriter {
         newPartialKeys[i] = (cKey == null || cKey.length == 0) ? 0
             : computePartialKeySingleMask(cKey, oldInitialBytePos, newMask);
       }
-      // Re-verify uniqueness after recompute (collision possible if firstKeys collide on PEXT).
+      // G.31: iterative mask extension. Up to 16 attempts (= mask can have at most ~16 bits
+      // before fanout limit is reached).
+      int g31Attempts = 0;
+      while (g31Attempts < 16) {
+        // Find first colliding adjacent pair after firstKey sort.
+        int collidingI = -1, collidingK = -1;
+        outer:
+        for (int i = 1; i < newNumChildren; i++) {
+          for (int k = 0; k < i; k++) {
+            if (newPartialKeys[k] == newPartialKeys[i]) {
+              collidingI = i;
+              collidingK = k;
+              break outer;
+            }
+          }
+        }
+        if (collidingI < 0) break; // no collisions → done
+
+        // Find MSDB between the two colliding children's firstKeys.
+        final byte[] keyI = getFirstKeyFromChild(newChildren[collidingI]);
+        final byte[] keyK = getFirstKeyFromChild(newChildren[collidingK]);
+        if (keyI == null || keyK == null) return null;
+        final int msdb = DiscriminativeBitComputer.computeDifferingBit(keyK, keyI);
+        if (msdb < 0) return null; // truly identical keys — can't discriminate
+
+        // Encode msdb into the current SingleMask window.
+        final int msdbByteOff = (msdb / 8) - oldInitialBytePos;
+        if (msdbByteOff < 0 || msdbByteOff >= 8) return null; // cross-window — too complex here
+        final int msdbBitInByte = msdb % 8;
+        final int msdbBitInWord = (7 - msdbByteOff) * 8 + (7 - msdbBitInByte);
+        final long msdbBit = 1L << msdbBitInWord;
+        if ((newMask & msdbBit) != 0L) return null; // already present but still collide?
+        final long extendedMask = newMask | msdbBit;
+        if (Long.bitCount(extendedMask) > 16) return null; // saturation: partial > 16 bits
+
+        // Recompute all partials under extended mask.
+        for (int i = 0; i < newNumChildren; i++) {
+          final byte[] cKey = getFirstKeyFromChild(newChildren[i]);
+          newPartialKeys[i] = (cKey == null || cKey.length == 0) ? 0
+              : computePartialKeySingleMask(cKey, oldInitialBytePos, extendedMask);
+        }
+        newMask = extendedMask;
+        g31Attempts++;
+      }
+      // Final verification: partials unique + smallest = 0.
       for (int i = 1; i < newNumChildren; i++) {
         for (int k = 0; k < i; k++) {
           if (newPartialKeys[k] == newPartialKeys[i]) return null;
         }
       }
+      boolean hasZero = false;
+      for (final int p : newPartialKeys) {
+        if (p == 0) { hasZero = true; break; }
+      }
+      if (!hasZero) return null;
     }
 
     if (newNumChildren <= 16) {
@@ -2400,6 +2453,40 @@ public final class HOTTrieWriter {
     final int[] trimPartials = (outIdx == maxNew) ? newPartials
         : Arrays.copyOf(newPartials, outIdx);
     sortChildrenAndPartialsByPartial(trimChildren, trimPartials);
+
+    // Stage G.31 — I8 firstKey-monotone verification mirroring addEntryWithPDep's G.16.
+    // After partial-sort, verify children's firstKeys are also strictly ascending. If not,
+    // EXTEND the mask with the discriminative bit between the offending pair (= MSDB of
+    // the disagreement) and re-derive everything.
+    boolean monotone = true;
+    for (int i = 1; i < outIdx; i++) {
+      final byte[] prev = getFirstKeyFromChild(trimChildren[i - 1]);
+      final byte[] curr = getFirstKeyFromChild(trimChildren[i]);
+      if (prev != null && curr != null && prev.length > 0 && curr.length > 0
+          && Arrays.compareUnsigned(prev, curr) >= 0) {
+        monotone = false;
+        break;
+      }
+    }
+    if (!monotone) {
+      // Sort by firstKey, then recompute partials under newMask. If partials still collide
+      // or smallest partial isn't 0, reject so caller falls back.
+      sortChildrenByFirstKey(trimChildren);
+      for (int i = 0; i < outIdx; i++) {
+        final byte[] cKey = getFirstKeyFromChild(trimChildren[i]);
+        trimPartials[i] = (cKey == null || cKey.length == 0) ? 0
+            : computePartialKeySingleMask(cKey, oldInitialBytePos, newMask);
+      }
+      for (int i = 1; i < outIdx; i++) {
+        for (int k = 0; k < i; k++) {
+          if (trimPartials[k] == trimPartials[i]) {
+            diagnoseIntegrateFail("g31-partial-collision-after-firstkey-resort", parent,
+                newAbsBit, outIdx);
+            return null;
+          }
+        }
+      }
+    }
 
     if (outIdx <= 16) {
       return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
