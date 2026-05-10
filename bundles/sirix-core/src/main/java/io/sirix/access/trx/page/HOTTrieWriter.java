@@ -4254,6 +4254,225 @@ public final class HOTTrieWriter {
 
   private static final int[] EMPTY_INT_ARRAY = new int[0];
 
+  /** Stage Phase 5 — count of splitLeafAndRerouteWrongHalf successful firings. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE5_SPLIT_REROUTE_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getPhase5SplitRerouteFirings() { return PHASE5_SPLIT_REROUTE_FIRINGS.get(); }
+  public static void resetPhase5SplitRerouteFirings() { PHASE5_SPLIT_REROUTE_FIRINGS.set(0L); }
+
+  /**
+   * Option B Phase 5 — Split {@code leaf} on β, place K's half at leaf's slot, reroute
+   * the other half's keys to the ancestor's exact-XOR sibling subtree.
+   *
+   * <p>Algorithm:
+   * <ol>
+   *   <li>Determine K's β value. {@code matchHalf} = the side K joins (same β-value as K's bit).
+   *   <li>Split leaf via {@code splitLeafOnBit} → produces matchHalfRef and wrongHalfRef.
+   *   <li>Find ancestor A_β whose mask captures β (= the routing point where β decides slot).
+   *   <li>At A_β, find sibling slot whose stored partial XORs descend-slot at β-bit position.
+   *   <li>Bulk-insert each wrongHalf key into A_β's sibling subtree via {@code bulkInsertIntoSiblingSubtree}.
+   *   <li>Merge K into matchHalfLeaf.
+   *   <li>CoW the path from leaf-parent up to root, replacing leaf-parent's slot with matchHalfRef.
+   * </ol>
+   *
+   * <p>Returns {@code true} on success; {@code false} if the reroute is structurally
+   * infeasible (no sibling, capacity overflow, etc.). Caller falls back.
+   */
+  public boolean splitLeafAndRerouteWrongHalf(
+      HOTLeafPage leaf, PageReference leafRef,
+      HOTIndirectPage[] pathNodes, PageReference[] pathRefs, int[] pathChildIndices, int pathDepth,
+      int offendingBeta, byte[] keyBuf, byte[] valueBuf,
+      StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
+    if (leaf == null || leafRef == null || keyBuf == null || valueBuf == null) return false;
+    if (pathDepth <= 0 || offendingBeta < 0) return false;
+    final int revision = storageEngineWriter.getRevisionNumber();
+
+    // 1. K's β-value determines which split half it joins.
+    final boolean kBetaSet = isAbsBitSet(keyBuf, offendingBeta);
+
+    // 2. Split leaf on β.
+    final SubtreeSplit ss = splitLeafOnBit(leaf, offendingBeta, log, revision);
+    if (ss == null) return false;
+    final PageReference matchHalfRef = kBetaSet ? ss.rightRef() : ss.leftRef();
+    final PageReference wrongHalfRef = kBetaSet ? ss.leftRef() : ss.rightRef();
+
+    // 3. Find ancestor A_β whose mask captures β. Walk root → leaf-parent (top-down)
+    //    so we route at the topmost ancestor.
+    int ancestorIdx = -1;
+    for (int i = 0; i < pathDepth; i++) {
+      final HOTIndirectPage a = pathNodes[i];
+      if (a == null) continue;
+      final int outPos = (a.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK)
+          ? singleMaskBetaOutputPos(a, offendingBeta)
+          : multiMaskBetaOutputPos(a, offendingBeta);
+      if (outPos >= 0) { ancestorIdx = i; break; }
+    }
+    if (ancestorIdx < 0) return false; // no ancestor captures β
+
+    final HOTIndirectPage ancestor = currentInLog(pathRefs[ancestorIdx], pathNodes[ancestorIdx]);
+    final int outPos = (ancestor.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK)
+        ? singleMaskBetaOutputPos(ancestor, offendingBeta)
+        : multiMaskBetaOutputPos(ancestor, offendingBeta);
+    if (outPos < 0) return false;
+    final int descendSlot = pathChildIndices[ancestorIdx];
+    final int[] partials = ancestor.getPartialKeys();
+    if (partials == null || descendSlot < 0 || descendSlot >= partials.length) return false;
+    final int targetStored = partials[descendSlot] ^ (1 << outPos);
+    int siblingIdx = -1;
+    for (int j = 0; j < ancestor.getNumChildren(); j++) {
+      if (j == descendSlot) continue;
+      if (partials[j] == targetStored) { siblingIdx = j; break; }
+    }
+    if (siblingIdx < 0) {
+      if (Boolean.getBoolean("hot.debug.phase5")) {
+        System.err.println("[phase5] reject reason=no-sibling beta=" + offendingBeta
+            + " ancestorIdx=" + ancestorIdx + " descendSlot=" + descendSlot
+            + " targetStored=0x" + Integer.toHexString(targetStored));
+      }
+      return false;
+    }
+
+    if (Boolean.getBoolean("hot.debug.phase5")) {
+      System.err.println("[phase5] split-reroute beta=" + offendingBeta
+          + " ancestorIdx=" + ancestorIdx + " descendSlot=" + descendSlot
+          + " siblingIdx=" + siblingIdx + " wrongHalfEntries=" + ((HOTLeafPage) log.get(wrongHalfRef).getModified()).getEntryCount());
+    }
+    // 4. Bulk-insert each wrongHalf key into ancestor.sibling subtree.
+    final HOTLeafPage wrongHalfLeaf = (HOTLeafPage) log.get(wrongHalfRef).getModified();
+    HOTIndirectPage curAncestor = ancestor;
+    for (int i = 0; i < wrongHalfLeaf.getEntryCount(); i++) {
+      final byte[] k = wrongHalfLeaf.getKey(i);
+      final byte[] v = wrongHalfLeaf.getValue(i);
+      final boolean ok = bulkInsertIntoSiblingSubtree(
+          curAncestor, pathRefs[ancestorIdx], siblingIdx, k, v, storageEngineWriter, log);
+      if (!ok) return false;
+      curAncestor = currentInLog(pathRefs[ancestorIdx], curAncestor);
+    }
+
+    // 5. Merge K into matchHalfLeaf.
+    final HOTLeafPage matchHalfLeaf = (HOTLeafPage) log.get(matchHalfRef).getModified();
+    if (!matchHalfLeaf.mergeWithNodeRefs(keyBuf, keyBuf.length, valueBuf, valueBuf.length)) {
+      return false; // matchHalf overflow — not handled in Phase 5
+    }
+    log.put(matchHalfRef, PageContainer.getInstance(matchHalfLeaf, matchHalfLeaf));
+
+    // 6. CoW the path from leaf-parent up to root, replacing leaf-parent's slot with matchHalfRef.
+    final int leafParentIdx = pathDepth - 1;
+    final HOTIndirectPage leafParent = currentInLog(pathRefs[leafParentIdx], pathNodes[leafParentIdx]);
+    final HOTIndirectPage updatedLeafParent = leafParent.withUpdatedChild(
+        pathChildIndices[leafParentIdx], matchHalfRef, revision);
+    log.put(pathRefs[leafParentIdx], PageContainer.getInstance(updatedLeafParent, updatedLeafParent));
+    // Propagate up.
+    PageReference childRef = pathRefs[leafParentIdx];
+    for (int i = leafParentIdx - 1; i >= 0; i--) {
+      final HOTIndirectPage curNode = currentInLog(pathRefs[i], pathNodes[i]);
+      final HOTIndirectPage updatedNode = curNode.withUpdatedChild(pathChildIndices[i], childRef, revision);
+      log.put(pathRefs[i], PageContainer.getInstance(updatedNode, updatedNode));
+      childRef = pathRefs[i];
+    }
+
+    PHASE5_SPLIT_REROUTE_FIRINGS.incrementAndGet();
+    return true;
+  }
+
+  /**
+   * Option B Phase 5 — Top-level constancy-aware insert. Detects all offending β values
+   * at insert time; for each β (MSB-first), splits the leaf and reroutes the wrong half
+   * to the ancestor's sibling subtree, then merges K into the matching half.
+   *
+   * <p>Returns:
+   * <ul>
+   *   <li>{@code true} if either (a) no β breaks (caller proceeds normally), or
+   *       (b) all breaks were resolved by split+reroute. After (b), the merge of K has
+   *       already happened inside Phase 5 — caller must NOT call mergeWithNodeRefs again.</li>
+   *   <li>{@code false} if Phase 5 detected breaks but couldn't resolve all of them.
+   *       Caller falls back to the standard merge / handleInsertFailure path.</li>
+   * </ul>
+   *
+   * <p>The {@code didMerge} array (one-element, written-out) reports whether K was
+   * merged during Phase 5. If {@code true} and didMerge[0] is {@code true}, caller skips
+   * the regular merge. If {@code true} and didMerge[0] is {@code false}, no breaks were
+   * detected — caller proceeds with regular merge.
+   */
+  public boolean applyConstancyAwareInsert(
+      HOTLeafPage leaf, PageReference leafRef, PageReference rootRef,
+      HOTIndirectPage[] pathNodes, PageReference[] pathRefs, int[] pathChildIndices, int pathDepth,
+      byte[] keyBuf, int keyLen, byte[] valueBuf, int valueLen,
+      StorageEngineWriter storageEngineWriter, TransactionIntentLog log,
+      boolean[] didMerge) {
+    if (didMerge != null && didMerge.length >= 1) didMerge[0] = false;
+    if (leaf == null || keyBuf == null || valueBuf == null) return true;
+    if (pathDepth <= 0) return true;
+
+    // Materialize trimmed key for detector (uses byte[].length for bit lookup).
+    final byte[] kFull = (keyLen == keyBuf.length) ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
+    final byte[] vFull = (valueLen == valueBuf.length) ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
+
+    // Two-tier detection:
+    //  1. β-constancy breaks at the LEAF (= new key would violate leaf's β-constancy at
+    //     some ancestor β). detectAllConstancyBreaksOnInsert.
+    //  2. I8 breaks at the INDIRECT (= new key would become a leaf's deep-firstKey that's
+    //     smaller than the predecessor sibling's firstKey at some ancestor). findI8MsdbBit.
+    int beta = -1;
+    final int[] constancyOffending = detectAllConstancyBreaksOnInsert(pathNodes, pathDepth, leaf, kFull);
+    if (constancyOffending.length > 0) {
+      beta = constancyOffending[0]; // most-significant β-constancy break
+    } else {
+      // No β-constancy break; check for I8 break at indirect level.
+      beta = findI8MsdbBit(pathNodes, pathRefs, pathChildIndices, pathDepth, leaf, kFull);
+    }
+    if (beta < 0) return true; // no breaks — caller proceeds normally
+
+    // Use custom splitLeafAndRerouteWrongHalf: splits leaf on β, K joins matching half,
+    // wrong half is bulk-inserted into ancestor's EXISTING exact-XOR sibling subtree.
+    final boolean ok = splitLeafAndRerouteWrongHalf(leaf, leafRef,
+        pathNodes, pathRefs, pathChildIndices, pathDepth,
+        beta, kFull, vFull, storageEngineWriter, log);
+    if (!ok) return false; // structurally infeasible — caller falls back
+    if (didMerge != null && didMerge.length >= 1) didMerge[0] = true;
+    return true;
+  }
+
+  /**
+   * Option B Phase 5 — Find the MSDB between {@code keyBuf} and the previous sibling's
+   * firstKey at any ancestor where I8 would break. This is the ACTUAL β bit (not the
+   * ancestor depth), so it can be passed to splitLeafAndRerouteWrongHalf as a bit
+   * position.
+   *
+   * <p>Iterates ancestors from leaf-parent to root. At each ancestor A with descendSlot,
+   * if descendSlot > 0 and A.children[descendSlot-1].firstKey >= keyBuf, an I8 break would
+   * occur. Returns the MSDB between (keyBuf, prevSibFirstKey) — the first bit where they
+   * differ from MSB-first.
+   *
+   * <p>Returns -1 if no break detected.
+   */
+  public int findI8MsdbBit(HOTIndirectPage[] pathNodes, PageReference[] pathRefs,
+      int[] pathChildIndices, int pathDepth, HOTLeafPage leaf, byte[] keyBuf) {
+    if (leaf == null || keyBuf == null || pathDepth <= 0) return -1;
+    final int leafEntryCount = leaf.getEntryCount();
+    if (leafEntryCount == 0) return -1;
+    final byte[] leafFirstKey = leaf.getKey(0);
+    if (leafFirstKey == null) return -1;
+    if (Arrays.compareUnsigned(keyBuf, leafFirstKey) >= 0) return -1; // K doesn't change firstKey
+
+    for (int d = pathDepth - 1; d >= 0; d--) {
+      final int descendSlot = pathChildIndices[d];
+      if (descendSlot <= 0) continue;
+      final HOTIndirectPage A = pathNodes[d];
+      if (A == null) continue;
+      final PageReference prevSib = A.getChildReference(descendSlot - 1);
+      if (prevSib == null) continue;
+      final byte[] prevSibFirstKey = getFirstKeyFromChild(prevSib);
+      if (prevSibFirstKey == null || prevSibFirstKey.length == 0) continue;
+      if (Arrays.compareUnsigned(prevSibFirstKey, keyBuf) >= 0) {
+        // I8 break at depth d. Compute MSDB between keyBuf and prevSibFirstKey.
+        return DiscriminativeBitComputer.computeDifferingBit(prevSibFirstKey, keyBuf);
+      }
+    }
+    return -1;
+  }
+
   /** MSB-first absolute bit lookup: bit 0 = MSB of byte 0. Returns false past length. */
   private static boolean isAbsBitSet(byte[] key, int absBit) {
     final int bytePos = absBit / 8;

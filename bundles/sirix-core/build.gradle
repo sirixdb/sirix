@@ -135,6 +135,7 @@ test {
     systemProperty "hot.strict.g32", System.getProperty("hot.strict.g32", "false")
     systemProperty "hot.formal.verify", System.getProperty("hot.formal.verify", "false")
     systemProperty "hot.strict.option-b-phase-5", System.getProperty("hot.strict.option-b-phase-5", "false")
+    systemProperty "hot.debug.phase5", System.getProperty("hot.debug.phase5", "false")
     systemProperty "hot.debug.g30", System.getProperty("hot.debug.g30", "false")
     systemProperty "hot.debug.g32", System.getProperty("hot.debug.g32", "false")
     

@@ -888,8 +888,33 @@ public abstract class AbstractHOTIndexWriter<K> {
     // HOTTrieWriter#findOffendingAncestorBit}, {@link HOTLeafPage#computeMsdbWithKey},
     // {@link HOTTrieWriter#handleLeafSplitAndInsert} explicit-split-bit overload.
 
-    // Merge entry
-    boolean success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
+    // Option B Phase 5 — constancy-aware insert. Gated on -Dhot.strict.option-b-phase-5=true.
+    // BEFORE mergeWithNodeRefs: if inserting K into leaf would break β-constancy at any
+    // ancestor β, split the leaf on β and reroute the wrong half to the ancestor's sibling
+    // subtree. After Phase 5 succeeds, K has already been merged into the matching half;
+    // caller skips the regular merge.
+    boolean success;
+    if (Boolean.getBoolean("hot.strict.option-b-phase-5")) {
+      final boolean[] didMerge = new boolean[1];
+      final boolean phase5Ok = trieWriter.applyConstancyAwareInsert(
+          leaf, navResult.leafRef(), rootRef, navResult.pathNodes(), navResult.pathRefs(),
+          navResult.pathChildIndices(), navResult.pathDepth(),
+          keyBuf, keyLen, valueBuf, valueLen,
+          storageEngineWriter, storageEngineWriter.getLog(), didMerge);
+      if (phase5Ok && didMerge[0]) {
+        prepareIndexPage();
+        return;
+      }
+      if (!phase5Ok) {
+        // Phase 5 reported infeasible reroute — fall through to standard merge.
+        success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
+      } else {
+        // Phase 5 succeeded but no β-break detected; proceed with regular merge.
+        success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
+      }
+    } else {
+      success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
+    }
 
     // Stage G.28 — post-insert mask-closure verification. Walk path from root, verify
     // each indirect's mask covers MSDB-closure of children's firstKeys. Extend if not.
