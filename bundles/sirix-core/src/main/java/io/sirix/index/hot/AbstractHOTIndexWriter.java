@@ -764,6 +764,17 @@ public abstract class AbstractHOTIndexWriter<K> {
     // This is the architectural fix from HOT_FIX_DESIGN_V2.md §3.2 Option B. It avoids
     // the multi-entry-leaf β-mixing pathology by routing the offending key away from
     // the "would-make-it-mixed" leaf, into the existing β-correct subtree.
+    // Stage G.18 — ambiguous-routing detection (read-only). When PEXT-routing for newKey
+    // is ambiguous at any ancestor (= chosen slot's stored partial doesn't equal
+    // densePK(newKey) at that ancestor's mask), this surfaces in the G18_AMBIGUOUS_DETECTIONS
+    // counter. Read-only diagnostic — Phase 2 will add proactive disc-bit extension.
+    if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
+      final byte[] keyBytesG18 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
+      trieWriter.findAmbiguousAncestor(navResult.pathNodes(),
+          navResult.pathChildIndices(), navResult.pathDepth(), keyBytesG18);
+      // Detected ambiguities increment the counter. No action taken here.
+    }
+
     // Stage G.15 — I8 pre-check + reroute. When newKey would become the new deep-firstKey
     // of the leaf's slot AND that new firstKey would be less than the predecessor sibling's
     // deep-firstKey at some ancestor, route newKey to the predecessor sibling's subtree

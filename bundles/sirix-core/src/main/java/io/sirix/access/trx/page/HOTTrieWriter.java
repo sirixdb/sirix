@@ -4002,6 +4002,68 @@ public final class HOTTrieWriter {
   private static final java.util.concurrent.atomic.AtomicLong G17_CONSTANCY_REDIRECTS =
       new java.util.concurrent.atomic.AtomicLong(0L);
 
+  /** Stage G.18 — ambiguous-ancestor detection counter (insert would route ambiguously). */
+  private static final java.util.concurrent.atomic.AtomicLong G18_AMBIGUOUS_DETECTIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getG18AmbiguousDetections() { return G18_AMBIGUOUS_DETECTIONS.get(); }
+  public static void resetG18AmbiguousDetections() { G18_AMBIGUOUS_DETECTIONS.set(0L); }
+
+  /**
+   * Stage G.18 — Detect ambiguous routing for {@code keyBuf} at any ancestor on the
+   * descend path. Returns the ancestor index where routing is ambiguous (= chosen slot's
+   * stored partial doesn't equal {@code densePK(keyBuf, ancestor.mask)} AND no other
+   * slot has stored == densePK), -1 if all ancestors route unambiguously.
+   *
+   * <p>Under sparse-path encoding: routing is unambiguous iff exactly one slot's stored
+   * equals densePK(K). Multi-entry leaves break this — a slot may contain keys with
+   * various densePKs, so the firstKey-based stored partial doesn't represent all keys.
+   * Inserting a new key K with densePK ≠ stored makes the slot's encoding stale.
+   *
+   * <p>This helper SURFACES the ambiguity. Phase 2 of the routing-encoding rewrite
+   * (HOT_ROUTING_ENCODING_REWRITE.md §3.2) will use it to invoke proactive disc-bit
+   * extension at the offending ancestor.
+   *
+   * @return ancestor index ≥ 0 (= position in pathNodes) where ambiguity exists, -1 if none
+   */
+  public int findAmbiguousAncestor(HOTIndirectPage[] pathNodes, int[] pathChildIndices,
+      int pathDepth, byte[] keyBuf) {
+    if (pathDepth <= 0 || keyBuf == null) return -1;
+    for (int d = 0; d < pathDepth; d++) {
+      final HOTIndirectPage A = pathNodes[d];
+      if (A == null) continue;
+      final int chosenSlot = pathChildIndices[d];
+      final int[] partials = A.getPartialKeys();
+      if (partials == null || chosenSlot < 0 || chosenSlot >= partials.length) continue;
+      final int densePK = computeDensePartialKey(A, keyBuf);
+      // Unambiguous case: chosen slot's stored equals densePK exactly.
+      if (partials[chosenSlot] == densePK) continue;
+      // Ambiguous: check if any sibling has stored == densePK (= would be routed to).
+      // Even if not, the mismatch means stored doesn't represent K's path uniquely.
+      G18_AMBIGUOUS_DETECTIONS.incrementAndGet();
+      return d;
+    }
+    return -1;
+  }
+
+  /** Compute densePK for a key under any indirect's layout (SingleMask or MultiMask). */
+  private static int computeDensePartialKey(HOTIndirectPage indirect, byte[] key) {
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      final int initialBytePos = indirect.getInitialBytePos();
+      if (initialBytePos >= key.length) return 0;
+      long keyWord = 0;
+      for (int i = 0; i < 8 && (initialBytePos + i) < key.length; i++) {
+        keyWord |= ((long) (key[initialBytePos + i] & 0xFF)) << ((7 - i) * 8);
+      }
+      return (int) Long.compress(keyWord, indirect.getBitMask());
+    }
+    final byte[] extractionPositions = indirect.getExtractionPositions();
+    final long[] extractionMasks = indirect.getExtractionMasks();
+    final int numExtractionBytes = indirect.getNumExtractionBytes();
+    if (extractionPositions == null || extractionMasks == null) return 0;
+    return computePartialKeyMultiMaskDirect(key, extractionPositions, extractionMasks, numExtractionBytes);
+  }
+
   public static long getG17ConstancyRedirects() { return G17_CONSTANCY_REDIRECTS.get(); }
   public static void resetG17ConstancyRedirects() { G17_CONSTANCY_REDIRECTS.set(0L); }
 
