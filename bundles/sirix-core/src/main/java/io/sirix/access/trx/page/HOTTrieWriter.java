@@ -4187,6 +4187,73 @@ public final class HOTTrieWriter {
     return -1;
   }
 
+  /**
+   * Option B Phase 5 — Return ALL ancestor disc bits β where inserting {@code keyBuf}
+   * into {@code leaf} would break β-constancy. Generalizes
+   * {@link #findAnyOffendingAncestorBit} to return the complete set, sorted ascending
+   * (= MSB-first absolute bit position).
+   *
+   * <p>For each ancestor β: leaf is β-constant at some value v iff all existing keys
+   * agree at β. If leaf is β-constant and {@code keyBuf}'s β-value disagrees with v,
+   * adding keyBuf would break β-constancy at this ancestor.
+   *
+   * <p>For β-mixed leaves (= leaf has both values at β already): the leaf is already
+   * structurally non-constant at β. We INCLUDE these in the result because Phase 5
+   * will partition the leaf on β as part of the split chain, and the partition
+   * resolves the β-mixed condition.
+   *
+   * <p>HFT-grade: zero allocation when no breaks found (returns shared empty array).
+   *
+   * @return array of offending β values, sorted MSB-first. Empty if no breaks.
+   */
+  public int[] detectAllConstancyBreaksOnInsert(HOTIndirectPage[] pathNodes, int pathDepth,
+      HOTLeafPage leaf, byte[] keyBuf) {
+    if (leaf == null || keyBuf == null) return EMPTY_INT_ARRAY;
+    final int entryCount = leaf.getEntryCount();
+    if (entryCount == 0) return EMPTY_INT_ARRAY;
+    if (pathDepth <= 0) return EMPTY_INT_ARRAY;
+
+    final int[] ancestorBits = collectAncestorDiscBits(pathNodes, pathDepth);
+    if (ancestorBits.length == 0) return EMPTY_INT_ARRAY;
+
+    // First pass: count offending bits to size the result array.
+    int count = 0;
+    final boolean[] isOffending = new boolean[ancestorBits.length];
+    for (int idx = 0; idx < ancestorBits.length; idx++) {
+      final int beta = ancestorBits[idx];
+      final boolean newKeyBetaSet = isAbsBitSet(keyBuf, beta);
+      boolean seen0 = false, seen1 = false;
+      for (int i = 0; i < entryCount; i++) {
+        final byte[] existing = leaf.getKey(i);
+        if (existing == null || existing.length == 0) continue;
+        if (isAbsBitSet(existing, beta)) seen1 = true;
+        else seen0 = true;
+        if (seen0 && seen1) break;
+      }
+      if (seen0 && seen1) {
+        // Already β-mixed: Phase 5 will partition. Include β in the offending set.
+        isOffending[idx] = true;
+        count++;
+        continue;
+      }
+      // β-constant: check newKey's bit disagrees.
+      final boolean leafBetaValue = seen1;
+      if (leafBetaValue != newKeyBetaSet) {
+        isOffending[idx] = true;
+        count++;
+      }
+    }
+    if (count == 0) return EMPTY_INT_ARRAY;
+    final int[] result = new int[count];
+    int w = 0;
+    for (int idx = 0; idx < ancestorBits.length; idx++) {
+      if (isOffending[idx]) result[w++] = ancestorBits[idx];
+    }
+    return result;
+  }
+
+  private static final int[] EMPTY_INT_ARRAY = new int[0];
+
   /** MSB-first absolute bit lookup: bit 0 = MSB of byte 0. Returns false past length. */
   private static boolean isAbsBitSet(byte[] key, int absBit) {
     final int bytePos = absBit / 8;
