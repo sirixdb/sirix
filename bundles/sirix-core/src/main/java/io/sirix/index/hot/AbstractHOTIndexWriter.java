@@ -936,6 +936,16 @@ public abstract class AbstractHOTIndexWriter<K> {
       prepareIndexPage();
     }
 
+    // Phase 6e — recompute stored partials from current child firstKeys when leaf insert
+    // changed the deep-firstKey. If existing mask discriminates current firstKeys, recompute
+    // installs the correct order. Else leaves indirect unchanged.
+    if (success && Boolean.getBoolean("hot.strict.phase6e")) {
+      trieWriter.recomputePartialsOnPath(rootRef, navResult.pathNodes(), navResult.pathRefs(),
+          navResult.pathChildIndices(), navResult.pathDepth(),
+          storageEngineWriter, storageEngineWriter.getLog());
+      prepareIndexPage();
+    }
+
     // Stage G.32 — I11-safe root mask reconciliation. Gated on -Dhot.strict.g32=true.
     // Empirical finding: the closure-added bits aren't β-constant in children's subtrees
     // (= multi-entry leaves can hold any bit value at any position), so adding them to

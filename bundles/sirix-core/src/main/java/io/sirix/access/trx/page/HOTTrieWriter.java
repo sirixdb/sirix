@@ -1290,6 +1290,13 @@ public final class HOTTrieWriter {
                   storageEngineReader.getRevisionNumber());
           log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
           INTERMEDIATE_BINODE_FALLBACK_FIRINGS.incrementAndGet();
+          if (Boolean.getBoolean("hot.debug.intermediate")) {
+            final byte[] leftFK = getFirstKeyFromChild(leftChild);
+            final String hex = leftFK == null ? "null" : bytesToHex(leftFK);
+            System.err.println("[intermediate] place BiNode parentPageKey="
+                + parent.getPageKey() + " slot=" + originalChildIndex
+                + " leftFirstKey=" + hex);
+          }
         } else {
           // I8 would break with the intermediate-BiNode approach — fall through to a
           // genuine parent split.
@@ -4565,6 +4572,117 @@ public final class HOTTrieWriter {
       return true;
     }
     return false; // all bounded ancestors infeasible
+  }
+
+  /**
+   * Phase 6e — Recompute an indirect's stored partials from current child firstKeys under
+   * the EXISTING mask. If the recomputed partials are unique AND firstKey-monotone in
+   * partial-sort order, install. Else return null (caller falls back).
+   *
+   * <p>Use case: after a leaf insert decreases a child subtree's deep-firstKey, the
+   * indirect's stored partial is stale. Recomputing reflects current state. If the
+   * existing mask captures enough bits to discriminate, the I8 violation goes away.
+   *
+   * <p>HFT-grade: bounded by indirect's child count + key length.
+   */
+  private @Nullable HOTIndirectPage recomputePartialsForCurrentFirstKeys(HOTIndirectPage indirect,
+      int revision) {
+    final int n = indirect.getNumChildren();
+    if (n < 2) return null;
+    final int[] newPartials = new int[n];
+    final PageReference[] children = new PageReference[n];
+    final byte[][] firstKeys = new byte[n][];
+    for (int i = 0; i < n; i++) {
+      children[i] = indirect.getChildReference(i);
+      if (children[i] == null) return null;
+      firstKeys[i] = getFirstKeyFromChild(children[i]);
+      if (firstKeys[i] == null || firstKeys[i].length == 0) return null;
+      if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+        newPartials[i] = computePartialKeySingleMask(firstKeys[i],
+            indirect.getInitialBytePos(), indirect.getBitMask());
+      } else {
+        newPartials[i] = computePartialKeyMultiMaskDirect(firstKeys[i],
+            indirect.getExtractionPositions(), indirect.getExtractionMasks(),
+            indirect.getNumExtractionBytes());
+      }
+    }
+    // Verify uniqueness.
+    for (int i = 1; i < n; i++) {
+      for (int k = 0; k < i; k++) {
+        if (newPartials[k] == newPartials[i]) return null;
+      }
+    }
+    // Sort by partial.
+    sortChildrenAndPartialsByPartial(children, newPartials);
+    // Verify firstKey-monotone after partial-sort.
+    for (int i = 1; i < n; i++) {
+      final byte[] prev = getFirstKeyFromChild(children[i - 1]);
+      final byte[] curr = getFirstKeyFromChild(children[i]);
+      if (prev != null && curr != null && prev.length > 0 && curr.length > 0
+          && Arrays.compareUnsigned(prev, curr) >= 0) {
+        return null; // existing mask doesn't discriminate after current firstKeys
+      }
+    }
+    // Verify I4 (first partial = 0).
+    if (newPartials[0] != 0) return null;
+    // Build replacement page with SAME mask, NEW partials, NEW children order.
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      if (n <= 16) {
+        return HOTIndirectPage.createSpanNode(indirect.getPageKey(), revision,
+            indirect.getInitialBytePos(), indirect.getBitMask(), newPartials, children,
+            indirect.getHeight());
+      }
+      return HOTIndirectPage.createMultiNode(indirect.getPageKey(), revision,
+          indirect.getInitialBytePos(), indirect.getBitMask(), newPartials, children,
+          indirect.getHeight());
+    }
+    if (n <= 16) {
+      return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+          indirect.getExtractionPositions(), indirect.getExtractionMasks(),
+          indirect.getNumExtractionBytes(), newPartials, children,
+          indirect.getHeight(), indirect.getMostSignificantBitIndex());
+    }
+    return HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
+        indirect.getExtractionPositions(), indirect.getExtractionMasks(),
+        indirect.getNumExtractionBytes(), newPartials, children,
+        indirect.getHeight(), indirect.getMostSignificantBitIndex());
+  }
+
+  /**
+   * Phase 6e — Walk path from root to leaf-parent. At each ancestor, recompute partials
+   * from current children's firstKeys. If recompute succeeds (= mask discriminates),
+   * install. Else leave unchanged.
+   *
+   * <p>Returns count of successful recomputes.
+   */
+  public int recomputePartialsOnPath(PageReference rootRef,
+      HOTIndirectPage[] pathNodes, PageReference[] pathRefs, int[] pathChildIndices, int pathDepth,
+      StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
+    if (pathDepth <= 0) return 0;
+    final int revision = storageEngineWriter.getRevisionNumber();
+    int recomputes = 0;
+    for (int aIdx = 0; aIdx < pathDepth; aIdx++) {
+      final HOTIndirectPage A = currentInLog(pathRefs[aIdx], pathNodes[aIdx]);
+      if (A == null) continue;
+      final HOTIndirectPage updated = recomputePartialsForCurrentFirstKeys(A, revision);
+      if (updated == null) continue;
+      log.put(pathRefs[aIdx], PageContainer.getInstance(updated, updated));
+      pathRefs[aIdx].setPage(updated);
+      // Propagate CoW up.
+      PageReference upRef = pathRefs[aIdx];
+      for (int i = aIdx - 1; i >= 0; i--) {
+        final HOTIndirectPage curNode = currentInLog(pathRefs[i], pathNodes[i]);
+        final HOTIndirectPage updatedNode = curNode.withUpdatedChild(pathChildIndices[i], upRef, revision);
+        log.put(pathRefs[i], PageContainer.getInstance(updatedNode, updatedNode));
+        upRef = pathRefs[i];
+      }
+      if (Boolean.getBoolean("hot.debug.phase6e")) {
+        System.err.println("[phase6e] RECOMPUTE-OK ancestorIdx=" + aIdx
+            + " pageKey=" + A.getPageKey());
+      }
+      recomputes++;
+    }
+    return recomputes;
   }
 
   /**
