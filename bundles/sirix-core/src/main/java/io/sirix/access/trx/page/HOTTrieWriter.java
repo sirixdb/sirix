@@ -4471,14 +4471,45 @@ public final class HOTTrieWriter {
     }
     if (beta < 0) return true; // no breaks — caller proceeds normally
 
-    // Use custom splitLeafAndRerouteWrongHalf: splits leaf on β, K joins matching half,
-    // wrong half is bulk-inserted into ancestor's EXISTING exact-XOR sibling subtree.
+    // First try: splitLeafAndRerouteWrongHalf (= move wrong half to existing sibling).
     final boolean ok = splitLeafAndRerouteWrongHalf(leaf, leafRef,
         pathNodes, pathRefs, pathChildIndices, pathDepth,
         beta, kFull, vFull, storageEngineWriter, log);
-    if (!ok) return false; // structurally infeasible — caller falls back
-    if (didMerge != null && didMerge.length >= 1) didMerge[0] = true;
-    return true;
+    if (ok) {
+      if (didMerge != null && didMerge.length >= 1) didMerge[0] = true;
+      return true;
+    }
+
+    // Phase 5c (BOUNDED) — splitLeafAndRerouteWrongHalf failed. Try extending the
+    // OFFENDING ANCESTOR's mask via I11-safe closure. STRICT BOUND: only fire when the
+    // ancestor is SHALLOW (= within MAX_PHASE5C_DEPTH levels of root) to prevent
+    // FrameSlotAllocator exhaustion. Deep cascades would multiply pages exponentially.
+    if (!Boolean.getBoolean("hot.strict.phase5c")) {
+      return false; // Phase 5c disabled by default — caller falls back
+    }
+    final int MAX_PHASE5C_DEPTH = 2;
+    final int revision = storageEngineWriter.getRevisionNumber();
+    for (int aIdx = 0; aIdx < pathDepth && aIdx < MAX_PHASE5C_DEPTH; aIdx++) {
+      final HOTIndirectPage A = currentInLog(pathRefs[aIdx], pathNodes[aIdx]);
+      if (A == null) continue;
+      final int aMsb = A.getMostSignificantBitIndex() & 0xFFFF;
+      if (beta <= aMsb) continue; // I11-unsafe at this ancestor
+      final HOTIndirectPage extended = extendIndirectMaskForClosureI11Safe(A, beta, aMsb, log, revision);
+      if (extended == null) continue;
+      log.put(pathRefs[aIdx], PageContainer.getInstance(extended, extended));
+      PageReference upRef = pathRefs[aIdx];
+      for (int i = aIdx - 1; i >= 0; i--) {
+        final HOTIndirectPage curNode = currentInLog(pathRefs[i], pathNodes[i]);
+        final HOTIndirectPage updatedNode = curNode.withUpdatedChild(pathChildIndices[i], upRef, revision);
+        log.put(pathRefs[i], PageContainer.getInstance(updatedNode, updatedNode));
+        upRef = pathRefs[i];
+      }
+      if (Boolean.getBoolean("hot.debug.phase5")) {
+        System.err.println("[phase5c] ANCESTOR-EXTEND-OK beta=" + beta + " ancestorIdx=" + aIdx);
+      }
+      return true;
+    }
+    return false; // all bounded ancestors infeasible
   }
 
   /**
