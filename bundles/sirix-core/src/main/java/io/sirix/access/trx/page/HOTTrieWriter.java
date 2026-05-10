@@ -4037,6 +4037,156 @@ public final class HOTTrieWriter {
   public static void resetG25BetaPropagations() { G25_BETA_PROPAGATIONS.set(0L); }
 
   /**
+   * Stage G.26 — Cross-window MultiMask upgrade with sibling pre-splitting. When a
+   * SingleMask parent needs β added but β is outside the window AND some non-split
+   * siblings are β-mixed, pre-split those siblings on β and rebuild the parent as
+   * MultiMask incorporating both the leaf-split products and the pre-split siblings.
+   *
+   * <p>This bridges the gap where:
+   * <ul>
+   *   <li>{@code addEntryWithPDep} → {@code upgradeToMultiMaskWithNewBit} returns null
+   *       because some non-split sibling is β-mixed.</li>
+   *   <li>{@code rebalanceAndIntegrate} (Phase 3) returns null with "cross-window"
+   *       reason because its rebuild doesn't support MultiMask layouts.</li>
+   * </ul>
+   *
+   * <p>Returns the new MultiMask indirect, or null if the build is infeasible (= some
+   * sibling can't be split on β, fan-out > MAX_NODE_ENTRIES, etc.).
+   */
+  private @Nullable HOTIndirectPage upgradeToMultiMaskWithSiblingSplits(
+      HOTIndirectPage parent, int splitChildIdx, PageReference leftChild,
+      PageReference rightChild, int newAbsBit, TransactionIntentLog log, int revision) {
+    if (parent.getLayoutType() != HOTIndirectPage.LayoutType.SINGLE_MASK) return null;
+    final int oldNumChildren = parent.getNumChildren();
+
+    // 1. Pre-split each β-mixed non-split sibling. Collect resulting refs.
+    final java.util.ArrayList<PageReference> newRefs = new java.util.ArrayList<>(oldNumChildren * 2);
+    for (int i = 0; i < oldNumChildren; i++) {
+      if (i == splitChildIdx) {
+        newRefs.add(leftChild);
+        newRefs.add(rightChild);
+        continue;
+      }
+      final PageReference sib = parent.getChildReference(i);
+      if (sib == null) return null;
+      final int v = bitConstantValueInSubtree(sib, newAbsBit);
+      if (v >= 0) {
+        // β-constant — keep as-is.
+        newRefs.add(sib);
+      } else {
+        // β-mixed — split.
+        final SubtreeSplit ss = splitSubtreeOnBit(sib, newAbsBit, log, revision);
+        if (ss == null) return null;
+        newRefs.add(ss.leftRef());
+        newRefs.add(ss.rightRef());
+      }
+    }
+    final int newCount = newRefs.size();
+    if (newCount < 2 || newCount > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) return null;
+
+    // 2. Build the MultiMask layout: combined bytes from parent's mask + β's byte.
+    final int oldInitialBytePos = parent.getInitialBytePos();
+    final long oldMask = parent.getBitMask();
+    final int newBytePos = newAbsBit / 8;
+    final int newBitInByte = newAbsBit % 8;
+    final int newMaskBitInByte = 1 << (7 - newBitInByte);
+    // Decode old mask into per-byte mask bits.
+    int[] oldBytePositions = new int[8];
+    int[] oldByteMaskBits = new int[8];
+    int oldByteCount = 0;
+    for (int bo = 0; bo < 8; bo++) {
+      final int byteMaskBits = (int) ((oldMask >>> ((7 - bo) * 8)) & 0xFFL);
+      if (byteMaskBits != 0) {
+        oldBytePositions[oldByteCount] = oldInitialBytePos + bo;
+        oldByteMaskBits[oldByteCount] = byteMaskBits;
+        oldByteCount++;
+      }
+    }
+    // Merge new byte sorted.
+    int[] allBytePositions = new int[oldByteCount + 1];
+    int[] allByteMaskBits = new int[oldByteCount + 1];
+    int allCount = 0;
+    boolean merged = false;
+    for (int i = 0; i < oldByteCount; i++) {
+      if (!merged && oldBytePositions[i] == newBytePos) {
+        allBytePositions[allCount] = newBytePos;
+        allByteMaskBits[allCount] = oldByteMaskBits[i] | newMaskBitInByte;
+        allCount++;
+        merged = true;
+      } else if (!merged && oldBytePositions[i] > newBytePos) {
+        allBytePositions[allCount] = newBytePos;
+        allByteMaskBits[allCount] = newMaskBitInByte;
+        allCount++;
+        merged = true;
+        allBytePositions[allCount] = oldBytePositions[i];
+        allByteMaskBits[allCount] = oldByteMaskBits[i];
+        allCount++;
+      } else {
+        allBytePositions[allCount] = oldBytePositions[i];
+        allByteMaskBits[allCount] = oldByteMaskBits[i];
+        allCount++;
+      }
+    }
+    if (!merged) {
+      allBytePositions[allCount] = newBytePos;
+      allByteMaskBits[allCount] = newMaskBitInByte;
+      allCount++;
+    }
+    // Build extractionPositions / extractionMasks.
+    final byte[] extractionPositions = new byte[allCount];
+    final int numChunks = (allCount + 7) / 8;
+    final long[] extractionMasks = new long[numChunks];
+    short msbIndex = Short.MAX_VALUE;
+    for (int i = 0; i < allCount; i++) {
+      extractionPositions[i] = (byte) allBytePositions[i];
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      extractionMasks[chunkIdx] |= ((long) (allByteMaskBits[i] & 0xFF)) << ((7 - byteOffsetInChunk) * 8);
+      final int highBit = 31 - Integer.numberOfLeadingZeros(allByteMaskBits[i] & 0xFF);
+      final int absBitPos = allBytePositions[i] * 8 + (7 - highBit);
+      if (absBitPos < msbIndex) msbIndex = (short) absBitPos;
+    }
+
+    // 3. For each new child, compute partial via direct PEXT under the new MultiMask layout.
+    final int[] newPartials = new int[newCount];
+    final PageReference[] newChildren = new PageReference[newCount];
+    for (int i = 0; i < newCount; i++) {
+      final PageReference cref = newRefs.get(i);
+      newChildren[i] = cref;
+      final byte[] cKey = getFirstKeyFromChild(cref);
+      newPartials[i] = (cKey == null || cKey.length == 0) ? 0
+          : computePartialKeyMultiMaskDirect(cKey, extractionPositions, extractionMasks, allCount);
+    }
+
+    // 4. Verify partial-key uniqueness (I3).
+    for (int i = 1; i < newCount; i++) {
+      for (int k = 0; k < i; k++) {
+        if (newPartials[k] == newPartials[i]) return null;
+      }
+    }
+
+    // 5. Sort children + partials by partial-key.
+    sortChildrenAndPartialsByPartial(newChildren, newPartials);
+
+    // 6. I4 self-check: at least one slot has partial = 0.
+    boolean hasZero = false;
+    for (final int p : newPartials) {
+      if (p == 0) { hasZero = true; break; }
+    }
+    if (!hasZero) return null;
+
+    // 7. Build MultiMask page.
+    if (newCount <= 16) {
+      return HOTIndirectPage.createSpanNodeMultiMask(parent.getPageKey(), revision,
+          extractionPositions, extractionMasks, allCount, newPartials, newChildren,
+          parent.getHeight(), msbIndex);
+    }
+    return HOTIndirectPage.createMultiNodeMultiMask(parent.getPageKey(), revision,
+        extractionPositions, extractionMasks, allCount, newPartials, newChildren,
+        parent.getHeight(), msbIndex);
+  }
+
+  /**
    * Stage G.25 — Propagate a new disc bit β up the path from the immediate parent that
    * absorbed it (via cross-window upgrade) to ancestors whose subtree at the chosen
    * descend slot now contains β-mixed keys.
@@ -4109,13 +4259,19 @@ public final class HOTTrieWriter {
       if (dbg) System.out.println("[g25-propagate]     addEntry result="
           + (updatedA == null ? "null" : "ok layout=" + updatedA.getLayoutType()));
       if (updatedA == null) {
-        // Fall to Phase 3 — rebalanceAndIntegrate splits β-mixed siblings on β before
-        // rebuilding the parent.
+        // Fall to Phase 3 (SingleMask-only).
         updatedA = rebalanceAndIntegrate(A, chosenSlot, split.leftRef(), split.rightRef(),
             beta, log, revision);
         if (dbg) System.out.println("[g25-propagate]     phase3 result="
             + (updatedA == null ? "null" : "ok"));
-        if (updatedA == null) break;
+        if (updatedA == null) {
+          // Fall to G.25 cross-window MultiMask: pre-split β-mixed siblings and upgrade.
+          updatedA = upgradeToMultiMaskWithSiblingSplits(A, chosenSlot, split.leftRef(),
+              split.rightRef(), beta, log, revision);
+          if (dbg) System.out.println("[g25-propagate]     g25-multimask result="
+              + (updatedA == null ? "null" : "ok"));
+          if (updatedA == null) break;
+        }
       }
       log.put(Aref, PageContainer.getInstance(updatedA, updatedA));
       G25_BETA_PROPAGATIONS.incrementAndGet();
