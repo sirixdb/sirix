@@ -4649,6 +4649,57 @@ public final class HOTTrieWriter {
   }
 
   /**
+   * Phase 6f — When recompute fails (= existing mask insufficient), find a discriminating
+   * bit β where (a) firstKeys differ at β, (b) β is β-constant in every child's subtree.
+   * Extend mask with β + recompute partials. Returns updated indirect or null.
+   *
+   * <p>Avoids the cascade trap by only considering bits β-constant in subtrees. The bit
+   * might be I11-unsafe (= absBit ≤ parent.MSB) but Binna's trie-condition is enforced
+   * at extension time too.
+   */
+  private @Nullable HOTIndirectPage extendWithBetaConstantBit(HOTIndirectPage indirect, int revision) {
+    final int n = indirect.getNumChildren();
+    if (n < 2) return null;
+    final byte[][] firstKeys = new byte[n][];
+    int maxLen = 0;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) return null;
+      firstKeys[i] = getFirstKeyFromChild(cref);
+      if (firstKeys[i] == null || firstKeys[i].length == 0) return null;
+      if (firstKeys[i].length > maxLen) maxLen = firstKeys[i].length;
+    }
+    final int parentMsb = indirect.getMostSignificantBitIndex() & 0xFFFF;
+    // Try every absBit > parentMsb where firstKeys differ AND every child's subtree is
+    // β-constant at that bit.
+    for (int absBit = parentMsb + 1; absBit < maxLen * 8; absBit++) {
+      boolean seen0 = false, seen1 = false;
+      for (int i = 0; i < n; i++) {
+        if (firstKeys[i].length == 0) continue;
+        final int bytePos = absBit / 8;
+        if (bytePos >= firstKeys[i].length) continue;
+        final boolean bitSet = (firstKeys[i][bytePos] & (1 << (7 - (absBit % 8)))) != 0;
+        if (bitSet) seen1 = true;
+        else seen0 = true;
+        if (seen0 && seen1) break;
+      }
+      if (!(seen0 && seen1)) continue; // bit doesn't discriminate
+      // Verify β-constancy in every subtree.
+      boolean allConstant = true;
+      for (int i = 0; i < n; i++) {
+        if (bitConstantValueInSubtree(indirect.getChildReference(i), absBit) < 0) {
+          allConstant = false; break;
+        }
+      }
+      if (!allConstant) continue;
+      // Try extending.
+      final HOTIndirectPage extended = extendIndirectMaskForClosure(indirect, absBit, activeLog, revision);
+      if (extended != null) return extended;
+    }
+    return null;
+  }
+
+  /**
    * Phase 6e — Walk path from root to leaf-parent. At each ancestor, recompute partials
    * from current children's firstKeys. If recompute succeeds (= mask discriminates),
    * install. Else leave unchanged.
@@ -4664,7 +4715,11 @@ public final class HOTTrieWriter {
     for (int aIdx = 0; aIdx < pathDepth; aIdx++) {
       final HOTIndirectPage A = currentInLog(pathRefs[aIdx], pathNodes[aIdx]);
       if (A == null) continue;
-      final HOTIndirectPage updated = recomputePartialsForCurrentFirstKeys(A, revision);
+      HOTIndirectPage updated = recomputePartialsForCurrentFirstKeys(A, revision);
+      if (updated == null && Boolean.getBoolean("hot.strict.phase6f")) {
+        // 6f fallback: try extending with a β-constant discriminating bit.
+        updated = extendWithBetaConstantBit(A, revision);
+      }
       if (updated == null) continue;
       log.put(pathRefs[aIdx], PageContainer.getInstance(updated, updated));
       pathRefs[aIdx].setPage(updated);
