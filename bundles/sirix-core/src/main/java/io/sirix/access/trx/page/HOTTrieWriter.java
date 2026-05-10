@@ -3542,15 +3542,30 @@ public final class HOTTrieWriter {
       if (absBitPos < msbIndex) msbIndex = (short) absBitPos;
     }
 
-    // Verify constancy of the new disc bit across every existing non-split sibling — see
-    // {@link #addEntryWithPDep} for the multi-entry-leaf rationale. On non-constant return,
-    // caller falls back to splitParentAndRecurse.
+    // Phase 6d — verify or split. β-mixed siblings get split via splitSubtreeOnBit
+    // when 6d is enabled, producing two β-constant halves that replace the original.
+    final boolean phase6dEnabledU = Boolean.getBoolean("hot.strict.phase6d");
     final int[] siblingBitValues = new int[numChildren];
+    final boolean[] siblingNeedsSplitU = phase6dEnabledU ? new boolean[numChildren] : null;
+    final SubtreeSplit[] siblingSplitsU = phase6dEnabledU ? new SubtreeSplit[numChildren] : null;
+    int extraSlotsU = 0;
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) continue;
       final int v = bitConstantValueInSubtree(parent.getChildReference(i), newAbsBit);
-      if (v < 0) return null;
+      if (v < 0) {
+        if (!phase6dEnabledU) return null;
+        final SubtreeSplit ss = splitSubtreeOnBit(parent.getChildReference(i), newAbsBit, activeLog, revision);
+        if (ss == null) return null;
+        siblingNeedsSplitU[i] = true;
+        siblingSplitsU[i] = ss;
+        extraSlotsU++;
+        siblingBitValues[i] = -1;
+        continue;
+      }
       siblingBitValues[i] = v;
+    }
+    if (extraSlotsU > 0 && (numChildren + 1 + extraSlotsU) > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      return null;
     }
 
     // Stage G.14 fix — replace PDEP+OR repositioning with DIRECT PEXT from each child's
@@ -3564,7 +3579,7 @@ public final class HOTTrieWriter {
     // Trade-off: drops the bit-elision optimization that PDEP+OR provided (= sparse
     // partial encoding for off-path bits). For Sirix's multi-entry-leaf workload this
     // optimization wasn't sound anyway — the same pattern as G.6 in buildCompressedHalf.
-    final int newNumChildren = numChildren + 1;
+    final int newNumChildren = numChildren + 1 + extraSlotsU;
     final PageReference[] newChildren = new PageReference[newNumChildren];
     final int[] newPartials = new int[newNumChildren];
     int j = 0;
@@ -3579,6 +3594,18 @@ public final class HOTTrieWriter {
         final byte[] rightKey = getFirstKeyFromChild(rightChild);
         newPartials[j] = (rightKey == null || rightKey.length == 0) ? 0
             : computePartialKeyMultiMaskDirect(rightKey, extractionPositions, extractionMasks, allCount);
+        j++;
+      } else if (phase6dEnabledU && siblingNeedsSplitU != null && siblingNeedsSplitU[i]) {
+        // Phase 6d: expand β-mixed sibling into two β-constant halves.
+        newChildren[j] = siblingSplitsU[i].leftRef();
+        final byte[] lKey = getFirstKeyFromChild(newChildren[j]);
+        newPartials[j] = (lKey == null || lKey.length == 0) ? 0
+            : computePartialKeyMultiMaskDirect(lKey, extractionPositions, extractionMasks, allCount);
+        j++;
+        newChildren[j] = siblingSplitsU[i].rightRef();
+        final byte[] rKey = getFirstKeyFromChild(newChildren[j]);
+        newPartials[j] = (rKey == null || rKey.length == 0) ? 0
+            : computePartialKeyMultiMaskDirect(rKey, extractionPositions, extractionMasks, allCount);
         j++;
       } else {
         newChildren[j] = parent.getChildReference(i);
