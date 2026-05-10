@@ -4255,7 +4255,7 @@ public final class HOTTrieWriter {
    */
   public void ensureMaskClosure(PageReference rootRef, byte[] keyBuf,
       StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
-    if (rootRef == null || keyBuf == null) return;
+    if (rootRef == null) return;
     final int revision = storageEngineWriter.getRevisionNumber();
     // Stage G.28 (corrected G.29): only extend ROOT's mask. Child indirects' masks
     // need NOT be extended — Binna's trie-condition requires parent.MSB < child.MSB

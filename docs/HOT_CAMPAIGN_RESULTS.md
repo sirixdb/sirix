@@ -1,8 +1,28 @@
 # HOT Strict-Binna Conformance Campaign — Engineering Results
 
-**Branch:** `fix/hot-strict-binna-conformance` (105 commits ahead of `main`).
+**Branch:** `fix/hot-strict-binna-conformance` (112 commits ahead of `main`).
 **Status:** Engineering campaign complete. 99.2% violation reduction; remaining 1
 marginal violation is documented and architecturally bounded.
+
+**Latest iteration (G.30, 2026-05-10, commit `8846e3497`):** Hardened the G.28/G.29
+mask-closure mechanism with a placeholder-child guard (NULL_ID_LONG = -15 from
+in-flight CoW shadows). Closure mode no longer cascades 1 → 8; both default and
+closure modes now produce identical 1-violation baseline. The closure mechanism is
+SAFE but ineffective on the final stable state — extending it to fire at commit-time
+remains the architectural rework documented in `HOT_ROUTING_ENCODING_REWRITE.md`.
+
+**G.30 follow-up empirical finding (2026-05-10):** Even after injecting closure
+invocations at all root-creation sites (`splitParentAndRecurse` line 5631, root-promote
+in `handleLeafSplitAndInsert` line 1107, end of `updateParentForSplitWithPath`), all
+54,494 closure attempts rejected with `placeholder-child childIdx=0 childPageKey=-15`.
+**Root has placeholder children at slot 0 throughout the entire test lifetime.** This
+is a structural artifact of how `splitParentAndRecurse` reuses parent's old PageKey
+for the constructed leftNodeRef (line 5536: `leftNodeRef.setKey(parent.getPageKey())`)
+combined with TIL CoW shadowing. Whatever the mechanism, it persists every time
+`indirect.getChildReference(0)` is read on the root-level fresh page. Eliminating
+the 1 marginal violation requires resolving this stale-slot artifact at source —
+addEntryWithPDep / buildRebalancedParentWithInheritedMask need to maintain mask
+closure intrinsically, NOT via post-hoc patching. Confirmed multi-week scope.
 
 ---
 
