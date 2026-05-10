@@ -677,6 +677,80 @@ final class HOTFormalVerificationTest {
               if (printed++ >= 10) break;
               System.out.println("[microbench-pattern]   " + viol);
             }
+            // Stage G.32 — dump root's full state to understand violation context.
+            try {
+              final var rootRefForDump =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRefForDump != null) {
+                final var rootPage = rootRefForDump.getPage();
+                if (rootPage instanceof io.sirix.page.HOTIndirectPage rootInd) {
+                  final StringBuilder mmInfo = new StringBuilder();
+                  if (rootInd.getLayoutType() == io.sirix.page.HOTIndirectPage.LayoutType.MULTI_MASK) {
+                    final byte[] ep = rootInd.getExtractionPositions();
+                    final long[] em = rootInd.getExtractionMasks();
+                    mmInfo.append(" extractionPositions=").append(java.util.Arrays.toString(ep));
+                    mmInfo.append(" extractionMasks=[");
+                    for (int mi = 0; mi < em.length; mi++) {
+                      if (mi > 0) mmInfo.append(',');
+                      mmInfo.append("0x").append(Long.toHexString(em[mi]));
+                    }
+                    mmInfo.append(']');
+                  }
+                  System.out.println("[G32-root-dump] pageKey=" + rootInd.getPageKey()
+                      + " layout=" + rootInd.getLayoutType()
+                      + " mask=0x" + Long.toHexString(rootInd.getBitMask())
+                      + " initialBytePos=" + rootInd.getInitialBytePos()
+                      + " MSB=" + rootInd.getMostSignificantBitIndex()
+                      + " numChildren=" + rootInd.getNumChildren()
+                      + " partials=" + java.util.Arrays.toString(rootInd.getPartialKeys())
+                      + mmInfo);
+                  for (int i = 0; i < rootInd.getNumChildren(); i++) {
+                    final var cref = rootInd.getChildReference(i);
+                    final var cpage = cref.getPage();
+                    final String childMsb = (cpage instanceof io.sirix.page.HOTIndirectPage ci)
+                        ? String.valueOf(ci.getMostSignificantBitIndex())
+                        : "leaf";
+                    final String childKind = (cpage == null) ? "null"
+                        : cpage.getClass().getSimpleName();
+                    String firstKeyHex = "?";
+                    if (cpage instanceof io.sirix.page.HOTLeafPage cleaf
+                        && cleaf.getEntryCount() > 0) {
+                      final byte[] fk = cleaf.getKey(0);
+                      final StringBuilder b = new StringBuilder();
+                      for (final byte bt : fk) b.append(String.format("%02x", bt));
+                      firstKeyHex = b.toString();
+                    } else if (cpage instanceof io.sirix.page.HOTIndirectPage ci) {
+                      // descend leftmost
+                      var d = ci;
+                      while (d.getNumChildren() > 0) {
+                        final var dc = d.getChildReference(0);
+                        final var dp = dc.getPage();
+                        if (dp instanceof io.sirix.page.HOTLeafPage dl && dl.getEntryCount() > 0) {
+                          final byte[] fk = dl.getKey(0);
+                          final StringBuilder b = new StringBuilder();
+                          for (final byte bt : fk) b.append(String.format("%02x", bt));
+                          firstKeyHex = b.toString();
+                          break;
+                        } else if (dp instanceof io.sirix.page.HOTIndirectPage di) {
+                          d = di;
+                        } else {
+                          break;
+                        }
+                      }
+                    }
+                    System.out.println("[G32-root-dump]   child[" + i + "]"
+                        + " pageKey=" + cref.getKey()
+                        + " logKey=" + cref.getLogKey()
+                        + " kind=" + childKind
+                        + " MSB=" + childMsb
+                        + " firstKey=" + firstKeyHex);
+                  }
+                }
+              }
+            } catch (final Throwable t) {
+              System.out.println("[G32-root-dump] failed: " + t);
+            }
             return;
           }
         }

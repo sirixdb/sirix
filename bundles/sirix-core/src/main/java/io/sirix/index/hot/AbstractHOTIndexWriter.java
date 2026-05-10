@@ -901,6 +901,17 @@ public abstract class AbstractHOTIndexWriter<K> {
       prepareIndexPage();
     }
 
+    // Stage G.32 — I11-safe root mask reconciliation. Gated on -Dhot.strict.g32=true.
+    // Empirical finding: the closure-added bits aren't β-constant in children's subtrees
+    // (= multi-entry leaves can hold any bit value at any position), so adding them to
+    // root's mask makes subtree keys route to wrong leaves (I6 violations cascade). The
+    // reconcile is structurally incompatible with multi-entry leaves at root level.
+    if (success && Boolean.getBoolean("hot.strict.g32")) {
+      trieWriter.reconcileRootMaskI11Safe(rootRef, storageEngineWriter,
+          storageEngineWriter.getLog());
+      prepareIndexPage();
+    }
+
     // If merge failed, we need to split or compact
     if (!success) {
       success = handleInsertFailure(rootRef, navResult, keyBuf, keyLen, valueBuf, valueLen);
@@ -908,6 +919,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       if (success && Boolean.getBoolean("hot.strict.g28.closure")) {
         final byte[] keyBytesG28 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
         trieWriter.ensureMaskClosure(rootRef, keyBytesG28, storageEngineWriter,
+            storageEngineWriter.getLog());
+        prepareIndexPage();
+      }
+      // G.32 reconcile also runs after failure-recovery insert (gated).
+      if (success && Boolean.getBoolean("hot.strict.g32")) {
+        trieWriter.reconcileRootMaskI11Safe(rootRef, storageEngineWriter,
             storageEngineWriter.getLog());
         prepareIndexPage();
       }

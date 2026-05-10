@@ -3660,9 +3660,9 @@ public final class HOTTrieWriter {
     }
 
     // 3. Build new extraction tables.
-    final byte[] newExtractionPositions;
-    final long[] newExtractionMasks;
-    final int newNumBytes;
+    byte[] newExtractionPositions;
+    long[] newExtractionMasks;
+    int newNumBytes;
     // BE chunk packing: extraction-byte at chunk-offset {@code o} → long bits
     // ((7-o)*8)..((7-o)*8+7); reads use the same shift to extract a byte from a chunk.
     if (existingIdx >= 0) {
@@ -3722,15 +3722,17 @@ public final class HOTTrieWriter {
 
     // 4. Compute new MSB index (smallest absolute disc bit).
     short msbIndex = Short.MAX_VALUE;
-    for (int i = 0; i < newNumBytes; i++) {
-      final int chunkIdx = i / 8;
-      final int byteOffsetInChunk = i % 8;
-      final int maskByte =
-          (int) ((newExtractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFF);
-      if (maskByte == 0) continue;
-      final int highBit = 31 - Integer.numberOfLeadingZeros(maskByte);
-      final int absBit = (newExtractionPositions[i] & 0xFF) * 8 + (7 - highBit);
-      if (absBit < msbIndex) msbIndex = (short) absBit;
+    {
+      for (int i = 0; i < newNumBytes; i++) {
+        final int chunkIdx = i / 8;
+        final int byteOffsetInChunk = i % 8;
+        final int maskByte =
+            (int) ((newExtractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFF);
+        if (maskByte == 0) continue;
+        final int highBit = 31 - Integer.numberOfLeadingZeros(maskByte);
+        final int absBit = (newExtractionPositions[i] & 0xFF) * 8 + (7 - highBit);
+        if (absBit < msbIndex) msbIndex = (short) absBit;
+      }
     }
 
     // 5. Build expanded children + partial keys with Binna §4.2 sparse-path encoding: split
@@ -3811,11 +3813,108 @@ public final class HOTTrieWriter {
         newPartials[i] = (cKey == null || cKey.length == 0) ? 0
             : computePartialKeyMultiMaskDirect(cKey, newExtractionPositions, newExtractionMasks, newNumBytes);
       }
+      // Stage G.31 (MultiMask variant) — iterative mask extension. When partials collide
+      // after firstKey re-sort, find the MSDB of the offending pair and OR it into the
+      // extraction mask. Repeat until partials are unique or 16 attempts exhausted.
+      int g31MmAttempts = 0;
+      while (g31MmAttempts < 16) {
+        int collidingI = -1, collidingK = -1;
+        outer:
+        for (int i = 1; i < newNumChildren; i++) {
+          for (int k = 0; k < i; k++) {
+            if (newPartials[k] == newPartials[i]) {
+              collidingI = i; collidingK = k;
+              break outer;
+            }
+          }
+        }
+        if (collidingI < 0) break;
+        final byte[] keyI = getFirstKeyFromChild(newChildren[collidingI]);
+        final byte[] keyK = getFirstKeyFromChild(newChildren[collidingK]);
+        if (keyI == null || keyK == null) return null;
+        final int msdb = DiscriminativeBitComputer.computeDifferingBit(keyK, keyI);
+        if (msdb < 0) return null;
+        final int msdbBytePos = msdb / 8;
+        final int msdbBitInByte = msdb % 8;
+        final int msdbBitMask = 1 << (7 - msdbBitInByte);
+        // Locate or insert the byte position.
+        int found = -1;
+        for (int i = 0; i < newNumBytes; i++) {
+          if ((newExtractionPositions[i] & 0xFF) == msdbBytePos) { found = i; break; }
+        }
+        if (found >= 0) {
+          // OR into existing byte's mask.
+          final int chunkIdx = found / 8;
+          final int byteOffsetInChunk = found % 8;
+          final long shift = ((long) (msdbBitMask & 0xFF)) << ((7 - byteOffsetInChunk) * 8);
+          final int existingByte =
+              (int) ((newExtractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFF);
+          if ((existingByte & msdbBitMask) != 0) return null; // bit already present
+          newExtractionMasks[chunkIdx] |= shift;
+        } else {
+          // Insert new byte position in sorted order.
+          int insIdx = newNumBytes;
+          for (int i = 0; i < newNumBytes; i++) {
+            if ((newExtractionPositions[i] & 0xFF) > msdbBytePos) { insIdx = i; break; }
+          }
+          if (newNumBytes + 1 > 64) return null; // safety
+          final byte[] np = new byte[newNumBytes + 1];
+          if (insIdx > 0) System.arraycopy(newExtractionPositions, 0, np, 0, insIdx);
+          np[insIdx] = (byte) msdbBytePos;
+          if (insIdx < newNumBytes) {
+            System.arraycopy(newExtractionPositions, insIdx, np, insIdx + 1, newNumBytes - insIdx);
+          }
+          final int newNumChunks = (newNumBytes + 1 + 7) / 8;
+          final long[] nm = new long[newNumChunks];
+          for (int i = 0; i < newNumBytes + 1; i++) {
+            final int maskByte;
+            if (i == insIdx) {
+              maskByte = msdbBitMask;
+            } else {
+              final int srcIdx = i < insIdx ? i : i - 1;
+              final int srcChunk = srcIdx / 8;
+              final int srcOffset = srcIdx % 8;
+              maskByte = (int) ((newExtractionMasks[srcChunk] >>> ((7 - srcOffset) * 8)) & 0xFF);
+            }
+            final int dstChunk = i / 8;
+            final int dstOffset = i % 8;
+            nm[dstChunk] |= ((long) (maskByte & 0xFF)) << ((7 - dstOffset) * 8);
+          }
+          newExtractionPositions = np;
+          newExtractionMasks = nm;
+          newNumBytes = newNumBytes + 1;
+        }
+        // Recompute MSB.
+        msbIndex = Short.MAX_VALUE;
+        for (int i = 0; i < newNumBytes; i++) {
+          final int chunkIdx = i / 8;
+          final int byteOffsetInChunk = i % 8;
+          final int maskByte =
+              (int) ((newExtractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFF);
+          if (maskByte == 0) continue;
+          final int highBit = 31 - Integer.numberOfLeadingZeros(maskByte);
+          final int absBit = (newExtractionPositions[i] & 0xFF) * 8 + (7 - highBit);
+          if (absBit < msbIndex) msbIndex = (short) absBit;
+        }
+        // Recompute partials.
+        for (int i = 0; i < newNumChildren; i++) {
+          final byte[] cKey = getFirstKeyFromChild(newChildren[i]);
+          newPartials[i] = (cKey == null || cKey.length == 0) ? 0
+              : computePartialKeyMultiMaskDirect(cKey, newExtractionPositions, newExtractionMasks, newNumBytes);
+        }
+        g31MmAttempts++;
+      }
+      // Final verification.
       for (int i = 1; i < newNumChildren; i++) {
         for (int k = 0; k < i; k++) {
           if (newPartials[k] == newPartials[i]) return null;
         }
       }
+      boolean hasZero = false;
+      for (final int p : newPartials) {
+        if (p == 0) { hasZero = true; break; }
+      }
+      if (!hasZero) return null;
     }
 
     if (newNumChildren <= 16) {
@@ -4129,6 +4228,459 @@ public final class HOTTrieWriter {
 
   public static long getG28ClosureFirings() { return G28_CLOSURE_FIRINGS.get(); }
   public static void resetG28ClosureFirings() { G28_CLOSURE_FIRINGS.set(0L); }
+
+  /** Stage G.32 — I11-safe root mask reconciliation firings. */
+  private static final java.util.concurrent.atomic.AtomicLong G32_RECONCILE_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getG32ReconcileFirings() { return G32_RECONCILE_FIRINGS.get(); }
+  public static void resetG32ReconcileFirings() { G32_RECONCILE_FIRINGS.set(0L); }
+
+  /**
+   * Stage G.32 — I11-safe root mask reconciliation. When a child subtree's leaves get
+   * inserted into and the subtree's deep-firstKey changes, root's stored partial for that
+   * child may no longer match the firstKey order (stale partial). Walk root's children,
+   * find offending adjacent pairs (= partial order doesn't match firstKey order), find
+   * the MSDB between them, and ADD that bit to root's mask — BUT ONLY if the bit's absBit
+   * is GREATER (= less significant) than root's current MSB. This preserves I11.
+   *
+   * <p>The new bit must be in a byte that's already in root's extraction byte-list (=
+   * extending an existing mask byte). Adding a new byte position would change the layout
+   * radically; defer to splitParentAndRecurse for that case.
+   *
+   * <p>HFT-grade: bounded loop (≤ 16 attempts), one allocation per try.
+   */
+  public void reconcileRootMaskI11Safe(PageReference rootRef,
+      StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
+    final boolean dbg = Boolean.getBoolean("hot.debug.g32");
+    if (rootRef == null) return;
+    final int revision = storageEngineWriter.getRevisionNumber();
+    final var logEntry = log.get(rootRef);
+    Page curPage = logEntry != null ? logEntry.getModified() : rootRef.getPage();
+    if (curPage == null) curPage = loadPage(storageEngineWriter, rootRef);
+    if (!(curPage instanceof HOTIndirectPage indirect)) return;
+    if (indirect.getNumChildren() < 2) return;
+
+    // First check if there's any I8 violation worth fixing.
+    {
+      final int n = indirect.getNumChildren();
+      final byte[][] firstKeys = new byte[n][];
+      for (int i = 0; i < n; i++) {
+        final PageReference cref = indirect.getChildReference(i);
+        if (cref == null) return;
+        firstKeys[i] = getFirstKeyFromChild(cref);
+      }
+      boolean hasInversion = false;
+      for (int i = 1; i < n; i++) {
+        if (firstKeys[i] == null || firstKeys[i - 1] == null
+            || firstKeys[i].length == 0 || firstKeys[i - 1].length == 0) continue;
+        if (Arrays.compareUnsigned(firstKeys[i - 1], firstKeys[i]) >= 0) {
+          hasInversion = true; break;
+        }
+      }
+      if (!hasInversion) return;
+
+      // Stage G.32 — bulk-rebuild root with FULL MSDB-closure of current firstKeys.
+      // Try this ONCE; if it succeeds, root is reconciled. If it fails, fall through to
+      // the iterative single-bit approach as a safety net.
+      final int parentMsb = indirect.getMostSignificantBitIndex() & 0xFFFF;
+      final HOTIndirectPage bulkRebuilt = rebuildRootWithFullClosureI11Safe(indirect, parentMsb, revision);
+      if (bulkRebuilt != null) {
+        if (dbg) System.err.println("[g32] BULK-REBUILD-OK newMsb=" + bulkRebuilt.getMostSignificantBitIndex()
+            + " parentMsb=" + parentMsb);
+        G32_RECONCILE_FIRINGS.incrementAndGet();
+        log.put(rootRef, PageContainer.getInstance(bulkRebuilt, bulkRebuilt));
+        rootRef.setPage(bulkRebuilt);
+        return; // bulk path resolved it
+      }
+      if (dbg) System.err.println("[g32] bulk-rebuild-failed, falling through to iterative");
+    }
+
+    // Up to 16 mask-extension attempts (single-bit fallback).
+    for (int attempt = 0; attempt < 16; attempt++) {
+      final int n = indirect.getNumChildren();
+      // Collect current deep-firstKeys.
+      final byte[][] firstKeys = new byte[n][];
+      for (int i = 0; i < n; i++) {
+        final PageReference cref = indirect.getChildReference(i);
+        if (cref == null) return;
+        firstKeys[i] = getFirstKeyFromChild(cref);
+      }
+      // Find offending adjacent pair in STORED (partial) order: firstKey[i-1] >= firstKey[i].
+      int offI = -1, offK = -1;
+      for (int i = 1; i < n; i++) {
+        if (firstKeys[i] == null || firstKeys[i - 1] == null
+            || firstKeys[i].length == 0 || firstKeys[i - 1].length == 0) continue;
+        if (Arrays.compareUnsigned(firstKeys[i - 1], firstKeys[i]) >= 0) {
+          offK = i - 1; offI = i;
+          break;
+        }
+      }
+      if (offI < 0) {
+        if (dbg && attempt > 0) System.err.println("[g32] done attempts=" + attempt
+            + " rootMsb=" + indirect.getMostSignificantBitIndex());
+        return; // no I8 violation — done
+      }
+      final int parentMsb = indirect.getMostSignificantBitIndex() & 0xFFFF;
+      // Compute MSDB-closure: ALL absBits where any pair of children's firstKeys differ,
+      // restricted to absBit > parentMsb (= I11-safe). Then try each in MSDB-first order
+      // (= smallest absBit = most significant first). Pick the first that succeeds.
+      int maxLen = 0;
+      for (int i = 0; i < n; i++) {
+        if (firstKeys[i] != null && firstKeys[i].length > maxLen) maxLen = firstKeys[i].length;
+      }
+      final int totalAbsBits = maxLen * 8;
+      // Bitset of closure bits (= positions where any pair differs).
+      final long[] closureBitset = new long[(totalAbsBits + 63) / 64];
+      for (int absBit = parentMsb + 1; absBit < totalAbsBits; absBit++) {
+        boolean seen0 = false, seen1 = false;
+        for (int i = 0; i < n; i++) {
+          if (firstKeys[i] == null || firstKeys[i].length == 0) continue;
+          if (isAbsBitSet(firstKeys[i], absBit)) seen1 = true;
+          else seen0 = true;
+          if (seen0 && seen1) break;
+        }
+        if (seen0 && seen1) closureBitset[absBit >> 6] |= 1L << (absBit & 63);
+      }
+      // Try each closure bit in order.
+      HOTIndirectPage extended = null;
+      int chosenBit = -1;
+      for (int absBit = parentMsb + 1; absBit < totalAbsBits; absBit++) {
+        if ((closureBitset[absBit >> 6] & (1L << (absBit & 63))) == 0) continue;
+        extended = extendMaskWithBitI11Safe(indirect, absBit, revision);
+        if (extended != null) {
+          chosenBit = absBit;
+          break;
+        }
+      }
+      if (extended == null) {
+        if (dbg) System.err.println("[g32] reject reason=no-bit-works parentMsb=" + parentMsb
+            + " offK=" + offK + " offI=" + offI);
+        return;
+      }
+      if (dbg) System.err.println("[g32] EXTEND-OK msdb=" + chosenBit + " parentMsb=" + parentMsb
+          + " newMsb=" + extended.getMostSignificantBitIndex());
+      G32_RECONCILE_FIRINGS.incrementAndGet();
+      log.put(rootRef, PageContainer.getInstance(extended, extended));
+      // Also setPage so subsequent reads see it.
+      rootRef.setPage(extended);
+      indirect = extended;
+    }
+  }
+
+  /**
+   * Stage G.32 — Rebuild root indirect with FULL MSDB-closure of children's current
+   * deep-firstKeys, restricted to I11-safe bits (absBit > parentMsb). Recomputes ALL
+   * extraction positions/masks from scratch based on which bits actually differ across
+   * children. This is the bulk version of the iterative single-bit extension.
+   *
+   * <p>Preserves existing bits in the mask if they're &lt;= parentMsb (= more significant).
+   * Discards any bits that no longer discriminate (= all children agree at that bit).
+   * Adds all bits where any pair currently differs.
+   *
+   * <p>Returns null if the rebuild can't produce a valid layout (= partials collide,
+   * no zero-partial child, etc.).
+   */
+  private @Nullable HOTIndirectPage rebuildRootWithFullClosureI11Safe(HOTIndirectPage indirect,
+      int parentMsb, int revision) {
+    final int n = indirect.getNumChildren();
+    if (n < 2) return null;
+    // Collect current firstKeys.
+    final byte[][] firstKeys = new byte[n][];
+    int maxLen = 0;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) return null;
+      firstKeys[i] = getFirstKeyFromChild(cref);
+      if (firstKeys[i] == null || firstKeys[i].length == 0) return null;
+      if (firstKeys[i].length > maxLen) maxLen = firstKeys[i].length;
+    }
+    final int totalAbsBits = maxLen * 8;
+
+    // Step 1: collect ALL bits where any pair of children's firstKeys differ.
+    // Bucket by byte position.
+    final java.util.TreeMap<Integer, Integer> maskByBytePos = new java.util.TreeMap<>();
+    // Step 1a: preserve indirect's existing mask bits at absBit <= parentMsb (I11-required;
+    // these are bits root already captures and must continue capturing to keep its MSB).
+    {
+      if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+        final int initialBytePos = indirect.getInitialBytePos();
+        final long oldMask = indirect.getBitMask();
+        for (int bo = 0; bo < 8; bo++) {
+          final int byteMaskBits = (int) ((oldMask >>> ((7 - bo) * 8)) & 0xFFL);
+          if (byteMaskBits != 0) {
+            maskByBytePos.merge(initialBytePos + bo, byteMaskBits, (a, b) -> a | b);
+          }
+        }
+      } else {
+        final byte[] ep = indirect.getExtractionPositions();
+        final long[] em = indirect.getExtractionMasks();
+        final int neb = indirect.getNumExtractionBytes();
+        for (int i = 0; i < neb; i++) {
+          final int chunkIdx = i / 8;
+          final int byteOffsetInChunk = i % 8;
+          final int byteMaskBits = (int) ((em[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+          if (byteMaskBits != 0) {
+            maskByBytePos.merge(ep[i] & 0xFF, byteMaskBits, (a, b) -> a | b);
+          }
+        }
+      }
+    }
+    // Step 1b: ADD bits where any pair currently differs and absBit > parentMsb.
+    // β-CONSTANCY GATE: only add bit if it's constant in every child's subtree (= each
+    // child agrees with its own firstKey at this bit position). Sirix's multi-entry leaves
+    // can violate constancy; without this gate, the new mask would misroute subtree keys
+    // (I6 violations cascade).
+    for (int absBit = parentMsb + 1; absBit < totalAbsBits; absBit++) {
+      boolean seen0 = false, seen1 = false;
+      for (int i = 0; i < n; i++) {
+        if (firstKeys[i].length == 0) continue;
+        if (isAbsBitSet(firstKeys[i], absBit)) seen1 = true;
+        else seen0 = true;
+        if (seen0 && seen1) break;
+      }
+      if (seen0 && seen1) {
+        // Verify β-constancy in EVERY child's subtree.
+        boolean allConstant = true;
+        for (int i = 0; i < n; i++) {
+          final int bv = bitConstantValueInSubtree(indirect.getChildReference(i), absBit);
+          if (bv < 0) { allConstant = false; break; }
+        }
+        if (!allConstant) continue;
+        final int bytePos = absBit / 8;
+        final int bitInByte = absBit % 8;
+        final int maskBit = 1 << (7 - bitInByte);
+        maskByBytePos.merge(bytePos, maskBit, (a, b) -> a | b);
+      }
+    }
+
+    if (maskByBytePos.isEmpty()) return null;
+
+    // Step 2: encode extraction tables. Always MultiMask for generality.
+    final int numBytes = maskByBytePos.size();
+    if (numBytes > 64) return null;
+    final byte[] extractionPositions = new byte[numBytes];
+    final int numChunks = (numBytes + 7) / 8;
+    final long[] extractionMasks = new long[numChunks];
+    short msbIndex = Short.MAX_VALUE;
+    {
+      int idx = 0;
+      for (final var entry : maskByBytePos.entrySet()) {
+        final int bytePos = entry.getKey();
+        final int maskByte = entry.getValue();
+        extractionPositions[idx] = (byte) bytePos;
+        final int chunkIdx = idx / 8;
+        final int byteOffsetInChunk = idx % 8;
+        extractionMasks[chunkIdx] |= ((long) (maskByte & 0xFF)) << ((7 - byteOffsetInChunk) * 8);
+        final int highBit = 31 - Integer.numberOfLeadingZeros(maskByte & 0xFF);
+        final int absBitPos = bytePos * 8 + (7 - highBit);
+        if (absBitPos < msbIndex) msbIndex = (short) absBitPos;
+        idx++;
+      }
+    }
+
+    // Step 3: recompute partials from current firstKeys.
+    final int[] newPartials = new int[n];
+    final PageReference[] newChildren = new PageReference[n];
+    int totalMaskBits = 0;
+    for (final long m : extractionMasks) totalMaskBits += Long.bitCount(m);
+    if (totalMaskBits > 16) return null; // partial too wide for child fanout
+    for (int i = 0; i < n; i++) {
+      newChildren[i] = indirect.getChildReference(i);
+      newPartials[i] = computePartialKeyMultiMaskDirect(firstKeys[i],
+          extractionPositions, extractionMasks, numBytes);
+    }
+    // Verify uniqueness.
+    for (int i = 1; i < n; i++) {
+      for (int k = 0; k < i; k++) {
+        if (newPartials[k] == newPartials[i]) return null;
+      }
+    }
+    // Sort by partial.
+    sortChildrenAndPartialsByPartial(newChildren, newPartials);
+    // Verify firstKey-monotone after partial-sort.
+    for (int i = 1; i < n; i++) {
+      final byte[] prev = getFirstKeyFromChild(newChildren[i - 1]);
+      final byte[] curr = getFirstKeyFromChild(newChildren[i]);
+      if (prev != null && curr != null && prev.length > 0 && curr.length > 0
+          && Arrays.compareUnsigned(prev, curr) >= 0) {
+        return null; // inversion remains — closure didn't help
+      }
+    }
+    // Verify I4 (first partial = 0).
+    if (newPartials[0] != 0) return null;
+
+    if (n <= 16) {
+      return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+          extractionPositions, extractionMasks, numBytes, newPartials, newChildren,
+          indirect.getHeight(), msbIndex);
+    }
+    return HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
+        extractionPositions, extractionMasks, numBytes, newPartials, newChildren,
+        indirect.getHeight(), msbIndex);
+  }
+
+  /**
+   * Extend {@code indirect}'s mask with bit {@code newAbsBit}. The bit must be at absBit
+   * STRICTLY GREATER than parent's current MSB (= less significant, so I11 holds).
+   * Recomputes all partials directly from each child's current firstKey under the
+   * extended mask. Returns the new page, or null on infeasibility.
+   *
+   * <p>Mirrors {@link #extendIndirectMaskForClosure} but WITHOUT split-on-bit. Bit must
+   * already be β-constant in every child's subtree (= bit is below the discrimination
+   * resolution of the existing children). This is automatic when newAbsBit > parent.MSB —
+   * the bit lies in a less-significant position than where children were partitioned.
+   */
+  private @Nullable HOTIndirectPage extendMaskWithBitI11Safe(HOTIndirectPage indirect,
+      int newAbsBit, int revision) {
+    final int n = indirect.getNumChildren();
+    if (n < 2) return null;
+    final int oldInitialBytePos = indirect.getInitialBytePos();
+    final int newBytePos = newAbsBit / 8;
+    final int newBitInByte = newAbsBit % 8;
+    final int newMaskBitInByte = 1 << (7 - newBitInByte);
+
+    // Build new extraction layout. SingleMask if window fits; else MultiMask.
+    int[] oldBytePositions = new int[16];
+    int[] oldByteMaskBits = new int[16];
+    int oldByteCount = 0;
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      final long oldMask = indirect.getBitMask();
+      for (int bo = 0; bo < 8; bo++) {
+        final int byteMaskBits = (int) ((oldMask >>> ((7 - bo) * 8)) & 0xFFL);
+        if (byteMaskBits != 0) {
+          oldBytePositions[oldByteCount] = oldInitialBytePos + bo;
+          oldByteMaskBits[oldByteCount] = byteMaskBits;
+          oldByteCount++;
+        }
+      }
+    } else {
+      final byte[] ep = indirect.getExtractionPositions();
+      final long[] em = indirect.getExtractionMasks();
+      final int neb = indirect.getNumExtractionBytes();
+      for (int i = 0; i < neb; i++) {
+        final int chunkIdx = i / 8;
+        final int byteOffsetInChunk = i % 8;
+        final int byteMaskBits = (int) ((em[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+        if (byteMaskBits != 0) {
+          if (oldByteCount >= oldBytePositions.length) return null;
+          oldBytePositions[oldByteCount] = ep[i] & 0xFF;
+          oldByteMaskBits[oldByteCount] = byteMaskBits;
+          oldByteCount++;
+        }
+      }
+    }
+    // Merge newBytePos into the byte list.
+    int[] allBytePositions = new int[oldByteCount + 1];
+    int[] allByteMaskBits = new int[oldByteCount + 1];
+    int allCount = 0;
+    boolean merged = false;
+    for (int i = 0; i < oldByteCount; i++) {
+      if (!merged && oldBytePositions[i] == newBytePos) {
+        allBytePositions[allCount] = newBytePos;
+        allByteMaskBits[allCount] = oldByteMaskBits[i] | newMaskBitInByte;
+        // If bit is already present, no change.
+        if ((oldByteMaskBits[i] & newMaskBitInByte) != 0) return null;
+        allCount++;
+        merged = true;
+      } else if (!merged && oldBytePositions[i] > newBytePos) {
+        allBytePositions[allCount] = newBytePos;
+        allByteMaskBits[allCount] = newMaskBitInByte;
+        allCount++;
+        merged = true;
+        allBytePositions[allCount] = oldBytePositions[i];
+        allByteMaskBits[allCount] = oldByteMaskBits[i];
+        allCount++;
+      } else {
+        allBytePositions[allCount] = oldBytePositions[i];
+        allByteMaskBits[allCount] = oldByteMaskBits[i];
+        allCount++;
+      }
+    }
+    if (!merged) {
+      allBytePositions[allCount] = newBytePos;
+      allByteMaskBits[allCount] = newMaskBitInByte;
+      allCount++;
+    }
+
+    // Encode extraction tables.
+    final byte[] extractionPositions = new byte[allCount];
+    final int numChunks = (allCount + 7) / 8;
+    final long[] extractionMasks = new long[numChunks];
+    short msbIndex = Short.MAX_VALUE;
+    for (int i = 0; i < allCount; i++) {
+      extractionPositions[i] = (byte) allBytePositions[i];
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      extractionMasks[chunkIdx] |= ((long) (allByteMaskBits[i] & 0xFF)) << ((7 - byteOffsetInChunk) * 8);
+      final int highBit = 31 - Integer.numberOfLeadingZeros(allByteMaskBits[i] & 0xFF);
+      final int absBitPos = allBytePositions[i] * 8 + (7 - highBit);
+      if (absBitPos < msbIndex) msbIndex = (short) absBitPos;
+    }
+
+    final boolean dbg = Boolean.getBoolean("hot.debug.g32");
+    // β-CONSTANCY CHECK: ensure newAbsBit is constant within every child's subtree. If any
+    // child's subtree has mixed bit values at newAbsBit, adding this bit to root's mask
+    // would misroute keys (I6 violations). Sirix's multi-entry leaves can hold any bit
+    // value at any position, so this check is essential.
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      final int bv = bitConstantValueInSubtree(cref, newAbsBit);
+      if (bv < 0) {
+        if (dbg) System.err.println("[g32-ext] reject bit=" + newAbsBit
+            + " reason=beta-not-constant-in-child childIdx=" + i);
+        return null;
+      }
+    }
+    // Recompute partials from children's current firstKeys.
+    final int[] newPartials = new int[n];
+    final PageReference[] newChildren = new PageReference[n];
+    for (int i = 0; i < n; i++) {
+      newChildren[i] = indirect.getChildReference(i);
+      final byte[] cKey = getFirstKeyFromChild(newChildren[i]);
+      newPartials[i] = (cKey == null || cKey.length == 0) ? 0
+          : computePartialKeyMultiMaskDirect(cKey, extractionPositions, extractionMasks, allCount);
+    }
+    // Verify uniqueness.
+    for (int i = 1; i < n; i++) {
+      for (int k = 0; k < i; k++) {
+        if (newPartials[k] == newPartials[i]) {
+          if (dbg) System.err.println("[g32-ext] reject bit=" + newAbsBit
+              + " reason=partial-collision i=" + i + " k=" + k + " p=" + newPartials[i]);
+          return null;
+        }
+      }
+    }
+    // Sort children by partial.
+    sortChildrenAndPartialsByPartial(newChildren, newPartials);
+    // Verify firstKey-monotone after partial-sort.
+    for (int i = 1; i < n; i++) {
+      final byte[] prev = getFirstKeyFromChild(newChildren[i - 1]);
+      final byte[] curr = getFirstKeyFromChild(newChildren[i]);
+      if (prev != null && curr != null && prev.length > 0 && curr.length > 0
+          && Arrays.compareUnsigned(prev, curr) >= 0) {
+        if (dbg) System.err.println("[g32-ext] reject bit=" + newAbsBit
+            + " reason=still-inverted i=" + i);
+        return null;
+      }
+    }
+    // Verify first partial = 0 (Binna's sparse-path I4).
+    if (newPartials[0] != 0) {
+      if (dbg) System.err.println("[g32-ext] reject bit=" + newAbsBit
+          + " reason=no-zero-partial firstPartial=" + newPartials[0]
+          + " partials=" + Arrays.toString(newPartials));
+      return null;
+    }
+
+    if (n <= 16) {
+      return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+          extractionPositions, extractionMasks, allCount, newPartials, newChildren,
+          indirect.getHeight(), msbIndex);
+    }
+    return HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
+        extractionPositions, extractionMasks, allCount, newPartials, newChildren,
+        indirect.getHeight(), msbIndex);
+  }
 
   /**
    * Stage G.28 — Generic mask extension for closure. Adds β to {@code indirect}'s mask
