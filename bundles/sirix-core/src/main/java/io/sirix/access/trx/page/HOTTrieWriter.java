@@ -4209,30 +4209,25 @@ public final class HOTTrieWriter {
       StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
     if (rootRef == null || keyBuf == null) return;
     final int revision = storageEngineWriter.getRevisionNumber();
-    PageReference curRef = rootRef;
-    for (int depth = 0; depth < MAX_TREE_HEIGHT; depth++) {
-      Page curPage = log.get(curRef) != null ? log.get(curRef).getModified() : curRef.getPage();
-      if (curPage == null) curPage = loadPage(storageEngineWriter, curRef);
-      if (!(curPage instanceof HOTIndirectPage indirect)) break;
-      // Find MSDB-closure of children's firstKeys.
-      final int[] closureBits = findClosureBits(indirect);
-      // For each closure bit not in mask, extend.
-      HOTIndirectPage current = indirect;
-      for (final int beta : closureBits) {
-        final int outPos = current.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK
-            ? singleMaskBetaOutputPos(current, beta)
-            : multiMaskBetaOutputPos(current, beta);
-        if (outPos >= 0) continue;
-        final HOTIndirectPage extended = extendIndirectMaskForClosure(current, beta, log, revision);
-        if (extended == null) break;
-        log.put(curRef, PageContainer.getInstance(extended, extended));
-        current = extended;
-      }
-      // Descend toward keyBuf.
-      final int idx = current.findChildIndex(keyBuf);
-      if (idx < 0) break;
-      curRef = current.getChildReference(idx);
-      if (curRef == null) break;
+    // Stage G.28 (corrected G.29): only extend ROOT's mask. Child indirects' masks
+    // need NOT be extended — Binna's trie-condition requires parent.MSB < child.MSB
+    // (= parent more-significant). If we extend a child's mask to include more-
+    // significant bits than parent, I11 breaks. Only root extending is structurally
+    // safe: root's MSB becomes the most-significant; children stay refined relative.
+    Page curPage = log.get(rootRef) != null ? log.get(rootRef).getModified() : rootRef.getPage();
+    if (curPage == null) curPage = loadPage(storageEngineWriter, rootRef);
+    if (!(curPage instanceof HOTIndirectPage indirect)) return;
+    final int[] closureBits = findClosureBits(indirect);
+    HOTIndirectPage current = indirect;
+    for (final int beta : closureBits) {
+      final int outPos = current.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK
+          ? singleMaskBetaOutputPos(current, beta)
+          : multiMaskBetaOutputPos(current, beta);
+      if (outPos >= 0) continue;
+      final HOTIndirectPage extended = extendIndirectMaskForClosure(current, beta, log, revision);
+      if (extended == null) break;
+      log.put(rootRef, PageContainer.getInstance(extended, extended));
+      current = extended;
     }
   }
 
