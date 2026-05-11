@@ -157,6 +157,8 @@ test {
     systemProperty "hot.debug.phase7g", System.getProperty("hot.debug.phase7g", "false")
     systemProperty "hot.strict.phase7h", System.getProperty("hot.strict.phase7h", "false")
     systemProperty "hot.relax.closure.placeholder", System.getProperty("hot.relax.closure.placeholder", "false")
+    systemProperty "hot.strict.phase7j", System.getProperty("hot.strict.phase7j", "false")
+    systemProperty "hot.debug.phase7j", System.getProperty("hot.debug.phase7j", "false")
     systemProperty "hot.debug.phase7e", System.getProperty("hot.debug.phase7e", "false")
     systemProperty "hot.debug.g30", System.getProperty("hot.debug.g30", "false")
     systemProperty "hot.debug.g32", System.getProperty("hot.debug.g32", "false")

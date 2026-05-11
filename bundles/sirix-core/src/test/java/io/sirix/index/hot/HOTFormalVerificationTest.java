@@ -645,6 +645,28 @@ final class HOTFormalVerificationTest {
               stageDPrevCounters = snapshotWriterFirings();
             }
           }
+          // Phase 7j — commit-time try every MSDB-closure bit on root.
+          if (Boolean.getBoolean("hot.strict.phase7j")) {
+            try {
+              final var trieWriter7j = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRef7j =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRef7j != null) {
+                io.sirix.page.interfaces.Page pg7j = rootRef7j.getPage();
+                if (pg7j == null) pg7j = trx.getStorageEngineReader().loadHOTPage(rootRef7j);
+                if (pg7j instanceof io.sirix.page.HOTIndirectPage rootInd7j) {
+                  final int ext = trieWriter7j.phase7jExtendWithAllClosureBits(
+                      rootRef7j, rootInd7j, trx.getStorageEngineWriter(),
+                      trx.getStorageEngineWriter().getLog(), 16);
+                  System.out.println("[phase7j] commit-time extensions=" + ext);
+                }
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase7j] error: " + t);
+            }
+          }
+
           // Phase 7h — commit-time MSDB-closure-driven extendIndirectMaskForClosure walk.
           // For each bit in the MSDB closure of current firstKeys, try
           // extendIndirectMaskForClosure on root. The closure operation splits

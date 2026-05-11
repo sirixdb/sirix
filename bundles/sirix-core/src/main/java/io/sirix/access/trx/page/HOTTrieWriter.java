@@ -5072,6 +5072,49 @@ public final class HOTTrieWriter {
   }
 
   /**
+   * Phase 7j — Try to extend indirect's mask with EVERY MSDB-closure bit of children's
+   * firstKeys, in MSB-first order. Each successful extension adds one bit. Stops when:
+   * (a) all closure bits exhausted, (b) any extension fails, (c) {@code maxIterations}
+   * reached. Returns the count of successful extensions.
+   */
+  public int phase7jExtendWithAllClosureBits(PageReference indirectRef, HOTIndirectPage initial,
+      StorageEngineWriter storageEngineWriter, TransactionIntentLog log, int maxIterations) {
+    final boolean dbg = Boolean.getBoolean("hot.debug.phase7j");
+    if (initial == null) return 0;
+    final int revision = storageEngineWriter.getRevisionNumber();
+    this.activeReader = storageEngineWriter;
+    this.activeLog = log;
+    HOTIndirectPage cur = initial;
+    int extensions = 0;
+    for (int iter = 0; iter < maxIterations; iter++) {
+      final int[] closureBits = findClosureBits(cur);
+      if (closureBits.length == 0) {
+        if (dbg) System.err.println("[phase7j] iter=" + iter + " no closure bits");
+        break;
+      }
+      final int parentMsb = cur.getMostSignificantBitIndex() & 0xFFFF;
+      boolean extended = false;
+      for (final int beta : closureBits) {
+        if (beta <= parentMsb) continue; // skip bits not strictly less significant than parent.MSB
+        final HOTIndirectPage next = extendIndirectMaskForClosure(cur, beta, log, revision);
+        if (next == null) continue;
+        if (dbg) System.err.println("[phase7j] EXTEND-OK iter=" + iter + " beta=" + beta);
+        log.put(indirectRef, PageContainer.getInstance(next, next));
+        indirectRef.setPage(next);
+        cur = next;
+        extensions++;
+        extended = true;
+        break;
+      }
+      if (!extended) {
+        if (dbg) System.err.println("[phase7j] iter=" + iter + " no bit extends successfully");
+        break;
+      }
+    }
+    return extensions;
+  }
+
+  /**
    * Phase 5e — Commit-time global reconciliation. Walks the ENTIRE trie post-insert
    * and proactively lifts each child's MSB into its parent's mask if the lift is safe
    * (= β-constant in all OTHER children's subtrees). This fixes stale-firstKey
