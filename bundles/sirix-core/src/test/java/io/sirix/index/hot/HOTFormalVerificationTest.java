@@ -645,6 +645,27 @@ final class HOTFormalVerificationTest {
               stageDPrevCounters = snapshotWriterFirings();
             }
           }
+          // Phase 7h — commit-time MSDB-closure-driven extendIndirectMaskForClosure walk.
+          // For each bit in the MSDB closure of current firstKeys, try
+          // extendIndirectMaskForClosure on root. The closure operation splits
+          // β-mixed children internally. Capped at 16 bit attempts.
+          if (Boolean.getBoolean("hot.strict.phase7h")) {
+            try {
+              final var trieWriter7h = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRef7h =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRef7h != null) {
+                final var rev = trx.getStorageEngineWriter().getRevisionNumber();
+                final int lifts = trieWriter7h.commitTimeLiftAllChildMsbs(rootRef7h,
+                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
+                System.out.println("[phase7h] commit-time lifts=" + lifts);
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase7h] error: " + t);
+            }
+          }
+
           // Phase 7f — commit-time root force-rebuild from current firstKeys.
           // Last-resort I8 fix: ignores constancy/I11 constraints, just picks
           // adjacent-pair MSDB bits from current firstKey order. May break I6 in some

@@ -4755,6 +4755,13 @@ public final class HOTTrieWriter {
     return forceRebuildIndirectFromFirstKeyMsdbs(indirect, revision);
   }
 
+  // Phase 7h — Bounded subtree restructure: planned for future iteration.
+  // Walks each child's subtree, ensures β-constancy for new mask bits.
+  // Currently delegates to extendIndirectMaskForClosure (G.28) which handles this case
+  // but has historically cascaded on multi-entry leaves. Phase 7h would add tight
+  // memory caps + per-iteration validator gate to prevent cascade.
+  // STUB — see docs/HOT_PHASE_7_DESIGN.md §5 stage 7d-extended.
+
   public @Nullable HOTIndirectPage forceRebuildIndirectFromFirstKeyMsdbs(
       HOTIndirectPage indirect, int revision) {
     final boolean dbg = Boolean.getBoolean("hot.debug.phase7g");
