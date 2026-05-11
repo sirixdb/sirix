@@ -689,3 +689,65 @@ dormant).
   + `PHASE7Q_CONSTANCY_WRAP_{FIRINGS,SUCCESS,FAIL}` counters.
 - `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
   + Counter reset + report.
+
+### 7.14 Phase 7q.9 + 7q.10 — collision diagnosis (2026-05-12)
+
+Phase 7q.9 split `PHASE7Q_CONSTANCY_WRAP_FAIL` into four named sub-buckets
+(`nomask`, `collide`, `nozero`, `input`). The 50K reproducer with skipNoop+gate
+revealed:
+
+```
+phase7q constancy-wrap fail-buckets: nomask=0 collide=16 nozero=0 input=0
+```
+
+**All 16 surviving failures are uniqueness collisions** — the constancy filter
+retained bits but partials still collided.
+
+Phase 7q.10 attempted two refinements:
+1. **All-pairs XOR scan** (vs adjacent-pair-only) to capture distinguishing bits
+   between non-adjacent children. **No effect**: the helper already covered
+   the bits the adjacent scan caught.
+2. **Use firstKey on both sides of the XOR** (vs `lastKey(i)` vs `firstKey(j)`).
+   This was a correctness fix — partials are derived from firstKeys, so disc-bit
+   candidates must come from firstKey-XOR. **Still no effect** on the
+   collision count.
+
+Added `-Dhot.debug.phase7q.collision=true` trace dumping the colliding pair's
+firstKeys, distinguishing-bits, and per-bit blocker children. Smoking-gun
+output from the 50K reproducer:
+
+```
+[phase7q-collide] bucketSize=14 pair=(1,2) β=91 newParentMsb=90
+  kFirstKey=...c0c108...  iFirstKey=...c0c208...
+  distinguishing-bits: 94[blocker=12,13] 95[USABLE!]
+```
+
+**Bit 95 is "USABLE" (β-constant in every child) but adding it to the mask
+STILL produces colliding partials.** Why? Because sparse-path encoding
+(Binna §4.2 = `computePartialKeysForChildren`) requires disc bits to be
+HIERARCHICALLY MONOTONIC across firstKey-sorted children. For bit 95:
+
+- c[1].firstKey byte 11 = 0xc1 → bit 95 = 1
+- c[2].firstKey byte 11 = 0xc2 → bit 95 = 0
+
+c[1] sorts BEFORE c[2] lexicographically (0xc1 < 0xc2), but at bit 95 c[1]=1
+comes BEFORE c[2]=0 — non-monotonic. Sparse-path encoding's recursive
+partition can't place c[1] in the "right" half (bit=1) AFTER c[2] in the
+"left" half (bit=0) under firstKey-sort. The encoding silently fails: both
+children end up with the same partial.
+
+**This is the architectural ceiling.** The 16 surviving collisions are
+buckets where every distinguishing-and-constant bit is non-monotonic under
+firstKey sort. The lift CAN'T succeed for these without either:
+- (a) Re-sorting children by the disc bit (= changing the routing invariant).
+- (b) Recursively β'-stripping the descendant whose subtree creates the
+      monotonicity violation (= cascading lift, design §2.2).
+
+**Phase 7q.11 entry point** (next session): implement option (b). Specifically,
+when collide=N > 0 AND the colliding pair has USABLE bits, identify a
+non-monotonic-blocker child and recurse via `liftBetaFromSubtreeRecursive` on
+ITS subtree with the colliding bit. This is the cascading-lift the design
+contemplated but never implemented.
+
+Default mode unchanged at 1 I8, height 5, ext-ok=1.
+100K CAS: 0 violations preserved.

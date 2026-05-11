@@ -6411,39 +6411,56 @@ public final class HOTTrieWriter {
     final PageReference[] children = Arrays.copyOf(bucketRefs, bucketSize);
     sortChildrenByFirstKey(children);
 
-    // 2. Adjacent-pair XOR, with constancy + I11 + β filters applied inline.
+    // 2. Phase 7q.10 — ALL-pairs firstKey XOR (not just adjacent boundaries), with
+    // constancy + I11 + β filters applied inline. Partial keys are derived from
+    // first keys (see computePartialKeysForChildren), so the disc-bit candidates
+    // MUST come from firstKey-XOR to be uniqueness-relevant. The adjacent-pair
+    // scan in computeDiscBits uses lastKey(i) vs firstKey(i+1) — that's correct
+    // for the BOUNDARY between adjacent sorted children, but for non-adjacent
+    // pairs (i, j) the boundary comparison doesn't capture bits that distinguish
+    // firstKey(i) from firstKey(j). Using firstKey on both sides closes that gap.
+    //
+    // <p>O(N²) pair work; N ≤ MULTI_NODE_MAX_CHILDREN (32), so ≤ 1024 iterations,
+    // each O(maxLen) byte scan + O(N) constancy probe per candidate bit. Total
+    // O(N³) ≈ 32K probes worst-case — negligible against the 50K-insert workload.
     final TreeMap<Integer, Integer> maskByBytePos = new TreeMap<>();
     int minBytePos = Integer.MAX_VALUE;
     int maxBytePos = 0;
-    for (int i = 0; i < bucketSize - 1; i++) {
-      final byte[] left = getLastKeyFromChild(children[i]);
-      final byte[] right = getFirstKeyFromChild(children[i + 1]);
-      if (left == null || left.length == 0 || right == null || right.length == 0) continue;
-      final int minLen = Math.min(left.length, right.length);
-      for (int b = 0; b < minLen; b++) {
-        int diff = (left[b] ^ right[b]) & 0xFF;
-        while (diff != 0) {
-          final int hb = Integer.numberOfLeadingZeros(diff) - 24; // 0..7, 0 = MSB
-          diff &= ~(1 << (7 - hb));
-          final int absBit = b * 8 + hb;
-          // I11 filter: bucket-indirect.MSB must be > post-lift parent.MSB.
-          if (absBit <= newParentMsb) continue;
-          // Don't capture β — we are lifting it OUT of this subtree.
-          if (absBit == beta) continue;
-          if (isDiscBitAlreadyCaptured(maskByBytePos, b, hb)) continue;
-          // Constancy filter: every bucket child must be β-constant on absBit.
-          boolean allConst = true;
-          for (int ci = 0; ci < bucketSize; ci++) {
-            if (bitConstantValueInSubtree(children[ci], absBit) < 0) {
-              allConst = false;
-              break;
+    // Cache firstKeys to avoid repeated reads.
+    final byte[][] firstKeys = new byte[bucketSize][];
+    for (int i = 0; i < bucketSize; i++) firstKeys[i] = getFirstKeyFromChild(children[i]);
+    for (int i = 0; i < bucketSize; i++) {
+      final byte[] left = firstKeys[i];
+      if (left == null || left.length == 0) continue;
+      for (int j = i + 1; j < bucketSize; j++) {
+        final byte[] right = firstKeys[j];
+        if (right == null || right.length == 0) continue;
+        final int minLen = Math.min(left.length, right.length);
+        for (int b = 0; b < minLen; b++) {
+          int diff = (left[b] ^ right[b]) & 0xFF;
+          while (diff != 0) {
+            final int hb = Integer.numberOfLeadingZeros(diff) - 24; // 0..7, 0 = MSB
+            diff &= ~(1 << (7 - hb));
+            final int absBit = b * 8 + hb;
+            // I11 filter: bucket-indirect.MSB must be > post-lift parent.MSB.
+            if (absBit <= newParentMsb) continue;
+            // Don't capture β — we are lifting it OUT of this subtree.
+            if (absBit == beta) continue;
+            if (isDiscBitAlreadyCaptured(maskByBytePos, b, hb)) continue;
+            // Constancy filter: every bucket child must be β-constant on absBit.
+            boolean allConst = true;
+            for (int ci = 0; ci < bucketSize; ci++) {
+              if (bitConstantValueInSubtree(children[ci], absBit) < 0) {
+                allConst = false;
+                break;
+              }
             }
+            if (!allConst) continue;
+            final int maskBit = 1 << (7 - hb);
+            maskByBytePos.merge(b, maskBit, (a, c2) -> a | c2);
+            if (b < minBytePos) minBytePos = b;
+            if (b > maxBytePos) maxBytePos = b;
           }
-          if (!allConst) continue;
-          final int maskBit = 1 << (7 - hb);
-          maskByBytePos.merge(b, maskBit, (a, c2) -> a | c2);
-          if (b < minBytePos) minBytePos = b;
-          if (b > maxBytePos) maxBytePos = b;
         }
       }
     }
@@ -6478,6 +6495,16 @@ public final class HOTTrieWriter {
     for (int i = 1; i < bucketSize; i++) {
       for (int k = 0; k < i; k++) {
         if (partialKeys[i] == partialKeys[k]) {
+          // Phase 7q.10 — debug trace for the colliding pair. Gated behind
+          // -Dhot.debug.phase7q.collision=true so it doesn't pollute default runs.
+          // For each candidate disc bit that would distinguish (k, i), report which
+          // OTHER child's subtree is non-constant on that bit (= the constancy
+          // filter rejection that left this collision unresolvable). Bedrock cases
+          // require recursive lift of the offending sibling's subtree at that bit.
+          if (Boolean.getBoolean("hot.debug.phase7q.collision")) {
+            phase7q10DumpCollisionContext(children, bucketSize, k, i, beta,
+                newParentMsb);
+          }
           PHASE7Q_CONSTANCY_WRAP_FAIL.incrementAndGet();
           PHASE7Q_CONSTANCY_WRAP_FAIL_COLLIDE.incrementAndGet();
           return null;
@@ -6523,6 +6550,55 @@ public final class HOTTrieWriter {
     log.put(ref, PageContainer.getInstance(built, built));
     PHASE7Q_CONSTANCY_WRAP_SUCCESS.incrementAndGet();
     return ref;
+  }
+
+  /** Phase 7q.10 — diagnostic dump for a single collision case inside
+   *  {@link #phase7qBuildBucketConstancyFiltered}. For each candidate disc bit
+   *  where the colliding pair's firstKeys differ AND the bit passes I11 + β-skip,
+   *  report which (if any) OTHER bucket child's subtree is non-constant on that
+   *  bit. This identifies the "blocker" child whose subtree would need to be
+   *  recursively β'-stripped before this bit could be added to the mask.
+   *
+   *  <p>Gated behind {@code -Dhot.debug.phase7q.collision=true}. Heavy I/O; do
+   *  not enable in non-diagnostic runs. */
+  private void phase7q10DumpCollisionContext(PageReference[] children, int bucketSize,
+      int kIdx, int iIdx, int beta, int newParentMsb) {
+    final byte[] kKey = getFirstKeyFromChild(children[kIdx]);
+    final byte[] iKey = getFirstKeyFromChild(children[iIdx]);
+    if (kKey == null || iKey == null) return;
+    final int minLen = Math.min(kKey.length, iKey.length);
+    final StringBuilder sb = new StringBuilder(256);
+    sb.append("[phase7q-collide] bucketSize=").append(bucketSize)
+        .append(" pair=(").append(kIdx).append(',').append(iIdx).append(')')
+        .append(" β=").append(beta).append(" newParentMsb=").append(newParentMsb)
+        .append(" kFirstKey=").append(java.util.HexFormat.of().formatHex(kKey))
+        .append(" iFirstKey=").append(java.util.HexFormat.of().formatHex(iKey));
+    System.err.println(sb);
+    sb.setLength(0);
+    sb.append("[phase7q-collide]   distinguishing-bits:");
+    for (int b = 0; b < minLen; b++) {
+      int diff = (kKey[b] ^ iKey[b]) & 0xFF;
+      while (diff != 0) {
+        final int hb = Integer.numberOfLeadingZeros(diff) - 24;
+        diff &= ~(1 << (7 - hb));
+        final int absBit = b * 8 + hb;
+        if (absBit <= newParentMsb || absBit == beta) continue;
+        sb.append(' ').append(absBit).append('[');
+        boolean firstBlocker = true;
+        for (int ci = 0; ci < bucketSize; ci++) {
+          final int v = bitConstantValueInSubtree(children[ci], absBit);
+          if (v < 0) {
+            if (!firstBlocker) sb.append(',');
+            sb.append("blocker=").append(ci)
+                .append("(pageKey=").append(children[ci].getKey()).append(')');
+            firstBlocker = false;
+          }
+        }
+        if (firstBlocker) sb.append("USABLE!");
+        sb.append(']');
+      }
+    }
+    System.err.println(sb);
   }
 
   /** Phase 7q.2 — counter for successful recursive lift firings. */
