@@ -5995,11 +5995,21 @@ public final class HOTTrieWriter {
     // is effectively a no-op. This is the architectural ceiling documented in
     // HOT_CAMPAIGN_RESULTS.md §5 — eliminating the 1 marginal violation requires
     // multi-week rewrite of indirect construction operations.
+    // Phase 7i — relax G.30 placeholder guard for commit-time use.
+    // When -Dhot.relax.closure.placeholder=true is set, allow closure to proceed even
+    // when children have NULL_ID_LONG (= TIL-only refs). The original cascade-prevention
+    // motivation no longer applies if owned-bits Phase 7 infrastructure is in place,
+    // since β-constancy is verified per-child via bitConstantValueInSubtree separately.
+    final boolean relaxPlaceholder = Boolean.getBoolean("hot.relax.closure.placeholder");
     for (int i = 0; i < oldNumChildren; i++) {
       final PageReference ref = indirect.getChildReference(i);
-      if (ref == null || ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG) {
+      if (ref == null) {
+        if (dbg) System.err.println("[g30] reject reason=null-child-ref beta=" + beta + " idx=" + i);
+        return null;
+      }
+      if (!relaxPlaceholder && ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG) {
         if (dbg) System.err.println("[g30] reject reason=placeholder-child beta=" + beta
-            + " childIdx=" + i + " childPageKey=" + (ref == null ? "null" : ref.getKey()));
+            + " childIdx=" + i + " childPageKey=" + ref.getKey());
         return null;
       }
     }
