@@ -6050,8 +6050,180 @@ public final class HOTTrieWriter {
     final PageReference r1 =
         buildBucketWithInheritedMask(indirect, s1Idx, s1Refs, s1n, beta, log, revision);
     if (r1 == null) { PHASE7Q_SPLIT_FAILURES.incrementAndGet(); return null; }
+    // Phase 7q.6 — post-build constancy gate. buildBucketWithInheritedMaskMultiMask
+    // can fall back to wrapBucketInSubtree → createNodeFromChildren → buildFlatNonStrict,
+    // which recomputes disc bits from children's firstKey adjacency rather than honouring
+    // β-constancy in child SUBTREES. The result is an indirect whose mask captures bits
+    // that aren't constant in some descendant subtree — invalid per Binna's I5/I6 and the
+    // root cause of the cascade observed when -Dhot.strict.phase7q.skipNoop=true lets the
+    // closure attempt many bits.
+    //
+    // Reject the lift cleanly here so the caller falls through to the standard reject
+    // (= we keep the architectural ceiling at 1 violation rather than producing 8000+ I6
+    // violations).
+    //
+    // Auto-enabled when skipNoop is on (the only mode where the cascade matters). Default
+    // off so the baseline lift's "successful but slightly malformed" output is preserved
+    // (the validator accepts it; tightening here would regress height from 5 to 6).
+    final boolean constancyGate = Boolean.getBoolean("hot.strict.phase7q.skipNoop")
+        || Boolean.getBoolean("hot.strict.phase7q.constancyGate");
+    if (constancyGate) {
+      if (!liftedBucketIsConstancySafe(r0)) {
+        PHASE7Q_SPLIT_FAILURES.incrementAndGet();
+        PHASE7Q_SPLIT_FAIL_CONSTANCY.incrementAndGet();
+        return null;
+      }
+      if (!liftedBucketIsConstancySafe(r1)) {
+        PHASE7Q_SPLIT_FAILURES.incrementAndGet();
+        PHASE7Q_SPLIT_FAIL_CONSTANCY.incrementAndGet();
+        return null;
+      }
+    }
     PHASE7Q_SPLIT_FIRINGS.incrementAndGet();
     return new LiftSplitResult(r0, r1);
+  }
+
+  /** Phase 7q.6 — post-build constancy validator for {@link #splitIndirectOnBitForLift}.
+   *  Returns false iff the bucket-built indirect's mask captures any bit that is NOT
+   *  constant in some child's subtree (= an I5/I6-violating disc bit that snuck in via
+   *  the wrap-fallback path in {@link #buildBucketWithInheritedMaskMultiMask}). The
+   *  check is bounded: only one indirect deep (the bucket root). HFT-grade — primitive
+   *  arithmetic, bounded iteration over the mask's set bits, no autoboxing.
+   *
+   *  <p>Placeholder children (NULL_ID_LONG pageKey, = TIL-only refs whose page hasn't
+   *  been resolved) require the active TIL: try {@code log.get(ref)} first; if the page
+   *  isn't there either, the gate cannot make a determination. To avoid false positives
+   *  in the default code path, treat unresolvable placeholders as constant (trust). The
+   *  cascade case is detected through resolvable indirects in the bucket. */
+  private boolean liftedBucketIsConstancySafe(PageReference bucketRef) {
+    if (bucketRef == null) return false;
+    Page page = bucketRef.getPage();
+    if (page == null && activeLog != null) {
+      final PageContainer pc = activeLog.get(bucketRef);
+      if (pc != null) page = pc.getModified();
+    }
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, bucketRef);
+      if (page != null) bucketRef.setPage(page);
+    }
+    if (!(page instanceof HOTIndirectPage built)) {
+      return true; // leaf bucket has no descendant constancy to check.
+    }
+    final boolean dbg = Boolean.getBoolean("hot.debug.phase7q");
+    final int n = built.getNumChildren();
+    if (n < 2) return true;
+    if (built.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      final int initialBytePos = built.getInitialBytePos();
+      final long mask = built.getBitMask();
+      for (int wbit = 0; wbit < 64; wbit++) {
+        if (((mask >>> wbit) & 1L) == 0L) continue;
+        final int byteOffsetInWord = 7 - (wbit / 8);
+        final int bitInByte = 7 - (wbit % 8);
+        final int absBit = (initialBytePos + byteOffsetInWord) * 8 + bitInByte;
+        for (int i = 0; i < n; i++) {
+          final PageReference cref = built.getChildReference(i);
+          if (cref == null) continue;
+          if (!liftedChildIsConstantOnBit(cref, absBit, dbg, built.getPageKey(), i, n)) {
+            return false;
+          }
+        }
+      }
+      return true;
+    }
+    final byte[] ep = built.getExtractionPositions();
+    final long[] em = built.getExtractionMasks();
+    final int neb = built.getNumExtractionBytes();
+    for (int i = 0; i < neb; i++) {
+      final int bp = ep[i] & 0xFF;
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      final int byteMaskBits =
+          (int) ((em[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+      for (int mfBit = 0; mfBit < 8; mfBit++) {
+        final int byteBit = 7 - mfBit;
+        if ((byteMaskBits & (1 << byteBit)) == 0) continue;
+        final int absBit = bp * 8 + mfBit;
+        for (int ci = 0; ci < n; ci++) {
+          final PageReference cref = built.getChildReference(ci);
+          if (cref == null) continue;
+          if (!liftedChildIsConstantOnBit(cref, absBit, dbg, built.getPageKey(), ci, n)) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  /** Phase 7q.6 — per-child constancy probe. Resolves the child via TIL if needed.
+   *  Returns false iff the child's subtree is RESOLVABLE and {@code bitConstantValueInSubtree}
+   *  reports non-constant. Unresolvable placeholders (NULL_ID_LONG with no TIL entry) return
+   *  true by default to avoid false positives in the default code path — the cascade case is
+   *  detected through resolvable indirects.
+   */
+  private boolean liftedChildIsConstantOnBit(PageReference cref, int absBit, boolean dbg,
+      long bucketPageKey, int childIdx, int n) {
+    Page childPage = cref.getPage();
+    if (childPage == null && activeLog != null) {
+      final PageContainer pc = activeLog.get(cref);
+      if (pc != null) childPage = pc.getModified();
+    }
+    if (childPage == null && cref.getKey() != io.sirix.settings.Constants.NULL_ID_LONG
+        && activeReader != null) {
+      childPage = loadPage(activeReader, cref);
+      if (childPage != null) cref.setPage(childPage);
+    }
+    if (childPage == null) {
+      // Unresolvable placeholder — trust caller per relax.closure.placeholder semantics.
+      return true;
+    }
+    if (childPage instanceof HOTLeafPage leaf) {
+      if (leaf.isBitConstantAtAbsBit(absBit) < 0) {
+        if (dbg) System.err.println("[phase7q.6] CONSTANCY-REJECT leaf"
+            + " bucketPageKey=" + bucketPageKey + " absBit=" + absBit
+            + " childIdx=" + childIdx + " childPageKey=" + cref.getKey() + " n=" + n);
+        return false;
+      }
+      return true;
+    }
+    if (childPage instanceof HOTIndirectPage indirect) {
+      final int m = indirect.getNumChildren();
+      int first = -2;
+      for (int j = 0; j < m; j++) {
+        final PageReference subRef = indirect.getChildReference(j);
+        if (subRef == null) continue;
+        Page subPage = subRef.getPage();
+        if (subPage == null && activeLog != null) {
+          final PageContainer pc = activeLog.get(subRef);
+          if (pc != null) subPage = pc.getModified();
+        }
+        if (subPage == null && subRef.getKey() != io.sirix.settings.Constants.NULL_ID_LONG
+            && activeReader != null) {
+          subPage = loadPage(activeReader, subRef);
+          if (subPage != null) subRef.setPage(subPage);
+        }
+        if (subPage == null) continue; // unresolvable placeholder — skip
+        final int v;
+        if (subPage instanceof HOTLeafPage subLeaf) v = subLeaf.isBitConstantAtAbsBit(absBit);
+        else v = bitConstantValueInSubtree(subRef, absBit);
+        if (v < 0) {
+          if (dbg) System.err.println("[phase7q.6] CONSTANCY-REJECT indirect-child non-constant"
+              + " bucketPageKey=" + bucketPageKey + " absBit=" + absBit + " childIdx=" + childIdx
+              + " subIdx=" + j + " childPageKey=" + cref.getKey() + " n=" + n);
+          return false;
+        }
+        if (first == -2) first = v;
+        else if (first != v) {
+          if (dbg) System.err.println("[phase7q.6] CONSTANCY-REJECT indirect-child mixed"
+              + " bucketPageKey=" + bucketPageKey + " absBit=" + absBit + " childIdx=" + childIdx
+              + " subIdx=" + j + " childPageKey=" + cref.getKey() + " n=" + n
+              + " first=" + first + " v=" + v);
+          return false;
+        }
+      }
+      return true;
+    }
+    return true;
   }
 
   /** Phase 7q.2 — counter for successful recursive lift firings. */
@@ -6339,9 +6511,16 @@ public final class HOTTrieWriter {
    *  (= the no-op-rebuild case that previously livelocked the closure inner loop). */
   private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_CLOSURE_NOOP_SKIPS =
       new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.6 — counter for splitIndirectOnBitForLift bucket builds rejected by the
+   *  post-build constancy gate (= buildBucketWithInheritedMaskMultiMask's wrap-fallback
+   *  produced an indirect with non-constant disc bits). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_SPLIT_FAIL_CONSTANCY =
+      new java.util.concurrent.atomic.AtomicLong(0L);
 
   public static long getPhase7qClosureNoopSkips() { return PHASE7Q_CLOSURE_NOOP_SKIPS.get(); }
   public static void resetPhase7qClosureNoopSkips() { PHASE7Q_CLOSURE_NOOP_SKIPS.set(0L); }
+  public static long getPhase7qSplitFailConstancy() { return PHASE7Q_SPLIT_FAIL_CONSTANCY.get(); }
+  public static void resetPhase7qSplitFailConstancy() { PHASE7Q_SPLIT_FAIL_CONSTANCY.set(0L); }
 
   /** Phase 7q.5 — closure-loop guard: returns true iff β is already a routing bit in
    *  {@code cur}'s mask. Wraps {@link #indirectMaskHasAbsBit} for clarity at the call

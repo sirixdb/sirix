@@ -185,8 +185,10 @@ next uncommitted phase by reading this doc + the latest commit's diff.
   `phase7q-bitcheck` diagnostic. **Default behaviour preserved at 1 violation.**
   Confirms architectural ceiling and identifies lift's split-and-rebuild constancy
   bug as the next attack target.
-- [ ] 7q.6 — fix `splitIndirectOnBitForLift` build-violation cascade so multiple
-  bits can be added to root without I6/I11 cascade.
+- [x] 7q.6 — post-build constancy gate in `splitIndirectOnBitForLift` (auto-on
+  under `skipNoop`, opt-in via `hot.strict.phase7q.constancyGate`). **Cascade
+  prevented**: skipNoop+gate yields 2 I8 violations (no I6 / I11 / I5 cascade)
+  vs the prior 8469-violation cascade. Default behaviour preserved at 1 I8.
 
 ## 7 — Empirical results (filled in as phases land)
 
