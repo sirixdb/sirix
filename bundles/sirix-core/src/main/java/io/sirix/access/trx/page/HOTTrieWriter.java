@@ -5096,6 +5096,14 @@ public final class HOTTrieWriter {
       boolean extended = false;
       for (final int beta : closureBits) {
         if (beta <= parentMsb) continue; // skip bits not strictly less significant than parent.MSB
+        // Optionally skip bits already in cur's mask. Gated because adding more aggressive
+        // extensions empirically cascades downstream violations.
+        if (Boolean.getBoolean("hot.strict.phase7j.skipExisting")) {
+          final int outPos = cur.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK
+              ? singleMaskBetaOutputPos(cur, beta)
+              : multiMaskBetaOutputPos(cur, beta);
+          if (outPos >= 0) continue;
+        }
         final HOTIndirectPage next = extendIndirectMaskForClosure(cur, beta, log, revision);
         if (next == null) continue;
         if (dbg) System.err.println("[phase7j] EXTEND-OK iter=" + iter + " beta=" + beta);
