@@ -5731,6 +5731,223 @@ public final class HOTTrieWriter {
   public static long getG32ReconcileFirings() { return G32_RECONCILE_FIRINGS.get(); }
   public static void resetG32ReconcileFirings() { G32_RECONCILE_FIRINGS.set(0L); }
 
+  /** Phase 7q — diagnostic counters for descendant-capture classification.
+   * <p>WASTED: β captured by some descendant's mask but β-constant in the descendant's
+   * subtree — lift is safe (just strip β from descendant masks).
+   * <p>LOAD_BEARING_LIFTABLE: β captured AND children's firstKeys differ on β AT this
+   * indirect level, BUT removing β from the indirect's mask still leaves children's
+   * partials unique (other mask bits suffice). Liftable via mask rebuild.
+   * <p>LOAD_BEARING_HARD: β captured AND removing β causes partial collisions among
+   * children (β is the sole discriminator for at least one pair). Requires structural
+   * restructure: merge collided children or collapse the indirect.
+   * <p>All three counters fire only when extendIndirectMaskForClosure rejects via the
+   * Phase 7p guard; they classify the rejection reason for empirical analysis. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_REJECTS_WASTED =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_REJECTS_LOAD_BEARING =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_REJECTS_LB_LIFTABLE =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_REJECTS_LB_HARD =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getPhase7qRejectsWasted() { return PHASE7Q_REJECTS_WASTED.get(); }
+  public static void resetPhase7qRejectsWasted() { PHASE7Q_REJECTS_WASTED.set(0L); }
+  public static long getPhase7qRejectsLoadBearing() { return PHASE7Q_REJECTS_LOAD_BEARING.get(); }
+  public static void resetPhase7qRejectsLoadBearing() { PHASE7Q_REJECTS_LOAD_BEARING.set(0L); }
+  public static long getPhase7qRejectsLbLiftable() { return PHASE7Q_REJECTS_LB_LIFTABLE.get(); }
+  public static void resetPhase7qRejectsLbLiftable() { PHASE7Q_REJECTS_LB_LIFTABLE.set(0L); }
+  public static long getPhase7qRejectsLbHard() { return PHASE7Q_REJECTS_LB_HARD.get(); }
+  public static void resetPhase7qRejectsLbHard() { PHASE7Q_REJECTS_LB_HARD.set(0L); }
+
+  /**
+   * Phase 7q — classify a Phase 7p descendant-capture rejection. Walks the subtree
+   * rooted at {@code ref}; at each indirect that has {@code beta} in its mask, checks
+   * whether {@code beta} discriminates among that indirect's children's firstKeys.
+   *
+   * <p>Routing semantics: indirect D routes on β iff PEXT(child[i].firstKey, D.mask)
+   * differs across children at β-encoded-bit-position. Equivalently, iff D's children's
+   * firstKeys differ at absBit β. If all children's firstKeys agree on β, then β is in
+   * D's mask but contributes nothing to routing — a "fossil" capture, safe to strip.
+   *
+   * <p>Returns {@code true} iff ANY descendant indirect captures {@code beta} AND
+   * routes on it (= children's firstKeys differ on β). Returns {@code false} if every
+   * indirect that captures {@code beta} is "fossil" (β in mask but children's firstKeys
+   * agree on β) — i.e., the lift is structurally safe.
+   *
+   * <p>HFT-grade: primitive returns, bounded recursion (≤ tree height), no allocation
+   * on the happy path. Only consulted on the cold rejection path inside
+   * {@link #extendIndirectMaskForClosure}, so not in the steady-state hot loop.
+   */
+  private boolean phase7qIsLoadBearingInSubtree(PageReference ref, int beta) {
+    Page page = ref.getPage();
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, ref);
+      if (page != null) ref.setPage(page);
+    }
+    if (!(page instanceof HOTIndirectPage indirect)) return false;
+    if (indirectMaskHasAbsBit(indirect, beta)) {
+      if (indirectChildrenFirstKeysDifferOnBit(indirect, beta)) return true;
+      // captured but children's firstKeys agree on β: fossil — safe at this level.
+    }
+    final int m = indirect.getNumChildren();
+    for (int i = 0; i < m; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) continue;
+      if (phase7qIsLoadBearingInSubtree(cref, beta)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Phase 7q — finer classification. Walks descendants; at each indirect D that captures
+   * β AND has children's firstKeys differing on β, checks whether removing β from D's
+   * mask still keeps every D-child's partial unique. Returns:
+   * <ul>
+   *   <li>{@code LIFT_LIFTABLE}: every load-bearing D has alternative discriminators —
+   *       lift is feasible via mask rebuild alone.</li>
+   *   <li>{@code LIFT_HARD}: at least one load-bearing D has β as sole discriminator
+   *       for some pair of children — lift requires structural restructure (merge or
+   *       collapse).</li>
+   * </ul>
+   * Caller must have verified {@link #phase7qIsLoadBearingInSubtree} returned true.
+   */
+  private static final int LIFT_LIFTABLE = 1;
+  private static final int LIFT_HARD = 2;
+
+  private int phase7qClassifyLiftability(PageReference ref, int beta) {
+    Page page = ref.getPage();
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, ref);
+      if (page != null) ref.setPage(page);
+    }
+    if (!(page instanceof HOTIndirectPage indirect)) return LIFT_LIFTABLE;
+    int result = LIFT_LIFTABLE;
+    if (indirectMaskHasAbsBit(indirect, beta)
+        && indirectChildrenFirstKeysDifferOnBit(indirect, beta)) {
+      if (!partialUniquenessHoldsWithoutBit(indirect, beta)) {
+        result = LIFT_HARD;
+      }
+    }
+    final int m = indirect.getNumChildren();
+    for (int i = 0; i < m && result == LIFT_LIFTABLE; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) continue;
+      if (phase7qClassifyLiftability(cref, beta) == LIFT_HARD) {
+        result = LIFT_HARD;
+      }
+    }
+    return result;
+  }
+
+  /**
+   * Phase 7q helper — would removing absolute bit {@code beta} from {@code indirect}'s
+   * mask still produce unique partials across all children's firstKeys?
+   * <p>Computes hypothetical partials under the mask minus β (via PEXT on each child's
+   * firstKey with the reduced mask) and checks pairwise uniqueness.
+   * <p>HFT-grade: small allocation only on the cold rejection path.
+   */
+  private boolean partialUniquenessHoldsWithoutBit(HOTIndirectPage indirect, int beta) {
+    final int n = indirect.getNumChildren();
+    if (n < 2) return true;
+    final int betaByte = beta / 8;
+    final int betaBitInByte = beta % 8;
+    final int betaMaskBit = 1 << (7 - betaBitInByte);
+    // Build the reduced byte-position list and per-byte mask bits.
+    final int[] redBytePositions = new int[16];
+    final int[] redByteMaskBits = new int[16];
+    int redCount = 0;
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      final int initialBytePos = indirect.getInitialBytePos();
+      final long mask = indirect.getBitMask();
+      for (int bo = 0; bo < 8; bo++) {
+        int bits = (int) ((mask >>> ((7 - bo) * 8)) & 0xFFL);
+        if (bits == 0) continue;
+        final int bytePos = initialBytePos + bo;
+        if (bytePos == betaByte) bits &= ~betaMaskBit;
+        if (bits != 0) {
+          redBytePositions[redCount] = bytePos;
+          redByteMaskBits[redCount] = bits;
+          redCount++;
+        }
+      }
+    } else {
+      final byte[] ep = indirect.getExtractionPositions();
+      final long[] em = indirect.getExtractionMasks();
+      final int neb = indirect.getNumExtractionBytes();
+      for (int i = 0; i < neb; i++) {
+        final int chunkIdx = i / 8;
+        final int byteOffsetInChunk = i % 8;
+        int bits = (int) ((em[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+        if (bits == 0) continue;
+        final int bytePos = ep[i] & 0xFF;
+        if (bytePos == betaByte) bits &= ~betaMaskBit;
+        if (bits != 0) {
+          redBytePositions[redCount] = bytePos;
+          redByteMaskBits[redCount] = bits;
+          redCount++;
+        }
+      }
+    }
+    if (redCount == 0) return false; // mask becomes empty — single bucket = collision for >1 child
+    // Compute hypothetical partial per child.
+    final int[] partials = new int[n];
+    int valid = 0;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) continue;
+      final byte[] fk = getFirstKeyFromChild(cref);
+      if (fk == null || fk.length == 0) continue;
+      partials[valid++] = computeHypotheticalPartial(fk, redBytePositions, redByteMaskBits, redCount);
+    }
+    for (int i = 1; i < valid; i++) {
+      for (int k = 0; k < i; k++) {
+        if (partials[k] == partials[i]) return false;
+      }
+    }
+    return true;
+  }
+
+  /** Compute partial = concatenation of PEXT(firstKey[bytePos], maskBits) for each entry. */
+  private static int computeHypotheticalPartial(byte[] fk, int[] bytePositions, int[] maskBits, int n) {
+    int partial = 0;
+    int outBitPos = 0;
+    for (int i = 0; i < n; i++) {
+      final int bytePos = bytePositions[i];
+      final int bits = maskBits[i];
+      final int b = (bytePos < fk.length) ? (fk[bytePos] & 0xFF) : 0;
+      // Count set bits in mask; extract each.
+      for (int bp = 7; bp >= 0; bp--) {
+        final int maskBit = 1 << bp;
+        if ((bits & maskBit) == 0) continue;
+        if ((b & maskBit) != 0) partial |= (1 << outBitPos);
+        outBitPos++;
+      }
+    }
+    return partial;
+  }
+
+  /**
+   * Phase 7q helper — returns {@code true} iff at least two of {@code indirect}'s
+   * children's firstKeys differ at absolute bit position {@code absBit}.
+   * <p>HFT-grade: primitive return, no allocation, one bounded scan.
+   */
+  private boolean indirectChildrenFirstKeysDifferOnBit(HOTIndirectPage indirect, int absBit) {
+    final int n = indirect.getNumChildren();
+    if (n < 2) return false;
+    int firstVal = -1;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) continue;
+      final byte[] fk = getFirstKeyFromChild(cref);
+      if (fk == null || fk.length == 0) continue;
+      final int v = isAbsBitSet(fk, absBit) ? 1 : 0;
+      if (firstVal < 0) firstVal = v;
+      else if (firstVal != v) return true;
+    }
+    return false;
+  }
+
   /**
    * Stage G.32 — I11-safe root mask reconciliation. When a child subtree's leaves get
    * inserted into and the subtree's deep-firstKey changes, root's stored partial for that
@@ -6447,14 +6664,62 @@ public final class HOTTrieWriter {
     // a double-capture (bit β at two trie levels), which breaks Binna's I6 PEXT
     // routing — keys get sent to the wrong leaf because the descendant's PEXT no
     // longer matches the new ancestor's PEXT routing.
+    //
+    // Phase 7q diagnostic: classify each rejection as WASTED (β captured but β-constant
+    // in every capturing subtree → liftable by stripping mask bits) vs LOAD_BEARING
+    // (β captured AND β-mixed somewhere → requires subtree restructure). Both still
+    // reject for now; the lift operation comes later behind -Dhot.strict.phase7q=true.
+    final boolean phase7qDebug = Boolean.getBoolean("hot.debug.phase7q");
+    boolean anyCapture = false;
+    boolean anyLoadBearing = false;
+    int firstCaptureIdx = -1;
     for (int i = 0; i < oldNumChildren; i++) {
       final PageReference ref = indirect.getChildReference(i);
       if (ref == null) continue;
       if (subtreeHasBitInAnyIndirectMask(ref, beta)) {
-        if (dbg) System.err.println("[g30] reject reason=descendant-already-routes-beta beta=" + beta
-            + " childIdx=" + i + " childPageKey=" + ref.getKey());
-        return null;
+        if (!anyCapture) firstCaptureIdx = i;
+        anyCapture = true;
+        if (phase7qIsLoadBearingInSubtree(ref, beta)) {
+          anyLoadBearing = true;
+          if (phase7qDebug) {
+            System.err.println("[phase7q] reject-LOAD_BEARING beta=" + beta
+                + " childIdx=" + i + " childPageKey=" + ref.getKey());
+          }
+          // Don't break — keep scanning so debug logs see all capturing children.
+        } else if (phase7qDebug) {
+          System.err.println("[phase7q] reject-WASTED beta=" + beta
+              + " childIdx=" + i + " childPageKey=" + ref.getKey()
+              + " (β captured but β-constant in subtree — liftable)");
+        }
       }
+    }
+    if (anyCapture) {
+      if (anyLoadBearing) {
+        PHASE7Q_REJECTS_LOAD_BEARING.incrementAndGet();
+        // Refine: liftable (mask rebuild alone) vs hard (structural restructure)?
+        int liftability = LIFT_LIFTABLE;
+        for (int i = 0; i < oldNumChildren && liftability == LIFT_LIFTABLE; i++) {
+          final PageReference ref = indirect.getChildReference(i);
+          if (ref == null) continue;
+          if (subtreeHasBitInAnyIndirectMask(ref, beta)) {
+            if (phase7qClassifyLiftability(ref, beta) == LIFT_HARD) {
+              liftability = LIFT_HARD;
+            }
+          }
+        }
+        if (liftability == LIFT_LIFTABLE) PHASE7Q_REJECTS_LB_LIFTABLE.incrementAndGet();
+        else PHASE7Q_REJECTS_LB_HARD.incrementAndGet();
+        if (phase7qDebug) {
+          System.err.println("[phase7q] LB-refined beta=" + beta
+              + " liftability=" + (liftability == LIFT_LIFTABLE ? "LIFTABLE" : "HARD"));
+        }
+      } else {
+        PHASE7Q_REJECTS_WASTED.incrementAndGet();
+      }
+      if (dbg) System.err.println("[g30] reject reason=descendant-already-routes-beta beta=" + beta
+          + " firstChildIdx=" + firstCaptureIdx
+          + " classification=" + (anyLoadBearing ? "LOAD_BEARING" : "WASTED"));
+      return null;
     }
 
     // Pre-split β-mixed children.

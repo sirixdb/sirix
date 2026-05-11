@@ -431,6 +431,10 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetG20RecursiveSplitFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetG25BetaPropagations();
         io.sirix.access.trx.page.HOTTrieWriter.resetG28ClosureFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsWasted();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsLoadBearing();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsLbLiftable();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsLbHard();
 
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
@@ -816,6 +820,14 @@ final class HOTFormalVerificationTest {
               + " G20-rec-splits=" + io.sirix.access.trx.page.HOTTrieWriter.getG20RecursiveSplitFirings()
               + " G25-propagations=" + io.sirix.access.trx.page.HOTTrieWriter.getG25BetaPropagations()
               + " G28-closure=" + io.sirix.access.trx.page.HOTTrieWriter.getG28ClosureFirings());
+          System.out.println("[microbench-pattern]   phase7q classification: wasted="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsWasted()
+              + " load-bearing="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsLoadBearing()
+              + " LB-liftable="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsLbLiftable()
+              + " LB-hard="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsLbHard());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
