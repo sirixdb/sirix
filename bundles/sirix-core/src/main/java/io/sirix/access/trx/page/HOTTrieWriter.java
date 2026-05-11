@@ -45,6 +45,7 @@ import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
+import it.unimi.dsi.fastutil.ints.IntOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.jspecify.annotations.Nullable;
 
@@ -5345,13 +5346,13 @@ public final class HOTTrieWriter {
     this.activeLog = log;
     HOTIndirectPage cur = initial;
     int extensions = 0;
-    // Phase 7l finding (2026-05-11): adding a triedBits set to explore all closure
-    // bits — instead of re-applying the same bit each iter — cascaded 1 → 11,919
-    // violations on the 50K microbench. Subsequent extension bits create I11
-    // violations because splitSubtreeOnBit produces children with MSB == parent
-    // MSB after the new extension. Reverted; the redundant-extension wastefulness
-    // is the lesser evil until splitSubtreeOnBit is rewritten to enforce strict
-    // child.MSB > parent.MSB at construction time.
+    // Phase 7o (2026-05-11): re-enabled triedBits exploration after Phase 7n landed
+    // strict I11 enforcement in buildBucketWithInheritedMask. The earlier cascade
+    // pattern (1 → 11,919 via I11) should now be blocked by the construction-time
+    // I11 gate. Gated behind hot.strict.phase7o=true for safe rollout.
+    final boolean phase7o = Boolean.getBoolean("hot.strict.phase7o");
+    final IntOpenHashSet triedBits =
+        phase7o ? new IntOpenHashSet(32) : null;
     for (int iter = 0; iter < maxIterations; iter++) {
       final int[] closureBits = findClosureBits(cur);
       if (closureBits.length == 0) {
@@ -5362,6 +5363,7 @@ public final class HOTTrieWriter {
       boolean extended = false;
       for (final int beta : closureBits) {
         if (beta <= parentMsb) continue; // skip bits not strictly less significant than parent.MSB
+        if (triedBits != null && !triedBits.add(beta)) continue; // already attempted this commit cycle
         // Optionally skip bits already in cur's mask. Gated because adding more aggressive
         // extensions empirically cascades downstream violations.
         if (Boolean.getBoolean("hot.strict.phase7j.skipExisting")) {
