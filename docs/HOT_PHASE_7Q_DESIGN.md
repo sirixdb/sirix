@@ -561,3 +561,53 @@ OR exclude that bit from the inherited mask of this sub-indirect.
 
 100K CAS, HOTOptionBPhase5Test, default 50K reproducer all pass at
 HEAD with `-Dhot.strict.phase7q=true`.
+
+### 7.12 Phase 7q.6 — constancy gate breaks the cascade (2026-05-12)
+
+`splitIndirectOnBitForLift` now runs a **post-build constancy validator**
+(`liftedBucketIsConstancySafe`) on each of the (D₀, D₁) bucket products. The
+validator iterates every set bit in the bucket's mask and checks every child's
+subtree is β-constant on that bit via `bitConstantValueInSubtree`. Resolution
+order: `ref.getPage()` → `activeLog.get(ref).getModified()` → `loadPage(reader)`.
+Unresolvable placeholders (NULL_ID_LONG with no TIL entry) are trusted (= return
+true) to avoid false positives.
+
+The gate is **auto-enabled when `-Dhot.strict.phase7q.skipNoop=true`** and
+explicitly opt-in via `-Dhot.strict.phase7q.constancyGate=true`. Default off
+keeps the baseline lift's "successful but slightly malformed" output (validator
+accepts it; tightening here would regress height from 5 to 6 with no violation
+benefit).
+
+**Empirical (50K reproducer)**:
+
+| Mode | Violations | Height | ext-ok | Constancy rejects |
+|---|---|---|---|---|
+| Baseline (no skipNoop, no gate) | 1 (I8) | 5 | 1 | 0 |
+| skipNoop=true, NO gate (pre-7q.6) | **8469** (8448 I6, 16 I11, 2 I5, 2 sparse, 1 I8) | 5 | 3 | n/a |
+| **skipNoop=true, gate ON (auto)** | **2 (both I8)** | 6 | 0 | 19 |
+
+Cascade gone. The skipNoop path is now usable for further investigation —
+specifically: now that bad lifts are cleanly rejected, the root cause of why
+ext-ok stays at 0 (= which bits the lift CAN'T handle structurally) becomes
+the next attack target.
+
+**Phase 7q.7 entry point**: with skipNoop+gate, ext-fail-buckets shows
+`collide=4 nozero=3 walker-null=10` (= 17 lift attempts, all failing).
+Investigate the `walker-null=10` cases first — those are
+`liftBetaFromSubtreeRecursive` returning null. Likely fix is to make the
+walker more permissive (= accept partial lifts) so the bit-90 lift on root
+can succeed.
+
+**Files touched** (commit `[pending]`):
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + `liftedBucketIsConstancySafe` helper (~70 lines).
+  + `liftedChildIsConstantOnBit` helper for per-child resolve+probe.
+  + `PHASE7Q_SPLIT_FAIL_CONSTANCY` counter.
+  + Auto-on gate inside `splitIndirectOnBitForLift`.
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  + Counter reset + report.
+- `bundles/sirix-core/build.gradle`:
+  + `hot.strict.phase7q.constancyGate` flag forwarding.
+
+100K CAS regression: 0 violations preserved.
+HOTOptionBPhase5Test: passes.
