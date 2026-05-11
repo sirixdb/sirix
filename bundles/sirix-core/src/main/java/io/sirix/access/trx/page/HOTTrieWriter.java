@@ -2291,8 +2291,19 @@ public final class HOTTrieWriter {
     // Phase 7n — strict I11 enforcement. The bucket-indirect becomes a CHILD of the new
     // (post-extension) parent, whose MSB = min(oldParentMsb, β). For I11 (child.MSB >
     // parent.MSB), the bucket-indirect's mask must contain only bits with absBit > new
-    // parent.MSB. Compute liftAbsBits = bits in oldMask with absBit ≤ new parent.MSB.
-    // Verify all bucket children are β-constant on each lift bit; if not, return null.
+    // parent.MSB.
+    //
+    // Phase 7q.7 (opt-in via -Dhot.strict.phase7q.stripNonConstant=true): ALSO strip
+    // bits > newParentMsb that are non-constant in any bucket child's subtree. The
+    // existing Phase 7n leaves such bits in the new mask, which forces downstream
+    // routing through non-β-constant disc bits — exactly the source of the I5/I6
+    // cascade the Phase 7q.6 gate detects. Stripping them at construction time
+    // produces a smaller-but-correct new mask; if the resulting mask is empty or
+    // produces partial collisions, the wrap fallback fires (and is then rejected
+    // by the 7q.6 gate, preserving the architectural ceiling rather than
+    // cascading).
+    final boolean stripNonConstant =
+        Boolean.getBoolean("hot.strict.phase7q.stripNonConstant");
     final int oldParentMsb = parent.getMostSignificantBitIndex() & 0xFFFF;
     final int newParentMsb = Math.min(oldParentMsb, absBit);
     final int[] liftAbsBits = new int[oldNeb * 8];
@@ -2307,13 +2318,36 @@ public final class HOTTrieWriter {
         final int byteBit = 7 - mfBit;
         if ((byteMask0 & (1 << byteBit)) == 0) continue;
         final int abs = bp * 8 + mfBit;
-        if (abs <= newParentMsb && abs != absBit /* β handled separately */) {
+        if (abs == absBit) continue; // β handled separately.
+        if (abs <= newParentMsb) {
           liftAbsBits[liftCount++] = abs;
+        } else if (stripNonConstant) {
+          // Phase 7q.7 — strip bits > newParentMsb that are non-constant in
+          // any bucket child's subtree. Constant bits stay in the new mask.
+          boolean nonConstant = false;
+          for (int j = 0; j < bucketSize; j++) {
+            final PageReference cref = replacementRefs[j];
+            if (cref == null) continue;
+            if (cref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG) continue;
+            final int v = bitConstantValueInSubtree(cref, abs);
+            if (v < 0) {
+              nonConstant = true;
+              break;
+            }
+          }
+          if (nonConstant) {
+            liftAbsBits[liftCount++] = abs;
+            PHASE7Q_STRIP_NONCONSTANT_BITS.incrementAndGet();
+          }
         }
       }
     }
     for (int k = 0; k < liftCount; k++) {
       final int liftBit = liftAbsBits[k];
+      // Phase 7n: bits ≤ newParentMsb MUST be constant. If we collected this bit
+      // via Phase 7q.7 (= it's > newParentMsb), we already know it's non-constant
+      // and we WANT to strip it, so skip the verify. Differentiate via comparison.
+      if (liftBit > newParentMsb) continue; // Phase 7q.7 already verified non-constant
       for (int i = 0; i < bucketSize; i++) {
         final int v = bitConstantValueInSubtree(replacementRefs[i], liftBit);
         if (v < 0) return null;
@@ -6044,10 +6078,10 @@ public final class HOTTrieWriter {
       PHASE7Q_SPLIT_FAILURES.incrementAndGet();
       return null;
     }
-    final PageReference r0 =
+    PageReference r0 =
         buildBucketWithInheritedMask(indirect, s0Idx, s0Refs, s0n, beta, log, revision);
     if (r0 == null) { PHASE7Q_SPLIT_FAILURES.incrementAndGet(); return null; }
-    final PageReference r1 =
+    PageReference r1 =
         buildBucketWithInheritedMask(indirect, s1Idx, s1Refs, s1n, beta, log, revision);
     if (r1 == null) { PHASE7Q_SPLIT_FAILURES.incrementAndGet(); return null; }
     // Phase 7q.6 — post-build constancy gate. buildBucketWithInheritedMaskMultiMask
@@ -6058,9 +6092,11 @@ public final class HOTTrieWriter {
     // root cause of the cascade observed when -Dhot.strict.phase7q.skipNoop=true lets the
     // closure attempt many bits.
     //
-    // Reject the lift cleanly here so the caller falls through to the standard reject
-    // (= we keep the architectural ceiling at 1 violation rather than producing 8000+ I6
-    // violations).
+    // Phase 7q.7 — when the gate rejects the wrap-fallback's malformed output, RETRY via
+    // {@link #phase7qBuildBucketConstancyFiltered}: a parallel disc-bit derivation that
+    // filters out bits non-constant in any child's subtree (= the missing constancy check
+    // in {@link #computeDiscBits}). If the retry succeeds and ITS output also passes the
+    // gate, accept it as the bucket-build. Otherwise return null cleanly.
     //
     // Auto-enabled when skipNoop is on (the only mode where the cascade matters). Default
     // off so the baseline lift's "successful but slightly malformed" output is preserved
@@ -6069,14 +6105,24 @@ public final class HOTTrieWriter {
         || Boolean.getBoolean("hot.strict.phase7q.constancyGate");
     if (constancyGate) {
       if (!liftedBucketIsConstancySafe(r0)) {
-        PHASE7Q_SPLIT_FAILURES.incrementAndGet();
-        PHASE7Q_SPLIT_FAIL_CONSTANCY.incrementAndGet();
-        return null;
+        final PageReference r0Safe = phase7qBuildBucketConstancyFiltered(indirect, s0Refs, s0n,
+            beta, log, revision);
+        if (r0Safe == null || !liftedBucketIsConstancySafe(r0Safe)) {
+          PHASE7Q_SPLIT_FAILURES.incrementAndGet();
+          PHASE7Q_SPLIT_FAIL_CONSTANCY.incrementAndGet();
+          return null;
+        }
+        r0 = r0Safe;
       }
       if (!liftedBucketIsConstancySafe(r1)) {
-        PHASE7Q_SPLIT_FAILURES.incrementAndGet();
-        PHASE7Q_SPLIT_FAIL_CONSTANCY.incrementAndGet();
-        return null;
+        final PageReference r1Safe = phase7qBuildBucketConstancyFiltered(indirect, s1Refs, s1n,
+            beta, log, revision);
+        if (r1Safe == null || !liftedBucketIsConstancySafe(r1Safe)) {
+          PHASE7Q_SPLIT_FAILURES.incrementAndGet();
+          PHASE7Q_SPLIT_FAIL_CONSTANCY.incrementAndGet();
+          return null;
+        }
+        r1 = r1Safe;
       }
     }
     PHASE7Q_SPLIT_FIRINGS.incrementAndGet();
@@ -6521,6 +6567,13 @@ public final class HOTTrieWriter {
   public static void resetPhase7qClosureNoopSkips() { PHASE7Q_CLOSURE_NOOP_SKIPS.set(0L); }
   public static long getPhase7qSplitFailConstancy() { return PHASE7Q_SPLIT_FAIL_CONSTANCY.get(); }
   public static void resetPhase7qSplitFailConstancy() { PHASE7Q_SPLIT_FAIL_CONSTANCY.set(0L); }
+  /** Phase 7q.7 — counter for bits stripped from the inherited mask because they
+   *  were non-constant in some bucket child's subtree (= active under
+   *  -Dhot.strict.phase7q.stripNonConstant=true). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_STRIP_NONCONSTANT_BITS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7qStripNonconstantBits() { return PHASE7Q_STRIP_NONCONSTANT_BITS.get(); }
+  public static void resetPhase7qStripNonconstantBits() { PHASE7Q_STRIP_NONCONSTANT_BITS.set(0L); }
 
   /** Phase 7q.5 — closure-loop guard: returns true iff β is already a routing bit in
    *  {@code cur}'s mask. Wraps {@link #indirectMaskHasAbsBit} for clarity at the call
