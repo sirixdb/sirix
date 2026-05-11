@@ -918,6 +918,39 @@ public abstract class AbstractHOTIndexWriter<K> {
       // strict == 0: overflow — fall through to standard merge / split path.
     }
 
+    // Phase 7e — Hard I8 gate. Even if β-constancy holds at the leaf, the new key may
+    // become the new leaf.firstKey (= K is smaller than all existing keys). If that
+    // makes leaf.firstKey < ancestor.children[descendSlot-1].deep-firstKey at some
+    // ancestor, parent's I8 invariant breaks. Detect this via findI8MsdbBit; if a
+    // breaking ancestor exists, trigger splitLeafAndRerouteWrongHalf with MSDB as β.
+    if (Boolean.getBoolean("hot.strict.phase7e")) {
+      final byte[] kFull = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
+      final int i8Bit = trieWriter.findI8MsdbBit(navResult.pathNodes(), navResult.pathRefs(),
+          navResult.pathChildIndices(), navResult.pathDepth(), leaf, kFull);
+      if (Boolean.getBoolean("hot.debug.phase7e")) {
+        System.err.println("[phase7e] check i8Bit=" + i8Bit + " pathDepth=" + navResult.pathDepth()
+            + " leafEntries=" + leaf.getEntryCount());
+      }
+      if (i8Bit >= 0) {
+        if (Boolean.getBoolean("hot.debug.phase7e")) {
+          System.err.println("[phase7e] I8-break detected i8Bit=" + i8Bit);
+        }
+        final byte[] vFull = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
+        final boolean ok = trieWriter.splitLeafAndRerouteWrongHalf(leaf, navResult.leafRef(),
+            navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
+            navResult.pathDepth(), i8Bit, kFull, vFull,
+            storageEngineWriter, storageEngineWriter.getLog());
+        if (Boolean.getBoolean("hot.debug.phase7e")) {
+          System.err.println("[phase7e] split-reroute result=" + ok + " bit=" + i8Bit);
+        }
+        if (ok) {
+          prepareIndexPage();
+          return;
+        }
+        // Reroute infeasible — caller falls through; the violation may form (accept risk).
+      }
+    }
+
     // Option B Phase 5 — constancy-aware insert. Gated on -Dhot.strict.option-b-phase-5=true.
     // BEFORE mergeWithNodeRefs: if inserting K into leaf would break β-constancy at any
     // ancestor β, split the leaf on β and reroute the wrong half to the ancestor's sibling
