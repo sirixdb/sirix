@@ -2091,11 +2091,12 @@ public final class HOTTrieWriter {
       return replacementRefs[0];
     }
 
-    // MultiMask inheritance not yet implemented — fall back to createNodeFromChildren which
-    // may surface BUILD-VIOLATIONs but matches the legacy non-strict-Binna behavior.
+    // Phase 7m — MultiMask inheritance. Avoids the cascade where createNodeFromChildren
+    // re-derives a fresh mask from full keys (potentially including bits <= new parent.MSB,
+    // which creates I11 violations between the new parent and these children).
     if (parentIndirect.getLayoutType() != HOTIndirectPage.LayoutType.SINGLE_MASK) {
-      final PageReference[] children = Arrays.copyOf(replacementRefs, bucketSize);
-      return wrapBucketInSubtree(children, bucketSize, parentIndirect.getHeight(), log, revision);
+      return buildBucketWithInheritedMaskMultiMask(parentIndirect, bucketIndices,
+          replacementRefs, bucketSize, absBit, log, revision);
     }
 
     final int oldInitialBytePos = parentIndirect.getInitialBytePos();
@@ -2192,6 +2193,186 @@ public final class HOTTrieWriter {
     } else if (bucketSize <= NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
       built = HOTIndirectPage.createMultiNode(pageKey, revision, oldInitialBytePos, newMask,
           newPartials, children, parentIndirect.getHeight());
+    } else {
+      return null;
+    }
+    final PageReference ref = new PageReference();
+    ref.setKey(pageKey);
+    ref.setPage(built);
+    log.put(ref, PageContainer.getInstance(built, built));
+    return ref;
+  }
+
+  /**
+   * Phase 7m — MultiMask variant of buildBucketWithInheritedMask. Builds a sub-indirect
+   * inheriting the parent's MultiMask (extractionPositions + extractionMasks +
+   * numExtractionBytes) minus the β bit. Avoids the createNodeFromChildren cascade where
+   * fresh-mask derivation captures bits less significant or equal to the new parent.MSB,
+   * violating Binna's I11 trie condition.
+   *
+   * <p>If β isn't in the parent's MultiMask, the new child's mask = parent's mask
+   * unchanged; partials are reused under that mask. If β is in the parent's MultiMask,
+   * remove the β bit from the corresponding byteMask entry (compacting if it becomes 0),
+   * then recompute partials by shifting out the β bit's PEXT-output position.
+   *
+   * <p>Returns null on uniqueness violations or layout failures.
+   */
+  private @Nullable PageReference buildBucketWithInheritedMaskMultiMask(HOTIndirectPage parent,
+      int[] bucketIndices, PageReference[] replacementRefs, int bucketSize, int absBit,
+      TransactionIntentLog log, int revision) {
+    final byte[] oldEp = parent.getExtractionPositions();
+    final long[] oldEm = parent.getExtractionMasks();
+    final int oldNeb = parent.getNumExtractionBytes();
+    final int[] oldPartials = parent.getPartialKeys();
+
+    // 1. Locate β in the old MultiMask. β's byte = absBit / 8; β's bit-in-byte = absBit % 8;
+    // mask bit (MSB-first) = 1 << (7 - bitInByte).
+    final int betaBytePos = absBit / 8;
+    final int betaBitInByte = absBit % 8;
+    final int betaMaskBit = 1 << (7 - betaBitInByte);
+    int betaEntryIdx = -1;
+    for (int i = 0; i < oldNeb; i++) {
+      if ((oldEp[i] & 0xFF) == betaBytePos) {
+        final int chunkIdx = i / 8;
+        final int byteOffsetInChunk = i % 8;
+        final int byteMaskBits = (int) ((oldEm[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+        if ((byteMaskBits & betaMaskBit) != 0) {
+          betaEntryIdx = i;
+        }
+        break;
+      }
+    }
+
+    // 2. Compute β's output position in the old PEXT shape (= bit count of all higher-position
+    // mask bits in the order they're concatenated).
+    int betaOutputPos = -1;
+    if (betaEntryIdx >= 0) {
+      int outPos = 0;
+      for (int i = 0; i < oldNeb; i++) {
+        final int chunkIdx = i / 8;
+        final int byteOffsetInChunk = i % 8;
+        final int byteMaskBits = (int) ((oldEm[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+        if (i < betaEntryIdx) {
+          outPos += Integer.bitCount(byteMaskBits);
+        } else if (i == betaEntryIdx) {
+          // Count bits in this byte's mask that are MORE significant than β (higher mask-bit value).
+          outPos += Integer.bitCount(byteMaskBits & ~((betaMaskBit << 1) - 1));
+          break;
+        }
+      }
+      betaOutputPos = outPos;
+    }
+
+    // 3. Build new MultiMask. If β is present, remove it (and compact the entry if its
+    // byteMask becomes 0).
+    int newNeb = oldNeb;
+    byte[] newEp;
+    long[] newEm;
+    int newMsb = Short.MAX_VALUE;
+    if (betaEntryIdx < 0) {
+      // β not in mask — preserve as-is.
+      newEp = oldEp.clone();
+      newEm = oldEm.clone();
+      newMsb = parent.getMostSignificantBitIndex() & 0xFFFF;
+    } else {
+      // Remove β bit from its byteMask.
+      final int chunkIdx = betaEntryIdx / 8;
+      final int byteOffsetInChunk = betaEntryIdx % 8;
+      final int shift = (7 - byteOffsetInChunk) * 8;
+      final long byteMaskBits = (oldEm[chunkIdx] >>> shift) & 0xFFL;
+      final long newByteMaskBits = byteMaskBits & ~((long) betaMaskBit);
+      final long[] modifiedEm = oldEm.clone();
+      modifiedEm[chunkIdx] = (modifiedEm[chunkIdx] & ~(0xFFL << shift)) | (newByteMaskBits << shift);
+      if (newByteMaskBits == 0L) {
+        // Compact: drop the entry, shift remaining left by 1.
+        newNeb = oldNeb - 1;
+        newEp = new byte[newNeb];
+        final int numChunks = (newNeb + 7) / 8;
+        newEm = new long[Math.max(1, numChunks)];
+        int dstIdx = 0;
+        for (int src = 0; src < oldNeb; src++) {
+          if (src == betaEntryIdx) continue;
+          newEp[dstIdx] = oldEp[src];
+          final int srcChunk = src / 8;
+          final int srcByte = src % 8;
+          final int srcShift = (7 - srcByte) * 8;
+          final long srcByteBits = (modifiedEm[srcChunk] >>> srcShift) & 0xFFL;
+          final int dstChunk = dstIdx / 8;
+          final int dstByte = dstIdx % 8;
+          final int dstShift = (7 - dstByte) * 8;
+          newEm[dstChunk] |= srcByteBits << dstShift;
+          dstIdx++;
+        }
+      } else {
+        newEp = oldEp.clone();
+        newEm = modifiedEm;
+      }
+      // Recompute MSB = lowest absBit captured by new mask.
+      for (int i = 0; i < newNeb; i++) {
+        final int chunkIdx2 = i / 8;
+        final int byteOffsetInChunk2 = i % 8;
+        final int byteMask = (int) ((newEm[chunkIdx2] >>> ((7 - byteOffsetInChunk2) * 8)) & 0xFFL);
+        if (byteMask == 0) continue;
+        final int highBit = 31 - Integer.numberOfLeadingZeros(byteMask);
+        final int absBitPos = (newEp[i] & 0xFF) * 8 + (7 - highBit);
+        if (absBitPos < newMsb) newMsb = absBitPos;
+      }
+    }
+
+    // 4. If new mask is empty — can't discriminate. Fall back to wrapBucketInSubtree.
+    if (newNeb == 0) {
+      final PageReference[] childCopy = Arrays.copyOf(replacementRefs, bucketSize);
+      return wrapBucketInSubtree(childCopy, bucketSize, parent.getHeight(), log, revision);
+    }
+
+    // 5. Recompute partials from each child's firstKey under the new MultiMask.
+    final int[] newPartials = new int[bucketSize];
+    boolean haveZero = false;
+    for (int i = 0; i < bucketSize; i++) {
+      final byte[] firstKey = getFirstKeyFromChild(replacementRefs[i]);
+      if (firstKey == null || firstKey.length == 0) {
+        return null;
+      }
+      newPartials[i] = computePartialKeyMultiMaskDirect(firstKey, newEp, newEm, newNeb);
+      if (newPartials[i] == 0) haveZero = true;
+    }
+    // Suppress unused warning for oldPartials/betaOutputPos — kept for future use.
+    if (oldPartials != null && betaOutputPos < -100) { /* never */ }
+
+    // 5a. If smallest partial != 0, the new mask captures constant=1 bits — fall back to
+    // wrap (the resulting indirect would violate Binna I4 first-partial-zero rule).
+    if (!haveZero) {
+      final PageReference[] childCopy = Arrays.copyOf(replacementRefs, bucketSize);
+      return wrapBucketInSubtree(childCopy, bucketSize, parent.getHeight(), log, revision);
+    }
+
+    // 6. Verify uniqueness — fall back to wrap if collision.
+    for (int i = 1; i < bucketSize; i++) {
+      for (int k = 0; k < i; k++) {
+        if (newPartials[i] == newPartials[k]) {
+          final PageReference[] childCopy = Arrays.copyOf(replacementRefs, bucketSize);
+          return wrapBucketInSubtree(childCopy, bucketSize, parent.getHeight(), log, revision);
+        }
+      }
+    }
+
+    // 7. Sort + build.
+    final PageReference[] children = Arrays.copyOf(replacementRefs, bucketSize);
+    sortChildrenAndPartialsByPartial(children, newPartials);
+
+    final long pageKey = pageKeyAllocator.getAsLong();
+    final HOTIndirectPage built;
+    if (bucketSize == 2) {
+      // BiNode form not supported under MultiMask layout — fall back.
+      final PageReference[] childCopy = Arrays.copyOf(replacementRefs, bucketSize);
+      return wrapBucketInSubtree(childCopy, bucketSize, parent.getHeight(), log, revision);
+    }
+    if (bucketSize <= 16) {
+      built = HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision, newEp, newEm,
+          newNeb, newPartials, children, parent.getHeight(), (short) newMsb);
+    } else if (bucketSize <= NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      built = HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision, newEp, newEm,
+          newNeb, newPartials, children, parent.getHeight(), (short) newMsb);
     } else {
       return null;
     }
