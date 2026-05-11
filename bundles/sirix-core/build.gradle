@@ -164,6 +164,8 @@ test {
     systemProperty "hot.strict.phase7q", System.getProperty("hot.strict.phase7q", "false")
     systemProperty "hot.debug.phase7q", System.getProperty("hot.debug.phase7q", "false")
     systemProperty "hot.strict.phase7j.skipExisting", System.getProperty("hot.strict.phase7j.skipExisting", "false")
+    systemProperty "hot.strict.phase7q.skipNoop", System.getProperty("hot.strict.phase7q.skipNoop", "false")
+    systemProperty "hot.strict.phase7q.fullScan", System.getProperty("hot.strict.phase7q.fullScan", "false")
     systemProperty "hot.debug.phase7e", System.getProperty("hot.debug.phase7e", "false")
     systemProperty "hot.debug.g30", System.getProperty("hot.debug.g30", "false")
     systemProperty "hot.debug.g32", System.getProperty("hot.debug.g32", "false")

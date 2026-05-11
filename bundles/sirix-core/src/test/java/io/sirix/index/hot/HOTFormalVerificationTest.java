@@ -450,6 +450,7 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailNozero();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailBetainmask();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailWalker();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qClosureNoopSkips();
 
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
@@ -860,6 +861,8 @@ final class HOTFormalVerificationTest {
               + " nozero=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailNozero()
               + " beta-in-mask=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailBetainmask()
               + " walker-null=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailWalker());
+          System.out.println("[microbench-pattern]   phase7q closure-noop-skips="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qClosureNoopSkips());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();

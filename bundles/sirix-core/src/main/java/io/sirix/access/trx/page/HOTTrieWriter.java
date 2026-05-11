@@ -5438,6 +5438,25 @@ public final class HOTTrieWriter {
               : multiMaskBetaOutputPos(cur, beta);
           if (outPos >= 0) continue;
         }
+        // Phase 7q.5 — opt-in no-op-rebuild detection. extendIndirectMaskForClosure with
+        // a β already in cur's mask succeeds trivially (bitwise OR with itself = same
+        // mask). The rebuild produces a structurally identical page with no progress.
+        // Without detection, the outer iter loop "succeeds + breaks" on the same no-op
+        // β every pass and burns its maxIter budget — bits that genuinely refine the
+        // routing (e.g. the one needed to fix an I8 violation) are never attempted.
+        //
+        // EMPIRICAL CAVEAT (2026-05-11): blanket skipNoop cascades 1 → 8469 violations
+        // because the loop then adds many descendant-captured bits via lift, restructur-
+        // ing deep subtrees in ways that can't all preserve β-constancy. Tracked under
+        // hot.strict.phase7q.skipNoop=true for opt-in study; default off keeps the
+        // original behaviour and the documented architectural ceiling at 1 violation.
+        if (Boolean.getBoolean("hot.strict.phase7q.skipNoop")
+            && phase7qIsBetaAlreadyInIndirectMask(cur, beta)) {
+          if (dbg) System.err.println("[phase7j] SKIP-NOOP iter=" + iter + " beta=" + beta
+              + " (already in cur.mask — would be no-op rebuild)");
+          PHASE7Q_CLOSURE_NOOP_SKIPS.incrementAndGet();
+          continue;
+        }
         final HOTIndirectPage next = extendIndirectMaskForClosure(cur, beta, log, revision);
         if (next == null) continue;
         if (dbg) System.err.println("[phase7j] EXTEND-OK iter=" + iter + " beta=" + beta);
@@ -6316,6 +6335,21 @@ public final class HOTTrieWriter {
   /** Phase 7q.4 — sub-bucket: failure because walker returned null. */
   private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_FAIL_WALKER =
       new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.5 — counter for closure-loop βs skipped because already in cur's mask
+   *  (= the no-op-rebuild case that previously livelocked the closure inner loop). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_CLOSURE_NOOP_SKIPS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getPhase7qClosureNoopSkips() { return PHASE7Q_CLOSURE_NOOP_SKIPS.get(); }
+  public static void resetPhase7qClosureNoopSkips() { PHASE7Q_CLOSURE_NOOP_SKIPS.set(0L); }
+
+  /** Phase 7q.5 — closure-loop guard: returns true iff β is already a routing bit in
+   *  {@code cur}'s mask. Wraps {@link #indirectMaskHasAbsBit} for clarity at the call
+   *  site. Used by {@link #phase7jExtendWithAllClosureBits} to detect the no-op-rebuild
+   *  case before invoking {@link #extendIndirectMaskForClosure}. */
+  private static boolean phase7qIsBetaAlreadyInIndirectMask(HOTIndirectPage cur, int beta) {
+    return indirectMaskHasAbsBit(cur, beta);
+  }
 
   public static long getPhase7qExtendFirings() { return PHASE7Q_EXTEND_FIRINGS.get(); }
   public static void resetPhase7qExtendFirings() { PHASE7Q_EXTEND_FIRINGS.set(0L); }
@@ -7609,13 +7643,23 @@ public final class HOTTrieWriter {
     if (!(curPage instanceof HOTIndirectPage indirect)) return;
     final int[] closureBits = findClosureBits(indirect);
     HOTIndirectPage current = indirect;
+    // Phase 7q.5 — when -Dhot.strict.phase7q.fullScan=true, attempt EVERY closure bit
+    // instead of breaking on the first failure. Without this, if bit β fails (e.g.
+    // because a descendant captures β and the lift early-bails on β-in-mask), all
+    // higher-β extensions are foregone — including the one needed to fix the
+    // persistent I8 violation. With fullScan=true, the loop continues past failures,
+    // letting the structural lift be attempted on every load-bearing β.
+    final boolean fullScan = Boolean.getBoolean("hot.strict.phase7q.fullScan");
     for (final int beta : closureBits) {
       final int outPos = current.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK
           ? singleMaskBetaOutputPos(current, beta)
           : multiMaskBetaOutputPos(current, beta);
       if (outPos >= 0) continue;
       final HOTIndirectPage extended = extendIndirectMaskForClosure(current, beta, log, revision);
-      if (extended == null) break;
+      if (extended == null) {
+        if (fullScan) continue;
+        break;
+      }
       log.put(rootRef, PageContainer.getInstance(extended, extended));
       current = extended;
     }
@@ -7657,6 +7701,7 @@ public final class HOTTrieWriter {
     }
     final int[] tmp = new int[maxLen * 8];
     int count = 0;
+    final boolean traceRoot = indirect.getPageKey() == 2L;
     for (int absBit = 0; absBit < maxLen * 8; absBit++) {
       boolean seen0 = false, seen1 = false;
       for (int i = 0; i < n; i++) {
@@ -7666,6 +7711,19 @@ public final class HOTTrieWriter {
         if (seen0 && seen1) break;
       }
       if (seen0 && seen1) tmp[count++] = absBit;
+      // Phase 7q.4 diagnostic: ALL bytes of c[1] with explicit indices.
+      if (traceRoot && absBit == 88) {
+        for (int i = 0; i <= Math.min(2, n - 1); i++) {
+          if (firstKeys[i] == null || firstKeys[i].length == 0) continue;
+          final StringBuilder sb2 = new StringBuilder();
+          sb2.append("[phase7q-fullbytes] cur.pageKey=2 c[").append(i).append("] len=")
+             .append(firstKeys[i].length);
+          for (int j = 0; j < firstKeys[i].length; j++) {
+            sb2.append(" [").append(j).append("]=").append(String.format("%02x", firstKeys[i][j] & 0xff));
+          }
+          System.err.println(sb2);
+        }
+      }
     }
     return Arrays.copyOf(tmp, count);
   }

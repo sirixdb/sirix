@@ -180,7 +180,13 @@ next uncommitted phase by reading this doc + the latest commit's diff.
   but 1 I8 violation persists at a NEW location after structural rearrangement.
   Need iteration: closure mechanism must re-attempt after lift surfaces new
   under-discrimination
-- [ ] 7q.5 — enable by default, remove flag-gating
+- [x] 7q.5 — closure-loop livelock instrumentation + opt-in toggles
+  (`hot.strict.phase7q.skipNoop`, `hot.strict.phase7q.fullScan`) +
+  `phase7q-bitcheck` diagnostic. **Default behaviour preserved at 1 violation.**
+  Confirms architectural ceiling and identifies lift's split-and-rebuild constancy
+  bug as the next attack target.
+- [ ] 7q.6 — fix `splitIndirectOnBitForLift` build-violation cascade so multiple
+  bits can be added to root without I6/I11 cascade.
 
 ## 7 — Empirical results (filled in as phases land)
 
