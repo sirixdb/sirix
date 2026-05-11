@@ -2242,6 +2242,10 @@ public final class HOTTrieWriter {
       return null; // degenerate — caller's non-constancy check should have ruled this out
     }
 
+    // Phase 7d — propagate parent leaf's ancestor-owned bits to both halves, AND add
+    // absBit as a new owned bit with the appropriate constant value per half.
+    propagateOwnedBitsToSplitHalves(leaf, leftLeaf, rightLeaf, absBit);
+
     final PageReference leftRef = new PageReference();
     leftRef.setKey(leftKey);
     leftRef.setPage(leftLeaf);
@@ -2253,6 +2257,49 @@ public final class HOTTrieWriter {
     log.put(rightRef, PageContainer.getInstance(rightLeaf, rightLeaf));
 
     return new SubtreeSplit(leftRef, rightRef);
+  }
+
+  /**
+   * Phase 7d — When a leaf is split on bit β, both halves inherit the parent's
+   * ancestorOwnedBits plus β with the appropriate constant value (left=0, right=1).
+   */
+  private static void propagateOwnedBitsToSplitHalves(HOTLeafPage parent,
+      HOTLeafPage leftHalf, HOTLeafPage rightHalf, int splitAbsBit) {
+    final int[] parentBits = parent.getAncestorOwnedBits();
+    final byte[] parentValues = parent.getAncestorOwnedValues();
+    final int parentLen = parentBits.length;
+    // New owned bits = parentBits ∪ {splitAbsBit}, sorted ascending.
+    // Find insertion point for splitAbsBit.
+    int insertPos = parentLen;
+    for (int i = 0; i < parentLen; i++) {
+      if (parentBits[i] > splitAbsBit) { insertPos = i; break; }
+      if (parentBits[i] == splitAbsBit) { insertPos = -1; break; } // already present
+    }
+    final int newLen = (insertPos < 0) ? parentLen : parentLen + 1;
+    final int[] newBits = new int[newLen];
+    final byte[] newLeftValues = new byte[newLen];
+    final byte[] newRightValues = new byte[newLen];
+    if (insertPos < 0) {
+      System.arraycopy(parentBits, 0, newBits, 0, parentLen);
+      System.arraycopy(parentValues, 0, newLeftValues, 0, parentLen);
+      System.arraycopy(parentValues, 0, newRightValues, 0, parentLen);
+    } else {
+      if (insertPos > 0) {
+        System.arraycopy(parentBits, 0, newBits, 0, insertPos);
+        System.arraycopy(parentValues, 0, newLeftValues, 0, insertPos);
+        System.arraycopy(parentValues, 0, newRightValues, 0, insertPos);
+      }
+      newBits[insertPos] = splitAbsBit;
+      newLeftValues[insertPos] = 0;
+      newRightValues[insertPos] = 1;
+      if (insertPos < parentLen) {
+        System.arraycopy(parentBits, insertPos, newBits, insertPos + 1, parentLen - insertPos);
+        System.arraycopy(parentValues, insertPos, newLeftValues, insertPos + 1, parentLen - insertPos);
+        System.arraycopy(parentValues, insertPos, newRightValues, insertPos + 1, parentLen - insertPos);
+      }
+    }
+    leftHalf.setAncestorOwnedBits(newBits, newLeftValues);
+    rightHalf.setAncestorOwnedBits(newBits, newRightValues);
   }
 
   /**

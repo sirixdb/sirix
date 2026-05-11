@@ -888,6 +888,36 @@ public abstract class AbstractHOTIndexWriter<K> {
     // HOTTrieWriter#findOffendingAncestorBit}, {@link HOTLeafPage#computeMsdbWithKey},
     // {@link HOTTrieWriter#handleLeafSplitAndInsert} explicit-split-bit overload.
 
+    // Phase 7d — strict merge enforces β-constancy via leaf's ancestorOwnedBits.
+    // Owned bits are set by splitLeafOnBit / splitToWithInsert at leaf creation time.
+    // If keyBuf would violate a constraint, strict merge rejects with offendingAbsBit;
+    // we then split the leaf on that bit and reroute via Phase 5.
+    if (Boolean.getBoolean("hot.strict.phase7")) {
+      // Strict merge: check + insert atomically.
+      final int strict = leaf.mergeWithNodeRefsStrict(keyBuf, keyLen, valueBuf, valueLen);
+      if (strict > 0) {
+        // Success — K merged compliantly with all owned bits.
+        prepareIndexPage();
+        return;
+      }
+      if (strict < 0) {
+        // β-break at absBit = (-strict - 1). Trigger split-and-reroute on that bit.
+        final int offendingBeta = -strict - 1;
+        final byte[] kBytes = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
+        final byte[] vBytes = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
+        final boolean ok = trieWriter.splitLeafAndRerouteWrongHalf(leaf, navResult.leafRef(),
+            navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
+            navResult.pathDepth(), offendingBeta, kBytes, vBytes,
+            storageEngineWriter, storageEngineWriter.getLog());
+        if (ok) {
+          prepareIndexPage();
+          return;
+        }
+        // Reroute infeasible — fall through to standard merge (= accept stale-partial risk).
+      }
+      // strict == 0: overflow — fall through to standard merge / split path.
+    }
+
     // Option B Phase 5 — constancy-aware insert. Gated on -Dhot.strict.option-b-phase-5=true.
     // BEFORE mergeWithNodeRefs: if inserting K into leaf would break β-constancy at any
     // ancestor β, split the leaf on β and reroute the wrong half to the ancestor's sibling
@@ -1034,6 +1064,50 @@ public abstract class AbstractHOTIndexWriter<K> {
     final int valueLen = NodeReferencesSerializer.serialize(value, valueBuf, 0);
     lastSerializedValueBuf = valueBuf;
     lastSerializedValueLen = valueLen;
+  }
+
+  /**
+   * Phase 7d — Populate the leaf's ancestor-owned bits from the path's ancestor disc bits.
+   * For each absolute bit position β captured by some ancestor's mask, query the leaf's
+   * β-constancy: if all existing keys agree, record β with the constant value. Mixed bits
+   * are NOT recorded (= leaf is already β-mixed and no further constraint can be added).
+   *
+   * <p>Called BEFORE strict merge so {@code mergeWithNodeRefsStrict} has the metadata to
+   * detect β-breaks. Idempotent: replaces any previous owned bits.
+   *
+   * <p>HFT-grade: at most O(pathDepth * pathMaskBits * leafEntries) per call. Single
+   * allocation per call (the owned-bits and values arrays).
+   */
+  protected void populateLeafOwnedBitsFromPath(io.sirix.page.HOTLeafPage leaf,
+      io.sirix.page.HOTIndirectPage[] pathNodes, int pathDepth) {
+    if (leaf == null || pathDepth <= 0) {
+      leaf.setAncestorOwnedBits(new int[0], new byte[0]);
+      return;
+    }
+    final int[] ancestorBits = trieWriter.collectAncestorDiscBits(pathNodes, pathDepth);
+    if (ancestorBits.length == 0) {
+      leaf.setAncestorOwnedBits(new int[0], new byte[0]);
+      return;
+    }
+    final int[] tempBits = new int[ancestorBits.length];
+    final byte[] tempValues = new byte[ancestorBits.length];
+    int n = 0;
+    for (final int beta : ancestorBits) {
+      final int v = leaf.isBitConstantAtAbsBit(beta);
+      if (v < 0) continue; // β-mixed — cannot constrain
+      tempBits[n] = beta;
+      tempValues[n] = (byte) v;
+      n++;
+    }
+    if (n == ancestorBits.length) {
+      leaf.setAncestorOwnedBits(tempBits, tempValues);
+    } else {
+      final int[] finalBits = new int[n];
+      final byte[] finalValues = new byte[n];
+      System.arraycopy(tempBits, 0, finalBits, 0, n);
+      System.arraycopy(tempValues, 0, finalValues, 0, n);
+      leaf.setAncestorOwnedBits(finalBits, finalValues);
+    }
   }
 }
 

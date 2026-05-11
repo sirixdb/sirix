@@ -2081,10 +2081,49 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     // Success — now safe to recompute prefix with all entries (including the inserted key)
     recomputePrefix();
     pextValid = false;
+    // Phase 7d — propagate owned bits to both halves + add msdb as new owned bit.
+    propagateOwnedBitsAfterSplit(target, msdb);
     if (newSideOut != null && newSideOut.length > 0) {
       newSideOut[0] = newKeyToRight ? 1 : 0;
     }
     return true;
+  }
+
+  /**
+   * Phase 7d — On successful splitToWithInsert, propagate parent's ancestor-owned bits to
+   * BOTH halves and add the split bit (msdb) as a new owned bit with the appropriate
+   * constant value for each half. `this` becomes the LEFT half (β=0); {@code target} is
+   * the RIGHT half (β=1).
+   */
+  private void propagateOwnedBitsAfterSplit(HOTLeafPage target, int msdb) {
+    final int[] parentBits = this.ancestorOwnedBits;
+    final byte[] parentValues = this.ancestorOwnedValues;
+    final int parentLen = parentBits.length;
+    // Find insertion point for msdb (sorted ascending).
+    int insertPos = parentLen;
+    for (int i = 0; i < parentLen; i++) {
+      if (parentBits[i] > msdb) { insertPos = i; break; }
+      if (parentBits[i] == msdb) { return; } // already present
+    }
+    final int newLen = parentLen + 1;
+    final int[] newBits = new int[newLen];
+    final byte[] newLeftValues = new byte[newLen];
+    final byte[] newRightValues = new byte[newLen];
+    if (insertPos > 0) {
+      System.arraycopy(parentBits, 0, newBits, 0, insertPos);
+      System.arraycopy(parentValues, 0, newLeftValues, 0, insertPos);
+      System.arraycopy(parentValues, 0, newRightValues, 0, insertPos);
+    }
+    newBits[insertPos] = msdb;
+    newLeftValues[insertPos] = 0;
+    newRightValues[insertPos] = 1;
+    if (insertPos < parentLen) {
+      System.arraycopy(parentBits, insertPos, newBits, insertPos + 1, parentLen - insertPos);
+      System.arraycopy(parentValues, insertPos, newLeftValues, insertPos + 1, parentLen - insertPos);
+      System.arraycopy(parentValues, insertPos, newRightValues, insertPos + 1, parentLen - insertPos);
+    }
+    this.setAncestorOwnedBits(newBits, newLeftValues);
+    target.setAncestorOwnedBits(newBits, newRightValues);
   }
 
   /**
