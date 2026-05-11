@@ -6106,10 +6106,12 @@ public final class HOTTrieWriter {
     // in {@link #computeDiscBits}). If the retry succeeds and ITS output also passes the
     // gate, accept it as the bucket-build. Otherwise return null cleanly.
     //
-    // Auto-enabled when skipNoop is on (the only mode where the cascade matters). Default
-    // off so the baseline lift's "successful but slightly malformed" output is preserved
-    // (the validator accepts it; tightening here would regress height from 5 to 6).
+    // Auto-enabled when skipNoop or stripOnly is on (modes that drive structural rebuilds
+    // hard enough to surface the cascade). Default off so the baseline lift's "successful
+    // but slightly malformed" output is preserved (the validator accepts it; tightening
+    // here would regress height from 5 to 6).
     final boolean constancyGate = Boolean.getBoolean("hot.strict.phase7q.skipNoop")
+        || Boolean.getBoolean("hot.strict.phase7q.stripOnly")
         || Boolean.getBoolean("hot.strict.phase7q.constancyGate");
     if (constancyGate) {
       if (!liftedBucketIsConstancySafe(r0)) {
@@ -6857,6 +6859,7 @@ public final class HOTTrieWriter {
     // and rescued via {@link #phase7qBuildBucketConstancyFiltered} before being absorbed
     // by the parent.
     final boolean constancyGate = Boolean.getBoolean("hot.strict.phase7q.skipNoop")
+        || Boolean.getBoolean("hot.strict.phase7q.stripOnly")
         || Boolean.getBoolean("hot.strict.phase7q.constancyGate");
     if (constancyGate) {
       if (!liftedBucketIsConstancySafe(r0)) {
@@ -6926,6 +6929,25 @@ public final class HOTTrieWriter {
       new java.util.concurrent.atomic.AtomicLong(0L);
   public static long getPhase7qStripNonconstantBits() { return PHASE7Q_STRIP_NONCONSTANT_BITS.get(); }
   public static void resetPhase7qStripNonconstantBits() { PHASE7Q_STRIP_NONCONSTANT_BITS.set(0L); }
+
+  /** Phase 7q.12 — counter for strip-only mode firings (= phase7qExtendWithLift invoked
+   *  with β already in indirect.mask AND -Dhot.strict.phase7q.stripOnly=true). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_STRIP_ONLY_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.12 — counter for strip-only mode successes (= walker stripped β, indirect
+   *  rebuilt cleanly with existing mask). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_STRIP_ONLY_SUCCESS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.12 — counter for strip-only mode failures (= walker null, fanout overflow,
+   *  uniqueness collision, or no-zero-partial). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_STRIP_ONLY_FAIL =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7qStripOnlyFirings() { return PHASE7Q_STRIP_ONLY_FIRINGS.get(); }
+  public static void resetPhase7qStripOnlyFirings() { PHASE7Q_STRIP_ONLY_FIRINGS.set(0L); }
+  public static long getPhase7qStripOnlySuccess() { return PHASE7Q_STRIP_ONLY_SUCCESS.get(); }
+  public static void resetPhase7qStripOnlySuccess() { PHASE7Q_STRIP_ONLY_SUCCESS.set(0L); }
+  public static long getPhase7qStripOnlyFail() { return PHASE7Q_STRIP_ONLY_FAIL.get(); }
+  public static void resetPhase7qStripOnlyFail() { PHASE7Q_STRIP_ONLY_FAIL.set(0L); }
 
   /** Phase 7q.5 — closure-loop guard: returns true iff β is already a routing bit in
    *  {@code cur}'s mask. Wraps {@link #indirectMaskHasAbsBit} for clarity at the call
@@ -6998,12 +7020,17 @@ public final class HOTTrieWriter {
       PHASE7Q_EXTEND_FAILURES.incrementAndGet();
       return null;
     }
-    // Phase 7q.4 — early bail when β is already in indirect.mask. The Phase 7p
-    // reject path fires for "β in some descendant"; if β is ALSO in indirect's
-    // own mask, that's an existing I11 violation in the trie that the lift
-    // cannot remediate without restructuring indirect itself (multi-level lift).
-    // Fall through to the standard reject so the caller knows we couldn't fix it.
-    if (indirectMaskHasAbsBit(indirect, beta)) {
+    // Phase 7q.4 — when β is already in indirect.mask AND descendant(s) also capture β,
+    // that's a pre-existing I11 double-capture. Default behaviour: bail out (single-level
+    // lift can't add β twice). Phase 7q.12 — under -Dhot.strict.phase7q.stripOnly=true,
+    // dispatch the walker on each child to strip β from descendants AND rebuild indirect
+    // using its EXISTING mask (no β extension). This handles the 203-of-204 LB-HARD cases
+    // where the early bail blocked any lift attempt in default mode.
+    final boolean betaAlreadyInMask = indirectMaskHasAbsBit(indirect, beta);
+    if (betaAlreadyInMask) {
+      if (Boolean.getBoolean("hot.strict.phase7q.stripOnly")) {
+        return phase7qStripDescendantBetaOnly(indirect, beta, log, revision);
+      }
       PHASE7Q_EXTEND_FAILURES.incrementAndGet();
       PHASE7Q_EXTEND_FAIL_BETAINMASK.incrementAndGet();
       return null;
@@ -7205,6 +7232,219 @@ public final class HOTTrieWriter {
         + " msbIndex=" + msbIndex + " allCount=" + allCount + " liftedN=" + liftedN
         + " numPropagated=" + numPropagated);
     PHASE7Q_EXTEND_SUCCESSES.incrementAndGet();
+    if (newCount <= 16) {
+      return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+          extractionPositions, extractionMasks, allCount, newPartials, newChildren,
+          indirect.getHeight(), msbIndex);
+    }
+    return HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
+        extractionPositions, extractionMasks, allCount, newPartials, newChildren,
+        indirect.getHeight(), msbIndex);
+  }
+
+  /**
+   * Phase 7q.12 — Strip-only lift mode for the case where β is already in
+   * {@code indirect}'s mask AND some descendant indirect ALSO captures β (= a
+   * pre-existing I11 double-capture).
+   *
+   * <p>Unlike {@link #phase7qExtendWithLift} which ADDS β to {@code indirect}'s mask,
+   * this variant strips β from descendants only and rebuilds {@code indirect} with
+   * its EXISTING mask. The walker propagates (D₀, D₁) splits from any descendant
+   * indirect that had β captured; those propagated pairs are absorbed into
+   * {@code indirect}'s child list. Since {@code indirect} already partitions by β
+   * (β is in its mask), the propagated D₀ (firstKey.β=0) and D₁ (firstKey.β=1)
+   * naturally fit on opposite sides of the partition. Partials are recomputed
+   * under the existing mask.
+   *
+   * <p>Behaviour matches {@link #phase7qExtendWithLift} otherwise: bounded walker,
+   * fanout cap, uniqueness + I4 verification, all PHASE7Q counters honoured.
+   *
+   * <p>HFT-grade: bounded allocations, primitive bit arithmetic, no autoboxing in
+   * tight loops. Uses indirect's existing extractionPositions/Masks/MSB rather
+   * than rebuilding the byte-list.
+   */
+  @Nullable
+  private HOTIndirectPage phase7qStripDescendantBetaOnly(HOTIndirectPage indirect, int beta,
+      TransactionIntentLog log, int revision) {
+    final boolean dbg = Boolean.getBoolean("hot.debug.phase7q");
+    PHASE7Q_STRIP_ONLY_FIRINGS.incrementAndGet();
+    final int n = indirect.getNumChildren();
+    if (n < 2) {
+      PHASE7Q_STRIP_ONLY_FAIL.incrementAndGet();
+      return null;
+    }
+    // Step 0: lift β from every child's subtree.
+    final BetaLiftWalk[] lifts = new BetaLiftWalk[n];
+    int liftedN = 0;
+    int numPropagated = 0;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) {
+        PHASE7Q_STRIP_ONLY_FAIL.incrementAndGet();
+        return null;
+      }
+      final BetaLiftWalk lw = liftBetaFromSubtreeRecursive(cref, beta, log, revision);
+      if (lw == null) {
+        PHASE7Q_STRIP_ONLY_FAIL.incrementAndGet();
+        return null;
+      }
+      lifts[i] = lw;
+      if (lw.propagates()) { liftedN += 2; numPropagated++; }
+      else liftedN += 1;
+    }
+    if (numPropagated == 0) {
+      // Walker found nothing to propagate — descendants captured β but β was β-constant
+      // in every capturing subtree (fossil capture). The trie is structurally unchanged;
+      // returning null lets caller fall through to standard reject.
+      PHASE7Q_STRIP_ONLY_FAIL.incrementAndGet();
+      return null;
+    }
+
+    final PageReference[] liftedRefs = new PageReference[liftedN];
+    {
+      int idx = 0;
+      for (int i = 0; i < n; i++) {
+        liftedRefs[idx++] = lifts[i].root;
+        if (lifts[i].propagates()) liftedRefs[idx++] = lifts[i].propagateRight;
+      }
+    }
+
+    // Step 1: pre-split remaining β-mixed leaves (walker doesn't touch leaves directly).
+    final java.util.ArrayList<PageReference> newRefs = new java.util.ArrayList<>(liftedN * 2);
+    for (int i = 0; i < liftedN; i++) {
+      final PageReference ref = liftedRefs[i];
+      if (ref == null) {
+        PHASE7Q_STRIP_ONLY_FAIL.incrementAndGet();
+        return null;
+      }
+      final int v = bitConstantValueInSubtree(ref, beta);
+      if (v >= 0) {
+        newRefs.add(ref);
+      } else {
+        final SubtreeSplit ss = splitSubtreeOnBit(ref, beta, log, revision);
+        if (ss == null) {
+          PHASE7Q_STRIP_ONLY_FAIL.incrementAndGet();
+          return null;
+        }
+        newRefs.add(ss.leftRef());
+        newRefs.add(ss.rightRef());
+      }
+    }
+    final int newCount = newRefs.size();
+    if (newCount > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      PHASE7Q_STRIP_ONLY_FAIL.incrementAndGet();
+      return null;
+    }
+
+    // Step 2: reuse indirect's existing mask (no β extension — β is already there).
+    final byte[] extractionPositions;
+    final long[] extractionMasks;
+    final int allCount;
+    final short msbIndex = indirect.getMostSignificantBitIndex();
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      // Convert SingleMask to MultiMask form so the partial-key computation can share code
+      // with phase7qExtendWithLift.
+      final int oldInitialBytePos = indirect.getInitialBytePos();
+      final long oldMask = indirect.getBitMask();
+      int oldByteCount = 0;
+      final int[] oldBytePositions = new int[8];
+      final int[] oldByteMaskBits = new int[8];
+      for (int bo = 0; bo < 8; bo++) {
+        final int byteMaskBits = (int) ((oldMask >>> ((7 - bo) * 8)) & 0xFFL);
+        if (byteMaskBits != 0) {
+          oldBytePositions[oldByteCount] = oldInitialBytePos + bo;
+          oldByteMaskBits[oldByteCount] = byteMaskBits;
+          oldByteCount++;
+        }
+      }
+      allCount = oldByteCount;
+      extractionPositions = new byte[allCount];
+      final int numChunks = (allCount + 7) / 8;
+      extractionMasks = new long[numChunks];
+      for (int i = 0; i < allCount; i++) {
+        extractionPositions[i] = (byte) oldBytePositions[i];
+        final int chunkIdx = i / 8;
+        final int byteOffsetInChunk = i % 8;
+        extractionMasks[chunkIdx] |=
+            ((long) (oldByteMaskBits[i] & 0xFF)) << ((7 - byteOffsetInChunk) * 8);
+      }
+    } else {
+      final byte[] ep = indirect.getExtractionPositions();
+      final long[] em = indirect.getExtractionMasks();
+      allCount = indirect.getNumExtractionBytes();
+      extractionPositions = new byte[allCount];
+      System.arraycopy(ep, 0, extractionPositions, 0, allCount);
+      final int numChunks = (allCount + 7) / 8;
+      extractionMasks = new long[numChunks];
+      System.arraycopy(em, 0, extractionMasks, 0, Math.min(em.length, numChunks));
+    }
+
+    // Step 3: compute partials under the unchanged mask. Verify uniqueness + I4.
+    final int[] newPartials = new int[newCount];
+    final PageReference[] newChildren = new PageReference[newCount];
+    for (int i = 0; i < newCount; i++) {
+      final PageReference cref = newRefs.get(i);
+      newChildren[i] = cref;
+      final byte[] cKey = getFirstKeyFromChild(cref);
+      newPartials[i] = (cKey == null || cKey.length == 0) ? 0
+          : computePartialKeyMultiMaskDirect(cKey, extractionPositions, extractionMasks, allCount);
+    }
+    for (int i = 1; i < newCount; i++) {
+      for (int k = 0; k < i; k++) {
+        if (newPartials[k] == newPartials[i]) {
+          if (dbg) System.err.println("[phase7q-strip-only] reject reason=partial-collision beta="
+              + beta + " i=" + i + " k=" + k + " partial=" + Integer.toHexString(newPartials[i]));
+          PHASE7Q_STRIP_ONLY_FAIL.incrementAndGet();
+          return null;
+        }
+      }
+    }
+    sortChildrenAndPartialsByPartial(newChildren, newPartials);
+    boolean hasZero = false;
+    for (final int p : newPartials) {
+      if (p == 0) { hasZero = true; break; }
+    }
+    if (!hasZero) {
+      if (dbg) System.err.println("[phase7q-strip-only] reject reason=no-zero-partial beta=" + beta
+          + " newCount=" + newCount);
+      PHASE7Q_STRIP_ONLY_FAIL.incrementAndGet();
+      return null;
+    }
+
+    // Phase 7q.12 — global constancy gate on the rebuilt indirect's children. Each
+    // child's subtree must be constant on every bit in indirect's existing mask
+    // (preserves Binna's I5/I6 — sparse-path PEXT routes deterministically). Without
+    // this gate, strip-only cascades downstream (walker propagation can re-route children
+    // into partitions whose mask captures bits no longer constant in those subtrees).
+    for (int i = 0; i < newCount; i++) {
+      final PageReference cref = newChildren[i];
+      if (cref == null) continue;
+      // Quick check: skip placeholder children (unresolvable) — they were already trusted
+      // by liftedChildIsConstantOnBit's default-true return.
+      for (int bi = 0; bi < allCount; bi++) {
+        final int bp = extractionPositions[bi] & 0xFF;
+        final int chunkIdx = bi / 8;
+        final int byteOffsetInChunk = bi % 8;
+        final int byteMaskBits =
+            (int) ((extractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+        for (int mfBit = 0; mfBit < 8; mfBit++) {
+          final int byteBit = 7 - mfBit;
+          if ((byteMaskBits & (1 << byteBit)) == 0) continue;
+          final int absBit = bp * 8 + mfBit;
+          if (!liftedChildIsConstantOnBit(cref, absBit, dbg, indirect.getPageKey(), i, newCount)) {
+            if (dbg) System.err.println("[phase7q-strip-only] reject reason=child-non-constant beta="
+                + beta + " childIdx=" + i + " absBit=" + absBit);
+            PHASE7Q_STRIP_ONLY_FAIL.incrementAndGet();
+            return null;
+          }
+        }
+      }
+    }
+
+    if (dbg) System.err.println("[phase7q-strip-only] STRIP-OK beta=" + beta + " newCount=" + newCount
+        + " msbIndex=" + msbIndex + " allCount=" + allCount + " liftedN=" + liftedN
+        + " numPropagated=" + numPropagated);
+    PHASE7Q_STRIP_ONLY_SUCCESS.incrementAndGet();
     if (newCount <= 16) {
       return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
           extractionPositions, extractionMasks, allCount, newPartials, newChildren,

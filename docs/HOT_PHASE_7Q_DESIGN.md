@@ -195,6 +195,13 @@ next uncommitted phase by reading this doc + the latest commit's diff.
   retry after the 7q.6 gate rejection. Rescues 9 of 25 firings (36%) in
   skipNoop+gate mode; split-fail-constancy 19→16. ext-ok stays at 0
   (cascade-infeasible buckets remain). Default mode unchanged at 1 I8.
+- [x] 7q.12 — strip-only mode for β-in-mask LB-HARD case
+  (`-Dhot.strict.phase7q.stripOnly=true`). Replaces the early bail with a
+  walker pass that strips β from descendants and rebuilds indirect using
+  its EXISTING mask. Cascade prevented via auto-enabled gates +
+  per-child global constancy check. 203 firings → 3 success; persistent
+  I8 shifts location but doesn't clear (root's mask still missing the
+  discriminator). Default mode unchanged.
 
 ## 7 — Empirical results (filled in as phases land)
 
@@ -751,3 +758,72 @@ contemplated but never implemented.
 
 Default mode unchanged at 1 I8, height 5, ext-ok=1.
 100K CAS: 0 violations preserved.
+
+### 7.15 Phase 7q.12 — strip-only lift mode for β-in-mask case (2026-05-12)
+
+Previous diagnostic surfaced that **203 of 204** LB-HARD lift dispatches in the 50K
+reproducer hit `phase7qExtendWithLift`'s early bail at line 7006 — the bail rejects
+the dispatch whenever β is already in `indirect.mask` AND descendants ALSO capture
+β. That's an existing I11 double-capture, and the bail's reasoning was that
+single-level lift can't repair it. Empirically this blocked 99.5% of lift attempts
+from even running the walker.
+
+Phase 7q.12 adds `phase7qStripDescendantBetaOnly`: a variant that runs the walker
+on every child (stripping β from descendants) and rebuilds `indirect` with its
+EXISTING mask (no β extension). Walker outputs that propagate (D₀, D₁) pairs are
+absorbed naturally since `indirect` already partitions by β. Partials are
+recomputed against the unchanged mask; uniqueness + I4 verified.
+
+**Cascade prevention**: the gate inside `splitIndirectOnBitForLift` and
+`splitExpandedChildrenOnBeta` is now auto-enabled when `stripOnly` is on
+(in addition to skipNoop and constancyGate). A NEW global child-constancy gate
+inside `phase7qStripDescendantBetaOnly` rejects the rebuilt indirect if any new
+child violates β-constancy on an existing mask bit.
+
+**Empirical (50K reproducer, `-Dhot.strict.phase7q.stripOnly=true`)**:
+
+| Configuration | Violations | Height | strip-only firings | success | walker-null |
+|---|---|---|---|---|---|
+| Default (no stripOnly) | 1 (I8) | 5 | 0 | 0 | 0 |
+| stripOnly=true (no gate, initial test) | 4492 (cascade) | 5 | 12 | 12 | 0 |
+| **stripOnly=true, auto-gated** | **1 (I8 — different location)** | 6 | 203 | 3 | 512 |
+
+Without the gate, strip-only cascades (12 trivial successes → 4480 I6 violations).
+With the gate auto-enabled, cascade is contained — same number of violations as
+default but at a NEW location (`indirect 2 child[2] vs child[3]`, c0a002/c08008
+differing at bit 89). Height regresses to 6 because the strip rebuilds added
+extra levels.
+
+**Why ext-ok stays low**: 203 strip-only firings produce only 3 globally-acceptable
+results. The other 200 fail either (a) walker-null (the recursive split couldn't
+preserve constancy at some descendant level) or (b) child-constancy gate (the
+rebuilt indirect violates I5/I6 on its existing mask bits).
+
+**100K CAS regression**: 0 violations preserved (height 2 unchanged).
+**HOTOptionBPhase5Test**: passes.
+
+The persistent I8 SHIFTS but doesn't clear because:
+- bit 89 (or bit 87, the missing discriminator at root) STILL isn't in root's
+  mask after strip-only successes. Strip-only doesn't extend root's mask — by
+  design.
+- The closure loop's livelock on β=82 prevents finding bit 89 via the standard
+  extension path.
+
+**Phase 7q.13 entry point** (next session): combine stripOnly + skipNoop. The
+closure loop's no-op skip would let the loop advance past β=82 (which is in
+root's mask) to try β=83, β=87, β=89, β=99, etc. With stripOnly handling β-in-mask
+LB-HARD cases AND skipNoop letting the loop advance, the architectural ceiling
+should break — bit 89 becomes reachable on root.
+
+**Files touched** (commit `[pending]`):
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + `phase7qStripDescendantBetaOnly` helper (~180 lines).
+  + `PHASE7Q_STRIP_ONLY_{FIRINGS,SUCCESS,FAIL}` counters.
+  + Gate auto-enable in `splitIndirectOnBitForLift` and `splitExpandedChildrenOnBeta`.
+  + Global child-constancy gate inside `phase7qStripDescendantBetaOnly`.
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  + Counter reset + report.
+- `bundles/sirix-core/build.gradle`:
+  + `hot.strict.phase7q.stripOnly` flag forwarding.
+
+- [x] 7q.12 — strip-only mode for β-in-mask case (auto-gated)
