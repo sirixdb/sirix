@@ -168,8 +168,26 @@ Each numbered phase below is a separate commit. The next session can pick up at 
 next uncommitted phase by reading this doc + the latest commit's diff.
 
 - [x] 7q.0 — diagnostic classifier (commit `ad4eb6990`)
-- [ ] 7q.1 — `splitIndirectOnBitForLift` + unit test
+- [x] 7q.1 — `splitIndirectOnBitForLift` + diagnostic counters (helper dormant
+  until 7q.3 wires it in; integration test deferred to 7q.4's 50K reproducer)
 - [ ] 7q.2 — `liftBetaFromSubtreeRecursive` + integration plumbing
 - [ ] 7q.3 — wire into `extendIndirectMaskForClosure` behind flag
 - [ ] 7q.4 — validate on reproducer (1 → 0)
 - [ ] 7q.5 — enable by default, remove flag-gating
+
+## 7 — Empirical results (filled in as phases land)
+
+### 7.1 Phase 7q.0 — diagnostic classifier (commit `ad4eb6990`)
+
+```
+phase7q classification: wasted=0 load-bearing=64 LB-liftable=0 LB-hard=64
+```
+
+All 64 rejections are LB-HARD → confirmed structural-lift path is mandatory.
+
+### 7.2 Phase 7q.1 — split helper landed
+
+Helper compiles (`./gradlew :sirix-core:compileJava --rerun-tasks --no-build-cache`
+BUILD SUCCESSFUL). Dormant: not wired into any dispatch yet; no runtime impact.
+Diagnostic counters `PHASE7Q_SPLIT_FIRINGS` and `PHASE7Q_SPLIT_FAILURES` available
+for reproducer telemetry once 7q.3 lands.

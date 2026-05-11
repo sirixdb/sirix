@@ -5927,6 +5927,102 @@ public final class HOTTrieWriter {
     return partial;
   }
 
+  /** Phase 7q.1 — counter for split-on-bit-for-lift firings. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_SPLIT_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.1 — counter for split-on-bit-for-lift failures (one or both halves null). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_SPLIT_FAILURES =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getPhase7qSplitFirings() { return PHASE7Q_SPLIT_FIRINGS.get(); }
+  public static void resetPhase7qSplitFirings() { PHASE7Q_SPLIT_FIRINGS.set(0L); }
+  public static long getPhase7qSplitFailures() { return PHASE7Q_SPLIT_FAILURES.get(); }
+  public static void resetPhase7qSplitFailures() { PHASE7Q_SPLIT_FAILURES.set(0L); }
+
+  /** Phase 7q.1 — result of splitting an indirect on a bit for the lift operation. */
+  private static final class LiftSplitResult {
+    final PageReference betaZero;
+    final PageReference betaOne;
+
+    LiftSplitResult(PageReference betaZero, PageReference betaOne) {
+      this.betaZero = betaZero;
+      this.betaOne = betaOne;
+    }
+  }
+
+  /**
+   * Phase 7q.1 — Split indirect {@code D} on β. Partitions D's children by
+   * firstKey.β value and rebuilds each half via
+   * {@link #buildBucketWithInheritedMask} (which strips β and any bits ≤ new
+   * parent.MSB to preserve I11). Returns a pair (D₀, D₁) where:
+   * <ul>
+   *   <li>D₀ contains D's children with firstKey.β = 0.</li>
+   *   <li>D₁ contains D's children with firstKey.β = 1.</li>
+   * </ul>
+   *
+   * <p>Used by Phase 7q.2's recursive lift: the caller (D's parent or higher)
+   * replaces D with the (D₀, D₁) pair and absorbs β into its own mask.
+   *
+   * <p>Preconditions:
+   * <ul>
+   *   <li>β must be in D's mask (else there's no β to strip).</li>
+   *   <li>D's children's subtrees must be β-constant (true if β is in D's mask
+   *       by I6 — PEXT-routing partitions keys by β at this level).</li>
+   * </ul>
+   *
+   * <p>Returns null if either half fails to build (e.g., one half is empty —
+   * β isn't actually discriminating; partials collide; mask becomes empty).
+   *
+   * <p>HFT-grade: bounded allocation (4 small int/ref arrays sized to D's
+   * fan-out), no autoboxing, no virtual dispatch in the partition loop.
+   */
+  @Nullable
+  private LiftSplitResult splitIndirectOnBitForLift(HOTIndirectPage indirect, int beta,
+      TransactionIntentLog log, int revision) {
+    if (indirect == null || beta < 0) return null;
+    if (!indirectMaskHasAbsBit(indirect, beta)) return null;
+    final int n = indirect.getNumChildren();
+    if (n < 2) return null;
+    final int[] s0Idx = new int[n];
+    final int[] s1Idx = new int[n];
+    final PageReference[] s0Refs = new PageReference[n];
+    final PageReference[] s1Refs = new PageReference[n];
+    int s0n = 0, s1n = 0;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) { PHASE7Q_SPLIT_FAILURES.incrementAndGet(); return null; }
+      final byte[] fk = getFirstKeyFromChild(cref);
+      if (fk == null || fk.length == 0) {
+        PHASE7Q_SPLIT_FAILURES.incrementAndGet();
+        return null;
+      }
+      if (isAbsBitSet(fk, beta)) {
+        s1Idx[s1n] = i;
+        s1Refs[s1n] = cref;
+        s1n++;
+      } else {
+        s0Idx[s0n] = i;
+        s0Refs[s0n] = cref;
+        s0n++;
+      }
+    }
+    if (s0n == 0 || s1n == 0) {
+      // β didn't actually discriminate (all children agree on β-bit at firstKey).
+      // This contradicts indirectMaskHasAbsBit pre-condition for a load-bearing β,
+      // so this is the "fossil capture" case — caller should treat as wasted-capture.
+      PHASE7Q_SPLIT_FAILURES.incrementAndGet();
+      return null;
+    }
+    final PageReference r0 =
+        buildBucketWithInheritedMask(indirect, s0Idx, s0Refs, s0n, beta, log, revision);
+    if (r0 == null) { PHASE7Q_SPLIT_FAILURES.incrementAndGet(); return null; }
+    final PageReference r1 =
+        buildBucketWithInheritedMask(indirect, s1Idx, s1Refs, s1n, beta, log, revision);
+    if (r1 == null) { PHASE7Q_SPLIT_FAILURES.incrementAndGet(); return null; }
+    PHASE7Q_SPLIT_FIRINGS.incrementAndGet();
+    return new LiftSplitResult(r0, r1);
+  }
+
   /**
    * Phase 7q helper — returns {@code true} iff at least two of {@code indirect}'s
    * children's firstKeys differ at absolute bit position {@code absBit}.
