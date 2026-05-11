@@ -6290,6 +6290,21 @@ public final class HOTTrieWriter {
    *  uniqueness/I4 violation under the filtered mask). */
   private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_CONSTANCY_WRAP_FAIL =
       new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.9 — sub-bucket: fail because no candidate disc bit survived the
+   *  I11 + β-skip + per-child subtree-constancy filters (= no bit can route the
+   *  bucket cleanly without re-capturing β or violating constancy). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_CONSTANCY_WRAP_FAIL_NOMASK =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.9 — sub-bucket: fail because partials collided under the filtered mask. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_CONSTANCY_WRAP_FAIL_COLLIDE =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.9 — sub-bucket: fail because no zero partial (I4 gate). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_CONSTANCY_WRAP_FAIL_NOZERO =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.9 — sub-bucket: fail because expanded count overflowed MULTI_NODE cap or
+   *  the input was malformed (null ref, etc.). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_CONSTANCY_WRAP_FAIL_INPUT =
+      new java.util.concurrent.atomic.AtomicLong(0L);
 
   public static long getPhase7qConstancyWrapFirings() {
     return PHASE7Q_CONSTANCY_WRAP_FIRINGS.get();
@@ -6308,6 +6323,30 @@ public final class HOTTrieWriter {
   }
   public static void resetPhase7qConstancyWrapFail() {
     PHASE7Q_CONSTANCY_WRAP_FAIL.set(0L);
+  }
+  public static long getPhase7qConstancyWrapFailNomask() {
+    return PHASE7Q_CONSTANCY_WRAP_FAIL_NOMASK.get();
+  }
+  public static void resetPhase7qConstancyWrapFailNomask() {
+    PHASE7Q_CONSTANCY_WRAP_FAIL_NOMASK.set(0L);
+  }
+  public static long getPhase7qConstancyWrapFailCollide() {
+    return PHASE7Q_CONSTANCY_WRAP_FAIL_COLLIDE.get();
+  }
+  public static void resetPhase7qConstancyWrapFailCollide() {
+    PHASE7Q_CONSTANCY_WRAP_FAIL_COLLIDE.set(0L);
+  }
+  public static long getPhase7qConstancyWrapFailNozero() {
+    return PHASE7Q_CONSTANCY_WRAP_FAIL_NOZERO.get();
+  }
+  public static void resetPhase7qConstancyWrapFailNozero() {
+    PHASE7Q_CONSTANCY_WRAP_FAIL_NOZERO.set(0L);
+  }
+  public static long getPhase7qConstancyWrapFailInput() {
+    return PHASE7Q_CONSTANCY_WRAP_FAIL_INPUT.get();
+  }
+  public static void resetPhase7qConstancyWrapFailInput() {
+    PHASE7Q_CONSTANCY_WRAP_FAIL_INPUT.set(0L);
   }
 
   /**
@@ -6352,6 +6391,7 @@ public final class HOTTrieWriter {
     PHASE7Q_CONSTANCY_WRAP_FIRINGS.incrementAndGet();
     if (bucketSize == 0) {
       PHASE7Q_CONSTANCY_WRAP_FAIL.incrementAndGet();
+      PHASE7Q_CONSTANCY_WRAP_FAIL_INPUT.incrementAndGet();
       return null;
     }
     if (bucketSize == 1) {
@@ -6360,6 +6400,7 @@ public final class HOTTrieWriter {
     }
     if (bucketSize > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
       PHASE7Q_CONSTANCY_WRAP_FAIL.incrementAndGet();
+      PHASE7Q_CONSTANCY_WRAP_FAIL_INPUT.incrementAndGet();
       return null;
     }
 
@@ -6409,6 +6450,7 @@ public final class HOTTrieWriter {
 
     if (maskByBytePos.isEmpty()) {
       PHASE7Q_CONSTANCY_WRAP_FAIL.incrementAndGet();
+      PHASE7Q_CONSTANCY_WRAP_FAIL_NOMASK.incrementAndGet();
       return null;
     }
 
@@ -6437,6 +6479,7 @@ public final class HOTTrieWriter {
       for (int k = 0; k < i; k++) {
         if (partialKeys[i] == partialKeys[k]) {
           PHASE7Q_CONSTANCY_WRAP_FAIL.incrementAndGet();
+          PHASE7Q_CONSTANCY_WRAP_FAIL_COLLIDE.incrementAndGet();
           return null;
         }
       }
@@ -6445,6 +6488,7 @@ public final class HOTTrieWriter {
     // 7. I4 (smallest partial == 0).
     if (partialKeys[0] != 0) {
       PHASE7Q_CONSTANCY_WRAP_FAIL.incrementAndGet();
+      PHASE7Q_CONSTANCY_WRAP_FAIL_NOZERO.incrementAndGet();
       return null;
     }
 

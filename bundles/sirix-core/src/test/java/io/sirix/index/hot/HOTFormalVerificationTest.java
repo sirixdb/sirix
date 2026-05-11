@@ -456,6 +456,10 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapSuccess();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFail();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFailNomask();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFailCollide();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFailNozero();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFailInput();
 
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
@@ -878,6 +882,15 @@ final class HOTFormalVerificationTest {
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qConstancyWrapSuccess()
               + " fail="
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qConstancyWrapFail());
+          System.out.println("[microbench-pattern]   phase7q constancy-wrap fail-buckets:"
+              + " nomask=" + io.sirix.access.trx.page.HOTTrieWriter
+                  .getPhase7qConstancyWrapFailNomask()
+              + " collide=" + io.sirix.access.trx.page.HOTTrieWriter
+                  .getPhase7qConstancyWrapFailCollide()
+              + " nozero=" + io.sirix.access.trx.page.HOTTrieWriter
+                  .getPhase7qConstancyWrapFailNozero()
+              + " input=" + io.sirix.access.trx.page.HOTTrieWriter
+                  .getPhase7qConstancyWrapFailInput());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
