@@ -5414,6 +5414,18 @@ public final class HOTTrieWriter {
         break;
       }
       final int parentMsb = cur.getMostSignificantBitIndex() & 0xFFFF;
+      // Phase 7q.4 diagnostic: when operating on root (pageKey=2), dump the
+      // closureBits list and parentMsb so we can see what the iter loop is
+      // ranging over.
+      if (cur.getPageKey() == 2L) {
+        final StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < closureBits.length; i++) {
+          if (i > 0) sb.append(',');
+          sb.append(closureBits[i]);
+        }
+        System.err.println("[phase7q-closure-list] cur.pageKey=2 iter=" + iter
+            + " parentMsb=" + parentMsb + " bits=[" + sb + "]");
+      }
       boolean extended = false;
       for (final int beta : closureBits) {
         if (beta <= parentMsb) continue; // skip bits not strictly less significant than parent.MSB
@@ -7276,6 +7288,14 @@ public final class HOTTrieWriter {
   private @Nullable HOTIndirectPage extendIndirectMaskForClosure(HOTIndirectPage indirect,
       int beta, TransactionIntentLog log, int revision) {
     final boolean dbg = Boolean.getBoolean("hot.debug.g30");
+    // Phase 7q.4 diagnostic: trace every attempt on root (pageKey=2) for any β
+    // to identify which bits the closure mechanism tries on root.
+    if (indirect != null && indirect.getPageKey() == 2L) {
+      System.err.println("[phase7q-trace] extendIndirectMaskForClosure ENTER"
+          + " pageKey=2 beta=" + beta + " numChildren=" + indirect.getNumChildren()
+          + " msb=" + (indirect.getMostSignificantBitIndex() & 0xFFFF)
+          + " maskHasBeta=" + indirectMaskHasAbsBit(indirect, beta));
+    }
     if (indirect == null || beta < 0) {
       if (dbg) System.err.println("[g30] reject reason=null-or-neg-beta beta=" + beta);
       return null;
@@ -7621,6 +7641,20 @@ public final class HOTTrieWriter {
       }
     }
     if (validCount < 2) return new int[0];
+    // Phase 7q.4 diagnostic: dump firstKeys when operating on root (pageKey=2).
+    if (indirect.getPageKey() == 2L) {
+      final StringBuilder sb = new StringBuilder();
+      sb.append("[phase7q-fk] cur.pageKey=2 numChildren=").append(n).append(" maxLen=").append(maxLen);
+      for (int i = 0; i < n; i++) {
+        sb.append("\n  c[").append(i).append("]=");
+        if (firstKeys[i] == null) sb.append("null");
+        else if (firstKeys[i].length == 0) sb.append("empty");
+        else {
+          for (final byte b : firstKeys[i]) sb.append(String.format("%02x", b));
+        }
+      }
+      System.err.println(sb);
+    }
     final int[] tmp = new int[maxLen * 8];
     int count = 0;
     for (int absBit = 0; absBit < maxLen * 8; absBit++) {

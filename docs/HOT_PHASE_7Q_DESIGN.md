@@ -382,6 +382,97 @@ or `extendMaskWithBitI11Safe` failing on a non-β-constant subtree.
 `extendIndirectMaskForClosure` so every (indirect.pageKey, β) attempt is
 traced, then run again to identify the exact reject path for (root, 95).
 
+### 7.9 Phase 7q.4 — root attempt distribution traced
+
+Added unconditional `[phase7q-trace] extendIndirectMaskForClosure ENTER`
+log when `indirect.getPageKey() == 2L` (= root). Distribution of bits
+tried on root over the entire 50K reproducer run (with phase7q+phase7j+phase7k
+all maxIter=64):
+
+```
+  127 calls with beta=82  (maskHasBeta=true — already in mask, rejected)
+    1 call  with beta=88  (LIFT-OK on first call, numChildren=5)
+    0 calls with beta=95  (NEVER ATTEMPTED!)
+```
+
+**Bit 95 is never even tried on root.** The closure iter loop wastes its
+budget repeatedly re-trying bit 82.
+
+**Hypothesis**: after bit 82 fails (β-in-mask reject), the inner loop should
+`continue` to bit 83+. But the trace shows no other bits. Possibilities:
+- `findClosureBits(root)` returns only `[82, ...]` and the inner loop iter
+  exits early (= no further bits in the list above parentMsb=81).
+- Some earlier break/return short-circuits the inner loop.
+- The `triedBits` mechanism (phase7o) isn't enabled, so each outer iter
+  RE-FETCHES the same `closureBits` and tries them in the same order.
+
+**Likely root cause**: `findClosureBits` returns bits in ASCENDING order
+(MSB-first absolute bits). Bit 82 is the smallest > parentMsb=81. The inner
+loop tries 82 → reject. To get to bit 95, the inner loop must continue
+past bits 83–94. Each of those is either ALSO in mask (reject) OR triggers
+Phase 7p (descendant capture).
+
+The `continue` after `next == null` should advance to the next bit. So why
+isn't the trace showing bits 83–94 attempts?
+
+**Action for next session**: add `[phase7q-closure-list] cur.pageKey=X bits=[…]`
+log at the top of the closure iter to confirm what `findClosureBits` returns
+for root. Then if 95 is in the list, trace why the inner loop doesn't reach it.
+
+If the list does NOT contain bit 95, the bug is in `findClosureBits` —
+possibly because root's children's firstKeys don't differ at bit 95 *at the
+moment findClosureBits runs* (they may differ at validation time but not
+during closure).
+
+100K CAS still 0 violations across all these experiments.
+
+### 7.10 Phase 7q.4 — bit-numbering discrepancy uncovered
+
+Added `[phase7q-fk] cur.pageKey=2 …` dump inside `findClosureBits` to print
+the actual firstKeys it sees. At phase7j time:
+
+```
+[phase7q-fk] cur.pageKey=2 numChildren=10 maxLen=22
+  c[0]=80000000000000050007800000000000000000000000
+  c[1]=80000000000000050007bff000000000000000000000
+  c[2]=80000000000000050007c00000000000000000000000
+  c[3]=80000000000000050007c13006000000000000000010
+  c[4]=80000000000000050007c13008000000000000000010
+  c[5]=80000000000000050007c07010000000000000000000
+  c[6]=80000000000000050007c08000000000000000000000
+  c[7]=80000000000000050007c0a002000000000000000000
+  c[8]=80000000000000050007c08008000000000000000000
+  c[9]=80000000000000050007c08010000000000000000000
+[phase7q-closure-list] cur.pageKey=2 iter=1 bits=[81,82,83,84,85,86,87,88,89,90,91,99,100,101,102,171]
+```
+
+`findClosureBits` returns bits 88-91 and 99-102 from byte 11/byte 12 range
+but **skips bits 92-98** — exactly the range where c4/c5 differ. By
+straight `isAbsBitSet` arithmetic (MSB-first within byte), all of 88-95
+should appear because c[0] byte 11 = 0x80 vs c[1] byte 11 = 0xbf — they
+differ at every bit except 88 (= MSB) and 91-95 (depending on exact mapping).
+
+**Discrepancy with the validator**: the validator says `child[4] >= child[5]`
+at indirect 2, with c4 byte 11 = 0xc1, c5 byte 11 = 0xc0 — differ at bit 7
+(LSB of byte 11). The validator calls this "bit 95"; `findClosureBits`'s
+`isAbsBitSet` should also see bit 95 = LSB of byte 11.
+
+**Possible causes**:
+- A bit-numbering inconsistency between the validator and `findClosureBits`.
+  The validator might number bits differently (LSB-first within a byte, or
+  using a different byte ordering).
+- `findClosureBits` skipping byte 11 LSB end (bits 92-95) for unknown reason.
+- Some early termination of the bit scan.
+
+**This is the smoking-gun bug for the persistent I8.** Once the discrepancy
+is resolved (`findClosureBits` returns bit 95 → closure attempts it → it
+succeeds via standard path or LIFT), the violation should clear.
+
+**Next-session action**: investigate `findClosureBits` directly. Manual unit
+test: pass `byte[][] firstKeys = {{0x80,…}, {0xbf,…}}` and verify which bits
+are returned. Compare with `HOTInvariantValidator`'s bit-numbering when it
+reports the I8 discriminating bit.
+
 Persistent I8 still at `indirect 2 child[4] vs child[5]` (byte 11 bit 95 = LSB
 of byte 11). Lift's structural improvement IS happening (height 6→5, LB-HARD
 64→60→1 net), but it's not addressing the final pair.
