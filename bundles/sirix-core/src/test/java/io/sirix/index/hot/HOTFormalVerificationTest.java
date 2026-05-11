@@ -645,6 +645,23 @@ final class HOTFormalVerificationTest {
               stageDPrevCounters = snapshotWriterFirings();
             }
           }
+          // Phase 7k — recursive commit-time closure extension across all indirects.
+          if (Boolean.getBoolean("hot.strict.phase7k")) {
+            try {
+              final var trieWriter7k = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRef7k =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRef7k != null) {
+                final int total = trieWriter7k.phase7kRecursiveCommit(rootRef7k,
+                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog(), 16);
+                System.out.println("[phase7k] recursive total extensions=" + total);
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase7k] error: " + t);
+            }
+          }
+
           // Phase 7j — commit-time try every MSDB-closure bit on root.
           if (Boolean.getBoolean("hot.strict.phase7j")) {
             try {

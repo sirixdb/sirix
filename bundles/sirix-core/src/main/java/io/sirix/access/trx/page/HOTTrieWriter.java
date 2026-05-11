@@ -44,6 +44,8 @@ import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.interfaces.Page;
+import io.sirix.settings.Constants;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import org.jspecify.annotations.Nullable;
 
 import java.util.Objects;
@@ -5120,6 +5122,61 @@ public final class HOTTrieWriter {
       }
     }
     return extensions;
+  }
+
+  /**
+   * Phase 7k — Recursively apply Phase 7j to every indirect in the trie, post-order
+   * (= leaves first). Each indirect's mask gets extended with closure bits where safe.
+   * Stops on the first indirect that can't be extended (= reached architectural limit).
+   */
+  public int phase7kRecursiveCommit(PageReference rootRef,
+      StorageEngineWriter storageEngineWriter, TransactionIntentLog log, int maxIterationsPerIndirect) {
+    if (rootRef == null) return 0;
+    this.activeReader = storageEngineWriter;
+    this.activeLog = log;
+    Page rootPage = log.get(rootRef) != null ? log.get(rootRef).getModified() : rootRef.getPage();
+    if (rootPage == null) rootPage = loadPage(storageEngineWriter, rootRef);
+    if (!(rootPage instanceof HOTIndirectPage rootInd)) return 0;
+    final LongOpenHashSet visited =
+        new LongOpenHashSet(64);
+    return phase7kRecursiveHelper(rootRef, rootInd, storageEngineWriter, log,
+        maxIterationsPerIndirect, 0, visited);
+  }
+
+  private static final int PHASE7K_MAX_DEPTH = 16;
+
+  private int phase7kRecursiveHelper(PageReference indirectRef, HOTIndirectPage indirect,
+      StorageEngineWriter storageEngineWriter, TransactionIntentLog log, int maxIter,
+      int depth, LongOpenHashSet visited) {
+    if (depth > PHASE7K_MAX_DEPTH) return 0;
+    final long pk = indirect.getPageKey();
+    if (pk != Constants.NULL_ID_LONG && !visited.add(pk)) {
+      return 0; // cycle / already processed
+    }
+    int total = 0;
+    final int n = indirect.getNumChildren();
+    // Post-order: recurse into children first.
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) continue;
+      Page cp = cref.getPage();
+      if (cp == null) {
+        final var pc = log.get(cref);
+        if (pc != null) cp = pc.getModified();
+      }
+      if (cp == null) cp = loadPage(storageEngineWriter, cref);
+      if (cp instanceof HOTIndirectPage childInd) {
+        total += phase7kRecursiveHelper(cref, childInd, storageEngineWriter, log, maxIter,
+            depth + 1, visited);
+      }
+    }
+    // Then process this indirect.
+    // Refresh indirect from log in case children changed.
+    final var pc = log.get(indirectRef);
+    final HOTIndirectPage refreshed = (pc != null && pc.getModified() instanceof HOTIndirectPage hi)
+        ? hi : indirect;
+    total += phase7jExtendWithAllClosureBits(indirectRef, refreshed, storageEngineWriter, log, maxIter);
+    return total;
   }
 
   /**
