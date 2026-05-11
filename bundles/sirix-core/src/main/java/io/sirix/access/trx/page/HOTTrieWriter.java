@@ -4728,6 +4728,82 @@ public final class HOTTrieWriter {
   }
 
   /**
+   * Phase 7f — Force-rebuild an indirect using current children's firstKeys and freshly-
+   * computed disc bits via {@code computeDiscBits}. Bypasses any constraint-based logic
+   * and just picks bits where adjacent children's firstKeys differ. Returns updated
+   * indirect or null on infeasibility.
+   *
+   * <p>The trade-off: the new mask may capture bits that are non-constant in some child's
+   * subtree, breaking I6 (PEXT routing for deep keys). Use as last-resort fix for I8
+   * violations where post-hoc reconciliation has otherwise failed.
+   */
+  public @Nullable HOTIndirectPage forceRebuildIndirectFromCurrentFirstKeys(
+      HOTIndirectPage indirect, int revision) {
+    final boolean dbg = Boolean.getBoolean("hot.debug.phase7f");
+    final int n = indirect.getNumChildren();
+    if (n < 2) {
+      if (dbg) System.err.println("[phase7f-fail] reason=fewer-than-2-children n=" + n);
+      return null;
+    }
+    final PageReference[] children = new PageReference[n];
+    for (int i = 0; i < n; i++) {
+      children[i] = indirect.getChildReference(i);
+      if (children[i] == null) {
+        if (dbg) System.err.println("[phase7f-fail] reason=null-child idx=" + i);
+        return null;
+      }
+    }
+    sortChildrenByFirstKey(children);
+    final int initialBytePos = computeInitialBytePos(children);
+    final DiscBitsInfo discBits = computeDiscBits(children, initialBytePos);
+    if (dbg) System.err.println("[phase7f] initialBytePos=" + initialBytePos
+        + " discBits.isSingleMask=" + discBits.isSingleMask()
+        + " msbIndex=" + discBits.mostSignificantBitIndex());
+    final int[] partialKeys = computePartialKeysForChildren(children, discBits);
+    if (dbg) System.err.println("[phase7f] preSort partialKeys=" + Arrays.toString(partialKeys));
+    // Sort children by partial-key for canonical storage (HOT I7).
+    sortChildrenAndPartialsByPartial(children, partialKeys);
+    if (dbg) System.err.println("[phase7f] postSort partialKeys=" + Arrays.toString(partialKeys));
+    // Verify uniqueness.
+    for (int i = 1; i < n; i++) {
+      for (int k = 0; k < i; k++) {
+        if (partialKeys[k] == partialKeys[i]) {
+          if (dbg) System.err.println("[phase7f-fail] reason=partial-collision i=" + i
+              + " k=" + k + " partial=" + partialKeys[i]);
+          return null;
+        }
+      }
+    }
+    // Verify I4 (first partial = 0).
+    if (partialKeys[0] != 0) {
+      if (dbg) System.err.println("[phase7f-fail] reason=no-zero-partial first="
+          + partialKeys[0] + " partials=" + Arrays.toString(partialKeys));
+      return null;
+    }
+
+    if (discBits.isSingleMask()) {
+      if (n <= 16) {
+        return HOTIndirectPage.createSpanNode(indirect.getPageKey(), revision,
+            discBits.initialBytePos(), discBits.bitMask(), partialKeys, children,
+            indirect.getHeight());
+      }
+      return HOTIndirectPage.createMultiNode(indirect.getPageKey(), revision,
+          discBits.initialBytePos(), discBits.bitMask(), partialKeys, children,
+          indirect.getHeight());
+    }
+    if (n <= 16) {
+      return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+          discBits.extractionPositions(), discBits.extractionMasks(),
+          discBits.numExtractionBytes(), partialKeys, children,
+          indirect.getHeight(), discBits.mostSignificantBitIndex());
+    }
+    return HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
+        discBits.extractionPositions(), discBits.extractionMasks(),
+        discBits.numExtractionBytes(), partialKeys, children,
+        indirect.getHeight(), discBits.mostSignificantBitIndex());
+  }
+
+  /**
    * Phase 6f — When recompute fails (= existing mask insufficient), find a discriminating
    * bit β where (a) firstKeys differ at β, (b) β is β-constant in every child's subtree.
    * Extend mask with β + recompute partials. Returns updated indirect or null.

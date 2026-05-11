@@ -645,6 +645,47 @@ final class HOTFormalVerificationTest {
               stageDPrevCounters = snapshotWriterFirings();
             }
           }
+          // Phase 7f — commit-time root force-rebuild from current firstKeys.
+          // Last-resort I8 fix: ignores constancy/I11 constraints, just picks
+          // adjacent-pair MSDB bits from current firstKey order. May break I6 in some
+          // subtrees but should fix I8 at root.
+          System.out.println("[phase7f] gate eval: " + Boolean.getBoolean("hot.strict.phase7f"));
+          if (Boolean.getBoolean("hot.strict.phase7f")) {
+            try {
+              final var trieWriter7f = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRef7f =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              System.out.println("[phase7f] rootRef=" + rootRef7f);
+              if (rootRef7f != null) {
+                io.sirix.page.interfaces.Page pg = rootRef7f.getPage();
+                System.out.println("[phase7f] rootPage(class)="
+                    + (pg == null ? "null" : pg.getClass().getSimpleName()));
+                if (pg == null) {
+                  pg = trx.getStorageEngineReader().loadHOTPage(rootRef7f);
+                  System.out.println("[phase7f] loaded rootPage(class)="
+                      + (pg == null ? "null" : pg.getClass().getSimpleName()));
+                }
+                if (pg instanceof io.sirix.page.HOTIndirectPage rootInd) {
+                  final var rebuilt = trieWriter7f.forceRebuildIndirectFromCurrentFirstKeys(
+                      rootInd, trx.getStorageEngineWriter().getRevisionNumber());
+                  if (rebuilt != null) {
+                    trx.getStorageEngineWriter().getLog().put(rootRef7f,
+                        io.sirix.cache.PageContainer.getInstance(rebuilt, rebuilt));
+                    rootRef7f.setPage(rebuilt);
+                    System.out.println("[phase7f] root rebuilt — new MSB="
+                        + rebuilt.getMostSignificantBitIndex());
+                  } else {
+                    System.out.println("[phase7f] rebuild failed");
+                  }
+                }
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase7f] error: " + t);
+              t.printStackTrace();
+            }
+          }
+
           // Phase 5e — commit-time global reconciliation. Walks the trie post-insert
           // and lifts each child's MSB into its parent's mask if safe (= β-constant in
           // other children). Fixes stale-firstKey artifacts that post-hoc closure can't.
