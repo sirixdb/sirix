@@ -168,9 +168,11 @@ Each numbered phase below is a separate commit. The next session can pick up at 
 next uncommitted phase by reading this doc + the latest commit's diff.
 
 - [x] 7q.0 — diagnostic classifier (commit `ad4eb6990`)
-- [x] 7q.1 — `splitIndirectOnBitForLift` + diagnostic counters (helper dormant
-  until 7q.3 wires it in; integration test deferred to 7q.4's 50K reproducer)
-- [ ] 7q.2 — `liftBetaFromSubtreeRecursive` + integration plumbing
+- [x] 7q.1 — `splitIndirectOnBitForLift` + diagnostic counters (commit `7368a7afd`;
+  helper dormant until 7q.3 wires it in; integration test deferred to 7q.4's 50K
+  reproducer)
+- [x] 7q.2 — `liftBetaFromSubtreeRecursive` walker + `BetaLiftWalk` result record
+  + `splitExpandedChildrenOnBeta` intermediate-level helper (dormant until 7q.3)
 - [ ] 7q.3 — wire into `extendIndirectMaskForClosure` behind flag
 - [ ] 7q.4 — validate on reproducer (1 → 0)
 - [ ] 7q.5 — enable by default, remove flag-gating
@@ -191,3 +193,26 @@ Helper compiles (`./gradlew :sirix-core:compileJava --rerun-tasks --no-build-cac
 BUILD SUCCESSFUL). Dormant: not wired into any dispatch yet; no runtime impact.
 Diagnostic counters `PHASE7Q_SPLIT_FIRINGS` and `PHASE7Q_SPLIT_FAILURES` available
 for reproducer telemetry once 7q.3 lands.
+
+### 7.3 Phase 7q.2 — recursive walker landed
+
+Helper `liftBetaFromSubtreeRecursive(ref, β, log, revision)` walks the subtree
+post-order and strips β from every descendant indirect that captures it. Returns
+a `BetaLiftWalk(root, propagateRight)`:
+- `propagateRight == null` → no propagation (either subtree had no β below it,
+  or all captures were fossil = β-constant subtrees).
+- `propagateRight != null` → caller must absorb `(root, propagateRight)` as TWO
+  children in its own indirect's slot and add β to its own mask.
+
+Auxiliary `splitExpandedChildrenOnBeta(originalIndirect, expandedRefs, expandedN, β, …)`
+handles the intermediate-level case: when some children propagated splits, the
+walker collapses the expanded child list back into a (D₀, D₁) pair via
+`buildBucketWithInheritedMask` inheriting the parent's mask. β isn't in the
+parent's mask at this level so the bucket-build is just a partition + inherit.
+
+Diagnostic counters `PHASE7Q_LIFT_FIRINGS`, `PHASE7Q_LIFT_FAILURES`,
+`PHASE7Q_LIFT_NOOP` accumulate per walker invocation. Dormant until 7q.3 wires
+into `extendIndirectMaskForClosure`.
+
+Build: `./gradlew :sirix-core:compileJava` BUILD SUCCESSFUL (903 ms, no warnings
+on the new code).

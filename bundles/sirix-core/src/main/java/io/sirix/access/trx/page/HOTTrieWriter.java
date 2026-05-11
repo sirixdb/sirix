@@ -6023,6 +6023,257 @@ public final class HOTTrieWriter {
     return new LiftSplitResult(r0, r1);
   }
 
+  /** Phase 7q.2 — counter for successful recursive lift firings. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_LIFT_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.2 — counter for recursive lift failures (any path). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_LIFT_FAILURES =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.2 — counter for "no propagation" walker terminations (β absent below). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_LIFT_NOOP =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getPhase7qLiftFirings() { return PHASE7Q_LIFT_FIRINGS.get(); }
+  public static void resetPhase7qLiftFirings() { PHASE7Q_LIFT_FIRINGS.set(0L); }
+  public static long getPhase7qLiftFailures() { return PHASE7Q_LIFT_FAILURES.get(); }
+  public static void resetPhase7qLiftFailures() { PHASE7Q_LIFT_FAILURES.set(0L); }
+  public static long getPhase7qLiftNoop() { return PHASE7Q_LIFT_NOOP.get(); }
+  public static void resetPhase7qLiftNoop() { PHASE7Q_LIFT_NOOP.set(0L); }
+
+  /**
+   * Phase 7q.2 walker result. Returned by
+   * {@link #liftBetaFromSubtreeRecursive(PageReference, int, TransactionIntentLog, int)}.
+   *
+   * <p>{@code root} is the (possibly modified) subtree root, always non-null on success.
+   * {@code propagateRight} is non-null iff β-discrimination must propagate UP one trie
+   * level — the caller must replace this subtree's slot in its own indirect with TWO
+   * children {@code (root, propagateRight)} and absorb β into its own mask. When
+   * {@code propagateRight} is null, the walker either modified the subtree in place
+   * (β stripped from internal indirects without changing the child count at this level)
+   * or did nothing.
+   */
+  private static final class BetaLiftWalk {
+    final PageReference root;
+    final @Nullable PageReference propagateRight;
+    BetaLiftWalk(PageReference root, @Nullable PageReference propagateRight) {
+      this.root = root;
+      this.propagateRight = propagateRight;
+    }
+    boolean propagates() { return propagateRight != null; }
+  }
+
+  /**
+   * Phase 7q.2 — Recursive β-lift on a subtree.
+   *
+   * <p>Walks the subtree at {@code ref} post-order. Strips β from every descendant
+   * indirect that captures it (via {@link #splitIndirectOnBitForLift}), propagating
+   * the resulting structural split up the trie until the caller absorbs β at its
+   * own indirect's mask. The lift fully respects I3/I4/I5/I6/I8/I11 at each
+   * rebuild step by routing through the existing
+   * {@link #buildBucketWithInheritedMask} helper.
+   *
+   * <p>Algorithm:
+   * <ol>
+   *   <li>Leaf: nothing to lift — return {@code (ref, null)}.</li>
+   *   <li>Indirect with β in mask: split via {@link #splitIndirectOnBitForLift}
+   *       → return {@code (D₀, D₁)}.</li>
+   *   <li>Indirect without β in mask:
+   *     <ol type="a">
+   *       <li>Pre-flight {@link #subtreeHasBitInAnyIndirectMask}; if no descendant
+   *           captures β, return {@code (ref, null)} immediately (fast path).</li>
+   *       <li>Recurse on every child.</li>
+   *       <li>If no child propagates a split, return {@code (ref, null)} (fossil
+   *           captures with β-constant subtrees are not load-bearing).</li>
+   *       <li>Else build expanded child list (each propagating split adds one
+   *           slot). Check fan-out cap.</li>
+   *       <li>Split the expanded child list on β via
+   *           {@link #splitExpandedChildrenOnBeta} (which calls
+   *           {@code buildBucketWithInheritedMask} per half). Return the resulting
+   *           {@code (D₀, D₁)}.</li>
+   *     </ol>
+   *   </li>
+   * </ol>
+   *
+   * <p>Failure modes (return null):
+   * <ul>
+   *   <li>{@link #splitIndirectOnBitForLift} fails (partial collision, no-zero, etc.).</li>
+   *   <li>Fan-out cap exceeded ({@code MULTI_NODE_MAX_CHILDREN}).</li>
+   *   <li>{@code buildBucketWithInheritedMask} returns null (I4/uniqueness gate trips).</li>
+   *   <li>Any child recurse fails.</li>
+   * </ul>
+   *
+   * <p>HFT-grade: recursion depth bounded by trie height (typically ≤ 8). Allocations
+   * are scoped to nodes that need rebuilding — the fast path (β absent below) allocates
+   * only the returned {@link BetaLiftWalk}. Primitive bit-position arithmetic, no
+   * autoboxing.
+   */
+  @Nullable
+  private BetaLiftWalk liftBetaFromSubtreeRecursive(PageReference ref, int beta,
+      TransactionIntentLog log, int revision) {
+    if (ref == null || beta < 0) {
+      PHASE7Q_LIFT_FAILURES.incrementAndGet();
+      return null;
+    }
+    Page page = ref.getPage();
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, ref);
+      if (page != null) ref.setPage(page);
+    }
+    if (page == null) {
+      PHASE7Q_LIFT_FAILURES.incrementAndGet();
+      return null;
+    }
+    if (page instanceof HOTLeafPage) {
+      PHASE7Q_LIFT_NOOP.incrementAndGet();
+      return new BetaLiftWalk(ref, null);
+    }
+    if (!(page instanceof HOTIndirectPage indirect)) {
+      PHASE7Q_LIFT_FAILURES.incrementAndGet();
+      return null;
+    }
+
+    // Case A: β at this indirect's level — split here, propagate up.
+    if (indirectMaskHasAbsBit(indirect, beta)) {
+      final LiftSplitResult split = splitIndirectOnBitForLift(indirect, beta, log, revision);
+      if (split == null) {
+        PHASE7Q_LIFT_FAILURES.incrementAndGet();
+        return null;
+      }
+      PHASE7Q_LIFT_FIRINGS.incrementAndGet();
+      return new BetaLiftWalk(split.betaZero, split.betaOne);
+    }
+
+    // Case B: β not at this level. Pre-flight: any descendant capture?
+    final int n = indirect.getNumChildren();
+    if (n == 0) {
+      PHASE7Q_LIFT_NOOP.incrementAndGet();
+      return new BetaLiftWalk(ref, null);
+    }
+    boolean anyDescCapture = false;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) {
+        PHASE7Q_LIFT_FAILURES.incrementAndGet();
+        return null;
+      }
+      if (subtreeHasBitInAnyIndirectMask(cref, beta)) {
+        anyDescCapture = true;
+        break;
+      }
+    }
+    if (!anyDescCapture) {
+      PHASE7Q_LIFT_NOOP.incrementAndGet();
+      return new BetaLiftWalk(ref, null);
+    }
+
+    // Recurse on every child.
+    final BetaLiftWalk[] childResults = new BetaLiftWalk[n];
+    boolean anyChildPropagates = false;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      final BetaLiftWalk cr = liftBetaFromSubtreeRecursive(cref, beta, log, revision);
+      if (cr == null) {
+        PHASE7Q_LIFT_FAILURES.incrementAndGet();
+        return null;
+      }
+      childResults[i] = cr;
+      if (cr.propagates()) anyChildPropagates = true;
+    }
+
+    if (!anyChildPropagates) {
+      // Fossil capture: β was in some descendant's mask but that subtree is
+      // β-constant — descendants left themselves alone, this level needs no rebuild.
+      PHASE7Q_LIFT_NOOP.incrementAndGet();
+      return new BetaLiftWalk(ref, null);
+    }
+
+    // Some child propagated a split. Build expanded child list.
+    int expandedN = 0;
+    for (int i = 0; i < n; i++) {
+      expandedN += childResults[i].propagates() ? 2 : 1;
+    }
+    if (expandedN > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      PHASE7Q_LIFT_FAILURES.incrementAndGet();
+      return null;
+    }
+    final PageReference[] expandedRefs = new PageReference[expandedN];
+    int idx = 0;
+    for (int i = 0; i < n; i++) {
+      expandedRefs[idx++] = childResults[i].root;
+      if (childResults[i].propagates()) {
+        expandedRefs[idx++] = childResults[i].propagateRight;
+      }
+    }
+
+    // Partition expanded refs by firstKey.β, rebuild via inherited mask.
+    final LiftSplitResult split = splitExpandedChildrenOnBeta(indirect, expandedRefs, expandedN,
+        beta, log, revision);
+    if (split == null) {
+      PHASE7Q_LIFT_FAILURES.incrementAndGet();
+      return null;
+    }
+    PHASE7Q_LIFT_FIRINGS.incrementAndGet();
+    return new BetaLiftWalk(split.betaZero, split.betaOne);
+  }
+
+  /**
+   * Phase 7q.2 — Partition a list of β-constant child refs into two buckets by
+   * firstKey.β value, then build each bucket-indirect via
+   * {@link #buildBucketWithInheritedMask} inheriting {@code originalIndirect}'s mask.
+   *
+   * <p>Used by {@link #liftBetaFromSubtreeRecursive} at intermediate trie levels:
+   * after recursive children produced (β=0, β=1) split-pair products, this helper
+   * collapses the expanded child list into a (D₀, D₁) pair at this level.
+   *
+   * <p>{@code originalIndirect}'s mask does not contain β (otherwise we'd have
+   * dispatched to {@link #splitIndirectOnBitForLift} directly). The bucket mask
+   * inherits {@code originalIndirect.mask} unchanged (β not present to strip).
+   *
+   * <p>Returns null on:
+   * <ul>
+   *   <li>missing firstKey on any expanded ref,</li>
+   *   <li>degenerate partition (one half empty — β isn't actually discriminating
+   *       at this level, which contradicts the walker's invariants),</li>
+   *   <li>{@code buildBucketWithInheritedMask} returning null (I4/uniqueness gate).</li>
+   * </ul>
+   *
+   * <p>HFT-grade: bounded allocation (4 small arrays sized to expanded count).
+   */
+  @Nullable
+  private LiftSplitResult splitExpandedChildrenOnBeta(HOTIndirectPage originalIndirect,
+      PageReference[] expandedRefs, int expandedN, int beta,
+      TransactionIntentLog log, int revision) {
+    if (expandedN < 2) return null;
+    final int[] s0Idx = new int[expandedN];
+    final int[] s1Idx = new int[expandedN];
+    final PageReference[] s0Refs = new PageReference[expandedN];
+    final PageReference[] s1Refs = new PageReference[expandedN];
+    int s0n = 0, s1n = 0;
+    for (int i = 0; i < expandedN; i++) {
+      final PageReference cref = expandedRefs[i];
+      if (cref == null) return null;
+      final byte[] fk = getFirstKeyFromChild(cref);
+      if (fk == null || fk.length == 0) return null;
+      if (isAbsBitSet(fk, beta)) {
+        s1Idx[s1n] = -1;
+        s1Refs[s1n] = cref;
+        s1n++;
+      } else {
+        s0Idx[s0n] = -1;
+        s0Refs[s0n] = cref;
+        s0n++;
+      }
+    }
+    if (s0n == 0 || s1n == 0) return null;
+    final PageReference r0 =
+        buildBucketWithInheritedMask(originalIndirect, s0Idx, s0Refs, s0n, beta, log, revision);
+    if (r0 == null) return null;
+    final PageReference r1 =
+        buildBucketWithInheritedMask(originalIndirect, s1Idx, s1Refs, s1n, beta, log, revision);
+    if (r1 == null) return null;
+    return new LiftSplitResult(r0, r1);
+  }
+
   /**
    * Phase 7q helper — returns {@code true} iff at least two of {@code indirect}'s
    * children's firstKeys differ at absolute bit position {@code absBit}.
