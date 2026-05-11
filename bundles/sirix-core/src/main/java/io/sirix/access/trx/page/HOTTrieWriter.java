@@ -7254,6 +7254,12 @@ public final class HOTTrieWriter {
       StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
     final boolean dbg = Boolean.getBoolean("hot.debug.g32");
     if (rootRef == null) return;
+    // Phase 7q.10 — bind activeLog so getFirstKeyFromChild can resolve TIL-only refs.
+    // Without this, placeholder children produce EMPTY_KEY → partial=0 → collisions in
+    // extendIndirectMaskForClosureI11Safe's partial uniqueness check, blocking the
+    // discriminating bit from being added.
+    this.activeReader = storageEngineWriter;
+    this.activeLog = log;
     final int revision = storageEngineWriter.getRevisionNumber();
     final var logEntry = log.get(rootRef);
     Page curPage = logEntry != null ? logEntry.getModified() : rootRef.getPage();
@@ -7373,9 +7379,12 @@ public final class HOTTrieWriter {
         }
         sb.append("]");
         for (int i = 0; i < n; i++) {
-          sb.append("\n  c[").append(i).append("].fk=");
-          if (firstKeys[i] == null) sb.append("null");
-          else for (final byte b : firstKeys[i]) sb.append(String.format("%02x", b & 0xff));
+          sb.append("\n  c[").append(i).append("] len=");
+          if (firstKeys[i] == null) { sb.append("null"); continue; }
+          sb.append(firstKeys[i].length).append(" raw=");
+          for (int b = 0; b < firstKeys[i].length; b++) {
+            sb.append(String.format("[%d]=%02x ", b, firstKeys[i][b] & 0xff));
+          }
         }
         System.err.println(sb);
       }
@@ -7578,9 +7587,16 @@ public final class HOTTrieWriter {
     for (int i = 1; i < newCount; i++) {
       for (int k = 0; k < i; k++) {
         if (newPartials[k] == newPartials[i]) {
-          if (dbgI11) System.err.println("[g32-i11s] reject beta=" + beta
-              + " reason=partial-collision i=" + i + " k=" + k + " p=" + newPartials[i]
-              + " newCount=" + newCount);
+          if (dbgI11) {
+            final byte[] fkI = getFirstKeyFromChild(newRefs.get(i));
+            final byte[] fkK = getFirstKeyFromChild(newRefs.get(k));
+            final StringBuilder fkIs = new StringBuilder(); final StringBuilder fkKs = new StringBuilder();
+            if (fkI != null) for (final byte b : fkI) fkIs.append(String.format("%02x", b & 0xff));
+            if (fkK != null) for (final byte b : fkK) fkKs.append(String.format("%02x", b & 0xff));
+            System.err.println("[g32-i11s] reject beta=" + beta
+                + " reason=partial-collision i=" + i + " k=" + k + " p=" + newPartials[i]
+                + " newCount=" + newCount + " fkI=" + fkIs + " fkK=" + fkKs);
+          }
           return null;
         }
       }
@@ -10724,6 +10740,20 @@ public final class HOTTrieWriter {
    */
   private byte[] getFirstKeyFromChild(PageReference childRef) {
     Page page = childRef.getPage();
+    // Phase 7q.10 — TIL-first resolution for in-flight refs. Previously this function
+    // only consulted childRef.getPage() and activeReader. For TIL-only refs (= pages
+    // staged for write but not yet persisted), both would return null, causing
+    // EMPTY_KEY → partial=0 → collisions between unrelated placeholder children. The
+    // TIL has the canonical in-flight page; consult it when getPage() is null.
+    if (page == null && activeLog != null) {
+      final var container = activeLog.get(childRef);
+      if (container != null) {
+        page = container.getModified();
+        if (page != null) {
+          childRef.setPage(page); // swizzle for future access
+        }
+      }
+    }
     if (page == null && activeReader != null) {
       page = loadPage(activeReader, childRef);
       if (page != null) {
