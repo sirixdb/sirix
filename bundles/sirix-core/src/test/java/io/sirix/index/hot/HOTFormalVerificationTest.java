@@ -443,6 +443,13 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailures();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendSuccesses();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailNoprop();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailFanout();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailLeafsplit();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailCollide();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailNozero();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailBetainmask();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailWalker();
 
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
@@ -845,6 +852,14 @@ final class HOTFormalVerificationTest {
               + " ext-fire=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFirings()
               + " ext-ok=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendSuccesses()
               + " ext-fail=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailures());
+          System.out.println("[microbench-pattern]   phase7q ext-fail-buckets: noprop="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailNoprop()
+              + " fanout=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailFanout()
+              + " leafsplit=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailLeafsplit()
+              + " collide=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailCollide()
+              + " nozero=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailNozero()
+              + " beta-in-mask=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailBetainmask()
+              + " walker-null=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailWalker());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();

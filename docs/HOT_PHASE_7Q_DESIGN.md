@@ -289,6 +289,49 @@ Findings:
 to localize which rebuild gate is rejecting the 59 cases. Once known, address
 the most common failure mode.
 
+### 7.7 Phase 7q.4 sub-counters land (2026-05-11 PM)
+
+Counters added: `PHASE7Q_EXTEND_FAIL_{NOPROP,FANOUT,LEAFSPLIT,COLLIDE,NOZERO,BETAINMASK,WALKER}`.
+
+First pass (no β-in-mask early bail):
+```
+phase7q ext-fail-buckets:
+  noprop=0 fanout=16 leafsplit=16 collide=0 nozero=0 beta-in-mask=27 walker-null=0
+```
+
+Then attempted `-Dhot.strict.phase7j.skipExisting=true` (= skip closure bits
+already in the indirect's own mask). Catastrophic cascade: 1 I8 → **8466** total
+violations (16 I11-trie-condition, 8448 I6-pext-routes-to-leaf, 2 I5, 2 I-Binna-sparse,
+1 I8). Confirms historical comment that skipExisting is unsafe.
+
+Pivoted: added explicit `indirectMaskHasAbsBit(indirect, beta)` early bail at
+`phase7qExtendWithLift` entry — when β is already in the indirect's own mask
+AND a descendant captures β too, that's a pre-existing I11 violation in the
+trie, not something the lift can repair single-level.
+
+After early-bail:
+```
+phase7q ext-fail-buckets:
+  noprop=0 fanout=0 leafsplit=0 collide=0 nozero=0 beta-in-mask=59 walker-null=0
+```
+
+**Diagnosis**: 59 of 60 LB-HARD cases have β already in `indirect.mask` —
+the trie's existing I11 double-capture. Only 1 is a real structural-lift
+candidate that the lift can fix (and does: ext-ok=1).
+
+The persistent I8 at `indirect 2 child[4] vs child[5]` is NOT among the cases
+the lift can address single-level. Either:
+- The discriminating bit isn't in `findClosureBits` because root's mask already
+  has bits covering byte 11 (lift added bit 90), but the specific bit needed
+  for child[4]/child[5] (bit 95) isn't surfaced as a closure bit.
+- Or the closure is attempting bit 95 but the indirect at parent=2 also has
+  bit 95 in its mask already (= same β-in-mask scenario).
+
+Need a different angle next session: investigate WHICH bit closes the
+final I8 and why it's not being attempted (or why its attempt hits β-in-mask).
+
+100K CAS still 0 violations (no regression).
+
 Persistent I8 still at `indirect 2 child[4] vs child[5]` (byte 11 bit 95 = LSB
 of byte 11). Lift's structural improvement IS happening (height 6→5, LB-HARD
 64→60→1 net), but it's not addressing the final pair.

@@ -6283,6 +6283,27 @@ public final class HOTTrieWriter {
   /** Phase 7q.3 — counter for lift+extend dispatch successes (returned non-null). */
   private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_SUCCESSES =
       new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.4 — sub-bucket: failure because walker had nothing to propagate. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_FAIL_NOPROP =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.4 — sub-bucket: failure because expanded child count overflowed MULTI_NODE cap. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_FAIL_FANOUT =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.4 — sub-bucket: failure because splitSubtreeOnBit returned null on β-mixed leaf. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_FAIL_LEAFSPLIT =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.4 — sub-bucket: failure because partials collided under the extended mask. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_FAIL_COLLIDE =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.4 — sub-bucket: failure because no zero partial (I4 gate). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_FAIL_NOZERO =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.4 — sub-bucket: failure because β already in old mask (caller bug). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_FAIL_BETAINMASK =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.4 — sub-bucket: failure because walker returned null. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_FAIL_WALKER =
+      new java.util.concurrent.atomic.AtomicLong(0L);
 
   public static long getPhase7qExtendFirings() { return PHASE7Q_EXTEND_FIRINGS.get(); }
   public static void resetPhase7qExtendFirings() { PHASE7Q_EXTEND_FIRINGS.set(0L); }
@@ -6290,6 +6311,20 @@ public final class HOTTrieWriter {
   public static void resetPhase7qExtendFailures() { PHASE7Q_EXTEND_FAILURES.set(0L); }
   public static long getPhase7qExtendSuccesses() { return PHASE7Q_EXTEND_SUCCESSES.get(); }
   public static void resetPhase7qExtendSuccesses() { PHASE7Q_EXTEND_SUCCESSES.set(0L); }
+  public static long getPhase7qExtendFailNoprop() { return PHASE7Q_EXTEND_FAIL_NOPROP.get(); }
+  public static void resetPhase7qExtendFailNoprop() { PHASE7Q_EXTEND_FAIL_NOPROP.set(0L); }
+  public static long getPhase7qExtendFailFanout() { return PHASE7Q_EXTEND_FAIL_FANOUT.get(); }
+  public static void resetPhase7qExtendFailFanout() { PHASE7Q_EXTEND_FAIL_FANOUT.set(0L); }
+  public static long getPhase7qExtendFailLeafsplit() { return PHASE7Q_EXTEND_FAIL_LEAFSPLIT.get(); }
+  public static void resetPhase7qExtendFailLeafsplit() { PHASE7Q_EXTEND_FAIL_LEAFSPLIT.set(0L); }
+  public static long getPhase7qExtendFailCollide() { return PHASE7Q_EXTEND_FAIL_COLLIDE.get(); }
+  public static void resetPhase7qExtendFailCollide() { PHASE7Q_EXTEND_FAIL_COLLIDE.set(0L); }
+  public static long getPhase7qExtendFailNozero() { return PHASE7Q_EXTEND_FAIL_NOZERO.get(); }
+  public static void resetPhase7qExtendFailNozero() { PHASE7Q_EXTEND_FAIL_NOZERO.set(0L); }
+  public static long getPhase7qExtendFailBetainmask() { return PHASE7Q_EXTEND_FAIL_BETAINMASK.get(); }
+  public static void resetPhase7qExtendFailBetainmask() { PHASE7Q_EXTEND_FAIL_BETAINMASK.set(0L); }
+  public static long getPhase7qExtendFailWalker() { return PHASE7Q_EXTEND_FAIL_WALKER.get(); }
+  public static void resetPhase7qExtendFailWalker() { PHASE7Q_EXTEND_FAIL_WALKER.set(0L); }
 
   /**
    * Phase 7q.3 — Lift β from {@code indirect}'s descendants, then build a new
@@ -6333,6 +6368,16 @@ public final class HOTTrieWriter {
       PHASE7Q_EXTEND_FAILURES.incrementAndGet();
       return null;
     }
+    // Phase 7q.4 — early bail when β is already in indirect.mask. The Phase 7p
+    // reject path fires for "β in some descendant"; if β is ALSO in indirect's
+    // own mask, that's an existing I11 violation in the trie that the lift
+    // cannot remediate without restructuring indirect itself (multi-level lift).
+    // Fall through to the standard reject so the caller knows we couldn't fix it.
+    if (indirectMaskHasAbsBit(indirect, beta)) {
+      PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+      PHASE7Q_EXTEND_FAIL_BETAINMASK.incrementAndGet();
+      return null;
+    }
 
     // Step 0: lift β from every child's subtree.
     final BetaLiftWalk[] lifts = new BetaLiftWalk[n];
@@ -6347,6 +6392,7 @@ public final class HOTTrieWriter {
       final BetaLiftWalk lw = liftBetaFromSubtreeRecursive(cref, beta, log, revision);
       if (lw == null) {
         PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+        PHASE7Q_EXTEND_FAIL_WALKER.incrementAndGet();
         return null;
       }
       lifts[i] = lw;
@@ -6356,6 +6402,7 @@ public final class HOTTrieWriter {
     if (numPropagated == 0) {
       // Walker found nothing to propagate — Phase 7p reject is the right call.
       PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+      PHASE7Q_EXTEND_FAIL_NOPROP.incrementAndGet();
       return null;
     }
 
@@ -6385,6 +6432,7 @@ public final class HOTTrieWriter {
         final SubtreeSplit ss = splitSubtreeOnBit(ref, beta, log, revision);
         if (ss == null) {
           PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+          PHASE7Q_EXTEND_FAIL_LEAFSPLIT.incrementAndGet();
           return null;
         }
         newRefs.add(ss.leftRef());
@@ -6394,6 +6442,7 @@ public final class HOTTrieWriter {
     final int newCount = newRefs.size();
     if (newCount > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
       PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+      PHASE7Q_EXTEND_FAIL_FANOUT.incrementAndGet();
       return null;
     }
 
@@ -6448,6 +6497,7 @@ public final class HOTTrieWriter {
         if ((oldByteMaskBits[i] & newMaskBitInByte) != 0) {
           // β-bit already set in old mask — caller shouldn't have invoked us.
           PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+          PHASE7Q_EXTEND_FAIL_BETAINMASK.incrementAndGet();
           return null;
         }
         allCount++;
@@ -6503,6 +6553,7 @@ public final class HOTTrieWriter {
           if (dbg) System.err.println("[phase7q-extend] reject reason=partial-collision beta=" + beta
               + " i=" + i + " k=" + k + " partial=" + Integer.toHexString(newPartials[i]));
           PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+          PHASE7Q_EXTEND_FAIL_COLLIDE.incrementAndGet();
           return null;
         }
       }
@@ -6516,6 +6567,7 @@ public final class HOTTrieWriter {
       if (dbg) System.err.println("[phase7q-extend] reject reason=no-zero-partial beta=" + beta
           + " newCount=" + newCount);
       PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+      PHASE7Q_EXTEND_FAIL_NOZERO.incrementAndGet();
       return null;
     }
 
