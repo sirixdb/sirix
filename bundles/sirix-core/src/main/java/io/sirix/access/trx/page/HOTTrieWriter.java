@@ -5461,7 +5461,15 @@ public final class HOTTrieWriter {
             + " parentMsb=" + parentMsb + " bits=[" + sb + "]");
       }
       boolean extended = false;
+      final boolean phase7qIterDbg = cur.getPageKey() == 2L
+          && Boolean.getBoolean("hot.debug.phase7q");
       for (final int beta : closureBits) {
+        // Phase 7q.8 diagnostic: trace EVERY pre-filter bit consideration on root.
+        // Gated behind -Dhot.debug.phase7q=true to avoid spam under default operation.
+        if (phase7qIterDbg) {
+          System.err.println("[phase7q-iter] cur.pageKey=2 iter=" + iter
+              + " consider beta=" + beta + " parentMsb=" + parentMsb);
+        }
         if (beta <= parentMsb) continue; // skip bits not strictly less significant than parent.MSB
         if (triedBits != null && !triedBits.add(beta)) continue; // already attempted this commit cycle
         // Optionally skip bits already in cur's mask. Gated because adding more aggressive
@@ -6270,6 +6278,207 @@ public final class HOTTrieWriter {
       return true;
     }
     return true;
+  }
+
+  /** Phase 7q.7 — counter for constancy-filtered wrap helper invocations. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_CONSTANCY_WRAP_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.7 — counter for constancy-filtered wrap helper successes. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_CONSTANCY_WRAP_SUCCESS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.7 — counter for constancy-filtered wrap helper failures (no usable bits, or
+   *  uniqueness/I4 violation under the filtered mask). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_CONSTANCY_WRAP_FAIL =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getPhase7qConstancyWrapFirings() {
+    return PHASE7Q_CONSTANCY_WRAP_FIRINGS.get();
+  }
+  public static void resetPhase7qConstancyWrapFirings() {
+    PHASE7Q_CONSTANCY_WRAP_FIRINGS.set(0L);
+  }
+  public static long getPhase7qConstancyWrapSuccess() {
+    return PHASE7Q_CONSTANCY_WRAP_SUCCESS.get();
+  }
+  public static void resetPhase7qConstancyWrapSuccess() {
+    PHASE7Q_CONSTANCY_WRAP_SUCCESS.set(0L);
+  }
+  public static long getPhase7qConstancyWrapFail() {
+    return PHASE7Q_CONSTANCY_WRAP_FAIL.get();
+  }
+  public static void resetPhase7qConstancyWrapFail() {
+    PHASE7Q_CONSTANCY_WRAP_FAIL.set(0L);
+  }
+
+  /**
+   * Phase 7q.7 — Constancy-filtered wrap bucket builder for the structural lift.
+   *
+   * <p>Replaces the wrap-fallback path inside {@link #buildBucketWithInheritedMask} for
+   * lift-bucket cases where the inherited mask cannot represent the bucket cleanly
+   * (uniqueness collision, empty mask, BiNode special case). Derives candidate disc bits
+   * from adjacent-pair firstKey XOR (mirroring {@link #computeDiscBits}), then filters
+   * each candidate against three constraints:
+   * <ol>
+   *   <li>{@code absBit > newParentMsb} where {@code newParentMsb = min(oldParentMsb, β)}
+   *       — preserves Binna's I11 trie condition (child.MSB &gt; parent.MSB).</li>
+   *   <li>{@code absBit != β} — we are lifting β out of this subtree, mustn't recapture.</li>
+   *   <li>The bit is β-constant in every bucket child's subtree (validated via
+   *       {@link #bitConstantValueInSubtree}) — preserves Binna's I5/I6 sparse routing.</li>
+   * </ol>
+   *
+   * <p>Builds the indirect with the filtered mask + sparse-path partials (via
+   * {@link #computePartialKeysForChildren}) and verifies uniqueness + I4 (first partial = 0).
+   * Returns {@code null} on any failure mode (no usable bits, uniqueness/I4 collision,
+   * fan-out overflow).
+   *
+   * <p>Used by {@link #splitIndirectOnBitForLift} as a retry after the post-build
+   * constancy gate rejects the {@link #buildBucketWithInheritedMask} result. The retry
+   * succeeds when the bucket's children have at least one common disc bit that is
+   * β-constant in every child's subtree but did NOT survive the inherited-mask path
+   * (typically because the inherited mask was empty after stripping β, or uniqueness
+   * collided under the shrunk mask).
+   *
+   * <p>HFT-grade: bounded allocations sized to bucket count (typically ≤ 32 on the
+   * reproducer). Inner XOR loop uses primitive arithmetic + {@code Integer.numberOfLeadingZeros}
+   * intrinsic. TreeMap is used only for the byte→mask aggregation (small &lt; 22 entries
+   * for the diagnostic shapes); a hand-rolled sparse array could replace it if the helper
+   * shows up hot, but at current call frequency (≤ 100 firings per 50K-key build) the
+   * overhead is negligible.
+   */
+  @Nullable
+  private PageReference phase7qBuildBucketConstancyFiltered(HOTIndirectPage parent,
+      PageReference[] bucketRefs, int bucketSize, int beta,
+      TransactionIntentLog log, int revision) {
+    PHASE7Q_CONSTANCY_WRAP_FIRINGS.incrementAndGet();
+    if (bucketSize == 0) {
+      PHASE7Q_CONSTANCY_WRAP_FAIL.incrementAndGet();
+      return null;
+    }
+    if (bucketSize == 1) {
+      PHASE7Q_CONSTANCY_WRAP_SUCCESS.incrementAndGet();
+      return bucketRefs[0]; // pass-through, no rebuild needed
+    }
+    if (bucketSize > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      PHASE7Q_CONSTANCY_WRAP_FAIL.incrementAndGet();
+      return null;
+    }
+
+    final int oldParentMsb = parent.getMostSignificantBitIndex() & 0xFFFF;
+    final int newParentMsb = Math.min(oldParentMsb, beta);
+
+    // 1. Sort children by firstKey so adjacent-pair XOR matches buildFlatNonStrict.
+    final PageReference[] children = Arrays.copyOf(bucketRefs, bucketSize);
+    sortChildrenByFirstKey(children);
+
+    // 2. Adjacent-pair XOR, with constancy + I11 + β filters applied inline.
+    final TreeMap<Integer, Integer> maskByBytePos = new TreeMap<>();
+    int minBytePos = Integer.MAX_VALUE;
+    int maxBytePos = 0;
+    for (int i = 0; i < bucketSize - 1; i++) {
+      final byte[] left = getLastKeyFromChild(children[i]);
+      final byte[] right = getFirstKeyFromChild(children[i + 1]);
+      if (left == null || left.length == 0 || right == null || right.length == 0) continue;
+      final int minLen = Math.min(left.length, right.length);
+      for (int b = 0; b < minLen; b++) {
+        int diff = (left[b] ^ right[b]) & 0xFF;
+        while (diff != 0) {
+          final int hb = Integer.numberOfLeadingZeros(diff) - 24; // 0..7, 0 = MSB
+          diff &= ~(1 << (7 - hb));
+          final int absBit = b * 8 + hb;
+          // I11 filter: bucket-indirect.MSB must be > post-lift parent.MSB.
+          if (absBit <= newParentMsb) continue;
+          // Don't capture β — we are lifting it OUT of this subtree.
+          if (absBit == beta) continue;
+          if (isDiscBitAlreadyCaptured(maskByBytePos, b, hb)) continue;
+          // Constancy filter: every bucket child must be β-constant on absBit.
+          boolean allConst = true;
+          for (int ci = 0; ci < bucketSize; ci++) {
+            if (bitConstantValueInSubtree(children[ci], absBit) < 0) {
+              allConst = false;
+              break;
+            }
+          }
+          if (!allConst) continue;
+          final int maskBit = 1 << (7 - hb);
+          maskByBytePos.merge(b, maskBit, (a, c2) -> a | c2);
+          if (b < minBytePos) minBytePos = b;
+          if (b > maxBytePos) maxBytePos = b;
+        }
+      }
+    }
+
+    if (maskByBytePos.isEmpty()) {
+      PHASE7Q_CONSTANCY_WRAP_FAIL.incrementAndGet();
+      return null;
+    }
+
+    // 3. Build DiscBitsInfo: SingleMask when all bits fit a single 8-byte window, else MultiMask.
+    final DiscBitsInfo discBits;
+    if (maxBytePos - minBytePos < 8) {
+      long mask = 0L;
+      for (final var entry : maskByBytePos.entrySet()) {
+        final int byteOffset = entry.getKey() - minBytePos;
+        final int maskByte = entry.getValue();
+        mask |= ((long) (maskByte & 0xFF)) << ((7 - byteOffset) * 8);
+      }
+      discBits = DiscBitsInfo.singleMask(minBytePos, mask);
+    } else {
+      discBits = buildMultiMask(maskByBytePos, minBytePos);
+    }
+
+    // 4. Sparse-path partials.
+    final int[] partialKeys = computePartialKeysForChildren(children, discBits);
+
+    // 5. Canonical I7 order (partial-key ascending).
+    sortChildrenAndPartialsByPartial(children, partialKeys);
+
+    // 6. Uniqueness check.
+    for (int i = 1; i < bucketSize; i++) {
+      for (int k = 0; k < i; k++) {
+        if (partialKeys[i] == partialKeys[k]) {
+          PHASE7Q_CONSTANCY_WRAP_FAIL.incrementAndGet();
+          return null;
+        }
+      }
+    }
+
+    // 7. I4 (smallest partial == 0).
+    if (partialKeys[0] != 0) {
+      PHASE7Q_CONSTANCY_WRAP_FAIL.incrementAndGet();
+      return null;
+    }
+
+    // 8. Construct the indirect using the inheriting parent's height.
+    final long pageKey = pageKeyAllocator.getAsLong();
+    final int height = parent.getHeight();
+    final HOTIndirectPage built;
+    if (discBits.isSingleMask()) {
+      if (bucketSize <= 16) {
+        built = HOTIndirectPage.createSpanNode(pageKey, revision, discBits.initialBytePos(),
+            discBits.bitMask(), partialKeys, children, height);
+      } else {
+        built = HOTIndirectPage.createMultiNode(pageKey, revision, discBits.initialBytePos(),
+            discBits.bitMask(), partialKeys, children, height);
+      }
+    } else {
+      if (bucketSize <= 16) {
+        built = HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision,
+            discBits.extractionPositions(), discBits.extractionMasks(),
+            discBits.numExtractionBytes(), partialKeys, children, height,
+            discBits.mostSignificantBitIndex());
+      } else {
+        built = HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision,
+            discBits.extractionPositions(), discBits.extractionMasks(),
+            discBits.numExtractionBytes(), partialKeys, children, height,
+            discBits.mostSignificantBitIndex());
+      }
+    }
+    final PageReference ref = new PageReference();
+    ref.setKey(pageKey);
+    ref.setPage(built);
+    log.put(ref, PageContainer.getInstance(built, built));
+    PHASE7Q_CONSTANCY_WRAP_SUCCESS.incrementAndGet();
+    return ref;
   }
 
   /** Phase 7q.2 — counter for successful recursive lift firings. */

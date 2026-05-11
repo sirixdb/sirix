@@ -453,6 +453,9 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qClosureNoopSkips();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qSplitFailConstancy();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripNonconstantBits();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapSuccess();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qConstancyWrapFail();
 
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
@@ -869,6 +872,12 @@ final class HOTFormalVerificationTest {
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qSplitFailConstancy()
               + " strip-nonconstant-bits="
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qStripNonconstantBits());
+          System.out.println("[microbench-pattern]   phase7q constancy-wrap: firings="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qConstancyWrapFirings()
+              + " success="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qConstancyWrapSuccess()
+              + " fail="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qConstancyWrapFail());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();

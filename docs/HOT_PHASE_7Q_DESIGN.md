@@ -189,6 +189,12 @@ next uncommitted phase by reading this doc + the latest commit's diff.
   under `skipNoop`, opt-in via `hot.strict.phase7q.constancyGate`). **Cascade
   prevented**: skipNoop+gate yields 2 I8 violations (no I6 / I11 / I5 cascade)
   vs the prior 8469-violation cascade. Default behaviour preserved at 1 I8.
+- [x] 7q.7 — constancy-filtered wrap retry in `splitIndirectOnBitForLift`.
+  Helper `phase7qBuildBucketConstancyFiltered` re-derives disc bits with
+  inline I11 + β-skip + per-child subtree-constancy filters. Wired as a
+  retry after the 7q.6 gate rejection. Rescues 9 of 25 firings (36%) in
+  skipNoop+gate mode; split-fail-constancy 19→16. ext-ok stays at 0
+  (cascade-infeasible buckets remain). Default mode unchanged at 1 I8.
 
 ## 7 — Empirical results (filled in as phases land)
 
@@ -611,3 +617,75 @@ can succeed.
 
 100K CAS regression: 0 violations preserved.
 HOTOptionBPhase5Test: passes.
+
+### 7.13 Phase 7q.7 — constancy-filtered wrap retry (2026-05-12)
+
+When `splitIndirectOnBitForLift` produces a bucket whose mask captures bits
+non-constant in some child's subtree, the Phase 7q.6 gate rejects and the split
+fails. Phase 7q.7 adds a fallback path: `phase7qBuildBucketConstancyFiltered`
+re-derives disc bits from adjacent-pair firstKey XOR but applies three filters
+inline — (a) `absBit > newParentMsb` (I11), (b) `absBit != β` (β is what we're
+lifting out), (c) bit is β-constant in every bucket child's subtree (I5/I6).
+Builds sparse-path partials and verifies uniqueness + I4. Returns null if no
+usable bits or uniqueness collides.
+
+Wired into `splitIndirectOnBitForLift`: when the post-build constancy gate
+rejects r0 or r1, retry via `phase7qBuildBucketConstancyFiltered` for that
+half. If the retry succeeds AND its output passes the gate, accept; otherwise
+return null cleanly.
+
+**Empirical (50K reproducer, skipNoop+gate on)**:
+
+| Metric | Phase 7q.6 | Phase 7q.7 |
+|---|---|---|
+| Violations | 2 (both I8) | 2 (both I8) |
+| Height | 6 | 6 |
+| ext-ok | 0 | 0 |
+| split-firings (success) | 2 | 7 |
+| split-fail-constancy | 19 | 16 |
+| Constancy-wrap firings | n/a | 25 (success=9, fail=16) |
+
+Retry rescues 9 of 25 firings (36%). At the OUTER split level, this translates
+to 5 additional split successes (2 → 7). However, **ext-ok stays at 0** because
+each end-to-end lift requires ALL of its descendant splits to succeed
+simultaneously — the 5 rescues are not concentrated enough to unblock any one
+ext attempt.
+
+**Default mode** (no skipNoop/gate): unchanged — 1 violation, height 5,
+ext-ok=1. Constancy-wrap counters are 0 (gate never fires, retry path
+dormant).
+
+**100K CAS regression**: 0 violations preserved.
+**HOTOptionBPhase5Test**: passes.
+
+**Why the rescues don't translate into ext-ok > 0**:
+- A single `phase7qExtendWithLift` call iterates over `indirect`'s N children,
+  calling `liftBetaFromSubtreeRecursive` per child. Any null return bails the
+  whole ext attempt.
+- The 18 walker-null cases (down from 19 pre-7q.7) mean 18 of 19 ext attempts
+  have at least ONE child whose walker fails. Even with rescues, the OTHER
+  children's walks must also succeed for ext-ok.
+- The 16 surviving constancy failures are buckets where NO usable disc bit
+  exists under the three filters. For those buckets, the lift is
+  fundamentally infeasible without restructuring the descendant subtree
+  itself (i.e., recursive lift).
+
+**Phase 7q.8 entry point** (next session):
+1. Apply the same constancy retry to `splitExpandedChildrenOnBeta` (the Case B
+   intermediate-level builder in the walker) — currently has NO retry.
+2. Investigate the 16 surviving constancy failures: dump bucket children +
+   their subtree masks to identify which bits are unavailable and why.
+3. Consider a recursive lift inside the walker: when the constancy-filtered
+   helper finds no usable bits because all candidates are non-constant in
+   some descendant, recurse into that descendant first to strip its captures.
+   (This was the cascading-lift idea sketched in §2.2 but applied
+   bottom-up rather than top-down.)
+
+**Files touched** (commit `[pending]`):
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + `phase7qBuildBucketConstancyFiltered` helper (~180 lines including
+    counters + Javadoc).
+  + Retry hookup inside `splitIndirectOnBitForLift` (r0/r1 fallback).
+  + `PHASE7Q_CONSTANCY_WRAP_{FIRINGS,SUCCESS,FAIL}` counters.
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  + Counter reset + report.
