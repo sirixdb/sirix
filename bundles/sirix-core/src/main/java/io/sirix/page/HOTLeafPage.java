@@ -1760,6 +1760,41 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     // Handle prefix for the incoming key (may shrink prefix)
     handlePrefixForInsert(keySlice);
+    return mergeWithNodeRefsImpl(keySlice, value, valueLen);
+  }
+
+  /**
+   * Phase 7b — Strict variant of {@link #mergeWithNodeRefs} that checks
+   * ancestor-owned bits before merging. If the key would violate a β-constancy
+   * constraint (= owned bit value disagrees with key's value), returns the
+   * offending absolute bit position as a NEGATIVE int (= -(absBit + 1)). The
+   * leaf is left unchanged. Caller must handle by splitting the leaf on the
+   * offending β.
+   *
+   * <p>Returns:
+   * <ul>
+   *   <li>1 — merge succeeded.
+   *   <li>0 — merge failed (= overflow, etc.).
+   *   <li>≤ -1 — β-constancy break at absBit = (-return - 1).
+   * </ul>
+   *
+   * <p>HFT-grade: zero allocation in the no-break path beyond what regular
+   * merge does.
+   */
+  public int mergeWithNodeRefsStrict(byte[] key, int keyLen, byte[] value, int valueLen) {
+    Objects.requireNonNull(key);
+    Objects.requireNonNull(value);
+    final byte[] keySlice = keyLen == key.length ? key : Arrays.copyOf(key, keyLen);
+    // β-constancy check FIRST (before any mutation).
+    final int offendingBit = checkOwnedBitsAgainstKey(keySlice);
+    if (offendingBit >= 0) {
+      return -(offendingBit + 1);
+    }
+    handlePrefixForInsert(keySlice);
+    return mergeWithNodeRefsImpl(keySlice, value, valueLen) ? 1 : 0;
+  }
+
+  private boolean mergeWithNodeRefsImpl(byte[] keySlice, byte[] value, int valueLen) {
 
     int index = findEntry(keySlice);
 

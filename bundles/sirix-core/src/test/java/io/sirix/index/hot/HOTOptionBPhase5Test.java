@@ -110,6 +110,39 @@ class HOTOptionBPhase5Test {
       assertEquals(-1, leaf.checkOwnedBitsAgainstKey(hexBytes("80")));
       assertEquals(-1, leaf.checkOwnedBitsAgainstKey(hexBytes("ff")));
     }
+
+    @Test
+    @DisplayName("Phase 7b — mergeWithNodeRefsStrict accepts compliant key")
+    void strictMergeCompliant() {
+      final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
+      // Owned: byte 0 bit 0 must be 1.
+      leaf.setAncestorOwnedBits(new int[]{ 0 }, new byte[]{ 1 });
+      final byte[] key = hexBytes("8000abcd");
+      final byte[] value = hexBytes("01020304");
+      assertEquals(1, leaf.mergeWithNodeRefsStrict(key, key.length, value, value.length));
+    }
+
+    @Test
+    @DisplayName("Phase 7b — mergeWithNodeRefsStrict rejects offending key")
+    void strictMergeOffending() {
+      final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
+      leaf.setAncestorOwnedBits(new int[]{ 0 }, new byte[]{ 1 });
+      // Key 0x00... has bit 0 = 0, owned says 1 → offending at absBit 0.
+      final byte[] key = hexBytes("0000abcd");
+      final byte[] value = hexBytes("01020304");
+      final int result = leaf.mergeWithNodeRefsStrict(key, key.length, value, value.length);
+      assertEquals(-1, result); // -(0+1) = -1
+      assertEquals(0, leaf.getEntryCount(), "leaf must be unchanged after β-break reject");
+    }
+
+    @Test
+    @DisplayName("Phase 7b — mergeWithNodeRefsStrict empty-owned behaves like regular merge")
+    void strictMergeNoOwnedBits() {
+      final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
+      final byte[] key = hexBytes("12345678");
+      final byte[] value = hexBytes("aabbccdd");
+      assertEquals(1, leaf.mergeWithNodeRefsStrict(key, key.length, value, value.length));
+    }
   }
 
   @Nested
