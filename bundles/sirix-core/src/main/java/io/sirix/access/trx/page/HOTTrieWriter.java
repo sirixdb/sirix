@@ -6274,6 +6274,265 @@ public final class HOTTrieWriter {
     return new LiftSplitResult(r0, r1);
   }
 
+  /** Phase 7q.3 — counter for lift+extend dispatch firings. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.3 — counter for lift+extend dispatch failures. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_FAILURES =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.3 — counter for lift+extend dispatch successes (returned non-null). */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_SUCCESSES =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getPhase7qExtendFirings() { return PHASE7Q_EXTEND_FIRINGS.get(); }
+  public static void resetPhase7qExtendFirings() { PHASE7Q_EXTEND_FIRINGS.set(0L); }
+  public static long getPhase7qExtendFailures() { return PHASE7Q_EXTEND_FAILURES.get(); }
+  public static void resetPhase7qExtendFailures() { PHASE7Q_EXTEND_FAILURES.set(0L); }
+  public static long getPhase7qExtendSuccesses() { return PHASE7Q_EXTEND_SUCCESSES.get(); }
+  public static void resetPhase7qExtendSuccesses() { PHASE7Q_EXTEND_SUCCESSES.set(0L); }
+
+  /**
+   * Phase 7q.3 — Lift β from {@code indirect}'s descendants, then build a new
+   * indirect with β added to its mask using the lifted children.
+   *
+   * <p>This is the dispatch entry point for the LB-HARD case in
+   * {@link #extendIndirectMaskForClosure}: when {@code -Dhot.strict.phase7q=true}
+   * and the Phase 7p classifier identifies a load-bearing-hard rejection, this
+   * helper:
+   * <ol>
+   *   <li>Runs {@link #liftBetaFromSubtreeRecursive} on every child of
+   *       {@code indirect}, producing an expanded child list with β stripped
+   *       from every descendant indirect's mask.</li>
+   *   <li>Splits any remaining β-mixed leaves via {@link #splitSubtreeOnBit}
+   *       (the walker doesn't touch leaves — it only handles indirect-mask
+   *       capture).</li>
+   *   <li>Builds the new indirect with β added to {@code indirect}'s old mask,
+   *       computing partials under the extended mask and verifying I3 (unique)
+   *       and I4 (smallest partial = 0).</li>
+   * </ol>
+   *
+   * <p>If no child of {@code indirect} actually propagated a lift split (= the
+   * Phase 7p classifier's load-bearing assessment was a false positive, or the
+   * walker tripped on a fossil-only path), returns {@code null} so the caller
+   * falls through to the standard reject.
+   *
+   * <p>HFT-grade: bounded allocations, primitive bit arithmetic. Recursion goes
+   * through the walker only, never via this function.
+   */
+  @Nullable
+  private HOTIndirectPage phase7qExtendWithLift(HOTIndirectPage indirect, int beta,
+      TransactionIntentLog log, int revision) {
+    final boolean dbg = Boolean.getBoolean("hot.debug.g30");
+    PHASE7Q_EXTEND_FIRINGS.incrementAndGet();
+    if (indirect == null || beta < 0) {
+      PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+      return null;
+    }
+    final int n = indirect.getNumChildren();
+    if (n < 2) {
+      PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+      return null;
+    }
+
+    // Step 0: lift β from every child's subtree.
+    final BetaLiftWalk[] lifts = new BetaLiftWalk[n];
+    int liftedN = 0;
+    int numPropagated = 0;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) {
+        PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+        return null;
+      }
+      final BetaLiftWalk lw = liftBetaFromSubtreeRecursive(cref, beta, log, revision);
+      if (lw == null) {
+        PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+        return null;
+      }
+      lifts[i] = lw;
+      if (lw.propagates()) { liftedN += 2; numPropagated++; }
+      else liftedN += 1;
+    }
+    if (numPropagated == 0) {
+      // Walker found nothing to propagate — Phase 7p reject is the right call.
+      PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+      return null;
+    }
+
+    final PageReference[] liftedRefs = new PageReference[liftedN];
+    {
+      int idx = 0;
+      for (int i = 0; i < n; i++) {
+        liftedRefs[idx++] = lifts[i].root;
+        if (lifts[i].propagates()) liftedRefs[idx++] = lifts[i].propagateRight;
+      }
+    }
+
+    // Step 1: pre-split any remaining β-mixed children (= leaves the walker didn't touch).
+    // After the walker, indirect-mask β-capture is stripped, but multi-entry leaves can
+    // still be β-mixed at the leaf level.
+    final java.util.ArrayList<PageReference> newRefs = new java.util.ArrayList<>(liftedN * 2);
+    for (int i = 0; i < liftedN; i++) {
+      final PageReference ref = liftedRefs[i];
+      if (ref == null) {
+        PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+        return null;
+      }
+      final int v = bitConstantValueInSubtree(ref, beta);
+      if (v >= 0) {
+        newRefs.add(ref);
+      } else {
+        final SubtreeSplit ss = splitSubtreeOnBit(ref, beta, log, revision);
+        if (ss == null) {
+          PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+          return null;
+        }
+        newRefs.add(ss.leftRef());
+        newRefs.add(ss.rightRef());
+      }
+    }
+    final int newCount = newRefs.size();
+    if (newCount > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+      return null;
+    }
+
+    // Step 2: build new mask = old mask + β. (Mirrors extendIndirectMaskForClosure body.)
+    final int oldInitialBytePos = indirect.getInitialBytePos();
+    final long oldMask = indirect.getBitMask();
+    final int newBytePos = beta / 8;
+    final int newBitInByte = beta % 8;
+    final int newMaskBitInByte = 1 << (7 - newBitInByte);
+
+    final int[] oldBytePositions = new int[16];
+    final int[] oldByteMaskBits = new int[16];
+    int oldByteCount = 0;
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      for (int bo = 0; bo < 8; bo++) {
+        final int byteMaskBits = (int) ((oldMask >>> ((7 - bo) * 8)) & 0xFFL);
+        if (byteMaskBits != 0) {
+          oldBytePositions[oldByteCount] = oldInitialBytePos + bo;
+          oldByteMaskBits[oldByteCount] = byteMaskBits;
+          oldByteCount++;
+        }
+      }
+    } else {
+      final byte[] ep = indirect.getExtractionPositions();
+      final long[] em = indirect.getExtractionMasks();
+      final int neb = indirect.getNumExtractionBytes();
+      for (int i = 0; i < neb; i++) {
+        final int chunkIdx = i / 8;
+        final int byteOffsetInChunk = i % 8;
+        final int byteMaskBits = (int) ((em[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+        if (byteMaskBits != 0) {
+          if (oldByteCount >= oldBytePositions.length) {
+            PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+            return null;
+          }
+          oldBytePositions[oldByteCount] = ep[i] & 0xFF;
+          oldByteMaskBits[oldByteCount] = byteMaskBits;
+          oldByteCount++;
+        }
+      }
+    }
+
+    // Merge β's byte into the sorted byte-position list.
+    final int[] allBytePositions = new int[oldByteCount + 1];
+    final int[] allByteMaskBits = new int[oldByteCount + 1];
+    int allCount = 0;
+    boolean merged = false;
+    for (int i = 0; i < oldByteCount; i++) {
+      if (!merged && oldBytePositions[i] == newBytePos) {
+        allBytePositions[allCount] = newBytePos;
+        allByteMaskBits[allCount] = oldByteMaskBits[i] | newMaskBitInByte;
+        if ((oldByteMaskBits[i] & newMaskBitInByte) != 0) {
+          // β-bit already set in old mask — caller shouldn't have invoked us.
+          PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+          return null;
+        }
+        allCount++;
+        merged = true;
+      } else if (!merged && oldBytePositions[i] > newBytePos) {
+        allBytePositions[allCount] = newBytePos;
+        allByteMaskBits[allCount] = newMaskBitInByte;
+        allCount++;
+        merged = true;
+        allBytePositions[allCount] = oldBytePositions[i];
+        allByteMaskBits[allCount] = oldByteMaskBits[i];
+        allCount++;
+      } else {
+        allBytePositions[allCount] = oldBytePositions[i];
+        allByteMaskBits[allCount] = oldByteMaskBits[i];
+        allCount++;
+      }
+    }
+    if (!merged) {
+      allBytePositions[allCount] = newBytePos;
+      allByteMaskBits[allCount] = newMaskBitInByte;
+      allCount++;
+    }
+
+    final byte[] extractionPositions = new byte[allCount];
+    final int numChunks = (allCount + 7) / 8;
+    final long[] extractionMasks = new long[numChunks];
+    short msbIndex = Short.MAX_VALUE;
+    for (int i = 0; i < allCount; i++) {
+      extractionPositions[i] = (byte) allBytePositions[i];
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      extractionMasks[chunkIdx] |=
+          ((long) (allByteMaskBits[i] & 0xFF)) << ((7 - byteOffsetInChunk) * 8);
+      final int highBit = 31 - Integer.numberOfLeadingZeros(allByteMaskBits[i] & 0xFF);
+      final int absBitPos = allBytePositions[i] * 8 + (7 - highBit);
+      if (absBitPos < msbIndex) msbIndex = (short) absBitPos;
+    }
+
+    // Step 3: compute partials and verify I3 (unique) + I4 (smallest = 0).
+    final int[] newPartials = new int[newCount];
+    final PageReference[] newChildren = new PageReference[newCount];
+    for (int i = 0; i < newCount; i++) {
+      final PageReference cref = newRefs.get(i);
+      newChildren[i] = cref;
+      final byte[] cKey = getFirstKeyFromChild(cref);
+      newPartials[i] = (cKey == null || cKey.length == 0) ? 0
+          : computePartialKeyMultiMaskDirect(cKey, extractionPositions, extractionMasks, allCount);
+    }
+    for (int i = 1; i < newCount; i++) {
+      for (int k = 0; k < i; k++) {
+        if (newPartials[k] == newPartials[i]) {
+          if (dbg) System.err.println("[phase7q-extend] reject reason=partial-collision beta=" + beta
+              + " i=" + i + " k=" + k + " partial=" + Integer.toHexString(newPartials[i]));
+          PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+          return null;
+        }
+      }
+    }
+    sortChildrenAndPartialsByPartial(newChildren, newPartials);
+    boolean hasZero = false;
+    for (final int p : newPartials) {
+      if (p == 0) { hasZero = true; break; }
+    }
+    if (!hasZero) {
+      if (dbg) System.err.println("[phase7q-extend] reject reason=no-zero-partial beta=" + beta
+          + " newCount=" + newCount);
+      PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+      return null;
+    }
+
+    if (dbg) System.err.println("[phase7q-extend] EXTEND-OK beta=" + beta + " newCount=" + newCount
+        + " msbIndex=" + msbIndex + " allCount=" + allCount + " liftedN=" + liftedN
+        + " numPropagated=" + numPropagated);
+    PHASE7Q_EXTEND_SUCCESSES.incrementAndGet();
+    if (newCount <= 16) {
+      return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+          extractionPositions, extractionMasks, allCount, newPartials, newChildren,
+          indirect.getHeight(), msbIndex);
+    }
+    return HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
+        extractionPositions, extractionMasks, allCount, newPartials, newChildren,
+        indirect.getHeight(), msbIndex);
+  }
+
   /**
    * Phase 7q helper — returns {@code true} iff at least two of {@code indirect}'s
    * children's firstKeys differ at absolute bit position {@code absBit}.
@@ -7041,10 +7300,10 @@ public final class HOTTrieWriter {
       }
     }
     if (anyCapture) {
+      int liftability = LIFT_LIFTABLE; // valid only when anyLoadBearing
       if (anyLoadBearing) {
         PHASE7Q_REJECTS_LOAD_BEARING.incrementAndGet();
         // Refine: liftable (mask rebuild alone) vs hard (structural restructure)?
-        int liftability = LIFT_LIFTABLE;
         for (int i = 0; i < oldNumChildren && liftability == LIFT_LIFTABLE; i++) {
           final PageReference ref = indirect.getChildReference(i);
           if (ref == null) continue;
@@ -7062,6 +7321,26 @@ public final class HOTTrieWriter {
         }
       } else {
         PHASE7Q_REJECTS_WASTED.incrementAndGet();
+      }
+      // Phase 7q.3 dispatch: when -Dhot.strict.phase7q=true AND the rejection is
+      // load-bearing-hard, attempt the structural lift via phase7qExtendWithLift.
+      // On success, the lifted+extended indirect is returned (β added to mask,
+      // descendants β-stripped). On failure (lift cascade infeasibility), fall
+      // through to the standard reject below.
+      if (anyLoadBearing && liftability == LIFT_HARD
+          && Boolean.getBoolean("hot.strict.phase7q")) {
+        final HOTIndirectPage lifted = phase7qExtendWithLift(indirect, beta, log, revision);
+        if (lifted != null) {
+          if (phase7qDebug) {
+            System.err.println("[phase7q] LIFT-OK beta=" + beta + " new-msb="
+                + (lifted.getMostSignificantBitIndex() & 0xFFFF));
+          }
+          return lifted;
+        }
+        if (phase7qDebug) {
+          System.err.println("[phase7q] LIFT-FAILED beta=" + beta
+              + " → fall through to standard reject");
+        }
       }
       if (dbg) System.err.println("[g30] reject reason=descendant-already-routes-beta beta=" + beta
           + " firstChildIdx=" + firstCaptureIdx

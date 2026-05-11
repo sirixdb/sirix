@@ -173,8 +173,13 @@ next uncommitted phase by reading this doc + the latest commit's diff.
   reproducer)
 - [x] 7q.2 — `liftBetaFromSubtreeRecursive` walker + `BetaLiftWalk` result record
   + `splitExpandedChildrenOnBeta` intermediate-level helper (dormant until 7q.3)
-- [ ] 7q.3 — wire into `extendIndirectMaskForClosure` behind flag
-- [ ] 7q.4 — validate on reproducer (1 → 0)
+- [x] 7q.3 — `phase7qExtendWithLift` + dispatch into `extendIndirectMaskForClosure`'s
+  LB-HARD branch behind `-Dhot.strict.phase7q=true` (build.gradle forwards the flag)
+- [ ] 7q.4 — validate on reproducer (1 → 0) — **PARTIAL**: lift fires successfully
+  on the 50K reproducer, dropping LB-HARD rejections 64 → 1 and trie height 6 → 5,
+  but 1 I8 violation persists at a NEW location after structural rearrangement.
+  Need iteration: closure mechanism must re-attempt after lift surfaces new
+  under-discrimination
 - [ ] 7q.5 — enable by default, remove flag-gating
 
 ## 7 — Empirical results (filled in as phases land)
@@ -216,3 +221,45 @@ into `extendIndirectMaskForClosure`.
 
 Build: `./gradlew :sirix-core:compileJava` BUILD SUCCESSFUL (903 ms, no warnings
 on the new code).
+
+### 7.4 Phase 7q.3 — dispatch landed; lift fires successfully
+
+Wiring: in `extendIndirectMaskForClosure`, after the Phase 7p classifier
+fingers an `anyLoadBearing && liftability == LIFT_HARD` rejection, if
+`-Dhot.strict.phase7q=true` we now call `phase7qExtendWithLift(indirect, β,
+log, revision)` before falling through to the standard reject. The helper:
+1. Runs `liftBetaFromSubtreeRecursive` on each child of `indirect`, stripping
+   β from every descendant indirect's mask and producing an expanded child list
+   (each propagating split adds one slot).
+2. Pre-splits remaining β-mixed leaves via `splitSubtreeOnBit`.
+3. Builds the new indirect with β added to its mask, computing partials under
+   the extended mask and verifying I3 (unique) + I4 (smallest = 0).
+
+**Empirical (50K reproducer, `-Dhot.strict.phase7q=true -Dhot.strict.phase7j=true -Dhot.relax.closure.placeholder=true`)**:
+
+| Metric | Before 7q.3 | After 7q.3 |
+|---|---|---|
+| Violations | 1 (I8) | 1 (I8) — at different location |
+| LB-HARD rejects | 64 | 1 |
+| Observed height | 6 | 5 |
+| Lift fires | 0 | walk=2, split=2, ext-ok=1 |
+| 100K CAS violations | 0 | 0 |
+
+The remaining I8 is at `indirect 2 child[4] vs child[5]` (was `child[2] vs child[3]`
+before the lift). Different keys: `c13008…` vs `c07010…` — byte 11 differs at
+bit 95 (LSB of byte 11), not bit 90. The lift fixed the original bit-90
+problem; the structural rearrangement surfaced a NEW under-discrimination at
+a different bit.
+
+### 7.5 Phase 7q.3 — known remainder
+
+The closure mechanism doesn't iterate after a successful lift. When the lift
+re-arranges the trie, a new bit may become load-bearing for I8 at a different
+sibling pair. The next session iteration needs to:
+- Either: re-run `findClosureBits` + `ensureMaskClosure` post-lift to detect
+  the surfaced violation.
+- Or: extend `phase7qExtendWithLift` itself to recurse on the result and
+  iterate until convergence (or fan-out cap).
+
+Build: `:sirix-core:compileJava` and `compileTestJava` clean. `build.gradle`
+now forwards `hot.strict.phase7q` and `hot.debug.phase7q` to the test JVM.

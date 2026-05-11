@@ -435,6 +435,14 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsLoadBearing();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsLbLiftable();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qRejectsLbHard();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qSplitFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qSplitFailures();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qLiftFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qLiftFailures();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qLiftNoop();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailures();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendSuccesses();
 
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
@@ -828,6 +836,15 @@ final class HOTFormalVerificationTest {
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsLbLiftable()
               + " LB-hard="
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qRejectsLbHard());
+          System.out.println("[microbench-pattern]   phase7q lift: split-firings="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qSplitFirings()
+              + " split-fail=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qSplitFailures()
+              + " walk-fire=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qLiftFirings()
+              + " walk-fail=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qLiftFailures()
+              + " walk-noop=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qLiftNoop()
+              + " ext-fire=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFirings()
+              + " ext-ok=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendSuccesses()
+              + " ext-fail=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailures());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
