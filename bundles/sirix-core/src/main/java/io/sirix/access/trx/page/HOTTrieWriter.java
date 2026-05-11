@@ -5088,6 +5088,13 @@ public final class HOTTrieWriter {
     this.activeLog = log;
     HOTIndirectPage cur = initial;
     int extensions = 0;
+    // Phase 7l finding (2026-05-11): adding a triedBits set to explore all closure
+    // bits — instead of re-applying the same bit each iter — cascaded 1 → 11,919
+    // violations on the 50K microbench. Subsequent extension bits create I11
+    // violations because splitSubtreeOnBit produces children with MSB == parent
+    // MSB after the new extension. Reverted; the redundant-extension wastefulness
+    // is the lesser evil until splitSubtreeOnBit is rewritten to enforce strict
+    // child.MSB > parent.MSB at construction time.
     for (int iter = 0; iter < maxIterations; iter++) {
       final int[] closureBits = findClosureBits(cur);
       if (closureBits.length == 0) {
