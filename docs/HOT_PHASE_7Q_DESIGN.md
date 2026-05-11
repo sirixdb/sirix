@@ -827,3 +827,67 @@ should break — bit 89 becomes reachable on root.
   + `hot.strict.phase7q.stripOnly` flag forwarding.
 
 - [x] 7q.12 — strip-only mode for β-in-mask case (auto-gated)
+- [x] 7q.13 — `-Dhot.strict.phase7q.allowDoubleCapture=true` opt-in diagnostic.
+  EMPIRICALLY DISPROVED prior hypothesis that double-capture is correctness-safe.
+  Disabled by default; the falsified hypothesis is captured in §7.16 with cascade
+  metrics for future ceiling tests.
+
+### 7.16 Phase 7q.13 — allowDoubleCapture falsification (2026-05-12)
+
+**Hypothesis** (going in): when root.mask captures bit β AND descendant c also captures
+bit β, all keys in slot[c] share constant β = c.firstKey.β by I5. So c's partials at the
+β-output-position become constant — bit β is *wasted* at c, but routing still works.
+Trading one bit of c's mask capacity for the I8-fixing extension at root would be a
+favourable architectural deal — we have ample bit headroom in the 64-bit mask layout
+and Phase 7p's reject was assumed to be enforcing efficiency, not correctness.
+
+**Test**: gated the Phase 7p reject behind a new
+`-Dhot.strict.phase7q.allowDoubleCapture=true` flag with `PHASE7Q_ALLOW_DOUBLE_CAPTURE_FIRINGS`
+counter. When the flag is set AND `anyLoadBearing`, fall through to the rebuild path
+that adds β to indirect.mask while leaving descendants unchanged.
+
+**50K reproducer result with the flag enabled** (`-Dhot.strict.phase7q=true … -Dhot.strict.phase7q.allowDoubleCapture=true`):
+
+| Metric | Default | allowDoubleCapture=true |
+|---|---|---|
+| Violations | 1 (I8) | **4492** (I6×4480, I11×5, I-Binna-sparse×3, I5×3, I8×1) |
+| LB-HARD rejects | 204 | 13 |
+| ext-fire | 204 | 13 |
+| ext-ok | 1 | 1 (same) |
+| allow-double-capture firings | n/a | **12** |
+| Observed height | 5 | 5 |
+
+The 12 fall-throughs each induced a routing cascade. Cause: when c's mask uses β as
+its **load-bearing** disc bit, c's sub-children's firstKeys actually differ at β. If
+root.routing-by-β forces ALL keys in slot[c] to share the same β value, then c's
+sub-children's firstKeys cannot both have that constant value — the routing
+assumptions break. PEXT'ed partials no longer match stored partials (I-Binna-sparse-path,
+I6-pext-routes-to-leaf, I5-leaf-constancy) and I11-trie-condition fires when the
+mid-level structure rebuilds inconsistently.
+
+**Conclusion**: Phase 7p's reject is enforcing CORRECTNESS, not efficiency. Double-capture
+is only safe for FOSSIL captures (descendant has β in mask but β-constant in subtree),
+which the existing Phase 7q lift already handles via `liftBetaFromSubtreeRecursive`
+returning no-op for fossil cases. The architectural ceiling at 1 violation is
+fundamentally a consequence of the load-bearing β cases requiring cascading restructure
+(Phase 7q.11 §2.2).
+
+**Default mode preserved**: when the flag is OFF (default), behaviour is identical to
+HEAD `9d6e56a7e` — 1 I8 violation, height 5, ext-ok=1, allow-double-capture firings=0.
+100K CAS regression: 0 violations preserved. HOTOptionBPhase5Test: passes.
+
+**Phase 7q.14 entry point** (next session): the only remaining attack is the genuine
+cascading lift sketched in design §2.2. When `splitIndirectOnBitForLift` fails because
+β is c's sole disc bit for some sub-child pair (P₀, P₁) of c, RECURSIVELY MERGE P₀ and
+P₁ into a single node OR push the discrimination one level deeper via another lift.
+This is multi-week work — each recursive level may again hit the same hard case.
+
+**Files touched** (commit `[pending]`):
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + `PHASE7Q_ALLOW_DOUBLE_CAPTURE_FIRINGS` counter + getter/resetter.
+  + Opt-in fall-through inside `extendIndirectMaskForClosure`'s reject branch.
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  + Counter reset + report.
+- `bundles/sirix-core/build.gradle`:
+  + `hot.strict.phase7q.allowDoubleCapture` flag forwarding.
+- `docs/HOT_PHASE_7Q_DESIGN.md` §7.16 + work-plan tick.

@@ -169,6 +169,7 @@ test {
     systemProperty "hot.strict.phase7q.constancyGate", System.getProperty("hot.strict.phase7q.constancyGate", "false")
     systemProperty "hot.strict.phase7q.stripNonConstant", System.getProperty("hot.strict.phase7q.stripNonConstant", "false")
     systemProperty "hot.strict.phase7q.stripOnly", System.getProperty("hot.strict.phase7q.stripOnly", "false")
+    systemProperty "hot.strict.phase7q.allowDoubleCapture", System.getProperty("hot.strict.phase7q.allowDoubleCapture", "false")
     systemProperty "hot.debug.phase7q.collision", System.getProperty("hot.debug.phase7q.collision", "false")
     systemProperty "hot.debug.phase7e", System.getProperty("hot.debug.phase7e", "false")
     systemProperty "hot.debug.g30", System.getProperty("hot.debug.g30", "false")

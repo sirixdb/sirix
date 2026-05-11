@@ -463,6 +463,7 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripOnlyFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripOnlySuccess();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripOnlyFail();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qAllowDoubleCaptureFirings();
 
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
@@ -900,6 +901,8 @@ final class HOTFormalVerificationTest {
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qStripOnlySuccess()
               + " fail="
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qStripOnlyFail());
+          System.out.println("[microbench-pattern]   phase7q allow-double-capture firings="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qAllowDoubleCaptureFirings());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();

@@ -6949,6 +6949,19 @@ public final class HOTTrieWriter {
   public static long getPhase7qStripOnlyFail() { return PHASE7Q_STRIP_ONLY_FAIL.get(); }
   public static void resetPhase7qStripOnlyFail() { PHASE7Q_STRIP_ONLY_FAIL.set(0L); }
 
+  /** Phase 7q.13 — counter for fall-throughs to rebuild after Phase 7p reject because
+   *  {@code -Dhot.strict.phase7q.allowDoubleCapture=true} was set. Each increment marks
+   *  one (indirect, β) extension that ADDED β to indirect.mask while leaving descendants'
+   *  β-captures intact. See HOT_PHASE_7Q_DESIGN.md §7.16. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_ALLOW_DOUBLE_CAPTURE_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7qAllowDoubleCaptureFirings() {
+    return PHASE7Q_ALLOW_DOUBLE_CAPTURE_FIRINGS.get();
+  }
+  public static void resetPhase7qAllowDoubleCaptureFirings() {
+    PHASE7Q_ALLOW_DOUBLE_CAPTURE_FIRINGS.set(0L);
+  }
+
   /** Phase 7q.5 — closure-loop guard: returns true iff β is already a routing bit in
    *  {@code cur}'s mask. Wraps {@link #indirectMaskHasAbsBit} for clarity at the call
    *  site. Used by {@link #phase7jExtendWithAllClosureBits} to detect the no-op-rebuild
@@ -8329,10 +8342,37 @@ public final class HOTTrieWriter {
               + " → fall through to standard reject");
         }
       }
-      if (dbg) System.err.println("[g30] reject reason=descendant-already-routes-beta beta=" + beta
-          + " firstChildIdx=" + firstCaptureIdx
-          + " classification=" + (anyLoadBearing ? "LOAD_BEARING" : "WASTED"));
-      return null;
+      // Phase 7q.13 — opt-in double-capture diagnostic (`-Dhot.strict.phase7q.allowDoubleCapture=true`).
+      // EMPIRICALLY DISPROVES that double-capture is correctness-safe at LB-HARD. See
+      // HOT_PHASE_7Q_DESIGN.md §7.16: on the 50K reproducer, enabling this triggers 12
+      // fall-throughs → 4492 violations cascade (I6×4480, I11×5, I-Binna-sparse×3, I5×3,
+      // I8×1). Reason: when descendant `c` has β as load-bearing disc bit (some sub-child
+      // pair of `c` differs ONLY at β), root.routing-by-β forces ALL keys in slot[c] to
+      // share the same β value (constant). But `c`'s mask still uses β to discriminate
+      // its sub-children → those sub-children can't all have the constant value → I5/I6
+      // routing breaks. Phase 7p's reject is enforcing correctness, not bit-efficiency
+      // as Phase 7q.13's original hypothesis claimed.
+      //
+      // Kept as an opt-in diagnostic counter: when the flag is set, fall-through to
+      // rebuild is taken AND `PHASE7Q_ALLOW_DOUBLE_CAPTURE_FIRINGS` increments. Useful
+      // for future ceiling tests to count how many extension attempts would benefit
+      // from a real (correctness-preserving) cascading lift implementation.
+      if (anyLoadBearing
+          && Boolean.getBoolean("hot.strict.phase7q.allowDoubleCapture")) {
+        PHASE7Q_ALLOW_DOUBLE_CAPTURE_FIRINGS.incrementAndGet();
+        if (phase7qDebug) {
+          System.err.println("[phase7q.13] ALLOW-DOUBLE-CAPTURE (UNSAFE) beta=" + beta
+              + " indirect.pageKey=" + indirect.getPageKey()
+              + " indirect.msb=" + (indirect.getMostSignificantBitIndex() & 0xFFFF)
+              + " — bypass Phase 7p reject. Will cascade per §7.16.");
+        }
+        // Fall through.
+      } else {
+        if (dbg) System.err.println("[g30] reject reason=descendant-already-routes-beta beta=" + beta
+            + " firstChildIdx=" + firstCaptureIdx
+            + " classification=" + (anyLoadBearing ? "LOAD_BEARING" : "WASTED"));
+        return null;
+      }
     }
 
     // Pre-split β-mixed children.
