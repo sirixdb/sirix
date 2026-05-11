@@ -6723,12 +6723,35 @@ public final class HOTTrieWriter {
       }
     }
     if (s0n == 0 || s1n == 0) return null;
-    final PageReference r0 =
+    PageReference r0 =
         buildBucketWithInheritedMask(originalIndirect, s0Idx, s0Refs, s0n, beta, log, revision);
     if (r0 == null) return null;
-    final PageReference r1 =
+    PageReference r1 =
         buildBucketWithInheritedMask(originalIndirect, s1Idx, s1Refs, s1n, beta, log, revision);
     if (r1 == null) return null;
+    // Phase 7q.8 — mirror the constancy gate + retry from splitIndirectOnBitForLift here
+    // at the intermediate Case B level (walker's expanded-children rebucket). Without the
+    // gate, malformed wrap-fallback buckets propagate up through the walker and surface
+    // as constancy violations one or more levels later in the outer split — wasted work
+    // and harder to attribute. With the gate, intermediate-level non-constancy is caught
+    // and rescued via {@link #phase7qBuildBucketConstancyFiltered} before being absorbed
+    // by the parent.
+    final boolean constancyGate = Boolean.getBoolean("hot.strict.phase7q.skipNoop")
+        || Boolean.getBoolean("hot.strict.phase7q.constancyGate");
+    if (constancyGate) {
+      if (!liftedBucketIsConstancySafe(r0)) {
+        final PageReference r0Safe = phase7qBuildBucketConstancyFiltered(originalIndirect,
+            s0Refs, s0n, beta, log, revision);
+        if (r0Safe == null || !liftedBucketIsConstancySafe(r0Safe)) return null;
+        r0 = r0Safe;
+      }
+      if (!liftedBucketIsConstancySafe(r1)) {
+        final PageReference r1Safe = phase7qBuildBucketConstancyFiltered(originalIndirect,
+            s1Refs, s1n, beta, log, revision);
+        if (r1Safe == null || !liftedBucketIsConstancySafe(r1Safe)) return null;
+        r1 = r1Safe;
+      }
+    }
     return new LiftSplitResult(r0, r1);
   }
 
