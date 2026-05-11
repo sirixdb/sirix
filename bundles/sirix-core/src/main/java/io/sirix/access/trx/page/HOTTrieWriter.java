@@ -1285,9 +1285,24 @@ public final class HOTTrieWriter {
           newBiNodeRef.setKey(newBiNodePageKey);
           newBiNodeRef.setPage(newBiNode);
           log.put(newBiNodeRef, PageContainer.getInstance(newBiNode, newBiNode));
-          final HOTIndirectPage updatedParent =
+          HOTIndirectPage updatedParent =
               parent.withUpdatedChild(originalChildIndex, newBiNodeRef,
                   storageEngineReader.getRevisionNumber());
+          // Phase 6g — try to recompute partials immediately, so the slot's stored partial
+          // reflects the new BiNode's firstKey (= leftChild's firstKey) rather than the
+          // old leaf's. If recompute succeeds, partial-sort matches firstKey-sort at this
+          // ancestor; otherwise leave updatedParent as the withUpdatedChild result.
+          if (Boolean.getBoolean("hot.strict.phase6g")) {
+            final HOTIndirectPage recomputed = recomputePartialsForCurrentFirstKeys(
+                updatedParent, storageEngineReader.getRevisionNumber());
+            if (recomputed != null) {
+              updatedParent = recomputed;
+              if (Boolean.getBoolean("hot.debug.phase6g")) {
+                System.err.println("[phase6g] post-intermediate recompute OK parent="
+                    + updatedParent.getPageKey() + " slot=" + originalChildIndex);
+              }
+            }
+          }
           log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
           INTERMEDIATE_BINODE_FALLBACK_FIRINGS.incrementAndGet();
           if (Boolean.getBoolean("hot.debug.intermediate")) {
