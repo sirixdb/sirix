@@ -2102,6 +2102,7 @@ public final class HOTTrieWriter {
     final int oldInitialBytePos = parentIndirect.getInitialBytePos();
     final long oldMask = parentIndirect.getBitMask();
     final int[] oldPartials = parentIndirect.getPartialKeys();
+    final int oldParentMsb = parentIndirect.getMostSignificantBitIndex() & 0xFFFF;
 
     // Compute β-bit position in the old mask. If β isn't in oldMask, the new mask = oldMask.
     final int betaByteOffset = (absBit / 8) - oldInitialBytePos;
@@ -2114,42 +2115,65 @@ public final class HOTTrieWriter {
         betaMaskBit = candidate;
       }
     }
-    final long newMask = oldMask & ~betaMaskBit;
 
-    // Compute new partials. If newMask == oldMask, partials are identical to the originals
-    // (for each bucket index, the original partial). If newMask != oldMask, we strip the β
-    // bit from each original partial — i.e., compress the partial under the new mask shape.
-    // Sparse-path encoding requires that we actually re-derive partials from the bucket
-    // children's first keys (because the kept children's β-position partial bits were 0 by
-    // sparse-path convention, so removing β just shifts the remaining bits).
-    final int[] newPartials = new int[bucketSize];
-    for (int i = 0; i < bucketSize; i++) {
-      final int srcIdx = bucketIndices[i];
-      if (srcIdx < 0 || srcIdx >= oldPartials.length) {
-        // Recursively-split child — no original partial. Compute via sparse-path semantics:
-        // newMask covers all old non-β bits; the bucket child's first key gives the
-        // sparse-path partial for that child under the new mask. Equivalent to the dense
-        // PEXT under newMask of the child's first key.
-        final byte[] firstKey = getFirstKeyFromChild(replacementRefs[i]);
-        if (firstKey == null || firstKey.length == 0) {
-          return null;
+    // Phase 7n — strict I11 enforcement. The bucket-indirect becomes a CHILD of the new
+    // (post-extension) parent, whose MSB = min(oldParentMsb, β). For I11 (child.MSB >
+    // parent.MSB), the bucket-indirect's mask must contain only bits with absBit > new
+    // parent.MSB. So strip β AND all bits with absBit ≤ new parent.MSB from oldMask.
+    final int newParentMsb = Math.min(oldParentMsb, absBit);
+    long liftMaskBits = 0L;
+    for (int wbit = 0; wbit < 64; wbit++) {
+      if (((oldMask >>> wbit) & 1L) == 0L) continue;
+      // Decode wbit → absBit. wbit = (7 - byteOffset)*8 + (7 - bitInByte).
+      final int byteOffsetInWord = 7 - (wbit / 8);
+      final int bitInByte = 7 - (wbit % 8);
+      final int absBitOfWbit = (oldInitialBytePos + byteOffsetInWord) * 8 + bitInByte;
+      if (absBitOfWbit <= newParentMsb) {
+        liftMaskBits |= 1L << wbit;
+      }
+    }
+    final long newMask = oldMask & ~betaMaskBit & ~liftMaskBits;
+
+    // If lift bits are non-empty, verify bucket children are β-constant on each lift bit
+    // (since we're removing the routing for that bit at this level). If any child has
+    // mixed bits, fall back so we don't break PEXT routing.
+    if (liftMaskBits != 0L) {
+      for (int wbit = 0; wbit < 64; wbit++) {
+        if (((liftMaskBits >>> wbit) & 1L) == 0L) continue;
+        final int byteOffsetInWord = 7 - (wbit / 8);
+        final int bitInByte = 7 - (wbit % 8);
+        final int liftAbsBit = (oldInitialBytePos + byteOffsetInWord) * 8 + bitInByte;
+        for (int i = 0; i < bucketSize; i++) {
+          final int v = bitConstantValueInSubtree(replacementRefs[i], liftAbsBit);
+          if (v < 0) {
+            // Bucket child has mixed values on a bit we're stripping — can't strip safely.
+            return null;
+          }
         }
-        newPartials[i] = computePartialKeySingleMask(firstKey, oldInitialBytePos, newMask);
-        continue;
       }
-      final int oldPartial = oldPartials[srcIdx];
-      if (betaMaskBit == 0L) {
-        // β not in old mask — partial unchanged.
-        newPartials[i] = oldPartial;
-      } else {
-        // Strip β from partial via PEXT under newMask's shape (compressed-out β slot).
-        // The β-bit's position in the old partial is bitCount(oldMask & (betaMaskBit - 1)).
-        // Removing that bit shifts higher bits down by 1.
-        final int betaOutputPos = Long.bitCount(oldMask & (betaMaskBit - 1L));
-        final int low = oldPartial & ((1 << betaOutputPos) - 1);
-        final int high = (oldPartial >>> (betaOutputPos + 1)) << betaOutputPos;
-        newPartials[i] = low | high;
+    }
+
+    // Phase 7n — recompute partials from each child's firstKey under the new (possibly
+    // shrunk) mask. Always compute from firstKey rather than shifting oldPartials, because
+    // stripping multiple bits (β + lift bits) makes index-arithmetic shifting brittle.
+    // The cost of recomputing is one PEXT per child — negligible.
+    final int[] newPartials = new int[bucketSize];
+    boolean haveZero = false;
+    for (int i = 0; i < bucketSize; i++) {
+      final byte[] firstKey = getFirstKeyFromChild(replacementRefs[i]);
+      if (firstKey == null || firstKey.length == 0) {
+        return null;
       }
+      newPartials[i] = computePartialKeySingleMask(firstKey, oldInitialBytePos, newMask);
+      if (newPartials[i] == 0) haveZero = true;
+    }
+    // Suppress unused warning for oldPartials in this path (kept for potential future use).
+    if (oldPartials.length < 0) { /* never */ }
+
+    // I4 (Binna's first-partial-zero): if smallest partial != 0, the new mask captures
+    // constant-1 bits across the bucket. Return null to let caller fall back.
+    if (!haveZero) {
+      return null;
     }
 
     // Verify uniqueness. If a collision occurs, the bucket isn't representable under the
@@ -2263,49 +2287,101 @@ public final class HOTTrieWriter {
       betaOutputPos = outPos;
     }
 
+    // Phase 7n — strict I11 enforcement. The bucket-indirect becomes a CHILD of the new
+    // (post-extension) parent, whose MSB = min(oldParentMsb, β). For I11 (child.MSB >
+    // parent.MSB), the bucket-indirect's mask must contain only bits with absBit > new
+    // parent.MSB. Compute liftAbsBits = bits in oldMask with absBit ≤ new parent.MSB.
+    // Verify all bucket children are β-constant on each lift bit; if not, return null.
+    final int oldParentMsb = parent.getMostSignificantBitIndex() & 0xFFFF;
+    final int newParentMsb = Math.min(oldParentMsb, absBit);
+    final int[] liftAbsBits = new int[oldNeb * 8];
+    int liftCount = 0;
+    for (int i = 0; i < oldNeb; i++) {
+      final int bp = oldEp[i] & 0xFF;
+      final int chunkIdx0 = i / 8;
+      final int byteOffsetInChunk0 = i % 8;
+      final int byteMask0 =
+          (int) ((oldEm[chunkIdx0] >>> ((7 - byteOffsetInChunk0) * 8)) & 0xFFL);
+      for (int mfBit = 0; mfBit < 8; mfBit++) {
+        final int byteBit = 7 - mfBit;
+        if ((byteMask0 & (1 << byteBit)) == 0) continue;
+        final int abs = bp * 8 + mfBit;
+        if (abs <= newParentMsb && abs != absBit /* β handled separately */) {
+          liftAbsBits[liftCount++] = abs;
+        }
+      }
+    }
+    for (int k = 0; k < liftCount; k++) {
+      final int liftBit = liftAbsBits[k];
+      for (int i = 0; i < bucketSize; i++) {
+        final int v = bitConstantValueInSubtree(replacementRefs[i], liftBit);
+        if (v < 0) return null;
+      }
+    }
+
     // 3. Build new MultiMask. If β is present, remove it (and compact the entry if its
     // byteMask becomes 0).
     int newNeb = oldNeb;
     byte[] newEp;
     long[] newEm;
     int newMsb = Short.MAX_VALUE;
-    if (betaEntryIdx < 0) {
-      // β not in mask — preserve as-is.
+    if (betaEntryIdx < 0 && liftCount == 0) {
+      // β not in mask AND no lift bits — preserve as-is.
       newEp = oldEp.clone();
       newEm = oldEm.clone();
       newMsb = parent.getMostSignificantBitIndex() & 0xFFFF;
     } else {
-      // Remove β bit from its byteMask.
-      final int chunkIdx = betaEntryIdx / 8;
-      final int byteOffsetInChunk = betaEntryIdx % 8;
-      final int shift = (7 - byteOffsetInChunk) * 8;
-      final long byteMaskBits = (oldEm[chunkIdx] >>> shift) & 0xFFL;
-      final long newByteMaskBits = byteMaskBits & ~((long) betaMaskBit);
+      // Build a modified byteMask per entry, clearing β and any lift bits.
       final long[] modifiedEm = oldEm.clone();
-      modifiedEm[chunkIdx] = (modifiedEm[chunkIdx] & ~(0xFFL << shift)) | (newByteMaskBits << shift);
-      if (newByteMaskBits == 0L) {
-        // Compact: drop the entry, shift remaining left by 1.
-        newNeb = oldNeb - 1;
-        newEp = new byte[newNeb];
-        final int numChunks = (newNeb + 7) / 8;
-        newEm = new long[Math.max(1, numChunks)];
-        int dstIdx = 0;
-        for (int src = 0; src < oldNeb; src++) {
-          if (src == betaEntryIdx) continue;
-          newEp[dstIdx] = oldEp[src];
-          final int srcChunk = src / 8;
-          final int srcByte = src % 8;
-          final int srcShift = (7 - srcByte) * 8;
-          final long srcByteBits = (modifiedEm[srcChunk] >>> srcShift) & 0xFFL;
-          final int dstChunk = dstIdx / 8;
-          final int dstByte = dstIdx % 8;
-          final int dstShift = (7 - dstByte) * 8;
-          newEm[dstChunk] |= srcByteBits << dstShift;
-          dstIdx++;
+      for (int i = 0; i < oldNeb; i++) {
+        final int bp = oldEp[i] & 0xFF;
+        final int chunkIdx0 = i / 8;
+        final int byteOffsetInChunk0 = i % 8;
+        final int shift0 = (7 - byteOffsetInChunk0) * 8;
+        long byteMask0 = (modifiedEm[chunkIdx0] >>> shift0) & 0xFFL;
+        for (int mfBit = 0; mfBit < 8; mfBit++) {
+          final int byteBit = 7 - mfBit;
+          if ((byteMask0 & (1L << byteBit)) == 0L) continue;
+          final int abs = bp * 8 + mfBit;
+          if (abs == absBit) {
+            byteMask0 &= ~(1L << byteBit);
+            continue;
+          }
+          for (int k = 0; k < liftCount; k++) {
+            if (liftAbsBits[k] == abs) {
+              byteMask0 &= ~(1L << byteBit);
+              break;
+            }
+          }
         }
-      } else {
-        newEp = oldEp.clone();
-        newEm = modifiedEm;
+        modifiedEm[chunkIdx0] =
+            (modifiedEm[chunkIdx0] & ~(0xFFL << shift0)) | ((byteMask0 & 0xFFL) << shift0);
+      }
+      // Compact: drop entries whose byteMask became 0.
+      int keepCount = 0;
+      for (int i = 0; i < oldNeb; i++) {
+        final int chunkIdx0 = i / 8;
+        final int byteOffsetInChunk0 = i % 8;
+        final long bm = (modifiedEm[chunkIdx0] >>> ((7 - byteOffsetInChunk0) * 8)) & 0xFFL;
+        if (bm != 0L) keepCount++;
+      }
+      newNeb = keepCount;
+      newEp = new byte[Math.max(1, keepCount)];
+      final int numChunks = Math.max(1, (keepCount + 7) / 8);
+      newEm = new long[numChunks];
+      int dstIdx = 0;
+      for (int src = 0; src < oldNeb; src++) {
+        final int srcChunk = src / 8;
+        final int srcByte = src % 8;
+        final int srcShift = (7 - srcByte) * 8;
+        final long srcByteBits = (modifiedEm[srcChunk] >>> srcShift) & 0xFFL;
+        if (srcByteBits == 0L) continue;
+        newEp[dstIdx] = oldEp[src];
+        final int dstChunk = dstIdx / 8;
+        final int dstByte = dstIdx % 8;
+        final int dstShift = (7 - dstByte) * 8;
+        newEm[dstChunk] |= srcByteBits << dstShift;
+        dstIdx++;
       }
       // Recompute MSB = lowest absBit captured by new mask.
       for (int i = 0; i < newNeb; i++) {
