@@ -154,6 +154,7 @@ test {
     systemProperty "hot.strict.phase7e", System.getProperty("hot.strict.phase7e", "false")
     systemProperty "hot.strict.phase7f", System.getProperty("hot.strict.phase7f", "false")
     systemProperty "hot.debug.phase7f", System.getProperty("hot.debug.phase7f", "false")
+    systemProperty "hot.debug.phase7g", System.getProperty("hot.debug.phase7g", "false")
     systemProperty "hot.debug.phase7e", System.getProperty("hot.debug.phase7e", "false")
     systemProperty "hot.debug.g30", System.getProperty("hot.debug.g30", "false")
     systemProperty "hot.debug.g32", System.getProperty("hot.debug.g32", "false")

@@ -4737,6 +4737,175 @@ public final class HOTTrieWriter {
    * subtree, breaking I6 (PEXT routing for deep keys). Use as last-resort fix for I8
    * violations where post-hoc reconciliation has otherwise failed.
    */
+  /**
+   * Phase 7g — Variant of forceRebuildIndirectFromCurrentFirstKeys that computes the
+   * discriminating-bit mask from firstKey-vs-firstKey adjacent pairs (instead of
+   * lastKey vs firstKey via computeDiscBits). This matches the actual content
+   * boundary used by I8 validation.
+   *
+   * <p>For sorted children, adjacent pairs' firstKeys' MSDB UNION = the closure of
+   * bits required to discriminate them by PEXT routing. Build mask + partials from
+   * scratch using only this set.
+   */
+  public @Nullable HOTIndirectPage forceRebuildIndirectFromFirstKeyMsdbs(
+      HOTIndirectPage indirect, int revision,
+      StorageEngineWriter readerForLoad, TransactionIntentLog logForLoad) {
+    this.activeReader = readerForLoad;
+    this.activeLog = logForLoad;
+    return forceRebuildIndirectFromFirstKeyMsdbs(indirect, revision);
+  }
+
+  public @Nullable HOTIndirectPage forceRebuildIndirectFromFirstKeyMsdbs(
+      HOTIndirectPage indirect, int revision) {
+    final boolean dbg = Boolean.getBoolean("hot.debug.phase7g");
+    if (dbg) System.err.println("[phase7g] ENTRY n=" + indirect.getNumChildren());
+    final int n = indirect.getNumChildren();
+    if (n < 2) return null;
+    final PageReference[] children = new PageReference[n];
+    final byte[][] firstKeys = new byte[n][];
+    for (int i = 0; i < n; i++) {
+      children[i] = indirect.getChildReference(i);
+      if (children[i] == null) {
+        if (dbg) System.err.println("[phase7g-fail] null child idx=" + i);
+        return null;
+      }
+      firstKeys[i] = getFirstKeyFromChild(children[i]);
+      if (firstKeys[i] == null || firstKeys[i].length == 0) {
+        if (dbg) System.err.println("[phase7g-fail] null/empty firstKey idx=" + i
+            + " firstKey=" + (firstKeys[i] == null ? "null" : "empty"));
+        return null;
+      }
+    }
+    if (dbg) System.err.println("[phase7g] all firstKeys collected");
+    // Sort by firstKey using indices, then reorder both arrays.
+    final Integer[] order = new Integer[n];
+    for (int i = 0; i < n; i++) order[i] = i;
+    java.util.Arrays.sort(order, (a, b) -> java.util.Arrays.compareUnsigned(firstKeys[a], firstKeys[b]));
+    final PageReference[] sortedChildren = new PageReference[n];
+    final byte[][] sortedFirstKeys = new byte[n][];
+    for (int i = 0; i < n; i++) {
+      sortedChildren[i] = children[order[i]];
+      sortedFirstKeys[i] = firstKeys[order[i]];
+    }
+    // Collect MSDB bits from adjacent firstKey pairs.
+    final java.util.TreeMap<Integer, Integer> byteMaskMap = new java.util.TreeMap<>();
+    int minByte = Integer.MAX_VALUE;
+    int maxByte = 0;
+    for (int i = 0; i < n - 1; i++) {
+      final byte[] a = sortedFirstKeys[i];
+      final byte[] b = sortedFirstKeys[i + 1];
+      final int len = Math.min(a.length, b.length);
+      for (int bp = 0; bp < len; bp++) {
+        int xor = (a[bp] ^ b[bp]) & 0xFF;
+        if (xor == 0) continue;
+        while (xor != 0) {
+          final int hb = Integer.numberOfLeadingZeros(xor) - 24;
+          xor &= ~(1 << (7 - hb));
+          final int maskBit = 1 << (7 - hb);
+          byteMaskMap.merge(bp, maskBit, (x, y) -> x | y);
+          minByte = Math.min(minByte, bp);
+          maxByte = Math.max(maxByte, bp);
+        }
+        // Found a differing byte; could continue or break. Continue to capture ALL diffs.
+      }
+    }
+    if (byteMaskMap.isEmpty()) {
+      if (dbg) System.err.println("[phase7g-fail] no-discriminating-bits");
+      return null;
+    }
+    if (dbg) System.err.println("[phase7g] byteMaskMap=" + byteMaskMap + " minByte=" + minByte
+        + " maxByte=" + maxByte);
+    final int numBytes = byteMaskMap.size();
+    final boolean canSingleMask = (maxByte - minByte) < 8 && numBytes <= 8;
+    final byte[] extractionPositions;
+    final long[] extractionMasks;
+    short msbIndex = Short.MAX_VALUE;
+    if (canSingleMask) {
+      // Build SingleMask: 8-byte window starting at minByte.
+      long mask = 0;
+      for (final var e : byteMaskMap.entrySet()) {
+        final int bp = e.getKey();
+        final int mb = e.getValue();
+        final int byteOff = bp - minByte;
+        mask |= ((long) (mb & 0xFF)) << ((7 - byteOff) * 8);
+        final int highBit = 31 - Integer.numberOfLeadingZeros(mb & 0xFF);
+        final int absBit = bp * 8 + (7 - highBit);
+        if (absBit < msbIndex) msbIndex = (short) absBit;
+      }
+      // Compute partials per child.
+      final int[] partials = new int[n];
+      for (int i = 0; i < n; i++) {
+        partials[i] = computePartialKeySingleMask(sortedFirstKeys[i], minByte, mask);
+      }
+      // Check uniqueness.
+      for (int i = 1; i < n; i++) {
+        for (int k = 0; k < i; k++) {
+          if (partials[k] == partials[i]) {
+            if (dbg) System.err.println("[phase7g-fail] SM collision i=" + i + " k=" + k
+                + " partial=" + partials[i]);
+            return null;
+          }
+        }
+      }
+      // Sort by partial.
+      sortChildrenAndPartialsByPartial(sortedChildren, partials);
+      if (partials[0] != 0) {
+        if (dbg) System.err.println("[phase7g-fail] SM no-zero first=" + partials[0]);
+        return null;
+      }
+      if (n <= 16) {
+        return HOTIndirectPage.createSpanNode(indirect.getPageKey(), revision, minByte, mask,
+            partials, sortedChildren, indirect.getHeight());
+      }
+      return HOTIndirectPage.createMultiNode(indirect.getPageKey(), revision, minByte, mask,
+          partials, sortedChildren, indirect.getHeight());
+    }
+    // MultiMask path: bytes don't fit in 8-byte window.
+    extractionPositions = new byte[numBytes];
+    final int numChunks = (numBytes + 7) / 8;
+    extractionMasks = new long[numChunks];
+    int idx = 0;
+    for (final var e : byteMaskMap.entrySet()) {
+      final int bp = e.getKey();
+      final int mb = e.getValue();
+      extractionPositions[idx] = (byte) bp;
+      final int chunkIdx = idx / 8;
+      final int byteOffsetInChunk = idx % 8;
+      extractionMasks[chunkIdx] |= ((long) (mb & 0xFF)) << ((7 - byteOffsetInChunk) * 8);
+      final int highBit = 31 - Integer.numberOfLeadingZeros(mb & 0xFF);
+      final int absBit = bp * 8 + (7 - highBit);
+      if (absBit < msbIndex) msbIndex = (short) absBit;
+      idx++;
+    }
+    final int[] partials = new int[n];
+    for (int i = 0; i < n; i++) {
+      partials[i] = computePartialKeyMultiMaskDirect(sortedFirstKeys[i],
+          extractionPositions, extractionMasks, numBytes);
+    }
+    for (int i = 1; i < n; i++) {
+      for (int k = 0; k < i; k++) {
+        if (partials[k] == partials[i]) {
+          if (dbg) System.err.println("[phase7g-fail] MM collision i=" + i + " k=" + k
+              + " partial=" + partials[i]);
+          return null;
+        }
+      }
+    }
+    sortChildrenAndPartialsByPartial(sortedChildren, partials);
+    if (partials[0] != 0) {
+      if (dbg) System.err.println("[phase7g-fail] MM no-zero first=" + partials[0]);
+      return null;
+    }
+    if (n <= 16) {
+      return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+          extractionPositions, extractionMasks, numBytes, partials, sortedChildren,
+          indirect.getHeight(), msbIndex);
+    }
+    return HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
+        extractionPositions, extractionMasks, numBytes, partials, sortedChildren,
+        indirect.getHeight(), msbIndex);
+  }
+
   public @Nullable HOTIndirectPage forceRebuildIndirectFromCurrentFirstKeys(
       HOTIndirectPage indirect, int revision) {
     final boolean dbg = Boolean.getBoolean("hot.debug.phase7f");

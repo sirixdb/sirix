@@ -667,8 +667,9 @@ final class HOTFormalVerificationTest {
                       + (pg == null ? "null" : pg.getClass().getSimpleName()));
                 }
                 if (pg instanceof io.sirix.page.HOTIndirectPage rootInd) {
-                  final var rebuilt = trieWriter7f.forceRebuildIndirectFromCurrentFirstKeys(
-                      rootInd, trx.getStorageEngineWriter().getRevisionNumber());
+                  final var rebuilt = trieWriter7f.forceRebuildIndirectFromFirstKeyMsdbs(
+                      rootInd, trx.getStorageEngineWriter().getRevisionNumber(),
+                      trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
                   if (rebuilt != null) {
                     trx.getStorageEngineWriter().getLog().put(rootRef7f,
                         io.sirix.cache.PageContainer.getInstance(rebuilt, rebuilt));
