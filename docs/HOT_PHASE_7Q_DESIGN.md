@@ -485,3 +485,77 @@ of byte 11). Lift's structural improvement IS happening (height 6→5, LB-HARD
 
 Build: `:sirix-core:compileJava` and `compileTestJava` clean. `build.gradle`
 now forwards `hot.strict.phase7q` and `hot.debug.phase7q` to the test JVM.
+
+### 7.11 Phase 7q.5 — closure-loop livelock isolated; cascade reproduced (2026-05-12 AM)
+
+Refined trace via `[phase7q-trace]` on every `extendIndirectMaskForClosure` ENTER
+for `pageKey=2` (root) shows root only ever receives two distinct β attempts:
+
+```
+  127 ENTER pageKey=2 beta=82  (1× maskHasBeta=false then 126× maskHasBeta=true)
+    1 ENTER pageKey=2 beta=88  → LIFT-OK
+    0 ENTER pageKey=2 beta=90 (= the bit needed to fix the persistent I8)
+```
+
+Bit 82 is the smallest closure bit > parentMsb=81 returned by `findClosureBits`.
+After it is added on the first phase7j call, every subsequent iter / commit
+sees β=82 STILL as the smallest > parentMsb, calls
+`extendIndirectMaskForClosure(root, 82)`, which succeeds as a no-op rebuild
+(the merge `byteMaskBits | newMaskBitInByte` is idempotent), `extended=true;
+break;` exits the inner loop, and the outer loop wastes the rest of its
+maxIter budget on the same no-op. Bit 90 is unreachable.
+
+**Validation that the no-op-skip cascades by itself**:
+- `-Dhot.strict.phase7q.skipNoop=true` (added) drops the loop into β=83+, 84+
+  attempts. After bits {83,84,85,86,87,88,89,99,100,102} all enter root.mask:
+  total violations = 8469 (16× I11, 8448× I6, 2× I5, 2× sparse, 1× I8).
+- Same cascade with `-Dhot.strict.phase7o=true` (existing `triedBits` mechanism,
+  same effect via different gate): 8469 violations, ext-ok=3, extra structural
+  rebuilds.
+- `-Dhot.strict.phase7q.fullScan=true` (new, applied to `ensureMaskClosure`'s
+  inner break) had no effect because the test does not enable
+  `hot.strict.g28.closure` — `ensureMaskClosure` is dormant in this run.
+
+**Constancy violation surfaces from inside the lift**:
+
+```
+[hot.constancy] BUILD-VIOLATION pageKey=1000025 label=createNodeFromChildren-N
+  absBits=[103, 98, 97, 96, 95, 94, 93, 92, 91] non-constant
+  at HOTTrieWriter.buildBucketWithInheritedMaskMultiMask(2431)
+  at HOTTrieWriter.buildBucketWithInheritedMask(2099)
+  at HOTTrieWriter.splitIndirectOnBitForLift(6046)
+  at HOTTrieWriter.liftBetaFromSubtreeRecursive(6163)
+  at HOTTrieWriter.phase7qExtendWithLift(6433)
+```
+
+The lift's `splitIndirectOnBitForLift` builds a half-indirect that inherits
+the parent's mask `M`. The new sub-indirect's children must be β-constant on
+every bit in `M\{β}`. They are not — meaning an upstream split moved children
+from one slot to another in a way that violates the inherited mask's
+constancy assumption. This is the **root cause of the cascade**: not the
+extra closure bits themselves, but the lift's inability to keep all
+descendant subtrees constant on the inherited bits when β is stripped from
+intermediate levels.
+
+**Phase 7q.5 deliverable** (this session):
+1. `phase7qIsBetaAlreadyInIndirectMask` helper.
+2. `PHASE7Q_CLOSURE_NOOP_SKIPS` counter + reset/getter pair.
+3. Opt-in `-Dhot.strict.phase7q.skipNoop=true` skipping the no-op rebuild
+   inside `phase7jExtendWithAllClosureBits`. Default OFF preserves the
+   architectural ceiling at 1 violation.
+4. Opt-in `-Dhot.strict.phase7q.fullScan=true` on `ensureMaskClosure`'s
+   per-bit failure handling.
+5. `[phase7q-bitcheck]` per-bit firstKey trace inside `findClosureBits`
+   (debugging tool, always-on but only fires for root + selected bits).
+6. `build.gradle` flag forwarding for both opt-in flags.
+
+**Phase 7q.6 entry point** (next session): instrument
+`splitIndirectOnBitForLift` to log, for each `[hot.constancy] BUILD-VIOLATION`,
+which CHILD ref violates which absBit, then trace whether that child was a
+descendant lift-product or the original sibling. Likely fix is in
+`buildBucketWithInheritedMask` / `splitIndirectOnBitForLift`: when a child
+isn't constant on an inherited bit, EITHER pre-split it to make it constant
+OR exclude that bit from the inherited mask of this sub-indirect.
+
+100K CAS, HOTOptionBPhase5Test, default 50K reproducer all pass at
+HEAD with `-Dhot.strict.phase7q=true`.
