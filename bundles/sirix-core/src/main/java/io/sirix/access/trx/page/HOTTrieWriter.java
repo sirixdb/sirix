@@ -4482,16 +4482,28 @@ public final class HOTTrieWriter {
     log.put(matchHalfRef, PageContainer.getInstance(matchHalfLeaf, matchHalfLeaf));
 
     // 6. CoW the path from leaf-parent up to root, replacing leaf-parent's slot with matchHalfRef.
+    //    Phase 6h — after each withUpdatedChild, ALSO try recomputing partials from
+    //    current children's firstKeys. If the mask still discriminates after K was merged,
+    //    the recompute installs partials reflecting K's effect; otherwise the indirect
+    //    stays with stale partials but the structural reference chain is correct.
     final int leafParentIdx = pathDepth - 1;
     final HOTIndirectPage leafParent = currentInLog(pathRefs[leafParentIdx], pathNodes[leafParentIdx]);
-    final HOTIndirectPage updatedLeafParent = leafParent.withUpdatedChild(
+    HOTIndirectPage updatedLeafParent = leafParent.withUpdatedChild(
         pathChildIndices[leafParentIdx], matchHalfRef, revision);
+    if (Boolean.getBoolean("hot.strict.phase6h")) {
+      final HOTIndirectPage rec = recomputePartialsForCurrentFirstKeys(updatedLeafParent, revision);
+      if (rec != null) updatedLeafParent = rec;
+    }
     log.put(pathRefs[leafParentIdx], PageContainer.getInstance(updatedLeafParent, updatedLeafParent));
     // Propagate up.
     PageReference childRef = pathRefs[leafParentIdx];
     for (int i = leafParentIdx - 1; i >= 0; i--) {
       final HOTIndirectPage curNode = currentInLog(pathRefs[i], pathNodes[i]);
-      final HOTIndirectPage updatedNode = curNode.withUpdatedChild(pathChildIndices[i], childRef, revision);
+      HOTIndirectPage updatedNode = curNode.withUpdatedChild(pathChildIndices[i], childRef, revision);
+      if (Boolean.getBoolean("hot.strict.phase6h")) {
+        final HOTIndirectPage rec = recomputePartialsForCurrentFirstKeys(updatedNode, revision);
+        if (rec != null) updatedNode = rec;
+      }
       log.put(pathRefs[i], PageContainer.getInstance(updatedNode, updatedNode));
       childRef = pathRefs[i];
     }
