@@ -2287,6 +2287,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     recomputePrefix();
     target.recomputePrefix();
     pextValid = false;
+    // Phase 7d — propagate owned bits to both halves + add splitBit as new owned bit.
+    propagateOwnedBitsAfterSplit(target, splitBit);
     return splitBit;
   }
 
