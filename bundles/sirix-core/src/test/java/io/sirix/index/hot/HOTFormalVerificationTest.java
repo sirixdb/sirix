@@ -649,22 +649,16 @@ final class HOTFormalVerificationTest {
           // Last-resort I8 fix: ignores constancy/I11 constraints, just picks
           // adjacent-pair MSDB bits from current firstKey order. May break I6 in some
           // subtrees but should fix I8 at root.
-          System.out.println("[phase7f] gate eval: " + Boolean.getBoolean("hot.strict.phase7f"));
           if (Boolean.getBoolean("hot.strict.phase7f")) {
             try {
               final var trieWriter7f = new io.sirix.access.trx.page.HOTTrieWriter();
               final io.sirix.page.PageReference rootRef7f =
                   io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
                       trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
-              System.out.println("[phase7f] rootRef=" + rootRef7f);
               if (rootRef7f != null) {
                 io.sirix.page.interfaces.Page pg = rootRef7f.getPage();
-                System.out.println("[phase7f] rootPage(class)="
-                    + (pg == null ? "null" : pg.getClass().getSimpleName()));
                 if (pg == null) {
                   pg = trx.getStorageEngineReader().loadHOTPage(rootRef7f);
-                  System.out.println("[phase7f] loaded rootPage(class)="
-                      + (pg == null ? "null" : pg.getClass().getSimpleName()));
                 }
                 if (pg instanceof io.sirix.page.HOTIndirectPage rootInd) {
                   final var rebuilt = trieWriter7f.forceRebuildIndirectFromFirstKeyMsdbs(
