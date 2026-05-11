@@ -4396,6 +4396,60 @@ public final class HOTTrieWriter {
   }
 
   /**
+   * Phase 7p — Check if any indirect in the subtree rooted at {@code ref} already
+   * routes on absolute bit position {@code absBit} (= absBit is captured in that
+   * indirect's mask). Used by extendIndirectMaskForClosure to reject extensions that
+   * would create a double-capture (bit appearing at two trie levels).
+   *
+   * <p>Returns true if any descendant indirect has the bit in its mask. Returns false
+   * for leaf-only subtrees, even though leaves "use" the bit for their internal
+   * sort — Binna's I6 routes through indirect masks, leaves are terminal.
+   */
+  private boolean subtreeHasBitInAnyIndirectMask(PageReference ref, int absBit) {
+    Page page = ref.getPage();
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, ref);
+      if (page != null) ref.setPage(page);
+    }
+    if (!(page instanceof HOTIndirectPage indirect)) return false;
+    if (indirectMaskHasAbsBit(indirect, absBit)) return true;
+    final int m = indirect.getNumChildren();
+    for (int i = 0; i < m; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) continue;
+      if (subtreeHasBitInAnyIndirectMask(cref, absBit)) return true;
+    }
+    return false;
+  }
+
+  /** Returns true if {@code indirect}'s mask captures absolute bit position {@code absBit}. */
+  private static boolean indirectMaskHasAbsBit(HOTIndirectPage indirect, int absBit) {
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      final int initialBytePos = indirect.getInitialBytePos();
+      final int byteOffset = (absBit / 8) - initialBytePos;
+      if (byteOffset < 0 || byteOffset >= 8) return false;
+      final int bitInByte = absBit % 8;
+      final int bitInWord = (7 - byteOffset) * 8 + (7 - bitInByte);
+      return ((indirect.getBitMask() >>> bitInWord) & 1L) != 0L;
+    }
+    final byte[] ep = indirect.getExtractionPositions();
+    final long[] em = indirect.getExtractionMasks();
+    final int neb = indirect.getNumExtractionBytes();
+    final int bytePos = absBit / 8;
+    final int bitInByte = absBit % 8;
+    final int maskBit = 1 << (7 - bitInByte);
+    for (int i = 0; i < neb; i++) {
+      if ((ep[i] & 0xFF) != bytePos) continue;
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      final int byteMaskBits =
+          (int) ((em[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+      return (byteMaskBits & maskBit) != 0;
+    }
+    return false;
+  }
+
+  /**
    * Collect the union of absolute disc-bit positions captured by every indirect on the
    * descent path. Returns positions sorted ascending (i.e., MSB-first absolute order:
    * smallest position = most significant bit).
@@ -6383,6 +6437,21 @@ public final class HOTTrieWriter {
       }
       if (!relaxPlaceholder && ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG) {
         if (dbg) System.err.println("[g30] reject reason=placeholder-child beta=" + beta
+            + " childIdx=" + i + " childPageKey=" + ref.getKey());
+        return null;
+      }
+    }
+
+    // Phase 7p — descendant-mask double-capture guard. Reject the extension if any
+    // descendant indirect already has β in its mask. Adding β to this indirect creates
+    // a double-capture (bit β at two trie levels), which breaks Binna's I6 PEXT
+    // routing — keys get sent to the wrong leaf because the descendant's PEXT no
+    // longer matches the new ancestor's PEXT routing.
+    for (int i = 0; i < oldNumChildren; i++) {
+      final PageReference ref = indirect.getChildReference(i);
+      if (ref == null) continue;
+      if (subtreeHasBitInAnyIndirectMask(ref, beta)) {
+        if (dbg) System.err.println("[g30] reject reason=descendant-already-routes-beta beta=" + beta
             + " childIdx=" + i + " childPageKey=" + ref.getKey());
         return null;
       }
