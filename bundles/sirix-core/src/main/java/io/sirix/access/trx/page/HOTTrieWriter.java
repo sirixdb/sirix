@@ -4478,6 +4478,11 @@ public final class HOTTrieWriter {
       final PageReference newLeftChild = kBetaSet ? wrongHalfRef : matchHalfRef;
       final PageReference newRightChild = kBetaSet ? matchHalfRef : wrongHalfRef;
 
+      // Phase 7d — set activeLog/activeReader so splitSubtreeOnBit (called by
+      // addEntryWithPDep / upgradeToMultiMaskWithNewBit when Phase 6d splits β-mixed
+      // siblings) can install split products in the TIL.
+      this.activeLog = log;
+      this.activeReader = storageEngineWriter;
       final HOTIndirectPage extended = addEntryWithPDep(ancestor, descendSlot,
           newLeftChild, newRightChild, offendingBeta, revision);
       if (extended == null) {
