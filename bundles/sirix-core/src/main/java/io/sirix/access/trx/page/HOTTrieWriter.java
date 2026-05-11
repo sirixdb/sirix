@@ -7342,6 +7342,43 @@ public final class HOTTrieWriter {
         }
         if (seen0 && seen1) closureBitset[absBit >> 6] |= 1L << (absBit & 63);
       }
+      // Phase 7q.10 diagnostic: dump per-child bit values at specific absBits.
+      if (dbg && attempt == 0) {
+        for (final int probeBit : new int[]{87, 96, 98, 99, 100, 104}) {
+          final int bp = probeBit / 8;
+          final int mask = 1 << (7 - (probeBit % 8));
+          final StringBuilder pb = new StringBuilder("[g32-bitprobe] absBit=").append(probeBit);
+          pb.append(" bytePos=").append(bp).append(" mask=0x")
+              .append(Integer.toHexString(mask));
+          for (int i = 0; i < n; i++) {
+            if (firstKeys[i] == null || firstKeys[i].length == 0) continue;
+            final int byteVal = bp < firstKeys[i].length ? (firstKeys[i][bp] & 0xff) : -1;
+            pb.append(" c[").append(i).append("](b[").append(bp).append("]=0x")
+                .append(byteVal < 0 ? "OOB" : String.format("%02x", byteVal))
+                .append(")=").append(isAbsBitSet(firstKeys[i], probeBit) ? "1" : "0");
+          }
+          System.err.println(pb);
+        }
+      }
+      // Phase 7q.10 diagnostic: dump closure-bit list + offending pair on first attempt.
+      if (dbg && attempt == 0) {
+        final StringBuilder sb = new StringBuilder("[g32-closure] attempt=0 parentMsb=" + parentMsb
+            + " offK=" + offK + " offI=" + offI + " n=" + n + " closureBits=[");
+        boolean first = true;
+        for (int absBit = parentMsb + 1; absBit < totalAbsBits; absBit++) {
+          if ((closureBitset[absBit >> 6] & (1L << (absBit & 63))) == 0) continue;
+          if (!first) sb.append(',');
+          sb.append(absBit);
+          first = false;
+        }
+        sb.append("]");
+        for (int i = 0; i < n; i++) {
+          sb.append("\n  c[").append(i).append("].fk=");
+          if (firstKeys[i] == null) sb.append("null");
+          else for (final byte b : firstKeys[i]) sb.append(String.format("%02x", b & 0xff));
+        }
+        System.err.println(sb);
+      }
       // Try each closure bit in order. First try constancy-only (no split). If all fail,
       // try split-aware (= splits β-mixed children to make β-constant).
       HOTIndirectPage extended = null;
