@@ -9,6 +9,7 @@ import io.sirix.cache.WindowsMemorySegmentAllocator;
 import io.sirix.index.IndexType;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import io.sirix.utils.OS;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -34,6 +35,80 @@ class HOTOptionBPhase5Test {
       LinuxMemorySegmentAllocator.getInstance().init(64 * 1024 * 1024);
     } else {
       WindowsMemorySegmentAllocator.getInstance().init(64 * 1024 * 1024);
+    }
+  }
+
+  @Nested
+  @DisplayName("Phase 7a — owned-bits metadata")
+  class OwnedBitsMetadata {
+
+    private static byte[] hexBytes(String hex) {
+      final int len = hex.length() / 2;
+      final byte[] b = new byte[len];
+      for (int i = 0; i < len; i++) {
+        b[i] = (byte) Integer.parseInt(hex.substring(i * 2, i * 2 + 2), 16);
+      }
+      return b;
+    }
+
+    @Test
+    @DisplayName("default leaf has empty owned bits")
+    void defaultEmpty() {
+      final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
+      assertEquals(0, leaf.getAncestorOwnedBits().length);
+      assertEquals(0, leaf.getAncestorOwnedValues().length);
+    }
+
+    @Test
+    @DisplayName("setAncestorOwnedBits stores + retrieves")
+    void setAndGet() {
+      final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
+      leaf.setAncestorOwnedBits(new int[]{ 1, 5, 80 }, new byte[]{ 0, 1, 1 });
+      assertArrayEquals(new int[]{ 1, 5, 80 }, leaf.getAncestorOwnedBits());
+      assertArrayEquals(new byte[]{ 0, 1, 1 }, leaf.getAncestorOwnedValues());
+    }
+
+    @Test
+    @DisplayName("checkOwnedBitsAgainstKey returns -1 when key matches all owned values")
+    void checkMatching() {
+      final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
+      // Owned: bit 0 = 1 (MSB of byte 0), bit 7 = 1 (LSB of byte 0).
+      leaf.setAncestorOwnedBits(new int[]{ 0, 7 }, new byte[]{ 1, 1 });
+      // Key 0x81 = 10000001 → bit 0 = 1, bit 7 = 1. Matches.
+      assertEquals(-1, leaf.checkOwnedBitsAgainstKey(hexBytes("81")));
+    }
+
+    @Test
+    @DisplayName("checkOwnedBitsAgainstKey returns first offending bit")
+    void checkOffending() {
+      final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
+      leaf.setAncestorOwnedBits(new int[]{ 0, 7 }, new byte[]{ 1, 1 });
+      // Key 0x80 = 10000000 → bit 0 = 1, bit 7 = 0. Bit 7 offends.
+      assertEquals(7, leaf.checkOwnedBitsAgainstKey(hexBytes("80")));
+    }
+
+    @Test
+    @DisplayName("setAncestorOwnedBits rejects unsorted input")
+    void rejectsUnsorted() {
+      final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
+      assertThrows(IllegalArgumentException.class, () ->
+          leaf.setAncestorOwnedBits(new int[]{ 5, 2 }, new byte[]{ 0, 1 }));
+    }
+
+    @Test
+    @DisplayName("setAncestorOwnedBits rejects mismatched lengths")
+    void rejectsMismatchedLengths() {
+      final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
+      assertThrows(IllegalArgumentException.class, () ->
+          leaf.setAncestorOwnedBits(new int[]{ 5 }, new byte[]{ 0, 1 }));
+    }
+
+    @Test
+    @DisplayName("checkOwnedBitsAgainstKey is no-op for empty owned bits")
+    void emptyOwnedBitsAcceptsAll() {
+      final HOTLeafPage leaf = new HOTLeafPage(1L, 1, IndexType.CAS);
+      assertEquals(-1, leaf.checkOwnedBitsAgainstKey(hexBytes("80")));
+      assertEquals(-1, leaf.checkOwnedBitsAgainstKey(hexBytes("ff")));
     }
   }
 

@@ -203,6 +203,23 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   // directly. Acts as the HOT analogue of KeyValueLeafPage.completePageRef.
   private @Nullable HOTLeafPage completePageRef;
 
+  // ===== Phase 7a — leaf-owned-bits metadata =====
+  // Tracks which absolute MSB-first bit positions are captured by ANY ancestor mask on the
+  // path that descends to this leaf. Keys in this leaf MUST have a constant value at each
+  // owned bit (0 or 1 matching ancestorOwnedValues). This metadata enables β-constancy
+  // enforcement at insert time: callers can check whether inserting a key would violate the
+  // constancy invariant BEFORE actually merging.
+  //
+  // Empty arrays = no constraints (= legacy multi-entry leaf with arbitrary bit values).
+  // Sorted ascending (= MSB-first order). Set by splitLeafOnBit / handleLeafSplitAndInsert.
+  //
+  // ancestorOwnedValues[i] = 0 means bit ancestorOwnedBits[i] is constant 0 across all keys.
+  // ancestorOwnedValues[i] = 1 means bit ancestorOwnedBits[i] is constant 1 across all keys.
+  private int[] ancestorOwnedBits = EMPTY_BITS;
+  private byte[] ancestorOwnedValues = EMPTY_VALUES;
+  private static final int[] EMPTY_BITS = new int[0];
+  private static final byte[] EMPTY_VALUES = new byte[0];
+
   // ===== Diagnostic tracking =====
   @SuppressWarnings("unused")
   private static final boolean DEBUG_MEMORY_LEAKS = DiagnosticSettings.MEMORY_LEAK_TRACKING;
@@ -1524,6 +1541,74 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     }
     if (seen1 && !seen0) return 1;
     if (seen0 && !seen1) return 0;
+    return -1;
+  }
+
+  // ===== Phase 7a — owned-bits metadata API =====
+
+  /**
+   * Set the leaf's ancestor-owned bits (= absolute MSB-first bit positions captured by any
+   * ancestor mask on the path to this leaf). Each owned bit must be β-constant across all
+   * keys in the leaf; {@code ownedValues[i]} provides the constant value 0/1 for owned bit
+   * {@code ownedBits[i]}.
+   *
+   * <p>Arrays must be the same length; {@code ownedBits} must be sorted ascending. Caller
+   * is responsible for verifying that the constraint actually holds; this method just
+   * records the metadata. Empty arrays = no constraint (= legacy multi-entry leaf).
+   */
+  public void setAncestorOwnedBits(int[] ownedBits, byte[] ownedValues) {
+    if (ownedBits == null || ownedBits.length == 0) {
+      this.ancestorOwnedBits = EMPTY_BITS;
+      this.ancestorOwnedValues = EMPTY_VALUES;
+      return;
+    }
+    if (ownedValues == null || ownedValues.length != ownedBits.length) {
+      throw new IllegalArgumentException("ownedValues length must match ownedBits length");
+    }
+    // Verify sorted ascending (= MSB-first absolute bit positions).
+    for (int i = 1; i < ownedBits.length; i++) {
+      if (ownedBits[i] <= ownedBits[i - 1]) {
+        throw new IllegalArgumentException(
+            "ownedBits must be sorted strictly ascending; got " + ownedBits[i - 1]
+                + " followed by " + ownedBits[i]);
+      }
+    }
+    this.ancestorOwnedBits = ownedBits.clone();
+    this.ancestorOwnedValues = ownedValues.clone();
+  }
+
+  /** Returns a defensive copy of the leaf's ancestor-owned bit positions. */
+  public int[] getAncestorOwnedBits() {
+    return ancestorOwnedBits.length == 0 ? EMPTY_BITS : ancestorOwnedBits.clone();
+  }
+
+  /** Returns a defensive copy of the leaf's ancestor-owned bit values. */
+  public byte[] getAncestorOwnedValues() {
+    return ancestorOwnedValues.length == 0 ? EMPTY_VALUES : ancestorOwnedValues.clone();
+  }
+
+  /**
+   * Check whether inserting {@code key} would violate the leaf's owned-bits constancy. Returns:
+   * <ul>
+   *   <li>-1 — key matches all owned bits (= safe to merge);
+   *   <li>≥0 — the FIRST offending absolute bit position where key's value disagrees with the
+   *       owned constant.
+   * </ul>
+   *
+   * <p>HFT-grade: O(ownedBits.length), no allocation. Used by callers BEFORE merge to
+   * detect β-break and trigger constancy-aware split.
+   */
+  public int checkOwnedBitsAgainstKey(byte[] key) {
+    if (key == null || ancestorOwnedBits.length == 0) return -1;
+    for (int i = 0; i < ancestorOwnedBits.length; i++) {
+      final int absBit = ancestorOwnedBits[i];
+      final int bytePos = absBit / 8;
+      final int bitInByte = absBit % 8;
+      final boolean keyBit = (bytePos < key.length)
+          && ((key[bytePos] & (1 << (7 - bitInByte))) != 0);
+      final boolean ownedBit = ancestorOwnedValues[i] != 0;
+      if (keyBit != ownedBit) return absBit;
+    }
     return -1;
   }
 
