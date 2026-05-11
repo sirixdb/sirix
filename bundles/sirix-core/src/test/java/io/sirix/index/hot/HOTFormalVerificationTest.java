@@ -673,7 +673,7 @@ final class HOTFormalVerificationTest {
                       trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
               if (rootRef7k != null) {
                 final int total = trieWriter7k.phase7kRecursiveCommit(rootRef7k,
-                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog(), 16);
+                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog(), 64);
                 System.out.println("[phase7k] recursive total extensions=" + total);
               }
             } catch (final Throwable t) {
@@ -694,7 +694,7 @@ final class HOTFormalVerificationTest {
                 if (pg7j instanceof io.sirix.page.HOTIndirectPage rootInd7j) {
                   final int ext = trieWriter7j.phase7jExtendWithAllClosureBits(
                       rootRef7j, rootInd7j, trx.getStorageEngineWriter(),
-                      trx.getStorageEngineWriter().getLog(), 16);
+                      trx.getStorageEngineWriter().getLog(), 64);
                   System.out.println("[phase7j] commit-time extensions=" + ext);
                 }
               }

@@ -332,6 +332,56 @@ final I8 and why it's not being attempted (or why its attempt hits β-in-mask).
 
 100K CAS still 0 violations (no regression).
 
+### 7.8 Phase 7q.4 deeper analysis (2026-05-11 PM)
+
+Enabled `phase7q debug` to identify each lift's β + indirect.pageKey:
+
+```
+[phase7q] LIFT-OK     beta=88 indirect.pageKey=2     new-msb=81
+[phase7q] LIFT-FAILED beta=95 indirect.pageKey=429   indirect.maskHasBeta=true indirect.msb=94
+[phase7q] LIFT-FAILED beta=95 indirect.pageKey=431   indirect.maskHasBeta=true indirect.msb=94
+```
+
+The 1 successful lift is on **root** (pageKey=2) adding bit 88. The 2 bit-95
+lift failures are at OTHER indirects (429, 431) — NOT at root. So **bit 95 is
+never attempted on root via the LIFT path**.
+
+Bumped phase7j/phase7k maxIter to 64. Net effect:
+- phase7k recursive extensions: 272 → 1088
+- phase7j commit-time extensions: 16 → 64
+- G28-closure firings: 287 → 1151
+- LB-HARD: 60 → 204 (more visits = more rejections)
+- ext-ok: 1 → 1 (still only the root bit-88 lift)
+- Persistent I8: same violation, same location
+
+Combined with `-Dhot.strict.g32=true` (per-insert root reconcile): no change.
+
+**Post-build dump of root (pageKey=2)** after all phases:
+```
+layout=MULTI_MASK MSB=81 numChildren=10
+extractionPositions=[10, 11, 12]
+extractionMasks=[0x60801a0000000000]
+  byte 10 mask 0x60 → bits 81, 82
+  byte 11 mask 0x80 → bit 88
+  byte 12 mask 0x1a → bits 99, 100, 102
+```
+
+Root.mask = {81, 82, 88, 99, 100, 102}. **Bit 95 is missing.**
+
+For c4 vs c5 (child[4] firstKey c1.30.08, child[5] firstKey c0.70.10):
+- All root-mask bits give identical extraction → partial collision impossible
+  (but they are distinct slots, so something else distinguishes them).
+- Bit 95 (LSB of byte 11) would resolve the I8 ordering.
+
+**Hypothesis**: `findClosureBits` returns bit 95 for root, but the standard
+`extendIndirectMaskForClosure(root, 95)` rejects via some path that doesn't
+log to the phase7q counters — likely partial-collision in the standard rebuild
+or `extendMaskWithBitI11Safe` failing on a non-β-constant subtree.
+
+**Next session entry point**: add an unconditional debug log at the top of
+`extendIndirectMaskForClosure` so every (indirect.pageKey, β) attempt is
+traced, then run again to identify the exact reject path for (root, 95).
+
 Persistent I8 still at `indirect 2 child[4] vs child[5]` (byte 11 bit 95 = LSB
 of byte 11). Lift's structural improvement IS happening (height 6→5, LB-HARD
 64→60→1 net), but it's not addressing the final pair.

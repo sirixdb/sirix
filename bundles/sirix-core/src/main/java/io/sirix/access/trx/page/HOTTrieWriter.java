@@ -7384,13 +7384,17 @@ public final class HOTTrieWriter {
         final HOTIndirectPage lifted = phase7qExtendWithLift(indirect, beta, log, revision);
         if (lifted != null) {
           if (phase7qDebug) {
-            System.err.println("[phase7q] LIFT-OK beta=" + beta + " new-msb="
+            System.err.println("[phase7q] LIFT-OK beta=" + beta + " indirect.pageKey="
+                + indirect.getPageKey() + " new-msb="
                 + (lifted.getMostSignificantBitIndex() & 0xFFFF));
           }
           return lifted;
         }
         if (phase7qDebug) {
-          System.err.println("[phase7q] LIFT-FAILED beta=" + beta
+          System.err.println("[phase7q] LIFT-FAILED beta=" + beta + " indirect.pageKey="
+              + indirect.getPageKey()
+              + " indirect.maskHasBeta=" + indirectMaskHasAbsBit(indirect, beta)
+              + " indirect.msb=" + (indirect.getMostSignificantBitIndex() & 0xFFFF)
               + " → fall through to standard reject");
         }
       }
