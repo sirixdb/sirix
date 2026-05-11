@@ -261,5 +261,37 @@ sibling pair. The next session iteration needs to:
 - Or: extend `phase7qExtendWithLift` itself to recurse on the result and
   iterate until convergence (or fan-out cap).
 
+### 7.6 Phase 7q.4 reconnaissance (2026-05-11 PM)
+
+Running with `-Dhot.strict.phase7q=true -Dhot.strict.phase7j=true -Dhot.strict.phase7k=true -Dhot.relax.closure.placeholder=true`:
+
+```
+[phase7k] recursive total extensions=272
+[phase7j] commit-time extensions=16
+phase7q classification: wasted=0 load-bearing=60 LB-liftable=0 LB-hard=60
+phase7q lift: split-firings=285 split-fail=0 walk-fire=285 walk-fail=0
+              walk-noop=1049 ext-fire=60 ext-ok=1 ext-fail=59
+```
+
+Findings:
+- phase7k recursive closure DOES exercise the lift dispatch on non-root
+  indirects (60 LB-HARD cases vs 1 with phase7j alone).
+- Walker itself never fails (walk-fail=0). 285 splits succeed.
+- **Only 1 of 60 lift+extend attempts succeeds.** 59 ext-fail in the
+  rebuild phase. Need finer counters to bucket failure reasons:
+  - `expandedN > MULTI_NODE_MAX_CHILDREN` (fanout overflow)
+  - `splitSubtreeOnBit` returns null on residual β-mixed leaves
+  - partial collision under the new mask
+  - `hasZero == false` (I4 gate)
+  - β-bit already set in old mask
+
+**Next session target**: split `PHASE7Q_EXTEND_FAILURES` into named sub-counters
+to localize which rebuild gate is rejecting the 59 cases. Once known, address
+the most common failure mode.
+
+Persistent I8 still at `indirect 2 child[4] vs child[5]` (byte 11 bit 95 = LSB
+of byte 11). Lift's structural improvement IS happening (height 6→5, LB-HARD
+64→60→1 net), but it's not addressing the final pair.
+
 Build: `:sirix-core:compileJava` and `compileTestJava` clean. `build.gradle`
 now forwards `hot.strict.phase7q` and `hot.debug.phase7q` to the test JVM.
