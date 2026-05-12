@@ -6610,6 +6610,61 @@ public final class HOTTrieWriter {
   public static long getPhase7qRejectsLbHard() { return PHASE7Q_REJECTS_LB_HARD.get(); }
   public static void resetPhase7qRejectsLbHard() { PHASE7Q_REJECTS_LB_HARD.set(0L); }
 
+  // ===== Phase 7r-1 diagnostic — internal-indirect Path 5 routing-collision counters =====
+  // Path 5 (§7.22) eliminated the last I8 violation at root-level rebuild sites
+  // (rebuildRootWithFullClosureI11Safe, addNewRootLevelForI8). The 5 failing
+  // comprehensive* tests in HOTFormalVerificationTest (descending10K, mixedSign,
+  // bimodal5K+5K, bimodal50KPromoted, manyDuplicates) surface pre-existing violations
+  // at INTERNAL indirects rebuilt via buildFlatNonStrict — the multi-child branch of
+  // createNodeFromChildren — where partial-subset overlap causes HOT's subset-fallback
+  // routing rule ("largest index among subsets") to mis-route subtree keys to the
+  // wrong child (= I6 / I8 / I-Binna cascade downstream).
+  //
+  // Phase 7r-1 instruments buildFlatNonStrict with a Path 5 routing-collision probe
+  // gated by hot.strict.phase7r.routeverify (default false to preserve baseline).
+  // INSPECTIONS counts every buildFlatNonStrict invocation when the flag is on;
+  // COLLISIONS counts how many had at least one routing-collision in their proposed
+  // partials. Probe is purely diagnostic — does NOT reject the build. Phase 7r-2/3
+  // will reuse the helper to actually fix the collision via mask augmentation.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7R_BUILDFLAT_INSPECTIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7R_BUILDFLAT_COLLISIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+
+  public static long getPhase7rBuildflatInspections() { return PHASE7R_BUILDFLAT_INSPECTIONS.get(); }
+  public static void resetPhase7rBuildflatInspections() { PHASE7R_BUILDFLAT_INSPECTIONS.set(0L); }
+  public static long getPhase7rBuildflatCollisions() { return PHASE7R_BUILDFLAT_COLLISIONS.get(); }
+  public static void resetPhase7rBuildflatCollisions() { PHASE7R_BUILDFLAT_COLLISIONS.set(0L); }
+
+  /**
+   * Phase 7r-1 — Path 5 routing-collision detector for partial keys in their canonical
+   * stored order (= partial-sorted). For each {@code partials[i]} (treated as densePK),
+   * simulates HOT's subset-fallback routing rule: find the LARGEST-INDEX j such that
+   * {@code (partials[i] & partials[j]) == partials[j]}, with equality preferred. If
+   * {@code j != i}, the build mis-routes child[i]'s firstKey to child[j] — that's a
+   * collision. Returns the first colliding index, or -1 if every child self-routes.
+   *
+   * <p>HFT-grade: O(n²) on pre-computed primitive int[], n ≤ 32 typical. No allocation.
+   * Identical to the inline probes in {@link #rebuildRootWithFullClosureI11Safe} and
+   * {@link #addNewRootLevelForI8} — extracted here so Phase 7r-2/3 can re-use without
+   * duplication.
+   */
+  static int phase7rRoutingCollisionFirstIdx(int[] partials) {
+    final int n = partials.length;
+    for (int i = 0; i < n; i++) {
+      final int densePk = partials[i];
+      int bestIdx = -1;
+      for (int j = 0; j < n; j++) {
+        if ((densePk & partials[j]) == partials[j]) {
+          if (partials[j] == densePk) { bestIdx = j; break; }
+          if (bestIdx < 0 || j > bestIdx) bestIdx = j;
+        }
+      }
+      if (bestIdx != i) return i;
+    }
+    return -1;
+  }
+
   /**
    * Phase 7q — classify a Phase 7p descendant-capture rejection. Walks the subtree
    * rooted at {@code ref}; at each indirect that has {@code beta} in its mask, checks
@@ -13794,6 +13849,31 @@ public final class HOTTrieWriter {
     // above to drive adjacent-pair disc-bit collection; partial-key order is the canonical
     // slot order under sparse-path encoding per Binna §4.2).
     sortChildrenAndPartialsByPartial(children, partialKeys);
+    // Phase 7r-1 — diagnostic Path 5 routing-collision probe. Opt-in via
+    // -Dhot.strict.phase7r.routeverify. Counts inspections + collisions; does NOT
+    // reject the build (collisions go through and surface as I3/I7/I8 / I-Binna at
+    // validation time, exactly as before). Phase 7r-2 will gate rejection + augment.
+    if (Boolean.getBoolean("hot.strict.phase7r.routeverify")) {
+      PHASE7R_BUILDFLAT_INSPECTIONS.incrementAndGet();
+      final int collidingIdx = phase7rRoutingCollisionFirstIdx(partialKeys);
+      if (collidingIdx >= 0) {
+        PHASE7R_BUILDFLAT_COLLISIONS.incrementAndGet();
+        if (Boolean.getBoolean("hot.debug.phase7r")) {
+          final StringBuilder sb = new StringBuilder(256);
+          sb.append("[phase7r] buildFlatNonStrict ROUTING-COLLISION pageKey=").append(pageKey)
+              .append(" height=").append(height)
+              .append(" n=").append(children.length)
+              .append(" collidingIdx=").append(collidingIdx)
+              .append(" partials=[");
+          for (int i = 0; i < partialKeys.length; i++) {
+            if (i > 0) sb.append(',');
+            sb.append("0x").append(Integer.toHexString(partialKeys[i]));
+          }
+          sb.append(']');
+          System.err.println(sb);
+        }
+      }
+    }
     final HOTIndirectPage created = createNodeWithDiscBits(pageKey, revision, height, discBits,
         partialKeys, children);
     probeConstancyOnBuild(pageKey, "createNodeFromChildren-N", children,

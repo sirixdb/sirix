@@ -1,13 +1,17 @@
 # HOT Phase 7q — Structural Lift Design
 
 **Branch**: `fix/hot-strict-binna-conformance`
-**Status**: **2026-05-12 — ROOT-LEVEL fix LANDED; internal-indirect bugs surfaced.**
+**Status**: **2026-05-12 — Phase 7r-1 LANDED: internal-indirect probe instrumented.**
 Path 5 (§7.22) eliminates the last I8 at the root via `reconcileRootMaskI11Safe`.
 User landed default-ON via build.gradle. **Direct-writer path** (diagnostic, 100K CAS,
 HOTOptionBPhase5Test, adversarial fuzz, Binna sweep) all 0 violations.
 **Bulk-JSON insertion path** still has bugs at INTERNAL indirects on certain
 workloads — see new `comprehensive*` tests in `HOTFormalVerificationTest` that
 catch descending (1832), mixed-sign (900), bimodal (1280/1056) violations.
+**Phase 7r-1** (§7.23) adds opt-in routing-collision instrumentation at
+`buildFlatNonStrict`; empirical readout on descending 10K: **5,445 inspections /
+182 collisions / 3.34 % collision rate** confirming the bug lives at this single
+rebuild site. Phase 7r-2 will convert the probe to reject-then-augment.
 Multi-day work to extend Path 5 to `createNodeFromChildren` /
 `addEntryWithPDep` / `rebalanceAndIntegrate` / `phase7qExtendWithLift`.
 **Goal**: eliminate the single marginal I8 violation by lifting a descendant-captured
@@ -1189,6 +1193,89 @@ falls in the partial-overlap zone.
 0 invariant violations on the 50K diagnostic reproducer, 0 violations on 100K
 CAS regression, HOTOptionBPhase5Test passes. The architectural ceiling that
 persisted across Phases 7a-7q.15h is removed.
+
+### 7.23 Phase 7r-1 — extend Path 5 instrumentation to internal-indirect `buildFlatNonStrict` (2026-05-12)
+
+**Motivation.** Phase 7q.5 landed Path 5 at the two ROOT-level rebuild sites
+(`rebuildRootWithFullClosureI11Safe`, `addNewRootLevelForI8`) and eliminated the
+last I8 on the 50K diagnostic reproducer + 100K CAS regression. The 12 new
+`comprehensive*` tests added in the same commit surfaced 5 PRE-EXISTING bugs
+(`comprehensiveDescending10K` = 1832 I11, `comprehensiveMixedSign` = 900 I5/I6,
+`comprehensiveBimodal5KPlus5K` = 1280 I5, `comprehensiveBimodal50KPromoted` =
+1056 I5, `comprehensiveManyDuplicatesLowCardinality` = `SirixIOException`) that
+hit INTERNAL indirects, not root. Phase 7r is the multi-day campaign to extend
+the Path 5 mechanism to those internal-indirect sites.
+
+**Phase 7r-1 deliverable** (this commit): instrument `buildFlatNonStrict` (the
+multi-child branch of `createNodeFromChildren`) with a Path 5 routing-collision
+PROBE. Strictly diagnostic — no behavior change — gated by
+`hot.strict.phase7r.routeverify` (default `false`).
+
+The probe runs after partials are computed + sorted but BEFORE the page is built.
+For each child `i`, it simulates HOT's subset-fallback routing rule:
+```
+densePk = partials[i]
+bestIdx = -1
+for j in [0..n):
+  if (densePk & partials[j]) == partials[j]:
+    if partials[j] == densePk: bestIdx = j; break  // equality-preferred
+    if j > bestIdx: bestIdx = j                   // largest-index subset
+if bestIdx != i: COLLISION
+```
+Counter `PHASE7R_BUILDFLAT_INSPECTIONS` increments on every `buildFlatNonStrict`
+invocation when the flag is on; `PHASE7R_BUILDFLAT_COLLISIONS` increments when at
+least one child mis-routes. The helper `phase7rRoutingCollisionFirstIdx(int[])`
+is package-private so Phase 7r-2/3 can re-use it for reject-then-augment without
+duplication of the inline Path 5 probes from §7.22.
+
+**Empirical readout — `comprehensiveDescending10K` (bulk-JSON path):**
+
+| Metric | Value |
+|--------|-------|
+| `PHASE7R_BUILDFLAT_INSPECTIONS` | 5,445 |
+| `PHASE7R_BUILDFLAT_COLLISIONS` | 182 |
+| Collision rate | **3.34 %** |
+| Downstream invariant violations | 1,832 (unchanged — probe is diagnostic only) |
+
+This is direct empirical confirmation that the failing comprehensive tests' bug
+lives at this single rebuild site. 182 colliding `buildFlatNonStrict` rebuilds
+cascade to ~1,832 downstream I11/I8/I-Binna failures (≈ 10 per collision —
+each collision can mis-route an entire subtree's worth of keys).
+
+**Validation under default-off (flag inert):**
+
+| Test | Flags | Violations | Status |
+|------|-------|-----------|--------|
+| 50K diagnostic reproducer | default-ON `phase7q + path5` | 0 | ✅ |
+| 100K CAS regression | default-ON | 0 | ✅ (height=2) |
+| comprehensiveAscending50K | default-ON | 0 | ✅ |
+| HOTOptionBPhase5Test (15 tests) | default-ON | 0 failures | ✅ |
+
+**Validation with flag enabled (`-Dhot.strict.phase7r.routeverify=true`):**
+
+Same baseline tests still 0 violations. Probe is benign on already-working
+workloads (no false positives — 0 collisions surfaced on asc-50K). Confirmed
+the probe is purely measurement, never mutates routing behavior.
+
+**Phase 7r-2 entry point.** Replace the diagnostic probe with reject-then-
+augment: when the routing-collision check fires, call a new
+`augmentDiscBitsUntilUnique()` that adds further bits from the `computeDiscBits`
+candidate pool until partials are routing-consistent OR the per-indirect bit
+budget (16 for SpanNode, 32 for MultiNode) is exhausted. On budget-exhaustion,
+fall through to an alternate strategy (e.g., split the child set into two
+indirects with separate masks). The 3.34 % collision rate suggests budget-
+exhaustion will be rare.
+
+**Files touched (Phase 7r-1 commit):**
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + `PHASE7R_BUILDFLAT_INSPECTIONS`, `PHASE7R_BUILDFLAT_COLLISIONS` (AtomicLong) + getters/resetters.
+  + `phase7rRoutingCollisionFirstIdx(int[])` static helper (~22 lines).
+  + Probe call in `buildFlatNonStrict` (~22 lines, fully gated).
+- `bundles/sirix-core/build.gradle`:
+  + `hot.strict.phase7r.routeverify` + `hot.debug.phase7r` flag forwards.
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  + `phase7r1CharacterizeDescending10K` characterization test (skips silently when flag off).
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.23 (this section).
 
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
