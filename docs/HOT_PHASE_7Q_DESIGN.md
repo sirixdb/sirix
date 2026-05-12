@@ -1748,6 +1748,81 @@ mixed-sign / bimodal.
   `phase7t1CharacterizeMonotoneInversions` test + `runWithMonotoneProbe` helper.
 - `docs/HOT_PHASE_7Q_DESIGN.md`: §7.29 (this section).
 
+### 7.30 Phase 7t-2 — port firstKey-monotone probe to `addEntryWithPDep` + `upgradeToMultiMaskWithNewBit` (commit `e88ae008c+`, 2026-05-13) — **ALSO FALSIFIED**
+
+**Hypothesis.** Phase 7t-1 ruled out `buildFlatNonStrict` as the I8 source. The
+next-most-frequent indirect-construction successes are:
+- `addEntryWithPDep` (line 1708 — per-leaf-split, SingleMask). Has firstKey-monotone
+  check + G.31 retry, but the check is SKIPPED when prev/curr is null/empty (multi-
+  entry-leaf placeholder keys).
+- `upgradeToMultiMaskWithNewBit` (line 4555 — cross-window addEntry branch). NO visible
+  firstKey-monotone retry.
+
+Expected: one of these produces non-zero inversion ratio on the failing workloads.
+
+**Probe.** Shared private helper `phase7tFirstInversionIdx(PageReference[] children)`.
+Each site adds an `INSPECTIONS` / `INVERSIONS` counter pair, gated on
+`-Dhot.strict.phase7t.monotone.probe`. Test helper `runWithMonotoneProbe` resets +
+reads all three pairs (buildFlat, addPdep, upgrade) and prints
+`buildFlat=I/T · addPdep=I/T · upgrade=I/T` (Inversions / Inspections).
+
+**Empirical readout** (`-Dhot.strict.phase7t.monotone.probe=true`):
+
+| Workload | buildFlat | addPdep | upgrade |
+|----------|-----------|---------|---------|
+| ascending-10K (control) | 0 / 18 | 0 / 0 | 0 / 0 |
+| descending-10K | 0 / 18 | 0 / 0 | 0 / 1 |
+| mixed-sign-10K | 0 / 24 | 0 / 2 | 1 / 2 |
+| bimodal-5K+5K | 0 / 18 | 0 / 0 | 0 / 0 |
+
+**Total inversions across ALL 3 sites: 1.** Yet descending-10K reports 258 violations,
+mixed-sign 900, bimodal 1280. Inversion-driven I8 cannot be the dominant violation
+type — it accounts for at most a handful of cases.
+
+**Inspection counts are tiny** on the failing workloads:
+- `addEntryWithPDep`: 0–2 successes per 10K inserts. Most calls return null
+  (constancy bail, dup-partial bail, G.31 cross-window/saturation/msdb bail).
+- `upgradeToMultiMaskWithNewBit`: 0–2 successes per 10K inserts.
+
+This means **most indirects on the failing workloads are built somewhere ELSE**.
+The dominant indirect-construction path for bulk-JSON descending/mixed-sign/bimodal
+is not yet identified.
+
+**Baselines preserved** (default flags, probe off):
+
+| Test | Result |
+|------|--------|
+| diagnosticMicrobenchPatternReproducer (50K) | 0 violations · height 6 · build 6965 ms |
+| casIndexHundredKEntryHeightBound (100K) | 0 violations · height 2 |
+| HOTOptionBPhase5Test (15 tests) | pass |
+
+**Phase 7t-3 redirect.** The 900/1280 violations must be **mostly I3/I5/I6/I7
+(partial-key uniqueness, constancy, partial-key ordering)** rather than I8 — the
+naming in [[hot-comprehensive-tests-findings]] conflated invariant kinds. To confirm
+and localise:
+1. Extend `buildAndValidateCas` to print the per-invariant breakdown
+   (`inv.violations().stream().collect(groupingBy(kind, counting()))`).
+2. If I3/I5 dominate, the cause is duplicate-partial / β-mixed-leaf state passing
+   through `buildFlatNonStrict` because `phase7rAugmentUntilUnique` exhausts its
+   bit budget without resolving collisions. `createNodeWithDiscBits` accepts the
+   stale state unconditionally — there is no rollback. Phase 7r-1's
+   `phase7rRoutingCollisionFirstIdx` counter (default-off) would show non-zero
+   collisions per buildFlatNonStrict call AFTER 7r-2 augment exhaustion.
+3. Run with BOTH `hot.strict.phase7t.monotone.probe=true` AND
+   `hot.strict.phase7r.routeverify=true` to confirm routing collisions are the
+   dominant unaddressed defect.
+
+**Files touched (Phase 7t-2 commit):**
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  `PHASE7T_ADDPDEP_{INSPECTIONS,INVERSIONS}` + `PHASE7T_UPGRADE_{INSPECTIONS,INVERSIONS}`
+  counters; shared `phase7tFirstInversionIdx` + `phase7tLogInversion` helpers;
+  probe sites at `addEntryWithPDep` success path and `upgradeToMultiMaskWithNewBit`
+  success path. `buildFlatNonStrict` probe refactored to use the shared helpers
+  (no behavior change).
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  `runWithMonotoneProbe` extended to reset/read/print all 3 site counters.
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.30 (this section).
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to

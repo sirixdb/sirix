@@ -1957,6 +1957,25 @@ public final class HOTTrieWriter {
       if (!hasZero) return null;
     }
 
+    // Phase 7t-2 — firstKey-monotone post-sort probe at addEntryWithPDep success. The
+    // existing firstKeyMonotone check + G.31 retry above runs ONLY when the partial-sort
+    // produces a non-monotone firstKey order; multi-entry-leaves with null/empty
+    // placeholder firstKeys can SKIP that check entirely (the comparison short-circuits
+    // on prev/curr == null || length == 0). This probe is gated on
+    // -Dhot.strict.phase7t.monotone.probe and runs at SUCCESS — counter-only, no behavior
+    // change.
+    if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
+      PHASE7T_ADDPDEP_INSPECTIONS.incrementAndGet();
+      final int inversionAt = phase7tFirstInversionIdx(newChildren);
+      if (inversionAt >= 0) {
+        PHASE7T_ADDPDEP_INVERSIONS.incrementAndGet();
+        if (Boolean.getBoolean("hot.debug.phase7t")) {
+          phase7tLogInversion("addEntryWithPDep", parent.getPageKey(), parent.getHeight(),
+              newChildren, newPartialKeys, inversionAt);
+        }
+      }
+    }
+
     if (newNumChildren <= 16) {
       return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
           oldInitialBytePos, newMask, newPartialKeys, newChildren, parent.getHeight());
@@ -4715,6 +4734,21 @@ public final class HOTTrieWriter {
     // Sort children + partials by partial-key (HOT I7 / Binna §4.2). See addEntryWithPDep.
     sortChildrenAndPartialsByPartial(newChildren, newPartials);
 
+    // Phase 7t-2 — firstKey-monotone post-sort probe at upgradeToMultiMaskWithNewBit
+    // success. This site has NO firstKey-monotone retry at all (cross-window MultiMask
+    // upgrade path), so any non-monotone result here is uncorrected. Counter-only.
+    if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
+      PHASE7T_UPGRADE_INSPECTIONS.incrementAndGet();
+      final int inversionAt = phase7tFirstInversionIdx(newChildren);
+      if (inversionAt >= 0) {
+        PHASE7T_UPGRADE_INVERSIONS.incrementAndGet();
+        if (Boolean.getBoolean("hot.debug.phase7t")) {
+          phase7tLogInversion("upgradeToMultiMaskWithNewBit", parent.getPageKey(),
+              parent.getHeight(), newChildren, newPartials, inversionAt);
+        }
+      }
+    }
+
     if (newNumChildren <= 16) {
       return HOTIndirectPage.createSpanNodeMultiMask(parent.getPageKey(), revision,
           extractionPositions, extractionMasks, allCount, newPartials, newChildren,
@@ -6697,6 +6731,91 @@ public final class HOTTrieWriter {
   public static void resetPhase7tBuildflatInspections() { PHASE7T_BUILDFLAT_INSPECTIONS.set(0L); }
   public static long getPhase7tBuildflatInversions() { return PHASE7T_BUILDFLAT_INVERSIONS.get(); }
   public static void resetPhase7tBuildflatInversions() { PHASE7T_BUILDFLAT_INVERSIONS.set(0L); }
+
+  // Phase 7t-2 — firstKey-monotone probe at the OTHER indirect-construction sites.
+  // Phase 7t-1 falsified buildFlatNonStrict as the I8 source (0% inversion across all
+  // comprehensive workloads). The dominant call frequency on bulk-JSON shred lives at:
+  //   ADDPDEP   — addEntryWithPDep success path (per leaf-split insert; SingleMask).
+  //   UPGRADE   — upgradeToMultiMaskWithNewBit success path (cross-window addEntry).
+  // Both have NO visible firstKey-monotone retry (addEntryWithPDep has G.31 closure
+  // that bails to null on cross-window / saturation / msdb-not-found; upgrade has none).
+  // Each site gets its own counter pair so the empirical readout pinpoints the dominant
+  // source.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_ADDPDEP_INSPECTIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_ADDPDEP_INVERSIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_UPGRADE_INSPECTIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_UPGRADE_INVERSIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7tAddpdepInspections() { return PHASE7T_ADDPDEP_INSPECTIONS.get(); }
+  public static void resetPhase7tAddpdepInspections() { PHASE7T_ADDPDEP_INSPECTIONS.set(0L); }
+  public static long getPhase7tAddpdepInversions() { return PHASE7T_ADDPDEP_INVERSIONS.get(); }
+  public static void resetPhase7tAddpdepInversions() { PHASE7T_ADDPDEP_INVERSIONS.set(0L); }
+  public static long getPhase7tUpgradeInspections() { return PHASE7T_UPGRADE_INSPECTIONS.get(); }
+  public static void resetPhase7tUpgradeInspections() { PHASE7T_UPGRADE_INSPECTIONS.set(0L); }
+  public static long getPhase7tUpgradeInversions() { return PHASE7T_UPGRADE_INVERSIONS.get(); }
+  public static void resetPhase7tUpgradeInversions() { PHASE7T_UPGRADE_INVERSIONS.set(0L); }
+
+  /**
+   * Phase 7t — scan {@code children[]} (assumed in canonical/partial-sort order) for the
+   * first pair (i-1, i) with {@code firstKey[i-1] >= firstKey[i]}. Returns the inversion
+   * index, or -1 if every adjacent firstKey pair is strictly increasing (including pairs
+   * with null/empty firstKey, which are skipped — those represent placeholder children
+   * from sparse leaves).
+   *
+   * <p>HFT-grade: one fetch per child via {@link #getFirstKeyFromChild}, no allocation
+   * beyond what that helper does internally. Used by Phase 7t-1 (buildFlatNonStrict
+   * probe), 7t-2 (addEntryWithPDep + upgradeToMultiMaskWithNewBit probes), and the
+   * test-only PHASE7T_* counters.
+   */
+  private int phase7tFirstInversionIdx(PageReference[] children) {
+    byte[] prev = null;
+    for (int i = 0; i < children.length; i++) {
+      final byte[] fk = getFirstKeyFromChild(children[i]);
+      if (fk == null || fk.length == 0) { prev = fk; continue; }
+      if (prev != null && prev.length > 0 && Arrays.compareUnsigned(prev, fk) >= 0) {
+        return i;
+      }
+      prev = fk;
+    }
+    return -1;
+  }
+
+  /**
+   * Phase 7t debug logger — emits a single line with the site label, pageKey, partials
+   * (hex), and a 4-byte head of every child's firstKey. Used by the {@code hot.debug.phase7t}
+   * branch of every Phase 7t probe site. HFT-grade NOT — only runs when the debug flag is
+   * on, so unguarded String/StringBuilder allocation is acceptable.
+   */
+  private void phase7tLogInversion(String site, long pageKey, int height,
+      PageReference[] children, int[] partials, int inversionAt) {
+    final StringBuilder sb = new StringBuilder(384);
+    sb.append("[phase7t] ").append(site).append(" FIRSTKEY-INVERSION pageKey=").append(pageKey)
+        .append(" height=").append(height)
+        .append(" n=").append(children.length)
+        .append(" inversionAt=").append(inversionAt)
+        .append(" partials=[");
+    for (int i = 0; i < partials.length; i++) {
+      if (i > 0) sb.append(',');
+      sb.append("0x").append(Integer.toHexString(partials[i]));
+    }
+    sb.append("] firstKeyHeadBytes=[");
+    for (int i = 0; i < children.length; i++) {
+      if (i > 0) sb.append(',');
+      final byte[] fk = getFirstKeyFromChild(children[i]);
+      if (fk == null) { sb.append("null"); continue; }
+      final int limit = Math.min(fk.length, 4);
+      for (int b = 0; b < limit; b++) {
+        final int v = fk[b] & 0xFF;
+        if (v < 16) sb.append('0');
+        sb.append(Integer.toHexString(v));
+      }
+    }
+    sb.append(']');
+    System.err.println(sb);
+  }
 
   /**
    * Phase 7r-1 — Path 5 routing-collision detector for partial keys in their canonical
@@ -13976,45 +14095,11 @@ public final class HOTTrieWriter {
     // residual descending / mixed-sign / bimodal violations originate here.
     if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
       PHASE7T_BUILDFLAT_INSPECTIONS.incrementAndGet();
-      byte[] prevFk = null;
-      int inversionAt = -1;
-      for (int i = 0; i < children.length; i++) {
-        final byte[] fk = getFirstKeyFromChild(children[i]);
-        if (fk == null || fk.length == 0) { prevFk = fk; continue; }
-        if (prevFk != null && prevFk.length > 0
-            && Arrays.compareUnsigned(prevFk, fk) >= 0) {
-          inversionAt = i;
-          break;
-        }
-        prevFk = fk;
-      }
+      final int inversionAt = phase7tFirstInversionIdx(children);
       if (inversionAt >= 0) {
         PHASE7T_BUILDFLAT_INVERSIONS.incrementAndGet();
         if (Boolean.getBoolean("hot.debug.phase7t")) {
-          final StringBuilder sb = new StringBuilder(384);
-          sb.append("[phase7t] buildFlatNonStrict FIRSTKEY-INVERSION pageKey=").append(pageKey)
-              .append(" height=").append(height)
-              .append(" n=").append(children.length)
-              .append(" inversionAt=").append(inversionAt)
-              .append(" partials=[");
-          for (int i = 0; i < partialKeys.length; i++) {
-            if (i > 0) sb.append(',');
-            sb.append("0x").append(Integer.toHexString(partialKeys[i]));
-          }
-          sb.append("] firstKeyHeadBytes=[");
-          for (int i = 0; i < children.length; i++) {
-            if (i > 0) sb.append(',');
-            final byte[] fk = getFirstKeyFromChild(children[i]);
-            if (fk == null) { sb.append("null"); continue; }
-            final int limit = Math.min(fk.length, 4);
-            for (int b = 0; b < limit; b++) {
-              final int v = fk[b] & 0xFF;
-              if (v < 16) sb.append('0');
-              sb.append(Integer.toHexString(v));
-            }
-          }
-          sb.append(']');
-          System.err.println(sb);
+          phase7tLogInversion("buildFlatNonStrict", pageKey, height, children, partialKeys, inversionAt);
         }
       }
     }

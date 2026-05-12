@@ -2534,6 +2534,10 @@ final class HOTFormalVerificationTest {
       final java.util.function.IntUnaryOperator valueFn) {
     io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tBuildflatInspections();
     io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tBuildflatInversions();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tAddpdepInspections();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tAddpdepInversions();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tUpgradeInspections();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tUpgradeInversions();
     final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
     try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
         final var trx = session.beginNodeTrx()) {
@@ -2552,11 +2556,16 @@ final class HOTFormalVerificationTest {
       trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
       trx.commit();
     }
-    final long ins = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tBuildflatInspections();
-    final long inv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tBuildflatInversions();
-    System.out.println("[phase7t-1] " + label + " · inspections=" + ins
-        + " · inversions=" + inv
-        + " · ratio=" + (ins == 0 ? "n/a" : String.format("%.2f%%", 100.0 * inv / ins)));
+    final long bfIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tBuildflatInspections();
+    final long bfInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tBuildflatInversions();
+    final long apIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tAddpdepInspections();
+    final long apInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tAddpdepInversions();
+    final long upIns = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tUpgradeInspections();
+    final long upInv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tUpgradeInversions();
+    System.out.println("[phase7t] " + label
+        + " · buildFlat=" + bfInv + "/" + bfIns
+        + " · addPdep=" + apInv + "/" + apIns
+        + " · upgrade=" + upInv + "/" + upIns);
     JsonTestHelper.deleteEverything();
   }
 
