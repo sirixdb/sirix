@@ -1277,6 +1277,92 @@ exhaustion will be rare.
   + `phase7r1CharacterizeDescending10K` characterization test (skips silently when flag off).
 - `docs/HOT_PHASE_7Q_DESIGN.md`: §7.23 (this section).
 
+### 7.24 Phase 7r-2 — active augment-until-unique in `buildFlatNonStrict` (commit `0590f22af`, 2026-05-12)
+
+**Motivation.** Phase 7r-1 (§7.23) confirmed that 3.34 % of `buildFlatNonStrict`
+invocations on `comprehensiveDescending10K` mis-route at least one child. Phase
+7r-2 converts the diagnostic probe into a corrective action: when the initial
+disc-bit set produces a colliding partial, find a sort-monotone bit that
+distinguishes the colliding pair and add it to the disc-bit set, repeat until
+unique or the bit budget is exhausted.
+
+**Algorithm** (default-ON; opt-out via `-Dhot.strict.phase7r.augment.disable=true`):
+
+```
+function phase7rAugmentUntilUnique(children, partials, discBitsHolder, …):
+    firstKeys[i] = getFirstKeyFromChild(children[i])
+    for iter in 1..MAX_DISC_BITS:
+        (i, j) = first colliding pair where partials[i] == partials[j]
+        if no collision: return partials  // done
+        for byte b in 0..min(len(firstKeys[i]), len(firstKeys[j])):
+            for bit h in MSB..LSB where bit set in (firstKeys[i][b] XOR firstKeys[j][b]):
+                if (b, h) already in disc bits: continue
+                if not isBitSortMonotone(firstKeys, b, h): continue
+                // accept: add (b, h) to disc bits
+                augmentBytePos = b; augmentBit = h
+                break out of both loops
+        rebuild DiscBitsInfo with augmented mask (singlemask or MultiMask)
+        partials = computePartialKeysForChildren(children, newDiscBits)
+    return partials
+```
+
+The `isBitSortMonotone` check is non-obvious: `computeSparsePathRecursive`
+partitions children at each bit based on the bit's value; if the bit isn't
+strictly increasing across lex-sorted firstKeys (single 0→1 transition), the
+recursive partition produces wrong partials and breaks the
+sort-order = partial-order invariant. The prior bailout comment at
+`HOTTrieWriter.java:12600` ("Non-adjacent-pair augment was investigated…")
+predates this work; the earlier failure mode was likely from non-monotone
+augmentation, which 7r-2 prevents via the guard.
+
+**Empirical readout** (50K diag, 100K CAS, ascending preserved at 0;
+comprehensive tests measured under default flag set + `phase7q=true`):
+
+| Test | Before 7r-2 | After 7r-2 | Status |
+|------|-------------|------------|--------|
+| 50K diagnostic reproducer | 0 | 0 | ✅ preserved |
+| 100K casIndexHundredKEntryHeightBound | 0 | 0 | ✅ preserved |
+| HOTOptionBPhase5Test (15 tests) | pass | pass | ✅ preserved |
+| comprehensiveAscending10K / 50K | 0 | 0 | ✅ preserved |
+| **comprehensiveDescending10K** | **1832** | **515** | ⚠️ 71 % reduction |
+| comprehensiveMixedSign | 900 | 900 | ⚠️ unchanged |
+| comprehensiveBimodal5KPlus5K | 1280 | 1280 | ⚠️ unchanged |
+
+**Why descending improves but mixed-sign / bimodal don't.** Descending's
+collisions are pure adjacent-pair-scan misses (the colliding pair shares the
+encoder-byte boundary). Augmenting with one sort-monotone bit
+removes them. Mixed-sign and bimodal produce **β-mixed leaves**: a single leaf
+holds keys with both values of the chosen disc bit (e.g. leaf 31985 has
+`firstKey = c043…` but `lastKey = c0c3…` — spans byte 11 bit 7 = 0 and 1).
+No augmentation can fix this because the routing collision is internal to a
+single child, not between siblings. The fix requires splitting β-mixed leaves
+on the disc bit BEFORE indirect construction — Phase 7s scope.
+
+**Falsified hypothesis** (not committed): Phase 7r-4 constancy-filter
+scaffold would drop disc bits that are non-β-constant in any child's subtree.
+Empirical run with `hot.strict.phase7r.constancyfilter=true` cascaded to
+6,931–9,615 violations across all comprehensive workloads (4–18× regression).
+The filter strips bits NEEDED for routing; β-mixed leaves require splitting,
+not bit-filtering. Scaffold removed before commit (CLAUDE.md: no carrying
+falsified code).
+
+**Files touched** (commit `0590f22af`):
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + `phase7rAugmentUntilUnique` (~120 lines, primitive arrays).
+  + `isBitSortMonotone`, `discBitsContainsBit`, `discBitsToMaskByBytePos` helpers.
+  + `buildFlatNonStrict` calls augment after initial partials.
+- `bundles/sirix-core/build.gradle`: `hot.strict.phase7r.augment.disable` opt-out flag.
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  re-enable 4 previously `@Disabled` comprehensive tests + extend timeouts on 2 scale tests.
+
+**Phase 7s entry point.** Detect β-mixed leaves in
+`createNodeFromChildren` / `addEntryWithPDep` BEFORE the call to
+`buildFlatNonStrict`. For each candidate disc bit X and child leaf L: if L has
+keys with both `bit_X = 0` and `bit_X = 1`, split L into L0 (bit_X = 0 keys)
+and L1 (bit_X = 1 keys). Recompute children list and disc bits. Re-enter
+`buildFlatNonStrict`. Multi-day work — touches leaf-split semantics and
+parent-key resort.
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to
