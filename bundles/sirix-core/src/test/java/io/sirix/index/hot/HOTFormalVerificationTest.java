@@ -2546,6 +2546,70 @@ final class HOTFormalVerificationTest {
     runWithMonotoneProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
   }
 
+  // Phase 7t-6 — β-mixed (child, mask-bit) pair detector at the four indirect-construction
+  // sites that have mask info in scope (buildFlatNonStrict, addEntryWithPDep,
+  // upgradeToMultiMaskWithNewBit, buildRebalancedParentWithInheritedMask). I6 (β-mixed
+  // leaf routing) is the dominant violation (98-99.8 % per 7t-3); 7t-5 falsified the
+  // firstKey-monotone probe as the right detection tool. This run produces the per-site
+  // β-mixed-pair histogram. Requires -Dhot.strict.phase7t.betamixed.probe=true.
+  @Test
+  @DisplayName("Phase 7t-6 — β-mixed (child, mask-bit) pair characterization")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7t6CharacterizeBetaMixedPairs() {
+    if (!Boolean.getBoolean("hot.strict.phase7t.betamixed.probe")) {
+      return; // skip silently when flag not set
+    }
+    final int n = 10_000;
+    runWithBetaMixedProbe("ascending-10K (control)", n, i -> i);
+    runWithBetaMixedProbe("descending-10K", n, i -> n - 1 - i);
+    runWithBetaMixedProbe("mixed-sign-10K", n, i -> i - (n / 2));
+    runWithBetaMixedProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
+  }
+
+  private static void runWithBetaMixedProbe(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6BuildflatBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6BuildflatMixedPairs();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6AddpdepBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6AddpdepMixedPairs();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6UpgradeBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6UpgradeMixedPairs();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6RebalanceBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t6RebalanceMixedPairs();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long bfB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6BuildflatBuilds();
+    final long bfM = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6BuildflatMixedPairs();
+    final long apB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6AddpdepBuilds();
+    final long apM = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6AddpdepMixedPairs();
+    final long upB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6UpgradeBuilds();
+    final long upM = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6UpgradeMixedPairs();
+    final long rbB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6RebalanceBuilds();
+    final long rbM = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t6RebalanceMixedPairs();
+    System.out.println("[phase7t6] " + label
+        + " · buildFlat=" + bfM + "/" + bfB + " mixedPairs/builds"
+        + " · addPdep=" + apM + "/" + apB
+        + " · upgrade=" + upM + "/" + upB
+        + " · rebalance=" + rbM + "/" + rbB);
+    JsonTestHelper.deleteEverything();
+  }
+
   private static void runWithMonotoneProbe(final String label, final int n,
       final java.util.function.IntUnaryOperator valueFn) {
     io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tBuildflatInspections();

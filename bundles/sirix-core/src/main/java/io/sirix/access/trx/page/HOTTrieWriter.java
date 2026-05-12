@@ -1975,6 +1975,14 @@ public final class HOTTrieWriter {
         }
       }
     }
+    // Phase 7t-6 — β-mixed pair detector at addEntryWithPDep success. Counts (child, mask-bit)
+    // pairs where bitConstantValueInSubtree returns -1. Counter-only; gated on
+    // -Dhot.strict.phase7t.betamixed.probe.
+    if (Boolean.getBoolean("hot.strict.phase7t.betamixed.probe")) {
+      PHASE7T6_ADDPDEP_BUILDS.incrementAndGet();
+      final int mixed = phase7tCountBetaMixedPairsSingleMask(newChildren, oldInitialBytePos, newMask);
+      if (mixed > 0) PHASE7T6_ADDPDEP_MIXED_PAIRS.addAndGet(mixed);
+    }
 
     if (newNumChildren <= 16) {
       return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
@@ -3612,6 +3620,13 @@ public final class HOTTrieWriter {
         }
       }
     }
+    // Phase 7t-6 — β-mixed pair detector at buildRebalancedParentWithInheritedMask success.
+    // Counter-only; gated on -Dhot.strict.phase7t.betamixed.probe.
+    if (Boolean.getBoolean("hot.strict.phase7t.betamixed.probe")) {
+      PHASE7T6_REBALANCE_BUILDS.incrementAndGet();
+      final int mixed = phase7tCountBetaMixedPairsSingleMask(trimChildren, oldInitialBytePos, newMask);
+      if (mixed > 0) PHASE7T6_REBALANCE_MIXED_PAIRS.addAndGet(mixed);
+    }
 
     // Stage G.31 — I8 firstKey-monotone verification mirroring addEntryWithPDep's G.16.
     // After partial-sort, verify children's firstKeys are also strictly ascending. If not,
@@ -4782,6 +4797,15 @@ public final class HOTTrieWriter {
               parent.getHeight(), newChildren, newPartials, inversionAt);
         }
       }
+    }
+    // Phase 7t-6 — β-mixed pair detector at upgradeToMultiMaskWithNewBit success. Uses the
+    // (allBytePositions, allByteMaskBits, allCount) MultiMask layout in scope here. Counter-only;
+    // gated on -Dhot.strict.phase7t.betamixed.probe.
+    if (Boolean.getBoolean("hot.strict.phase7t.betamixed.probe")) {
+      PHASE7T6_UPGRADE_BUILDS.incrementAndGet();
+      final int mixed = phase7tCountBetaMixedPairsMultiMaskBytes(newChildren,
+          allBytePositions, allByteMaskBits, allCount);
+      if (mixed > 0) PHASE7T6_UPGRADE_MIXED_PAIRS.addAndGet(mixed);
     }
 
     if (newNumChildren <= 16) {
@@ -6850,6 +6874,111 @@ public final class HOTTrieWriter {
   public static void resetPhase7tRebuildInspections() { PHASE7T_REBUILD_INSPECTIONS.set(0L); }
   public static long getPhase7tRebuildInversions() { return PHASE7T_REBUILD_INVERSIONS.get(); }
   public static void resetPhase7tRebuildInversions() { PHASE7T_REBUILD_INVERSIONS.set(0L); }
+
+  // Phase 7t-6 — β-mixed (child, mask-bit) pair detector at the indirect-construction
+  // sites that have layout (mask) info available. Phase 7t-5 falsified the §7.32
+  // dominant-site hypothesis using the firstKey-monotone probe — but the wrong probe
+  // for I6 detection. I6 (β-mixed leaf routing) is a DIFFERENT invariant from I8
+  // (firstKey-monotone) — measured by bitConstantValueInSubtree returning -1 for at
+  // least one (child, mask-bit) pair.
+  //
+  // BUILDS counts how many indirect-build events the site contributed when the flag is
+  // on; MIXED_PAIRS counts the cumulative number of β-mixed (child, mask-bit) pairs
+  // detected across those builds. The ratio MIXED_PAIRS / BUILDS quantifies the per-build
+  // I6-defect score; per-workload totals reveal which site contributes the dominant
+  // I6 origination rate (or that NO indirect-construction site does, in which case I6
+  // is created at a leaf-mutation path — a different code path entirely).
+  //
+  // Gated on -Dhot.strict.phase7t.betamixed.probe (default off; counter-only). HFT cost:
+  // each (child, bit) call to bitConstantValueInSubtree walks the child's subtree once,
+  // so the probe is O(children × bits × subtree). Acceptable for 10K diagnostic runs.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T6_BUILDFLAT_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T6_BUILDFLAT_MIXED_PAIRS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T6_ADDPDEP_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T6_ADDPDEP_MIXED_PAIRS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T6_UPGRADE_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T6_UPGRADE_MIXED_PAIRS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T6_REBALANCE_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T6_REBALANCE_MIXED_PAIRS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7t6BuildflatBuilds() { return PHASE7T6_BUILDFLAT_BUILDS.get(); }
+  public static void resetPhase7t6BuildflatBuilds() { PHASE7T6_BUILDFLAT_BUILDS.set(0L); }
+  public static long getPhase7t6BuildflatMixedPairs() { return PHASE7T6_BUILDFLAT_MIXED_PAIRS.get(); }
+  public static void resetPhase7t6BuildflatMixedPairs() { PHASE7T6_BUILDFLAT_MIXED_PAIRS.set(0L); }
+  public static long getPhase7t6AddpdepBuilds() { return PHASE7T6_ADDPDEP_BUILDS.get(); }
+  public static void resetPhase7t6AddpdepBuilds() { PHASE7T6_ADDPDEP_BUILDS.set(0L); }
+  public static long getPhase7t6AddpdepMixedPairs() { return PHASE7T6_ADDPDEP_MIXED_PAIRS.get(); }
+  public static void resetPhase7t6AddpdepMixedPairs() { PHASE7T6_ADDPDEP_MIXED_PAIRS.set(0L); }
+  public static long getPhase7t6UpgradeBuilds() { return PHASE7T6_UPGRADE_BUILDS.get(); }
+  public static void resetPhase7t6UpgradeBuilds() { PHASE7T6_UPGRADE_BUILDS.set(0L); }
+  public static long getPhase7t6UpgradeMixedPairs() { return PHASE7T6_UPGRADE_MIXED_PAIRS.get(); }
+  public static void resetPhase7t6UpgradeMixedPairs() { PHASE7T6_UPGRADE_MIXED_PAIRS.set(0L); }
+  public static long getPhase7t6RebalanceBuilds() { return PHASE7T6_REBALANCE_BUILDS.get(); }
+  public static void resetPhase7t6RebalanceBuilds() { PHASE7T6_REBALANCE_BUILDS.set(0L); }
+  public static long getPhase7t6RebalanceMixedPairs() { return PHASE7T6_REBALANCE_MIXED_PAIRS.get(); }
+  public static void resetPhase7t6RebalanceMixedPairs() { PHASE7T6_REBALANCE_MIXED_PAIRS.set(0L); }
+
+  /**
+   * Phase 7t-6 — count β-mixed (child, mask-bit) pairs across all set bits of a SingleMask
+   * layout. For each bit set in {@code mask}, decode its absolute byte+bit position
+   * (BE-MSB-first within the 8-byte window starting at {@code initialBytePos}) and call
+   * {@link #bitConstantValueInSubtree(PageReference, int)} for each non-null child. Returns
+   * the count of pairs where the helper returned -1 (= β-mixed).
+   *
+   * <p>Used by Phase 7t-6 probes; counter-only; runs only when
+   * {@code -Dhot.strict.phase7t.betamixed.probe=true}.
+   */
+  private int phase7tCountBetaMixedPairsSingleMask(PageReference[] children,
+      int initialBytePos, long mask) {
+    int count = 0;
+    long m = mask;
+    while (m != 0L) {
+      final int bitInWord = Long.numberOfTrailingZeros(m);
+      m &= (m - 1L);
+      final int byteOffset = 7 - (bitInWord >>> 3);
+      final int bitInByteMsbFirst = 7 - (bitInWord & 7);
+      final int absBit = (initialBytePos + byteOffset) * 8 + bitInByteMsbFirst;
+      for (int i = 0; i < children.length; i++) {
+        final PageReference c = children[i];
+        if (c == null) continue;
+        if (bitConstantValueInSubtree(c, absBit) < 0) count++;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Phase 7t-6 — count β-mixed pairs for a MultiMask layout with explicit (bytePos, maskByte)
+   * arrays. Walks bytes 0..{@code byteCount-1}; for each byte, decodes set bits MSB-first
+   * (bit at LSB position {@code mb} ⇒ absolute bit at byte*8 + (7-mb)) and probes each child.
+   * Counter-only.
+   */
+  private int phase7tCountBetaMixedPairsMultiMaskBytes(PageReference[] children,
+      int[] bytePositions, int[] byteMaskBits, int byteCount) {
+    int count = 0;
+    for (int b = 0; b < byteCount; b++) {
+      final int bytePos = bytePositions[b];
+      int bits = byteMaskBits[b] & 0xFF;
+      while (bits != 0) {
+        final int mb = Integer.numberOfTrailingZeros(bits);
+        bits &= (bits - 1);
+        final int absBit = bytePos * 8 + (7 - mb);
+        for (int i = 0; i < children.length; i++) {
+          final PageReference c = children[i];
+          if (c == null) continue;
+          if (bitConstantValueInSubtree(c, absBit) < 0) count++;
+        }
+      }
+    }
+    return count;
+  }
 
   /**
    * Phase 7t — scan {@code children[]} (assumed in canonical/partial-sort order) for the
@@ -14260,6 +14389,34 @@ public final class HOTTrieWriter {
         PHASE7T_BUILDFLAT_INVERSIONS.incrementAndGet();
         if (Boolean.getBoolean("hot.debug.phase7t")) {
           phase7tLogInversion("buildFlatNonStrict", pageKey, height, children, partialKeys, inversionAt);
+        }
+      }
+    }
+    // Phase 7t-6 — β-mixed pair detector at buildFlatNonStrict success. Uses the final
+    // augmented discBits in scope. Counter-only; gated on -Dhot.strict.phase7t.betamixed.probe.
+    // Complements the existing debug-only probeConstancyOnBuild (which logs to stderr) with
+    // aggregate per-workload counters for the I6 origination histogram.
+    if (Boolean.getBoolean("hot.strict.phase7t.betamixed.probe")) {
+      PHASE7T6_BUILDFLAT_BUILDS.incrementAndGet();
+      if (discBits.isSingleMask()) {
+        final int mixed = phase7tCountBetaMixedPairsSingleMask(children,
+            discBits.initialBytePos(), discBits.bitMask());
+        if (mixed > 0) PHASE7T6_BUILDFLAT_MIXED_PAIRS.addAndGet(mixed);
+      } else {
+        // MultiMask path — convert byte[] extractionPositions to int[] for the helper.
+        final byte[] eps = discBits.extractionPositions();
+        final long[] ems = discBits.extractionMasks();
+        if (eps != null && ems != null) {
+          final int n = discBits.numExtractionBytes();
+          final int[] bytePositions = new int[n];
+          final int[] byteMaskBits = new int[n];
+          for (int b = 0; b < n; b++) {
+            bytePositions[b] = eps[b] & 0xFF;
+            byteMaskBits[b] = (int) ((ems[b / 8] >>> ((7 - b % 8) * 8)) & 0xFFL);
+          }
+          final int mixed = phase7tCountBetaMixedPairsMultiMaskBytes(children,
+              bytePositions, byteMaskBits, n);
+          if (mixed > 0) PHASE7T6_BUILDFLAT_MIXED_PAIRS.addAndGet(mixed);
         }
       }
     }

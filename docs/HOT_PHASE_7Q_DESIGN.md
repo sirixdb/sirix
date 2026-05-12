@@ -2069,6 +2069,128 @@ analysis (a still-distinct code path).
   `runWithMonotoneProbe` extended to reset + print the new counters.
 - `docs/HOT_PHASE_7Q_DESIGN.md`: §7.33 (this section).
 
+### 7.34 Phase 7t-6 — β-mixed (child, mask-bit) pair detector at 4 indirect-build sites; localises I6 origination at `buildFlatNonStrict` but ASCENDING paradox shows raw β-mixedness ≠ violation (2026-05-13)
+
+**Motivation.** Phase 7t-5 (§7.33) falsified `splitParentAndRecurse` /
+`rebalanceAndIntegrate` / `rebuildParentAbsorbingSplit` as the I6 origination
+point using the firstKey-monotone probe — but that probe detects I8 candidates,
+not I6. §7.33's entry point called for a β-mixed-pair probe at the same sites
+to produce the true I6 origination histogram. I6 (β-mixed leaf routing) is the
+dominant defect by 7t-3's per-invariant breakdown (98-99.8 % of failures).
+
+**Implementation.** Eight new counters
+(`PHASE7T6_{BUILDFLAT,ADDPDEP,UPGRADE,REBALANCE}_{BUILDS,MIXED_PAIRS}`) + two
+helpers:
+
+- `phase7tCountBetaMixedPairsSingleMask(children[], initialBytePos, mask)` —
+  enumerates set bits in `mask`, decodes BE-MSB-first byte+bit positions,
+  calls `bitConstantValueInSubtree(child, absBit)` for each child. Returns
+  count of pairs that return `-1`.
+- `phase7tCountBetaMixedPairsMultiMaskBytes(children[], bytePositions[],
+  byteMaskBits[], byteCount)` — same for MultiMask layout.
+
+Probes installed at four sites:
+
+- `buildFlatNonStrict` — SingleMask via `discBits.isSingleMask()` branch with
+  unpacked byte[] extraction tables for MultiMask path.
+- `addEntryWithPDep` — SingleMask (`oldInitialBytePos`, `newMask`).
+- `upgradeToMultiMaskWithNewBit` — MultiMask (`allBytePositions[]`,
+  `allByteMaskBits[]`, `allCount`) in scope from the merge step.
+- `buildRebalancedParentWithInheritedMask` — SingleMask (`oldInitialBytePos`,
+  `newMask`).
+
+`splitParentAndRecurse` and `rebuildParentAbsorbingSplit` are skipped because
+the constructed indirect's mask isn't directly available at the probe site
+(`createNodeFromChildren` downstream computes it). All probes counter-only,
+gated on `-Dhot.strict.phase7t.betamixed.probe` (default off).
+
+**Empirical readout (10K CAS-shred, betamixed.probe=true):**
+
+| Workload | violations | buildFlat (mixed/builds) | addPdep | upgrade | rebalance |
+|----------|------------|---------------------------|---------|---------|-----------|
+| ascending-10K (control) | 0 | **1756 / 18** | 0 / 0 | 0 / 0 | 0 / 0 |
+| descending-10K | 258 | **1722 / 18** | 0 / 0 | 26 / 1 | 0 / 0 |
+| mixed-sign-10K | 900 | **2748 / 24** | 61 / 2 | 201 / 2 | 0 / 0 |
+| bimodal-5K+5K | 1280 | **1777 / 18** | 0 / 0 | 0 / 0 | 0 / 0 |
+
+**Three findings.**
+
+(1) **`buildFlatNonStrict` is by far the dominant site** — 1700-2800 β-mixed
+(child, mask-bit) pairs per 10K workload. `addPdep` / `upgrade` contribute
+≤ 260 combined. `rebalance` contributes 0 (consistent with 7t-5: dead path on
+bulk-JSON shred).
+
+(2) **ASCENDING PARADOX: 1756 mixed pairs / 0 violations.** The ascending
+control has nearly the same β-mixed-pair count as descending (1722) but zero
+I6 violations downstream. Raw β-mixedness at construction time is NOT
+sufficient to predict I6 violation.
+
+(3) **Mixed-pair count poorly correlated with violation count.** Mixed-sign
+has the highest mixed-pair count (2748) but mid violation count (900); bimodal
+has fewer mixed pairs (1777) but the highest violation count (1280).
+
+**Why the paradox? I6 validator semantics.**
+
+`HOTInvariantValidator` checks I6 per-KEY via `pextDescend`: walk every stored
+key K from root, at each indirect take child[i] where `partial_i ==
+PEXT(K, mask)`; if descent reaches a leaf that doesn't contain K, that's a
+violation. So **I6 violations count keys that mis-route**, not (child, bit)
+pairs that are β-mixed.
+
+A β-mixed (child[i], β) pair means child[i]'s subtree contains keys with both
+β=0 and β=1. For one polarity to mis-route, the OTHER polarity must:
+(a) be assigned to a sibling child[j] (partial_j routes there), AND
+(b) the sibling's actual subtree must NOT contain the mis-routed key (else
+    PEXT-descent doesn't terminate at a wrong leaf — it terminates at the right
+    leaf via a different route).
+
+On ASCENDING workloads the encoding is naturally sorted, so PEXT routing
+matches the natural ordering. Even if mask bits look β-mixed in an aggregate
+subtree view, every key's PEXT-descent lands at its actual leaf. On DESCENDING
+/ MIXED-SIGN / BIMODAL the encoding (`CASKeySerializer` bit-inverts negatives;
+`LongRecordValueSerializer` xors sign bit) creates non-monotone bit patterns
+that break this alignment.
+
+**Phase 7t-7 entry point.** The next probe should NOT just detect β-mixedness;
+it should detect **β-mixedness with active mis-routing potential**. Two paths:
+
+1. **Sibling-cross-routing probe**: for each β-mixed (child[i], β), check
+   whether some sibling child[j] has the inverse polarity in its `partial_j`
+   AND its subtree does NOT contain the would-be-mis-routed keys. This is a
+   strict subset of (β-mixed pairs) that should approximate the violation
+   count.
+2. **Direct per-key PEXT-descent probe at construction time**: simulate
+   `pextDescend` for every key in every child's subtree against the newly-
+   built indirect; count keys that would land in a wrong leaf. Effectively
+   runs the I6 validator at construction time. Most expensive but most
+   accurate.
+
+Path 2 is conceptually equivalent to running the validator — if the validator
+already reports 258 violations on descending, this probe would too. The value
+of Path 1 over Path 2 is identifying the SPECIFIC β bit and SPECIFIC sibling
+pair causing each mis-route, which would localise the fix.
+
+**Baselines preserved** (default flags off):
+
+| Test | Result |
+|------|--------|
+| diagnosticMicrobenchPatternReproducer (50K) | 0 violations · height 6 · build 6717 ms |
+| casIndexHundredKEntryHeightBound (100K) | 0 violations · height 2 · build 5815 ms |
+| HOTOptionBPhase5Test (15 tests) | pass |
+
+Comprehensive failure counts unchanged because probes are counter-only.
+
+**Files touched (Phase 7t-6 commit):**
+
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  8 new `PHASE7T6_*` counters + accessors; 2 new helper methods; probes at 4
+  indirect-build sites.
+- `bundles/sirix-core/build.gradle`: `hot.strict.phase7t.betamixed.probe` flag
+  (default `false`).
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  `phase7t6CharacterizeBetaMixedPairs` test + `runWithBetaMixedProbe` helper.
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.34 (this section).
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to
