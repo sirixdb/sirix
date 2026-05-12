@@ -827,6 +827,11 @@ should break — bit 89 becomes reachable on root.
   + `hot.strict.phase7q.stripOnly` flag forwarding.
 
 - [x] 7q.12 — strip-only mode for β-in-mask case (auto-gated)
+- [x] 7q.15d — intermediate-indirect MSB instrumentation. Counters
+  `PHASE7Q_INTERMEDIATE_MSB_{EQUALITY,LOWER,OK}` at 3 hook points (extend-with-lift,
+  standard-extend, bucket-build-multimask). Empirically pinpoints architectural
+  ceiling to `buildBucketWithInheritedMaskMultiMask` (46 equality cases under
+  g32.deep+bestEffort+commitroot; 0 elsewhere). Default mode: counters all 0.
 - [x] 7q.13 — `-Dhot.strict.phase7q.allowDoubleCapture=true` opt-in diagnostic.
   EMPIRICALLY DISPROVED prior hypothesis that double-capture is correctness-safe.
   Disabled by default; the falsified hypothesis is captured in §7.16 with cascade
@@ -1065,6 +1070,75 @@ set, retry; bounded retry budget (3? 8?). Watch counter for excess cascading.
 - `bundles/sirix-core/build.gradle`:
   + `hot.debug.phase7q.extendcollide` flag forwarding.
 - `docs/HOT_PHASE_7Q_DESIGN.md` §7.18 + work-plan tick.
+
+### 7.20 Phase 7q.15d — intermediate-indirect MSB instrumentation localizes equality-I11 source (2026-05-12)
+
+**Goal**: §7.19 predicted that `phase7qExtendWithLift` Step 3 creates intermediate
+indirects whose MSB equals their new parent's MSB (architectural ceiling). Phase
+7q.15d adds **always-on** counters that classify every rebuilt indirect's child
+MSBs vs the rebuilt parent's MSB at three hook points to find the actual source.
+
+**Mechanism**: `phase7q15dCheckIntermediateMsb(parentPageKey, parentMsb, beta, children, newCount)`
+walks `children[]`, classifying each child by `getIndirectMsbOrMax(child)` vs
+`parentMsb`:
+- `PHASE7Q_INTERMEDIATE_MSB_EQUALITY` — child.MSB == parent.MSB (= I11 equality).
+- `PHASE7Q_INTERMEDIATE_MSB_LOWER` — child.MSB < parent.MSB (= strict I11 violation,
+  child more significant than parent).
+- `PHASE7Q_INTERMEDIATE_MSB_OK` — child.MSB > parent.MSB or child is a leaf
+  (unbounded).
+
+Hook points:
+1. `phase7qExtendWithLift` final mask + sort, before page construction.
+2. `extendIndirectMaskForClosure` (standard path) final mask + sort.
+3. `buildBucketWithInheritedMaskMultiMask` final mask + sort (NEW: catches
+   bucket-vs-its-own-children equality).
+
+Per-event dump gated on `-Dhot.debug.phase7q.imsb=true`.
+
+**Empirical results (50K reproducer)**:
+
+| Config | equality | lower | ok | I8 viol |
+|---|---|---|---|---|
+| Default (`phase7q`) | 0 | 0 | 12563 | 1 |
+| `+g32.deep +g32.bestEffort +commitroot` | **46** | 0 | 13051 | 1 |
+
+**Key finding**: equality=0 in default mode (lift fires once, on root). Equality=46
+**only** with `g32.deep` (= iterative root-sort + lift cascade). All 46 originate
+from `buildBucketWithInheritedMaskMultiMask`'s output — NOT from the
+extend/lift function's top-level rebuild. The previously suspected source
+(extend's top-level msbIndex choice) is empirically clean (equality=0 at hooks 1+2;
+46 at hook 3).
+
+**Architectural pinpoint**: the bucket-indirect's `newMsb` (line 2935-2943 of
+HOTTrieWriter) is computed as the lowest absBit in `(parent.mask \ β \ {bits ≤
+newParentMsb})`. There is NO constraint that this be strictly greater than the
+bucket's children's MSBs. The SingleMask sibling (line 2488-2540) has an opt-in
+`hot.strict.g32.childmsb` gate that strips bits `≥ minChildMsb` from the bucket's
+mask — but the MultiMask path lacks this gate. The 46 equality violations come
+from MultiMask buckets where the inherited mask's smallest remaining absBit
+happens to equal some child's MSB.
+
+**Default mode preserved**: 1 I8 violation, height 5; 100K CAS 0 violations;
+HOTOptionBPhase5Test passes.
+
+**Phase 7q.15e entry point** (next session): port the `g32.childmsb` strip-bits-≥-
+minChildMsb logic to `buildBucketWithInheritedMaskMultiMask`. Bucket children are
+the `replacementRefs[]` parameter; for each, `getIndirectMsbOrMax` gives the MSB.
+Strip bits ≥ minChildMsb from the new MultiMask's `extractionMasks[]`. Compact
+zero-mask entries afterwards. Verify partials remain unique + I4. If empty mask
+results, fall back to wrap (existing path). Expected outcome: equality=0 even
+under g32.deep+bestEffort+commitroot, opening the path for iter-1's β=90 to
+succeed without producing the cascading I11s observed in §7.19.
+
+**Files touched** (commit `[pending]`):
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + `PHASE7Q_INTERMEDIATE_MSB_{EQUALITY,LOWER,OK}` counters with getters/resetters.
+  + `phase7q15dCheckIntermediateMsb` helper (~50 lines, HFT-grade single-pass).
+  + Hook calls in 3 sites (extend-with-lift, standard-extend, bucket-build-MM).
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  + Counter resets + report line.
+- `bundles/sirix-core/build.gradle`:
+  + `hot.debug.phase7q.imsb` flag forwarding.
 
 ### 7.19 Phase 7q.15 + 7q.15a — multi-β atomic-lift framework + best-effort iterative-sort rollback (2026-05-12)
 

@@ -194,6 +194,7 @@ test {
     systemProperty "hot.debug.bitconstant", System.getProperty("hot.debug.bitconstant", "false")
     systemProperty "hot.relax.closure.placeholder", System.getProperty("hot.relax.closure.placeholder", "false")
     systemProperty "hot.debug.phase7q.collision", System.getProperty("hot.debug.phase7q.collision", "false")
+    systemProperty "hot.debug.phase7q.imsb", System.getProperty("hot.debug.phase7q.imsb", "false")
     systemProperty "hot.debug.phase7e", System.getProperty("hot.debug.phase7e", "false")
     systemProperty "hot.debug.g30", System.getProperty("hot.debug.g30", "false")
     systemProperty "hot.debug.g32", System.getProperty("hot.debug.g32", "false")

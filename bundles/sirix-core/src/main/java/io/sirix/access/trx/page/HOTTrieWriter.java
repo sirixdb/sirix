@@ -3104,6 +3104,11 @@ public final class HOTTrieWriter {
         else PARENT_MSB_HINT.set(prevHint);
       }
     }
+    // Phase 7q.15d — bucket-indirect MSB instrumentation. Catches I11 equality/strict
+    // violations where a bucket child has MSB ≤ the bucket-indirect's own MSB (=
+    // numerically more or equally significant than bucket → child is "above" parent in
+    // routing → violates I11). Counters always increment; per-event print gated.
+    phase7q15dCheckIntermediateMsb(pageKey, newMsb, absBit, children, bucketSize);
     if (bucketSize <= 16) {
       built = HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision, newEp, newEm,
           newNeb, newPartials, children, parent.getHeight(), (short) newMsb);
@@ -8364,6 +8369,12 @@ public final class HOTTrieWriter {
         + " msbIndex=" + msbIndex + " allCount=" + allCount + " liftedN=" + liftedN
         + " numPropagated=" + numPropagated);
     PHASE7Q_EXTEND_SUCCESSES.incrementAndGet();
+    // Phase 7q.15d — pre-build instrumentation: classify each lifted child's MSB vs the
+    // rebuilt parent's msbIndex. Equality (= I11 violation child.MSB == parent.MSB) is
+    // the architectural ceiling identified in §7.19. Counters always update; per-event
+    // dump gated on -Dhot.debug.phase7q.imsb=true.
+    phase7q15dCheckIntermediateMsb(indirect.getPageKey(), msbIndex & 0xFFFF, beta, newChildren,
+        newCount);
     if (newCount <= 16) {
       return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
           extractionPositions, extractionMasks, allCount, newPartials, newChildren,
@@ -10206,6 +10217,87 @@ public final class HOTTrieWriter {
   public static long getPhase7qBestEffortRejected() { return PHASE7Q_BEST_EFFORT_REJECTED.get(); }
   public static void resetPhase7qBestEffortRejected() { PHASE7Q_BEST_EFFORT_REJECTED.set(0L); }
 
+  // Phase 7q.15d — intermediate-indirect MSB instrumentation. Counts how often
+  // {@link #phase7qExtendWithLift}'s rebuilt indirect ends up with a child whose MSB
+  // EQUALS the new parent's msbIndex (= I11 equality violation between rebuilt
+  // parent and lifted child). Also tracks STRICTLY MORE SIGNIFICANT children
+  // (child.MSB < parent.msbIndex numerically) for completeness — that's a stronger
+  // I11 violation. Counters are always-on (cheap atomic increments). Per-event
+  // dump gated on -Dhot.debug.phase7q.imsb=true.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_INTERMEDIATE_MSB_EQUALITY =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_INTERMEDIATE_MSB_LOWER =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_INTERMEDIATE_MSB_OK =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7qIntermediateMsbEquality() {
+    return PHASE7Q_INTERMEDIATE_MSB_EQUALITY.get();
+  }
+  public static void resetPhase7qIntermediateMsbEquality() {
+    PHASE7Q_INTERMEDIATE_MSB_EQUALITY.set(0L);
+  }
+  public static long getPhase7qIntermediateMsbLower() {
+    return PHASE7Q_INTERMEDIATE_MSB_LOWER.get();
+  }
+  public static void resetPhase7qIntermediateMsbLower() {
+    PHASE7Q_INTERMEDIATE_MSB_LOWER.set(0L);
+  }
+  public static long getPhase7qIntermediateMsbOk() { return PHASE7Q_INTERMEDIATE_MSB_OK.get(); }
+  public static void resetPhase7qIntermediateMsbOk() { PHASE7Q_INTERMEDIATE_MSB_OK.set(0L); }
+
+  /**
+   * Phase 7q.15d — walk newChildren[] of a rebuilt parent indirect, classifying each
+   * child's MSB vs parentMsb. Updates the INTERMEDIATE_MSB_{EQUALITY, LOWER, OK}
+   * counters. When {@code -Dhot.debug.phase7q.imsb=true}, prints the offending
+   * (childIdx, childPageKey, childMsb) triplets so the next iteration can identify
+   * which lift-product violates I11 vs the rebuilt parent.
+   *
+   * <p>HFT-grade: 1 atomic increment per child per call; per-event print gated and
+   * uses pre-allocated stack-local StringBuilder.
+   *
+   * @param parentPageKey  pageKey of the rebuilt parent (for log correlation)
+   * @param parentMsb      finalised msbIndex of the rebuilt parent
+   * @param parentBeta     β being added to parent.mask (for log context)
+   * @param children       lifted children array (post-Step 3 sort)
+   * @param newCount       number of valid entries in {@code children}
+   */
+  private void phase7q15dCheckIntermediateMsb(long parentPageKey, int parentMsb, int parentBeta,
+      PageReference[] children, int newCount) {
+    final boolean imsbDbg = Boolean.getBoolean("hot.debug.phase7q.imsb");
+    StringBuilder offenders = null;
+    for (int i = 0; i < newCount; i++) {
+      final PageReference cref = children[i];
+      if (cref == null) continue;
+      final int childMsb = getIndirectMsbOrMax(cref);
+      if (childMsb == Integer.MAX_VALUE) {
+        // Leaf child or unresolvable — I11 doesn't constrain leaves the same way.
+        PHASE7Q_INTERMEDIATE_MSB_OK.incrementAndGet();
+        continue;
+      }
+      if (childMsb < parentMsb) {
+        PHASE7Q_INTERMEDIATE_MSB_LOWER.incrementAndGet();
+        if (imsbDbg) {
+          if (offenders == null) offenders = new StringBuilder(128);
+          offenders.append(" [LOWER child[").append(i).append("] pageKey=")
+              .append(cref.getKey()).append(" childMsb=").append(childMsb).append(']');
+        }
+      } else if (childMsb == parentMsb) {
+        PHASE7Q_INTERMEDIATE_MSB_EQUALITY.incrementAndGet();
+        if (imsbDbg) {
+          if (offenders == null) offenders = new StringBuilder(128);
+          offenders.append(" [EQ child[").append(i).append("] pageKey=").append(cref.getKey())
+              .append(" childMsb=").append(childMsb).append(']');
+        }
+      } else {
+        PHASE7Q_INTERMEDIATE_MSB_OK.incrementAndGet();
+      }
+    }
+    if (imsbDbg && offenders != null) {
+      System.err.println("[phase7q.15d-imsb] parentPageKey=" + parentPageKey + " parentMsb="
+          + parentMsb + " beta=" + parentBeta + " newCount=" + newCount + offenders);
+    }
+  }
+
   /**
    * Phase 7q.13 — When iterative bit-extension fails, structurally lift the offending
    * I8 inversion by partitioning root's children by the discriminating bit and rebuilding
@@ -10962,6 +11054,12 @@ public final class HOTTrieWriter {
     if (dbg) System.err.println("[g30] EXTEND-OK beta=" + beta + " newCount=" + newCount
         + " msbIndex=" + msbIndex + " allCount=" + allCount);
     G28_CLOSURE_FIRINGS.incrementAndGet();
+    // Phase 7q.15d — pre-build instrumentation. Same classification as in
+    // {@link #phase7qExtendWithLift}: catches the case where standard extend's
+    // splitSubtreeOnBit-produced halves have MSB ≤ the new parent's msbIndex (=
+    // I11 equality / strict violation at the parent ↔ split-half boundary).
+    phase7q15dCheckIntermediateMsb(indirect.getPageKey(), msbIndex & 0xFFFF, beta, newChildren,
+        newCount);
     if (newCount <= 16) {
       return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
           extractionPositions, extractionMasks, allCount, newPartials, newChildren,

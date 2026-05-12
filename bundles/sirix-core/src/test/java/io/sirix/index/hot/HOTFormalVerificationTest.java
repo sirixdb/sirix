@@ -469,6 +469,9 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qCollideDuplicateKeys();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qBestEffortAccepted();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qBestEffortRejected();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qIntermediateMsbEquality();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qIntermediateMsbLower();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qIntermediateMsbOk();
 
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
@@ -959,6 +962,12 @@ final class HOTFormalVerificationTest {
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qBestEffortAccepted()
               + " rejected="
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qBestEffortRejected());
+          System.out.println("[microbench-pattern]   phase7q intermediate-MSB: equality="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qIntermediateMsbEquality()
+              + " lower="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qIntermediateMsbLower()
+              + " ok="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qIntermediateMsbOk());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
