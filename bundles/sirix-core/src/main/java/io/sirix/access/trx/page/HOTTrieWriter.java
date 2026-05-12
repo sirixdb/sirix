@@ -10099,8 +10099,11 @@ public final class HOTTrieWriter {
         // the lift's reachability change).
         // Gated on hot.strict.g32.bestEffort so default behaviour is unchanged.
         if (cur != indirect && Boolean.getBoolean("hot.strict.g32.bestEffort")) {
-          final int beforeI8 = countAdjacentI8InversionsAtRoot(indirect);
-          final int afterI8 = countAdjacentI8InversionsAtRoot(cur);
+          // Phase 7q.15c — count I8 across the whole subtree (not just root), matching
+          // validator scope. A lift may improve root inversions but introduce sub-indirect
+          // inversions; the whole-trie count catches that.
+          final int beforeI8 = countI8InversionsRecursive(indirect);
+          final int afterI8 = countI8InversionsRecursive(cur);
           final int beforeI11 = countI11ViolationsRecursive(indirect, -1);
           final int afterI11 = countI11ViolationsRecursive(cur, -1);
           if (afterI11 <= beforeI11 && afterI8 < beforeI8) {
@@ -10127,8 +10130,8 @@ public final class HOTTrieWriter {
     if (dbg) System.err.println("[g32-itersort] exhausted maxIter");
     // Phase 7q.15b — delta-based validate-or-rollback at maxIter exhaustion.
     if (cur != indirect && Boolean.getBoolean("hot.strict.g32.bestEffort")) {
-      final int beforeI8 = countAdjacentI8InversionsAtRoot(indirect);
-      final int afterI8 = countAdjacentI8InversionsAtRoot(cur);
+      final int beforeI8 = countI8InversionsRecursive(indirect);
+      final int afterI8 = countI8InversionsRecursive(cur);
       final int beforeI11 = countI11ViolationsRecursive(indirect, -1);
       final int afterI11 = countI11ViolationsRecursive(cur, -1);
       if (afterI11 <= beforeI11 && afterI8 < beforeI8) {
@@ -10163,6 +10166,33 @@ public final class HOTTrieWriter {
         violations++;
       }
       prev = fk;
+    }
+    return violations;
+  }
+
+  /** Phase 7q.15c — recursively count I8 inversions across the whole subtree (matching
+   *  HOTInvariantValidator scope, except we count ALL adjacent inversions per indirect,
+   *  not just the first). Used by validate-or-rollback to detect when a lift creates
+   *  new sub-indirect inversions even if root improves. */
+  private int countI8InversionsRecursive(HOTIndirectPage indirect) {
+    if (indirect == null) return 0;
+    int violations = countAdjacentI8InversionsAtRoot(indirect);
+    final int n = indirect.getNumChildren();
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) continue;
+      Page page = cref.getPage();
+      if (page == null && activeLog != null) {
+        final var container = activeLog.get(cref);
+        if (container != null) page = container.getModified();
+      }
+      if (page == null && activeReader != null) {
+        page = loadPage(activeReader, cref);
+        if (page != null) cref.setPage(page);
+      }
+      if (page instanceof HOTIndirectPage childInd) {
+        violations += countI8InversionsRecursive(childInd);
+      }
     }
     return violations;
   }
