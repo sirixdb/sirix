@@ -11393,6 +11393,116 @@ public final class HOTTrieWriter {
     return -1;
   }
 
+  /**
+   * Phase 7q-Path2 — I11-safe leaf-split bit chooser.
+   *
+   * <p>When a leaf is about to split, its natural MSDB is locally optimal but can be
+   * <em>globally toxic</em>: integrating the resulting BiNode via {@code addEntryWithPDep}
+   * extends the parent indirect's mask with β=MSDB. If MSDB is more significant than the
+   * parent indirect's current MSB AND than the grandparent's MSB, parent.MSB drops below
+   * grandparent.MSB → I11 ({@code parent.MSB < child.MSB} numerically, where lower absBit
+   * = more significant) violates → parent's effective deep-firstKey shifts → I8 cascade
+   * at the root.
+   *
+   * <p>This chooser checks the natural MSDB-with-K and, if it would trigger an I11
+   * violation, scans for an alternative discriminative bit that:
+   * <ul>
+   *   <li>partitions the leaf {@code keyBuf}-plus-existing into two non-empty halves</li>
+   *   <li>has absBit &gt; grandparent.MSB (= numerically less significant than the
+   *       grandparent's most-significant disc bit)</li>
+   * </ul>
+   *
+   * <p>Returns {@code -1} when:
+   * <ul>
+   *   <li>natural MSDB is already I11-safe (= caller should use default behavior)</li>
+   *   <li>no I11-safe alternative bit exists in the leaf's key contents (= caller should
+   *       still fall back to default MSDB — the architectural ceiling case where the
+   *       encoder's bit-pattern forces an I11-toxic split)</li>
+   * </ul>
+   *
+   * <p>HFT-grade: single pass over leaf entries per candidate bit; allocates one
+   * {@link DiscriminativeBitComputer} call per existing key; no boxing.
+   *
+   * @param leaf        leaf about to split (with {@code keyBuf} pending insert)
+   * @param keyBuf      pending insert key
+   * @param pathNodes   ancestor path (root → leaf-parent)
+   * @param pathDepth   number of valid entries in {@code pathNodes}
+   * @return explicit split bit (≥ 0) if natural MSDB is toxic AND a safe alternative
+   *         exists, else {@code -1} (= caller uses default MSDB)
+   */
+  public int chooseI11SafeLeafSplitBit(HOTLeafPage leaf, byte[] keyBuf,
+      HOTIndirectPage[] pathNodes, int pathDepth) {
+    if (leaf == null || keyBuf == null || pathNodes == null || pathDepth <= 0) {
+      return -1;
+    }
+    final int entryCount = leaf.getEntryCount();
+    if (entryCount == 0) return -1;
+    final HOTIndirectPage parent = pathNodes[pathDepth - 1];
+    if (parent == null) return -1;
+
+    // Natural MSDB-with-K = leaf's preferred split bit
+    final int msdb = leaf.computeMsdbWithKey(keyBuf);
+    if (msdb < 0) return -1;
+
+    final int parentMsb = parent.getMostSignificantBitIndex() & 0xFFFF;
+    // If parent already routes on msdb, no MSB drop — msdb is safe.
+    if (indirectMaskHasAbsBit(parent, msdb)) return -1;
+    // msdb is numerically >= parentMsb means msdb is LESS significant or equal — no MSB drop.
+    if (msdb >= parentMsb) return -1;
+
+    // msdb < parentMsb (= msdb more significant). Adding msdb to parent's mask would
+    // lower parent.MSB to msdb. Determine the I11 constraint: parent.MSB must remain
+    // > grandparent.MSB (numerically). Grandparent here = pathNodes[pathDepth - 2].
+    if (pathDepth < 2) {
+      // Parent IS root — no grandparent constraint, msdb-as-new-root.MSB is fine.
+      return -1;
+    }
+    final HOTIndirectPage grandparent = pathNodes[pathDepth - 2];
+    if (grandparent == null) return -1;
+    final int gpMsb = grandparent.getMostSignificantBitIndex() & 0xFFFF;
+    // new parent.MSB = min(currentParentMsb, msdb) = msdb (since msdb < currentParentMsb).
+    // I11 violates iff new parent.MSB <= grandparent.MSB.
+    if (msdb > gpMsb) {
+      // msdb less significant than grandparent.MSB → no I11 violation. Default is safe.
+      return -1;
+    }
+
+    // msdb would violate I11. Search for alternative bit β' such that:
+    //   - β' partitions {leaf entries ∪ keyBuf} into two non-empty halves
+    //   - β' > gpMsb (numerically less significant than grandparent's MSB)
+    // Iterate β' in MSB-first order to keep the split as balanced as possible.
+    final int firstKeyLen = leaf.getKey(0) == null ? 0 : leaf.getKey(0).length;
+    final int maxKeyLen = Math.max(keyBuf.length, firstKeyLen);
+    final int maxBit = maxKeyLen << 3;
+    for (int absBit = gpMsb + 1; absBit < maxBit; absBit++) {
+      // Skip bits already in parent's mask (= partitioning on them won't drop MSB but
+      // also won't add a NEW disc bit; addEntry will be a no-op and the split won't
+      // structurally distinguish the halves at parent's level).
+      if (indirectMaskHasAbsBit(parent, absBit)) continue;
+      boolean seen0 = false, seen1 = false;
+      if (isAbsBitSet(keyBuf, absBit)) seen1 = true; else seen0 = true;
+      for (int i = 0; i < entryCount; i++) {
+        final byte[] k = leaf.getKey(i);
+        if (k == null || k.length == 0) continue;
+        if (isAbsBitSet(k, absBit)) seen1 = true; else seen0 = true;
+        if (seen0 && seen1) break;
+      }
+      if (seen0 && seen1) {
+        // Found an I11-safe partitioning bit.
+        if (Boolean.getBoolean("hot.debug.path2")) {
+          System.err.println("[path2] msdb=" + msdb + " gpMsb=" + gpMsb
+              + " parentMsb=" + parentMsb + " → safe β'=" + absBit);
+        }
+        return absBit;
+      }
+    }
+    if (Boolean.getBoolean("hot.debug.path2")) {
+      System.err.println("[path2] msdb=" + msdb + " gpMsb=" + gpMsb
+          + " parentMsb=" + parentMsb + " → NO safe alternative; default to MSDB");
+    }
+    return -1;
+  }
+
   public static long getG20RecursiveSplitFirings() { return G20_RECURSIVE_SPLIT_FIRINGS.get(); }
   public static void resetG20RecursiveSplitFirings() { G20_RECURSIVE_SPLIT_FIRINGS.set(0L); }
 

@@ -836,11 +836,19 @@ public abstract class AbstractHOTIndexWriter<K> {
         // The standard split-and-integrate path then routes the halves correctly.
         if (leaf.canSplit()) {
           final byte[] valueBytes = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
+          // Phase 7q-Path2 — when enabled, try to pick a split bit that won't drop the
+          // parent indirect's MSB below the grandparent's MSB (= I11 violation that
+          // cascades into I8 at the root). Returns -1 (= default MSDB) when natural
+          // MSDB is already safe OR no I11-safe alternative exists.
+          final int explicitBit = Boolean.getBoolean("hot.strict.path2.i11safe")
+              ? trieWriter.chooseI11SafeLeafSplitBit(leaf, keyBytes,
+                  navResult.pathNodes(), navResult.pathDepth())
+              : -1;
           final boolean ok = trieWriter.handleLeafSplitAndInsert(
               storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
               rootRef, navResult.pathNodes(), navResult.pathRefs(),
               navResult.pathChildIndices(), navResult.pathDepth(),
-              keyBytes, keyLen, valueBytes, valueLen);
+              keyBytes, keyLen, valueBytes, valueLen, explicitBit);
           prepareIndexPage();
           if (ok) return;
         }

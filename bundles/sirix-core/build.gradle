@@ -189,6 +189,8 @@ test {
     systemProperty "hot.strict.phase8.multilevel", System.getProperty("hot.strict.phase8.multilevel", "false")
     systemProperty "hot.debug.phase8", System.getProperty("hot.debug.phase8", "false")
     systemProperty "hot.strict.phase8.recursivesplit", System.getProperty("hot.strict.phase8.recursivesplit", "false")
+    systemProperty "hot.strict.path2.i11safe", System.getProperty("hot.strict.path2.i11safe", "false")
+    systemProperty "hot.debug.path2", System.getProperty("hot.debug.path2", "false")
     systemProperty "hot.debug.bitconstant", System.getProperty("hot.debug.bitconstant", "false")
     systemProperty "hot.relax.closure.placeholder", System.getProperty("hot.relax.closure.placeholder", "false")
     systemProperty "hot.debug.phase7q.collision", System.getProperty("hot.debug.phase7q.collision", "false")
