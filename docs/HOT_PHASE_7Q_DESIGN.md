@@ -1539,6 +1539,58 @@ one β-mixed child has multiple mask bits mixed in its subtree. Both require
 careful protection against mixed-sign regression — the prior prototype
 (reverted) blew up 900 → 9618 on indiscriminate splits.
 
+### 7.27 Phase 7s-3 — relax β-constancy gate (falsified — wrong gate) (2026-05-12)
+
+**Hypothesis:** the single rollback on descending-10K (counter SPLIT_ROLLBACK=1)
+came from the helper's final β-constancy validation gate. Relaxing it should
+let the partial-improvement commit and reduce descending below 258.
+
+**Implementation:** `-Dhot.strict.phase7s.split.relax=true` flag short-circuits
+the final β-constancy verification in `phase7sSplitAndAugment`. Routing
+correctness (unique partials) is still required.
+
+**Empirical falsification.** Under the flag, descending-10K stays at 258
+violations (no change). Debug trace pinpoints the actual rollback site:
+
+```
+[phase7s-split] child=1 split on absBit=88 pageKey=2
+[phase7s-split] child=2 split on absBit=92 pageKey=2
+...
+[phase7s-split] child=10 split on absBit=95 pageKey=2
+[phase7s-split] ROLLBACK pageKey=2 splitCount=19 — collisions persist after re-augment
+```
+
+The rollback fires at the EARLIER gate (`phase7rRoutingCollisionFirstIdx` check
+AFTER `phase7rAugmentUntilUnique` re-runs on the post-split state), not at the
+β-constancy gate. The helper splits 19 children on bits 88–95 (byte 11–11),
+but the re-augmenter can't find sort-monotone discriminating bits for the
+expanded children-set — `partials[i] == partials[j]` still holds somewhere.
+
+Relaxing the routing-collision gate is NOT acceptable (it's a hard
+correctness invariant — routing must be unambiguous), so this gate is the
+real blocker.
+
+**Falsification note retained:** `hot.strict.phase7s.split.relax` flag stays
+in the codebase as scaffolding — it's a no-op on descending today but useful
+for future workloads where the β-constancy gate is the bottleneck. The flag's
+default is `false` to preserve current behaviour.
+
+**Phase 7s-4 redirect:** the next forward step needs to break the routing
+collision after re-augment. Options:
+- Pre-augment AGAIN with a different bit-selection strategy that explicitly
+  targets the post-split children's first colliding pair.
+- Split on a different bit (not the first β-mixed mask bit). Specifically:
+  the FALLTHROUGH augmenter chose its bit because no β-constant alternative
+  existed; the helper should split children on THAT specific fallthrough bit,
+  not just any β-mixed mask bit. Need to expose the augmenter's chosen
+  fallthrough bit via the holder pattern.
+
+**Files touched (Phase 7s-3 commit):**
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  `-Dhot.strict.phase7s.split.relax` flag gates the final β-constancy check.
+- `bundles/sirix-core/build.gradle`: `hot.strict.phase7s.split.relax` flag.
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.27 (this section).
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to

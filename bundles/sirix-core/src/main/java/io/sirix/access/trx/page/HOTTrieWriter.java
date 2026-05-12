@@ -14217,21 +14217,27 @@ public final class HOTTrieWriter {
       return false;
     }
 
-    // Validate β-constancy at every mask bit after split. If any (child, bit) pair is
-    // still β-mixed, the split didn't make progress — rollback to avoid persisting
-    // incremental I5 violations that downstream sites can't fix.
-    final int[] finalMaskBits = collectDiscBitsMsbFirst(newDiscBits);
-    for (int i = 0; i < expChildren.length; i++) {
-      final PageReference c = expChildren[i];
-      if (c == null) continue;
-      for (final int absBit : finalMaskBits) {
-        if (bitConstantValueInSubtree(c, absBit) < 0) {
-          PHASE7S_SPLIT_ROLLBACK.incrementAndGet();
-          if (Boolean.getBoolean("hot.debug.phase7s")) {
-            System.err.println("[phase7s-split] ROLLBACK pageKey=" + pageKey
-                + " — child[" + i + "] still β-mixed at absBit=" + absBit);
+    // Validate β-constancy at every mask bit after split. By default, if any
+    // (child, bit) pair is still β-mixed, rollback — the split didn't fully
+    // eliminate the I5 risk. Opt-in `-Dhot.strict.phase7s.split.relax=true`
+    // suppresses this gate: we accept partial improvement when routing remains
+    // correct (partials unique by the check above) and let surviving β-mixed
+    // pairs surface as I5 violations downstream — typically a smaller cascade
+    // than the pre-split state.
+    if (!Boolean.getBoolean("hot.strict.phase7s.split.relax")) {
+      final int[] finalMaskBits = collectDiscBitsMsbFirst(newDiscBits);
+      for (int i = 0; i < expChildren.length; i++) {
+        final PageReference c = expChildren[i];
+        if (c == null) continue;
+        for (final int absBit : finalMaskBits) {
+          if (bitConstantValueInSubtree(c, absBit) < 0) {
+            PHASE7S_SPLIT_ROLLBACK.incrementAndGet();
+            if (Boolean.getBoolean("hot.debug.phase7s")) {
+              System.err.println("[phase7s-split] ROLLBACK pageKey=" + pageKey
+                  + " — child[" + i + "] still β-mixed at absBit=" + absBit);
+            }
+            return false;
           }
-          return false;
         }
       }
     }

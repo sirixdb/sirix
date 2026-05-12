@@ -199,6 +199,7 @@ test {
     systemProperty "hot.debug.phase7r", System.getProperty("hot.debug.phase7r", "false")
     systemProperty "hot.debug.phase7s", System.getProperty("hot.debug.phase7s", "false")
     systemProperty "hot.strict.phase7s.split", System.getProperty("hot.strict.phase7s.split", "true")
+    systemProperty "hot.strict.phase7s.split.relax", System.getProperty("hot.strict.phase7s.split.relax", "false")
     systemProperty "hot.strict.phase7s.augment.strictbeta", System.getProperty("hot.strict.phase7s.augment.strictbeta", "false")
     systemProperty "hot.strict.phase7s.augment.relaxbeta", System.getProperty("hot.strict.phase7s.augment.relaxbeta", "false")
     systemProperty "hot.debug.bitconstant", System.getProperty("hot.debug.bitconstant", "false")
