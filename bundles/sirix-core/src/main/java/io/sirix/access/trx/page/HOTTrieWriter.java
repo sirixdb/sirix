@@ -10092,26 +10092,28 @@ public final class HOTTrieWriter {
             + " lift=" + (next != null ? "OK" : "FAIL"));
       }
       if (next == null) {
-        // Phase 7q.15a — validate-or-rollback. Instead of discarding all progress when one
-        // iter can't advance, accept `cur` if it strictly improves on `indirect`:
-        //   (a) fewer root-adjacent I8 inversions,
-        //   (b) no new I11 violations (=0 anywhere in the subtree).
+        // Phase 7q.15b — delta-based validate-or-rollback. Compare cur's invariant counts
+        // against the original `indirect`: accept if cur strictly reduces I8 inversions
+        // without introducing NEW I11 violations (delta-check, not absolute-zero, because
+        // baseline may legitimately have non-validator-flagged I11 cases that surface via
+        // the lift's reachability change).
         // Gated on hot.strict.g32.bestEffort so default behaviour is unchanged.
         if (cur != indirect && Boolean.getBoolean("hot.strict.g32.bestEffort")) {
           final int beforeI8 = countAdjacentI8InversionsAtRoot(indirect);
           final int afterI8 = countAdjacentI8InversionsAtRoot(cur);
+          final int beforeI11 = countI11ViolationsRecursive(indirect, -1);
           final int afterI11 = countI11ViolationsRecursive(cur, -1);
-          if (afterI11 == 0 && afterI8 < beforeI8) {
+          if (afterI11 <= beforeI11 && afterI8 < beforeI8) {
             PHASE7Q_BEST_EFFORT_ACCEPTED.incrementAndGet();
             if (dbg) System.err.println("[g32-itersort] iter=" + iter
                 + " — abandon (extend+lift) but BEST-EFFORT KEEPS cur: I8 "
-                + beforeI8 + "→" + afterI8 + " I11=" + afterI11);
+                + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11);
             return cur;
           }
           PHASE7Q_BEST_EFFORT_REJECTED.incrementAndGet();
           if (dbg) System.err.println("[g32-itersort] iter=" + iter
               + " — abandon (extend+lift); best-effort rollback: I8 "
-              + beforeI8 + "→" + afterI8 + " I11=" + afterI11);
+              + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11);
         } else if (dbg) {
           System.err.println("[g32-itersort] iter=" + iter + " — abandon (extend+lift)");
         }
@@ -10123,20 +10125,21 @@ public final class HOTTrieWriter {
       cur = next;
     }
     if (dbg) System.err.println("[g32-itersort] exhausted maxIter");
-    // Phase 7q.15a — validate-or-rollback also at maxIter exhaustion.
+    // Phase 7q.15b — delta-based validate-or-rollback at maxIter exhaustion.
     if (cur != indirect && Boolean.getBoolean("hot.strict.g32.bestEffort")) {
       final int beforeI8 = countAdjacentI8InversionsAtRoot(indirect);
       final int afterI8 = countAdjacentI8InversionsAtRoot(cur);
+      final int beforeI11 = countI11ViolationsRecursive(indirect, -1);
       final int afterI11 = countI11ViolationsRecursive(cur, -1);
-      if (afterI11 == 0 && afterI8 < beforeI8) {
+      if (afterI11 <= beforeI11 && afterI8 < beforeI8) {
         PHASE7Q_BEST_EFFORT_ACCEPTED.incrementAndGet();
         if (dbg) System.err.println("[g32-itersort] maxIter — BEST-EFFORT KEEPS cur: I8 "
-            + beforeI8 + "→" + afterI8 + " I11=" + afterI11);
+            + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11);
         return cur;
       }
       PHASE7Q_BEST_EFFORT_REJECTED.incrementAndGet();
       if (dbg) System.err.println("[g32-itersort] maxIter — best-effort rollback: I8 "
-          + beforeI8 + "→" + afterI8 + " I11=" + afterI11);
+          + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11);
       return null;
     }
     return cur != indirect ? cur : null;
