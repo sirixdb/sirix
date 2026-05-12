@@ -5442,12 +5442,29 @@ public final class HOTTrieWriter {
     final IntOpenHashSet triedBits =
         phase7o ? new IntOpenHashSet(32) : null;
     for (int iter = 0; iter < maxIterations; iter++) {
-      final int[] closureBits = findClosureBits(cur);
+      int[] closureBits = findClosureBits(cur);
       if (closureBits.length == 0) {
         if (dbg) System.err.println("[phase7j] iter=" + iter + " no closure bits");
         break;
       }
       final int parentMsb = cur.getMostSignificantBitIndex() & 0xFFFF;
+      // Phase 7q.14a — directed closure ordering. When
+      // `-Dhot.strict.phase7q.i8priority=true`, reorder closureBits so that bits
+      // resolving an existing I8 violation (firstKey-sort order disagrees with
+      // partial-sort order on adjacent children) are tried FIRST in MSB-first order,
+      // followed by remaining closure bits also in MSB-first order. This breaks the
+      // β=82 no-op-rebuild livelock that prevents the architecturally needed bit
+      // from ever being attempted. If the priority bit's attempt fails (returns
+      // null), behaviour reduces to today's order on the remainder, so a failure
+      // surfaces no regression on top of the architectural ceiling. See
+      // {@link #phase7qComputeI8FixBitsForReorder}.
+      if (Boolean.getBoolean("hot.strict.phase7q.i8priority")) {
+        final int[] reordered = phase7qComputeI8FixBitsForReorder(cur, closureBits);
+        if (reordered != null) {
+          closureBits = reordered;
+          PHASE7Q_I8_PRIORITY_FIRINGS.incrementAndGet();
+        }
+      }
       // Phase 7q.4 diagnostic: when operating on root (pageKey=2), dump the
       // closureBits list and parentMsb so we can see what the iter loop is
       // ranging over.
@@ -6968,6 +6985,81 @@ public final class HOTTrieWriter {
    *  case before invoking {@link #extendIndirectMaskForClosure}. */
   private static boolean phase7qIsBetaAlreadyInIndirectMask(HOTIndirectPage cur, int beta) {
     return indirectMaskHasAbsBit(cur, beta);
+  }
+
+  /** Phase 7q.14a — counter for closure-loop iterations where the I8-priority reorder
+   *  actually changed the closureBits order (= some I8-fix bit existed in the closure
+   *  list that wasn't already the first eligible β after parentMsb). Gated behind
+   *  {@code -Dhot.strict.phase7q.i8priority=true}. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_I8_PRIORITY_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7qI8PriorityFirings() { return PHASE7Q_I8_PRIORITY_FIRINGS.get(); }
+  public static void resetPhase7qI8PriorityFirings() { PHASE7Q_I8_PRIORITY_FIRINGS.set(0L); }
+
+  /**
+   * Phase 7q.14a — compute a reorder of {@code closureBits} that places "I8-fix bits"
+   * first in MSB-first order. An I8-fix bit is the MSDB between any adjacent (i, i+1)
+   * pair of {@code indirect}'s children whose firstKeys are out of lex-unsigned order
+   * (= the I8 violation: child[i].firstKey > child[i+1].firstKey while child[i] is
+   * placed before child[i+1] by partial-order).
+   *
+   * <p>Mechanism: {@link #findClosureBits} returns bits in MSB-first absolute order,
+   * but the closure inner loop attempts them sequentially until the first success.
+   * In default mode that success is often a NO-OP rebuild on a β already in cur.mask
+   * (e.g. β=82 on root), and the outer loop livelocks on the same no-op every iter.
+   * The architectural-need bit (e.g. β=87 to fix the persistent I8) is never reached.
+   *
+   * <p>By promoting I8-fix bits to the head of the list, the loop tries them first
+   * BEFORE hitting the no-op. If the I8-fix β succeeds (lift adds it to the mask),
+   * the I8 violation resolves. If it fails (returns null), the loop falls through
+   * to the remaining bits in MSB-first order, matching today's behaviour.
+   *
+   * <p>Returns the reordered array, or {@code null} when no I8 violation exists or
+   * the I8-fix bits are already a prefix of {@code closureBits}. In both cases, the
+   * caller should keep the original array (the reorder is a no-op).
+   *
+   * <p>HFT-grade: bounded allocation (one TreeSet, one int[] sized to closureBits.length,
+   * one byte[][] sized to numChildren). Runs at commit-time per phase7j iter, off the
+   * insert hot path.
+   */
+  @Nullable
+  private int[] phase7qComputeI8FixBitsForReorder(HOTIndirectPage indirect, int[] closureBits) {
+    if (indirect == null || closureBits == null || closureBits.length < 2) return null;
+    final int n = indirect.getNumChildren();
+    if (n < 2) return null;
+    final byte[][] firstKeys = new byte[n][];
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) return null;
+      final byte[] fk = getFirstKeyFromChild(cref);
+      if (fk == null || fk.length == 0) return null;
+      firstKeys[i] = fk;
+    }
+    final IntOpenHashSet i8FixBits = new IntOpenHashSet(8);
+    for (int i = 1; i < n; i++) {
+      if (Arrays.compareUnsigned(firstKeys[i - 1], firstKeys[i]) > 0) {
+        final int beta = DiscriminativeBitComputer.computeDifferingBit(firstKeys[i - 1], firstKeys[i]);
+        if (beta >= 0) i8FixBits.add(beta);
+      }
+    }
+    if (i8FixBits.isEmpty()) return null;
+    final int[] priority = new int[closureBits.length];
+    final int[] rest = new int[closureBits.length];
+    int pIdx = 0, rIdx = 0;
+    for (final int b : closureBits) {
+      if (i8FixBits.contains(b)) priority[pIdx++] = b;
+      else rest[rIdx++] = b;
+    }
+    if (pIdx == 0) return null;
+    boolean alreadyPrefix = true;
+    for (int i = 0; i < pIdx; i++) {
+      if (closureBits[i] != priority[i]) { alreadyPrefix = false; break; }
+    }
+    if (alreadyPrefix) return null;
+    final int[] reordered = new int[closureBits.length];
+    System.arraycopy(priority, 0, reordered, 0, pIdx);
+    System.arraycopy(rest, 0, reordered, pIdx, rIdx);
+    return reordered;
   }
 
   public static long getPhase7qExtendFirings() { return PHASE7Q_EXTEND_FIRINGS.get(); }

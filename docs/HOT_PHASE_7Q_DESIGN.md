@@ -831,6 +831,13 @@ should break — bit 89 becomes reachable on root.
   EMPIRICALLY DISPROVED prior hypothesis that double-capture is correctness-safe.
   Disabled by default; the falsified hypothesis is captured in §7.16 with cascade
   metrics for future ceiling tests.
+- [x] 7q.14a — `-Dhot.strict.phase7q.i8priority=true` directed-closure ordering.
+  Reorders `closureBits` so that bits resolving an existing I8-violating adjacent
+  firstKey pair are attempted FIRST. Breaks the β=82 no-op-rebuild livelock (128
+  firings on the 50K reproducer). All 127 resulting lift attempts hit
+  `EXTEND_FAIL_COLLIDE` — confirms the architectural ceiling is at the partial-
+  uniqueness gate inside `phase7qExtendWithLift` Step 3, NOT at the walker step
+  (`walk-fail=0`). Default behaviour preserved at 1 I8.
 
 ### 7.16 Phase 7q.13 — allowDoubleCapture falsification (2026-05-12)
 
@@ -891,3 +898,91 @@ This is multi-week work — each recursive level may again hit the same hard cas
 - `bundles/sirix-core/build.gradle`:
   + `hot.strict.phase7q.allowDoubleCapture` flag forwarding.
 - `docs/HOT_PHASE_7Q_DESIGN.md` §7.16 + work-plan tick.
+
+### 7.17 Phase 7q.14a — directed closure (`-Dhot.strict.phase7q.i8priority=true`) breaks no-op livelock; cascade gate confirmed at COLLIDE (2026-05-12)
+
+**Motivation**: §7.9–7.11 traced the persistent I8 to a closure-loop livelock in
+`phase7jExtendWithAllClosureBits`. On the 50K reproducer, root's `closureBits` list
+is `[81,82,83,…,91,99-102,171]` and `parentMsb=81`. The inner loop tries β=82 first
+(smallest > parentMsb), `extendIndirectMaskForClosure` returns a STRUCTURALLY
+IDENTICAL page (idempotent bitwise OR with a bit already in mask), the inner loop
+treats this as success and `break`s, the outer loop increments `extensions`,
+reload `findClosureBits` returns the same list, β=82 again. 64 wasted iters.
+β=87 (the bit needed to fix the persistent I8 at `c[4] vs c[5]`) is **never even
+attempted**.
+
+**Mechanism**: new helper `phase7qComputeI8FixBitsForReorder(indirect, closureBits)`:
+1. Walks `indirect`'s children pairwise.
+2. For each pair `(i-1, i)` with `firstKey[i-1] > firstKey[i]` (= I8 violation in
+   the current child arrangement), computes
+   `DiscriminativeBitComputer.computeDifferingBit(firstKey[i-1], firstKey[i])` →
+   the MSDB β that would resolve this pair's ordering.
+3. Returns `closureBits` with all such priority βs moved to the front in MSB-first
+   order; remaining bits keep their MSB-first order. Returns `null` if there's no
+   I8 violation OR the priority bits already prefix `closureBits` (= no-op
+   reorder).
+4. Gated behind `-Dhot.strict.phase7q.i8priority=true`. Default mode unchanged.
+5. Counter `PHASE7Q_I8_PRIORITY_FIRINGS` increments per closure iter where the
+   reorder is non-trivial.
+
+The wiring point is `phase7jExtendWithAllClosureBits` line 5444 (per-iter
+`closureBits` is replaced before the inner β loop).
+
+**Empirical (50K reproducer, `-Dhot.strict.phase7q=true -Dhot.strict.phase7j=true
+-Dhot.strict.phase7k=true -Dhot.strict.phase7q.i8priority=true
+-Dhot.relax.closure.placeholder=true`)**:
+
+| Metric | Baseline | With i8priority |
+|---|---|---|
+| Violations | 1 (I8) | **1 (I8 — same location)** |
+| Height | 5 | 5 |
+| LB-LIFTABLE | 0 | **127** |
+| LB-HARD | 204 | 331 |
+| ext-fire | 204 | 331 |
+| ext-ok | 1 | 1 |
+| ext-fail collide | 0 | **127** |
+| ext-fail beta-in-mask | 203 | 203 |
+| i8-priority firings | 0 | **128** |
+
+The 128 priority firings break the no-op livelock — 127 of them reach
+`phase7qExtendWithLift` (LB-LIFTABLE classification fires). The walker succeeds
+every time (`walk-fail=0`), but all 127 results hit `PHASE7Q_EXTEND_FAIL_COLLIDE`
+in Step 3 (partial-uniqueness check after rebuilding the indirect with β added).
+
+**Diagnosis**: this is the architectural ceiling. Adding β (e.g. 87) to root's
+mask is correctness-feasible — the walker correctly strips β from every
+descendant indirect that captures it. But the resulting partials at root (now
+derived under a wider mask) collide because some non-priority-β pair of children
+ends up with the same partial. The lift CAN strip a descendant's β, but it
+CAN'T preserve all OTHER children's partial uniqueness when β is added at root,
+because the relative ordering of bits in the mask determines partial uniqueness
+in a non-local way.
+
+The 127 `collide` failures confirm §7.14's earlier identification: the lift's
+remaining wall is partial-uniqueness under the extended mask, not the walker
+itself.
+
+**Default mode**: 1 violation, height 5, ext-ok=1, `i8-priority firings=0`
+(identical to HEAD `63dd890a6`).
+
+**100K CAS regression**: 0 violations preserved (height 2 unchanged).
+**HOTOptionBPhase5Test**: passes.
+
+**Phase 7q.14b entry point** (next session): instrument the COLLIDE branch in
+`phase7qExtendWithLift` (line 7222) to dump the colliding pair `(i, k)` and
+each child's firstKey + computed partial. Identify which non-priority children
+collide post-extension. If the collisions are between children whose firstKeys
+agree on all NEW priority bits (= β added doesn't separate them), the lift
+needs to ALSO add a "separating" bit for those colliding pairs — a multi-β lift.
+This generalizes the single-bit lift to a SET-OF-BITS extension.
+
+**Files touched** (commit `[pending]`):
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + `phase7qComputeI8FixBitsForReorder` helper (~50 lines).
+  + `PHASE7Q_I8_PRIORITY_FIRINGS` counter + getter/resetter.
+  + Reorder dispatch inside `phase7jExtendWithAllClosureBits` (5 lines).
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  + Counter reset + report line.
+- `bundles/sirix-core/build.gradle`:
+  + `hot.strict.phase7q.i8priority` flag forwarding.
+- `docs/HOT_PHASE_7Q_DESIGN.md` §7.17 + work-plan tick.
