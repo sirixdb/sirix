@@ -2300,4 +2300,171 @@ final class HOTFormalVerificationTest {
       }
     }
   }
+
+  // ============================================================
+  // Comprehensive invariant-conformance regression suite (2026-05-12)
+  //
+  // Asserts ZERO invariant violations across a wide variety of workload shapes.
+  // These tests exist to catch any future regression from the Phase 7q + Path 5
+  // structural-Binna campaign. Each method drives the index to a specific
+  // workload pattern, runs HOTInvariantValidator, and assertOk()s — so any
+  // surfacing violation fails the test with a precise tag.
+  //
+  // Patterns covered:
+  //   - Ascending sequential (control)
+  //   - Descending sequential (reverse-sort stress)
+  //   - Random shuffle (uniform distribution)
+  //   - Clustered values (5 clusters x 2K each)
+  //   - Bimodal (warmup + main, like the diagnostic but assertion-asserted)
+  //   - Many duplicates (low cardinality)
+  //   - Single-value workload (degenerate)
+  //   - Two-value workload (minimum non-trivial)
+  //   - Sparse high + dense low (mixed magnitude)
+  //   - Mixed sign (negative + zero + positive Int32)
+  // ============================================================
+
+  private static void buildAndValidateCas(int n, java.util.function.IntUnaryOperator valueAt,
+      String label) {
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    final IndexDef def;
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueAt.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+      final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
+          trx.getStorageEngineReader(), IndexType.CAS, def.getID());
+      System.out.println("[" + label + "] N=" + inv.storedKeyCount()
+          + " · observedHeight=" + inv.observedHeight()
+          + " · violations=" + inv.violations().size());
+      assertTrue(inv.violations().isEmpty(),
+          "[" + label + "] structural violations: " + inv.violations());
+    }
+  }
+
+  @Test
+  @DisplayName("Comprehensive — ascending sequential 10K")
+  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveAscending10K() {
+    buildAndValidateCas(10_000, i -> i, "comprehensive-asc-10K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — descending sequential 10K")
+  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveDescending10K() {
+    buildAndValidateCas(10_000, i -> 10_000 - 1 - i, "comprehensive-desc-10K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — random shuffle 10K (seed 0xC0FFEE)")
+  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveRandomShuffle10K() {
+    final int n = 10_000;
+    final Random rng = new Random(0xC0FFEEL);
+    final int[] shuf = new int[n];
+    for (int i = 0; i < n; i++) shuf[i] = i;
+    for (int i = n - 1; i > 0; i--) {
+      final int j = rng.nextInt(i + 1);
+      final int tmp = shuf[i]; shuf[i] = shuf[j]; shuf[j] = tmp;
+    }
+    buildAndValidateCas(n, i -> shuf[i], "comprehensive-rand-10K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — clustered 5x2K (large gaps between clusters)")
+  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveClustered5x2K() {
+    final int n = 10_000;
+    final int clusterSize = 2_000;
+    final int gap = 1_000_000;
+    buildAndValidateCas(n, i -> {
+      final int cluster = i / clusterSize;
+      final int offset = i % clusterSize;
+      return cluster * gap + offset;
+    }, "comprehensive-clustered-5x2K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — bimodal warmup+main 5K + 5K (mirrors diagnostic but smaller)")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveBimodal5KPlus5K() {
+    final int warm = 5_000;
+    final int main = 5_000;
+    final int warmupBase = 51_000_000;
+    buildAndValidateCas(warm + main, i -> i < warm ? warmupBase + i : i - warm,
+        "comprehensive-bimodal-5K+5K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — many duplicates (100K values in 0..63 cycle)")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveManyDuplicatesLowCardinality() {
+    final int n = 100_000;
+    buildAndValidateCas(n, i -> i & 63, "comprehensive-dup-100K-mod64");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — two distinct values alternating")
+  @org.junit.jupiter.api.Timeout(value = 60, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveTwoValuesAlternating() {
+    buildAndValidateCas(5_000, i -> i & 1, "comprehensive-2val-5K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — mixed sign Int32 (-N/2 to +N/2)")
+  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveMixedSign() {
+    final int n = 10_000;
+    buildAndValidateCas(n, i -> i - (n / 2), "comprehensive-mixed-sign-10K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — sparse high + dense low (alternating magnitude)")
+  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveSparseHighDenseLow() {
+    final int n = 10_000;
+    // Even i → small (0..n/2); odd i → large (1M + i)
+    buildAndValidateCas(n, i -> (i & 1) == 0 ? i / 2 : 1_000_000 + i, "comprehensive-sparse-10K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — fully random Int32 uniform 0..2^16 with replacement")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveRandomWithReplacement() {
+    final int n = 20_000;
+    final Random rng = new Random(0xDEADBEEFL);
+    final int[] vals = new int[n];
+    for (int i = 0; i < n; i++) vals[i] = rng.nextInt(1 << 16);
+    buildAndValidateCas(n, i -> vals[i], "comprehensive-randrep-20K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — 50K ascending with assertion (regression for 50K reproducer scale)")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveAscending50K() {
+    buildAndValidateCas(50_000, i -> i, "comprehensive-asc-50K");
+  }
+
+  @Test
+  @DisplayName("Comprehensive — 50K bimodal (warmup 5K + main 50K — promoted diagnostic)")
+  @org.junit.jupiter.api.Timeout(value = 300, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void comprehensiveBimodal50KPromotedDiagnostic() {
+    final int warm = 5_000;
+    final int main = 50_000;
+    final int warmupBase = 51_000_000;
+    buildAndValidateCas(warm + main, i -> i < warm ? warmupBase + i : i - warm,
+        "comprehensive-bimodal-promoted-diag");
+  }
 }

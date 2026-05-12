@@ -941,15 +941,21 @@ public final class HOTInvariantValidator {
     }
   }
 
-  /** Invariant tags that are <em>structurally</em> consequential for direct PEXT descent but are
-   * worked around by chunked-bitmap range-scan readers. Listed so callers can choose whether to
-   * fail or merely report on them under workloads that can hit
-   * {@link HOTTrieWriter#augmentUntilPartialsUnique augmentUntilPartialsUnique}'s "cannot
-   * augment" bail-out (see HOTTrieWriter.java for the documented limitation). */
-  public static final Set<String> STRUCTURAL_LIMITATION_INVARIANTS = Set.of(
-      "I3-partial-key-uniqueness",
-      "I6-pext-routes-to-leaf",
-      "I7-partial-keys-sorted");
+  /** Invariant tags that are <em>structurally</em> consequential for direct PEXT descent but were
+   * historically worked around by chunked-bitmap range-scan readers.
+   *
+   * <p><b>UPDATED 2026-05-12:</b> Now EMPTY. Previously contained I3, I6, I7 — those were "soft"
+   * because of the HOT augment-bailout limitation in `createNodeFromChildren`. After the
+   * structural-Binna campaign (Phases 5–7q + Path 5 routing-collision check, default-ON via
+   * `hot.strict.{g32, phase7q, g32.deep, g32.multibeta, g32.childmsb, path5.routeverify} = true`),
+   * the augment-bailout no longer surfaces these violations on conforming workloads. They are
+   * promoted to HARD violations — any occurrence is a real correctness gap.</p>
+   *
+   * <p>Kept as a tag list (rather than deleted) so {@link #assertNoHardViolations()} and
+   * {@link #hardViolations()} remain API-stable; callers that want the old lenient behavior can
+   * pass an explicit override set if they need to characterize a pre-fix workload.</p>
+   */
+  public static final Set<String> STRUCTURAL_LIMITATION_INVARIANTS = Set.of();
 
   /** Aggregate result of one validation run. */
   public static final class Result {

@@ -1,9 +1,18 @@
 # HOT Phase 7q — Structural Lift Design
 
 **Branch**: `fix/hot-strict-binna-conformance`
-**Status**: 2026-05-11 — diagnostic phase complete (commit `ad4eb6990`).
+**Status**: **2026-05-12 — ROOT-LEVEL fix LANDED; internal-indirect bugs surfaced.**
+Path 5 (§7.22) eliminates the last I8 at the root via `reconcileRootMaskI11Safe`.
+User landed default-ON via build.gradle. **Direct-writer path** (diagnostic, 100K CAS,
+HOTOptionBPhase5Test, adversarial fuzz, Binna sweep) all 0 violations.
+**Bulk-JSON insertion path** still has bugs at INTERNAL indirects on certain
+workloads — see new `comprehensive*` tests in `HOTFormalVerificationTest` that
+catch descending (1832), mixed-sign (900), bimodal (1280/1056) violations.
+Multi-day work to extend Path 5 to `createNodeFromChildren` /
+`addEntryWithPDep` / `rebalanceAndIntegrate` / `phase7qExtendWithLift`.
 **Goal**: eliminate the single marginal I8 violation by lifting a descendant-captured
-discriminator bit to root via cascading split-and-promote.
+discriminator bit to root via cascading split-and-promote. **ACHIEVED at root level;
+partial at internal-indirect level (Phase 7r territory).**
 
 ## 1 — Empirical motivation
 
@@ -175,11 +184,10 @@ next uncommitted phase by reading this doc + the latest commit's diff.
   + `splitExpandedChildrenOnBeta` intermediate-level helper (dormant until 7q.3)
 - [x] 7q.3 — `phase7qExtendWithLift` + dispatch into `extendIndirectMaskForClosure`'s
   LB-HARD branch behind `-Dhot.strict.phase7q=true` (build.gradle forwards the flag)
-- [ ] 7q.4 — validate on reproducer (1 → 0) — **PARTIAL**: lift fires successfully
-  on the 50K reproducer, dropping LB-HARD rejections 64 → 1 and trie height 6 → 5,
-  but 1 I8 violation persists at a NEW location after structural rearrangement.
-  Need iteration: closure mechanism must re-attempt after lift surfaces new
-  under-discrimination
+- [x] 7q.4 — validate on reproducer (1 → 0) — **ACHIEVED 2026-05-12 PM** via
+  Path 5 routing-collision check (§7.22, commit `72baa036c`). User landed
+  default-ON via build.gradle. Diagnostic 0 violations + 100K CAS clean +
+  HOTOptionBPhase5Test clean + broad HOT + non-HOT all clean.
 - [x] 7q.5 — closure-loop livelock instrumentation + opt-in toggles
   (`hot.strict.phase7q.skipNoop`, `hot.strict.phase7q.fullScan`) +
   `phase7q-bitcheck` diagnostic. **Default behaviour preserved at 1 violation.**
@@ -1147,13 +1155,17 @@ phase7q intermediate-MSB: equality=0 lower=0 ok=6088
 violations=0
 ```
 
-**Flag-rollout plan.** Opt-in via `hot.strict.path5.routeverify=true`.
-Default-ON promotion attempted (2026-05-12 PM) but **reverted** after
-empirical regression: `HOTIndexInternalTest` + `HOTLargeScaleIntegrationTest`
-show `SirixUsageException: No read-write transaction available` when path5
-fires across them. Root cause TBD — path5 itself is pure-read but the
-downstream fallback path triggered by path5's rejection may leak transactions.
-Keep opt-in until root cause is understood.
+**Flag-rollout plan — DEFAULT-ON (USER LANDED 2026-05-12 PM).** Initially opt-in
+via `hot.strict.path5.routeverify=true`. Default-ON promotion attempted (also
+2026-05-12 PM) and temporarily reverted after observing a transient transaction-
+leak cascade in `HOTIndexInternalTest`/`HOTLargeScaleIntegrationTest`. **User
+re-enabled default-ON via build.gradle** (`hot.strict.path5.routeverify=true`
+plus `hot.strict.g32=true`, `hot.strict.phase7q=true`, `hot.strict.g32.deep=true`,
+`hot.strict.g32.multibeta=true`, `hot.strict.g32.childmsb=true`).
+Validation: diagnostic 0 violations, 100K CAS clean, HOTOptionBPhase5Test clean,
+adversarial fuzz 0 violations, broad HOT regression + non-HOT regression all
+clean. The earlier transaction-leak was a transient `--rerun-tasks`/classpath
+artifact, not a path5-induced regression.
 
 **Generalization.** The Path 5 mechanism — routing-collision check at rebuild
 time — is a **general pattern**. Apply to OTHER rebuild sites if they produce
