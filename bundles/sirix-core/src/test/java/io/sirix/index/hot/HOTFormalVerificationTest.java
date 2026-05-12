@@ -2504,6 +2504,62 @@ final class HOTFormalVerificationTest {
     JsonTestHelper.deleteEverything();
   }
 
+  // ---- Phase 7t-1 firstKey-vs-partial monotone inversion characterization ---
+  // Phase 7r-2's augmenter ensures partial-key uniqueness (HOT I3) but does NOT verify
+  // that, after sorting by partial in buildFlatNonStrict, the children's firstKeys also
+  // come out in lex order (HOT I8). The augmenter's bit choices are sort-monotone, but
+  // the INITIAL disc-bit pick from `computeDiscBits` (adjacent-pair MSB-of-XOR scan over
+  // first/last keys) can include non-sort-monotone bits whose presence in the PEXT mask
+  // re-orders the partials. This counter probes whether the residual descending /
+  // mixed-sign / bimodal violations originate at THIS specific rebuild site.
+  //
+  // Requires -Dhot.strict.phase7t.monotone.probe=true. Asserts NOTHING; prints
+  // inspections (= buildFlatNonStrict invocations) and inversions (= those producing
+  // first-key sort inversion after partial sort) per workload.
+  @Test
+  @DisplayName("Phase 7t-1 — firstKey-monotone post-sort inversion characterization")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7t1CharacterizeMonotoneInversions() {
+    if (!Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
+      return; // skip silently when flag not set
+    }
+    final int n = 10_000;
+    runWithMonotoneProbe("ascending-10K (control)", n, i -> i);
+    runWithMonotoneProbe("descending-10K", n, i -> n - 1 - i);
+    runWithMonotoneProbe("mixed-sign-10K", n, i -> i - (n / 2));
+    runWithMonotoneProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
+  }
+
+  private static void runWithMonotoneProbe(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tBuildflatInspections();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tBuildflatInversions();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long ins = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tBuildflatInspections();
+    final long inv = io.sirix.access.trx.page.HOTTrieWriter.getPhase7tBuildflatInversions();
+    System.out.println("[phase7t-1] " + label + " · inspections=" + ins
+        + " · inversions=" + inv
+        + " · ratio=" + (ins == 0 ? "n/a" : String.format("%.2f%%", 100.0 * inv / ins)));
+    JsonTestHelper.deleteEverything();
+  }
+
   @Test
   @DisplayName("Comprehensive — random shuffle 10K (seed 0xC0FFEE)")
   @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)

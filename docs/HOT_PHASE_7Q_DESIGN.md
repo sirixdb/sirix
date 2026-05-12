@@ -1650,6 +1650,104 @@ mixed-sign, and bimodal workloads need a separate Phase 8 design.
   + `phase7sSplitAndAugment` consults the fallthrough bits first per child.
 - `docs/HOT_PHASE_7Q_DESIGN.md`: §7.28 (this section).
 
+### 7.29 Phase 7t-1 — firstKey-monotone post-sort probe at `buildFlatNonStrict` (2026-05-13) — **FALSIFIES `buildFlatNonStrict` AS THE I8 SOURCE**
+
+**Hypothesis.** Phase 7r-2's augment-until-unique guarantees partial-key uniqueness
+(HOT I3) but does NOT verify partial-sort-vs-firstKey-sort agreement (HOT I8).
+The augmenter only adds sort-monotone bits, but the INITIAL pick from
+`computeDiscBits` (adjacent-pair MSB-of-XOR scan) can include non-sort-monotone
+bits whose presence in the PEXT mask reorders the partials. After
+`sortChildrenAndPartialsByPartial`, children may end up in partial order that
+disagrees with firstKey order — producing I8 violations downstream.
+
+If this is the source of comprehensive descending's 258 (post-7s-2) / mixed-sign's
+900 / bimodal's 1280 residual violations, a firstKey-monotone post-sort retry —
+analogous to the existing one in `addEntryWithPDep` (line 1885 onward) and the
+g32-multibeta path (line 9823) — would fix all three at one site.
+
+**Probe implementation** (gated, default off):
+
+```java
+// In buildFlatNonStrict, immediately after sortChildrenAndPartialsByPartial:
+if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
+  PHASE7T_BUILDFLAT_INSPECTIONS.incrementAndGet();
+  byte[] prevFk = null;
+  int inversionAt = -1;
+  for (int i = 0; i < children.length; i++) {
+    final byte[] fk = getFirstKeyFromChild(children[i]);
+    if (fk == null || fk.length == 0) { prevFk = fk; continue; }
+    if (prevFk != null && prevFk.length > 0 &&
+        Arrays.compareUnsigned(prevFk, fk) >= 0) { inversionAt = i; break; }
+    prevFk = fk;
+  }
+  if (inversionAt >= 0) PHASE7T_BUILDFLAT_INVERSIONS.incrementAndGet();
+}
+```
+
+Flags: `hot.strict.phase7t.monotone.probe`, `hot.debug.phase7t` (both default `false`).
+Counters: `PHASE7T_BUILDFLAT_INSPECTIONS` / `PHASE7T_BUILDFLAT_INVERSIONS` with
+public reset/getter accessors mirroring the Phase 7r-1 / 7s pattern. Test entry
+point: `HOTFormalVerificationTest.phase7t1CharacterizeMonotoneInversions`
+(skips silently when the flag is off; reads counters from `HOTTrieWriter`).
+
+**Empirical falsification.** Under `-Dhot.strict.phase7t.monotone.probe=true`:
+
+| Workload | inspections | inversions | ratio |
+|----------|-------------|------------|-------|
+| ascending-10K (control) | 18 | 0 | 0.00 % |
+| descending-10K | 18 | 0 | 0.00 % |
+| mixed-sign-10K | 24 | 0 | 0.00 % |
+| bimodal-5K+5K | 18 | 0 | 0.00 % |
+
+**0 inversions across ALL workloads** — including the three whose I8 violations
+this probe was designed to localise. Inspection counts are also small (18-24
+per 10K inserts), confirming `buildFlatNonStrict` is the RARE indirect-rebuild
+path. The DOMINANT path is `addEntryWithPDep` (called per leaf-split insert).
+
+**Baselines preserved** (default flags, probe off):
+
+| Test | Result |
+|------|--------|
+| diagnosticMicrobenchPatternReproducer (50K) | 0 violations · height 6 · build 6738 ms |
+| casIndexHundredKEntryHeightBound (100K) | 0 violations · height 2 · build 5905 ms |
+| HOTOptionBPhase5Test (15) | pass |
+| comprehensiveDescending10K (probe on) | 258 violations (unchanged from 7s-2) |
+
+**Phase 7t-2 redirect.** The inversion site is NOT `buildFlatNonStrict`.
+Candidates ranked by call frequency on the bulk-JSON shred path:
+
+1. **`addEntryWithPDep`** (dominant — called per leaf-split). HAS its own
+   firstKey-monotone check (line 1885) + G.31 retry (line 1903 onward), but:
+   - The check is SKIPPED when `prev`/`curr` is null/zero-length. Multi-entry
+     leaves with placeholder/empty firstKeys could let inversions through.
+   - G.31's mask-extension has tight restrictions: cross-window bail (line
+     1930), saturation > 16 bits bail (line 1936), unfound-msdb bail (line
+     1926) — when any bail, `addEntryWithPDep` returns null and the caller
+     falls back to `splitParentAndRecurse`, which routes through
+     `createNodeFromChildren` / `buildFlatNonStrict` (Phase 7t-1 confirmed
+     clean) OR through other internal-indirect builders.
+2. **`upgradeToMultiMaskWithNewBit`** (cross-window addEntry path, line 4555) —
+   no visible firstKey-monotone retry.
+3. **`rebuildParentAbsorbingSplit`** (line 4502) — internal rebuild on Phase 3
+   absorb path.
+4. **`rebalanceAndIntegrate`** (line 3641) — Phase 3 rebalance.
+
+Phase 7t-2 entry point: port the same probe to `addEntryWithPDep` (at the
+SUCCESS return path, just before `createSpanNode`/`createMultiNode`) and
+`upgradeToMultiMaskWithNewBit` with separate counters. Expected outcome:
+the dominant inversion source shows non-zero ratio on descending /
+mixed-sign / bimodal.
+
+**Files touched (Phase 7t-1 commit):**
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  `PHASE7T_BUILDFLAT_{INSPECTIONS,INVERSIONS}` counters + accessors; gated probe
+  in `buildFlatNonStrict` after `sortChildrenAndPartialsByPartial`.
+- `bundles/sirix-core/build.gradle`: `hot.strict.phase7t.monotone.probe` +
+  `hot.debug.phase7t` flags (both default `false`).
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  `phase7t1CharacterizeMonotoneInversions` test + `runWithMonotoneProbe` helper.
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.29 (this section).
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to

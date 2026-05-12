@@ -6673,6 +6673,31 @@ public final class HOTTrieWriter {
   public static long getPhase7sSplitNoop() { return PHASE7S_SPLIT_NOOP.get(); }
   public static void resetPhase7sSplitNoop() { PHASE7S_SPLIT_NOOP.set(0L); }
 
+  // Phase 7t-1 — firstKey-vs-partial monotone post-sort probe in buildFlatNonStrict.
+  //
+  // After Phase 7r-2's augment-until-unique loop guarantees all partials are pairwise
+  // distinct, buildFlatNonStrict calls sortChildrenAndPartialsByPartial. The resulting
+  // partial-sort order is the indirect's canonical slot order. HOT invariant I8 requires
+  // that this order ALSO be lex-monotone on the children's firstKeys (i.e. firstKey-sort
+  // and partial-sort agree). When the augmenter picks a non-sort-monotone bit OR when
+  // computeDiscBits' initial pick is non-monotone, the augmented partials remain unique
+  // but their sort order can differ from firstKey order — producing I8 violations
+  // detected by HOTInvariantValidator.
+  //
+  // INSPECTIONS counts every buildFlatNonStrict invocation when phase7t.monotone.probe=true.
+  // INVERSIONS counts how many had at least one (i, i-1) pair where
+  // firstKey[i-1] >= firstKey[i] AFTER sortChildrenAndPartialsByPartial. Probe is purely
+  // diagnostic — does NOT reject the build. Localises whether the residual descending /
+  // mixed-sign / bimodal violations originate at this single rebuild site or elsewhere.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_BUILDFLAT_INSPECTIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_BUILDFLAT_INVERSIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7tBuildflatInspections() { return PHASE7T_BUILDFLAT_INSPECTIONS.get(); }
+  public static void resetPhase7tBuildflatInspections() { PHASE7T_BUILDFLAT_INSPECTIONS.set(0L); }
+  public static long getPhase7tBuildflatInversions() { return PHASE7T_BUILDFLAT_INVERSIONS.get(); }
+  public static void resetPhase7tBuildflatInversions() { PHASE7T_BUILDFLAT_INVERSIONS.set(0L); }
+
   /**
    * Phase 7r-1 — Path 5 routing-collision detector for partial keys in their canonical
    * stored order (= partial-sorted). For each {@code partials[i]} (treated as densePK),
@@ -13896,6 +13921,7 @@ public final class HOTTrieWriter {
       final DiscBitsInfo[] discBitsHolder = {discBits};
       final int[] initialBytePosHolder = {initialBytePos};
       final long fallthroughBefore = PHASE7S_AUGMENT_FALLTHROUGH.get();
+      final long exhaustedBefore = PHASE7S_AUGMENT_EXHAUSTED.get();
       final java.util.BitSet fallthroughAbsBits = Boolean.getBoolean("hot.strict.phase7s.split")
           ? new java.util.BitSet(256) : null;
       partialKeys = phase7rAugmentUntilUnique(children, partialKeys, discBitsHolder,
@@ -13913,16 +13939,25 @@ public final class HOTTrieWriter {
       initialBytePos = initialBytePosHolder[0];
       final boolean fallthroughFired =
           PHASE7S_AUGMENT_FALLTHROUGH.get() > fallthroughBefore;
+      final boolean exhaustedFired =
+          PHASE7S_AUGMENT_EXHAUSTED.get() > exhaustedBefore;
 
       // Phase 7s-2 — split β-mixed children on the augmented disc bits. Opt-in via
-      // -Dhot.strict.phase7s.split=true. Phase 7s-1 fallthrough means the augmenter
-      // picked a sort-monotone bit that's β-MIXED in some child's subtree, so the
-      // child's storedPartial = PEXT(firstKey, mask) will disagree with PEXT(K, mask)
-      // for some descendant K — I5-leaf-constancy violates. Splitting each β-mixed
-      // child on a β-mixed mask bit yields two β-constant sub-children that route
-      // distinctly. Validate-and-rollback: only commit when every (post-split child,
-      // mask-bit) pair is β-constant and partials remain unique; otherwise revert.
-      if (Boolean.getBoolean("hot.strict.phase7s.split") && fallthroughFired) {
+      // -Dhot.strict.phase7s.split=true.
+      //
+      // FIRES when either:
+      //   (a) fallthrough fired — augmenter picked a sort-monotone bit that's β-MIXED in
+      //       some child's subtree (= I5-leaf-constancy will violate for descendants
+      //       whose dense PEXT differs from stored partial)
+      //   (b) exhausted fired — augmenter couldn't find ANY remaining sort-monotone bit
+      //       to disambiguate colliding partials (= mixed-sign / bimodal workloads where
+      //       firstKeys agree under current mask AND no monotone candidate exists). The
+      //       split can produce new firstKeys whose disc bits are monotone in the
+      //       expanded children, breaking the collision.
+      //
+      // Validate-and-rollback: only commit when every (post-split child, mask-bit) pair
+      // is β-constant and partials remain unique; otherwise revert.
+      if (Boolean.getBoolean("hot.strict.phase7s.split") && (fallthroughFired || exhaustedFired)) {
         final PageReference[][] childrenH = {children};
         final int[][] partialsH = {partialKeys};
         if (phase7sSplitAndAugment(childrenH, partialsH, discBitsHolder,
@@ -13936,6 +13971,53 @@ public final class HOTTrieWriter {
     }
     // sortChildrenAndPartialsByPartial preserves the children/partials parallel arrays.
     sortChildrenAndPartialsByPartial(children, partialKeys);
+    // Phase 7t-1 — firstKey-vs-partial monotone post-sort probe. Opt-in via
+    // -Dhot.strict.phase7t.monotone.probe. Counter-only; localises whether the
+    // residual descending / mixed-sign / bimodal violations originate here.
+    if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
+      PHASE7T_BUILDFLAT_INSPECTIONS.incrementAndGet();
+      byte[] prevFk = null;
+      int inversionAt = -1;
+      for (int i = 0; i < children.length; i++) {
+        final byte[] fk = getFirstKeyFromChild(children[i]);
+        if (fk == null || fk.length == 0) { prevFk = fk; continue; }
+        if (prevFk != null && prevFk.length > 0
+            && Arrays.compareUnsigned(prevFk, fk) >= 0) {
+          inversionAt = i;
+          break;
+        }
+        prevFk = fk;
+      }
+      if (inversionAt >= 0) {
+        PHASE7T_BUILDFLAT_INVERSIONS.incrementAndGet();
+        if (Boolean.getBoolean("hot.debug.phase7t")) {
+          final StringBuilder sb = new StringBuilder(384);
+          sb.append("[phase7t] buildFlatNonStrict FIRSTKEY-INVERSION pageKey=").append(pageKey)
+              .append(" height=").append(height)
+              .append(" n=").append(children.length)
+              .append(" inversionAt=").append(inversionAt)
+              .append(" partials=[");
+          for (int i = 0; i < partialKeys.length; i++) {
+            if (i > 0) sb.append(',');
+            sb.append("0x").append(Integer.toHexString(partialKeys[i]));
+          }
+          sb.append("] firstKeyHeadBytes=[");
+          for (int i = 0; i < children.length; i++) {
+            if (i > 0) sb.append(',');
+            final byte[] fk = getFirstKeyFromChild(children[i]);
+            if (fk == null) { sb.append("null"); continue; }
+            final int limit = Math.min(fk.length, 4);
+            for (int b = 0; b < limit; b++) {
+              final int v = fk[b] & 0xFF;
+              if (v < 16) sb.append('0');
+              sb.append(Integer.toHexString(v));
+            }
+          }
+          sb.append(']');
+          System.err.println(sb);
+        }
+      }
+    }
     // Phase 7r-1 — diagnostic Path 5 routing-collision probe. Opt-in via
     // -Dhot.strict.phase7r.routeverify.
     if (Boolean.getBoolean("hot.strict.phase7r.routeverify")) {

@@ -202,6 +202,8 @@ test {
     systemProperty "hot.strict.phase7s.split.relax", System.getProperty("hot.strict.phase7s.split.relax", "false")
     systemProperty "hot.strict.phase7s.augment.strictbeta", System.getProperty("hot.strict.phase7s.augment.strictbeta", "false")
     systemProperty "hot.strict.phase7s.augment.relaxbeta", System.getProperty("hot.strict.phase7s.augment.relaxbeta", "false")
+    systemProperty "hot.strict.phase7t.monotone.probe", System.getProperty("hot.strict.phase7t.monotone.probe", "false")
+    systemProperty "hot.debug.phase7t", System.getProperty("hot.debug.phase7t", "false")
     systemProperty "hot.debug.bitconstant", System.getProperty("hot.debug.bitconstant", "false")
     systemProperty "hot.relax.closure.placeholder", System.getProperty("hot.relax.closure.placeholder", "false")
     systemProperty "hot.debug.phase7q.collision", System.getProperty("hot.debug.phase7q.collision", "false")
