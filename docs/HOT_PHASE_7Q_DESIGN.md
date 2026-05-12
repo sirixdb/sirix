@@ -1065,3 +1065,85 @@ set, retry; bounded retry budget (3? 8?). Watch counter for excess cascading.
 - `bundles/sirix-core/build.gradle`:
   + `hot.debug.phase7q.extendcollide` flag forwarding.
 - `docs/HOT_PHASE_7Q_DESIGN.md` §7.18 + work-plan tick.
+
+### 7.19 Phase 7q.15 + 7q.15a — multi-β atomic-lift framework + best-effort iterative-sort rollback (2026-05-12)
+
+Phase 7q.15 lands a substantial framework that was held uncommitted in the prior session
+("don't commit" user directive). All new code is feature-gated; default behaviour is
+unchanged at 1 I8 violation, height 5, 100K CAS 0 violations. Headline additions:
+
+- **`phase7qMultiBetaAtomicLift`** (gated `hot.strict.g32.multibeta`) — compute all
+  needed MSDB bits, lift sequentially WITHOUT building intermediate indirects, build a
+  SINGLE new indirect with all bits in mask. Bounded retry on partial-uniqueness collide.
+- **`phase7qIterativeRootSortI8`** (gated `hot.strict.g32.deep`) — iterative single-bit
+  loop: find first adjacent inversion, compute its MSDB, try extend, fall back to lift.
+  Up to 16 iters. Empirically advances 10→12→21 children at idx=257 by adding bits 87
+  and 90 to root's mask (iter 0 via lift, iter 1 via extend), then stalls at β=92.
+- **`addNewRootLevelForI8`** (committed earlier as `9f0fea1fb`) — wraps the existing
+  root structure with a new indirect that has the discriminating bit in its mask.
+- **`countI11ViolationsRecursive`** — walks a subtree counting child.MSB ≤ parent.MSB
+  cases, matching `HOTInvariantValidator`'s I11-trie-condition semantics.
+- **`computeConstancyPreservingBiNodeDiscBit`** (gated `hot.strict.g32.cbinode` /
+  `PARENT_MSB_HINT` ThreadLocal) — I11-aware disc bit selection for cbinode placement.
+- **`phase8MultilevelClosure`** + **`recursiveSplitOnBit`** (gated
+  `hot.strict.phase8.multilevel`, `hot.strict.phase8.recursivesplit`) — sketches the
+  multi-level closure (§2.2) but stalls on warmup-territory β-mixed subtrees.
+
+**Phase 7q.15a — `hot.strict.g32.bestEffort`** validate-or-rollback in
+`phase7qIterativeRootSortI8`. When the iter abandons (or exhausts maxIter), instead of
+discarding all accumulated progress, accept `cur` iff:
+- `countAdjacentI8InversionsAtRoot(cur) < countAdjacentI8InversionsAtRoot(indirect)`,
+- AND `countI11ViolationsRecursive(cur, -1) == 0` (no cascading I11 introduced).
+
+New counters `PHASE7Q_BEST_EFFORT_{ACCEPTED,REJECTED}` track decisions. Adds
+`hot.strict.g32.bestEffort` forwarding in `build.gradle`.
+
+**Empirical (50K reproducer)**:
+
+| Config | Violations | Height | best-effort acc/rej | ext-ok | I11 in iter-1 |
+|---|---|---|---|---|---|
+| Default | 1 (I8) | 5 | 0 / 0 (dormant) | 1 | n/a |
+| `+commitroot` | 1 (I8) | 5 | 0 / 0 | 1 | n/a |
+| `+commitroot +g32.deep` | 1 (I8) | 5 | 0 / 0 | 3 | n/a |
+| `+commitroot +g32.deep +g32.bestEffort` | 1 (I8) | 5 | **0 / 1** | 3 | **15** |
+
+The rollback CORRECTLY rejects the iter-1 partial state, which contains 15 fresh
+I11 violations introduced by `phase7qExtendWithLift`'s rebuild creating intermediate
+indirects with MSB == parent-MSB at pages 111-118, 347, 377-435, 1000006, 1000026.
+Without the rollback, accepting this state would cascade I11 across the trie. With
+the rollback, baseline (1 I8) is preserved even when best-effort mode is enabled.
+
+**100K CAS regression**: 0 violations preserved (height 2 unchanged) across all flag
+combinations.
+**HOTOptionBPhase5Test**: passes with `hot.strict.phase7q=true`.
+
+**Architectural insight**: the iterative sort PROVES the structural lift mechanism can
+absorb bits 87 + 90 into root's mask at idx=257. But each absorption creates
+intermediate indirects whose MSB collides with their new parent's MSB (== equality
+I11 violation). Beating this requires either:
+- (a) Lift mechanism that propagates MSB-raise into the intermediate indirects (= bits
+  lifted from descendants must raise descendants' MSBs, not preserve them).
+- (b) Multi-level closure (§2.2) that recursively splits β-mixed descendants.
+
+**Phase 7q.15b entry point** (next session): instrument `phase7qExtendWithLift`'s
+Step 3 rebuild to identify which intermediate indirect MSB choice creates the equality
+I11. The rebuild likely uses the lifted bit AS the MSB of the rebuilt sub-indirects;
+choosing a strictly-higher bit from the inherited mask would break the equality.
+
+**Files touched** (commit `[pending]`):
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + `phase7qIterativeRootSortI8` (~95 lines) with validate-or-rollback at both abandon
+    and maxIter exits.
+  + `countAdjacentI8InversionsAtRoot` helper (~17 lines).
+  + `countI11ViolationsRecursive` helper (~29 lines).
+  + `PHASE7Q_BEST_EFFORT_{ACCEPTED,REJECTED}` counters with getters/resetters.
+  + Dispatch in `reconcileRootMaskI11Safe` (multi-β + iterative + addNewRoot path).
+  + Phase 7q.15 framework: `phase7qMultiBetaAtomicLift`,
+    `computeConstancyPreservingBiNodeDiscBit`, `phase8MultilevelClosure`,
+    `recursiveSplitOnBit`, etc. (all flag-gated).
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  + `hot.strict.phase7q.commitroot` test-time invocation of `reconcileRootMaskI11Safe`.
+  + Counter resets + report lines.
+- `bundles/sirix-core/build.gradle`:
+  + 19 new `hot.strict.*` and `hot.debug.*` flag forwards.
+- `docs/HOT_PHASE_7Q_DESIGN.md` §7.19.

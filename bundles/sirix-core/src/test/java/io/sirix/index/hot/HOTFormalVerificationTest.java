@@ -467,6 +467,8 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qI8PriorityFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qCollideResolvable1Bit();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qCollideDuplicateKeys();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qBestEffortAccepted();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qBestEffortRejected();
 
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
@@ -777,6 +779,27 @@ final class HOTFormalVerificationTest {
             }
           }
 
+          // Phase 7q.15 — commit-time single-shot invocation of reconcileRootMaskI11Safe.
+          // The same code that g32-per-insert uses, but called ONCE at commit time so we
+          // can validate the disc-bit-selection fix (hot.strict.g32.deep) without the
+          // 50K-per-insert OOM. Gated on hot.strict.phase7q.commitroot. Operates on root.
+          if (Boolean.getBoolean("hot.strict.phase7q.commitroot")) {
+            try {
+              final var trieWriter7q = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRef7q =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRef7q != null) {
+                trieWriter7q.reconcileRootMaskI11Safe(rootRef7q,
+                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
+                System.out.println("[phase7q.commitroot] invoked");
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase7q.commitroot] error: " + t);
+              t.printStackTrace();
+            }
+          }
+
           // Phase 5e — commit-time global reconciliation. Walks the trie post-insert
           // and lifts each child's MSB into its parent's mask if safe (= β-constant in
           // other children). Fixes stale-firstKey artifacts that post-hoc closure can't.
@@ -796,6 +819,26 @@ final class HOTFormalVerificationTest {
             }
           }
           trx.commit();
+          // Phase 7q.15 — post-commit reconciliation. After commit, all placeholder pages
+          // are materialized with real disk keys. The lift walker can now traverse them
+          // freely (no NULL_ID_LONG blocking). Run reconcile again, hoping for clean result.
+          if (Boolean.getBoolean("hot.strict.phase7q.postcommit")) {
+            try {
+              final var trieWriter7q = new io.sirix.access.trx.page.HOTTrieWriter();
+              final io.sirix.page.PageReference rootRef7q =
+                  io.sirix.index.hot.HOTInvariantValidator.resolveRootRef(
+                      trx.getStorageEngineReader(), io.sirix.index.IndexType.CAS, def.getID());
+              if (rootRef7q != null) {
+                trieWriter7q.reconcileRootMaskI11Safe(rootRef7q,
+                    trx.getStorageEngineWriter(), trx.getStorageEngineWriter().getLog());
+                System.out.println("[phase7q.postcommit] invoked");
+                trx.commit();
+              }
+            } catch (final Throwable t) {
+              System.out.println("[phase7q.postcommit] error: " + t);
+              t.printStackTrace();
+            }
+          }
           if (stageDGate) {
             stageDCheckpoints.add(captureStageDCheckpoint("post-commit", n, trx, def,
                 stageDPrevCounters, stageDFirstFailure));
@@ -912,6 +955,10 @@ final class HOTFormalVerificationTest {
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qCollideResolvable1Bit()
               + " duplicate-keys="
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qCollideDuplicateKeys());
+          System.out.println("[microbench-pattern]   phase7q best-effort: accepted="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qBestEffortAccepted()
+              + " rejected="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qBestEffortRejected());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();
