@@ -465,6 +465,8 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripOnlyFail();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qAllowDoubleCaptureFirings();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qI8PriorityFirings();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qCollideResolvable1Bit();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qCollideDuplicateKeys();
 
         // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
         // Logs the creating call site (stack trace) the FIRST time an indirect with no
@@ -906,6 +908,10 @@ final class HOTFormalVerificationTest {
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qAllowDoubleCaptureFirings());
           System.out.println("[microbench-pattern]   phase7q i8-priority firings="
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qI8PriorityFirings());
+          System.out.println("[microbench-pattern]   phase7q collide-buckets: resolvable-1bit="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qCollideResolvable1Bit()
+              + " duplicate-keys="
+              + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qCollideDuplicateKeys());
           if (!inv.violations().isEmpty()) {
             // Count violation types for diagnostic
             final java.util.Map<String, Integer> typeCounts = new java.util.TreeMap<>();

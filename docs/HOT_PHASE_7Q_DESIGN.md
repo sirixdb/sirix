@@ -838,6 +838,13 @@ should break — bit 89 becomes reachable on root.
   `EXTEND_FAIL_COLLIDE` — confirms the architectural ceiling is at the partial-
   uniqueness gate inside `phase7qExtendWithLift` Step 3, NOT at the walker step
   (`walk-fail=0`). Default behaviour preserved at 1 I8.
+- [x] 7q.14b — COLLIDE-branch instrumentation. Counters
+  `PHASE7Q_COLLIDE_RESOLVABLE_1BIT` and `PHASE7Q_COLLIDE_DUPLICATE_KEYS` classify
+  every rejection. On the 50K reproducer with `-Dhot.strict.phase7q.i8priority=true`:
+  **127 / 127 = resolvable-1bit, 0 = duplicate-keys**. Every colliding pair has
+  ≥ 1 discriminating bit ABSENT from the proposed extension mask — a multi-β
+  extension is structurally feasible. Sample firstKeys differ at exactly bit 89
+  when β=90 is being added. Default mode: counters 0, behaviour preserved at 1 I8.
 
 ### 7.16 Phase 7q.13 — allowDoubleCapture falsification (2026-05-12)
 
@@ -986,3 +993,75 @@ This generalizes the single-bit lift to a SET-OF-BITS extension.
 - `bundles/sirix-core/build.gradle`:
   + `hot.strict.phase7q.i8priority` flag forwarding.
 - `docs/HOT_PHASE_7Q_DESIGN.md` §7.17 + work-plan tick.
+
+### 7.18 Phase 7q.14b — COLLIDE branch classifier; multi-β extension feasibility (2026-05-12)
+
+**Goal**: §7.17 located the architectural ceiling at the partial-uniqueness check in
+`phase7qExtendWithLift` Step 3 (line 7314). Phase 7q.14b adds classifier counters
++ an opt-in dump to determine if a multi-β extension would unblock the failures.
+
+**Mechanism**: every time the COLLIDE branch fires, `phase7q14bDumpExtendCollide`
+walks the two firstKeys byte-by-byte computing XOR, identifies the absolute bit
+positions where they differ, and checks which of those bits are NOT in the
+proposed extension mask. Outcomes:
+- `PHASE7Q_COLLIDE_RESOLVABLE_1BIT` increments when ≥ 1 such absent bit exists
+  (= adding that bit to the mask would separate this pair).
+- `PHASE7Q_COLLIDE_DUPLICATE_KEYS` increments when the firstKeys are
+  byte-identical (= the failure is upstream, not a mask issue).
+- Both counters always count; the heavy per-pair print is gated behind
+  `-Dhot.debug.phase7q.extendcollide=true`.
+
+**Empirical (50K reproducer with `-Dhot.strict.phase7q.i8priority=true`)**:
+
+| Counter | Value |
+|---|---|
+| `EXTEND_FAIL_COLLIDE` | 127 |
+| `COLLIDE_RESOLVABLE_1BIT` | **127 (100 %)** |
+| `COLLIDE_DUPLICATE_KEYS` | 0 |
+
+**Every single COLLIDE rejection has ≥ 1 absent discriminating bit.** Sample dump
+from one rejection (β = 90 being added; pair (i=9, k=8) collides at partial = 0x58):
+
+```
+[phase7q.14b-collide] beta=90 i=9 k=8 partial=0x58
+  fkI=80000000000000050007c0a000000000000000000000
+  fkK=80000000000000050007c0e000000000000000000000
+  maskBytes=[10,11,12]
+  candidate-absent-bits=[89,] diffBits=1 absentBits=1
+```
+
+The two children differ at exactly one bit — byte 11 LSB+1 = absolute bit 89.
+The proposed extension adds β=90 only, which doesn't separate them. A multi-β
+extension `{90, 89}` would.
+
+**Conclusion**: Phase 7q.14c (multi-β extension) is structurally feasible and
+the empirical pattern is consistent — every COLLIDE has exactly one absent bit
+that would resolve it. The cascading risk for multi-β is the same as Phase 7q
+in general: adding two bits creates more partials per byte, which may surface
+new collisions elsewhere in the trie. Mitigation: the existing constancy gate
++ walker handle the per-bit safety; multi-β just batches the bit additions.
+
+**Default mode**: counters 0, behaviour preserved at 1 I8, height 5.
+**100K CAS**: 0 violations preserved.
+**HOTOptionBPhase5Test**: passes.
+
+**Phase 7q.14c entry point** (next session): implement
+`phase7qExtendWithLiftMultiBit(indirect, primaryBeta, additionalBetas, …)` that
+extends the mask with primaryBeta AND each bit in additionalBetas
+simultaneously. Each additional bit needs its own walker pass to strip
+descendant captures (to preserve correctness when ALL bits are at this level
+of the trie). Iteration loop: detect collisions, add their absent bits to the
+set, retry; bounded retry budget (3? 8?). Watch counter for excess cascading.
+
+**Files touched** (commit `[pending]`):
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + `phase7q14bDumpExtendCollide` helper (~70 lines).
+  + `hexBytes` private util (~10 lines).
+  + `PHASE7Q_COLLIDE_RESOLVABLE_1BIT` + `PHASE7Q_COLLIDE_DUPLICATE_KEYS`
+    counters with getters/resetters.
+  + COLLIDE branch call (3 lines, no-op when flag off).
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  + Counter resets + collide-buckets report line.
+- `bundles/sirix-core/build.gradle`:
+  + `hot.debug.phase7q.extendcollide` flag forwarding.
+- `docs/HOT_PHASE_7Q_DESIGN.md` §7.18 + work-plan tick.

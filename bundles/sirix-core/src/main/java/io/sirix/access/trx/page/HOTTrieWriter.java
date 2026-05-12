@@ -6996,6 +6996,121 @@ public final class HOTTrieWriter {
   public static long getPhase7qI8PriorityFirings() { return PHASE7Q_I8_PRIORITY_FIRINGS.get(); }
   public static void resetPhase7qI8PriorityFirings() { PHASE7Q_I8_PRIORITY_FIRINGS.set(0L); }
 
+  /** Phase 7q.14b — counter for COLLIDE rejections where the colliding pair has
+   *  AT LEAST ONE discriminating bit absent from the proposed extension mask
+   *  (= optimistic candidates for a one-bit-more multi-β extension). Always counts;
+   *  no flag gate. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_COLLIDE_RESOLVABLE_1BIT =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.14b — counter for COLLIDE rejections where the colliding pair shares
+   *  every byte (= zero discriminating bits). These are duplicate firstKeys, not
+   *  resolvable by ANY mask extension. Diagnoses possible upstream bugs. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_COLLIDE_DUPLICATE_KEYS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7qCollideResolvable1Bit() { return PHASE7Q_COLLIDE_RESOLVABLE_1BIT.get(); }
+  public static void resetPhase7qCollideResolvable1Bit() { PHASE7Q_COLLIDE_RESOLVABLE_1BIT.set(0L); }
+  public static long getPhase7qCollideDuplicateKeys() { return PHASE7Q_COLLIDE_DUPLICATE_KEYS.get(); }
+  public static void resetPhase7qCollideDuplicateKeys() { PHASE7Q_COLLIDE_DUPLICATE_KEYS.set(0L); }
+
+  /**
+   * Phase 7q.14b — Dump diagnostic context for a COLLIDE rejection in
+   * {@link #phase7qExtendWithLift}'s Step 3. Always increments the resolvable-bit
+   * counter (off the hot path: COLLIDE is already a failure case, and the heavy
+   * print is gated behind {@code -Dhot.debug.phase7q.extendcollide=true}).
+   *
+   * <p>For each colliding pair {@code (i, k)} this:
+   * <ol>
+   *   <li>Walks both firstKeys byte-by-byte computing the XOR, identifying every
+   *       absolute bit position where they differ (= candidate discriminators).</li>
+   *   <li>Checks which of those candidate bits are NOT already in the proposed
+   *       extension mask (= bits a one-step-deeper multi-β would add).</li>
+   *   <li>Increments {@link #PHASE7Q_COLLIDE_RESOLVABLE_1BIT} if at least one
+   *       absent bit exists (= optimistic for multi-β), or
+   *       {@link #PHASE7Q_COLLIDE_DUPLICATE_KEYS} if the firstKeys are
+   *       byte-identical (= duplicate firstKeys — different problem).</li>
+   * </ol>
+   *
+   * <p>HFT-grade: bounded allocation (StringBuilder only under the debug flag;
+   * 2 byte[] refs reused). The path runs only on COLLIDE rejects, never on the
+   * insert hot path.
+   */
+  private void phase7q14bDumpExtendCollide(int beta, int i, int k, int sharedPartial,
+      PageReference[] newChildren, byte[] extractionPositions, long[] extractionMasks,
+      int allCount) {
+    if (newChildren == null || i >= newChildren.length || k >= newChildren.length) return;
+    final PageReference cI = newChildren[i];
+    final PageReference cK = newChildren[k];
+    if (cI == null || cK == null) return;
+    final byte[] fkI = getFirstKeyFromChild(cI);
+    final byte[] fkK = getFirstKeyFromChild(cK);
+    if (fkI == null || fkK == null || fkI.length == 0 || fkK.length == 0) return;
+    final int maxLen = Math.min(fkI.length, fkK.length);
+    final boolean dbg = Boolean.getBoolean("hot.debug.phase7q.extendcollide");
+    final StringBuilder sb = dbg ? new StringBuilder(512) : null;
+    if (dbg) {
+      sb.append("[phase7q.14b-collide] beta=").append(beta).append(" i=").append(i)
+          .append(" k=").append(k).append(" partial=0x").append(Integer.toHexString(sharedPartial))
+          .append("\n  fkI=").append(hexBytes(fkI))
+          .append("\n  fkK=").append(hexBytes(fkK))
+          .append("\n  maskBytes=[");
+      for (int p = 0; p < allCount; p++) {
+        if (p > 0) sb.append(",");
+        sb.append(extractionPositions[p] & 0xFF);
+      }
+      sb.append("]\n  candidate-absent-bits=[");
+    }
+    int diffBits = 0;
+    int absentBits = 0;
+    for (int bp = 0; bp < maxLen; bp++) {
+      int xor = (fkI[bp] ^ fkK[bp]) & 0xFF;
+      while (xor != 0) {
+        final int hb = Integer.numberOfLeadingZeros(xor) - 24; // 0..7 MSB-first
+        xor &= ~(1 << (7 - hb));
+        final int absBit = bp * 8 + hb;
+        diffBits++;
+        final int maskBitInByte = 1 << (7 - hb);
+        boolean inMask = false;
+        for (int p = 0; p < allCount; p++) {
+          if ((extractionPositions[p] & 0xFF) == bp) {
+            final int chunkIdx = p / 8;
+            final int byteOffsetInChunk = p % 8;
+            final int byteMaskBits =
+                (int) ((extractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+            if ((byteMaskBits & maskBitInByte) != 0) {
+              inMask = true;
+              break;
+            }
+          }
+        }
+        if (!inMask) {
+          absentBits++;
+          if (dbg) sb.append(absBit).append(",");
+        }
+      }
+    }
+    if (diffBits == 0) {
+      PHASE7Q_COLLIDE_DUPLICATE_KEYS.incrementAndGet();
+    } else if (absentBits > 0) {
+      PHASE7Q_COLLIDE_RESOLVABLE_1BIT.incrementAndGet();
+    }
+    if (dbg) {
+      sb.append("] diffBits=").append(diffBits).append(" absentBits=").append(absentBits);
+      System.err.println(sb);
+    }
+  }
+
+  /** HFT-grade hex dump: bounded allocation StringBuilder, no autoboxing in loop. */
+  private static String hexBytes(byte[] b) {
+    if (b == null) return "null";
+    final StringBuilder sb = new StringBuilder(b.length * 2);
+    for (final byte x : b) {
+      final int v = x & 0xFF;
+      if (v < 16) sb.append('0');
+      sb.append(Integer.toHexString(v));
+    }
+    return sb.toString();
+  }
+
   /**
    * Phase 7q.14a — compute a reorder of {@code closureBits} that places "I8-fix bits"
    * first in MSB-first order. An I8-fix bit is the MSDB between any adjacent (i, i+1)
@@ -7314,6 +7429,15 @@ public final class HOTTrieWriter {
         if (newPartials[k] == newPartials[i]) {
           if (dbg) System.err.println("[phase7q-extend] reject reason=partial-collision beta=" + beta
               + " i=" + i + " k=" + k + " partial=" + Integer.toHexString(newPartials[i]));
+          // Phase 7q.14b — dump colliding pair under
+          // `-Dhot.debug.phase7q.extendcollide=true`. For each collision, print the
+          // firstKeys, the bits the proposed mask captures, and the discriminating
+          // bits between the two firstKeys that are NOT in the proposed mask
+          // (= candidate "missing bits" for a multi-β extension). Bumps the
+          // `PHASE7Q_COLLIDE_RESOLVABLE_1BIT` counter when adding ONE bit would
+          // separate this pair (the optimistic case for a follow-on multi-β).
+          phase7q14bDumpExtendCollide(beta, i, k, newPartials[i], newChildren,
+              extractionPositions, extractionMasks, allCount);
           PHASE7Q_EXTEND_FAILURES.incrementAndGet();
           PHASE7Q_EXTEND_FAIL_COLLIDE.incrementAndGet();
           return null;
