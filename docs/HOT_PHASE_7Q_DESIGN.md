@@ -1363,6 +1363,98 @@ and L1 (bit_X = 1 keys). Recompute children list and disc bits. Re-enter
 `buildFlatNonStrict`. Multi-day work — touches leaf-split semantics and
 parent-key resort.
 
+### 7.25 Phase 7s-1 — prefer-β-constant augmentation + fallthrough metric (2026-05-12)
+
+**Motivation.** After Phase 7r-2 (§7.24) landed, the descending workload still
+shows 515 residual violations: 1 I4 + 1 I8 + 1 I5 + 512 I6 cascade. A
+re-measurement of Phase 7r-1's routing-collision probe POST-augmentation gave
+**0 % collision rate** on the same workload — so routing collisions are FULLY
+solved. The residual 515 must come from a different root cause: I5-leaf-constancy
+violations where a child's stored partial (recomputed from the augmented mask)
+mismatches the PEXT of some key in the child's subtree.
+
+**Diagnosis.** When `phase7rAugmentUntilUnique` adds bit X to the parent's disc
+mask, child[i].storedPartial is recomputed as `PEXT(firstKey, mask+X)`. For I5 to
+hold, every key K in child[i]'s subtree must agree with firstKey on bit X — i.e.
+bit X must be **β-constant** in each child's subtree. The Phase 7r-2 augmenter
+only enforces sort-monotonicity (single 0→1 transition across firstKeys), not
+β-constancy. When the chosen bit IS sort-monotone but the 0→1 transition lands
+INSIDE a child's subtree (between siblings of a leaf), I5 cascade follows.
+
+**Fix (default-ON, no opt-out).** Tighten the candidate-bit loop in
+`phase7rAugmentUntilUnique`:
+
+```
+candidate_bit = None
+fallback_bit = None
+for (byte b, bit h) in MSB-first traversal of firstKey_i XOR firstKey_j:
+    if (b, h) already in mask: skip
+    if not sort_monotone(firstKeys, b, h): skip
+    if fallback_bit is None: fallback_bit = (b, h)    // 7r-2-compatible
+    if bitConstantValueInSubtree(c, absbit(b, h)) ≥ 0 for every c in children:
+        candidate_bit = (b, h)
+        break
+if candidate_bit is not None:
+    add candidate_bit to mask
+elif fallback_bit is not None:
+    PHASE7S_AUGMENT_FALLTHROUGH ++
+    add fallback_bit to mask      // 7r-2 legacy bit; may produce I5 if β-mixed
+else:
+    PHASE7S_AUGMENT_EXHAUSTED ++
+    return partials               // no bit available at all
+```
+
+The fallthrough preserves 7r-2's behavior when no β-constant bit exists — never
+regresses (a hard-reject of non-β-constant bits restored the routing-collision
+cascade, descending 515 → 1830, as a falsified earlier iteration showed).
+
+**Empirical readout** (50K + 100K + ascending preserved; comprehensive results
+under default flag set + `phase7q=true`):
+
+| Test | Phase 7r-2 only | Phase 7s-1 | Notes |
+|------|-----------------|------------|-------|
+| 50K diagnosticMicrobenchPatternReproducer | 0 | 0 | ✅ preserved |
+| 100K casIndexHundredKEntryHeightBound | 0 | 0 | ✅ preserved |
+| HOTOptionBPhase5Test (15) | pass | pass | ✅ preserved |
+| comprehensiveAscending10K | 0 | 0 | ✅ preserved |
+| comprehensiveDescending10K | 515 | 515 | same — fallthrough fires 945 times |
+| comprehensiveMixedSign | 900 | 900 | same — exhausted fires 2 times |
+| comprehensiveBimodal5KPlus5K | 1280 | 1280 | same |
+
+**The actionable metric** — `phase7s1CharacterizeAugmentFallthrough` test
+output:
+
+| Workload | FALLTHROUGH | EXHAUSTED | Interpretation |
+|----------|-------------|-----------|----------------|
+| ascending-10K (control) | 0 | 0 | clean — β-constant always available |
+| descending-10K | **945** | 0 | 945 sites need Phase 7s-2 leaf-split |
+| mixed-sign-10K | 0 | **2** | 2 sites have no sort-monotone bit at all — different failure mode |
+
+The fallthrough/exhausted counts isolate WHERE leaf-split should target. Each
+fallthrough is a buildFlatNonStrict invocation where some child holds a leaf
+β-mixed on the chosen disc bit. The Phase 7s-2 implementation should:
+
+1. Detect β-mixed child leaves at the same site (= where fallthrough fires
+   today).
+2. Split the offending leaf on the disc bit before completing the parent
+   indirect build.
+3. Recompute children + retry augmentation; expect FALLTHROUGH to drop to 0
+   when β-mixed leaves are eliminated.
+
+Mixed-sign's 2 EXHAUSTED occurrences indicate a separate Phase 7s-3 problem:
+even sort-monotone bits are unavailable — likely because the negative-value
+encoding (bit-inverted prefix) breaks monotonicity at the sign boundary.
+
+**Files touched (Phase 7s-1 commit):**
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + β-constancy preference loop in `phase7rAugmentUntilUnique`.
+  + `PHASE7S_AUGMENT_FALLTHROUGH` + `PHASE7S_AUGMENT_EXHAUSTED` counters with
+    get/reset accessors.
+- `bundles/sirix-core/build.gradle`: `hot.debug.phase7s` flag.
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  + `phase7s1CharacterizeAugmentFallthrough` test + `runWithFallthroughCounter` helper.
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.25 (this section).
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to

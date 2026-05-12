@@ -6636,6 +6636,25 @@ public final class HOTTrieWriter {
   public static long getPhase7rBuildflatCollisions() { return PHASE7R_BUILDFLAT_COLLISIONS.get(); }
   public static void resetPhase7rBuildflatCollisions() { PHASE7R_BUILDFLAT_COLLISIONS.set(0L); }
 
+  // Phase 7s-1 — augment-fallthrough + augment-exhausted counters.
+  //
+  // FALLTHROUGH: increments each time `phase7rAugmentUntilUnique` would prefer a
+  // β-constant + sort-monotone bit but none exists, falling back to the 7r-2 legacy
+  // behaviour (accept any sort-monotone bit, may produce I5-leaf-constancy if the
+  // chosen bit is β-mixed in some child). Each fallthrough is the cause of a residual
+  // I5 cascade — Phase 7s-2 leaf-split must run BEFORE augmentation chooses the bit.
+  //
+  // EXHAUSTED: increments when no sort-monotone bit at all is available — augmentation
+  // can't continue. Rarer.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7S_AUGMENT_FALLTHROUGH =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7S_AUGMENT_EXHAUSTED =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7sAugmentFallthrough() { return PHASE7S_AUGMENT_FALLTHROUGH.get(); }
+  public static void resetPhase7sAugmentFallthrough() { PHASE7S_AUGMENT_FALLTHROUGH.set(0L); }
+  public static long getPhase7sAugmentExhausted() { return PHASE7S_AUGMENT_EXHAUSTED.get(); }
+  public static void resetPhase7sAugmentExhausted() { PHASE7S_AUGMENT_EXHAUSTED.set(0L); }
+
   /**
    * Phase 7r-1 — Path 5 routing-collision detector for partial keys in their canonical
    * stored order (= partial-sorted). For each {@code partials[i]} (treated as densePK),
@@ -13936,10 +13955,18 @@ public final class HOTTrieWriter {
       // in firstKey-sorted order). The recursive sparse-path partition in
       // computeSparsePathRecursive REQUIRES monotone bits — non-monotone bits produce
       // wrong partials and break the sort-order-matches-partial-order invariant.
+      //
+      // Phase 7s-1 prefers β-CONSTANT-IN-EVERY-CHILD bits first (= picking such a bit
+      // guarantees the recomputed child.storedPartial matches every key in the subtree,
+      // avoiding I5-leaf-constancy cascade). When no β-constant + sort-monotone bit
+      // exists, fall through to the original 7r-2 behavior (accept any sort-monotone bit)
+      // and increment {@link #PHASE7S_AUGMENT_FALLTHROUGH}. Each fallthrough is a
+      // β-mixed-leaf that Phase 7s-2 will need to split.
       final byte[] kA = firstKeys[colI];
       final byte[] kB = firstKeys[colJ];
       final int minLen = Math.min(kA == null ? 0 : kA.length, kB == null ? 0 : kB.length);
       int augBytePos = -1, augBitInByte = -1;
+      int fallbackBytePos = -1, fallbackBitInByte = -1; // 7r-2 candidate (sort-monotone only)
       for (int b = 0; b < minLen && augBytePos < 0; b++) {
         final int diff = (kA[b] ^ kB[b]) & 0xFF;
         if (diff == 0) continue;
@@ -13947,20 +13974,41 @@ public final class HOTTrieWriter {
         while (diffBits != 0 && augBytePos < 0) {
           final int hb = Integer.numberOfLeadingZeros(diffBits) - 24; // 0..7, 0=MSB
           diffBits &= ~(1 << (7 - hb));
-          // Skip bits already in disc set — they couldn't have made the partials equal.
           if (discBitsContainsBit(discBitsHolder[0], b, hb)) continue;
-          // Sort-monotone check: bit values across firstKeys (in lex-sorted order) must form a
-          // 0-prefix-then-1-suffix pattern (single 0→1 transition).
           if (!isBitSortMonotone(firstKeys, b, hb)) continue;
+          // Record first sort-monotone candidate as the fallback.
+          if (fallbackBytePos < 0) { fallbackBytePos = b; fallbackBitInByte = hb; }
+          // β-constancy preference: only accept bits where every child's subtree is constant.
+          final int absBit = b * 8 + hb;
+          boolean betaConstantInAllChildren = true;
+          for (int ci = 0; ci < n; ci++) {
+            if (bitConstantValueInSubtree(children[ci], absBit) < 0) {
+              betaConstantInAllChildren = false;
+              break;
+            }
+          }
+          if (!betaConstantInAllChildren) continue;
           augBytePos = b;
           augBitInByte = hb;
         }
       }
+      if (augBytePos < 0 && fallbackBytePos >= 0) {
+        // No β-constant + sort-monotone bit. Accept the sort-monotone fallback (7r-2
+        // legacy behaviour) and count the fallthrough — Phase 7s-2 leaf-split site.
+        augBytePos = fallbackBytePos;
+        augBitInByte = fallbackBitInByte;
+        PHASE7S_AUGMENT_FALLTHROUGH.incrementAndGet();
+        if (Boolean.getBoolean("hot.debug.phase7s")) {
+          System.err.println("[phase7s-augment] FALLTHROUGH-to-7r2 pageKey=" + pageKey
+              + " colliding i=" + colI + " j=" + colJ
+              + " — no β-constant bit; accepting sort-monotone (byte=" + augBytePos
+              + ", bitInByte=" + augBitInByte + ")");
+        }
+      }
       if (augBytePos < 0) {
-        // No further-augment possible: firstKeys equal in tested length, or only-shared-bits
-        // already captured. Two children with truly identical firstKeys is an invariant
-        // violation upstream — return partials as-is for the validator to surface it.
-        if (Boolean.getBoolean("hot.debug.phase7r")) {
+        // No sort-monotone bit at all. Augmentation can't continue.
+        PHASE7S_AUGMENT_EXHAUSTED.incrementAndGet();
+        if (Boolean.getBoolean("hot.debug.phase7r") || Boolean.getBoolean("hot.debug.phase7s")) {
           System.err.println("[phase7r-augment] EXHAUSTED pageKey=" + pageKey
               + " colliding i=" + colI + " j=" + colJ + " — no further disc bit available");
         }

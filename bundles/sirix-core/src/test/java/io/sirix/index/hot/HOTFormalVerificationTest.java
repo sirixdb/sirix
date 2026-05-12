@@ -2411,6 +2411,51 @@ final class HOTFormalVerificationTest {
             100.0 * collisions / inspections)));
   }
 
+  // ---- Phase 7s-1 augmentation-fallthrough characterization ------------------
+  // After Phase 7s-1, the augmenter prefers β-constant + sort-monotone bits when picking
+  // a disc bit. When none is available it falls back to the legacy 7r-2 bit (sort-monotone
+  // only) — this is the cause of residual I5-leaf-constancy violations because the chosen
+  // bit is β-mixed in some child leaf. The counter PHASE7S_AUGMENT_FALLTHROUGH tells us
+  // how often Phase 7s-2 leaf-split would need to fire. ASSERTS NOTHING; just prints
+  // empirical numbers per workload.
+  @Test
+  @DisplayName("Phase 7s-1 — fallthrough characterization across failing workloads")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7s1CharacterizeAugmentFallthrough() {
+    final int n = 10_000;
+    runWithFallthroughCounter("ascending-10K (control)", n, i -> i);
+    runWithFallthroughCounter("descending-10K", n, i -> n - 1 - i);
+    runWithFallthroughCounter("mixed-sign-10K", n, i -> i - (n / 2));
+  }
+
+  private static void runWithFallthroughCounter(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sAugmentFallthrough();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sAugmentExhausted();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long fall = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sAugmentFallthrough();
+    final long exh = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sAugmentExhausted();
+    System.out.println("[phase7s-1] " + label + " · fallthrough=" + fall + " · exhausted=" + exh);
+    JsonTestHelper.deleteEverything();
+  }
+
   @Test
   @DisplayName("Comprehensive — random shuffle 10K (seed 0xC0FFEE)")
   @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
