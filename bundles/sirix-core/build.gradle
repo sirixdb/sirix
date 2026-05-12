@@ -195,6 +195,7 @@ test {
     systemProperty "hot.strict.path5.routeverify", System.getProperty("hot.strict.path5.routeverify", "true")
     systemProperty "hot.debug.path5", System.getProperty("hot.debug.path5", "false")
     systemProperty "hot.strict.phase7r.routeverify", System.getProperty("hot.strict.phase7r.routeverify", "false")
+    systemProperty "hot.strict.phase7r.augment.disable", System.getProperty("hot.strict.phase7r.augment.disable", "false")
     systemProperty "hot.debug.phase7r", System.getProperty("hot.debug.phase7r", "false")
     systemProperty "hot.debug.bitconstant", System.getProperty("hot.debug.bitconstant", "false")
     systemProperty "hot.relax.closure.placeholder", System.getProperty("hot.relax.closure.placeholder", "false")

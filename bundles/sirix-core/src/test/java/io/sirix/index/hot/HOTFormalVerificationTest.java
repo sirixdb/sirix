@@ -2362,15 +2362,7 @@ final class HOTFormalVerificationTest {
 
   @Test
   @DisplayName("Comprehensive — descending sequential 10K")
-  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
-  @org.junit.jupiter.api.Disabled("Phase 7r — INTERNAL INDIRECT bug: descending insertion via bulk JSON "
-      + "produces indirects (e.g., pageKey 34210) with mask covering bytes 11+ but firstKeys differing "
-      + "at byte 10 bit 6 (encoder boundary). Partial-key order diverges from firstKey order → I3/I7/I8/"
-      + "I-Binna violations cascade. Path 5 only protects root via reconcileRootMaskI11Safe; extending "
-      + "to createNodeFromChildren / buildFlatNonStrict requires mask-augmentation refactor "
-      + "(`augmentUntilPartialsUnique`). Multi-day work. Re-enable after Phase 7r lands. "
-      + "Phase 7r-1 instrumentation: temp re-enable with -Dhot.strict.phase7r.routeverify=true "
-      + "-Dhot.debug.phase7r=true to surface collision counts via PHASE7R_BUILDFLAT_COLLISIONS.")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
   void comprehensiveDescending10K() {
     buildAndValidateCas(10_000, i -> 10_000 - 1 - i, "comprehensive-desc-10K");
   }
@@ -2451,11 +2443,6 @@ final class HOTFormalVerificationTest {
   @Test
   @DisplayName("Comprehensive — bimodal warmup+main 5K + 5K (mirrors diagnostic but smaller)")
   @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
-  @org.junit.jupiter.api.Disabled("Phase 7r — bimodal pattern via bulk JSON hits same internal-indirect bug "
-      + "as descending. Note: diagnosticMicrobenchPatternReproducer uses direct `writer.index()` calls and "
-      + "succeeds at 0 violations because that path hits reconcile-time Path 5 protection; bulk JSON "
-      + "insertion takes a different code path through createNodeFromChildren that Path 5 doesn't cover. "
-      + "Re-enable after Phase 7r lands.")
   void comprehensiveBimodal5KPlus5K() {
     final int warm = 5_000;
     final int main = 5_000;
@@ -2481,11 +2468,7 @@ final class HOTFormalVerificationTest {
 
   @Test
   @DisplayName("Comprehensive — mixed sign Int32 (-N/2 to +N/2)")
-  @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)
-  @org.junit.jupiter.api.Disabled("Phase 7r — same internal-indirect bug as descending. "
-      + "CASKeySerializer encodes negatives via bit-inversion vs positives via sign-flip; the resulting "
-      + "byte patterns put 0x00..0x7f and 0x80..0xff in separate clusters with byte-10 boundary, "
-      + "exposing the same firstKey-vs-partial-order divergence. Re-enable after Phase 7r lands.")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
   void comprehensiveMixedSign() {
     final int n = 10_000;
     buildAndValidateCas(n, i -> i - (n / 2), "comprehensive-mixed-sign-10K");
@@ -2521,9 +2504,6 @@ final class HOTFormalVerificationTest {
   @Test
   @DisplayName("Comprehensive — 50K bimodal (warmup 5K + main 50K — promoted diagnostic)")
   @org.junit.jupiter.api.Timeout(value = 300, unit = java.util.concurrent.TimeUnit.SECONDS)
-  @org.junit.jupiter.api.Disabled("Phase 7r — see comprehensiveBimodal5KPlus5K note. Same root cause "
-      + "(bulk-JSON path hits internal-indirect bug; direct writer.index() path in diagnostic test "
-      + "stays clean via Path 5). Re-enable after Phase 7r lands.")
   void comprehensiveBimodal50KPromotedDiagnostic() {
     final int warm = 5_000;
     final int main = 50_000;
@@ -2547,11 +2527,7 @@ final class HOTFormalVerificationTest {
 
   @Test
   @DisplayName("Scale — random shuffle 100K stays violation-free")
-  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
-  @org.junit.jupiter.api.Disabled("Hits pre-existing FrameSlotAllocator class-4 saturation (32GB virtual / "
-      + "16GB shared physical budget). Storage-layer memory pressure, NOT a HOT invariant violation. "
-      + "See umbra-iter6-cold-competitive.md note about FrameSlotAllocator size-class budgets. "
-      + "Re-enable when FrameSlotAllocator gets headroom or the test JVM gets more memory.")
+  @org.junit.jupiter.api.Timeout(value = 480, unit = java.util.concurrent.TimeUnit.SECONDS)
   void scaleRandomShuffle100K() {
     final int n = 100_000;
     final Random rng = new Random(0xFEEDFACEL);

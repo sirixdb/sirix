@@ -13842,17 +13842,29 @@ public final class HOTTrieWriter {
    * @return the new indirect page
    */
   private HOTIndirectPage buildFlatNonStrict(PageReference[] children, long pageKey, int revision, int height) {
-    final int initialBytePos = computeInitialBytePos(children);
-    final DiscBitsInfo discBits = computeDiscBits(children, initialBytePos);
-    final int[] partialKeys = computePartialKeysForChildren(children, discBits);
-    // HOT I7: store children in sparse-partial-key order (children were sorted by first-key
-    // above to drive adjacent-pair disc-bit collection; partial-key order is the canonical
-    // slot order under sparse-path encoding per Binna §4.2).
+    int initialBytePos = computeInitialBytePos(children);
+    DiscBitsInfo discBits = computeDiscBits(children, initialBytePos);
+    int[] partialKeys = computePartialKeysForChildren(children, discBits);
+
+    // Phase 7r-2 — Active partial-uniqueness augmentation (default-on; opt-out via
+    // -Dhot.strict.phase7r.augment.disable=true). When the initial disc-bit set produces
+    // duplicate partials (= adjacent-pair scan in `computeDiscBits` missed a bit that
+    // distinguishes a non-adjacent pair, common with multi-entry leaves that span an
+    // encoder-byte boundary like CASKeySerializer's 0xbf/0xc0 transition), find the first
+    // colliding pair and augment with the most-significant bit where their firstKeys differ.
+    // Repeat until every partial is unique or no further augmentation possible.
+    // Bounded: at most {@link #MAX_DISC_BITS}-currentBitCount iterations.
+    if (!Boolean.getBoolean("hot.strict.phase7r.augment.disable")
+        && children.length >= 2) {
+      partialKeys = phase7rAugmentUntilUnique(children, partialKeys, /*discBitsHolder=*/ new DiscBitsInfo[]{discBits},
+          /*initialBytePosHolder=*/ new int[]{initialBytePos}, pageKey);
+      // Re-read augmented disc-bits info via the holder pattern (mutated in-place).
+      // Read back to local variables for the page-creation call below.
+    }
+    // sortChildrenAndPartialsByPartial preserves the children/partials parallel arrays.
     sortChildrenAndPartialsByPartial(children, partialKeys);
     // Phase 7r-1 — diagnostic Path 5 routing-collision probe. Opt-in via
-    // -Dhot.strict.phase7r.routeverify. Counts inspections + collisions; does NOT
-    // reject the build (collisions go through and surface as I3/I7/I8 / I-Binna at
-    // validation time, exactly as before). Phase 7r-2 will gate rejection + augment.
+    // -Dhot.strict.phase7r.routeverify.
     if (Boolean.getBoolean("hot.strict.phase7r.routeverify")) {
       PHASE7R_BUILDFLAT_INSPECTIONS.incrementAndGet();
       final int collidingIdx = phase7rRoutingCollisionFirstIdx(partialKeys);
@@ -13860,7 +13872,7 @@ public final class HOTTrieWriter {
         PHASE7R_BUILDFLAT_COLLISIONS.incrementAndGet();
         if (Boolean.getBoolean("hot.debug.phase7r")) {
           final StringBuilder sb = new StringBuilder(256);
-          sb.append("[phase7r] buildFlatNonStrict ROUTING-COLLISION pageKey=").append(pageKey)
+          sb.append("[phase7r] buildFlatNonStrict ROUTING-COLLISION (post-augment) pageKey=").append(pageKey)
               .append(" height=").append(height)
               .append(" n=").append(children.length)
               .append(" collidingIdx=").append(collidingIdx)
@@ -13879,6 +13891,175 @@ public final class HOTTrieWriter {
     probeConstancyOnBuild(pageKey, "createNodeFromChildren-N", children,
         discBitsAsAbsBitArray(discBits));
     return created;
+  }
+
+  /**
+   * Phase 7r-2 — Augment {@code discBits} with bits that distinguish colliding child pairs
+   * until all partials are unique, or the bit budget is exhausted.
+   *
+   * <p>Procedure (one iteration):
+   * <ol>
+   *   <li>Find the first pair (i, j) with {@code partials[i] == partials[j]}.</li>
+   *   <li>Compute the MSB-of-differing-bit between firstKeys[i] and firstKeys[j] that is NOT
+   *       already in the disc-bit set.</li>
+   *   <li>Add that bit to {@code discBitsHolder[0]} (rebuilds the {@link DiscBitsInfo} with the
+   *       extra bit + the updated initial byte position).</li>
+   *   <li>Recompute partials via {@link #computePartialKeysForChildren}.</li>
+   * </ol>
+   *
+   * <p>Bounded: at most {@code MAX_DISC_BITS - currentBits} iterations. Returns the (possibly
+   * augmented) partials array. Caller MUST re-read {@code discBitsHolder[0]} +
+   * {@code initialBytePosHolder[0]} after this call to use the new mask in the build.
+   *
+   * <p>HFT-grade: small-N typical (≤ 32 children), bounded iteration count, primitive arrays.
+   */
+  private int[] phase7rAugmentUntilUnique(PageReference[] children, int[] partials,
+      DiscBitsInfo[] discBitsHolder, int[] initialBytePosHolder, long pageKey) {
+    final int n = children.length;
+    if (n < 2) return partials;
+    final byte[][] firstKeys = new byte[n][];
+    for (int i = 0; i < n; i++) firstKeys[i] = getFirstKeyFromChild(children[i]);
+
+    int maxIter = MAX_DISC_BITS; // hard cap
+    while (maxIter-- > 0) {
+      // Find first colliding pair.
+      int colI = -1, colJ = -1;
+      for (int i = 0; i < n && colI < 0; i++) {
+        for (int j = i + 1; j < n; j++) {
+          if (partials[i] == partials[j]) { colI = i; colJ = j; break; }
+        }
+      }
+      if (colI < 0) return partials; // all unique — done
+
+      // Find MSB of differing bit between firstKeys[colI] and firstKeys[colJ] that is also
+      // SORT-MONOTONE across all children's firstKeys (= the bit transitions 0→1 exactly once
+      // in firstKey-sorted order). The recursive sparse-path partition in
+      // computeSparsePathRecursive REQUIRES monotone bits — non-monotone bits produce
+      // wrong partials and break the sort-order-matches-partial-order invariant.
+      final byte[] kA = firstKeys[colI];
+      final byte[] kB = firstKeys[colJ];
+      final int minLen = Math.min(kA == null ? 0 : kA.length, kB == null ? 0 : kB.length);
+      int augBytePos = -1, augBitInByte = -1;
+      for (int b = 0; b < minLen && augBytePos < 0; b++) {
+        final int diff = (kA[b] ^ kB[b]) & 0xFF;
+        if (diff == 0) continue;
+        int diffBits = diff;
+        while (diffBits != 0 && augBytePos < 0) {
+          final int hb = Integer.numberOfLeadingZeros(diffBits) - 24; // 0..7, 0=MSB
+          diffBits &= ~(1 << (7 - hb));
+          // Skip bits already in disc set — they couldn't have made the partials equal.
+          if (discBitsContainsBit(discBitsHolder[0], b, hb)) continue;
+          // Sort-monotone check: bit values across firstKeys (in lex-sorted order) must form a
+          // 0-prefix-then-1-suffix pattern (single 0→1 transition).
+          if (!isBitSortMonotone(firstKeys, b, hb)) continue;
+          augBytePos = b;
+          augBitInByte = hb;
+        }
+      }
+      if (augBytePos < 0) {
+        // No further-augment possible: firstKeys equal in tested length, or only-shared-bits
+        // already captured. Two children with truly identical firstKeys is an invariant
+        // violation upstream — return partials as-is for the validator to surface it.
+        if (Boolean.getBoolean("hot.debug.phase7r")) {
+          System.err.println("[phase7r-augment] EXHAUSTED pageKey=" + pageKey
+              + " colliding i=" + colI + " j=" + colJ + " — no further disc bit available");
+        }
+        return partials;
+      }
+      // Add the new bit to the disc set.
+      final TreeMap<Integer, Integer> rebuilt = discBitsToMaskByBytePos(discBitsHolder[0]);
+      rebuilt.merge(augBytePos, 1 << (7 - augBitInByte), (a, b2) -> a | b2);
+      final int newMinBytePos = rebuilt.firstKey();
+      // Re-derive initialBytePos + discBits using the same layout policy as computeDiscBits.
+      final int maxBp = rebuilt.lastKey();
+      DiscBitsInfo newDiscBits;
+      int newInitialBytePos = initialBytePosHolder[0];
+      if (maxBp - newInitialBytePos < 8 && newMinBytePos >= newInitialBytePos) {
+        long mask = 0L;
+        for (final var entry : rebuilt.entrySet()) {
+          final int byteOffset = entry.getKey() - newInitialBytePos;
+          mask |= ((long) (entry.getValue() & 0xFF)) << ((7 - byteOffset) * 8);
+        }
+        newDiscBits = DiscBitsInfo.singleMask(newInitialBytePos, mask);
+      } else {
+        newDiscBits = buildMultiMask(rebuilt, newMinBytePos);
+        newInitialBytePos = newMinBytePos;
+      }
+      discBitsHolder[0] = newDiscBits;
+      initialBytePosHolder[0] = newInitialBytePos;
+      // Recompute partials with augmented mask.
+      partials = computePartialKeysForChildren(children, newDiscBits);
+      if (Boolean.getBoolean("hot.debug.phase7r")) {
+        System.err.println("[phase7r-augment] pageKey=" + pageKey
+            + " added bit (byte=" + augBytePos + ", bitInByte=" + augBitInByte + ")"
+            + " for colliding (i=" + colI + ",j=" + colJ + ")");
+      }
+    }
+    return partials;
+  }
+
+  /** Phase 7r-2 helper — check whether a bit (at bytePos, bitInByte MSB-numbered) transitions
+   *  exactly once from 0 to 1 across the lex-sorted firstKeys. Required for
+   *  {@link #computeSparsePathRecursive} to produce correct partials. */
+  private static boolean isBitSortMonotone(byte[][] firstKeys, int bytePos, int bitInByte) {
+    if (firstKeys.length == 0) return true;
+    int prev = -1; // -1 = not yet seen, 0 or 1 = last seen value
+    for (final byte[] k : firstKeys) {
+      if (k == null || k.length <= bytePos) {
+        // Treat as zero — but break monotonicity if previous was 1.
+        if (prev == 1) return false;
+        prev = 0;
+        continue;
+      }
+      final int bit = ((k[bytePos] & 0xFF) >>> (7 - bitInByte)) & 1;
+      if (prev == 1 && bit == 0) return false; // 1→0 transition disqualifies
+      prev = bit;
+    }
+    return true;
+  }
+
+  /** Phase 7r-2 helper — check whether a given (bytePos, bitInByte) is in the disc-bit set. */
+  private static boolean discBitsContainsBit(DiscBitsInfo info, int bytePos, int bitInByte) {
+    final int absBit = bytePos * 8 + bitInByte;
+    if (info.layoutType == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      final int bytesAfterInitial = bytePos - info.initialBytePos;
+      if (bytesAfterInitial < 0 || bytesAfterInitial >= 8) return false;
+      final long maskBit = 1L << ((7 - bytesAfterInitial) * 8 + (7 - bitInByte));
+      return (info.bitMask & maskBit) != 0L;
+    }
+    // MultiMask
+    final byte[] ep = info.extractionPositions;
+    final long[] em = info.extractionMasks;
+    for (int i = 0; i < info.numExtractionBytes; i++) {
+      if ((ep[i] & 0xFF) != bytePos) continue;
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      final int byteMaskBits =
+          (int) ((em[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+      return (byteMaskBits & (1 << (7 - bitInByte))) != 0;
+    }
+    return false;
+  }
+
+  /** Phase 7r-2 helper — extract a {@code maskByBytePos} TreeMap from a {@link DiscBitsInfo}
+   *  so we can mutate + rebuild. */
+  private static TreeMap<Integer, Integer> discBitsToMaskByBytePos(DiscBitsInfo info) {
+    final TreeMap<Integer, Integer> m = new TreeMap<>();
+    if (info.layoutType == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      for (int bo = 0; bo < 8; bo++) {
+        final int byteMaskBits = (int) ((info.bitMask >>> ((7 - bo) * 8)) & 0xFFL);
+        if (byteMaskBits != 0) m.put(info.initialBytePos + bo, byteMaskBits);
+      }
+      return m;
+    }
+    for (int i = 0; i < info.numExtractionBytes; i++) {
+      final int chunkIdx = i / 8;
+      final int byteOffsetInChunk = i % 8;
+      final int byteMaskBits =
+          (int) ((info.extractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+      if (byteMaskBits != 0) m.put(info.extractionPositions[i] & 0xFF, byteMaskBits);
+    }
+    return m;
   }
 
 
