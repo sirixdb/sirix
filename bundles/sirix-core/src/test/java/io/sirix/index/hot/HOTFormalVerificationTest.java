@@ -2345,9 +2345,25 @@ final class HOTFormalVerificationTest {
       trx.commit();
       final HOTInvariantValidator.Result inv = HOTInvariantValidator.validateIndex(
           trx.getStorageEngineReader(), IndexType.CAS, def.getID());
+      // Phase 7t-3 — per-invariant breakdown. Groups violations by invariant tag and
+      // emits a sorted "I3:300 I5:600 I7:24" summary so the dominant violation kind on
+      // each failing workload is visible. Identifies whether residual descending /
+      // mixed-sign / bimodal violations are I3 (duplicate partials) / I5 (β-mixed leaf)
+      // / I6 / I7 (partial-order) / I8 (firstKey-monotone) etc. — driving the next
+      // attack vector. Format: tag:count separated by spaces, omitted entirely when no
+      // violations exist.
+      final java.util.Map<String, Long> byInvariant = inv.violations().stream()
+          .collect(java.util.stream.Collectors.groupingBy(
+              HOTInvariantValidator.Violation::invariant,
+              java.util.stream.Collectors.counting()));
+      final String breakdown = byInvariant.entrySet().stream()
+          .sorted(java.util.Map.Entry.comparingByKey())
+          .map(e -> e.getKey() + ":" + e.getValue())
+          .collect(java.util.stream.Collectors.joining(" "));
       System.out.println("[" + label + "] N=" + inv.storedKeyCount()
           + " · observedHeight=" + inv.observedHeight()
-          + " · violations=" + inv.violations().size());
+          + " · violations=" + inv.violations().size()
+          + (breakdown.isEmpty() ? "" : " · byInvariant=[" + breakdown + "]"));
       assertTrue(inv.violations().isEmpty(),
           "[" + label + "] structural violations: " + inv.violations());
     }

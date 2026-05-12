@@ -1823,6 +1823,66 @@ and localise:
   `runWithMonotoneProbe` extended to reset/read/print all 3 site counters.
 - `docs/HOT_PHASE_7Q_DESIGN.md`: §7.30 (this section).
 
+### 7.31 Phase 7t-3 — per-invariant breakdown localises the real defect: **I6 dominates (98–99.8%)**, not I8 (2026-05-13)
+
+**Motivation.** Phases 7t-1 + 7t-2 falsified firstKey-monotone (I8) as the source
+of the 258/900/1280 residual violations: total inversions across the three
+probed sites = 1. The naming in [[hot-comprehensive-tests-findings]] conflated
+invariant kinds — the example cited there ("c2 partial=0x6000 fk=bff0…")
+implied I8, but the bulk distribution is different.
+
+**Change.** Extend `buildAndValidateCas` in `HOTFormalVerificationTest` to
+emit a per-invariant breakdown — group `inv.violations()` by `Violation.invariant`,
+sort alphabetically, print `tag:count` joined by spaces. No flag — always
+prints on tests that report violations.
+
+**Empirical readout** (default flags, all current Phase 7q/7r/7s defaults ON):
+
+| Workload | total | byInvariant |
+|----------|-------|-------------|
+| ascending-10K | 0 | — |
+| descending-10K | 258 | **I6-pext-routes-to-leaf:253** · I-Binna-sparse-path:2 · I5-leaf-constancy:2 · I8-children-sorted-by-firstkey:1 |
+| mixed-sign-10K | 900 | **I6-pext-routes-to-leaf:895** · I5-leaf-constancy:5 |
+| bimodal-5K+5K | 1280 | **I6-pext-routes-to-leaf:1278** · I5-leaf-constancy:2 |
+
+I6 dominates **98–99.8 %** of every failing workload. I8 accounts for exactly 1
+violation across all four workloads.
+
+**Interpretation.** I6-pext-routes-to-leaf is the **β-mixed leaf** invariant:
+for every leaf key K, PEXT(K, parent.mask) must route K BACK to that leaf when
+descending from the root. A β-mixed leaf has keys with differing values at one
+of the parent's mask bits — so PEXT routes some of its keys to a SIBLING leaf
+(= I6 violation, plus downstream cascade of I5-leaf-constancy).
+
+**Why Phase 7r-2 augment-until-unique doesn't fix I6.** Augment ensures *unique*
+partials at indirect-build time. It adds a sort-monotone bit when two adjacent
+firstKeys agree on the current mask. The added bit may or may not be β-constant
+inside each child — when it isn't, the child becomes β-mixed at that mask bit,
+producing I6 at descendant-leaf descent.
+
+**Why Phase 7s-2 split-and-augment doesn't fix I6 on these workloads.** The
+helper is gated on `fallthroughFired || exhaustedFired`. The fallthrough fires
+only when the augmenter prefers a β-constant + sort-monotone bit but none
+exists; per the 7s-1 readout, mixed-sign and bimodal have 0 fallthroughs (the
+augmenter finds β-constant bits trivially because most pairs DO have one). So
+the helper never executes on the dominant failing workloads.
+
+**Phase 7t-4 attack vector.** Relax the helper trigger from
+`fallthroughFired || exhaustedFired` to ALSO fire when any (child, mask-bit)
+pair is β-mixed (= I6 risk), even when augment succeeded cleanly. The helper
+already walks `bitConstantValueInSubtree` for every (child, mask-bit) and
+splits β-mixed children. The validate-and-rollback gate ensures it doesn't
+regress when split makes no progress.
+
+Risk: the helper currently rolls back on descending-10K (per [[hot-phase7s-2-mask-propagation-landed]]).
+Need an unconditional trigger but a smarter rollback strategy that retains
+*partial* split improvement instead of all-or-nothing.
+
+**Files touched (Phase 7t-3 commit):**
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  `buildAndValidateCas` extended with per-invariant breakdown emission.
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.31 (this section).
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to
