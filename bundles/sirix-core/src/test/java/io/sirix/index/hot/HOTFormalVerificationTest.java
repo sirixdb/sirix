@@ -450,6 +450,7 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailNozero();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailBetainmask();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailWalker();
+        io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qExtendFailCycle();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qClosureNoopSkips();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qSplitFailConstancy();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qStripNonconstantBits();
@@ -922,7 +923,8 @@ final class HOTFormalVerificationTest {
               + " collide=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailCollide()
               + " nozero=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailNozero()
               + " beta-in-mask=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailBetainmask()
-              + " walker-null=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailWalker());
+              + " walker-null=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailWalker()
+              + " cycle=" + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qExtendFailCycle());
           System.out.println("[microbench-pattern]   phase7q closure-noop-skips="
               + io.sirix.access.trx.page.HOTTrieWriter.getPhase7qClosureNoopSkips()
               + " split-fail-constancy="

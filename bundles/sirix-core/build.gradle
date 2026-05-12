@@ -181,6 +181,7 @@ test {
     systemProperty "hot.strict.g32.childmsb", System.getProperty("hot.strict.g32.childmsb", "false")
     systemProperty "hot.strict.phase7q.postcommit", System.getProperty("hot.strict.phase7q.postcommit", "false")
     systemProperty "hot.strict.g32.raisechildmsb", System.getProperty("hot.strict.g32.raisechildmsb", "false")
+    systemProperty "hot.strict.g32.cyclereject", System.getProperty("hot.strict.g32.cyclereject", "false")
     systemProperty "hot.strict.g32.repair", System.getProperty("hot.strict.g32.repair", "false")
     systemProperty "hot.strict.insert.recursivesloter", System.getProperty("hot.strict.insert.recursivesloter", "false")
     systemProperty "hot.debug.insert.recursivesloter", System.getProperty("hot.debug.insert.recursivesloter", "false")

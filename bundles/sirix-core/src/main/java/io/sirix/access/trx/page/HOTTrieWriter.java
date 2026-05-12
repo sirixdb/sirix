@@ -7762,6 +7762,11 @@ public final class HOTTrieWriter {
   /** Phase 7q.4 — sub-bucket: failure because walker returned null. */
   private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_FAIL_WALKER =
       new java.util.concurrent.atomic.AtomicLong(0L);
+  /** Phase 7q.15h — sub-bucket: failure because output newChildren[] contained a shared
+   *  sub-tree (= same pageKey reachable via two slots). Only fires under
+   *  -Dhot.strict.g32.cyclereject=true. */
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_EXTEND_FAIL_CYCLE =
+      new java.util.concurrent.atomic.AtomicLong(0L);
   /** Phase 7q.5 — counter for closure-loop βs skipped because already in cur's mask
    *  (= the no-op-rebuild case that previously livelocked the closure inner loop). */
   private static final java.util.concurrent.atomic.AtomicLong PHASE7Q_CLOSURE_NOOP_SKIPS =
@@ -8034,6 +8039,8 @@ public final class HOTTrieWriter {
   public static void resetPhase7qExtendFailBetainmask() { PHASE7Q_EXTEND_FAIL_BETAINMASK.set(0L); }
   public static long getPhase7qExtendFailWalker() { return PHASE7Q_EXTEND_FAIL_WALKER.get(); }
   public static void resetPhase7qExtendFailWalker() { PHASE7Q_EXTEND_FAIL_WALKER.set(0L); }
+  public static long getPhase7qExtendFailCycle() { return PHASE7Q_EXTEND_FAIL_CYCLE.get(); }
+  public static void resetPhase7qExtendFailCycle() { PHASE7Q_EXTEND_FAIL_CYCLE.set(0L); }
 
   /**
    * Phase 7q.3 — Lift β from {@code indirect}'s descendants, then build a new
@@ -8416,6 +8423,20 @@ public final class HOTTrieWriter {
     if (dbg) System.err.println("[phase7q-extend] EXTEND-OK beta=" + beta + " newCount=" + newCount
         + " msbIndex=" + msbIndex + " allCount=" + allCount + " liftedN=" + liftedN
         + " numPropagated=" + numPropagated);
+    // Phase 7q.15h — construction-time cycle check. The lift mechanism can produce
+    // newChildren[] that share a sub-tree (same pageKey reachable via two slots).
+    // Validator flags this as structure-cycle at trie validation time; here we detect
+    // and reject before building so the caller (phase7qIterativeRootSortI8) cleanly
+    // falls back to its rollback path. Gated on hot.strict.g32.cyclereject so legacy
+    // lift output is preserved off-flag.
+    if (Boolean.getBoolean("hot.strict.g32.cyclereject")
+        && newChildrenHaveSharedSubtree(newChildren, newCount)) {
+      PHASE7Q_EXTEND_FAILURES.incrementAndGet();
+      PHASE7Q_EXTEND_FAIL_CYCLE.incrementAndGet();
+      if (dbg) System.err.println("[phase7q-extend] reject reason=output-has-cycle beta=" + beta
+          + " newCount=" + newCount);
+      return null;
+    }
     PHASE7Q_EXTEND_SUCCESSES.incrementAndGet();
     // Phase 7q.15d — pre-build instrumentation: classify each lifted child's MSB vs the
     // rebuilt parent's msbIndex. Equality (= I11 violation child.MSB == parent.MSB) is
@@ -8431,6 +8452,47 @@ public final class HOTTrieWriter {
     return HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
         extractionPositions, extractionMasks, allCount, newPartials, newChildren,
         indirect.getHeight(), msbIndex);
+  }
+
+  /**
+   * Phase 7q.15h — detect whether {@code newChildren[]} contains a shared sub-tree
+   * (= same pageKey reachable via two distinct child slots). Walks each newChild's
+   * subtree DFS-style, accumulating pageKeys into a single shared HashSet. Returns
+   * {@code true} on the first revisited pageKey across the whole forest.
+   *
+   * <p>HFT-grade: one HashSet allocated per call; one add per indirect descendant.
+   * Costs O(total descendants) — only paid when the cycle-reject gate is enabled.
+   *
+   * @param newChildren  forest roots (each may be leaf or indirect)
+   * @param newCount     number of valid entries in {@code newChildren}
+   * @return true iff any pageKey is shared between two distinct positions
+   */
+  private boolean newChildrenHaveSharedSubtree(PageReference[] newChildren, int newCount) {
+    if (newChildren == null || newCount < 2) return false;
+    final java.util.HashSet<Long> seen = new java.util.HashSet<>();
+    for (int i = 0; i < newCount; i++) {
+      final PageReference cref = newChildren[i];
+      if (cref == null) continue;
+      Page page = cref.getPage();
+      if (page == null && activeLog != null) {
+        final var container = activeLog.get(cref);
+        if (container != null) page = container.getModified();
+      }
+      if (page == null && activeReader != null) {
+        page = loadPage(activeReader, cref);
+        if (page != null) cref.setPage(page);
+      }
+      if (page instanceof HOTIndirectPage childInd) {
+        if (hasStructureCycleInternal(childInd, seen, /*depth=*/0, /*parent=*/-1L)) {
+          return true;
+        }
+      } else if (page instanceof HOTLeafPage leafPage) {
+        // Track leaf pageKeys too — a leaf shared between slots is also a cycle source.
+        final long lpk = leafPage.getPageKey();
+        if (lpk >= 0 && !seen.add(lpk)) return true;
+      }
+    }
+    return false;
   }
 
   /**
