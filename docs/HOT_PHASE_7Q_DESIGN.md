@@ -1147,11 +1147,13 @@ phase7q intermediate-MSB: equality=0 lower=0 ok=6088
 violations=0
 ```
 
-**Flag-rollout plan.** Default OFF initially — preserves the current "1 I8 at
-indirect 2" baseline so other tests that depend on it aren't perturbed.
-Recommended ON together with `hot.strict.g32`, `hot.strict.g32.childmsb`,
-`hot.strict.g32.multibeta`, `hot.strict.g32.deep`. Promote to default-ON after
-broader regression validation.
+**Flag-rollout plan.** Opt-in via `hot.strict.path5.routeverify=true`.
+Default-ON promotion attempted (2026-05-12 PM) but **reverted** after
+empirical regression: `HOTIndexInternalTest` + `HOTLargeScaleIntegrationTest`
+show `SirixUsageException: No read-write transaction available` when path5
+fires across them. Root cause TBD — path5 itself is pure-read but the
+downstream fallback path triggered by path5's rejection may leak transactions.
+Keep opt-in until root cause is understood.
 
 **Generalization.** The Path 5 mechanism — routing-collision check at rebuild
 time — is a **general pattern**. Apply to OTHER rebuild sites if they produce

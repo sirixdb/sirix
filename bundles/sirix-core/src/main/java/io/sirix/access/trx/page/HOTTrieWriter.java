@@ -9340,7 +9340,10 @@ public final class HOTTrieWriter {
     // child[i] (= same index). If any child fails this self-routing check, the
     // rebuilt indirect would mis-route at least one stored key set. Reject.
     //
-    // Gated on hot.strict.path5.routeverify so legacy callers keep current behavior.
+    // Opt-in via -Dhot.strict.path5.routeverify=true. Initially explored as default-ON
+    // but reverted (2026-05-12) after observing transaction-leak regressions in
+    // HOTIndexInternalTest + HOTLargeScaleIntegrationTest when path5 fires in their
+    // test contexts. Root cause TBD — keep opt-in for safety.
     // HFT-grade: O(n²) comparisons of pre-computed partials — n ≤ 32 typical.
     if (Boolean.getBoolean("hot.strict.path5.routeverify")) {
       for (int i = 0; i < n; i++) {
@@ -10769,7 +10772,9 @@ public final class HOTTrieWriter {
     // subset rule returns i (= same child). If not, reject the rebuild so caller falls
     // through to the next strategy.
     //
-    // Gated on hot.strict.path5.routeverify (same flag as rebuildRootWithFullClosureI11Safe).
+    // Opt-in via -Dhot.strict.path5.routeverify=true (same flag as
+    // rebuildRootWithFullClosureI11Safe). See that function's comment for the
+    // default-ON exploration outcome (reverted due to transaction-leak regressions).
     if (Boolean.getBoolean("hot.strict.path5.routeverify")) {
       for (int i = 0; i < n; i++) {
         if (newPartials[i] >= Integer.MAX_VALUE - n) continue; // skip placeholders
@@ -10832,33 +10837,17 @@ public final class HOTTrieWriter {
           final int pj = newPartials[j];
           if (pj == 0) continue;
           // ∃ a bit b in pj that's always-zero in child[i]'s subtree?
+          // densePK bit b (LSB-numbered, per Long.compress output) maps to absBit
+          // position via densePkBitToAbsBit[(totalDpkBits - 1) - b] (HOT's PEXT
+          // output is LSB-first while the lookup table is built MSB-first).
           boolean safe = false;
-          for (int b = 0; b < densePkBitToAbsBit.length; b++) {
-            if ((pj & (1 << b)) == 0) continue;
-            // dpkIdx ordering: MSB-first across mask, so densePK bit b
-            // (counted from MSB) is at index (totalMaskBits - 1 - b).
-            // BUT the partial values use little-endian PEXT output where bit 0
-            // is the LAST extracted bit. Let me just check ALL densePK bits set in pj
-            // and try the corresponding absBit.
-          }
-          // Simpler approach: just iterate the bit positions set in pj and look them
-          // up in the densePkBitToAbsBit table — caveat is the bit-ordering convention
-          // between PEXT output and densePK integer value.
-          //
-          // Conservative approximation: walk every bit in pj (= bits 0..15), look up
-          // the densePK-bit position to absBit mapping. Try both orderings (MSB-first
-          // and LSB-first) — if EITHER produces a constant-0 bit in child[i]'s
-          // subtree, mark safe.
           final PageReference cref = newChildren[i];
           if (cref == null) {
-            safe = true; // can't check — assume safe (placeholder)
+            safe = true; // can't check placeholder — assume safe
           } else {
             final int totalDpkBits = densePkBitToAbsBit.length;
             for (int b = 0; b < totalDpkBits; b++) {
               if ((pj & (1 << b)) == 0) continue;
-              // Try LSB-first mapping (HOT's Long.compress is LSB output).
-              // The bit at output position b is the b-th set bit counting from LSB
-              // of the mask = (totalDpkBits - 1 - b)-th set bit counting from MSB.
               final int absBitCandidate = densePkBitToAbsBit[totalDpkBits - 1 - b];
               final int bv = bitConstantValueInSubtree(cref, absBitCandidate);
               if (bv == 0) { safe = true; break; }
