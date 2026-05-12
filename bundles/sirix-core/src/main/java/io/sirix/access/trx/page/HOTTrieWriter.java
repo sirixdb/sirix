@@ -6758,6 +6758,25 @@ public final class HOTTrieWriter {
   public static long getPhase7tUpgradeInversions() { return PHASE7T_UPGRADE_INVERSIONS.get(); }
   public static void resetPhase7tUpgradeInversions() { PHASE7T_UPGRADE_INVERSIONS.set(0L); }
 
+  // Phase 7t-4 — relax phase7sSplitAndAugment trigger to fire on any β-mixed (child,
+  // mask-bit) detected in buildFlatNonStrict, even when augment found unique partials
+  // without fallthrough/exhaustion. Counters:
+  //   BETAMIXED_DETECTED — pre-helper scan found at least one β-mixed pair. Helper
+  //                        is invoked even though augment had no fallthrough.
+  //   BETAMIXED_SPLIT_APPLIED — helper returned true on a betaMixedFound-only firing
+  //                            (= split actually committed under the new gate). The
+  //                            existing PHASE7S_SPLIT_{APPLIED,ROLLBACK,NOOP} counters
+  //                            still track total firings; this counter narrows to
+  //                            Phase 7t-4-specific successes.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_BETAMIXED_DETECTED =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_BETAMIXED_SPLIT_APPLIED =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7tBetaMixedDetected() { return PHASE7T_BETAMIXED_DETECTED.get(); }
+  public static void resetPhase7tBetaMixedDetected() { PHASE7T_BETAMIXED_DETECTED.set(0L); }
+  public static long getPhase7tBetaMixedSplitApplied() { return PHASE7T_BETAMIXED_SPLIT_APPLIED.get(); }
+  public static void resetPhase7tBetaMixedSplitApplied() { PHASE7T_BETAMIXED_SPLIT_APPLIED.set(0L); }
+
   /**
    * Phase 7t — scan {@code children[]} (assumed in canonical/partial-sort order) for the
    * first pair (i-1, i) with {@code firstKey[i-1] >= firstKey[i]}. Returns the inversion
@@ -14076,7 +14095,46 @@ public final class HOTTrieWriter {
       //
       // Validate-and-rollback: only commit when every (post-split child, mask-bit) pair
       // is β-constant and partials remain unique; otherwise revert.
-      if (Boolean.getBoolean("hot.strict.phase7s.split") && (fallthroughFired || exhaustedFired)) {
+      // Phase 7t-4 — relax the helper trigger to ALSO fire when any (child, mask-bit) is
+      // β-mixed, even when augment found unique partials cleanly. Opt-in via
+      // -Dhot.strict.phase7t.split.always=true. Motivation: Phase 7t-3 per-invariant
+      // breakdown identified I6-pext-routes-to-leaf as 98-99.8 % of every failing
+      // workload (descending 253/258, mixed-sign 895/900, bimodal 1278/1280). I6 is the
+      // β-mixed-leaf invariant — caused by mask bits that are β-mixed inside a child's
+      // subtree. The existing helper splits β-mixed children, but its
+      // (fallthroughFired || exhaustedFired) gate skips mixed-sign and bimodal entirely
+      // because those workloads' augmenter trivially finds β-constant + sort-monotone
+      // bits.
+      //
+      // The scan visits every (child, mask-bit) pair via bitConstantValueInSubtree —
+      // O(N × log subtree) per call. Small for small-N indirects, but always-on cost
+      // for clean workloads. The Phase 7t-4 flag is gated separately from
+      // hot.strict.phase7s.split so it can ship default-OFF until empirically validated.
+      boolean betaMixedFound = false;
+      if (Boolean.getBoolean("hot.strict.phase7s.split")
+          && Boolean.getBoolean("hot.strict.phase7t.split.always")
+          && !fallthroughFired && !exhaustedFired) {
+        final int[] maskAbsBitsScan = collectDiscBitsMsbFirst(discBitsHolder[0]);
+        outer:
+        for (int i = 0; i < children.length; i++) {
+          final PageReference c = children[i];
+          if (c == null) continue;
+          for (final int absBit : maskAbsBitsScan) {
+            if (bitConstantValueInSubtree(c, absBit) < 0) {
+              betaMixedFound = true;
+              if (Boolean.getBoolean("hot.debug.phase7t")) {
+                System.err.println("[phase7t-4] BETA-MIXED-DETECTED pageKey=" + pageKey
+                    + " child=" + i + " absBit=" + absBit
+                    + " — firing phase7sSplitAndAugment");
+              }
+              PHASE7T_BETAMIXED_DETECTED.incrementAndGet();
+              break outer;
+            }
+          }
+        }
+      }
+      if (Boolean.getBoolean("hot.strict.phase7s.split")
+          && (fallthroughFired || exhaustedFired || betaMixedFound)) {
         final PageReference[][] childrenH = {children};
         final int[][] partialsH = {partialKeys};
         if (phase7sSplitAndAugment(childrenH, partialsH, discBitsHolder,
@@ -14085,6 +14143,7 @@ public final class HOTTrieWriter {
           partialKeys = partialsH[0];
           discBits = discBitsHolder[0];
           initialBytePos = initialBytePosHolder[0];
+          if (betaMixedFound) PHASE7T_BETAMIXED_SPLIT_APPLIED.incrementAndGet();
         }
       }
     }

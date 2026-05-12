@@ -1883,6 +1883,91 @@ Need an unconditional trigger but a smarter rollback strategy that retains
   `buildAndValidateCas` extended with per-invariant breakdown emission.
 - `docs/HOT_PHASE_7Q_DESIGN.md`: §7.31 (this section).
 
+### 7.32 Phase 7t-4 — relax `phase7sSplitAndAugment` trigger to β-mixed-only (FALSIFIED, default-off scaffold kept) (2026-05-13)
+
+**Hypothesis.** Phase 7t-3 (§7.31) identified I6 (β-mixed leaf routing) as 98–99.8 % of
+the failing-workload violations. The existing helper `phase7sSplitAndAugment` already
+splits β-mixed children at indirect build time, but its trigger gate
+`(fallthroughFired || exhaustedFired)` skips mixed-sign / bimodal because those
+workloads' augmenter trivially finds β-constant + sort-monotone bits. Relax the gate
+to fire whenever any (child, mask-bit) pair is β-mixed.
+
+**Implementation.** Gated on `-Dhot.strict.phase7t.split.always=true` (default off).
+Pre-helper scan walks `collectDiscBitsMsbFirst(discBitsHolder[0])` × `children[]` and
+calls `bitConstantValueInSubtree`. If any pair returns < 0 → set
+`betaMixedFound = true` → helper fires with the existing logic. Two new counters:
+
+- `PHASE7T_BETAMIXED_DETECTED` — scan found a β-mixed pair.
+- `PHASE7T_BETAMIXED_SPLIT_APPLIED` — helper returned true under the new gate.
+
+**Empirical falsification.**
+
+(A) With `-Dhot.strict.phase7t.split.always=true` alone — comprehensive descending /
+mixed-sign / bimodal violation counts are **byte-identical** to baseline (258 / 900 /
+1280). Debug trace shows the gate FIRES heavily on pageKey=2 (root indirect),
+absBits ∈ {82, 89, 108, …}, but every firing rolls back at one of two existing
+gates inside the helper:
+
+- `phase7s-split ROLLBACK pageKey=N — child[X] still β-mixed at absBit=Y` —
+  β-constancy final gate detects that split didn't fully resolve mixedness.
+- `phase7s-split ROLLBACK pageKey=N splitCount=K — collisions persist after re-augment` —
+  routing-collision gate.
+
+These are the same gates documented as Phase 7s-3 / 7s-4 blockers.
+
+(B) With `-Dhot.strict.phase7t.split.always=true -Dhot.strict.phase7s.split.relax=true`
+combined — relaxing the β-constancy gate while firing more aggressively **regresses**:
+
+| Workload | Baseline | Phase 7t-4 + relax | Δ |
+|----------|----------|---------------------|---|
+| mixed-sign-10K | 900 | **2418** | +169 % |
+| descending-10K | 258 | (also regressed) | — |
+| bimodal-5K+5K | 1280 | (also regressed) | — |
+
+The helper's rollback is **load-bearing**. Partial split commits leave β-mixed
+state that cascades to downstream leaves at descendant indirects, increasing the
+total I6 / I5 count.
+
+**Baselines preserved** (default flags, gates off):
+
+| Test | Result |
+|------|--------|
+| diagnosticMicrobenchPatternReproducer (50K) | 0 violations · height 6 · build 7049 ms |
+| casIndexHundredKEntryHeightBound (100K) | 0 violations · height 2 |
+| HOTOptionBPhase5Test (15 tests) | pass |
+
+**Scaffold retained.** The Phase 7t-4 trigger relaxation stays in the codebase
+default-off because: (i) the counter signal `BETAMIXED_DETECTED` is empirically
+useful for diagnosing future β-mixed pattern triage; (ii) future fixes that
+strengthen `splitSubtreeOnBit` (= recursively split until β-constant rather than
+single-bit split) can be re-tested simply by flipping the flag.
+
+**Phase 7t-5 entry point.** The next forward step needs to fix the **root cause**
+of the rollback: `splitSubtreeOnBit` returns subtrees that are themselves still
+β-mixed at OTHER mask bits than the split bit. The helper's β-constancy gate
+correctly rejects this. Two options:
+
+1. **Recursive multi-bit split**: `splitSubtreeOnBit` recursively walks the
+   produced halves, finds the next β-mixed bit, and splits again, until the leaf
+   level. Bounded depth = number of mask bits (≤ 16 typically). Risk: explosion
+   of leaf count exceeding fanout limit.
+2. **Investigate where I6 violations are CREATED**: per Phases 7t-1/7t-2, the
+   buildFlatNonStrict / addEntryWithPDep / upgradeToMultiMaskWithNewBit success
+   paths fire only 18 / 0–2 / 0–2 times per 10K workload — far below the
+   258 / 900 / 1280 violation counts. The dominant indirect-construction
+   success path is elsewhere — likely `splitParentAndRecurse`,
+   `rebalanceAndIntegrate`, or `rebuildParentAbsorbingSplit` (each visible in
+   the file but not yet probed for monotone or β-mixed defects). A future
+   phase should probe these and produce a per-path call-frequency histogram.
+
+**Files touched (Phase 7t-4 commit):**
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  pre-helper scan in `buildFlatNonStrict` augment block; new gate
+  `(fallthroughFired || exhaustedFired || betaMixedFound)`;
+  `PHASE7T_BETAMIXED_{DETECTED,SPLIT_APPLIED}` counters + accessors.
+- `bundles/sirix-core/build.gradle`: `hot.strict.phase7t.split.always` flag (default `false`).
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.32 (this section).
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to
