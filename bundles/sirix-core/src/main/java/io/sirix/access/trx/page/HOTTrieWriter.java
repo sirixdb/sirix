@@ -10165,7 +10165,12 @@ public final class HOTTrieWriter {
           final int afterI8 = countI8InversionsRecursive(cur);
           final int beforeI11 = countI11ViolationsRecursive(indirect, -1);
           final int afterI11 = countI11ViolationsRecursive(cur, -1);
-          if (afterI11 <= beforeI11 && afterI8 < beforeI8) {
+          // Phase 7q.15f — structure-cycle gate. The g32.childmsb path can produce
+          // bucket fallbacks that reuse pageKeys from the OLD tree, creating a graph
+          // cycle. Reject if `cur` has any revisited pageKey (validator would flag
+          // structure-cycle, defeating the lift's I8 gain).
+          final boolean curHasCycle = hasStructureCycle(cur);
+          if (!curHasCycle && afterI11 <= beforeI11 && afterI8 < beforeI8) {
             PHASE7Q_BEST_EFFORT_ACCEPTED.incrementAndGet();
             if (dbg) System.err.println("[g32-itersort] iter=" + iter
                 + " — abandon (extend+lift) but BEST-EFFORT KEEPS cur: I8 "
@@ -10175,7 +10180,8 @@ public final class HOTTrieWriter {
           PHASE7Q_BEST_EFFORT_REJECTED.incrementAndGet();
           if (dbg) System.err.println("[g32-itersort] iter=" + iter
               + " — abandon (extend+lift); best-effort rollback: I8 "
-              + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11);
+              + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11
+              + " cycle=" + curHasCycle);
         } else if (dbg) {
           System.err.println("[g32-itersort] iter=" + iter + " — abandon (extend+lift)");
         }
@@ -10193,7 +10199,9 @@ public final class HOTTrieWriter {
       final int afterI8 = countI8InversionsRecursive(cur);
       final int beforeI11 = countI11ViolationsRecursive(indirect, -1);
       final int afterI11 = countI11ViolationsRecursive(cur, -1);
-      if (afterI11 <= beforeI11 && afterI8 < beforeI8) {
+      // Phase 7q.15f — structure-cycle gate; see iter-abandon branch above.
+      final boolean curHasCycle = hasStructureCycle(cur);
+      if (!curHasCycle && afterI11 <= beforeI11 && afterI8 < beforeI8) {
         PHASE7Q_BEST_EFFORT_ACCEPTED.incrementAndGet();
         if (dbg) System.err.println("[g32-itersort] maxIter — BEST-EFFORT KEEPS cur: I8 "
             + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11);
@@ -10201,7 +10209,8 @@ public final class HOTTrieWriter {
       }
       PHASE7Q_BEST_EFFORT_REJECTED.incrementAndGet();
       if (dbg) System.err.println("[g32-itersort] maxIter — best-effort rollback: I8 "
-          + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11);
+          + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11
+          + " cycle=" + curHasCycle);
       return null;
     }
     return cur != indirect ? cur : null;
@@ -10227,6 +10236,50 @@ public final class HOTTrieWriter {
       prev = fk;
     }
     return violations;
+  }
+
+  /** Phase 7q.15f — detect graph cycles in a subtree of indirects. Walks the trie
+   *  via {@link HOTIndirectPage#getChildReference}, resolving children via TIL/disk
+   *  fallback. Returns {@code true} on the FIRST revisited pageKey, mirroring
+   *  {@link io.sirix.index.hot.HOTInvariantValidator}'s structure-cycle detection.
+   *
+   *  <p>Used by {@link #phase7qIterativeRootSortI8}'s best-effort gate to reject a
+   *  rebuilt tree that would surface a "structure-cycle" violation at validation time.
+   *  Costs one HashSet add per indirect descendant — cheap relative to the lift cost.
+   *
+   *  <p>Leaves are not tracked (no cycle through leaves; they don't have child refs).
+   */
+  private boolean hasStructureCycle(HOTIndirectPage indirect) {
+    if (indirect == null) return false;
+    final java.util.HashSet<Long> visited = new java.util.HashSet<>();
+    return hasStructureCycleInternal(indirect, visited);
+  }
+
+  private boolean hasStructureCycleInternal(HOTIndirectPage indirect,
+      java.util.HashSet<Long> visited) {
+    if (indirect == null) return false;
+    final long pageKey = indirect.getPageKey();
+    if (pageKey >= 0 && !visited.add(pageKey)) {
+      return true;
+    }
+    final int n = indirect.getNumChildren();
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) continue;
+      Page page = cref.getPage();
+      if (page == null && activeLog != null) {
+        final var container = activeLog.get(cref);
+        if (container != null) page = container.getModified();
+      }
+      if (page == null && activeReader != null) {
+        page = loadPage(activeReader, cref);
+        if (page != null) cref.setPage(page);
+      }
+      if (page instanceof HOTIndirectPage childInd) {
+        if (hasStructureCycleInternal(childInd, visited)) return true;
+      }
+    }
+    return false;
   }
 
   /** Phase 7q.15c — recursively count I8 inversions across the whole subtree (matching

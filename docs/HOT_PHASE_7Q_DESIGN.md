@@ -832,6 +832,16 @@ should break — bit 89 becomes reachable on root.
   standard-extend, bucket-build-multimask). Empirically pinpoints architectural
   ceiling to `buildBucketWithInheritedMaskMultiMask` (46 equality cases under
   g32.deep+bestEffort+commitroot; 0 elsewhere). Default mode: counters all 0.
+- [x] 7q.15e — port `g32.childmsb` strip-bits-≥-minChildMsb gate to MultiMask
+  bucket build. Compute `minChildMsbMm` via `getIndirectMsbOrMax`; mark bits
+  ≥ minChildMsb for stripping; require constancy verification (= reject via
+  return-null/wrap-fallback if non-constant). Equality drops 46 → 0 under
+  `+childmsb`. Default mode unchanged.
+- [x] 7q.15f — `hasStructureCycle` gate in `phase7qIterativeRootSortI8`
+  best-effort. 7q.15e's gate causes wrap-fallback that can produce a trie with
+  revisited pageKey (graph cycle); validator flags structure-cycle. The gate
+  rejects accepted lift output that has any cycle, falling back to the original
+  indirect. Under `+childmsb`: violations 2 → 1 (= baseline preserved).
 - [x] 7q.13 — `-Dhot.strict.phase7q.allowDoubleCapture=true` opt-in diagnostic.
   EMPIRICALLY DISPROVED prior hypothesis that double-capture is correctness-safe.
   Disabled by default; the falsified hypothesis is captured in §7.16 with cascade
@@ -1070,6 +1080,57 @@ set, retry; bounded retry budget (3? 8?). Watch counter for excess cascading.
 - `bundles/sirix-core/build.gradle`:
   + `hot.debug.phase7q.extendcollide` flag forwarding.
 - `docs/HOT_PHASE_7Q_DESIGN.md` §7.18 + work-plan tick.
+
+### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
+
+**7q.15e**: ported the SingleMask `g32.childmsb` gate to
+`buildBucketWithInheritedMaskMultiMask`. Compute `minChildMsbMm` over bucket
+children via `getIndirectMsbOrMax`; mark bits with `abs ≥ minChildMsbMm` for
+stripping into `liftAbsBits[]`; the existing rebuild loop clears them from the
+new MultiMask. Constancy verification requires β-constancy for 15e-gated bits
+too (distinct from 7q.7's stripNonConstant path which is constancy-exempt by
+design).
+
+**7q.15f**: added `hasStructureCycle(HOTIndirectPage)` cycle detector. Walks
+the trie via `getChildReference` + TIL/disk fallback, returning true on the
+first revisited pageKey (mirrors `HOTInvariantValidator`'s logic). Wired into
+both `phase7qIterativeRootSortI8`'s best-effort gates (iter-abandon path and
+maxIter-exhaust path) — when 15e's wrap-fallback produces a cyclic trie, we
+reject `cur` and fall back to `indirect`. Without this, validator surfaces
+"structure-cycle" as a NEW violation type, costing more than 15e's gain.
+
+**Empirical (50K reproducer, `+g32.deep +bestEffort +commitroot +childmsb`)**:
+
+| Metric | Before 7q.15e/f | After 7q.15e/f |
+|---|---|---|
+| intermediate-MSB EQ | 46 | **0** |
+| best-effort accepted | 0 | 0 (cycle-rejected) |
+| best-effort rejected | 1 | 1 |
+| violations | 1 (I8) | 1 (I8) — baseline preserved |
+| height | 5 | 5 |
+
+The childmsb gate breaks the equality ceiling, but the lift's structural side
+effects (cycle, height regression) currently exceed the I8 gain. The cycle
+detector keeps the architectural ceiling at 1 I8 while preserving the option
+to iterate on cycle-avoidance approaches in future phases.
+
+**Default mode** (no `g32.*`): unchanged — 1 I8, height 5, equality=0, ok=12563.
+**100K CAS**: 0 violations preserved (height 2).
+**HOTOptionBPhase5Test**: passes.
+
+**Phase 7q.15g entry point** (next session): investigate WHY 7q.15e's
+wrap-fallback creates the structure-cycle. Likely cause: `wrapBucketInSubtree`
+re-uses a pageKey that's already in the new tree via another path. The fix
+is to ensure freshly-allocated pageKeys are unique within the lift transaction
+(probably already true) AND that bucket children's references aren't shared
+between the old tree and the new tree. Once cycle-free, the best-effort gate
+should accept the lift output → I8 violation drops 1 → 0.
+
+**Files touched** (commits `e20e979e6` + this one):
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + 7q.15e: 51 lines in `buildBucketWithInheritedMaskMultiMask` (gate + verify).
+  + 7q.15f: `hasStructureCycle{,Internal}` helpers + gate at 2 dispatch sites.
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.21 + work-plan ticks.
 
 ### 7.20 Phase 7q.15d — intermediate-indirect MSB instrumentation localizes equality-I11 source (2026-05-12)
 
