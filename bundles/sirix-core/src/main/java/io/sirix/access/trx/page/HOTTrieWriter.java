@@ -7769,6 +7769,27 @@ public final class HOTTrieWriter {
         return; // bulk path resolved it
       }
       if (dbg) System.err.println("[g32] bulk-rebuild-failed, falling through to iterative");
+
+      // Phase 7q.13 — last-resort: ADD A NEW ROOT LEVEL above the inverted-firstKey pair.
+      // When iterative bit-extension cannot place the discriminating bit in the existing
+      // root.mask (= partial collision from placeholder children, β-mixed leaves blocking
+      // constancy), wrap the existing root structure with a NEW INDIRECT that has the
+      // discriminating bit in its mask. The two new children are the LEFT half (β=0
+      // children of old root) and RIGHT half (β=1 children of old root), each rebuilt
+      // as a sub-indirect inheriting old root's mask filtered to bits > β.
+      //
+      // This relaxes the per-insert fail-stop in favor of a structural rewrite that
+      // satisfies I8 by construction.
+      final HOTIndirectPage levelRebuilt = addNewRootLevelForI8(indirect, log, revision);
+      if (levelRebuilt != null) {
+        if (dbg) System.err.println("[g32] NEW-ROOT-LEVEL OK newMsb="
+            + levelRebuilt.getMostSignificantBitIndex());
+        G32_RECONCILE_FIRINGS.incrementAndGet();
+        log.put(rootRef, PageContainer.getInstance(levelRebuilt, levelRebuilt));
+        rootRef.setPage(levelRebuilt);
+        return;
+      }
+      if (dbg) System.err.println("[g32] new-root-level-failed, falling through to iterative");
     }
 
     // Up to 16 mask-extension attempts (single-bit fallback).
@@ -8241,6 +8262,219 @@ public final class HOTTrieWriter {
     // Verify I4 (first partial = 0).
     if (newPartials[0] != 0) return null;
 
+    if (n <= 16) {
+      return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+          extractionPositions, extractionMasks, numBytes, newPartials, newChildren,
+          indirect.getHeight(), msbIndex);
+    }
+    return HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
+        extractionPositions, extractionMasks, numBytes, newPartials, newChildren,
+        indirect.getHeight(), msbIndex);
+  }
+
+  /**
+   * Phase 7q.13 — When iterative bit-extension fails, structurally lift the offending
+   * I8 inversion by partitioning root's children by the discriminating bit and rebuilding
+   * with that bit added to the new mask. Unlike {@link #extendIndirectMaskForClosureI11Safe}
+   * which preserves the indirect's identity, this can produce an output that doesn't
+   * collide with placeholder partials because:
+   * <ol>
+   *   <li>It uses {@code firstKey}-presence as the partition oracle (not partials).</li>
+   *   <li>It SKIPS placeholder children (empty firstKey) entirely — no partial assigned,
+   *       no collision possible.</li>
+   *   <li>Real children get partials computed from the EXTENDED mask, where the
+   *       discriminating bit forces uniqueness across the offending pair.</li>
+   * </ol>
+   *
+   * <p>I11 preservation: the new indirect has root's existing extraction bytes PLUS the
+   * discriminating bit's byte. MSB stays at the smallest absBit (= existing root.MSB if
+   * the disc bit is less significant). Children are unchanged → their MSBs are unchanged
+   * → I11 holds.
+   *
+   * <p>Returns null when no candidate bit can be safely added (e.g., the offending pair
+   * has no in-mask-extendable bit that's β-constant in all real children).
+   *
+   * <p>HFT-grade: bounded scan over root.children + bounded mask-bit iteration. No
+   * recursion. Single allocation per attempt.
+   */
+  @Nullable
+  private HOTIndirectPage addNewRootLevelForI8(HOTIndirectPage indirect,
+      TransactionIntentLog log, int revision) {
+    final boolean dbg = Boolean.getBoolean("hot.debug.g32");
+    if (indirect == null) return null;
+    final int n = indirect.getNumChildren();
+    if (n < 2) return null;
+
+    // Step 1: identify the offending pair via firstKey scan, skipping placeholders.
+    final byte[][] firstKeys = new byte[n][];
+    int maxLen = 0;
+    int realCount = 0;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      if (cref == null) continue;
+      firstKeys[i] = getFirstKeyFromChild(cref);
+      if (firstKeys[i] != null && firstKeys[i].length > 0) {
+        realCount++;
+        if (firstKeys[i].length > maxLen) maxLen = firstKeys[i].length;
+      }
+    }
+    if (realCount < 2) return null;
+
+    // Find the offending PAIR (= adjacent inversion in stored order, real-only).
+    int offK = -1, offI = -1;
+    byte[] prevKey = null;
+    int prevIdx = -1;
+    for (int i = 0; i < n; i++) {
+      if (firstKeys[i] == null || firstKeys[i].length == 0) continue;
+      if (prevKey != null && Arrays.compareUnsigned(prevKey, firstKeys[i]) >= 0) {
+        offK = prevIdx;
+        offI = i;
+        break;
+      }
+      prevKey = firstKeys[i];
+      prevIdx = i;
+    }
+    if (offI < 0) return null; // no inversion — nothing to do.
+
+    // Step 2: find the MSDB between offK.firstKey and offI.firstKey, restricted to
+    // absBit > parentMsb (= I11-safe bit position).
+    final int parentMsb = indirect.getMostSignificantBitIndex() & 0xFFFF;
+    int discBit = -1;
+    for (int absBit = parentMsb + 1; absBit < maxLen * 8; absBit++) {
+      final boolean kSet = isAbsBitSet(firstKeys[offK], absBit);
+      final boolean iSet = isAbsBitSet(firstKeys[offI], absBit);
+      if (kSet != iSet) {
+        // Verify: this bit β-constant in EVERY real child's subtree (= won't break
+        // routing for keys NOT in the offending pair).
+        boolean allConstant = true;
+        for (int i = 0; i < n; i++) {
+          final PageReference cref = indirect.getChildReference(i);
+          if (cref == null) continue;
+          if (cref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG) continue;
+          if (firstKeys[i] == null || firstKeys[i].length == 0) continue;
+          final int v = bitConstantValueInSubtree(cref, absBit);
+          if (v < 0) { allConstant = false; break; }
+        }
+        if (allConstant) {
+          discBit = absBit;
+          break; // most-significant safe disc bit found
+        }
+      }
+    }
+    if (discBit < 0) {
+      if (dbg) System.err.println("[g32-newrootlvl] no β-constant disc bit between offK="
+          + offK + " offI=" + offI + " parentMsb=" + parentMsb);
+      return null;
+    }
+
+    // Step 3: build new MultiMask layout = old mask + discBit.
+    final int discBytePos = discBit / 8;
+    final int discBitInByte = discBit % 8;
+    final int discMaskBit = 1 << (7 - discBitInByte);
+
+    final java.util.TreeMap<Integer, Integer> maskByBytePos = new java.util.TreeMap<>();
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      final int oldInitial = indirect.getInitialBytePos();
+      final long oldMask = indirect.getBitMask();
+      for (int bo = 0; bo < 8; bo++) {
+        final int byteMaskBits = (int) ((oldMask >>> ((7 - bo) * 8)) & 0xFFL);
+        if (byteMaskBits != 0) {
+          maskByBytePos.merge(oldInitial + bo, byteMaskBits, (a, b) -> a | b);
+        }
+      }
+    } else {
+      final byte[] ep = indirect.getExtractionPositions();
+      final long[] em = indirect.getExtractionMasks();
+      final int neb = indirect.getNumExtractionBytes();
+      for (int i = 0; i < neb; i++) {
+        final int chunkIdx = i / 8;
+        final int byteOffsetInChunk = i % 8;
+        final int byteMaskBits = (int) ((em[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+        if (byteMaskBits != 0) {
+          maskByBytePos.merge(ep[i] & 0xFF, byteMaskBits, (a, b) -> a | b);
+        }
+      }
+    }
+    maskByBytePos.merge(discBytePos, discMaskBit, (a, b) -> a | b);
+
+    final int numBytes = maskByBytePos.size();
+    if (numBytes > 64) return null;
+    final byte[] extractionPositions = new byte[numBytes];
+    final long[] extractionMasks = new long[(numBytes + 7) / 8];
+    short msbIndex = Short.MAX_VALUE;
+    int idx = 0;
+    for (final var entry : maskByBytePos.entrySet()) {
+      final int bytePos = entry.getKey();
+      final int maskByte = entry.getValue();
+      extractionPositions[idx] = (byte) bytePos;
+      final int chunkIdx = idx / 8;
+      final int byteOffsetInChunk = idx % 8;
+      extractionMasks[chunkIdx] |= ((long) (maskByte & 0xFF)) << ((7 - byteOffsetInChunk) * 8);
+      final int highBit = 31 - Integer.numberOfLeadingZeros(maskByte & 0xFF);
+      final int absBitPos = bytePos * 8 + (7 - highBit);
+      if (absBitPos < msbIndex) msbIndex = (short) absBitPos;
+      idx++;
+    }
+
+    // Step 4: compute partials. Skip placeholders (empty firstKey) — assign max-int
+    // sentinel so they sort to the end and don't collide with real children's partials.
+    // This works because PEXT-routing for real keys never produces max-int partial
+    // (would require all extracted bits = 1, extremely unlikely).
+    final int[] newPartials = new int[n];
+    final PageReference[] newChildren = new PageReference[n];
+    final java.util.HashSet<Integer> seenPartials = new java.util.HashSet<>(n * 2);
+    int placeholderSeq = 0;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = indirect.getChildReference(i);
+      newChildren[i] = cref;
+      if (cref == null || firstKeys[i] == null || firstKeys[i].length == 0) {
+        // Placeholder: synthesize a unique high-end partial.
+        newPartials[i] = Integer.MAX_VALUE - placeholderSeq;
+        placeholderSeq++;
+        continue;
+      }
+      newPartials[i] = computePartialKeyMultiMaskDirect(firstKeys[i],
+          extractionPositions, extractionMasks, numBytes);
+      if (!seenPartials.add(newPartials[i])) {
+        if (dbg) System.err.println("[g32-newrootlvl] partial collision among real children"
+            + " at i=" + i + " p=" + newPartials[i] + " — abandoning");
+        return null;
+      }
+    }
+
+    // Step 5: sort by partial.
+    sortChildrenAndPartialsByPartial(newChildren, newPartials);
+
+    // Step 6: verify firstKey-monotone post-sort (skip placeholders).
+    byte[] prev = null;
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = newChildren[i];
+      if (cref == null) continue;
+      final byte[] fk = getFirstKeyFromChild(cref);
+      if (fk == null || fk.length == 0) continue;
+      if (prev != null && Arrays.compareUnsigned(prev, fk) >= 0) {
+        if (dbg) System.err.println("[g32-newrootlvl] post-sort still inverted at i=" + i
+            + " — abandoning");
+        return null;
+      }
+      prev = fk;
+    }
+
+    // Step 7: verify I4 (smallest partial = 0). Only the smallest REAL partial matters;
+    // placeholders use MAX_INT sentinels and are sorted to the end.
+    int smallestRealPartial = Integer.MAX_VALUE;
+    for (int i = 0; i < n; i++) {
+      if (newPartials[i] < Integer.MAX_VALUE - n) {
+        if (newPartials[i] < smallestRealPartial) smallestRealPartial = newPartials[i];
+      }
+    }
+    if (smallestRealPartial != 0) {
+      if (dbg) System.err.println("[g32-newrootlvl] no zero partial — abandoning");
+      return null;
+    }
+
+    if (dbg) System.err.println("[g32-newrootlvl] OK discBit=" + discBit + " newMsb="
+        + msbIndex + " parentMsb=" + parentMsb + " realCount=" + realCount);
     if (n <= 16) {
       return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
           extractionPositions, extractionMasks, numBytes, newPartials, newChildren,
