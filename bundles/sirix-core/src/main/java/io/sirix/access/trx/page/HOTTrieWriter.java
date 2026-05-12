@@ -3595,6 +3595,24 @@ public final class HOTTrieWriter {
         : Arrays.copyOf(newPartials, outIdx);
     sortChildrenAndPartialsByPartial(trimChildren, trimPartials);
 
+    // Phase 7t-5 — firstKey-monotone post-sort probe at buildRebalancedParentWithInheritedMask
+    // success. This is the indirect-construction path that absorbs a β-mixed leaf split into
+    // a SingleMask parent via mask inheritance + recursive sibling splits. Counter-only;
+    // gated on -Dhot.strict.phase7t.monotone.probe. Localises whether Phase 3 rebalance
+    // produces non-monotone children (an I8 candidate) at the dominant call rate.
+    if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
+      PHASE7T_REBALANCE_INSPECTIONS.incrementAndGet();
+      final int inversionAt = phase7tFirstInversionIdx(trimChildren);
+      if (inversionAt >= 0) {
+        PHASE7T_REBALANCE_INVERSIONS.incrementAndGet();
+        if (Boolean.getBoolean("hot.debug.phase7t")) {
+          phase7tLogInversion("buildRebalancedParentWithInheritedMask",
+              parent.getPageKey(), parent.getHeight(), trimChildren, trimPartials,
+              inversionAt);
+        }
+      }
+    }
+
     // Stage G.31 — I8 firstKey-monotone verification mirroring addEntryWithPDep's G.16.
     // After partial-sort, verify children's firstKeys are also strictly ascending. If not,
     // EXTEND the mask with the discriminative bit between the offending pair (= MSDB of
@@ -4544,6 +4562,23 @@ public final class HOTTrieWriter {
     if (j < rebuilt.length) rebuilt = Arrays.copyOf(rebuilt, j);
     if (rebuilt.length < 2 || rebuilt.length > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
       return null;
+    }
+    // Phase 7t-5 — call-frequency + firstKey-monotone probe at rebuildParentAbsorbingSplit
+    // success. This is the simplest "absorb the leaf split into the parent" rebuild path —
+    // siblings retained verbatim, original child replaced by (left, right). The probe runs
+    // BEFORE createNodeFromChildren so we measure the input array (sortedness is enforced
+    // by createNodeFromChildren downstream). Counter-only; gated on
+    // -Dhot.strict.phase7t.monotone.probe.
+    if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
+      PHASE7T_REBUILD_INSPECTIONS.incrementAndGet();
+      final int inversionAt = phase7tFirstInversionIdx(rebuilt);
+      if (inversionAt >= 0) {
+        PHASE7T_REBUILD_INVERSIONS.incrementAndGet();
+        if (Boolean.getBoolean("hot.debug.phase7t")) {
+          phase7tLogInversion("rebuildParentAbsorbingSplit", parent.getPageKey(),
+              parent.getHeight(), rebuilt, new int[0], inversionAt);
+        }
+      }
     }
     try {
       return createNodeFromChildren(rebuilt, parent.getPageKey(), revision, parent.getHeight());
@@ -6776,6 +6811,45 @@ public final class HOTTrieWriter {
   public static void resetPhase7tBetaMixedDetected() { PHASE7T_BETAMIXED_DETECTED.set(0L); }
   public static long getPhase7tBetaMixedSplitApplied() { return PHASE7T_BETAMIXED_SPLIT_APPLIED.get(); }
   public static void resetPhase7tBetaMixedSplitApplied() { PHASE7T_BETAMIXED_SPLIT_APPLIED.set(0L); }
+
+  // Phase 7t-5 — call-frequency + monotone probes at the three DOMINANT indirect-construction
+  // success paths. Phases 7t-1/7t-2 falsified buildFlatNonStrict / addEntryWithPDep /
+  // upgradeToMultiMaskWithNewBit as I8 sources (0-2 inversions across 10K workloads). Phase
+  // 7t-3 located the real defect: I6 (β-mixed leaf routing) dominates 98-99.8 % of failures.
+  // I6 must be produced at some indirect-construction site that builds children whose
+  // partial-key positions disagree with the actual sub-tree contents on at least one mask
+  // bit. The three sites instrumented here are the next-most-frequent candidates per code
+  // inspection — splitParentAndRecurse partitions children by MSB into two halves and builds
+  // a NEW indirect for each; rebalanceAndIntegrate (via buildRebalancedParentWithInheritedMask)
+  // rebuilds the parent absorbing a β-mixed split; rebuildParentAbsorbingSplit reassembles
+  // the parent after a leaf-only split. Each site gets its own INSPECTIONS + INVERSIONS pair
+  // gated on -Dhot.strict.phase7t.monotone.probe. The INVERSIONS counter reuses the existing
+  // phase7tFirstInversionIdx helper for consistency with 7t-1/7t-2 — together they yield a
+  // per-site call-frequency histogram that pinpoints where I6 originates.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_SPLITPARENT_INSPECTIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_SPLITPARENT_INVERSIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_REBALANCE_INSPECTIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_REBALANCE_INVERSIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_REBUILD_INSPECTIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T_REBUILD_INVERSIONS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7tSplitparentInspections() { return PHASE7T_SPLITPARENT_INSPECTIONS.get(); }
+  public static void resetPhase7tSplitparentInspections() { PHASE7T_SPLITPARENT_INSPECTIONS.set(0L); }
+  public static long getPhase7tSplitparentInversions() { return PHASE7T_SPLITPARENT_INVERSIONS.get(); }
+  public static void resetPhase7tSplitparentInversions() { PHASE7T_SPLITPARENT_INVERSIONS.set(0L); }
+  public static long getPhase7tRebalanceInspections() { return PHASE7T_REBALANCE_INSPECTIONS.get(); }
+  public static void resetPhase7tRebalanceInspections() { PHASE7T_REBALANCE_INSPECTIONS.set(0L); }
+  public static long getPhase7tRebalanceInversions() { return PHASE7T_REBALANCE_INVERSIONS.get(); }
+  public static void resetPhase7tRebalanceInversions() { PHASE7T_REBALANCE_INVERSIONS.set(0L); }
+  public static long getPhase7tRebuildInspections() { return PHASE7T_REBUILD_INSPECTIONS.get(); }
+  public static void resetPhase7tRebuildInspections() { PHASE7T_REBUILD_INSPECTIONS.set(0L); }
+  public static long getPhase7tRebuildInversions() { return PHASE7T_REBUILD_INVERSIONS.get(); }
+  public static void resetPhase7tRebuildInversions() { PHASE7T_REBUILD_INVERSIONS.set(0L); }
 
   /**
    * Phase 7t — scan {@code children[]} (assumed in canonical/partial-sort order) for the
@@ -13087,6 +13161,33 @@ public final class HOTTrieWriter {
     // Trim to exact size — small allocation but avoids API contract issues with oversized arrays
     final PageReference[] leftChildren = Arrays.copyOf(splitSmallerBuf, smallerCount);
     final PageReference[] rightChildren = Arrays.copyOf(splitLargerBuf, largerCount);
+
+    // Phase 7t-5 — call-frequency + firstKey-monotone probe at splitParentAndRecurse halves.
+    // The two arrays will each become a NEW indirect (buildCompressedHalf). Probe each half
+    // independently so the readout distinguishes left/right inversions if any. Counter-only;
+    // gated on -Dhot.strict.phase7t.monotone.probe. Localises whether the MSB-partition
+    // ordering matches the firstKey ordering — a mismatch is an I8 candidate at the new
+    // indirect.
+    if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
+      PHASE7T_SPLITPARENT_INSPECTIONS.incrementAndGet();
+      final int leftInv = phase7tFirstInversionIdx(leftChildren);
+      if (leftInv >= 0) {
+        PHASE7T_SPLITPARENT_INVERSIONS.incrementAndGet();
+        if (Boolean.getBoolean("hot.debug.phase7t")) {
+          phase7tLogInversion("splitParentAndRecurse.left", parent.getPageKey(),
+              parent.getHeight(), leftChildren, new int[0], leftInv);
+        }
+      }
+      PHASE7T_SPLITPARENT_INSPECTIONS.incrementAndGet();
+      final int rightInv = phase7tFirstInversionIdx(rightChildren);
+      if (rightInv >= 0) {
+        PHASE7T_SPLITPARENT_INVERSIONS.incrementAndGet();
+        if (Boolean.getBoolean("hot.debug.phase7t")) {
+          phase7tLogInversion("splitParentAndRecurse.right", parent.getPageKey(),
+              parent.getHeight(), rightChildren, new int[0], rightInv);
+        }
+      }
+    }
 
     // Reference-faithful {@code compressEntries}: each half inherits
     // only the parent's disc bits that actually differ within that

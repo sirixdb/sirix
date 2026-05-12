@@ -1968,6 +1968,107 @@ correctly rejects this. Two options:
 - `bundles/sirix-core/build.gradle`: `hot.strict.phase7t.split.always` flag (default `false`).
 - `docs/HOT_PHASE_7Q_DESIGN.md`: §7.32 (this section).
 
+### 7.33 Phase 7t-5 — call-frequency probe at splitParentAndRecurse / rebalanceAndIntegrate / rebuildParentAbsorbingSplit (FALSIFIES the §7.32 "dominant site" hypothesis) (2026-05-13)
+
+**Hypothesis (§7.32 Phase 7t-5 entry).** Phases 7t-1/7t-2 instrumented the three
+indirect-construction success paths that were locally visible
+(`buildFlatNonStrict`, `addEntryWithPDep`, `upgradeToMultiMaskWithNewBit`) and
+found call frequency far below the 258 / 900 / 1280 violation counts (≤ 24
+inspections per 10K). §7.32 conjectured that the dominant indirect-construction
+success path was elsewhere — likely `splitParentAndRecurse`,
+`rebalanceAndIntegrate`, or `rebuildParentAbsorbingSplit`. Phase 7t-5 instruments
+all three with the existing `phase7tFirstInversionIdx` helper so the empirical
+readout pinpoints which (if any) hosts the dominant production rate.
+
+**Implementation.** Six new counters
+(`PHASE7T_{SPLITPARENT,REBALANCE,REBUILD}_{INSPECTIONS,INVERSIONS}`) + accessors.
+Probes installed at:
+
+- `splitParentAndRecurse` — after `leftChildren` / `rightChildren` arrays are
+  materialised but BEFORE the recursive `buildCompressedHalf` calls. Both halves
+  are probed independently; INSPECTIONS increments twice per call so the
+  histogram counts indirect-build events rather than function calls.
+- `buildRebalancedParentWithInheritedMask` — after
+  `sortChildrenAndPartialsByPartial(trimChildren, trimPartials)`, BEFORE the
+  existing G.31 firstKey-monotone verify-and-resort.
+- `rebuildParentAbsorbingSplit` — on the `rebuilt[]` PageReference array,
+  AFTER trim/size-check, BEFORE the `createNodeFromChildren` call. (Downstream
+  `createNodeFromChildren` may correct ordering, so this site's INVERSIONS
+  measures the input state, not the final output state.)
+
+All probes are counter-only and gated on
+`-Dhot.strict.phase7t.monotone.probe`. Test harness `runWithMonotoneProbe`
+extended to reset+print all six new counters alongside the three legacy ones.
+
+**Empirical readout** (10K-entry CAS-shred, monotone.probe=true):
+
+| Workload | buildFlat (inv/ins) | addPdep | upgrade | splitParent | rebalance | rebuild |
+|----------|---------------------|---------|---------|-------------|-----------|---------|
+| ascending-10K (control) | 0 / 18 | 0 / 0 | 0 / 0 | 0 / 2 | 0 / 0 | **8 / 18** |
+| descending-10K (258 viol.) | 0 / 18 | 0 / 0 | 0 / 1 | 2 / 2 | 0 / 0 | **10 / 18** |
+| mixed-sign-10K (900 viol.) | 0 / 24 | 0 / 2 | 1 / 2 | 1 / 2 | 0 / 0 | **16 / 23** |
+| bimodal-5K+5K (1280 viol.) | 0 / 18 | 0 / 0 | 0 / 0 | 1 / 2 | 0 / 0 | **7 / 18** |
+
+**Key findings — both prongs of §7.32 hypothesis FALSIFIED.**
+
+(1) **`rebalanceAndIntegrate` fires 0× across all 4 workloads.** That code path
+exists only in the `addEntryWithPDep` failure-fallback chain, which itself fires
+0-2 times per 10K. On bulk-JSON shred it is effectively dead.
+
+(2) **`splitParentAndRecurse` fires 1× per 10K** (= 2 INSPECTIONS counting both
+halves). Negligible compared to the violation counts (258 / 900 / 1280).
+
+(3) **`rebuildParentAbsorbingSplit` fires 18-23× per 10K** — dominant of the
+three, but still 1-2 orders of magnitude below the violation counts. Notably,
+the **ascending control** has 8 INVERSIONS / 0 violations: firstKey-inversion at
+`rebuild` is locally tolerated because `createNodeFromChildren` downstream sorts
+on partial-key, and on ascending workloads partial-sort coincides with
+firstKey-sort. The high INVERSIONS / 0-violations decoupling is itself a useful
+falsification: **firstKey-monotonicity at the rebuild site is NEITHER necessary
+NOR sufficient to predict downstream violations.**
+
+(4) Across ALL six probed sites combined, total INSPECTIONS per 10K ≤ 50,
+total INVERSIONS ≤ 28. The 258 / 900 / 1280 violations cannot be attributed to
+non-monotone children at any of these sites. The dominant defect (I6,
+β-mixed-leaf-routing) is therefore being created at a path that either:
+
+- (a) is invisible from a firstKey-monotone probe (I6 ≠ I8 — different
+  invariants), OR
+- (b) lives in a site not yet instrumented.
+
+**Baselines preserved** (default flags off):
+
+| Test | Result |
+|------|--------|
+| diagnosticMicrobenchPatternReproducer (50K) | 0 violations · height 6 · build 6642 ms |
+| casIndexHundredKEntryHeightBound (100K) | 0 violations · height 2 · build 5782 ms |
+| HOTOptionBPhase5Test (15 tests, 5+10) | pass |
+
+Comprehensive failure counts unchanged because probes are counter-only.
+
+**Phase 7t-6 entry point.** The right next probe is a **β-mixed child detector**,
+not a firstKey-monotone probe. For each (child, mask-bit) pair in a freshly-
+constructed indirect, call `bitConstantValueInSubtree(child, absBit)`; if it
+returns -1 (mixed) the child is β-mixed and produces an I6 violation downstream.
+Install this probe at the SAME six sites; the per-site β-mixed count gives the
+true I6 origination histogram. Because I6 fires 253-1278 times per 10K, the
+new counters should produce non-trivial readings at one or more sites.
+
+If 7t-6 also produces ≤ 50 detections across all 6 sites, the conclusion is
+that the I6 violations are not created at indirect-construction time at all —
+they are created at LEAF mutation time after the parent indirect was already
+constructed. That falsification would redirect the campaign to leaf-mutation
+analysis (a still-distinct code path).
+
+**Files touched (Phase 7t-5 commit):**
+
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  6 new `PHASE7T_{SPLITPARENT,REBALANCE,REBUILD}_{INSPECTIONS,INVERSIONS}`
+  counters + accessors; gated monotone probes at the three sites.
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  `runWithMonotoneProbe` extended to reset + print the new counters.
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.33 (this section).
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to
