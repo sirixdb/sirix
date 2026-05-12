@@ -1081,6 +1081,101 @@ set, retry; bounded retry budget (3? 8?). Watch counter for excess cascading.
   + `hot.debug.phase7q.extendcollide` flag forwarding.
 - `docs/HOT_PHASE_7Q_DESIGN.md` §7.18 + work-plan tick.
 
+### 7.22 Phase 7q-Path5 — partial-subset routing-collision check eliminates last I8 (2026-05-12) — **BREAKTHROUGH: 0 VIOLATIONS**
+
+After Phases 7q.0-7q.15h saturated the structural-lift mechanisms and pinned the
+remaining I8 ceiling at root indirect pageKey=2, **Path 5** identifies the actual
+correctness gap: the rebuild produced partials whose subset relations under HOT's
+"largest-index subset-fallback" routing rule mis-routed subtree-resident keys.
+
+**Root cause.** `addNewRootLevelForI8` (and `rebuildRootWithFullClosureI11Safe`)
+produced root partials like `[0, 0x10, 0x14, 0x19, 0x1a]`. The HOT routing rule for
+MultiMask indirects is:
+1. **Equality-preferred**: if `partial[i] == densePK(key)`, return `child[i]`.
+2. **Subset-fallback**: else, return the child with the **LARGEST INDEX** among
+   partials that satisfy `(densePK & partial[j]) == partial[j]`.
+
+For a stored key with `densePK = 0x1d`:
+- `0x0 ⊂ 0x1d` ✓, `0x10 ⊂ 0x1d` ✓, `0x14 ⊂ 0x1d` ✓, `0x19 ⊂ 0x1d` ✓.
+- `0x1a ⊂ 0x1d`? `0x1a & 0x1d = 0x18 ≠ 0x1a` ✗.
+
+Routing picks `child[3] (partial 0x19) → leaf 1`. But the key was actually stored
+under `child[2] (partial 0x14) → indirect 11 → leaf 10`. Routing and storage
+diverged → I8 surfaces at the validator because children appear unsorted-by-
+firstkey in routing order.
+
+**The fix.** Before constructing the new indirect, verify routing consistency for
+**subtree-resident** keys, not just firstKeys. Sufficient condition: for each pair
+`(i, j)` with `i < j` and `partial[j] != 0`, `child[i]`'s subtree contains **no**
+key K with `densePK(K) ⊇ partial[j]`. Implemented as:
+- ∃ at least one bit b in `partial[j]` such that `bitConstantValueInSubtree
+  (child[i], absBitForDensePKBit(b)) == 0` (= bit b is always-zero across
+  child[i]'s subtree, so K's densePK can never be a superset of partial[j]).
+- If no such bit exists for ANY pair → routing collision possible → **reject the
+  rebuild** (return `null`), forcing the caller to fall through to the next
+  strategy.
+
+Wired at two sites in `HOTTrieWriter.java`:
+- `rebuildRootWithFullClosureI11Safe` (~L9329+) — firstKey self-routing check
+  (lighter — only checks firstKeys, no subtree walks).
+- `addNewRootLevelForI8` (~L10763+) — full O(n² × densePK-bits × subtree-walk)
+  check using `bitConstantValueInSubtree`. **This is the CRITICAL site** that
+  produced the bad partials in the reproducer.
+
+The densePK-bit → absBit mapping iterates `extractionPositions[]` MSB-first per
+byte; the partial's bit index `b` (LSB-first per `Long.compress` output)
+corresponds to absBit `densePkBitToAbsBit[totalDpkBits - 1 - b]`.
+
+**Empirical results (2026-05-12, branch `fix/hot-strict-binna-conformance`):**
+
+| Test | Flags | Violations | Height | Build |
+|------|-------|-----------|--------|-------|
+| 50K reproducer | `phase7q + path5 + g32 + childmsb + multibeta + deep` | **0** ✅ | 6 | 8.5s |
+| 50K reproducer | `phase7q` (default — no path5) | 1 (I8) | 6 | 3.0s |
+| 100K CAS regression | `phase7q + path5 + g32 + childmsb + multibeta + deep` | **0** ✅ | 2 | 6.8s |
+| HOTOptionBPhase5Test (15 tests) | same as 100K CAS | 0 failures ✅ | n/a | n/a |
+
+Cost: O(n² × densePK-bits × subtree-walk). n ≤ 32, densePK ≤ 16 bits, walk depth
+bounded by trie height. 50K build time 3.0s → 8.5s — acceptable for correctness
+gain.
+
+**Counter readout on 50K (path5 + g32 + childmsb + multibeta + deep):**
+
+```
+phase7q lift: split-firings=5034 walk-fire=5034 ext-fire=1548 ext-ok=775 ext-fail=773
+phase7q intermediate-MSB: equality=0 lower=0 ok=6088
+violations=0
+```
+
+**Flag-rollout plan.** Default OFF initially — preserves the current "1 I8 at
+indirect 2" baseline so other tests that depend on it aren't perturbed.
+Recommended ON together with `hot.strict.g32`, `hot.strict.g32.childmsb`,
+`hot.strict.g32.multibeta`, `hot.strict.g32.deep`. Promote to default-ON after
+broader regression validation.
+
+**Generalization.** The Path 5 mechanism — routing-collision check at rebuild
+time — is a **general pattern**. Apply to OTHER rebuild sites if they produce
+I6/I8 cascades: `phase7qMultiBetaAtomicLift`, `phase7qIterativeRootSortI8`,
+`extendIndirectMaskForClosure` / `phase7qExtendWithLift`. The general principle:
+**whenever a rebuild produces new partials, verify that the partial set is
+routing-consistent for subtree-resident keys, not just firstKeys**. firstKey
+self-routing alone is insufficient because the lift can produce partials that
+route correctly for their own firstKey but mis-route deeper keys whose densePK
+falls in the partial-overlap zone.
+
+**Files touched** (commit pending — Path 5 commit will land in this session):
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + `rebuildRootWithFullClosureI11Safe`: 25 lines (firstKey self-routing check).
+  + `addNewRootLevelForI8`: 129 lines (firstKey self-routing + subtree-walk pair check + densePK→absBit mapping).
+- `bundles/sirix-core/build.gradle`:
+  + `hot.strict.path5.routeverify` + `hot.debug.path5` flag forwarding.
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.22 (this section).
+
+**Campaign status.** The multi-week structural-lift campaign goal is **achieved**:
+0 invariant violations on the 50K diagnostic reproducer, 0 violations on 100K
+CAS regression, HOTOptionBPhase5Test passes. The architectural ceiling that
+persisted across Phases 7a-7q.15h is removed.
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to

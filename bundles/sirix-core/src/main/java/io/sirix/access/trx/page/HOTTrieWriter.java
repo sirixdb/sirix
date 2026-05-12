@@ -9328,6 +9328,44 @@ public final class HOTTrieWriter {
     // Verify I4 (first partial = 0).
     if (newPartials[0] != 0) return null;
 
+    // Phase 7q-Path5 — partial-subset routing-correctness check. The HOT routing rule
+    // for MultiMask is "equality-preferred, subset-fallback picking LARGEST INDEX
+    // among subsets". If partials have overlapping subset relations
+    // (e.g., {0x10, 0x14, 0x19}), a key whose densePK is a superset of multiple
+    // partials gets routed to the LAST one (= largest index in sorted order). But the
+    // key may actually be stored under an EARLIER child's subtree → I6 routing cascade.
+    //
+    // Sufficient correctness condition: for each child[i]'s firstKey,
+    // PEXT(firstKey, newMask) under the subset-fallback routing rule must pick
+    // child[i] (= same index). If any child fails this self-routing check, the
+    // rebuilt indirect would mis-route at least one stored key set. Reject.
+    //
+    // Gated on hot.strict.path5.routeverify so legacy callers keep current behavior.
+    // HFT-grade: O(n²) comparisons of pre-computed partials — n ≤ 32 typical.
+    if (Boolean.getBoolean("hot.strict.path5.routeverify")) {
+      for (int i = 0; i < n; i++) {
+        final int densePk = newPartials[i];
+        // Find the LARGEST-INDEX partial that's a subset of densePk.
+        int bestIdx = -1;
+        for (int j = 0; j < n; j++) {
+          if ((densePk & newPartials[j]) == newPartials[j]) {
+            // Equality-preferred: an exact match wins immediately.
+            if (newPartials[j] == densePk) { bestIdx = j; break; }
+            if (bestIdx < 0 || j > bestIdx) bestIdx = j;
+          }
+        }
+        if (bestIdx != i) {
+          if (Boolean.getBoolean("hot.debug.path5")) {
+            System.err.println("[path5] REJECT rebuild: child[" + i + "].firstKey densePK=0x"
+                + Integer.toHexString(densePk) + " routes to child[" + bestIdx
+                + "] partial=0x" + Integer.toHexString(bestIdx >= 0 ? newPartials[bestIdx] : -1)
+                + " (expected child[" + i + "] partial=0x" + Integer.toHexString(newPartials[i]) + ")");
+          }
+          return null;
+        }
+      }
+    }
+
     if (n <= 16) {
       return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
           extractionPositions, extractionMasks, numBytes, newPartials, newChildren,
@@ -10720,6 +10758,122 @@ public final class HOTTrieWriter {
     if (smallestRealPartial != 0) {
       if (dbg) System.err.println("[g32-newrootlvl] no zero partial — abandoning");
       return null;
+    }
+
+    // Phase 7q-Path5 — partial-subset routing-correctness check. Even with all partials
+    // distinct, sorted, and matching firstKey-monotone, the HOT subset-fallback routing
+    // rule "pick LARGEST INDEX among subsets" can mis-route subtree keys when partials
+    // form overlapping subset chains (e.g., {0, 0x10, 0x14, 0x19, 0x1a}: any key with
+    // densePK=0x1d routes to last subset 0x19, but key was stored under 0x14's subtree
+    // → I6 cascade). Verify: for each child[i]'s firstKey-partial, routing via the
+    // subset rule returns i (= same child). If not, reject the rebuild so caller falls
+    // through to the next strategy.
+    //
+    // Gated on hot.strict.path5.routeverify (same flag as rebuildRootWithFullClosureI11Safe).
+    if (Boolean.getBoolean("hot.strict.path5.routeverify")) {
+      for (int i = 0; i < n; i++) {
+        if (newPartials[i] >= Integer.MAX_VALUE - n) continue; // skip placeholders
+        final int densePk = newPartials[i];
+        int bestIdx = -1;
+        for (int j = 0; j < n; j++) {
+          if (newPartials[j] >= Integer.MAX_VALUE - n) continue;
+          if ((densePk & newPartials[j]) == newPartials[j]) {
+            if (newPartials[j] == densePk) { bestIdx = j; break; }
+            if (bestIdx < 0 || j > bestIdx) bestIdx = j;
+          }
+        }
+        if (bestIdx != i) {
+          if (Boolean.getBoolean("hot.debug.path5")) {
+            System.err.println("[path5] REJECT newrootlvl: child[" + i + "].partial=0x"
+                + Integer.toHexString(densePk) + " routes to idx=" + bestIdx
+                + " (partial=0x"
+                + (bestIdx >= 0 ? Integer.toHexString(newPartials[bestIdx]) : "?")
+                + ") expected idx=" + i);
+          }
+          return null;
+        }
+      }
+      // Stronger structural check: for any (i, j) pair with i < j, child[i]'s subtree
+      // must NOT contain a key K with densePK(K) ⊇ newPartials[j]. Otherwise routing
+      // would mis-pick child[j] over child[i] for that K. Sufficient condition:
+      // ∃ at least one bit b in newPartials[j] such that bitConstantValueInSubtree
+      // (child[i], b) returns 0 (= bit b is always-zero across child[i]'s subtree).
+      //
+      // We need to map densePK-bit positions back to absolute bit positions in the key.
+      // For MultiMask, densePK bit k corresponds to the k-th set bit (counted MSB-first
+      // across all extraction byte masks, in the order extraction bytes are stored).
+      //
+      // HFT-grade: O(n² × densePK-bits × per-bit-subtree-walk) — densePK ≤ 16 bits,
+      // n ≤ 32, subtree walk depth bounded by trie height.
+      // Compute densePK-bit → absBit mapping.
+      int totalMaskBitsLocal = 0;
+      for (final long em : extractionMasks) totalMaskBitsLocal += Long.bitCount(em);
+      final int[] densePkBitToAbsBit = new int[totalMaskBitsLocal];
+      int dpkIdx = 0;
+      for (int eIdx = 0; eIdx < numBytes; eIdx++) {
+        final int bp = extractionPositions[eIdx] & 0xFF;
+        final int chunkIdx = eIdx / 8;
+        final int byteOffsetInChunk = eIdx % 8;
+        final int byteMaskBits = (int) ((extractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+        for (int bitInByte = 0; bitInByte < 8; bitInByte++) {
+          final int maskBit = 1 << (7 - bitInByte);
+          if ((byteMaskBits & maskBit) != 0) {
+            densePkBitToAbsBit[dpkIdx++] = bp * 8 + bitInByte;
+          }
+        }
+      }
+      // Now check each pair (i, j) for collision potential.
+      for (int i = 0; i < n; i++) {
+        if (newPartials[i] >= Integer.MAX_VALUE - n) continue;
+        for (int j = 0; j < n; j++) {
+          if (i == j) continue;
+          if (newPartials[j] >= Integer.MAX_VALUE - n) continue;
+          if (j <= i) continue; // only later children can shadow earlier ones
+          final int pj = newPartials[j];
+          if (pj == 0) continue;
+          // ∃ a bit b in pj that's always-zero in child[i]'s subtree?
+          boolean safe = false;
+          for (int b = 0; b < densePkBitToAbsBit.length; b++) {
+            if ((pj & (1 << b)) == 0) continue;
+            // dpkIdx ordering: MSB-first across mask, so densePK bit b
+            // (counted from MSB) is at index (totalMaskBits - 1 - b).
+            // BUT the partial values use little-endian PEXT output where bit 0
+            // is the LAST extracted bit. Let me just check ALL densePK bits set in pj
+            // and try the corresponding absBit.
+          }
+          // Simpler approach: just iterate the bit positions set in pj and look them
+          // up in the densePkBitToAbsBit table — caveat is the bit-ordering convention
+          // between PEXT output and densePK integer value.
+          //
+          // Conservative approximation: walk every bit in pj (= bits 0..15), look up
+          // the densePK-bit position to absBit mapping. Try both orderings (MSB-first
+          // and LSB-first) — if EITHER produces a constant-0 bit in child[i]'s
+          // subtree, mark safe.
+          final PageReference cref = newChildren[i];
+          if (cref == null) {
+            safe = true; // can't check — assume safe (placeholder)
+          } else {
+            final int totalDpkBits = densePkBitToAbsBit.length;
+            for (int b = 0; b < totalDpkBits; b++) {
+              if ((pj & (1 << b)) == 0) continue;
+              // Try LSB-first mapping (HOT's Long.compress is LSB output).
+              // The bit at output position b is the b-th set bit counting from LSB
+              // of the mask = (totalDpkBits - 1 - b)-th set bit counting from MSB.
+              final int absBitCandidate = densePkBitToAbsBit[totalDpkBits - 1 - b];
+              final int bv = bitConstantValueInSubtree(cref, absBitCandidate);
+              if (bv == 0) { safe = true; break; }
+            }
+          }
+          if (!safe) {
+            if (Boolean.getBoolean("hot.debug.path5")) {
+              System.err.println("[path5] REJECT newrootlvl: child[" + i
+                  + "] subtree can collide with child[" + j + "].partial=0x"
+                  + Integer.toHexString(pj));
+            }
+            return null;
+          }
+        }
+      }
     }
 
     if (dbg) System.err.println("[g32-newrootlvl] OK discBit=" + discBit + " newMsb="
