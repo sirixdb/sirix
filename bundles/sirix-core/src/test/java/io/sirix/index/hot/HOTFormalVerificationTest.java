@@ -2456,6 +2456,54 @@ final class HOTFormalVerificationTest {
     JsonTestHelper.deleteEverything();
   }
 
+  // ---- Phase 7s-2 split-and-augment characterization --------------------------
+  // Requires -Dhot.strict.phase7s.split=true. Asserts NOTHING; prints split-applied,
+  // split-rollback, and split-noop counts per workload so the Phase 7s-2 helper's
+  // behavior can be tracked against the underlying Phase 7s-1 fallthrough metric.
+  @Test
+  @DisplayName("Phase 7s-2 — split-and-augment counter characterization")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7s2CharacterizeSplitOutcome() {
+    if (!Boolean.getBoolean("hot.strict.phase7s.split")) {
+      return; // skip silently when flag not set
+    }
+    final int n = 10_000;
+    runWithSplitCounters("ascending-10K (control)", n, i -> i);
+    runWithSplitCounters("descending-10K", n, i -> n - 1 - i);
+    runWithSplitCounters("mixed-sign-10K", n, i -> i - (n / 2));
+  }
+
+  private static void runWithSplitCounters(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sSplitApplied();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sSplitRollback();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7sSplitNoop();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long applied = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sSplitApplied();
+    final long rollback = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sSplitRollback();
+    final long noop = io.sirix.access.trx.page.HOTTrieWriter.getPhase7sSplitNoop();
+    System.out.println("[phase7s-2] " + label + " · split-applied=" + applied
+        + " · split-rollback=" + rollback + " · split-noop=" + noop);
+    JsonTestHelper.deleteEverything();
+  }
+
   @Test
   @DisplayName("Comprehensive — random shuffle 10K (seed 0xC0FFEE)")
   @org.junit.jupiter.api.Timeout(value = 120, unit = java.util.concurrent.TimeUnit.SECONDS)

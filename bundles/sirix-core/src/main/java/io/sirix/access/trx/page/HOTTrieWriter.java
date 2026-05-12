@@ -6655,6 +6655,24 @@ public final class HOTTrieWriter {
   public static long getPhase7sAugmentExhausted() { return PHASE7S_AUGMENT_EXHAUSTED.get(); }
   public static void resetPhase7sAugmentExhausted() { PHASE7S_AUGMENT_EXHAUSTED.set(0L); }
 
+  // Phase 7s-2 — split-and-augment counters. APPLIED: split helped (collisions resolved
+  // post-split + re-augmentation, state committed). ROLLBACK: split attempted but the
+  // residual partials still had collisions — state reverted, fall through to legacy
+  // build. NOOP: no colliding pair had a discriminating β-mixed bit available, so
+  // nothing was attempted. Mutually exclusive per buildFlatNonStrict call.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7S_SPLIT_APPLIED =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7S_SPLIT_ROLLBACK =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7S_SPLIT_NOOP =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7sSplitApplied() { return PHASE7S_SPLIT_APPLIED.get(); }
+  public static void resetPhase7sSplitApplied() { PHASE7S_SPLIT_APPLIED.set(0L); }
+  public static long getPhase7sSplitRollback() { return PHASE7S_SPLIT_ROLLBACK.get(); }
+  public static void resetPhase7sSplitRollback() { PHASE7S_SPLIT_ROLLBACK.set(0L); }
+  public static long getPhase7sSplitNoop() { return PHASE7S_SPLIT_NOOP.get(); }
+  public static void resetPhase7sSplitNoop() { PHASE7S_SPLIT_NOOP.set(0L); }
+
   /**
    * Phase 7r-1 — Path 5 routing-collision detector for partial keys in their canonical
    * stored order (= partial-sorted). For each {@code partials[i]} (treated as densePK),
@@ -13875,10 +13893,44 @@ public final class HOTTrieWriter {
     // Bounded: at most {@link #MAX_DISC_BITS}-currentBitCount iterations.
     if (!Boolean.getBoolean("hot.strict.phase7r.augment.disable")
         && children.length >= 2) {
-      partialKeys = phase7rAugmentUntilUnique(children, partialKeys, /*discBitsHolder=*/ new DiscBitsInfo[]{discBits},
-          /*initialBytePosHolder=*/ new int[]{initialBytePos}, pageKey);
-      // Re-read augmented disc-bits info via the holder pattern (mutated in-place).
-      // Read back to local variables for the page-creation call below.
+      final DiscBitsInfo[] discBitsHolder = {discBits};
+      final int[] initialBytePosHolder = {initialBytePos};
+      final long fallthroughBefore = PHASE7S_AUGMENT_FALLTHROUGH.get();
+      partialKeys = phase7rAugmentUntilUnique(children, partialKeys, discBitsHolder,
+          initialBytePosHolder, pageKey);
+      // Read back the augmented disc-bits-mask + initial-byte-pos. The original 7r-2
+      // commit (§7.24) shipped without this read-back — its inline comment "Re-read
+      // augmented disc-bits info via the holder pattern (mutated in-place)" promised
+      // it but the assignments were missing, so `createNodeWithDiscBits` below used
+      // the pre-augmentation mask while `partialKeys` were computed against the
+      // augmented one. Propagating both restores mask/partial coherence and is the
+      // mechanism behind the descending-10K 517 → 258 reduction (50%) without
+      // splitting any leaf. Phase 7s-2 layers an opt-in split on top, but the mask
+      // propagation itself is always-on.
+      discBits = discBitsHolder[0];
+      initialBytePos = initialBytePosHolder[0];
+      final boolean fallthroughFired =
+          PHASE7S_AUGMENT_FALLTHROUGH.get() > fallthroughBefore;
+
+      // Phase 7s-2 — split β-mixed children on the augmented disc bits. Opt-in via
+      // -Dhot.strict.phase7s.split=true. Phase 7s-1 fallthrough means the augmenter
+      // picked a sort-monotone bit that's β-MIXED in some child's subtree, so the
+      // child's storedPartial = PEXT(firstKey, mask) will disagree with PEXT(K, mask)
+      // for some descendant K — I5-leaf-constancy violates. Splitting each β-mixed
+      // child on a β-mixed mask bit yields two β-constant sub-children that route
+      // distinctly. Validate-and-rollback: only commit when every (post-split child,
+      // mask-bit) pair is β-constant and partials remain unique; otherwise revert.
+      if (Boolean.getBoolean("hot.strict.phase7s.split") && fallthroughFired) {
+        final PageReference[][] childrenH = {children};
+        final int[][] partialsH = {partialKeys};
+        if (phase7sSplitAndAugment(childrenH, partialsH, discBitsHolder,
+            initialBytePosHolder, revision, pageKey)) {
+          children = childrenH[0];
+          partialKeys = partialsH[0];
+          discBits = discBitsHolder[0];
+          initialBytePos = initialBytePosHolder[0];
+        }
+      }
     }
     // sortChildrenAndPartialsByPartial preserves the children/partials parallel arrays.
     sortChildrenAndPartialsByPartial(children, partialKeys);
@@ -14044,6 +14096,157 @@ public final class HOTTrieWriter {
       }
     }
     return partials;
+  }
+
+  /**
+   * Phase 7s-2 — Split β-mixed children on their first β-mixed mask bit. Phase 7s-1
+   * fallthrough fires when the augmenter could not find a β-constant + sort-monotone
+   * disc bit and accepted a β-mixed-but-sort-monotone fallback bit instead. That bit
+   * is now in the augmented mask, and at least one child has the bit β-MIXED in its
+   * subtree — its storedPartial = PEXT(firstKey, mask) disagrees with PEXT(K, mask)
+   * for some descendant K, manifesting later as I5-leaf-constancy violations.
+   *
+   * <p>Algorithm: walk every (child, augmented-mask-bit) pair via
+   * {@link #bitConstantValueInSubtree}. For each child β-MIXED at any mask bit, pick
+   * the first such bit X and call {@link #splitSubtreeOnBit} to produce two
+   * β-constant halves at X. The mask already contains X, so the new children's
+   * recomputed partials simply read X from their own firstKey (one half stores 0 at X,
+   * the other stores 1) — partials remain unique by construction at the split bit and
+   * routing distinguishes the halves.
+   *
+   * <p>Validate-and-rollback:
+   * <ol>
+   *   <li>If no splittable β-mixed (child, bit) pair was found → NOOP (return false).</li>
+   *   <li>Run {@link #splitSubtreeOnBit}; on failure, leave child untouched.</li>
+   *   <li>Recompute partials with the unchanged mask + expanded children.</li>
+   *   <li>If routing collisions remain, re-run augmentation; if collisions still
+   *       remain → ROLLBACK.</li>
+   *   <li>Final pass: verify every (post-split child, current mask bit) is β-constant.
+   *       If any pair is still mixed → ROLLBACK (the split did not make progress).</li>
+   *   <li>Commit through the holders.</li>
+   * </ol>
+   *
+   * <p>HFT-grade: bounded N (≤ 32 typical), bounded mask bit count (≤ 32). Each
+   * subtree-walk via {@link #bitConstantValueInSubtree} is itself O(subtree size) but
+   * each child is walked at most a few times per bit. On rollback the split pages
+   * become orphans in the TIL (acceptable for an opt-in path).
+   *
+   * @return true if state was updated (split applied + validation passed), false on
+   *         no-op or rollback.
+   */
+  private boolean phase7sSplitAndAugment(
+      PageReference[][] childrenHolder,
+      int[][] partialsHolder,
+      DiscBitsInfo[] discBitsHolder,
+      int[] initialBytePosHolder,
+      int revision,
+      long pageKey) {
+    final PageReference[] children = childrenHolder[0];
+    final int n = children.length;
+    if (n < 2) return false;
+
+    // Collect augmented disc bits (MSB-first absolute positions).
+    final int[] maskAbsBits = collectDiscBitsMsbFirst(discBitsHolder[0]);
+    if (maskAbsBits.length == 0) return false;
+
+    // For each child, find the first mask bit at which it's β-mixed. Split on it.
+    final PageReference[] expandedBuf = new PageReference[n * 2];
+    int expandedN = 0;
+    int splitCount = 0;
+
+    for (int i = 0; i < n; i++) {
+      final PageReference cref = children[i];
+      if (cref == null) {
+        expandedBuf[expandedN++] = cref;
+        continue;
+      }
+      int mixedBit = -1;
+      for (final int absBit : maskAbsBits) {
+        final int v = bitConstantValueInSubtree(cref, absBit);
+        if (v < 0) {
+          mixedBit = absBit;
+          break;
+        }
+      }
+      if (mixedBit < 0) {
+        expandedBuf[expandedN++] = cref;
+        continue;
+      }
+      final SubtreeSplit ss = splitSubtreeOnBit(cref, mixedBit, activeLog, revision);
+      if (ss == null || ss.leftRef() == null || ss.rightRef() == null) {
+        expandedBuf[expandedN++] = cref;
+        continue;
+      }
+      if (Boolean.getBoolean("hot.debug.phase7s")) {
+        System.err.println("[phase7s-split] child=" + i + " split on absBit=" + mixedBit
+            + " pageKey=" + pageKey);
+      }
+      // expandedBuf is pre-sized to n*2 — each iteration adds ≤ 2 (split = 2, no-split = 1).
+      expandedBuf[expandedN++] = ss.leftRef();
+      expandedBuf[expandedN++] = ss.rightRef();
+      splitCount++;
+    }
+
+    if (splitCount == 0) {
+      PHASE7S_SPLIT_NOOP.incrementAndGet();
+      return false;
+    }
+
+    // Recompute partials with unchanged mask. The split halves' firstKeys differ at the
+    // split bit (one bit value 0, the other 1) so their partials route distinctly there.
+    final PageReference[] expChildren = java.util.Arrays.copyOf(expandedBuf, expandedN);
+    DiscBitsInfo newDiscBits = discBitsHolder[0];
+    int newInitialBytePos = initialBytePosHolder[0];
+    int[] newPartials = computePartialKeysForChildren(expChildren, newDiscBits);
+
+    // Re-augment if residual collisions (new firstKeys may introduce different adjacent
+    // pairs requiring additional bits).
+    if (phase7rRoutingCollisionFirstIdx(newPartials) >= 0) {
+      final DiscBitsInfo[] dbHolder = {newDiscBits};
+      final int[] ibpHolder = {newInitialBytePos};
+      newPartials = phase7rAugmentUntilUnique(expChildren, newPartials, dbHolder, ibpHolder, pageKey);
+      newDiscBits = dbHolder[0];
+      newInitialBytePos = ibpHolder[0];
+    }
+    if (phase7rRoutingCollisionFirstIdx(newPartials) >= 0) {
+      PHASE7S_SPLIT_ROLLBACK.incrementAndGet();
+      if (Boolean.getBoolean("hot.debug.phase7s")) {
+        System.err.println("[phase7s-split] ROLLBACK pageKey=" + pageKey
+            + " splitCount=" + splitCount + " — collisions persist after re-augment");
+      }
+      return false;
+    }
+
+    // Validate β-constancy at every mask bit after split. If any (child, bit) pair is
+    // still β-mixed, the split didn't make progress — rollback to avoid persisting
+    // incremental I5 violations that downstream sites can't fix.
+    final int[] finalMaskBits = collectDiscBitsMsbFirst(newDiscBits);
+    for (int i = 0; i < expChildren.length; i++) {
+      final PageReference c = expChildren[i];
+      if (c == null) continue;
+      for (final int absBit : finalMaskBits) {
+        if (bitConstantValueInSubtree(c, absBit) < 0) {
+          PHASE7S_SPLIT_ROLLBACK.incrementAndGet();
+          if (Boolean.getBoolean("hot.debug.phase7s")) {
+            System.err.println("[phase7s-split] ROLLBACK pageKey=" + pageKey
+                + " — child[" + i + "] still β-mixed at absBit=" + absBit);
+          }
+          return false;
+        }
+      }
+    }
+
+    // Commit — atomic write-back through holders.
+    childrenHolder[0] = expChildren;
+    partialsHolder[0] = newPartials;
+    discBitsHolder[0] = newDiscBits;
+    initialBytePosHolder[0] = newInitialBytePos;
+    PHASE7S_SPLIT_APPLIED.incrementAndGet();
+    if (Boolean.getBoolean("hot.debug.phase7s")) {
+      System.err.println("[phase7s-split] APPLIED pageKey=" + pageKey
+          + " splitCount=" + splitCount + " newN=" + expChildren.length);
+    }
+    return true;
   }
 
   /** Phase 7r-2 helper — check whether a bit (at bytePos, bitInByte MSB-numbered) transitions

@@ -1455,6 +1455,90 @@ encoding (bit-inverted prefix) breaks monotonicity at the sign boundary.
   + `phase7s1CharacterizeAugmentFallthrough` test + `runWithFallthroughCounter` helper.
 - `docs/HOT_PHASE_7Q_DESIGN.md`: §7.25 (this section).
 
+### 7.26 Phase 7s-2 — always-on disc-mask propagation + opt-in split-and-augment helper (2026-05-12)
+
+**Surprise finding.** While building the Phase 7s-2 split helper, a counter
+audit revealed that the Phase 7r-2 augmenter's holder updates for `discBits` and
+`initialBytePos` were never propagated back to the caller in `buildFlatNonStrict`:
+
+```
+// 7r-2 (commit 0590f22af) shipped with this comment but no assignment:
+//   "Re-read augmented disc-bits info via the holder pattern (mutated in-place).
+//    Read back to local variables for the page-creation call below."
+partialKeys = phase7rAugmentUntilUnique(children, partialKeys,
+    new DiscBitsInfo[]{discBits}, new int[]{initialBytePos}, pageKey);
+// → discBits + initialBytePos UNCHANGED here; createNodeWithDiscBits sees pre-aug mask
+```
+
+The recomputed partials were stored against the AUGMENTED mask but the page was
+constructed with the PRE-AUGMENTATION mask. Mask/partial mismatch silently
+absorbed ~50% of descending-10K's residual violations under the old setup —
+fixing the propagation alone reduces descending **517 → 258** (50% additional
+reduction on top of the 7r-2 71% reduction; total 1832 → 258 = **86% drop from
+the original 7r-1 baseline**).
+
+The split helper itself fires but always rolls back on descending-10K (1
+firing → 1 rollback) because validate-and-rollback's final β-constancy check
+catches that the single-bit split does not eliminate every (child, mask-bit)
+β-mixed pair. Scaffolding stays as opt-in (`-Dhot.strict.phase7s.split=true`)
+so the next session can iterate on multi-bit split or relaxed validation
+without re-deriving the structure.
+
+**Empirical readout (default flag set + always-on propagation, no opt-in
+split):**
+
+| Test | Phase 7s-1 baseline | Phase 7s-2 (this commit) | Notes |
+|------|---------------------|--------------------------|-------|
+| 50K diagnosticMicrobenchPatternReproducer | 1 (soft I4) | 1 (soft I4) | unchanged |
+| 100K casIndexHundredKEntryHeightBound | 0 | 0 | preserved |
+| HOTOptionBPhase5Test (15) | pass | pass | preserved |
+| comprehensiveAscending10K | 0 | 0 | preserved |
+| comprehensiveDescending10K | 515 | **258** | **−50%** |
+| comprehensiveMixedSign | 900 | 900 | preserved |
+| comprehensiveBimodal5K+5K | 1280 | 1280 | preserved |
+| comprehensiveRandomShuffle10K | 0 | 0 | preserved |
+| comprehensiveClustered5x2K | 0 | 0 | preserved |
+
+**Counters (with `-Dhot.strict.phase7s.split=true`):**
+
+| Workload | PHASE7S_AUGMENT_FALLTHROUGH | PHASE7S_SPLIT_APPLIED | PHASE7S_SPLIT_ROLLBACK |
+|----------|-----------------------------|-----------------------|------------------------|
+| ascending-10K | 0 | 0 | 0 |
+| descending-10K | **1** (was 945) | 0 | 1 |
+| mixed-sign-10K | 0 | 0 | 0 |
+
+The Phase 7s-1 fallthrough collapse 945 → 1 happens because once the augmented
+mask is actually written through, the downstream build's adjacent-pair scan
+finds different (better) bits initially — most fallthrough events are
+self-eliminating after the propagation fix. The single remaining fallthrough
+is the source of the 258 residual violations and is the next attack vector
+(Phase 7s-3): refining the split helper to actually apply on that one site
+without breaking validate-and-rollback.
+
+**Files touched (Phase 7s-2 commit):**
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + always-on read-back of `discBitsHolder[0]` and `initialBytePosHolder[0]` after
+    `phase7rAugmentUntilUnique` in `buildFlatNonStrict`.
+  + opt-in `phase7sSplitAndAugment` helper that walks every (child, mask-bit)
+    pair via `bitConstantValueInSubtree`, splits each β-mixed child on its first
+    β-mixed bit via `splitSubtreeOnBit`, re-augments, then enforces β-constancy
+    over every (post-split child, mask-bit) pair — rollback on any failure.
+  + `PHASE7S_SPLIT_APPLIED` / `PHASE7S_SPLIT_ROLLBACK` / `PHASE7S_SPLIT_NOOP`
+    counters with get/reset accessors.
+- `bundles/sirix-core/build.gradle`: `hot.strict.phase7s.split` flag (default
+  off).
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  + `phase7s2CharacterizeSplitOutcome` test + `runWithSplitCounters` helper
+    (skipped unless flag set).
+
+**Phase 7s-3 entry point:** Use Phase 7s-1's persistent fallthrough = 1 on
+descending as the targeted bisection point. Either (a) relax the helper's
+final β-constancy check so partial improvement commits when validation
+otherwise passes, or (b) extend the split logic to fire multi-bit splits when
+one β-mixed child has multiple mask bits mixed in its subtree. Both require
+careful protection against mixed-sign regression — the prior prototype
+(reverted) blew up 900 → 9618 on indiscriminate splits.
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to
