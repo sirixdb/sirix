@@ -2812,6 +2812,25 @@ public final class HOTTrieWriter {
         Boolean.getBoolean("hot.strict.phase7q.stripNonConstant");
     final int oldParentMsb = parent.getMostSignificantBitIndex() & 0xFFFF;
     final int newParentMsb = Math.min(oldParentMsb, absBit);
+    // Phase 7q.15e — port the SingleMask `g32.childmsb` strip-bits-≥-minChildMsb gate
+    // to MultiMask. Bucket-indirect's MSB must be strictly less significant (=
+    // numerically greater absBit) than every bucket child's MSB for I11 between
+    // bucket-indirect and its children. Without this gate, MultiMask buckets can
+    // surface 46 equality-I11s under g32.deep cascade (see §7.20).
+    //
+    // Compute minChildMsb across bucket children's MSBs (Integer.MAX_VALUE when
+    // a child is a leaf — leaves don't constrain). Then mark bits with absBit
+    // ≥ minChildMsb for stripping. The existing constancy verify at line 2851+
+    // catches non-constant bits and returns null cleanly (= caller falls back to
+    // wrap, which is the existing safe path).
+    final boolean childMsbStrictMm = Boolean.getBoolean("hot.strict.g32.childmsb");
+    int minChildMsbMm = Integer.MAX_VALUE;
+    if (childMsbStrictMm) {
+      for (int i = 0; i < bucketSize; i++) {
+        final int cm = getIndirectMsbOrMax(replacementRefs[i]);
+        if (cm < minChildMsbMm) minChildMsbMm = cm;
+      }
+    }
     final int[] liftAbsBits = new int[oldNeb * 8];
     int liftCount = 0;
     for (int i = 0; i < oldNeb; i++) {
@@ -2826,6 +2845,10 @@ public final class HOTTrieWriter {
         final int abs = bp * 8 + mfBit;
         if (abs == absBit) continue; // β handled separately.
         if (abs <= newParentMsb) {
+          liftAbsBits[liftCount++] = abs;
+        } else if (childMsbStrictMm && abs >= minChildMsbMm) {
+          // Phase 7q.15e — strip bits ≥ minChildMsb to enforce bucket.MSB <
+          // every-child-MSB for I11. Constancy will be verified below.
           liftAbsBits[liftCount++] = abs;
         } else if (stripNonConstant) {
           // Phase 7q.7 — strip bits > newParentMsb that are non-constant in
@@ -2851,9 +2874,34 @@ public final class HOTTrieWriter {
     for (int k = 0; k < liftCount; k++) {
       final int liftBit = liftAbsBits[k];
       // Phase 7n: bits ≤ newParentMsb MUST be constant. If we collected this bit
-      // via Phase 7q.7 (= it's > newParentMsb), we already know it's non-constant
-      // and we WANT to strip it, so skip the verify. Differentiate via comparison.
-      if (liftBit > newParentMsb) continue; // Phase 7q.7 already verified non-constant
+      // via Phase 7q.7 (stripNonConstant) — by definition non-constant; we accept
+      // the loss of routing for that bit at this level. Phase 7q.15e (childMsbStrictMm)
+      // requires constancy verification too: if the bit ≥ minChildMsb is non-constant
+      // in some bucket child's subtree, stripping it would break PEXT routing through
+      // that child. Distinguish the two paths: 7q.7 path = stripNonConstant flag set;
+      // 7q.15e path = childMsbStrictMm flag set AND liftBit ≥ minChildMsbMm.
+      if (liftBit > newParentMsb) {
+        final boolean fromChildMsbGate =
+            childMsbStrictMm && liftBit >= minChildMsbMm;
+        if (fromChildMsbGate) {
+          // 7q.15e — verify constancy in every bucket child's subtree.
+          for (int i = 0; i < bucketSize; i++) {
+            final PageReference cref = replacementRefs[i];
+            if (cref == null) continue;
+            if (cref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG) continue;
+            final int v = bitConstantValueInSubtree(cref, liftBit);
+            if (v < 0) {
+              if (Boolean.getBoolean("hot.debug.phase7q")) {
+                System.err.println("[bucket-build-mm] FAIL (7q.15e): liftBit=" + liftBit
+                    + " (≥ minChildMsb=" + minChildMsbMm + ") non-constant in bucketChild="
+                    + i + " absBit=" + absBit + " bucketSize=" + bucketSize);
+              }
+              return null;
+            }
+          }
+        }
+        continue; // 7q.7 path: skip verify by design.
+      }
       for (int i = 0; i < bucketSize; i++) {
         final int v = bitConstantValueInSubtree(replacementRefs[i], liftBit);
         if (v < 0) {
