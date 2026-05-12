@@ -10252,14 +10252,21 @@ public final class HOTTrieWriter {
   private boolean hasStructureCycle(HOTIndirectPage indirect) {
     if (indirect == null) return false;
     final java.util.HashSet<Long> visited = new java.util.HashSet<>();
-    return hasStructureCycleInternal(indirect, visited);
+    return hasStructureCycleInternal(indirect, visited, /*depth=*/0, /*parent=*/-1L);
   }
 
   private boolean hasStructureCycleInternal(HOTIndirectPage indirect,
-      java.util.HashSet<Long> visited) {
+      java.util.HashSet<Long> visited, int depth, long parentPageKey) {
     if (indirect == null) return false;
     final long pageKey = indirect.getPageKey();
     if (pageKey >= 0 && !visited.add(pageKey)) {
+      // Phase 7q.15g — diagnostic on cycle detection. Print revisited pageKey
+      // + parent that triggered the revisit + depth in walk. Gated on flag.
+      if (Boolean.getBoolean("hot.debug.phase7q.cyclesource")) {
+        System.err.println("[phase7q.15g-cycle] revisited pageKey=" + pageKey
+            + " via parent pageKey=" + parentPageKey + " walk-depth=" + depth
+            + " visited.size=" + visited.size());
+      }
       return true;
     }
     final int n = indirect.getNumChildren();
@@ -10276,7 +10283,7 @@ public final class HOTTrieWriter {
         if (page != null) cref.setPage(page);
       }
       if (page instanceof HOTIndirectPage childInd) {
-        if (hasStructureCycleInternal(childInd, visited)) return true;
+        if (hasStructureCycleInternal(childInd, visited, depth + 1, pageKey)) return true;
       }
     }
     return false;
