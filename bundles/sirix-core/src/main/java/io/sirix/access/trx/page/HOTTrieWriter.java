@@ -13896,8 +13896,10 @@ public final class HOTTrieWriter {
       final DiscBitsInfo[] discBitsHolder = {discBits};
       final int[] initialBytePosHolder = {initialBytePos};
       final long fallthroughBefore = PHASE7S_AUGMENT_FALLTHROUGH.get();
+      final java.util.BitSet fallthroughAbsBits = Boolean.getBoolean("hot.strict.phase7s.split")
+          ? new java.util.BitSet(256) : null;
       partialKeys = phase7rAugmentUntilUnique(children, partialKeys, discBitsHolder,
-          initialBytePosHolder, pageKey);
+          initialBytePosHolder, pageKey, fallthroughAbsBits);
       // Read back the augmented disc-bits-mask + initial-byte-pos. The original 7r-2
       // commit (§7.24) shipped without this read-back — its inline comment "Re-read
       // augmented disc-bits info via the holder pattern (mutated in-place)" promised
@@ -13924,7 +13926,7 @@ public final class HOTTrieWriter {
         final PageReference[][] childrenH = {children};
         final int[][] partialsH = {partialKeys};
         if (phase7sSplitAndAugment(childrenH, partialsH, discBitsHolder,
-            initialBytePosHolder, revision, pageKey)) {
+            initialBytePosHolder, revision, pageKey, fallthroughAbsBits)) {
           children = childrenH[0];
           partialKeys = partialsH[0];
           discBits = discBitsHolder[0];
@@ -13986,6 +13988,19 @@ public final class HOTTrieWriter {
    */
   private int[] phase7rAugmentUntilUnique(PageReference[] children, int[] partials,
       DiscBitsInfo[] discBitsHolder, int[] initialBytePosHolder, long pageKey) {
+    return phase7rAugmentUntilUnique(children, partials, discBitsHolder, initialBytePosHolder,
+        pageKey, /*outFallthroughAbsBits=*/ null);
+  }
+
+  /**
+   * Overload that exposes the absolute-bit positions chosen during the Phase 7s-1
+   * FALLTHROUGH path — those bits are sort-monotone but β-mixed in some child, so
+   * downstream Phase 7s-2 split logic can target them specifically (vs. the first
+   * β-mixed mask bit which may not match the augmenter's chosen bit).
+   */
+  private int[] phase7rAugmentUntilUnique(PageReference[] children, int[] partials,
+      DiscBitsInfo[] discBitsHolder, int[] initialBytePosHolder, long pageKey,
+      java.util.@Nullable BitSet outFallthroughAbsBits) {
     final int n = children.length;
     if (n < 2) return partials;
     final byte[][] firstKeys = new byte[n][];
@@ -14050,6 +14065,9 @@ public final class HOTTrieWriter {
         augBytePos = fallbackBytePos;
         augBitInByte = fallbackBitInByte;
         PHASE7S_AUGMENT_FALLTHROUGH.incrementAndGet();
+        if (outFallthroughAbsBits != null) {
+          outFallthroughAbsBits.set(augBytePos * 8 + augBitInByte);
+        }
         if (Boolean.getBoolean("hot.debug.phase7s")) {
           System.err.println("[phase7s-augment] FALLTHROUGH-to-7r2 pageKey=" + pageKey
               + " colliding i=" + colI + " j=" + colJ
@@ -14140,7 +14158,8 @@ public final class HOTTrieWriter {
       DiscBitsInfo[] discBitsHolder,
       int[] initialBytePosHolder,
       int revision,
-      long pageKey) {
+      long pageKey,
+      java.util.@Nullable BitSet fallthroughAbsBits) {
     final PageReference[] children = childrenHolder[0];
     final int n = children.length;
     if (n < 2) return false;
@@ -14149,7 +14168,11 @@ public final class HOTTrieWriter {
     final int[] maskAbsBits = collectDiscBitsMsbFirst(discBitsHolder[0]);
     if (maskAbsBits.length == 0) return false;
 
-    // For each child, find the first mask bit at which it's β-mixed. Split on it.
+    // For each child, find a mask bit at which it's β-mixed. Phase 7s-4 priority:
+    // prefer FALLTHROUGH bits (= bits the augmenter chose under Phase 7s-1 fallthrough
+    // for being sort-monotone-but-β-mixed). Splitting on those bits specifically
+    // attacks the root cause of the I5 cascade. Fall back to MSB-first scan over the
+    // full mask only when no fallthrough bit is β-mixed in this child.
     final PageReference[] expandedBuf = new PageReference[n * 2];
     int expandedN = 0;
     int splitCount = 0;
@@ -14161,11 +14184,22 @@ public final class HOTTrieWriter {
         continue;
       }
       int mixedBit = -1;
-      for (final int absBit : maskAbsBits) {
-        final int v = bitConstantValueInSubtree(cref, absBit);
-        if (v < 0) {
-          mixedBit = absBit;
-          break;
+      if (fallthroughAbsBits != null) {
+        for (int ab = fallthroughAbsBits.nextSetBit(0); ab >= 0;
+             ab = fallthroughAbsBits.nextSetBit(ab + 1)) {
+          if (bitConstantValueInSubtree(cref, ab) < 0) {
+            mixedBit = ab;
+            break;
+          }
+        }
+      }
+      if (mixedBit < 0) {
+        for (final int absBit : maskAbsBits) {
+          final int v = bitConstantValueInSubtree(cref, absBit);
+          if (v < 0) {
+            mixedBit = absBit;
+            break;
+          }
         }
       }
       if (mixedBit < 0) {

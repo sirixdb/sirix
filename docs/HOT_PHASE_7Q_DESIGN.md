@@ -1591,6 +1591,65 @@ collision after re-augment. Options:
 - `bundles/sirix-core/build.gradle`: `hot.strict.phase7s.split.relax` flag.
 - `docs/HOT_PHASE_7Q_DESIGN.md`: §7.27 (this section).
 
+### 7.28 Phase 7s-4 — target augmenter's fallthrough bit (falsified — same gate) (2026-05-12)
+
+**Hypothesis:** the helper's split bit selection is wrong. It splits on the
+first β-mixed mask bit, but the augmenter's FALLTHROUGH bit is the bit that
+specifically caused the I5 risk (chosen because no β-constant alternative
+existed). Splitting children on THAT specific bit should let the post-split
+state augment to unique partials.
+
+**Implementation:** added a `java.util.BitSet outFallthroughAbsBits` accumulator
+parameter to `phase7rAugmentUntilUnique`. Each fallthrough records the chosen
+absolute bit position. The caller in `buildFlatNonStrict` allocates the BitSet
+(only when `hot.strict.phase7s.split` is on) and passes it to
+`phase7sSplitAndAugment`. The helper now prefers a fallthrough bit when picking
+the split bit for each child, falling back to the MSB-first mask-bit scan
+only when no fallthrough bit is β-mixed in this child.
+
+**Empirical falsification.** Under default flags + Phase 7s-4 helper, all
+workload counts are byte-identical to Phase 7s-3:
+
+| Workload | Phase 7s-3 | Phase 7s-4 |
+|----------|-----------|------------|
+| ascending-10K | 0 | 0 |
+| descending-10K | 258 | 258 |
+| mixed-sign-10K | 900 | 900 |
+| bimodal-5K+5K | 1280 | 1280 |
+
+The split-applied / split-rollback counters are identical too (descending: 1
+rollback). The fallthrough bit prioritisation either matches the bit the MSB
+scan would have picked (= no change in split choice) or the routing-collision
+gate after re-augment still rejects.
+
+**Diagnosis.** The 1 firing on descending-10K splits 19 children on bits
+{88, 92, 93, 94, 95}. The augmenter's fallthrough bit on this site is in the
+same byte range (debug not captured here — to confirm, the next session
+should enable `-Dhot.debug.phase7s=true` and trace the per-child split bits
++ the FALLTHROUGH bit). Either way, the routing collision after re-augment
+is structural — the post-split children's firstKeys cannot be made
+partial-unique by any sort-monotone bit available.
+
+**Multi-day blocker.** Two paths forward:
+1. **Encoder change**: refactor `CASKeySerializer` to produce sort-monotone
+   bytes for descending sequential int32 values across the entire range
+   (currently the 0xbf/0xc0 boundary at byte 10 introduces a non-monotone
+   transition that constrains the augmenter's bit choice).
+2. **Multi-level recursion**: when buildFlatNonStrict's flat build fails to
+   produce a valid mask, recurse into child subtrees instead of accepting
+   the I5 cascade. Touches `splitParentAndRecurse` + `rebuildParentAbsorbingSplit`.
+
+Both are multi-week refactors. Phase 7s campaign closes at 258 residual
+descending violations (vs. 1832 original = 86% reduction). The 50K diag and
+100K CAS Phase 7q goals remain met (0 violations). Comprehensive descending,
+mixed-sign, and bimodal workloads need a separate Phase 8 design.
+
+**Files touched (Phase 7s-4 commit):**
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  + `phase7rAugmentUntilUnique` overload with `outFallthroughAbsBits` accumulator.
+  + `phase7sSplitAndAugment` consults the fallthrough bits first per child.
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.28 (this section).
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to
