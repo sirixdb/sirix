@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.RemovalListener;
 import io.sirix.page.CASPage;
 import io.sirix.page.HOTIndirectPage;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.page.IndirectPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.NamePage;
@@ -48,17 +49,14 @@ public final class PageCache implements Cache<PageReference, Page> {
       assert page != null;
 
       if (page instanceof KeyValueLeafPage keyValueLeafPage) {
-        // KeyValueLeafPages are stored in RecordPageCache, not here. The branch
-        // remains as defense-in-depth for the rare case where a KVL leaks into
-        // PageCache via the get(K, BiFunction) compute path; close it cleanly.
         if (keyValueLeafPage.getGuardCount() > 0) {
           LOGGER.trace("PageCache: Page {} has active guards ({}), skipping close (cause={})", key.getKey(),
               keyValueLeafPage.getGuardCount(), cause);
           return;
         }
-        LOGGER.trace("PageCache: Closing page {} and releasing segments, cause={}", key.getKey(), cause);
-        LOGGER.debug("PageCache EVICT: closing page {} cause={}", keyValueLeafPage.getPageKey(), cause);
         keyValueLeafPage.close();
+      } else if (page instanceof HOTLeafPage hotLeaf) {
+        hotLeaf.close();
       }
     };
 

@@ -1228,39 +1228,26 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       return;
     }
 
-    if (container.getComplete() instanceof KeyValueLeafPage completePage && !completePage.isClosed()) {
-      // Check if page is in cache
-      PageReference ref = new PageReference().setKey(completePage.getPageKey())
-                                             .setDatabaseId(storageEngineReader.getDatabaseId())
-                                             .setResourceId(storageEngineReader.getResourceId());
-      KeyValueLeafPage cachedPage = storageEngineReader.getBufferManager().getRecordPageCache().get(ref);
-
-      if (cachedPage != completePage) {
-        // Page is NOT in cache - orphaned, must release guard and close
-        if (completePage.getGuardCount() > 0) {
-          completePage.releaseGuard();
-        }
-        completePage.close();
-      }
-      // If page IS in cache, cache will manage it - just drop our reference
+    closeOrphanedPage(container.getComplete());
+    if (container.getModified() != container.getComplete()) {
+      closeOrphanedPage(container.getModified());
     }
+  }
 
-    if (container.getModified() instanceof KeyValueLeafPage modifiedPage && modifiedPage != container.getComplete()
-        && !modifiedPage.isClosed()) {
-      // Check if page is in cache
-      PageReference ref = new PageReference().setKey(modifiedPage.getPageKey())
+  private void closeOrphanedPage(final Page page) {
+    if (page instanceof KeyValueLeafPage kvlPage && !kvlPage.isClosed()) {
+      PageReference ref = new PageReference().setKey(kvlPage.getPageKey())
                                              .setDatabaseId(storageEngineReader.getDatabaseId())
                                              .setResourceId(storageEngineReader.getResourceId());
       KeyValueLeafPage cachedPage = storageEngineReader.getBufferManager().getRecordPageCache().get(ref);
-
-      if (cachedPage != modifiedPage) {
-        // Page is NOT in cache - orphaned, must release guard and close
-        if (modifiedPage.getGuardCount() > 0) {
-          modifiedPage.releaseGuard();
+      if (cachedPage != kvlPage) {
+        if (kvlPage.getGuardCount() > 0) {
+          kvlPage.releaseGuard();
         }
-        modifiedPage.close();
+        kvlPage.close();
       }
-      // If page IS in cache, cache will manage it - just drop our reference
+    } else if (page instanceof HOTLeafPage hotLeaf && !hotLeaf.isClosed()) {
+      hotLeaf.close();
     }
   }
 

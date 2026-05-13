@@ -2,6 +2,7 @@ package io.sirix.cache;
 
 import io.sirix.exception.SirixIOException;
 import org.jspecify.annotations.Nullable;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.interfaces.Page;
 import io.sirix.page.PageReference;
@@ -556,6 +557,8 @@ public final class TransactionIntentLog implements AutoCloseable {
         kvPage.releaseGuard();
       }
       kvPage.close();
+    } else if (page instanceof HOTLeafPage hotLeaf) {
+      hotLeaf.close();
     }
   }
 
