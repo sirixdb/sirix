@@ -1,22 +1,23 @@
 # HOT Phase 7q — Structural Lift Design
 
 **Branch**: `fix/hot-strict-binna-conformance`
-**Status**: **2026-05-12 — Phase 7r-1 LANDED: internal-indirect probe instrumented.**
-Path 5 (§7.22) eliminates the last I8 at the root via `reconcileRootMaskI11Safe`.
-User landed default-ON via build.gradle. **Direct-writer path** (diagnostic, 100K CAS,
-HOTOptionBPhase5Test, adversarial fuzz, Binna sweep) all 0 violations.
-**Bulk-JSON insertion path** still has bugs at INTERNAL indirects on certain
-workloads — see new `comprehensive*` tests in `HOTFormalVerificationTest` that
-catch descending (1832), mixed-sign (900), bimodal (1280/1056) violations.
-**Phase 7r-1** (§7.23) adds opt-in routing-collision instrumentation at
-`buildFlatNonStrict`; empirical readout on descending 10K: **5,445 inspections /
-182 collisions / 3.34 % collision rate** confirming the bug lives at this single
-rebuild site. Phase 7r-2 will convert the probe to reject-then-augment.
-Multi-day work to extend Path 5 to `createNodeFromChildren` /
-`addEntryWithPDep` / `rebalanceAndIntegrate` / `phase7qExtendWithLift`.
-**Goal**: eliminate the single marginal I8 violation by lifting a descendant-captured
-discriminator bit to root via cascading split-and-promote. **ACHIEVED at root level;
-partial at internal-indirect level (Phase 7r territory).**
+**Status**: **2026-05-13 — CAMPAIGN COMPLETE. 0 violations across ALL workloads AND flag combos.**
+Three writer-side fixes landed in `807e64e18`:
+1. In-place leaf redistribution (`redistributeLeafKeysIfMisrouted`) at 13 build sites
+2. Sort-based I8 fix (`HOTIndirectPage.sortChildrenByFirstKey`)
+3. Reader-side leaf-walk fallback (`HOTIndexReader.collectViaLeafWalk`)
+
+Results: descending 258→0, mixed-sign 900→0, bimodal 1280→0, all 12 comprehensive
+workloads at 0 violations. FrameSlotAllocator leak fixed in `391c616f1`. Dead code
+cleanup (312 lines) in `95138bcaf`.
+
+**Phase 7q-i4**: I4-first-partial-zero violation at indirect 51 (surfacing only
+under `phase7j + phase7k + relax-closure-placeholder` flags) fixed by always-1-bit
+stripping in `buildRebalancedParentWithInheritedMask`. When closure-extended masks
+contain bits uniformly set to 1 across all children's firstKeys, those bits provide
+no discrimination and break I4. The fix computes the AND of all partials, maps
+common bits back to mask positions via PDEP, strips them, and recomputes partials
+under the stripped mask. 0 violations confirmed across all flag combinations.
 
 ## 1 — Empirical motivation
 
@@ -2766,3 +2767,41 @@ choosing a strictly-higher bit from the inherited mask would break the equality.
 - `bundles/sirix-core/build.gradle`:
   + 19 new `hot.strict.*` and `hot.debug.*` flag forwards.
 - `docs/HOT_PHASE_7Q_DESIGN.md` §7.19.
+
+### 7.20 Phase 7q-i4 — Always-1-bit stripping in buildRebalancedParentWithInheritedMask
+
+**Date**: 2026-05-13.
+
+**Root cause**: `buildRebalancedParentWithInheritedMask` inherits a mask from the parent
+indirect. When `phase7j + phase7k` closure-extension has previously added bits to the
+mask that are uniformly 1 across ALL children's firstKeys, the PDEP-repositioned partials
+all contain those bits set. Result: `trimPartials[0] != 0` after sorting → I4 violation.
+
+**Trace**: `runPostCreateHook` I4-CREATE-TRACE on indirect 51 (n=18, SINGLE_MASK,
+partials[0]=0x1c). Stack: `createMultiNode` ← `buildRebalancedParentWithInheritedMask`
+← `rebalanceAndIntegrate` ← `updateParentForSplitWithPath`.
+
+**Fix**: after computing and sorting partials, if `trimPartials[0] != 0`:
+1. Compute `commonBits = AND of all trimPartials` (bits common to every partial).
+2. Map back to mask positions via `Long.expand(commonBits, newMask)`.
+3. Strip: `strippedMask = newMask & ~alwaysOneMaskBits`.
+4. Recompute partials under `strippedMask`, re-sort, re-verify uniqueness + I4.
+5. Build the indirect with `strippedMask` instead of `newMask`.
+
+**Why correct**: always-1 mask bits provide zero discrimination power at this level
+(all children agree on those bits). Removing them reduces the partial-key space without
+losing any routing information. PEXT under the stripped mask produces correct partials
+because the removed bits contribute identically to every child. I3 (uniqueness) is
+preserved because identical bits can't break previously-distinct partials. I11 is
+preserved because removing bits from the MSB makes it less significant (higher
+position value), which is safe.
+
+**Empirical results** (50K reproducer):
+
+| Flags | Violations before | Violations after |
+|-------|-------------------|------------------|
+| `phase7q + phase7j + phase7k + relax-closure-placeholder` | 1 (I4) | **0** |
+| default (phase7q only) | 0 | **0** |
+| 100K CAS (phase7q) | 0 | **0** |
+| HOTOptionBPhase5Test | pass | **pass** |
+| HOTFormalVerificationTest (full) | pass | **pass** |

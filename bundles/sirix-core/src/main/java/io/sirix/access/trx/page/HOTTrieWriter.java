@@ -3687,13 +3687,48 @@ public final class HOTTrieWriter {
       }
     }
 
+    long finalMask = newMask;
+    if (trimPartials[0] != 0) {
+      int commonBits = 0xFFFFFFFF;
+      for (int i = 0; i < outIdx; i++) commonBits &= trimPartials[i];
+      if (commonBits != 0) {
+        final long alwaysOneMaskBits = Long.expand(Integer.toUnsignedLong(commonBits), newMask);
+        final long strippedMask = newMask & ~alwaysOneMaskBits;
+        if (Long.bitCount(strippedMask) >= 1) {
+          for (int i = 0; i < outIdx; i++) {
+            final byte[] cKey = getFirstKeyFromChild(trimChildren[i]);
+            trimPartials[i] = (cKey == null || cKey.length == 0) ? 0
+                : computePartialKeySingleMask(cKey, oldInitialBytePos, strippedMask);
+          }
+          sortChildrenAndPartialsByPartial(trimChildren, trimPartials);
+          boolean uniqueAfterStrip = true;
+          for (int i = 1; i < outIdx && uniqueAfterStrip; i++) {
+            for (int k = 0; k < i; k++) {
+              if (trimPartials[k] == trimPartials[i]) { uniqueAfterStrip = false; break; }
+            }
+          }
+          if (!uniqueAfterStrip || trimPartials[0] != 0) {
+            diagnoseIntegrateFail("i4-strip-failed", parent, newAbsBit, outIdx);
+            return null;
+          }
+          finalMask = strippedMask;
+        } else {
+          diagnoseIntegrateFail("i4-mask-empty-after-strip", parent, newAbsBit, outIdx);
+          return null;
+        }
+      } else {
+        diagnoseIntegrateFail("i4-no-common-bits", parent, newAbsBit, outIdx);
+        return null;
+      }
+    }
+
     final HOTIndirectPage rebalResult;
     if (outIdx <= 16) {
       rebalResult = HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
-          oldInitialBytePos, newMask, trimPartials, trimChildren, parent.getHeight());
+          oldInitialBytePos, finalMask, trimPartials, trimChildren, parent.getHeight());
     } else {
       rebalResult = HOTIndirectPage.createMultiNode(parent.getPageKey(), revision,
-          oldInitialBytePos, newMask, trimPartials, trimChildren, parent.getHeight());
+          oldInitialBytePos, finalMask, trimPartials, trimChildren, parent.getHeight());
     }
     return redistributeLeafKeysIfMisrouted(rebalResult, revision);
   }
