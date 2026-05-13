@@ -566,19 +566,6 @@ public abstract class AbstractHOTIndexWriter<K> {
     return page instanceof HOTLeafPage hotLeaf ? hotLeaf : null;
   }
 
-  public void redistributeTrie() {
-    if (rootReference == null) return;
-    prepareIndexPage();
-    final PageReference cowedRoot = prepareIndexPageRootReference(rootReference);
-    final PageReference result = trieWriter.redistributeEntireTrie(
-        cowedRoot, storageEngineWriter.getRevisionNumber());
-    if (result != cowedRoot) {
-      rootReference.setPage(result.getPage());
-      rootReference.setKey(result.getKey());
-      storageEngineWriter.getLog().put(rootReference,
-          PageContainer.getInstance(result.getPage(), result.getPage()));
-    }
-  }
 
   /** No-op: leaf cache was removed (unsafe for HOT's PEXT-based partitioning). */
   protected final void invalidateLeafCache() {
