@@ -6979,6 +6979,34 @@ public final class HOTTrieWriter {
   public static long getPhase7t8BuildflatSelfRoutes() { return PHASE7T8_BUILDFLAT_SELF_ROUTES.get(); }
   public static void resetPhase7t8BuildflatSelfRoutes() { PHASE7T8_BUILDFLAT_SELF_ROUTES.set(0L); }
 
+  // Phase 7t-9 — per-stored-key PEXT simulator at construction time. Walks every key
+  // in every child's subtree, computes real dense PEXT, runs findChildSpanNode, counts
+  // mis-routes by mechanism. Validator's algorithm localised to one build event.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T9_BUILDFLAT_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T9_BUILDFLAT_KEYS_SEEN =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T9_BUILDFLAT_EQUALITY_MISROUTES =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T9_BUILDFLAT_SUBSET_MISROUTES =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7t9BuildflatBuilds() { return PHASE7T9_BUILDFLAT_BUILDS.get(); }
+  public static void resetPhase7t9BuildflatBuilds() { PHASE7T9_BUILDFLAT_BUILDS.set(0L); }
+  public static long getPhase7t9BuildflatKeysSeen() { return PHASE7T9_BUILDFLAT_KEYS_SEEN.get(); }
+  public static void resetPhase7t9BuildflatKeysSeen() { PHASE7T9_BUILDFLAT_KEYS_SEEN.set(0L); }
+  public static long getPhase7t9BuildflatEqualityMisroutes() {
+    return PHASE7T9_BUILDFLAT_EQUALITY_MISROUTES.get();
+  }
+  public static void resetPhase7t9BuildflatEqualityMisroutes() {
+    PHASE7T9_BUILDFLAT_EQUALITY_MISROUTES.set(0L);
+  }
+  public static long getPhase7t9BuildflatSubsetMisroutes() {
+    return PHASE7T9_BUILDFLAT_SUBSET_MISROUTES.get();
+  }
+  public static void resetPhase7t9BuildflatSubsetMisroutes() {
+    PHASE7T9_BUILDFLAT_SUBSET_MISROUTES.set(0L);
+  }
+
   /**
    * Phase 7t-6 — count β-mixed (child, mask-bit) pairs across all set bits of a SingleMask
    * layout. For each bit set in {@code mask}, decode its absolute byte+bit position
@@ -7167,6 +7195,89 @@ public final class HOTTrieWriter {
     result[1] = subsetMisroutes;
     result[2] = selfRoutes;
     return result;
+  }
+
+  /**
+   * Phase 7t-9 — per-stored-key PEXT simulator at indirect build time. For each child[i]
+   * walks every stored key K in the subtree, computes the real dense PEXT
+   * ({@link #computePartialKey}), runs the EXACT {@code findChildSpanNode} routing
+   * (equality preferred, then last-index subset fallback), and counts mis-routes when
+   * the routed child idx differs from {@code i}.
+   *
+   * <p>Returns a 3-element array {@code [keysSeen, equalityMisroutes, subsetMisroutes]}.
+   * Path-2 from §7.34 entry: validator-grade per-key correctness probe at construction
+   * time. Counter-only; gated on {@code -Dhot.strict.phase7t.perkey.probe}.
+   *
+   * <p>HFT-grade NOT — diagnostic, walks all keys recursively. Cost O(K × D) per build
+   * where K = subtree key count; acceptable for 10K-50K diagnostic runs.
+   */
+  private long[] phase7t9CountRealMisroutes(PageReference[] children, int[] partials,
+      DiscBitsInfo discBits) {
+    final long[] result = new long[3];
+    if (children == null || partials == null || children.length < 2) return result;
+    for (int i = 0; i < children.length; i++) {
+      final PageReference c = children[i];
+      if (c == null) continue;
+      phase7t9WalkAndRouteFromChild(c, i, partials, children.length, discBits, result);
+    }
+    return result;
+  }
+
+  /**
+   * Phase 7t-9 walker — recursive descent through HOTIndirectPage / HOTLeafPage subtree.
+   * For each leaf key, computes dense PEXT, runs the routing algorithm, accumulates
+   * mis-route counters in {@code out} ({@code [keysSeen, equalityMisroutes,
+   * subsetMisroutes]}). Matches {@link #bitConstantValueInSubtree}'s page-loading pattern
+   * (TIL-first, then disk).
+   */
+  private void phase7t9WalkAndRouteFromChild(PageReference ref, int ownerIdx, int[] partials,
+      int n, DiscBitsInfo discBits, long[] out) {
+    Page page = ref.getPage();
+    if (page == null && activeLog != null) {
+      final var container = activeLog.get(ref);
+      if (container != null) {
+        page = container.getModified();
+        if (page != null) ref.setPage(page);
+      }
+    }
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, ref);
+      if (page != null) ref.setPage(page);
+    }
+    if (page == null) return;
+    if (page instanceof HOTLeafPage leaf) {
+      final int entryCount = leaf.getEntryCount();
+      for (int e = 0; e < entryCount; e++) {
+        final byte[] k = leaf.getKey(e);
+        if (k == null) continue;
+        final int densePK = computePartialKey(k, discBits);
+        // Mirror findChildSpanNode: equality preferred; else last-index subset match.
+        int exact = -1;
+        for (int j = 0; j < n; j++) {
+          if (partials[j] == densePK) { exact = j; break; }
+        }
+        if (exact >= 0) {
+          out[0]++;
+          if (exact != ownerIdx) out[1]++;
+          continue;
+        }
+        int best = -1;
+        for (int j = 0; j < n; j++) {
+          if ((densePK & partials[j]) == partials[j]) best = j;
+        }
+        out[0]++;
+        if (best >= 0 && best != ownerIdx) out[2]++;
+      }
+      return;
+    }
+    if (page instanceof HOTIndirectPage indirect) {
+      final int m = indirect.getNumChildren();
+      for (int i = 0; i < m; i++) {
+        final PageReference cr = indirect.getChildReference(i);
+        if (cr == null) continue;
+        phase7t9WalkAndRouteFromChild(cr, ownerIdx, partials, n, discBits, out);
+      }
+    }
   }
 
   /**
@@ -14634,6 +14745,18 @@ public final class HOTTrieWriter {
       if (sr[0] > 0) PHASE7T8_BUILDFLAT_EQUALITY_MISROUTES.addAndGet(sr[0]);
       if (sr[1] > 0) PHASE7T8_BUILDFLAT_SUBSET_MISROUTES.addAndGet(sr[1]);
       if (sr[2] > 0) PHASE7T8_BUILDFLAT_SELF_ROUTES.addAndGet(sr[2]);
+    }
+    // Phase 7t-9 — per-stored-key PEXT simulator. §7.36 falsified synthetic-candidate
+    // approaches; 7t-9 walks REAL keys in every child's subtree, computes real dense PEXT,
+    // and runs findChildSpanNode's actual algorithm. Validator-grade per-key correctness
+    // localised to this construction event. Most expensive probe; gated on
+    // -Dhot.strict.phase7t.perkey.probe.
+    if (Boolean.getBoolean("hot.strict.phase7t.perkey.probe")) {
+      PHASE7T9_BUILDFLAT_BUILDS.incrementAndGet();
+      final long[] rm = phase7t9CountRealMisroutes(children, partialKeys, discBits);
+      if (rm[0] > 0) PHASE7T9_BUILDFLAT_KEYS_SEEN.addAndGet(rm[0]);
+      if (rm[1] > 0) PHASE7T9_BUILDFLAT_EQUALITY_MISROUTES.addAndGet(rm[1]);
+      if (rm[2] > 0) PHASE7T9_BUILDFLAT_SUBSET_MISROUTES.addAndGet(rm[2]);
     }
     // Phase 7r-1 — diagnostic Path 5 routing-collision probe. Opt-in via
     // -Dhot.strict.phase7r.routeverify.

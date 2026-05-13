@@ -2447,6 +2447,124 @@ Comprehensive failure counts unchanged because probes are counter-only.
   `phase7t8CharacterizeSubsetRouting` test + `runWithSubsetRoutingProbe` helper.
 - `docs/HOT_PHASE_7Q_DESIGN.md`: §7.36 (this section).
 
+### 7.37 Phase 7t-9 — per-stored-key PEXT simulator captures DESCENDING violations (272 ≈ 258) but redirects BIMODAL search (0 mis-routes at buildFlatNonStrict despite 1280 violations) (2026-05-13)
+
+**Motivation.** §7.36 falsified both synthetic-candidate variants of the
+cross-routing predicate. The remaining diagnostic option is to run the
+validator's actual algorithm at construction time: walk every stored key
+in every child subtree, compute the real dense PEXT, route via
+`findChildSpanNode`, count mis-routes. This is the most expensive probe
+but also the most direct.
+
+**Implementation.** Helper `phase7t9CountRealMisroutes(children[],
+partials[], discBits)` invokes `phase7t9WalkAndRouteFromChild` per child.
+The walker:
+
+1. Loads the subtree page (TIL-first, then disk — same pattern as
+   `bitConstantValueInSubtree`).
+2. On HOTLeafPage: enumerates `(keyIdx, key)` pairs, computes
+   `densePK = computePartialKey(key, discBits)`, runs
+   `findChildSpanNode`'s EXACT algorithm: equality scan first (early-out
+   on hit); else last-index subset match
+   `(densePK & partials[j]) == partials[j]`.
+3. On HOTIndirectPage: recurses into each child reference.
+4. Accumulates `[keysSeen, equalityMisroutes, subsetMisroutes]` and
+   classifies each as mis-route iff routed-child != owner-child.
+
+Counters: `PHASE7T9_BUILDFLAT_{BUILDS,KEYS_SEEN,EQUALITY_MISROUTES,
+SUBSET_MISROUTES}`. Gated on `-Dhot.strict.phase7t.perkey.probe` (default
+off).
+
+**Empirical readout (10K CAS-shred, perkey.probe=true):**
+
+| Workload | builds | keysSeen | equality | subset | validator I6 |
+|----------|--------|----------|----------|--------|---------------|
+| ascending-10K (control) | 18 | 87,572 | 0 | 0 | 0 |
+| descending-10K | 18 | 92,962 | 0 | **272** | **258 ≈ 1:1** |
+| mixed-sign-10K | 24 | 94,979 | 3,291 | 53,234 | 900 |
+| bimodal-5K+5K | 18 | 86,174 | 0 | **0** | **1280** |
+
+**Diagnostic breakthrough — two independent signals.**
+
+(1) **DESCENDING: 272 mis-routes ≈ 258 violations.** First sufficient
+predictor for descending workloads. The slight over-count (5 %) is
+explained by multi-level double-counting: keysSeen = 92,962 = ~9.3× the
+10K input keys, indicating each key is visited at ~9.3 levels of the
+trie's height. Validator-level I6 attributes a violation to the SINGLE
+root-to-leaf descent path; per-build snapshot counts can over-trigger when
+intermediate-level mis-routes self-correct later in the descent.
+
+(2) **BIMODAL: 0 mis-routes at buildFlatNonStrict, 1280 violations.**
+Definitive evidence that bimodal violations do NOT originate at
+buildFlatNonStrict. The origin must be one of:
+
+- `addEntryWithPDep` — leaf-update site that propagates new bits into the
+  parent's mask. β-mixed children created here would never see
+  buildFlatNonStrict.
+- `upgradeToMultiMaskWithNewBit` — re-encoding step that adds bits.
+- `splitParentAndRecurse` / `rebuildParentAbsorbingSplit` — restructure
+  paths invoked when fan-out exceeds N.
+- `buildBucketWithInheritedMaskMultiMask` — bucket subtree builder.
+- Post-construction modifications — leaf inserts that add mis-polarity
+  keys to existing leaves without updating parent partials.
+
+(3) **MIXED-SIGN over-counts 56,525 vs 900 violations.** Per-build
+snapshots flag intermediate-level mis-routes that the actual root-to-leaf
+descent doesn't surface because intermediate mis-routes can lead to
+descent paths that ultimately reach the correct leaf via subset-match
+overlaps at deeper levels.
+
+**Why descending fits but bimodal doesn't (mechanism).**
+
+Descending workloads produce monotonically-decreasing keys. Each
+buildFlatNonStrict event constructs an indirect over children that span a
+contiguous descending range. The dense PEXT for mis-polarity keys
+straightforwardly subset-matches a sibling. Per-build simulation
+correlates strongly with root-to-leaf validation.
+
+Bimodal workloads ({0..5000} ∪ {1000000..1005000}) have keys clustered in
+two disjoint ranges. The buildFlatNonStrict-constructed indirects may
+split children along the cluster boundary perfectly, so the per-key PEXT
+at construction time routes correctly to the owner child. But subsequent
+operations (addEntry of new keys at boundary, splits at the cluster
+edges, ...) can later introduce mis-routes. The buildFlatNonStrict
+snapshot is "clean"; the validator sees post-modification state.
+
+**Phase 7t-10 entry point.** Port the per-key simulator to the other 5
+indirect-construction sites (addEntry, upgrade, splitParent,
+rebuildAbsorb, bucket). Bimodal's 1280 violations should surface at one
+of these. Counter-only.
+
+After 7t-10 localises bimodal, Phase 7t-11 (if needed): instrument the
+validator to attribute each I6 violation to the specific indirect pageKey
+where root-to-leaf descent diverged, and correlate with construction-
+event logs to definitively identify the origin site (covers post-
+construction modification cases that no build-site probe can catch).
+
+**Baselines preserved** (default flags off):
+
+| Test | Result |
+|------|--------|
+| diagnosticMicrobenchPatternReproducer (50K) | 1 I4 violation (unchanged) · height 7 |
+| casIndexHundredKEntryHeightBound (100K) | **0 violations** · height 2 |
+| HOTOptionBPhase5Test (15 tests) | pass |
+
+Comprehensive failure counts unchanged because probes are counter-only.
+The 7t-9 probe is expensive (walks all keys at every buildFlatNonStrict
+event) but bounded; for the 10K diagnostic workload it adds ~10 s to the
+shred-and-commit time. Default-off is critical.
+
+**Files touched (Phase 7t-9 commit):**
+
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  helpers `phase7t9CountRealMisroutes` + `phase7t9WalkAndRouteFromChild`;
+  4 new counters + accessors; probe at `buildFlatNonStrict`.
+- `bundles/sirix-core/build.gradle`: `hot.strict.phase7t.perkey.probe`
+  flag (default `false`).
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  `phase7t9CharacterizePerKey` test + `runWithPerKeyProbe` helper.
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.37 (this section).
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to

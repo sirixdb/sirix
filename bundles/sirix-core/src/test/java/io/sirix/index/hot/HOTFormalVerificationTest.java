@@ -2717,6 +2717,61 @@ final class HOTFormalVerificationTest {
     JsonTestHelper.deleteEverything();
   }
 
+  // Phase 7t-9 — per-stored-key PEXT simulator at construction time. Walks every key
+  // in every child's subtree, computes real dense PEXT, runs findChildSpanNode, counts
+  // mis-routes. This is the validator's algorithm localised. Tells us whether
+  // buildFlatNonStrict is the actual I6 origination site (Phase 7t-7 / 7t-8 falsified
+  // synthetic-candidate predicates). Requires -Dhot.strict.phase7t.perkey.probe=true.
+  @Test
+  @DisplayName("Phase 7t-9 — per-key real mis-route characterization")
+  @org.junit.jupiter.api.Timeout(value = 600, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7t9CharacterizePerKey() {
+    if (!Boolean.getBoolean("hot.strict.phase7t.perkey.probe")) {
+      return; // skip silently when flag not set
+    }
+    final int n = 10_000;
+    runWithPerKeyProbe("ascending-10K (control)", n, i -> i);
+    runWithPerKeyProbe("descending-10K", n, i -> n - 1 - i);
+    runWithPerKeyProbe("mixed-sign-10K", n, i -> i - (n / 2));
+    runWithPerKeyProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
+  }
+
+  private static void runWithPerKeyProbe(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t9BuildflatBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t9BuildflatKeysSeen();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t9BuildflatEqualityMisroutes();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t9BuildflatSubsetMisroutes();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long b = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t9BuildflatBuilds();
+    final long ks = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t9BuildflatKeysSeen();
+    final long eq = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t9BuildflatEqualityMisroutes();
+    final long sub = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t9BuildflatSubsetMisroutes();
+    System.out.println("[phase7t9] " + label
+        + " · builds=" + b
+        + " · keysSeen=" + ks
+        + " · equalityMisroutes=" + eq
+        + " · subsetMisroutes=" + sub);
+    JsonTestHelper.deleteEverything();
+  }
+
   private static void runWithMonotoneProbe(final String label, final int n,
       final java.util.function.IntUnaryOperator valueFn) {
     io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tBuildflatInspections();
