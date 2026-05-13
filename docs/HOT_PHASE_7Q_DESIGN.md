@@ -2191,6 +2191,138 @@ Comprehensive failure counts unchanged because probes are counter-only.
   `phase7t6CharacterizeBetaMixedPairs` test + `runWithBetaMixedProbe` helper.
 - `docs/HOT_PHASE_7Q_DESIGN.md`: §7.34 (this section).
 
+### 7.35 Phase 7t-7 — sibling-cross-routing probe at `buildFlatNonStrict`; FALSIFIES equality-only mis-route hypothesis; reveals subset-match descent as the dominant mechanism (2026-05-13)
+
+**Motivation.** Phase 7t-6 (§7.34) identified `buildFlatNonStrict` as the dominant
+β-mixed-pair producer (1700-2800 per 10K) but also showed the **ASCENDING
+PARADOX**: 1756 β-mixed pairs / 0 downstream violations. Raw β-mixedness is
+necessary but NOT sufficient. The §7.34 entry point hypothesised that adding
+a "some sibling has the inverse-polarity partial" filter would yield a
+sufficient predictor (Path 1).
+
+**Implementation.** Helper `phase7t7CountCrossRoutingMixedPairs(children[],
+partials[], discBits)` collects disc-bit absolute positions via
+`collectDiscBitsMsbFirst` (gives the bit-rank → partial-bit-position map under
+MSB-first encoding from `computeSparsePathRecursive`). For each β-mixed
+`(child[i], β)`:
+
+1. Compute `partialBitPos = totalDiscBits - 1 - discBitIdx` (the position in
+   the partial-key that represents β).
+2. `inversePartial = partials[i] XOR (1 << partialBitPos)`.
+3. Scan siblings; if any `partials[j] == inversePartial`, this is a
+   cross-routing candidate (potential I6 mis-route source).
+4. Else it's `mixedNoCrossRoute` — descent would terminate inside child[i],
+   not triggering I6 via equality routing.
+
+Three new counters (`PHASE7T7_BUILDFLAT_{BUILDS,CROSS_ROUTING_PAIRS,
+MIXED_NO_CROSS_ROUTE}`) + accessors + reset methods. Wired at
+`buildFlatNonStrict` success path (after Phase 7t-6 probe, before Phase 7r-1
+collision probe). Gated on `-Dhot.strict.phase7t.crossroute.probe` (default
+off). Counter-only.
+
+**Empirical readout (10K CAS-shred, crossroute.probe=true):**
+
+| Workload | builds | crossRoutingPairs | mixedNoCrossRoute | validator I6 viol |
+|----------|--------|-------------------|-------------------|-------------------|
+| ascending-10K (control) | 18 | **0** | 1756 | 0 |
+| descending-10K | 18 | **0** | 1722 | 258 |
+| mixed-sign-10K | 24 | 169 | 2579 | 900 |
+| bimodal-5K+5K | 18 | **0** | 1777 | 1280 |
+
+**FALSIFICATION.** Equality-only cross-routing matches **zero** pairs on
+descending and bimodal workloads, yet those produce 258 / 1280 violations
+respectively. Mixed-sign has 169 cross-routing pairs vs 900 violations — also
+under-predicts by 5.3×. The hypothesis "β-mixed (child[i], β) + sibling with
+inverse-polarity partial" is NOT the dominant mis-route mechanism.
+
+**Why the falsification — subset-match descent.**
+
+`HOTIndirectPage.findChildSpanNode` (line ~531) uses a two-pass match:
+
+```java
+for (int i = 0; i < numChildren; i++) {
+  int sparseKey = partialKeys[i];
+  if (sparseKey == densePartialKey) { exact = i; break; }
+  if ((densePartialKey & sparseKey) == sparseKey) best = i;
+}
+return exact >= 0 ? exact : best;
+```
+
+The SUBSET fallback `(densePK & sparseKey) == sparseKey` routes a key K to
+the most-specific child whose sparse partial is a SUBSET of K's dense PEXT.
+This is the HOT paper's sparse-path-encoding requirement. Equality is only
+the FIRST pass; subset is the fallback. Phase 7t-7's predicate only models
+the equality pass — it misses the dominant subset-match mis-routes.
+
+Why descending hits 0 cross-routing but 258 violations:
+
+- The sparse partials computed by `computeSparsePathRecursive` use
+  *trivial-split short-circuits*: if every child in a range agrees on a disc
+  bit, the partial bit stays 0 for everyone in that range. Mis-polarity keys
+  within a β-mixed child have dense PEXT values that differ at β, BUT the
+  stored sparse partials don't necessarily encode that bit at all.
+- A mis-polarity key K with dense_K differing from `partial_i` at the bit
+  for β can still subset-match to a sibling whose `partial_j` is a SUBSET of
+  dense_K (since 0 bits in `partial_j` are "wildcards" under subset
+  matching). The equality probe misses this entirely.
+- Mixed-sign hits 169 because CASKeySerializer's bit-inversion on negatives
+  produces partials at different polarities that happen to also satisfy
+  equality. Descending and bimodal use monotone (non-bit-inverted) regions
+  where the dominant mis-route mechanism is subset-match, not equality.
+
+**Three takeaways.**
+
+(1) **buildFlatNonStrict is still the dominant site by β-mixed-pair count
+(§7.34)** — Phase 7t-7's negative result doesn't refute that. It only
+refutes the cross-routing-via-equality hypothesis.
+
+(2) **Subset-match descent is the missing piece**. Any sufficient predictor
+of I6 violations must simulate the actual `findChildSpanNode` algorithm
+(equality preferred, subset fallback, most-specific tie-break).
+
+(3) **Mixed-sign's 169 / 900 partial coverage** suggests equality matches
+account for ~19 % of mixed-sign violations, but subset matches dominate the
+other workloads entirely. The mechanism is workload-dependent (encoding
+matters).
+
+**Phase 7t-8 entry point.** Replace the equality-only predicate with a
+subset-match-aware predicate:
+
+For each β-mixed `(child[i], β)`:
+1. Synthesise `dense_K_candidate = partial_i XOR (1 << partialBitPos)` (the
+   dense PEXT a mis-polarity key would produce against the current sparse
+   encoding's bits).
+2. Run `findChildSpanNode`'s algorithm: scan siblings; pick j with
+   `partial_j == dense_K_candidate` (exact) or the most-specific subset
+   `(dense_K_candidate & partial_j) == partial_j`.
+3. If picked j ≠ i → mis-route candidate. Count.
+
+Cost: O(D · N²) per indirect build (D = disc bits, N = children). For
+typical N ≤ 64 and D ≤ 32 this is bounded. Alternative (more accurate but
+expensive): per-stored-key simulator that walks every key in every child's
+subtree and runs findChildIndex.
+
+**Baselines preserved** (default flags off):
+
+| Test | Result |
+|------|--------|
+| diagnosticMicrobenchPatternReproducer (50K) | 1 I4 violation (unchanged from §7.34) · height 7 · build 6.7 s |
+| casIndexHundredKEntryHeightBound (100K) | **0 violations** · height 2 · build 7.7 s |
+| HOTOptionBPhase5Test (15 tests) | pass |
+
+Comprehensive failure counts unchanged because probes are counter-only.
+
+**Files touched (Phase 7t-7 commit):**
+
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  +60 lines — `phase7t7CountCrossRoutingMixedPairs` helper; 3 new
+  `PHASE7T7_*` counters + accessors; probe at `buildFlatNonStrict`.
+- `bundles/sirix-core/build.gradle`: `hot.strict.phase7t.crossroute.probe`
+  flag (default `false`).
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  `phase7t7CharacterizeCrossRouting` test + `runWithCrossRoutingProbe` helper.
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.35 (this section).
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to

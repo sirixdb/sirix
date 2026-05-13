@@ -2610,6 +2610,58 @@ final class HOTFormalVerificationTest {
     JsonTestHelper.deleteEverything();
   }
 
+  // Phase 7t-7 — sibling-cross-routing probe. Filters β-mixed pairs found by 7t-6 by the
+  // additional condition "some sibling has the inverse-polarity partial"; counts both
+  // CROSS_ROUTING (potential I6 mis-route source) and MIXED_NO_CROSS_ROUTE (descent
+  // terminates inside the same child, harmless w.r.t. I6). Requires
+  // -Dhot.strict.phase7t.crossroute.probe=true.
+  @Test
+  @DisplayName("Phase 7t-7 — sibling-cross-routing characterization")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7t7CharacterizeCrossRouting() {
+    if (!Boolean.getBoolean("hot.strict.phase7t.crossroute.probe")) {
+      return; // skip silently when flag not set
+    }
+    final int n = 10_000;
+    runWithCrossRoutingProbe("ascending-10K (control)", n, i -> i);
+    runWithCrossRoutingProbe("descending-10K", n, i -> n - 1 - i);
+    runWithCrossRoutingProbe("mixed-sign-10K", n, i -> i - (n / 2));
+    runWithCrossRoutingProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
+  }
+
+  private static void runWithCrossRoutingProbe(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t7BuildflatBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t7BuildflatCrossRoutingPairs();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t7BuildflatMixedNoCrossRoute();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long bfB = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t7BuildflatBuilds();
+    final long bfX = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t7BuildflatCrossRoutingPairs();
+    final long bfN = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t7BuildflatMixedNoCrossRoute();
+    System.out.println("[phase7t7] " + label
+        + " · builds=" + bfB
+        + " · crossRoutingPairs=" + bfX
+        + " · mixedNoCrossRoute=" + bfN);
+    JsonTestHelper.deleteEverything();
+  }
+
   private static void runWithMonotoneProbe(final String label, final int n,
       final java.util.function.IntUnaryOperator valueFn) {
     io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tBuildflatInspections();

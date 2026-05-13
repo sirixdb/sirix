@@ -6925,6 +6925,31 @@ public final class HOTTrieWriter {
   public static long getPhase7t6RebalanceMixedPairs() { return PHASE7T6_REBALANCE_MIXED_PAIRS.get(); }
   public static void resetPhase7t6RebalanceMixedPairs() { PHASE7T6_REBALANCE_MIXED_PAIRS.set(0L); }
 
+  // Phase 7t-7 — sibling-cross-routing probe counters. CROSS_ROUTING_PAIRS counts
+  // β-mixed (child, β) pairs whose inverse-polarity partial matches an existing sibling
+  // (potential I6 mis-route); MIXED_NO_CROSS_ROUTE counts pairs where no sibling matches
+  // (descent terminates inside the same child — not an I6 violation).
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T7_BUILDFLAT_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T7_BUILDFLAT_CROSS_ROUTING_PAIRS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T7_BUILDFLAT_MIXED_NO_CROSS_ROUTE =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7t7BuildflatBuilds() { return PHASE7T7_BUILDFLAT_BUILDS.get(); }
+  public static void resetPhase7t7BuildflatBuilds() { PHASE7T7_BUILDFLAT_BUILDS.set(0L); }
+  public static long getPhase7t7BuildflatCrossRoutingPairs() {
+    return PHASE7T7_BUILDFLAT_CROSS_ROUTING_PAIRS.get();
+  }
+  public static void resetPhase7t7BuildflatCrossRoutingPairs() {
+    PHASE7T7_BUILDFLAT_CROSS_ROUTING_PAIRS.set(0L);
+  }
+  public static long getPhase7t7BuildflatMixedNoCrossRoute() {
+    return PHASE7T7_BUILDFLAT_MIXED_NO_CROSS_ROUTE.get();
+  }
+  public static void resetPhase7t7BuildflatMixedNoCrossRoute() {
+    PHASE7T7_BUILDFLAT_MIXED_NO_CROSS_ROUTE.set(0L);
+  }
+
   /**
    * Phase 7t-6 — count β-mixed (child, mask-bit) pairs across all set bits of a SingleMask
    * layout. For each bit set in {@code mask}, decode its absolute byte+bit position
@@ -6978,6 +7003,64 @@ public final class HOTTrieWriter {
       }
     }
     return count;
+  }
+
+  /**
+   * Phase 7t-7 — sibling-cross-routing detector. For each β-mixed (child[i], β) pair in
+   * a freshly-constructed indirect's children + final disc bits, check whether some
+   * sibling child[j ≠ i] has a partial that differs from {@code partials[i]} only at the
+   * single PEXT-output bit corresponding to β.
+   *
+   * <p>If such a sibling exists, the mis-polarity keys in child[i]'s subtree would
+   * PEXT-descend to child[j], which (in the common case where child[j] doesn't actually
+   * contain those keys) is precisely the I6 mis-route condition.
+   *
+   * <p>Returns a 2-element array {@code [crossRoutingPairs, mixedNoCrossRoute]} where
+   * the first count is β-mixed pairs that DO have a matching inverse-polarity sibling,
+   * and the second is β-mixed pairs whose inverse-polarity partial matches NO sibling
+   * (descent would terminate inside child[i] — not an I6 violation).
+   *
+   * <p>HFT-grade: O(D · N) where D = #disc bits ≤ MAX_DISC_BITS = 32, N = #children.
+   * The PEXT-rank table is precomputed once via {@link #collectDiscBitsMsbFirst}.
+   * Counter-only; runs only when {@code -Dhot.strict.phase7t.crossroute.probe=true}.
+   */
+  private int[] phase7t7CountCrossRoutingMixedPairs(PageReference[] children, int[] partials,
+      DiscBitsInfo discBits) {
+    final int[] result = new int[2];
+    if (children == null || partials == null || children.length < 2) return result;
+    final int[] discAbsPositions = collectDiscBitsMsbFirst(discBits);
+    final int totalDiscBits = discAbsPositions.length;
+    if (totalDiscBits == 0) return result;
+    int crossRoutingPairs = 0;
+    int mixedNoCrossRoute = 0;
+    for (int discBitIdx = 0; discBitIdx < totalDiscBits; discBitIdx++) {
+      final int absBit = discAbsPositions[discBitIdx];
+      // partial-bit position = (totalDiscBits - 1 - discBitIdx)  (MSB-first; see
+      // computeSparsePathRecursive: bit (totalDiscBits-1) = MSB of partial.)
+      final int partialBitPos = totalDiscBits - 1 - discBitIdx;
+      final int partialBitMask = 1 << partialBitPos;
+      for (int i = 0; i < children.length; i++) {
+        final PageReference c = children[i];
+        if (c == null) continue;
+        if (bitConstantValueInSubtree(c, absBit) >= 0) continue;
+        // (child[i], absBit) is β-mixed. Test whether sibling[j] has partial differing
+        // only at partialBitPos.
+        final int inversePartial = partials[i] ^ partialBitMask;
+        boolean foundCrossRoute = false;
+        for (int j = 0; j < children.length; j++) {
+          if (j == i || children[j] == null) continue;
+          if (partials[j] == inversePartial) {
+            foundCrossRoute = true;
+            break;
+          }
+        }
+        if (foundCrossRoute) crossRoutingPairs++;
+        else mixedNoCrossRoute++;
+      }
+    }
+    result[0] = crossRoutingPairs;
+    result[1] = mixedNoCrossRoute;
+    return result;
   }
 
   /**
@@ -14419,6 +14502,20 @@ public final class HOTTrieWriter {
           if (mixed > 0) PHASE7T6_BUILDFLAT_MIXED_PAIRS.addAndGet(mixed);
         }
       }
+    }
+    // Phase 7t-7 — sibling-cross-routing probe. For each β-mixed (child, β) pair found
+    // by 7t-6, additionally check whether some sibling has the inverse-polarity partial
+    // (i.e., partial[i] XOR (1 << pextRank(β))). When such a sibling exists, the mis-
+    // polarity keys in child[i]'s subtree would PEXT-descend into it — the structural
+    // precondition for an I6 violation. The validator confirms violation per-key, so
+    // this is an upper bound on I6 mis-route origination; counts should approach (but
+    // exceed) actual violation counts. Counter-only; gated on
+    // -Dhot.strict.phase7t.crossroute.probe.
+    if (Boolean.getBoolean("hot.strict.phase7t.crossroute.probe")) {
+      PHASE7T7_BUILDFLAT_BUILDS.incrementAndGet();
+      final int[] cr = phase7t7CountCrossRoutingMixedPairs(children, partialKeys, discBits);
+      if (cr[0] > 0) PHASE7T7_BUILDFLAT_CROSS_ROUTING_PAIRS.addAndGet(cr[0]);
+      if (cr[1] > 0) PHASE7T7_BUILDFLAT_MIXED_NO_CROSS_ROUTE.addAndGet(cr[1]);
     }
     // Phase 7r-1 — diagnostic Path 5 routing-collision probe. Opt-in via
     // -Dhot.strict.phase7r.routeverify.
