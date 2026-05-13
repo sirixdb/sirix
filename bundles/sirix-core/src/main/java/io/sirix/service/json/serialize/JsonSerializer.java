@@ -685,7 +685,7 @@ public final class JsonSerializer extends AbstractSerializer<JsonNodeReadOnlyTrx
           : revisions.length;
 
       if (emitXQueryResultSequence || length > 1) {
-        if (rtx.moveToDocumentRoot() && rtx.hasFirstChild())
+        if (rtx.moveToDocumentRoot() && rtx.hasFirstChild() && !stack.isEmpty())
           stack.popLong();
         appendObjectEnd(rtx.hasChildren());
 
