@@ -2323,6 +2323,130 @@ Comprehensive failure counts unchanged because probes are counter-only.
   `phase7t7CharacterizeCrossRouting` test + `runWithCrossRoutingProbe` helper.
 - `docs/HOT_PHASE_7Q_DESIGN.md`: §7.35 (this section).
 
+### 7.36 Phase 7t-8 — subset-match-aware mis-route probe; ALSO FALSIFIES `buildFlatNonStrict` as the I6 origination site (2026-05-13)
+
+**Motivation.** §7.35 falsified the equality-only cross-routing predicate.
+The natural extension was to add subset-match (the actual second pass in
+`findChildSpanNode`) to the predicate. If buildFlatNonStrict is the
+violation source, an equality-then-subset model should reproduce the
+validator's I6 count.
+
+**Implementation.** Helper `phase7t8CountSubsetRoutingMisroutes(children[],
+partials[], discBits)` mirrors `findChildSpanNode` exactly:
+
+1. For each β-mixed `(child[i], β)`: synthesise
+   `densePkCandidate = partial_i XOR (1 << partialBitPos)`.
+2. Step-1 equality scan: pick j with `partials[j] == densePkCandidate`.
+3. Step-2 subset scan: pick the most-specific (highest-popcount, last-on-tie)
+   j with `(densePkCandidate & partials[j]) == partials[j]`.
+4. Classify as `EQUALITY_MISROUTES` / `SUBSET_MISROUTES` / `SELF_ROUTES`
+   based on the picked j.
+
+Four new counters (`PHASE7T8_BUILDFLAT_{BUILDS,EQUALITY_MISROUTES,SUBSET_MISROUTES,SELF_ROUTES}`)
++ accessors. Wired at `buildFlatNonStrict` success after the §7.35 probe.
+Gated on `-Dhot.strict.phase7t.subsetroute.probe` (default off). Counter-only.
+
+**Empirical readout (10K CAS-shred, subsetroute.probe=true):**
+
+| Workload | builds | equality | subset | selfRoutes | validator I6 |
+|----------|--------|----------|--------|------------|---------------|
+| ascending-10K (control) | 18 | 0 | 0 | 1756 | 0 |
+| descending-10K | 18 | 0 | **1** | 1721 | 258 |
+| mixed-sign-10K | 24 | 169 | 113 | 2466 | 900 |
+| bimodal-5K+5K | 18 | 0 | **0** | 1777 | 1280 |
+
+**Second falsification.** Even with subset-match included, descending shows
+**1 mis-route** vs 258 violations, bimodal **0 mis-routes** vs 1280 violations.
+Mixed-sign captures 282 / 900 (31 %). The selfRoutes column dominates ~99 %
+of β-mixed pairs across all workloads.
+
+**Why — synthetic densePkCandidate is geometrically wrong.**
+
+The synthetic `partial_i XOR (1 << r)` is not a valid dense PEXT. The real
+dense PEXT of any key K is computed as `Long.compress(keyWord, bitMask)` —
+it draws bits from ALL positions in the mask, including disc bits that
+sparse-path encoding trivially short-circuits to 0 in every child's
+partial. So real dense PEXTs typically have MORE bits set than any stored
+partial. Subset-match then favors the highest-popcount partial that fits
+under the dense PEXT — usually a child whose partial encodes the most
+distinguishing bits.
+
+By contrast, `partial_i XOR (1 << r)` produces a value that differs from
+partial_i at exactly one bit:
+- If bit r in partial_i was 0: candidate = partial_i | (1<<r). partial_i is
+  a strict subset of the candidate (popcount = |partial_i|).
+- If bit r in partial_i was 1: candidate = partial_i & ~(1<<r). partial_i is
+  NOT a subset of the candidate (it has the bit, the candidate doesn't).
+
+In either case, the most-specific subset of the synthetic candidate among
+sibling partials is OFTEN partial_i itself (since other siblings differ
+from partial_i at multiple bits, hence are NOT subsets of the candidate).
+Hence `selfRoutes` dominates.
+
+The real validator's dense PEXTs are produced from actual stored keys,
+which carry information about all the disc bits including the ones zeroed
+by sparse-path. Phase 7t-8's synthetic can't model that.
+
+**Implication: I6 origination is NOT at `buildFlatNonStrict` (likely).**
+
+If buildFlatNonStrict were the dominant I6 source, the per-(child, β)
+combinatorial space would include the mis-routes — but it doesn't. The
+violations must originate either:
+
+1. **At post-construction modifications.** Subsequent leaf inserts, leaf
+   splits, or addEntryWithPDep paths may add mis-polarity keys to leaves
+   without updating the parent indirect's partials. The validator walks
+   the FINAL trie state, so violations materialise from accumulated
+   modifications.
+2. **At other indirect-construction sites.** `addEntryWithPDep`,
+   `upgradeToMultiMaskWithNewBit`, `splitParentAndRecurse`,
+   `rebuildParentAbsorbingSplit`. 7t-6 showed their β-mixed counts are
+   1-2 OOM lower, but if the mis-routing density per pair is much higher,
+   they may dominate I6.
+3. **Real per-key densities differ.** Even if buildFlatNonStrict's
+   children are β-mixed, the actual keys in them may PEXT-route correctly
+   under subset-match in most cases — and only a small fraction mis-route.
+   The aggregate β-mixed count vastly overstates the mis-route density.
+
+**Phase 7t-9 entry point.** Replace the synthetic-candidate predicate with
+a **per-stored-key PEXT simulator at construction time**:
+
+1. For each freshly-built indirect, walk every stored key K reachable
+   from each child subtree.
+2. Compute the dense PEXT of K against the indirect's mask.
+3. Run `findChildSpanNode`'s algorithm to determine the routed child.
+4. If routed child ≠ K's actual containing child → real mis-route.
+
+Counter the mis-routes per construction site. This will give us the
+SUFFICIENT predictor (it's the validator's exact algorithm, just localised
+to one construction event). Cost is O(K × D) per build where K = total keys
+in subtree — acceptable for diagnostic runs.
+
+Alternative: instrument the validator to ATTRIBUTE each I6 violation to
+the specific indirect pageKey where the mis-route diverges, then correlate
+with construction-event logs to localise the origin site.
+
+**Baselines preserved** (default flags off):
+
+| Test | Result |
+|------|--------|
+| diagnosticMicrobenchPatternReproducer (50K) | 1 I4 violation (unchanged) · height 7 · build 6.7 s |
+| casIndexHundredKEntryHeightBound (100K) | **0 violations** · height 2 · build 7.7 s |
+| HOTOptionBPhase5Test (15 tests) | pass |
+
+Comprehensive failure counts unchanged because probes are counter-only.
+
+**Files touched (Phase 7t-8 commit):**
+
+- `bundles/sirix-core/src/main/java/io/sirix/access/trx/page/HOTTrieWriter.java`:
+  helper `phase7t8CountSubsetRoutingMisroutes`; 4 new counters + accessors;
+  probe at `buildFlatNonStrict`.
+- `bundles/sirix-core/build.gradle`: `hot.strict.phase7t.subsetroute.probe`
+  flag (default `false`).
+- `bundles/sirix-core/src/test/java/io/sirix/index/hot/HOTFormalVerificationTest.java`:
+  `phase7t8CharacterizeSubsetRouting` test + `runWithSubsetRoutingProbe` helper.
+- `docs/HOT_PHASE_7Q_DESIGN.md`: §7.36 (this section).
+
 ### 7.21 Phase 7q.15e + 7q.15f — port `g32.childmsb` to MultiMask + structure-cycle gate (2026-05-12)
 
 **7q.15e**: ported the SingleMask `g32.childmsb` gate to

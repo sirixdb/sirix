@@ -6950,6 +6950,35 @@ public final class HOTTrieWriter {
     PHASE7T7_BUILDFLAT_MIXED_NO_CROSS_ROUTE.set(0L);
   }
 
+  // Phase 7t-8 — subset-match-aware mis-route counters. EQUALITY = mis-polarity dense PEXT
+  // exact-matches a sibling partial (validator picks sibling via Step 1 of findChildSpanNode);
+  // SUBSET = no equality match but a most-specific subset sibling exists (Step 2 fallback);
+  // SELF = mis-polarity dense PEXT still routes back to the same child (no I6 mis-route).
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T8_BUILDFLAT_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T8_BUILDFLAT_EQUALITY_MISROUTES =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T8_BUILDFLAT_SUBSET_MISROUTES =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T8_BUILDFLAT_SELF_ROUTES =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7t8BuildflatBuilds() { return PHASE7T8_BUILDFLAT_BUILDS.get(); }
+  public static void resetPhase7t8BuildflatBuilds() { PHASE7T8_BUILDFLAT_BUILDS.set(0L); }
+  public static long getPhase7t8BuildflatEqualityMisroutes() {
+    return PHASE7T8_BUILDFLAT_EQUALITY_MISROUTES.get();
+  }
+  public static void resetPhase7t8BuildflatEqualityMisroutes() {
+    PHASE7T8_BUILDFLAT_EQUALITY_MISROUTES.set(0L);
+  }
+  public static long getPhase7t8BuildflatSubsetMisroutes() {
+    return PHASE7T8_BUILDFLAT_SUBSET_MISROUTES.get();
+  }
+  public static void resetPhase7t8BuildflatSubsetMisroutes() {
+    PHASE7T8_BUILDFLAT_SUBSET_MISROUTES.set(0L);
+  }
+  public static long getPhase7t8BuildflatSelfRoutes() { return PHASE7T8_BUILDFLAT_SELF_ROUTES.get(); }
+  public static void resetPhase7t8BuildflatSelfRoutes() { PHASE7T8_BUILDFLAT_SELF_ROUTES.set(0L); }
+
   /**
    * Phase 7t-6 — count β-mixed (child, mask-bit) pairs across all set bits of a SingleMask
    * layout. For each bit set in {@code mask}, decode its absolute byte+bit position
@@ -7060,6 +7089,83 @@ public final class HOTTrieWriter {
     }
     result[0] = crossRoutingPairs;
     result[1] = mixedNoCrossRoute;
+    return result;
+  }
+
+  /**
+   * Phase 7t-8 — subset-match-aware mis-route detector. Mirrors
+   * {@link io.sirix.page.HOTIndirectPage#findChildSpanNode(byte[])} routing exactly:
+   * (1) equality on {@code densePartialKey} preferred; (2) else most-specific subset
+   * where {@code (densePK & sparseKey) == sparseKey}; (3) caller picks last subset match
+   * (highest index) — for the validator's order-dependent subset fallback we instead pick
+   * the highest-popcount subset to capture "most specific."
+   *
+   * <p>For each β-mixed {@code (child[i], β)} pair this synthesises the candidate dense
+   * PEXT that a mis-polarity key would produce: {@code partial_i XOR (1 << partialBitPos)}.
+   * Runs the routing algorithm on this synthetic dense; counts as a mis-route if the
+   * resulting child index differs from {@code i}. Returns a 3-element array
+   * {@code [equalityMisroutes, subsetMisroutes, selfRoutes]}.
+   *
+   * <p>Counter-only; gated on {@code -Dhot.strict.phase7t.subsetroute.probe}.
+   */
+  private int[] phase7t8CountSubsetRoutingMisroutes(PageReference[] children, int[] partials,
+      DiscBitsInfo discBits) {
+    final int[] result = new int[3];
+    if (children == null || partials == null || children.length < 2) return result;
+    final int[] discAbsPositions = collectDiscBitsMsbFirst(discBits);
+    final int totalDiscBits = discAbsPositions.length;
+    if (totalDiscBits == 0) return result;
+    int equalityMisroutes = 0;
+    int subsetMisroutes = 0;
+    int selfRoutes = 0;
+    for (int discBitIdx = 0; discBitIdx < totalDiscBits; discBitIdx++) {
+      final int absBit = discAbsPositions[discBitIdx];
+      final int partialBitPos = totalDiscBits - 1 - discBitIdx;
+      final int partialBitMask = 1 << partialBitPos;
+      for (int i = 0; i < children.length; i++) {
+        final PageReference c = children[i];
+        if (c == null) continue;
+        if (bitConstantValueInSubtree(c, absBit) >= 0) continue;
+        // β-mixed; synthesise the mis-polarity dense PEXT candidate.
+        final int densePkCandidate = partials[i] ^ partialBitMask;
+        // Step 1 — exact-match scan. equality-preferred per findChildSpanNode.
+        int exact = -1;
+        for (int j = 0; j < children.length; j++) {
+          if (children[j] == null) continue;
+          if (partials[j] == densePkCandidate) { exact = j; break; }
+        }
+        if (exact >= 0) {
+          if (exact == i) selfRoutes++;
+          else equalityMisroutes++;
+          continue;
+        }
+        // Step 2 — most-specific subset. We pick the highest-popcount partial that is a
+        // subset of densePkCandidate. Tie-break: last (highest-index) match, mirroring
+        // findChildSpanNode's loop semantics (it picks the last `best` it sees).
+        int subsetPick = -1;
+        int subsetPickPop = -1;
+        for (int j = 0; j < children.length; j++) {
+          if (children[j] == null) continue;
+          final int sp = partials[j];
+          if ((densePkCandidate & sp) != sp) continue;
+          final int pop = Integer.bitCount(sp);
+          if (pop > subsetPickPop || (pop == subsetPickPop && j > subsetPick)) {
+            subsetPick = j;
+            subsetPickPop = pop;
+          }
+        }
+        if (subsetPick < 0) {
+          // no candidate matched even by subset → routing failure not counted here
+          // (validator surfaces NOT_FOUND as a different invariant violation type).
+          continue;
+        }
+        if (subsetPick == i) selfRoutes++;
+        else subsetMisroutes++;
+      }
+    }
+    result[0] = equalityMisroutes;
+    result[1] = subsetMisroutes;
+    result[2] = selfRoutes;
     return result;
   }
 
@@ -14516,6 +14622,18 @@ public final class HOTTrieWriter {
       final int[] cr = phase7t7CountCrossRoutingMixedPairs(children, partialKeys, discBits);
       if (cr[0] > 0) PHASE7T7_BUILDFLAT_CROSS_ROUTING_PAIRS.addAndGet(cr[0]);
       if (cr[1] > 0) PHASE7T7_BUILDFLAT_MIXED_NO_CROSS_ROUTE.addAndGet(cr[1]);
+    }
+    // Phase 7t-8 — subset-match-aware mis-route probe. §7.35 falsified equality-only
+    // cross-routing on descending / bimodal workloads (0 cross-routing pairs vs 258 /
+    // 1280 violations). 7t-8 mirrors findChildSpanNode's equality-then-subset routing
+    // and counts mis-routes by mechanism (equality vs subset). Counter-only; gated on
+    // -Dhot.strict.phase7t.subsetroute.probe.
+    if (Boolean.getBoolean("hot.strict.phase7t.subsetroute.probe")) {
+      PHASE7T8_BUILDFLAT_BUILDS.incrementAndGet();
+      final int[] sr = phase7t8CountSubsetRoutingMisroutes(children, partialKeys, discBits);
+      if (sr[0] > 0) PHASE7T8_BUILDFLAT_EQUALITY_MISROUTES.addAndGet(sr[0]);
+      if (sr[1] > 0) PHASE7T8_BUILDFLAT_SUBSET_MISROUTES.addAndGet(sr[1]);
+      if (sr[2] > 0) PHASE7T8_BUILDFLAT_SELF_ROUTES.addAndGet(sr[2]);
     }
     // Phase 7r-1 — diagnostic Path 5 routing-collision probe. Opt-in via
     // -Dhot.strict.phase7r.routeverify.

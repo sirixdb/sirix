@@ -2662,6 +2662,61 @@ final class HOTFormalVerificationTest {
     JsonTestHelper.deleteEverything();
   }
 
+  // Phase 7t-8 — subset-match-aware mis-route probe. Phase 7t-7 falsified equality-only
+  // cross-routing on descending/bimodal workloads (0 cross-routing pairs but 258/1280
+  // actual I6 violations). 7t-8 mirrors HOTIndirectPage.findChildSpanNode routing
+  // (equality first, then most-specific subset where (densePK & sparseKey) == sparseKey)
+  // to count mis-routes by mechanism. Requires -Dhot.strict.phase7t.subsetroute.probe=true.
+  @Test
+  @DisplayName("Phase 7t-8 — subset-match mis-route characterization")
+  @org.junit.jupiter.api.Timeout(value = 240, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void phase7t8CharacterizeSubsetRouting() {
+    if (!Boolean.getBoolean("hot.strict.phase7t.subsetroute.probe")) {
+      return; // skip silently when flag not set
+    }
+    final int n = 10_000;
+    runWithSubsetRoutingProbe("ascending-10K (control)", n, i -> i);
+    runWithSubsetRoutingProbe("descending-10K", n, i -> n - 1 - i);
+    runWithSubsetRoutingProbe("mixed-sign-10K", n, i -> i - (n / 2));
+    runWithSubsetRoutingProbe("bimodal-5K+5K", n, i -> i < 5000 ? i : 1_000_000 + (i - 5000));
+  }
+
+  private static void runWithSubsetRoutingProbe(final String label, final int n,
+      final java.util.function.IntUnaryOperator valueFn) {
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t8BuildflatBuilds();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t8BuildflatEqualityMisroutes();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t8BuildflatSubsetMisroutes();
+    io.sirix.access.trx.page.HOTTrieWriter.resetPhase7t8BuildflatSelfRoutes();
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(valueFn.applyAsInt(i)).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+    }
+    final long b = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t8BuildflatBuilds();
+    final long eq = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t8BuildflatEqualityMisroutes();
+    final long sub = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t8BuildflatSubsetMisroutes();
+    final long self = io.sirix.access.trx.page.HOTTrieWriter.getPhase7t8BuildflatSelfRoutes();
+    System.out.println("[phase7t8] " + label
+        + " · builds=" + b
+        + " · equalityMisroutes=" + eq
+        + " · subsetMisroutes=" + sub
+        + " · selfRoutes=" + self);
+    JsonTestHelper.deleteEverything();
+  }
+
   private static void runWithMonotoneProbe(final String label, final int n,
       final java.util.function.IntUnaryOperator valueFn) {
     io.sirix.access.trx.page.HOTTrieWriter.resetPhase7tBuildflatInspections();
