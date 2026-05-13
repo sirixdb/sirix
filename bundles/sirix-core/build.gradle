@@ -123,6 +123,11 @@ test {
     systemProperty "sirix.lz77Codec.diag.counters", System.getProperty("sirix.lz77Codec.diag.counters", "false")
     // Stage D diagnostic — propagate the validator-gate flag from -Dhot.strict.validate to test JVM.
     systemProperty "hot.strict.validate", System.getProperty("hot.strict.validate", "false")
+    // Phase 7u/7v diagnostics — reader-side fallback flags (must be forwarded for tests to see them).
+    systemProperty "hot.cas.leftmostfallback", System.getProperty("hot.cas.leftmostfallback", "false")
+    systemProperty "hot.cas.lfdebug", System.getProperty("hot.cas.lfdebug", "false")
+    systemProperty "hot.strict.phase7u.lexprimary", System.getProperty("hot.strict.phase7u.lexprimary", "false")
+    systemProperty "hot.strict.phase7u.lexfallback.disable", System.getProperty("hot.strict.phase7u.lexfallback.disable", "false")
     systemProperty "hot.bisect.i8", System.getProperty("hot.bisect.i8", "false")
     systemProperty "hot.bisect.from", System.getProperty("hot.bisect.from", "0")
     systemProperty "hot.bisect.to", System.getProperty("hot.bisect.to", "600")
@@ -208,6 +213,10 @@ test {
     systemProperty "hot.strict.phase7t.crossroute.probe", System.getProperty("hot.strict.phase7t.crossroute.probe", "false")
     systemProperty "hot.strict.phase7t.subsetroute.probe", System.getProperty("hot.strict.phase7t.subsetroute.probe", "false")
     systemProperty "hot.strict.phase7t.perkey.probe", System.getProperty("hot.strict.phase7t.perkey.probe", "false")
+    systemProperty "hot.strict.phase7t10.perkey.probe", System.getProperty("hot.strict.phase7t10.perkey.probe", "false")
+    systemProperty "hot.strict.phase7t11.perkey.probe", System.getProperty("hot.strict.phase7t11.perkey.probe", "false")
+    systemProperty "hot.debug.i6trace", System.getProperty("hot.debug.i6trace", "")
+    systemProperty "hot.debug.phase7x.i11trace", System.getProperty("hot.debug.phase7x.i11trace", "false")
     systemProperty "hot.debug.phase7t", System.getProperty("hot.debug.phase7t", "false")
     systemProperty "hot.debug.bitconstant", System.getProperty("hot.debug.bitconstant", "false")
     systemProperty "hot.relax.closure.placeholder", System.getProperty("hot.relax.closure.placeholder", "false")
@@ -217,7 +226,9 @@ test {
     systemProperty "hot.debug.phase7e", System.getProperty("hot.debug.phase7e", "false")
     systemProperty "hot.debug.g30", System.getProperty("hot.debug.g30", "false")
     systemProperty "hot.debug.g32", System.getProperty("hot.debug.g32", "false")
-    
+    systemProperty "hot.strict.phase7w.redist.disable", System.getProperty("hot.strict.phase7w.redist.disable", "false")
+    systemProperty "hot.strict.phase7w.bucket.disable", System.getProperty("hot.strict.phase7w.bucket.disable", "false")
+
     // Show test output for diagnostics
     testLogging {
         showStandardStreams = true

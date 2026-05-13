@@ -39,6 +39,7 @@ import io.sirix.index.hot.DiscriminativeBitComputer;
 import io.sirix.index.hot.NodeUpgradeManager;
 import java.util.Arrays;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.LongSupplier;
 import io.sirix.page.HOTIndirectPage;
 import io.sirix.page.HOTLeafPage;
@@ -1984,12 +1985,16 @@ public final class HOTTrieWriter {
       if (mixed > 0) PHASE7T6_ADDPDEP_MIXED_PAIRS.addAndGet(mixed);
     }
 
+    final HOTIndirectPage addEntryResult;
     if (newNumChildren <= 16) {
-      return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
+      addEntryResult = HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
+          oldInitialBytePos, newMask, newPartialKeys, newChildren, parent.getHeight());
+    } else {
+      addEntryResult = HOTIndirectPage.createMultiNode(parent.getPageKey(), revision,
           oldInitialBytePos, newMask, newPartialKeys, newChildren, parent.getHeight());
     }
-    return HOTIndirectPage.createMultiNode(parent.getPageKey(), revision,
-        oldInitialBytePos, newMask, newPartialKeys, newChildren, parent.getHeight());
+    phase7t10AccumulateAddentry(addEntryResult);
+    return redistributeLeafKeysIfMisrouted(addEntryResult, revision);
   }
 
   /**
@@ -2127,12 +2132,15 @@ public final class HOTTrieWriter {
           + " mask=0x" + Long.toHexString(oldMask) + " k=" + numChildren
           + " → k+1=" + newNumChildren + " layout=SINGLE_MASK");
     }
+    final HOTIndirectPage freshResult;
     if (newNumChildren <= 16) {
-      return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
+      freshResult = HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
+          oldInitialBytePos, oldMask, newPartials, newChildren, parent.getHeight());
+    } else {
+      freshResult = HOTIndirectPage.createMultiNode(parent.getPageKey(), revision,
           oldInitialBytePos, oldMask, newPartials, newChildren, parent.getHeight());
     }
-    return HOTIndirectPage.createMultiNode(parent.getPageKey(), revision,
-        oldInitialBytePos, oldMask, newPartials, newChildren, parent.getHeight());
+    return redistributeLeafKeysIfMisrouted(freshResult, revision);
   }
 
   /**
@@ -2274,14 +2282,17 @@ public final class HOTTrieWriter {
       if (absBit < msbIndex) msbIndex = (short) absBit;
     }
 
+    final HOTIndirectPage freshMultiResult;
     if (newNumChildren <= 16) {
-      return HOTIndirectPage.createSpanNodeMultiMask(parent.getPageKey(), revision,
+      freshMultiResult = HOTIndirectPage.createSpanNodeMultiMask(parent.getPageKey(), revision,
+          newExtractionPositions, newExtractionMasks, newNumBytes,
+          newPartials, newChildren, parent.getHeight(), msbIndex);
+    } else {
+      freshMultiResult = HOTIndirectPage.createMultiNodeMultiMask(parent.getPageKey(), revision,
           newExtractionPositions, newExtractionMasks, newNumBytes,
           newPartials, newChildren, parent.getHeight(), msbIndex);
     }
-    return HOTIndirectPage.createMultiNodeMultiMask(parent.getPageKey(), revision,
-        newExtractionPositions, newExtractionMasks, newNumBytes,
-        newPartials, newChildren, parent.getHeight(), msbIndex);
+    return redistributeLeafKeysIfMisrouted(freshMultiResult, revision);
   }
 
   // ===========================================================================
@@ -2719,7 +2730,7 @@ public final class HOTTrieWriter {
     sortChildrenAndPartialsByPartial(children, workingPartials);
 
     final long pageKey = pageKeyAllocator.getAsLong();
-    final HOTIndirectPage built;
+    HOTIndirectPage built;
     if (workingMask == 0L) {
       // Empty mask — no disc bits to discriminate. Possible if β was the ONLY bit in
       // the original mask. Bucket has multiple children but no way to discriminate via
@@ -2745,15 +2756,17 @@ public final class HOTTrieWriter {
         else PARENT_MSB_HINT.set(prevHint);
       }
     }
+    final HOTIndirectPage builtRaw;
     if (bucketSize <= 16) {
-      built = HOTIndirectPage.createSpanNode(pageKey, revision, oldInitialBytePos, workingMask,
+      builtRaw = HOTIndirectPage.createSpanNode(pageKey, revision, oldInitialBytePos, workingMask,
           workingPartials, children, parentIndirect.getHeight());
     } else if (bucketSize <= NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
-      built = HOTIndirectPage.createMultiNode(pageKey, revision, oldInitialBytePos, workingMask,
+      builtRaw = HOTIndirectPage.createMultiNode(pageKey, revision, oldInitialBytePos, workingMask,
           workingPartials, children, parentIndirect.getHeight());
     } else {
       return null;
     }
+    built = redistributeLeafKeysIfMisrouted(builtRaw, revision);
     final PageReference ref = new PageReference();
     ref.setKey(pageKey);
     ref.setPage(built);
@@ -3162,8 +3175,12 @@ public final class HOTTrieWriter {
     final PageReference[] children = Arrays.copyOf(replacementRefs, bucketSize);
     sortChildrenAndPartialsByPartial(children, newPartials);
 
+    // Phase 7w bucket augmentation REMOVED — empirically harmful (trades 1 I8 for
+    // 2 I11+I4 on descending workloads; no effect on other workloads). In-place leaf
+    // redistribution (redistributeLeafKeysIfMisrouted) is the correct fix.
+
     final long pageKey = pageKeyAllocator.getAsLong();
-    final HOTIndirectPage built;
+    HOTIndirectPage built;
     if (bucketSize == 2) {
       // BiNode form not supported under MultiMask layout — fall back to wrap. Phase 7q.15:
       // pass newParentMsb hint so cbinode picks an I11-safe disc bit.
@@ -3184,6 +3201,12 @@ public final class HOTTrieWriter {
     // numerically more or equally significant than bucket → child is "above" parent in
     // routing → violates I11). Counters always increment; per-event print gated.
     phase7q15dCheckIntermediateMsb(pageKey, newMsb, absBit, children, bucketSize);
+    if (Boolean.getBoolean("hot.debug.phase7x.i11trace") && newMsb < absBit) {
+      System.err.println("[phase7x-I11-TRACE] bucket pk=" + pageKey + " msb=" + newMsb
+          + " absBit=" + absBit + " parentMsb=" + oldParentMsb + " newParentMsb=" + newParentMsb
+          + " bucketSize=" + bucketSize);
+      new Throwable("[phase7x-I11-TRACE]").printStackTrace(System.err);
+    }
     if (bucketSize <= 16) {
       built = HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision, newEp, newEm,
           newNeb, newPartials, children, parent.getHeight(), (short) newMsb);
@@ -3193,6 +3216,8 @@ public final class HOTTrieWriter {
     } else {
       return null;
     }
+    built = redistributeLeafKeysIfMisrouted(built, revision);
+    phase7t10AccumulateBucket(built);
     final PageReference ref = new PageReference();
     ref.setKey(pageKey);
     ref.setPage(built);
@@ -3662,12 +3687,15 @@ public final class HOTTrieWriter {
       }
     }
 
+    final HOTIndirectPage rebalResult;
     if (outIdx <= 16) {
-      return HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
+      rebalResult = HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
+          oldInitialBytePos, newMask, trimPartials, trimChildren, parent.getHeight());
+    } else {
+      rebalResult = HOTIndirectPage.createMultiNode(parent.getPageKey(), revision,
           oldInitialBytePos, newMask, trimPartials, trimChildren, parent.getHeight());
     }
-    return HOTIndirectPage.createMultiNode(parent.getPageKey(), revision,
-        oldInitialBytePos, newMask, trimPartials, trimChildren, parent.getHeight());
+    return redistributeLeafKeysIfMisrouted(rebalResult, revision);
   }
 
   /**
@@ -4596,7 +4624,10 @@ public final class HOTTrieWriter {
       }
     }
     try {
-      return createNodeFromChildren(rebuilt, parent.getPageKey(), revision, parent.getHeight());
+      final HOTIndirectPage out = createNodeFromChildren(rebuilt, parent.getPageKey(),
+          revision, parent.getHeight());
+      phase7t10AccumulateRebuild(out);
+      return out;
     } catch (Throwable t) {
       return null;
     }
@@ -4808,14 +4839,18 @@ public final class HOTTrieWriter {
       if (mixed > 0) PHASE7T6_UPGRADE_MIXED_PAIRS.addAndGet(mixed);
     }
 
+    final HOTIndirectPage upgradeResult;
     if (newNumChildren <= 16) {
-      return HOTIndirectPage.createSpanNodeMultiMask(parent.getPageKey(), revision,
+      upgradeResult = HOTIndirectPage.createSpanNodeMultiMask(parent.getPageKey(), revision,
+          extractionPositions, extractionMasks, allCount, newPartials, newChildren,
+          parent.getHeight(), msbIndex);
+    } else {
+      upgradeResult = HOTIndirectPage.createMultiNodeMultiMask(parent.getPageKey(), revision,
           extractionPositions, extractionMasks, allCount, newPartials, newChildren,
           parent.getHeight(), msbIndex);
     }
-    return HOTIndirectPage.createMultiNodeMultiMask(parent.getPageKey(), revision,
-        extractionPositions, extractionMasks, allCount, newPartials, newChildren,
-        parent.getHeight(), msbIndex);
+    phase7t10AccumulateUpgrade(upgradeResult);
+    return redistributeLeafKeysIfMisrouted(upgradeResult, revision);
   }
 
   /** Sum of bits set across every chunk of a MultiMask extraction-mask array. */
@@ -6766,6 +6801,11 @@ public final class HOTTrieWriter {
   public static long getPhase7sSplitNoop() { return PHASE7S_SPLIT_NOOP.get(); }
   public static void resetPhase7sSplitNoop() { PHASE7S_SPLIT_NOOP.set(0L); }
 
+  public static long getPhase7wRedistCalls() { return PHASE7W_REDIST_CALLS.get(); }
+  public static void resetPhase7wRedistCalls() { PHASE7W_REDIST_CALLS.set(0L); }
+  public static long getPhase7wRedistKeysMoved() { return PHASE7W_REDIST_KEYS_MOVED.get(); }
+  public static void resetPhase7wRedistKeysMoved() { PHASE7W_REDIST_KEYS_MOVED.set(0L); }
+
   // Phase 7t-1 — firstKey-vs-partial monotone post-sort probe in buildFlatNonStrict.
   //
   // After Phase 7r-2's augment-until-unique loop guarantees all partials are pairwise
@@ -7005,6 +7045,825 @@ public final class HOTTrieWriter {
   }
   public static void resetPhase7t9BuildflatSubsetMisroutes() {
     PHASE7T9_BUILDFLAT_SUBSET_MISROUTES.set(0L);
+  }
+
+  // Phase 7t-10 — port the per-key real-PEXT simulator to the OTHER 5 indirect-build sites.
+  // Phase 7t-9 located 272 desc-workload mis-routes inside buildFlatNonStrict (matches the
+  // 258 violations within multi-level visit noise) but bimodal showed 0 mis-routes there
+  // despite 1280 viol → some OTHER build path is the origin. Sites instrumented:
+  //   - addEntryWithPDep            (SingleMask β-already-in-mask success)
+  //   - upgradeToMultiMaskWithNewBit (SingleMask → MultiMask layout change)
+  //   - splitParentAndRecurse        (parent overflow → split + recurse)
+  //   - rebuildParentAbsorbingSplit  (left+right slot replacement)
+  //   - buildBucketWithInheritedMaskMultiMask (bucket sub-indirect MultiMask build)
+  // Each site has its own (BUILDS, KEYS_SEEN, EQ_MIS, SUBSET_MIS) tuple to attribute origin.
+  // Gated on -Dhot.strict.phase7t10.perkey.probe.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_ADDENTRY_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_ADDENTRY_KEYS_SEEN =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_ADDENTRY_EQ_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_ADDENTRY_SUBSET_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_UPGRADE_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_UPGRADE_KEYS_SEEN =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_UPGRADE_EQ_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_UPGRADE_SUBSET_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_SPLITPARENT_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_SPLITPARENT_KEYS_SEEN =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_SPLITPARENT_EQ_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_SPLITPARENT_SUBSET_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_REBUILD_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_REBUILD_KEYS_SEEN =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_REBUILD_EQ_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_REBUILD_SUBSET_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_BUCKET_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_BUCKET_KEYS_SEEN =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_BUCKET_EQ_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T10_BUCKET_SUBSET_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7t10AddentryBuilds() { return PHASE7T10_ADDENTRY_BUILDS.get(); }
+  public static long getPhase7t10AddentryEqMisroutes() { return PHASE7T10_ADDENTRY_EQ_MIS.get(); }
+  public static long getPhase7t10AddentrySubsetMisroutes() { return PHASE7T10_ADDENTRY_SUBSET_MIS.get(); }
+  public static long getPhase7t10UpgradeBuilds() { return PHASE7T10_UPGRADE_BUILDS.get(); }
+  public static long getPhase7t10UpgradeEqMisroutes() { return PHASE7T10_UPGRADE_EQ_MIS.get(); }
+  public static long getPhase7t10UpgradeSubsetMisroutes() { return PHASE7T10_UPGRADE_SUBSET_MIS.get(); }
+  public static long getPhase7t10SplitparentBuilds() { return PHASE7T10_SPLITPARENT_BUILDS.get(); }
+  public static long getPhase7t10SplitparentEqMisroutes() { return PHASE7T10_SPLITPARENT_EQ_MIS.get(); }
+  public static long getPhase7t10SplitparentSubsetMisroutes() { return PHASE7T10_SPLITPARENT_SUBSET_MIS.get(); }
+  public static long getPhase7t10RebuildBuilds() { return PHASE7T10_REBUILD_BUILDS.get(); }
+  public static long getPhase7t10RebuildEqMisroutes() { return PHASE7T10_REBUILD_EQ_MIS.get(); }
+  public static long getPhase7t10RebuildSubsetMisroutes() { return PHASE7T10_REBUILD_SUBSET_MIS.get(); }
+  public static long getPhase7t10BucketBuilds() { return PHASE7T10_BUCKET_BUILDS.get(); }
+  public static long getPhase7t10BucketEqMisroutes() { return PHASE7T10_BUCKET_EQ_MIS.get(); }
+  public static long getPhase7t10BucketSubsetMisroutes() { return PHASE7T10_BUCKET_SUBSET_MIS.get(); }
+  public static void resetPhase7t10All() {
+    PHASE7T10_ADDENTRY_BUILDS.set(0L); PHASE7T10_ADDENTRY_KEYS_SEEN.set(0L);
+    PHASE7T10_ADDENTRY_EQ_MIS.set(0L); PHASE7T10_ADDENTRY_SUBSET_MIS.set(0L);
+    PHASE7T10_UPGRADE_BUILDS.set(0L); PHASE7T10_UPGRADE_KEYS_SEEN.set(0L);
+    PHASE7T10_UPGRADE_EQ_MIS.set(0L); PHASE7T10_UPGRADE_SUBSET_MIS.set(0L);
+    PHASE7T10_SPLITPARENT_BUILDS.set(0L); PHASE7T10_SPLITPARENT_KEYS_SEEN.set(0L);
+    PHASE7T10_SPLITPARENT_EQ_MIS.set(0L); PHASE7T10_SPLITPARENT_SUBSET_MIS.set(0L);
+    PHASE7T10_REBUILD_BUILDS.set(0L); PHASE7T10_REBUILD_KEYS_SEEN.set(0L);
+    PHASE7T10_REBUILD_EQ_MIS.set(0L); PHASE7T10_REBUILD_SUBSET_MIS.set(0L);
+    PHASE7T10_BUCKET_BUILDS.set(0L); PHASE7T10_BUCKET_KEYS_SEEN.set(0L);
+    PHASE7T10_BUCKET_EQ_MIS.set(0L); PHASE7T10_BUCKET_SUBSET_MIS.set(0L);
+  }
+
+  /**
+   * Phase 7t-10 — site-agnostic simulator: take a freshly constructed {@link HOTIndirectPage},
+   * extract its children + partial keys + discBits, run {@link #phase7t9CountRealMisroutes}
+   * to get [keysSeen, equalityMisroutes, subsetMisroutes]. Used by all 5 build sites to
+   * attribute mis-route counts to construction events.
+   */
+  private long[] phase7t10SimulateOnIndirect(@Nullable HOTIndirectPage indirect) {
+    if (indirect == null) return new long[3];
+    final int n = indirect.getNumChildren();
+    if (n < 2) return new long[3];
+    final PageReference[] children = new PageReference[n];
+    for (int i = 0; i < n; i++) children[i] = indirect.getChildReference(i);
+    final int[] partials = indirect.getPartialKeys();
+    if (partials == null) return new long[3];
+    final DiscBitsInfo discBits;
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      discBits = DiscBitsInfo.singleMask(indirect.getInitialBytePos(), indirect.getBitMask());
+    } else {
+      final byte[] extPos = indirect.getExtractionPositions();
+      final long[] extMasks = indirect.getExtractionMasks();
+      if (extPos == null || extMasks == null) return new long[3];
+      discBits = DiscBitsInfo.multiMask(extPos, extMasks, extPos.length,
+          indirect.getMostSignificantBitIndex());
+    }
+    return phase7t9CountRealMisroutes(children, partials, discBits);
+  }
+
+  private void phase7t10AccumulateAddentry(@Nullable HOTIndirectPage indirect) {
+    if (!Boolean.getBoolean("hot.strict.phase7t10.perkey.probe") || indirect == null) return;
+    PHASE7T10_ADDENTRY_BUILDS.incrementAndGet();
+    final long[] rm = phase7t10SimulateOnIndirect(indirect);
+    if (rm[0] > 0) PHASE7T10_ADDENTRY_KEYS_SEEN.addAndGet(rm[0]);
+    if (rm[1] > 0) PHASE7T10_ADDENTRY_EQ_MIS.addAndGet(rm[1]);
+    if (rm[2] > 0) PHASE7T10_ADDENTRY_SUBSET_MIS.addAndGet(rm[2]);
+  }
+
+  private void phase7t10AccumulateUpgrade(@Nullable HOTIndirectPage indirect) {
+    if (!Boolean.getBoolean("hot.strict.phase7t10.perkey.probe") || indirect == null) return;
+    PHASE7T10_UPGRADE_BUILDS.incrementAndGet();
+    final long[] rm = phase7t10SimulateOnIndirect(indirect);
+    if (rm[0] > 0) PHASE7T10_UPGRADE_KEYS_SEEN.addAndGet(rm[0]);
+    if (rm[1] > 0) PHASE7T10_UPGRADE_EQ_MIS.addAndGet(rm[1]);
+    if (rm[2] > 0) PHASE7T10_UPGRADE_SUBSET_MIS.addAndGet(rm[2]);
+  }
+
+  private void phase7t10AccumulateSplitparent(@Nullable HOTIndirectPage indirect) {
+    if (!Boolean.getBoolean("hot.strict.phase7t10.perkey.probe") || indirect == null) return;
+    PHASE7T10_SPLITPARENT_BUILDS.incrementAndGet();
+    final long[] rm = phase7t10SimulateOnIndirect(indirect);
+    if (rm[0] > 0) PHASE7T10_SPLITPARENT_KEYS_SEEN.addAndGet(rm[0]);
+    if (rm[1] > 0) PHASE7T10_SPLITPARENT_EQ_MIS.addAndGet(rm[1]);
+    if (rm[2] > 0) PHASE7T10_SPLITPARENT_SUBSET_MIS.addAndGet(rm[2]);
+  }
+
+  private void phase7t10AccumulateRebuild(@Nullable HOTIndirectPage indirect) {
+    if (!Boolean.getBoolean("hot.strict.phase7t10.perkey.probe") || indirect == null) return;
+    PHASE7T10_REBUILD_BUILDS.incrementAndGet();
+    final long[] rm = phase7t10SimulateOnIndirect(indirect);
+    if (rm[0] > 0) PHASE7T10_REBUILD_KEYS_SEEN.addAndGet(rm[0]);
+    if (rm[1] > 0) PHASE7T10_REBUILD_EQ_MIS.addAndGet(rm[1]);
+    if (rm[2] > 0) PHASE7T10_REBUILD_SUBSET_MIS.addAndGet(rm[2]);
+  }
+
+  private void phase7t10AccumulateBucket(@Nullable HOTIndirectPage indirect) {
+    if (!Boolean.getBoolean("hot.strict.phase7t10.perkey.probe") || indirect == null) return;
+    PHASE7T10_BUCKET_BUILDS.incrementAndGet();
+    final long[] rm = phase7t10SimulateOnIndirect(indirect);
+    if (rm[0] > 0) PHASE7T10_BUCKET_KEYS_SEEN.addAndGet(rm[0]);
+    if (rm[1] > 0) PHASE7T10_BUCKET_EQ_MIS.addAndGet(rm[1]);
+    if (rm[2] > 0) PHASE7T10_BUCKET_SUBSET_MIS.addAndGet(rm[2]);
+  }
+
+  // Phase 7t-11 — instrument the SIX post-construction mutation paths to catch the bimodal
+  // 1280 viol whose origin is OUTSIDE all 6 known build sites. Each path creates a NEW
+  // HOTIndirectPage with modified mask/partials; we run the per-key PEXT simulator on the
+  // newly-created indirect to count mis-routes. Gated on -Dhot.strict.phase7t11.perkey.probe.
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T11_EXTEND_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T11_EXTEND_EQ_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T11_EXTEND_SUBSET_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T11_LIFT_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T11_LIFT_EQ_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T11_LIFT_SUBSET_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T11_NEWROOT_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T11_NEWROOT_EQ_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T11_NEWROOT_SUBSET_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T11_ROOTSORT_BUILDS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T11_ROOTSORT_EQ_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  private static final java.util.concurrent.atomic.AtomicLong PHASE7T11_ROOTSORT_SUBSET_MIS =
+      new java.util.concurrent.atomic.AtomicLong(0L);
+  public static long getPhase7t11ExtendBuilds() { return PHASE7T11_EXTEND_BUILDS.get(); }
+  public static long getPhase7t11ExtendEqMisroutes() { return PHASE7T11_EXTEND_EQ_MIS.get(); }
+  public static long getPhase7t11ExtendSubsetMisroutes() { return PHASE7T11_EXTEND_SUBSET_MIS.get(); }
+  public static long getPhase7t11LiftBuilds() { return PHASE7T11_LIFT_BUILDS.get(); }
+  public static long getPhase7t11LiftEqMisroutes() { return PHASE7T11_LIFT_EQ_MIS.get(); }
+  public static long getPhase7t11LiftSubsetMisroutes() { return PHASE7T11_LIFT_SUBSET_MIS.get(); }
+  public static long getPhase7t11NewrootBuilds() { return PHASE7T11_NEWROOT_BUILDS.get(); }
+  public static long getPhase7t11NewrootEqMisroutes() { return PHASE7T11_NEWROOT_EQ_MIS.get(); }
+  public static long getPhase7t11NewrootSubsetMisroutes() { return PHASE7T11_NEWROOT_SUBSET_MIS.get(); }
+  public static long getPhase7t11RootsortBuilds() { return PHASE7T11_ROOTSORT_BUILDS.get(); }
+  public static long getPhase7t11RootsortEqMisroutes() { return PHASE7T11_ROOTSORT_EQ_MIS.get(); }
+  public static long getPhase7t11RootsortSubsetMisroutes() { return PHASE7T11_ROOTSORT_SUBSET_MIS.get(); }
+  public static void resetPhase7t11All() {
+    PHASE7T11_EXTEND_BUILDS.set(0L); PHASE7T11_EXTEND_EQ_MIS.set(0L); PHASE7T11_EXTEND_SUBSET_MIS.set(0L);
+    PHASE7T11_LIFT_BUILDS.set(0L); PHASE7T11_LIFT_EQ_MIS.set(0L); PHASE7T11_LIFT_SUBSET_MIS.set(0L);
+    PHASE7T11_NEWROOT_BUILDS.set(0L); PHASE7T11_NEWROOT_EQ_MIS.set(0L); PHASE7T11_NEWROOT_SUBSET_MIS.set(0L);
+    PHASE7T11_ROOTSORT_BUILDS.set(0L); PHASE7T11_ROOTSORT_EQ_MIS.set(0L); PHASE7T11_ROOTSORT_SUBSET_MIS.set(0L);
+  }
+
+  private void phase7t11AccumulateExtend(@Nullable HOTIndirectPage indirect) {
+    if (!Boolean.getBoolean("hot.strict.phase7t11.perkey.probe") || indirect == null) return;
+    PHASE7T11_EXTEND_BUILDS.incrementAndGet();
+    final long[] rm = phase7t10SimulateOnIndirect(indirect);
+    if (rm[1] > 0) PHASE7T11_EXTEND_EQ_MIS.addAndGet(rm[1]);
+    if (rm[2] > 0) PHASE7T11_EXTEND_SUBSET_MIS.addAndGet(rm[2]);
+  }
+
+  private void phase7t11AccumulateLift(@Nullable HOTIndirectPage indirect) {
+    if (!Boolean.getBoolean("hot.strict.phase7t11.perkey.probe") || indirect == null) return;
+    PHASE7T11_LIFT_BUILDS.incrementAndGet();
+    final long[] rm = phase7t10SimulateOnIndirect(indirect);
+    if (rm[1] > 0) PHASE7T11_LIFT_EQ_MIS.addAndGet(rm[1]);
+    if (rm[2] > 0) PHASE7T11_LIFT_SUBSET_MIS.addAndGet(rm[2]);
+  }
+
+  private void phase7t11AccumulateNewroot(@Nullable HOTIndirectPage indirect) {
+    if (!Boolean.getBoolean("hot.strict.phase7t11.perkey.probe") || indirect == null) return;
+    PHASE7T11_NEWROOT_BUILDS.incrementAndGet();
+    final long[] rm = phase7t10SimulateOnIndirect(indirect);
+    if (rm[1] > 0) PHASE7T11_NEWROOT_EQ_MIS.addAndGet(rm[1]);
+    if (rm[2] > 0) PHASE7T11_NEWROOT_SUBSET_MIS.addAndGet(rm[2]);
+  }
+
+  private void phase7t11AccumulateRootsort(@Nullable HOTIndirectPage indirect) {
+    if (!Boolean.getBoolean("hot.strict.phase7t11.perkey.probe") || indirect == null) return;
+    PHASE7T11_ROOTSORT_BUILDS.incrementAndGet();
+    final long[] rm = phase7t10SimulateOnIndirect(indirect);
+    if (rm[1] > 0) PHASE7T11_ROOTSORT_EQ_MIS.addAndGet(rm[1]);
+    if (rm[2] > 0) PHASE7T11_ROOTSORT_SUBSET_MIS.addAndGet(rm[2]);
+  }
+
+  // ── Phase 7w — post-construction key redistribution ──────────────────────────
+  // After createNodeFromChildren builds a height-1 indirect, walks every child
+  // leaf and checks whether each key's dense PEXT routes to the correct child.
+  // Keys misrouted due to mask-extension-without-redistribution are moved to the
+  // child whose partial matches their dense PEXT — fixing the architectural root
+  // cause of I5/I6 violations on adversarial workloads.
+
+  static final AtomicLong PHASE7W_REDIST_CALLS = new AtomicLong(0L);
+  static final AtomicLong PHASE7W_REDIST_KEYS_MOVED = new AtomicLong(0L);
+  static final AtomicLong PHASE7X_BUCKET_I8_REJECT = new AtomicLong(0L);
+  static final AtomicLong PHASE7X_MSB_LOWER_APPLIED = new AtomicLong(0L);
+  public static long getPhase7xBucketI8Reject() { return PHASE7X_BUCKET_I8_REJECT.get(); }
+  public static long getPhase7xMsbLowerApplied() { return PHASE7X_MSB_LOWER_APPLIED.get(); }
+
+  private HOTIndirectPage redistributeLeafKeysIfMisrouted(
+      HOTIndirectPage indirect, final int revision) {
+    if (indirect == null || indirect.getHeight() != 1) return indirect;
+    if (Boolean.getBoolean("hot.strict.phase7w.redist.disable")) return indirect;
+
+    final int n = indirect.getNumChildren();
+    if (n < 2) return indirect;
+
+    final DiscBitsInfo discBits;
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      discBits = DiscBitsInfo.singleMask(indirect.getInitialBytePos(), indirect.getBitMask());
+    } else {
+      final byte[] extPos = indirect.getExtractionPositions();
+      final long[] extMasks = indirect.getExtractionMasks();
+      if (extPos == null || extMasks == null) return indirect;
+      discBits = DiscBitsInfo.multiMask(extPos, extMasks, extPos.length,
+          indirect.getMostSignificantBitIndex());
+    }
+
+    final int[] partials = indirect.getPartialKeys();
+    if (partials == null || partials.length < n) return indirect;
+
+    IndexType indexType = null;
+    int totalEntries = 0;
+    int misrouteCount = 0;
+
+    for (int i = 0; i < n; i++) {
+      final Page page = phase7wResolvePage(indirect.getChildReference(i));
+      if (!(page instanceof HOTLeafPage leaf)) return indirect;
+      if (indexType == null) indexType = leaf.getIndexType();
+      final int ec = leaf.getEntryCount();
+      totalEntries += ec;
+      for (int e = 0; e < ec; e++) {
+        final byte[] k = leaf.getKey(e);
+        if (k == null) continue;
+        final int routed = phase7wRouteToChild(
+            computePartialKey(k, discBits), partials, n);
+        if (routed != i) misrouteCount++;
+      }
+    }
+    if (misrouteCount == 0) {
+      sortChildrenByFirstKeyIfNeeded(indirect, n);
+      return indirect;
+    }
+
+    final byte[][] allKeys = new byte[totalEntries][];
+    final byte[][] allValues = new byte[totalEntries][];
+    final int[] targetChild = new int[totalEntries];
+    int idx = 0;
+
+    for (int i = 0; i < n; i++) {
+      final HOTLeafPage leaf =
+          (HOTLeafPage) phase7wResolvePage(indirect.getChildReference(i));
+      final int ec = leaf.getEntryCount();
+      for (int e = 0; e < ec; e++) {
+        allKeys[idx] = leaf.getKey(e);
+        allValues[idx] = leaf.getValue(e);
+        if (allKeys[idx] != null) {
+          targetChild[idx] = phase7wRouteToChild(
+              computePartialKey(allKeys[idx], discBits), partials, n);
+        }
+        idx++;
+      }
+    }
+
+    final HOTLeafPage[] newLeaves = new HOTLeafPage[n];
+    final PageReference[] newRefs = new PageReference[n];
+    for (int i = 0; i < n; i++) {
+      final long pk = pageKeyAllocator.getAsLong();
+      newLeaves[i] = new HOTLeafPage(pk, revision, indexType);
+      newRefs[i] = new PageReference();
+      newRefs[i].setKey(pk);
+      newRefs[i].setPage(newLeaves[i]);
+    }
+
+    boolean overflow = false;
+    for (int e = 0; e < idx; e++) {
+      if (allKeys[e] == null) continue;
+      final int tc = targetChild[e];
+      if (!newLeaves[tc].mergeWithNodeRefs(
+              allKeys[e], allKeys[e].length, allValues[e], allValues[e].length)) {
+        overflow = true;
+        break;
+      }
+    }
+    if (overflow) return indirect;
+
+    boolean anyEmpty = false;
+    for (int i = 0; i < n; i++) {
+      if (newLeaves[i].getEntryCount() == 0) { anyEmpty = true; break; }
+    }
+    if (anyEmpty) return indirect;
+
+    final TransactionIntentLog log = this.activeLog;
+    for (int i = 0; i < n; i++) {
+      indirect.setChildReference(i, newRefs[i]);
+      if (log != null) {
+        log.put(newRefs[i], PageContainer.getInstance(newLeaves[i], newLeaves[i]));
+      }
+    }
+
+    PHASE7W_REDIST_CALLS.incrementAndGet();
+    PHASE7W_REDIST_KEYS_MOVED.addAndGet(misrouteCount);
+
+    sortChildrenByFirstKeyIfNeeded(indirect, n);
+
+    return indirect;
+  }
+
+  private void sortChildrenByFirstKeyIfNeeded(final HOTIndirectPage indirect, final int n) {
+    final PageReference[] refs = new PageReference[n];
+    for (int i = 0; i < n; i++) {
+      refs[i] = indirect.getChildReference(i);
+    }
+    final int inv = phase7tFirstInversionIdx(refs);
+    if (inv < 0) return;
+    final byte[][] firstKeys = new byte[n][];
+    for (int i = 0; i < n; i++) {
+      final Page p = phase7wResolvePage(refs[i]);
+      if (p instanceof HOTLeafPage leaf && leaf.getEntryCount() > 0) {
+        firstKeys[i] = leaf.getKey(0);
+      } else {
+        firstKeys[i] = new byte[0];
+      }
+    }
+    indirect.sortChildrenByFirstKey(firstKeys);
+  }
+
+  public PageReference redistributeEntireTrie(PageReference rootRef, final int revision) {
+    final Page rootPage = phase7wResolvePage(rootRef);
+    if (!(rootPage instanceof HOTIndirectPage rootIndirect)) return rootRef;
+    final PageReference result = redistributeSubtree(rootRef, rootIndirect, revision);
+    return result != null ? result : rootRef;
+  }
+
+  private PageReference redistributeSubtree(PageReference ref, HOTIndirectPage indirect,
+      final int revision) {
+    final int height = indirect.getHeight();
+    if (height < 1) return null;
+
+    boolean childChanged = false;
+    final int n = indirect.getNumChildren();
+    final PageReference[] childRefs = new PageReference[n];
+    for (int i = 0; i < n; i++) {
+      childRefs[i] = indirect.getChildReference(i);
+      if (height > 1) {
+        final Page childPage = phase7wResolvePage(childRefs[i]);
+        if (childPage instanceof HOTIndirectPage childIndirect) {
+          final PageReference fixed = redistributeSubtree(childRefs[i], childIndirect, revision);
+          if (fixed != null && fixed != childRefs[i]) {
+            childRefs[i] = fixed;
+            childChanged = true;
+          }
+        }
+      }
+    }
+
+    if (childChanged) {
+      indirect = createNodeFromChildrenCore(childRefs, indirect.getPageKey(), revision, height);
+      ref = new PageReference();
+      ref.setKey(indirect.getPageKey());
+      ref.setPage(indirect);
+      if (activeLog != null) {
+        activeLog.put(ref, PageContainer.getInstance(indirect, indirect));
+      }
+    }
+
+    if (height == 1) {
+      final HOTIndirectPage fixed = redistributeLeafKeysIfMisrouted(indirect, revision);
+      if (fixed != indirect) {
+        ref = new PageReference();
+        ref.setKey(fixed.getPageKey());
+        ref.setPage(fixed);
+        if (activeLog != null) {
+          activeLog.put(ref, PageContainer.getInstance(fixed, fixed));
+        }
+      }
+      return ref;
+    }
+
+    final DiscBitsInfo discBits = extractDiscBitsInfo(indirect);
+    if (discBits == null) return ref;
+    final int[] partials = indirect.getPartialKeys();
+    if (partials == null || partials.length < n) return ref;
+
+    boolean anyMisroute = false;
+    final java.util.List<byte[]> allKeys = new java.util.ArrayList<>(1024);
+    final java.util.List<byte[]> allValues = new java.util.ArrayList<>(1024);
+    final int[] keyChildIdx;
+
+    {
+      int totalKeys = 0;
+      for (int i = 0; i < n && !anyMisroute; i++) {
+        final java.util.List<byte[]> childKeys = new java.util.ArrayList<>();
+        collectAllLeafKeys(childRefs[i], childKeys);
+        for (final byte[] k : childKeys) {
+          final int routed = phase7wRouteToChild(computePartialKey(k, discBits), partials, n);
+          if (routed != i) { anyMisroute = true; break; }
+        }
+        totalKeys += childKeys.size();
+      }
+      if (!anyMisroute) return ref;
+
+      allKeys.clear();
+      allValues.clear();
+      for (int i = 0; i < n; i++) {
+        collectAllLeafKeysAndValues(childRefs[i], allKeys, allValues);
+      }
+      keyChildIdx = new int[allKeys.size()];
+      for (int k = 0; k < allKeys.size(); k++) {
+        keyChildIdx[k] = phase7wRouteToChild(
+            computePartialKey(allKeys.get(k), discBits), partials, n);
+      }
+    }
+
+    final java.util.List<java.util.List<byte[]>> bucketKeys = new java.util.ArrayList<>(n);
+    final java.util.List<java.util.List<byte[]>> bucketVals = new java.util.ArrayList<>(n);
+    for (int i = 0; i < n; i++) {
+      bucketKeys.add(new java.util.ArrayList<>());
+      bucketVals.add(new java.util.ArrayList<>());
+    }
+    for (int k = 0; k < allKeys.size(); k++) {
+      bucketKeys.get(keyChildIdx[k]).add(allKeys.get(k));
+      bucketVals.get(keyChildIdx[k]).add(allValues.get(k));
+    }
+
+    boolean anyBucketEmpty = false;
+    for (int i = 0; i < n; i++) {
+      if (bucketKeys.get(i).isEmpty()) { anyBucketEmpty = true; break; }
+    }
+    if (anyBucketEmpty) return ref;
+
+    IndexType indexType = null;
+    for (int i = 0; i < n; i++) {
+      final Page p = phase7wResolvePage(childRefs[i]);
+      if (p instanceof HOTLeafPage leaf) { indexType = leaf.getIndexType(); break; }
+      if (p instanceof HOTIndirectPage ind) {
+        indexType = findIndexTypeFromSubtree(ind);
+        if (indexType != null) break;
+      }
+    }
+    if (indexType == null) return ref;
+
+    final PageReference[] newChildRefs = new PageReference[n];
+    for (int i = 0; i < n; i++) {
+      final java.util.List<byte[]> keys = bucketKeys.get(i);
+      final java.util.List<byte[]> vals = bucketVals.get(i);
+      newChildRefs[i] = buildSubtreeFromKeys(keys, vals, indexType, revision, height - 1);
+      if (newChildRefs[i] == null) return ref;
+    }
+
+    final HOTIndirectPage rebuilt = createNodeFromChildrenCore(
+        newChildRefs, indirect.getPageKey(), revision, height);
+    final PageReference newRef = new PageReference();
+    newRef.setKey(rebuilt.getPageKey());
+    newRef.setPage(rebuilt);
+    if (activeLog != null) {
+      activeLog.put(newRef, PageContainer.getInstance(rebuilt, rebuilt));
+    }
+    PHASE7W_REDIST_CALLS.incrementAndGet();
+    return newRef;
+  }
+
+  private DiscBitsInfo extractDiscBitsInfo(HOTIndirectPage indirect) {
+    if (indirect.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
+      return DiscBitsInfo.singleMask(indirect.getInitialBytePos(), indirect.getBitMask());
+    }
+    final byte[] extPos = indirect.getExtractionPositions();
+    final long[] extMasks = indirect.getExtractionMasks();
+    if (extPos == null || extMasks == null) return null;
+    return DiscBitsInfo.multiMask(extPos, extMasks, extPos.length,
+        indirect.getMostSignificantBitIndex());
+  }
+
+  private void collectAllLeafKeys(PageReference ref, java.util.List<byte[]> out) {
+    final Page page = phase7wResolvePage(ref);
+    if (page instanceof HOTLeafPage leaf) {
+      final int ec = leaf.getEntryCount();
+      for (int e = 0; e < ec; e++) {
+        final byte[] k = leaf.getKey(e);
+        if (k != null) out.add(k);
+      }
+    } else if (page instanceof HOTIndirectPage indirect) {
+      final int nc = indirect.getNumChildren();
+      for (int i = 0; i < nc; i++) {
+        collectAllLeafKeys(indirect.getChildReference(i), out);
+      }
+    }
+  }
+
+  private void collectAllLeafKeysAndValues(PageReference ref,
+      java.util.List<byte[]> keys, java.util.List<byte[]> values) {
+    final Page page = phase7wResolvePage(ref);
+    if (page instanceof HOTLeafPage leaf) {
+      final int ec = leaf.getEntryCount();
+      for (int e = 0; e < ec; e++) {
+        final byte[] k = leaf.getKey(e);
+        final byte[] v = leaf.getValue(e);
+        if (k != null) {
+          keys.add(k);
+          values.add(v != null ? v : new byte[0]);
+        }
+      }
+    } else if (page instanceof HOTIndirectPage indirect) {
+      final int nc = indirect.getNumChildren();
+      for (int i = 0; i < nc; i++) {
+        collectAllLeafKeysAndValues(indirect.getChildReference(i), keys, values);
+      }
+    }
+  }
+
+  private IndexType findIndexTypeFromSubtree(HOTIndirectPage indirect) {
+    for (int i = 0; i < indirect.getNumChildren(); i++) {
+      final Page p = phase7wResolvePage(indirect.getChildReference(i));
+      if (p instanceof HOTLeafPage leaf) return leaf.getIndexType();
+      if (p instanceof HOTIndirectPage child) {
+        final IndexType t = findIndexTypeFromSubtree(child);
+        if (t != null) return t;
+      }
+    }
+    return null;
+  }
+
+  private PageReference buildSubtreeFromKeys(java.util.List<byte[]> keys,
+      java.util.List<byte[]> values, IndexType indexType, final int revision, final int height) {
+    if (keys.isEmpty()) return null;
+
+    if (height == 0) {
+      final long pk = pageKeyAllocator.getAsLong();
+      final HOTLeafPage leaf = new HOTLeafPage(pk, revision, indexType);
+      for (int i = 0; i < keys.size(); i++) {
+        final byte[] k = keys.get(i);
+        final byte[] v = values.get(i);
+        if (!leaf.mergeWithNodeRefs(k, k.length, v, v.length)) {
+          return buildMultiLeafSubtree(keys, values, i, leaf, indexType, revision);
+        }
+      }
+      final PageReference ref = new PageReference();
+      ref.setKey(pk);
+      ref.setPage(leaf);
+      if (activeLog != null) {
+        activeLog.put(ref, PageContainer.getInstance(leaf, leaf));
+      }
+      return ref;
+    }
+
+    final int maxPerLeaf = 500;
+    final int numLeaves = (keys.size() + maxPerLeaf - 1) / maxPerLeaf;
+    if (numLeaves <= 1) {
+      return buildSubtreeFromKeys(keys, values, indexType, revision, 0);
+    }
+
+    final PageReference[] leafRefs = new PageReference[numLeaves];
+    for (int i = 0; i < numLeaves; i++) {
+      final int start = i * maxPerLeaf;
+      final int end = Math.min(start + maxPerLeaf, keys.size());
+      leafRefs[i] = buildSubtreeFromKeys(
+          keys.subList(start, end), values.subList(start, end),
+          indexType, revision, 0);
+      if (leafRefs[i] == null) return null;
+    }
+
+    if (numLeaves == 1) return leafRefs[0];
+    final HOTIndirectPage node = createNodeFromChildren(leafRefs,
+        pageKeyAllocator.getAsLong(), revision, 1);
+    final PageReference nodeRef = new PageReference();
+    nodeRef.setKey(node.getPageKey());
+    nodeRef.setPage(node);
+    if (activeLog != null) {
+      activeLog.put(nodeRef, PageContainer.getInstance(node, node));
+    }
+    return nodeRef;
+  }
+
+  private PageReference buildMultiLeafSubtree(java.util.List<byte[]> keys,
+      java.util.List<byte[]> values, int overflowAt, HOTLeafPage firstLeaf,
+      IndexType indexType, final int revision) {
+    final java.util.List<PageReference> leafRefs = new java.util.ArrayList<>();
+    PageReference firstRef = new PageReference();
+    firstRef.setKey(firstLeaf.getPageKey());
+    firstRef.setPage(firstLeaf);
+    if (activeLog != null) {
+      activeLog.put(firstRef, PageContainer.getInstance(firstLeaf, firstLeaf));
+    }
+    leafRefs.add(firstRef);
+
+    HOTLeafPage current = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
+    for (int i = overflowAt; i < keys.size(); i++) {
+      final byte[] k = keys.get(i);
+      final byte[] v = values.get(i);
+      if (!current.mergeWithNodeRefs(k, k.length, v, v.length)) {
+        final PageReference curRef = new PageReference();
+        curRef.setKey(current.getPageKey());
+        curRef.setPage(current);
+        if (activeLog != null) {
+          activeLog.put(curRef, PageContainer.getInstance(current, current));
+        }
+        leafRefs.add(curRef);
+        current = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
+        if (!current.mergeWithNodeRefs(k, k.length, v, v.length)) {
+          return null;
+        }
+      }
+    }
+    if (current.getEntryCount() > 0) {
+      final PageReference curRef = new PageReference();
+      curRef.setKey(current.getPageKey());
+      curRef.setPage(current);
+      if (activeLog != null) {
+        activeLog.put(curRef, PageContainer.getInstance(current, current));
+      }
+      leafRefs.add(curRef);
+    }
+
+    if (leafRefs.size() == 1) return leafRefs.get(0);
+    final HOTIndirectPage node = createNodeFromChildren(
+        leafRefs.toArray(new PageReference[0]),
+        pageKeyAllocator.getAsLong(), revision, 1);
+    final PageReference nodeRef = new PageReference();
+    nodeRef.setKey(node.getPageKey());
+    nodeRef.setPage(node);
+    if (activeLog != null) {
+      activeLog.put(nodeRef, PageContainer.getInstance(node, node));
+    }
+    return nodeRef;
+  }
+
+  private HOTIndirectPage phase7wFixI8InPlace(
+      HOTIndirectPage indirect, DiscBitsInfo discBits, final int n, final int revision) {
+    boolean hasI8 = false;
+    byte[] prevFirstKey = null;
+    for (int i = 0; i < n; i++) {
+      final HOTLeafPage leaf =
+          (HOTLeafPage) phase7wResolvePage(indirect.getChildReference(i));
+      final byte[] fk = (leaf.getEntryCount() > 0) ? leaf.getKey(0) : null;
+      if (fk != null && prevFirstKey != null
+          && java.util.Arrays.compareUnsigned(prevFirstKey, fk) > 0) {
+        hasI8 = true;
+        break;
+      }
+      if (fk != null) prevFirstKey = fk;
+    }
+    if (!hasI8) return indirect;
+
+    final PageReference[] fixRefs = new PageReference[n];
+    for (int i = 0; i < n; i++) fixRefs[i] = indirect.getChildReference(i);
+    sortChildrenByFirstKey(fixRefs);
+
+    final java.util.TreeMap<Integer, Integer> augBits = new java.util.TreeMap<>();
+    if (discBits.isSingleMask()) {
+      final int ibp = discBits.initialBytePos();
+      final long mask = discBits.bitMask();
+      for (int bp = 0; bp < 8; bp++) {
+        final int byteVal = (int) ((mask >>> ((7 - bp) * 8)) & 0xFF);
+        if (byteVal != 0) augBits.put(ibp + bp, byteVal);
+      }
+    } else {
+      final byte[] ep = discBits.extractionPositions();
+      final long[] em = discBits.extractionMasks();
+      for (int i = 0; i < discBits.numExtractionBytes(); i++) {
+        final int chunkIdx = i / 8;
+        final int off = i % 8;
+        final int byteVal = (int) ((em[chunkIdx] >>> ((7 - off) * 8)) & 0xFF);
+        if (byteVal != 0) augBits.put(ep[i] & 0xFF, byteVal);
+      }
+    }
+
+    for (int round = 0; round < 8; round++) {
+      final int[] newPartials = new int[n];
+      final DiscBitsInfo augDiscBits = buildDiscBitsFromMap(augBits);
+      for (int i = 0; i < n; i++) {
+        final byte[] fk = getFirstKeyFromChild(fixRefs[i]);
+        newPartials[i] = (fk != null) ? computePartialKey(fk, augDiscBits) : 0;
+      }
+      sortChildrenAndPartialsByPartial(fixRefs, newPartials);
+      final int inv = phase7tFirstInversionIdx(fixRefs);
+      if (inv < 0) {
+        PHASE7W_REDIST_CALLS.incrementAndGet();
+        return buildIndirectFromMap(augBits, augDiscBits, newPartials, fixRefs,
+            indirect.getPageKey(), revision, indirect.getHeight(), n);
+      }
+      final byte[] fkA = getFirstKeyFromChild(fixRefs[inv - 1]);
+      final byte[] fkB = getFirstKeyFromChild(fixRefs[inv]);
+      if (fkA == null || fkB == null) return indirect;
+      final int msdb = DiscriminativeBitComputer.computeDifferingBit(fkA, fkB);
+      if (msdb < 0) return indirect;
+      final int bytePos = msdb / 8;
+      final int bitInByte = msdb % 8;
+      final int maskBit = 1 << (7 - bitInByte);
+      final Integer existing = augBits.get(bytePos);
+      if (existing != null && (existing & maskBit) != 0) return indirect;
+      augBits.merge(bytePos, maskBit, (a, b) -> a | b);
+    }
+    return indirect;
+  }
+
+  private DiscBitsInfo buildDiscBitsFromMap(java.util.TreeMap<Integer, Integer> bits) {
+    if (bits.isEmpty()) return DiscBitsInfo.singleMask(0, 1L);
+    final int minByte = bits.firstKey();
+    final int maxByte = bits.lastKey();
+    if (maxByte - minByte < 8) {
+      long mask = 0;
+      for (final var e : bits.entrySet()) {
+        final int off = e.getKey() - minByte;
+        mask |= ((long) (e.getValue() & 0xFF)) << ((7 - off) * 8);
+      }
+      return DiscBitsInfo.singleMask(minByte, mask);
+    }
+    final int nb = bits.size();
+    final byte[] ep = new byte[nb];
+    final int numChunks = (nb + 7) / 8;
+    final long[] em = new long[numChunks];
+    int i = 0;
+    short msb = Short.MAX_VALUE;
+    for (final var e : bits.entrySet()) {
+      ep[i] = (byte) (int) e.getKey();
+      final int byteVal = e.getValue();
+      final int chunkIdx = i / 8;
+      final int off = i % 8;
+      em[chunkIdx] |= ((long) (byteVal & 0xFF)) << ((7 - off) * 8);
+      final int highBit = 31 - Integer.numberOfLeadingZeros(byteVal & 0xFF);
+      final int absBit = e.getKey() * 8 + (7 - highBit);
+      msb = (short) Math.min(msb, absBit);
+      i++;
+    }
+    return DiscBitsInfo.multiMask(ep, em, nb, msb);
+  }
+
+  private HOTIndirectPage buildIndirectFromMap(
+      java.util.TreeMap<Integer, Integer> bits, DiscBitsInfo discBits,
+      int[] partials, PageReference[] children, long pageKey, int revision, int height, int n) {
+    if (discBits.isSingleMask()) {
+      return (n <= 16)
+          ? HOTIndirectPage.createSpanNode(pageKey, revision,
+              discBits.initialBytePos(), discBits.bitMask(), partials, children, height)
+          : HOTIndirectPage.createMultiNode(pageKey, revision,
+              discBits.initialBytePos(), discBits.bitMask(), partials, children, height);
+    }
+    final byte[] ep = discBits.extractionPositions();
+    final long[] em = discBits.extractionMasks();
+    final short msb = discBits.mostSignificantBitIndex();
+    return (n <= 16)
+        ? HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision,
+            ep, em, ep.length, partials, children, height, msb)
+        : HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision,
+            ep, em, ep.length, partials, children, height, msb);
+  }
+
+  private Page phase7wResolvePage(final PageReference ref) {
+    Page page = ref.getPage();
+    if (page == null && activeLog != null) {
+      final var container = activeLog.get(ref);
+      if (container != null) {
+        page = container.getModified();
+        if (page != null) ref.setPage(page);
+      }
+    }
+    if (page == null && activeReader != null) {
+      page = loadPage(activeReader, ref);
+      if (page != null) ref.setPage(page);
+    }
+    return page;
+  }
+
+  private static int phase7wRouteToChild(final int densePK, final int[] partials, final int n) {
+    for (int j = 0; j < n; j++) {
+      if (partials[j] == densePK) return j;
+    }
+    int best = -1;
+    for (int j = 0; j < n; j++) {
+      if ((densePK & partials[j]) == partials[j]) best = j;
+    }
+    return best >= 0 ? best : 0;
   }
 
   /**
@@ -9202,14 +10061,18 @@ public final class HOTTrieWriter {
     // dump gated on -Dhot.debug.phase7q.imsb=true.
     phase7q15dCheckIntermediateMsb(indirect.getPageKey(), msbIndex & 0xFFFF, beta, newChildren,
         newCount);
+    final HOTIndirectPage liftResult;
     if (newCount <= 16) {
-      return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+      liftResult = HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+          extractionPositions, extractionMasks, allCount, newPartials, newChildren,
+          indirect.getHeight(), msbIndex);
+    } else {
+      liftResult = HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
           extractionPositions, extractionMasks, allCount, newPartials, newChildren,
           indirect.getHeight(), msbIndex);
     }
-    return HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
-        extractionPositions, extractionMasks, allCount, newPartials, newChildren,
-        indirect.getHeight(), msbIndex);
+    phase7t11AccumulateLift(liftResult);
+    return liftResult;
   }
 
   /**
@@ -9800,6 +10663,7 @@ public final class HOTTrieWriter {
     if (newCount > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) return null;
 
     // Build new MultiMask layout: combine indirect's existing extraction bytes + β's byte.
+    // Phase 7x Part 2: +2 instead of +1 to accommodate potential MSB-lowering constant bit.
     final int oldInitialBytePos = indirect.getInitialBytePos();
     final int newBytePos = beta / 8;
     final int newBitInByte = beta % 8;
@@ -9834,9 +10698,9 @@ public final class HOTTrieWriter {
         }
       }
     }
-    // Merge newBytePos.
-    int[] allBytePositions = new int[oldByteCount + 1];
-    int[] allByteMaskBits = new int[oldByteCount + 1];
+    // Merge newBytePos. +2 for potential MSB-lowering constant bit (Phase 7x Part 2).
+    int[] allBytePositions = new int[oldByteCount + 2];
+    int[] allByteMaskBits = new int[oldByteCount + 2];
     int allCount = 0;
     boolean merged = false;
     for (int i = 0; i < oldByteCount; i++) {
@@ -9865,6 +10729,65 @@ public final class HOTTrieWriter {
       allByteMaskBits[allCount] = newMaskBitInByte;
       allCount++;
     }
+
+    // Phase 7x Part 2 — MSB-lowering. If any child indirect has MSB ≤ the
+    // merged mask's MSB, the extended indirect would violate I11 with that child.
+    // Fix: add a constant bit MORE significant (lower abs position) than the
+    // most-significant child MSB, lowering the parent's MSB below all children's.
+    {
+      int prelMsb = Integer.MAX_VALUE;
+      for (int i = 0; i < allCount; i++) {
+        final int hb = 31 - Integer.numberOfLeadingZeros(allByteMaskBits[i] & 0xFF);
+        if (hb >= 0) {
+          final int abp = allBytePositions[i] * 8 + (7 - hb);
+          if (abp < prelMsb) prelMsb = abp;
+        }
+      }
+      int minChildMsb = Integer.MAX_VALUE;
+      for (int i = 0; i < newCount; i++) {
+        final int cm = getIndirectMsbOrMax(newRefs.get(i));
+        if (cm < minChildMsb) minChildMsb = cm;
+      }
+      if (minChildMsb <= prelMsb && minChildMsb > 0) {
+        for (int candidate = minChildMsb - 1; candidate >= 0; candidate--) {
+          boolean allConstant = true;
+          for (int j = 0; j < newCount; j++) {
+            if (bitConstantValueInSubtree(newRefs.get(j), candidate) < 0) {
+              allConstant = false;
+              break;
+            }
+          }
+          if (!allConstant) continue;
+          final int cBytePos = candidate / 8;
+          final int cBitInByte = candidate % 8;
+          final int cMaskBit = 1 << (7 - cBitInByte);
+          boolean found = false;
+          for (int k = 0; k < allCount; k++) {
+            if (allBytePositions[k] == cBytePos) {
+              allByteMaskBits[k] |= cMaskBit;
+              found = true;
+              break;
+            }
+          }
+          if (!found && allCount < allBytePositions.length) {
+            int insertIdx = allCount;
+            for (int k = 0; k < allCount; k++) {
+              if (allBytePositions[k] > cBytePos) { insertIdx = k; break; }
+            }
+            System.arraycopy(allBytePositions, insertIdx,
+                allBytePositions, insertIdx + 1, allCount - insertIdx);
+            System.arraycopy(allByteMaskBits, insertIdx,
+                allByteMaskBits, insertIdx + 1, allCount - insertIdx);
+            allBytePositions[insertIdx] = cBytePos;
+            allByteMaskBits[insertIdx] = cMaskBit;
+            allCount++;
+          }
+          PHASE7X_MSB_LOWER_APPLIED.incrementAndGet();
+          break;
+        }
+      }
+    }
+
     final byte[] extractionPositions = new byte[allCount];
     final int numChunks = (allCount + 7) / 8;
     final long[] extractionMasks = new long[numChunks];
@@ -11066,6 +11989,7 @@ public final class HOTTrieWriter {
         PHASE7Q_BEST_EFFORT_ACCEPTED.incrementAndGet();
         if (dbg) System.err.println("[g32-itersort] maxIter — BEST-EFFORT KEEPS cur: I8 "
             + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11);
+        phase7t11AccumulateRootsort(cur);
         return cur;
       }
       PHASE7Q_BEST_EFFORT_REJECTED.incrementAndGet();
@@ -11074,7 +11998,9 @@ public final class HOTTrieWriter {
           + " cycle=" + curHasCycle);
       return null;
     }
-    return cur != indirect ? cur : null;
+    final HOTIndirectPage rootSortOut = cur != indirect ? cur : null;
+    phase7t11AccumulateRootsort(rootSortOut);
+    return rootSortOut;
   }
 
   /** Phase 7q.15a — count adjacent firstKey inversions at the root level of an indirect.
@@ -11625,14 +12551,18 @@ public final class HOTTrieWriter {
 
     if (dbg) System.err.println("[g32-newrootlvl] OK discBit=" + discBit + " newMsb="
         + msbIndex + " parentMsb=" + parentMsb + " realCount=" + realCount);
+    final HOTIndirectPage newRootOut;
     if (n <= 16) {
-      return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+      newRootOut = HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+          extractionPositions, extractionMasks, numBytes, newPartials, newChildren,
+          indirect.getHeight(), msbIndex);
+    } else {
+      newRootOut = HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
           extractionPositions, extractionMasks, numBytes, newPartials, newChildren,
           indirect.getHeight(), msbIndex);
     }
-    return HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
-        extractionPositions, extractionMasks, numBytes, newPartials, newChildren,
-        indirect.getHeight(), msbIndex);
+    phase7t11AccumulateNewroot(newRootOut);
+    return newRootOut;
   }
 
   /**
@@ -12131,14 +13061,18 @@ public final class HOTTrieWriter {
     // I11 equality / strict violation at the parent ↔ split-half boundary).
     phase7q15dCheckIntermediateMsb(indirect.getPageKey(), msbIndex & 0xFFFF, beta, newChildren,
         newCount);
+    final HOTIndirectPage extendResult;
     if (newCount <= 16) {
-      return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+      extendResult = HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
+          extractionPositions, extractionMasks, allCount, newPartials, newChildren,
+          indirect.getHeight(), msbIndex);
+    } else {
+      extendResult = HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
           extractionPositions, extractionMasks, allCount, newPartials, newChildren,
           indirect.getHeight(), msbIndex);
     }
-    return HOTIndirectPage.createMultiNodeMultiMask(indirect.getPageKey(), revision,
-        extractionPositions, extractionMasks, allCount, newPartials, newChildren,
-        indirect.getHeight(), msbIndex);
+    phase7t11AccumulateExtend(extendResult);
+    return extendResult;
   }
 
   /**
@@ -13171,7 +14105,7 @@ public final class HOTTrieWriter {
       created = createNodeWithDiscBits(parent.getPageKey(), revision, parent.getHeight(),
           discBits, partialKeys, newChildren);
     }
-    return created;
+    return redistributeLeafKeysIfMisrouted(created, revision);
   }
 
 
@@ -13661,6 +14595,7 @@ public final class HOTTrieWriter {
           parent, leftChildren, leftIndices, Arrays.copyOf(leftIndices, li),
           originalChildIndex, leftChild, rightChild, false, msbPosition,
           parent.getPageKey(), storageEngineReader.getRevisionNumber());
+      phase7t10AccumulateSplitparent(leftNode);
       leftNodeRef = new PageReference();
       leftNodeRef.setKey(parent.getPageKey());
       leftNodeRef.setPage(leftNode);
@@ -13676,6 +14611,7 @@ public final class HOTTrieWriter {
           parent, rightChildren, rightIndices, Arrays.copyOf(rightIndices, ri),
           originalChildIndex, leftChild, rightChild, true, msbPosition,
           rightPageKey, storageEngineReader.getRevisionNumber());
+      phase7t10AccumulateSplitparent(rightNode);
       rightNodeRef = new PageReference();
       rightNodeRef.setKey(rightPageKey);
       rightNodeRef.setPage(rightNode);
@@ -14140,6 +15076,17 @@ public final class HOTTrieWriter {
     // under sparse-path encoding is partial-key.
     sortChildrenAndPartialsByPartial(sortedChildren, newPartials);
 
+    // Phase 7w — direct-PEXT fallback for firstKey ordering in buildCompressedHalf.
+    if (phase7tFirstInversionIdx(sortedChildren) >= 0) {
+      for (int ci = 0; ci < sortedChildren.length; ci++) {
+        final byte[] fk = getFirstKeyFromChild(sortedChildren[ci]);
+        if (fk != null) {
+          newPartials[ci] = computePartialKeySingleMask(fk, oldInitialBytePos, newMask);
+        }
+      }
+      sortChildrenAndPartialsByPartial(sortedChildren, newPartials);
+    }
+
     // Assemble node. For 2 children we can use a BiNode IFF newMask has exactly one
     // bit (the BiNode's single disc-bit suffices). Otherwise the 2-child case still
     // needs the full multi-bit mask via SpanNode — using a BiNode here with db
@@ -14152,12 +15099,15 @@ public final class HOTTrieWriter {
       return createBiNodeTraced("buildCompressedHalf-2096", newPageKey, revision, db,
           sortedChildren[0], sortedChildren[1], parent.getHeight());
     }
+    final HOTIndirectPage bchResult;
     if (sortedChildren.length <= 16) {
-      return HOTIndirectPage.createSpanNode(newPageKey, revision,
+      bchResult = HOTIndirectPage.createSpanNode(newPageKey, revision,
+          oldInitialBytePos, newMask, newPartials, sortedChildren, parent.getHeight());
+    } else {
+      bchResult = HOTIndirectPage.createMultiNode(newPageKey, revision,
           oldInitialBytePos, newMask, newPartials, sortedChildren, parent.getHeight());
     }
-    return HOTIndirectPage.createMultiNode(newPageKey, revision,
-        oldInitialBytePos, newMask, newPartials, sortedChildren, parent.getHeight());
+    return redistributeLeafKeysIfMisrouted(bchResult, revision);
   }
 
   /**
@@ -14531,25 +15481,154 @@ public final class HOTTrieWriter {
    * — left as follow-up work.</p>
    */
   private HOTIndirectPage createNodeFromChildren(PageReference[] children, long pageKey, int revision, int height) {
+    HOTIndirectPage created = createNodeFromChildrenCore(children, pageKey, revision, height);
+    created = redistributeLeafKeysIfMisrouted(created, revision);
+    created = enforceI11OnChildren(created, children, pageKey, revision, height);
+    return created;
+  }
+
+  private HOTIndirectPage enforceI11OnChildren(HOTIndirectPage indirect, PageReference[] children,
+      long pageKey, final int revision, final int height) {
+    if (indirect == null || height <= 1) return indirect;
+    final int parentMsb = indirect.getMostSignificantBitIndex() & 0xFFFF;
+    int minChildMsb = Integer.MAX_VALUE;
+    final int nc = indirect.getNumChildren();
+    for (int i = 0; i < nc; i++) {
+      final Page childPage = phase7wResolvePage(indirect.getChildReference(i));
+      if (childPage instanceof HOTIndirectPage childIndirect) {
+        final int childMsb = childIndirect.getMostSignificantBitIndex() & 0xFFFF;
+        if (childMsb < minChildMsb) minChildMsb = childMsb;
+      }
+    }
+    if (minChildMsb >= Integer.MAX_VALUE || minChildMsb > parentMsb) return indirect;
+
+    final PageReference[] currentChildren = new PageReference[nc];
+    for (int i = 0; i < nc; i++) {
+      currentChildren[i] = indirect.getChildReference(i);
+    }
+    sortChildrenByFirstKey(currentChildren);
+    final int initialBytePos = computeInitialBytePos(currentChildren);
+    DiscBitsInfo discBits = computeDiscBits(currentChildren, initialBytePos);
+    for (int augRound = 0; augRound < 16; augRound++) {
+      final int currentMsb = discBitsMsb(discBits);
+      if (currentMsb < minChildMsb) break;
+      final int targetBit = minChildMsb - 1;
+      if (targetBit < 0) break;
+      boolean found = false;
+      for (int ci = 0; ci < currentChildren.length - 1; ci++) {
+        final byte[] fk1 = getLastKeyFromChild(currentChildren[ci]);
+        final byte[] fk2 = getFirstKeyFromChild(currentChildren[ci + 1]);
+        if (fk1.length == 0 || fk2.length == 0) continue;
+        for (int bit = 0; bit <= targetBit; bit++) {
+          if (hasBitSet(fk1, bit) != hasBitSet(fk2, bit)) {
+            discBits = augmentDiscBitsWithAbsBit(discBits, bit, initialBytePos);
+            found = true;
+            break;
+          }
+        }
+        if (found) break;
+      }
+      if (!found) break;
+    }
+
+    final int augMsb = discBitsMsb(discBits);
+    if (augMsb >= parentMsb) return indirect;
+
+    final int[] partials = computePartialKeysForChildren(currentChildren, discBits);
+    boolean unique = true;
+    for (int i = 0; i < partials.length - 1 && unique; i++) {
+      if (partials[i] == partials[i + 1]) unique = false;
+    }
+    if (!unique) return indirect;
+
+    return buildFromDiscBits(currentChildren, discBits, partials, pageKey, revision, height);
+  }
+
+  private int discBitsMsb(DiscBitsInfo info) {
+    if (info.isSingleMask()) {
+      final long mask = info.bitMask();
+      if (mask == 0) return Integer.MAX_VALUE;
+      final int highBitInWord = 63 - Long.numberOfLeadingZeros(mask);
+      final int byteOffset = 7 - (highBitInWord >>> 3);
+      final int bitInByte = 7 - (highBitInWord & 7);
+      return (info.initialBytePos() + byteOffset) * 8 + bitInByte;
+    }
+    return info.mostSignificantBitIndex();
+  }
+
+  private DiscBitsInfo augmentDiscBitsWithAbsBit(DiscBitsInfo current, int absBit, int initialBytePos) {
+    if (current.isSingleMask()) {
+      final int bytePos = absBit / 8;
+      final int bitInByte = absBit % 8;
+      final int byteOffset = bytePos - initialBytePos;
+      if (byteOffset >= 0 && byteOffset < 8) {
+        final long newBitInWord = 1L << ((7 - byteOffset) * 8 + (7 - bitInByte));
+        return DiscBitsInfo.singleMask(initialBytePos, current.bitMask() | newBitInWord);
+      }
+    }
+    final TreeMap<Integer, Integer> maskByBytePos = new TreeMap<>();
+    if (current.isSingleMask()) {
+      final long mask = current.bitMask();
+      for (int bp = 0; bp < 8; bp++) {
+        final int byteVal = (int) ((mask >>> ((7 - bp) * 8)) & 0xFF);
+        if (byteVal != 0) maskByBytePos.put(initialBytePos + bp, byteVal);
+      }
+    } else {
+      final byte[] ep = current.extractionPositions();
+      final long[] em = current.extractionMasks();
+      for (int i = 0; i < current.numExtractionBytes(); i++) {
+        final int chunkIdx = i / 8;
+        final int off = i % 8;
+        final int byteVal = (int) ((em[chunkIdx] >>> ((7 - off) * 8)) & 0xFF);
+        if (byteVal != 0) maskByBytePos.put(ep[i] & 0xFF, byteVal);
+      }
+    }
+    final int bytePos = absBit / 8;
+    final int bitInByte = absBit % 8;
+    final int maskBit = 1 << (7 - bitInByte);
+    maskByBytePos.merge(bytePos, maskBit, (a, b) -> a | b);
+    return buildMultiMask(maskByBytePos, maskByBytePos.firstKey());
+  }
+
+  private HOTIndirectPage buildFromDiscBits(PageReference[] children, DiscBitsInfo discBits,
+      int[] partials, long pageKey, int revision, int height) {
+    sortChildrenAndPartialsByPartial(children, partials);
+    if (discBits.isSingleMask()) {
+      if (children.length <= 16) {
+        return HOTIndirectPage.createSpanNode(pageKey, revision,
+            discBits.initialBytePos(), discBits.bitMask(), partials, children, height);
+      }
+      return HOTIndirectPage.createMultiNode(pageKey, revision,
+          discBits.initialBytePos(), discBits.bitMask(), partials, children, height);
+    }
+    final byte[] ep = discBits.extractionPositions();
+    final long[] em = discBits.extractionMasks();
+    final int neb = discBits.numExtractionBytes();
+    final short msb = (short) discBits.mostSignificantBitIndex();
+    if (children.length <= 16) {
+      return HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision,
+          ep, em, neb, partials, children, height, msb);
+    }
+    return HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision,
+        ep, em, neb, partials, children, height, msb);
+  }
+
+  private HOTIndirectPage createNodeFromChildrenCore(PageReference[] children, long pageKey, int revision, int height) {
     if (children.length < 2) {
       throw new IllegalStateException("Cannot create HOTIndirectPage with " + children.length
           + " children — callers must handle the single-child case by passing the reference through directly");
     }
 
-    // Sort children by first key for correct boundary computation
     sortChildrenByFirstKey(children);
 
-    final HOTIndirectPage created;
     if (children.length == 2) {
       final byte[] leftMax = getLastKeyFromChild(children[0]);
       final byte[] rightMin = getFirstKeyFromChild(children[1]);
       final int discriminativeBit = Math.max(0, DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin));
-      created = createBiNodeTraced("createNodeFromChildren-2273", pageKey, revision,
+      return createBiNodeTraced("createNodeFromChildren-2273", pageKey, revision,
           discriminativeBit, children[0], children[1], height);
-    } else {
-      created = buildFlatNonStrict(children, pageKey, revision, height);
     }
-    return created;
+    return buildFlatNonStrict(children, pageKey, revision, height);
   }
 
   /**
@@ -14679,6 +15758,66 @@ public final class HOTTrieWriter {
     }
     // sortChildrenAndPartialsByPartial preserves the children/partials parallel arrays.
     sortChildrenAndPartialsByPartial(children, partialKeys);
+
+    // Phase 7w — fix firstKey inversions (I8). Two-step:
+    //   Step 1: switch from sparse-path partials to direct PEXT partials.
+    //   Step 2: if inversion persists, augment disc bits with the MSDB between the
+    //           inverted pair's firstKeys (pulls in the ordering-critical bit).
+    {
+      final int invBefore = phase7tFirstInversionIdx(children);
+      if (invBefore >= 0) {
+        for (int ci = 0; ci < children.length; ci++) {
+          final byte[] fk = getFirstKeyFromChild(children[ci]);
+          if (fk != null) partialKeys[ci] = computePartialKey(fk, discBits);
+        }
+        sortChildrenAndPartialsByPartial(children, partialKeys);
+        int invAfter = phase7tFirstInversionIdx(children);
+        for (int augAttempt = 0; augAttempt < 4 && invAfter >= 0; augAttempt++) {
+          final byte[] fkA = getFirstKeyFromChild(children[invAfter - 1]);
+          final byte[] fkB = getFirstKeyFromChild(children[invAfter]);
+          if (fkA == null || fkB == null) break;
+          final int minLen = Math.min(fkA.length, fkB.length);
+          int augBp = -1;
+          int augBib = -1;
+          for (int b = 0; b < minLen && augBp < 0; b++) {
+            final int diff = (fkA[b] ^ fkB[b]) & 0xFF;
+            if (diff == 0) continue;
+            int d = diff;
+            while (d != 0) {
+              final int hb = Integer.numberOfLeadingZeros(d) - 24;
+              d &= ~(1 << (7 - hb));
+              if (discBitsContainsBit(discBits, b, hb)) continue;
+              augBp = b;
+              augBib = hb;
+              break;
+            }
+          }
+          if (augBp < 0) break;
+          final TreeMap<Integer, Integer> rebuilt = discBitsToMaskByBytePos(discBits);
+          rebuilt.merge(augBp, 1 << (7 - augBib), (a, b2) -> a | b2);
+          final int newMinBp = rebuilt.firstKey();
+          final int maxBp = rebuilt.lastKey();
+          if (maxBp - newMinBp < 8 && newMinBp >= initialBytePos) {
+            long mask = 0L;
+            for (final var entry : rebuilt.entrySet()) {
+              final int byteOff = entry.getKey() - initialBytePos;
+              mask |= ((long) (entry.getValue() & 0xFF)) << ((7 - byteOff) * 8);
+            }
+            discBits = DiscBitsInfo.singleMask(initialBytePos, mask);
+          } else {
+            discBits = buildMultiMask(rebuilt, newMinBp);
+            initialBytePos = newMinBp;
+          }
+          for (int ci = 0; ci < children.length; ci++) {
+            final byte[] fk = getFirstKeyFromChild(children[ci]);
+            if (fk != null) partialKeys[ci] = computePartialKey(fk, discBits);
+          }
+          sortChildrenAndPartialsByPartial(children, partialKeys);
+          invAfter = phase7tFirstInversionIdx(children);
+        }
+      }
+    }
+
     // Phase 7t-1 — firstKey-vs-partial monotone post-sort probe. Opt-in via
     // -Dhot.strict.phase7t.monotone.probe. Counter-only; localises whether the
     // residual descending / mixed-sign / bimodal violations originate here.

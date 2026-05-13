@@ -328,7 +328,35 @@ public final class HOTTrieReader implements AutoCloseable {
    *         {@link LowerBoundResult#EXHAUSTED} when no such entry exists
    */
   public LowerBoundResult lowerBound(PageReference rootRef, byte[] searchKey) {
-    return lowerOrUpperBound(rootRef, searchKey, true);
+    // Phase 7u — opt-in via -Dhot.strict.phase7u.lexprimary=true: use lex-descent as the
+    // PRIMARY routing algorithm. Lex-descent is correct under HOT I8 (children sorted by
+    // firstKey), and unaffected by I5/I6 violations from byte-10 encoder discontinuity.
+    // Cost: one extra firstKey-load per indirect-child during descent; works on any
+    // I8-conformant trie.
+    if (Boolean.getBoolean("hot.strict.phase7u.lexprimary")) {
+      return phase7uLexDescentFallback(rootRef, searchKey, true);
+    }
+    final LowerBoundResult result = lowerOrUpperBound(rootRef, searchKey, true);
+    // Phase 7u — verify-and-fall-back. The normal PEXT descent + walk-up returns a result,
+    // but for trees with I5/I6 violations from byte-10 encoder discontinuity, the returned
+    // leaf may not contain searchKey even though it IS stored. Opt-out via
+    // -Dhot.strict.phase7u.lexfallback.disable=true.
+    if (Boolean.getBoolean("hot.strict.phase7u.lexfallback.disable")) return result;
+    if (result == LowerBoundResult.EXHAUSTED) {
+      return phase7uLexDescentFallback(rootRef, searchKey, true);
+    }
+    // Check whether returned leaf actually contains searchKey or has it as next-key.
+    final HOTLeafPage leaf = result.leaf;
+    final int idx = result.indexInLeaf;
+    if (leaf != null && idx < leaf.getEntryCount()) {
+      final byte[] key = leaf.getKey(idx);
+      // For lower_bound semantics: returned key must be ≥ searchKey AND ≤ any other stored
+      // key ≥ searchKey. If returned key < searchKey, PEXT routing missed — fall back.
+      if (key != null && java.util.Arrays.compareUnsigned(key, searchKey) < 0) {
+        return phase7uLexDescentFallback(rootRef, searchKey, true);
+      }
+    }
+    return result;
   }
 
   /**
@@ -347,6 +375,11 @@ public final class HOTTrieReader implements AutoCloseable {
     // Phase 1: PEXT-routed descent with stack tracking.
     final HOTLeafPage candidateLeaf = navigateToLeaf(rootRef, searchKey);
     if (candidateLeaf == null) {
+      // Phase 7u — lex-descent fallback. PEXT navigation returned null (= structural
+      // failure). Try a pure-lex descent that ignores PEXT/partial-key routing.
+      if (!Boolean.getBoolean("hot.strict.phase7u.lexfallback.disable")) {
+        return phase7uLexDescentFallback(rootRef, searchKey, isLowerBound);
+      }
       return LowerBoundResult.EXHAUSTED;
     }
 
@@ -488,6 +521,77 @@ public final class HOTTrieReader implements AutoCloseable {
       return LowerBoundResult.EXHAUSTED;
     }
     return new LowerBoundResult(targetLeaf, 0);
+  }
+
+  /**
+   * Phase 7u — Lex-descent fallback for the rare case where PEXT-routed descent + walk-up
+   * cannot locate a key that IS stored in the trie. This happens when the writer's stored
+   * partials don't match the actual subtree contents (I5 violation), causing PEXT to route
+   * to the wrong leaf at some intermediate level.
+   *
+   * <p>Algorithm: at each indirect from the root, find the LAST child whose firstKey is
+   * &le; searchKey (binary-search by firstKey, not by PEXT). Descend until a leaf is
+   * reached, then findEntry within the leaf.
+   *
+   * <p>This is a correctness fallback — it costs one extra descent per call, only invoked
+   * after the normal descent fails. For trees with 0 I8 violations (firstKey-sorted), the
+   * lex-descent is guaranteed to find any stored key.
+   *
+   * <p>HFT-grade: no allocation; bounded by tree height.
+   */
+  private LowerBoundResult phase7uLexDescentFallback(PageReference rootRef, byte[] searchKey,
+      boolean isLowerBound) {
+    if (rootRef == null) return LowerBoundResult.EXHAUSTED;
+    // CRITICAL: populate the path stack so subsequent advanceToNextLeaf() walks correctly.
+    // HOTRangeCursor calls advanceToNextLeaf() after the initial lowerBound — if the path
+    // stack is stale or empty, the cursor traverses the wrong subtree forward and misses
+    // entries that ARE in the trie.
+    pathDepth = 0;
+    PageReference ref = rootRef;
+    int depth = 0;
+    final int MAX_DEPTH = 64;
+    while (depth++ < MAX_DEPTH) {
+      final Page page = loadPage(ref);
+      if (page == null) return LowerBoundResult.EXHAUSTED;
+      if (page instanceof HOTLeafPage leaf) {
+        final int exact = leaf.findEntry(searchKey);
+        if (exact >= 0) {
+          if (isLowerBound) return new LowerBoundResult(leaf, exact);
+          return advanceOneFrom(leaf, exact);
+        }
+        final int insertionPoint = -(exact + 1);
+        if (insertionPoint < leaf.getEntryCount()) {
+          return new LowerBoundResult(leaf, insertionPoint);
+        }
+        // searchKey is past this leaf's last entry — advance via path stack to next leaf.
+        final HOTLeafPage next = advanceToNextLeaf();
+        if (next == null) return LowerBoundResult.EXHAUSTED;
+        return new LowerBoundResult(next, 0);
+      }
+      if (!(page instanceof HOTIndirectPage indirect)) return LowerBoundResult.EXHAUSTED;
+      // Find the LAST child whose firstKey is ≤ searchKey.
+      final int n = indirect.getNumChildren();
+      int chosenIdx = -1;
+      for (int i = 0; i < n; i++) {
+        final byte[] fk = getFirstKeyOfChild(indirect, i);
+        if (fk == null || fk.length == 0) continue;
+        final int cmp = java.util.Arrays.compareUnsigned(fk, searchKey);
+        if (cmp <= 0) {
+          chosenIdx = i;
+        } else {
+          break;
+        }
+      }
+      if (chosenIdx < 0) {
+        // searchKey is smaller than all children's firstKeys → descend leftmost.
+        chosenIdx = 0;
+      }
+      // Push to path stack BEFORE descending — required for advanceToNextLeaf() to bubble up.
+      pushPath(ref, indirect, chosenIdx);
+      ref = indirect.getChildReference(chosenIdx);
+      if (ref == null) return LowerBoundResult.EXHAUSTED;
+    }
+    return LowerBoundResult.EXHAUSTED;
   }
 
   /**

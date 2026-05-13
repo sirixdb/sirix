@@ -137,9 +137,54 @@ public final class HOTIndirectPage implements Page {
   public static volatile java.util.function.Consumer<HOTIndirectPage> POST_CREATE_HOOK;
 
   private static HOTIndirectPage runPostCreateHook(HOTIndirectPage page) {
+    if (Boolean.getBoolean("hot.debug.phase7x.i11trace")) {
+      final int msb = page.mostSignificantBitIndex & 0xFFFF;
+      for (int ci = 0; ci < page.numChildren; ci++) {
+        final PageReference cr = page.childReferences[ci];
+        if (cr == null) continue;
+        final Page cp = cr.getPage();
+        if (cp instanceof HOTIndirectPage childIndirect) {
+          final int childMsb = childIndirect.mostSignificantBitIndex & 0xFFFF;
+          if (childMsb <= msb) {
+            System.err.println("[I11-CREATE-TRACE] parent pk=" + page.pageKey
+                + " msb=" + msb + " child[" + ci + "] pk=" + childIndirect.pageKey
+                + " childMsb=" + childMsb + " h=" + page.height
+                + " layout=" + page.layoutType + " nChildren=" + page.numChildren);
+            break;
+          }
+        }
+      }
+      if (page.height == 1 && page.numChildren >= 2) {
+        for (int i = 0; i < page.numChildren - 1; i++) {
+          final PageReference r1 = page.childReferences[i];
+          final PageReference r2 = page.childReferences[i + 1];
+          if (r1 == null || r2 == null) continue;
+          final Page p1 = r1.getPage();
+          final Page p2 = r2.getPage();
+          if (p1 instanceof HOTLeafPage l1 && p2 instanceof HOTLeafPage l2
+              && l1.getEntryCount() > 0 && l2.getEntryCount() > 0) {
+            final byte[] fk1 = l1.getKey(0);
+            final byte[] fk2 = l2.getKey(0);
+            if (fk1 != null && fk2 != null && java.util.Arrays.compareUnsigned(fk1, fk2) > 0) {
+              System.err.println("[I8-CREATE-TRACE] indirect pk=" + page.pageKey
+                  + " child[" + i + "].fk=" + bytesToHex(fk1)
+                  + " >= child[" + (i + 1) + "].fk=" + bytesToHex(fk2)
+                  + " n=" + page.numChildren + " h=" + page.height);
+              break;
+            }
+          }
+        }
+      }
+    }
     final java.util.function.Consumer<HOTIndirectPage> hook = POST_CREATE_HOOK;
     if (hook != null) hook.accept(page);
     return page;
+  }
+
+  private static String bytesToHex(byte[] bytes) {
+    final StringBuilder sb = new StringBuilder(bytes.length * 2);
+    for (final byte b : bytes) sb.append(String.format("%02x", b & 0xFF));
+    return sb.toString();
   }
 
   /**
@@ -753,6 +798,47 @@ public final class HOTIndirectPage implements Page {
   public void setChildReference(int index, PageReference ref) {
     Objects.checkIndex(index, numChildren);
     childReferences[index] = ref;
+  }
+
+  /**
+   * Sort children and their partial keys together so that firstKeys are
+   * monotonically non-decreasing.  PEXT routing matches by partial VALUE,
+   * not position, so reordering children+partials is safe as long as the
+   * two arrays stay paired.
+   *
+   * @param firstKeys the firstKey bytes for each child (same length as numChildren)
+   */
+  public void sortChildrenByFirstKey(final byte[][] firstKeys) {
+    if (partialKeys == null || numChildren < 2) return;
+    for (int i = 1; i < numChildren; i++) {
+      final byte[] keyI = firstKeys[i];
+      final int partI = partialKeys[i];
+      final PageReference refI = childReferences[i];
+      int j = i - 1;
+      while (j >= 0 && compareUnsigned(firstKeys[j], keyI) > 0) {
+        firstKeys[j + 1] = firstKeys[j];
+        partialKeys[j + 1] = partialKeys[j];
+        childReferences[j + 1] = childReferences[j];
+        j--;
+      }
+      firstKeys[j + 1] = keyI;
+      partialKeys[j + 1] = partI;
+      childReferences[j + 1] = refI;
+    }
+    sparsePartialKeys = createSparsePartialKeys(
+        partialKeys, numChildren, getPartialKeyWidth());
+  }
+
+  private static int compareUnsigned(final byte[] a, final byte[] b) {
+    if (a == null && b == null) return 0;
+    if (a == null) return -1;
+    if (b == null) return 1;
+    final int len = Math.min(a.length, b.length);
+    for (int i = 0; i < len; i++) {
+      final int diff = (a[i] & 0xFF) - (b[i] & 0xFF);
+      if (diff != 0) return diff;
+    }
+    return a.length - b.length;
   }
 
   /**

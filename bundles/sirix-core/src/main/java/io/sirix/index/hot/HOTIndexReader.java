@@ -152,6 +152,25 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
     System.arraycopy(prefixBuf, 0, toBytes, 0, prefixLen);
     HOTKeySerializer.writeChunkIdxBE(toBytes, prefixLen, 0xFFFFFFFF);
 
+    Roaring64Bitmap merged = collectViaCursor(rootRef, prefixBuf, prefixLen, fromBytes, toBytes);
+
+    if ((merged == null || merged.isEmpty())
+        && !Boolean.getBoolean("hot.cas.leftmostfallback.disable")) {
+      // Phase 7v retry: the PEXT-routed lowerBound may misroute under I6 violations
+      // (writer-side structural bugs from byte-10 encoder discontinuity). Retry with a
+      // full leaf-walk scan that's robust against non-lex-order leaves. Only fires when
+      // the fast path returned 0 chunks — zero overhead for queries that succeeded.
+      merged = collectViaLeafWalk(rootRef, prefixBuf, prefixLen);
+    }
+
+    if (merged == null || merged.isEmpty()) {
+      return null;
+    }
+    return new NodeReferences(merged);
+  }
+
+  private @Nullable Roaring64Bitmap collectViaCursor(PageReference rootRef, byte[] prefixBuf,
+      int prefixLen, byte[] fromBytes, byte[] toBytes) {
     Roaring64Bitmap merged = null;
     try (HOTTrieReader reader = new HOTTrieReader(getStorageEngineReader());
         HOTRangeCursor cursor = reader.range(rootRef, fromBytes, toBytes)) {
@@ -164,34 +183,61 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
           cursor.advance();
           continue;
         }
-        final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
-        final byte[] chunkBytes = leaf.getValue(idx);
-        if (NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
-          cursor.advance();
-          continue;
-        }
-        final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
-        final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
-        if (chunkBitmap.isEmpty()) {
-          cursor.advance();
-          continue;
-        }
-        if (merged == null) {
-          merged = new Roaring64Bitmap();
-        }
-        final long high = ((long) chunkIdx) << 16;
-        final LongIterator bIt = chunkBitmap.getLongIterator();
-        while (bIt.hasNext()) {
-          merged.add(high | (bIt.next() & 0xFFFFL));
-        }
+        merged = mergeChunk(merged, leaf, idx, composite);
         cursor.advance();
       }
     }
+    return merged;
+  }
 
-    if (merged == null || merged.isEmpty()) {
-      return null;
+  /**
+   * Phase 7v fallback: walk every leaf in the trie (left-to-right traversal order, NOT lex order
+   * — robust against I8 violations), filter each entry by exact prefix match. Used only when the
+   * primary PEXT-routed cursor returns 0 chunks for a key that is in fact stored. O(total trie
+   * entries) per call; only triggered on miss.
+   */
+  private @Nullable Roaring64Bitmap collectViaLeafWalk(PageReference rootRef, byte[] prefixBuf,
+      int prefixLen) {
+    Roaring64Bitmap merged = null;
+    try (HOTTrieReader reader = new HOTTrieReader(getStorageEngineReader())) {
+      HOTLeafPage leaf = reader.navigateToLeftmostLeaf(rootRef);
+      while (leaf != null) {
+        final int entryCount = leaf.getEntryCount();
+        for (int idx = 0; idx < entryCount; idx++) {
+          final byte[] composite = leaf.getKey(idx);
+          if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
+              || Arrays.compareUnsigned(composite, 0, prefixLen, prefixBuf, 0, prefixLen) != 0) {
+            continue;
+          }
+          merged = mergeChunk(merged, leaf, idx, composite);
+        }
+        leaf = reader.advanceToNextLeaf();
+      }
     }
-    return new NodeReferences(merged);
+    return merged;
+  }
+
+  private @Nullable Roaring64Bitmap mergeChunk(@Nullable Roaring64Bitmap merged, HOTLeafPage leaf,
+      int idx, byte[] composite) {
+    final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
+    final byte[] chunkBytes = leaf.getValue(idx);
+    if (NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
+      return merged;
+    }
+    final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
+    final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
+    if (chunkBitmap.isEmpty()) {
+      return merged;
+    }
+    if (merged == null) {
+      merged = new Roaring64Bitmap();
+    }
+    final long high = ((long) chunkIdx) << 16;
+    final LongIterator bIt = chunkBitmap.getLongIterator();
+    while (bIt.hasNext()) {
+      merged.add(high | (bIt.next() & 0xFFFFL));
+    }
+    return merged;
   }
 
   /**
