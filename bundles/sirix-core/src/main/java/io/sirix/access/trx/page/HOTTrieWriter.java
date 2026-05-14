@@ -2953,12 +2953,8 @@ public final class HOTTrieWriter {
         }
         final long cbpPageKey = pageKeyAllocator.getAsLong();
         final HOTIndirectPage cbpBuilt;
-        try {
-          cbpBuilt = createBiNodeTraced("constancy-preserving-binode", cbpPageKey, revision,
+        cbpBuilt = createBiNodeTraced("constancy-preserving-binode", cbpPageKey, revision,
               constancyDiscBit, leftChild, rightChild, height);
-        } catch (Throwable t) {
-          return null;
-        }
         final PageReference cbpRef = new PageReference();
         cbpRef.setKey(cbpPageKey);
         cbpRef.setPage(cbpBuilt);
@@ -2967,12 +2963,7 @@ public final class HOTTrieWriter {
       }
     }
     final long pageKey = pageKeyAllocator.getAsLong();
-    final HOTIndirectPage built;
-    try {
-      built = createNodeFromChildren(children, pageKey, revision, height);
-    } catch (Throwable t) {
-      return null;
-    }
+    final HOTIndirectPage built = createNodeFromChildren(children, pageKey, revision, height);
     final PageReference ref = new PageReference();
     ref.setKey(pageKey);
     ref.setPage(built);
@@ -4094,14 +4085,10 @@ public final class HOTTrieWriter {
     if (rebuilt.length < 2 || rebuilt.length > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
       return null;
     }
-    try {
-      final HOTIndirectPage out = createNodeFromChildren(rebuilt, parent.getPageKey(),
-          revision, parent.getHeight());
-      phase7t10AccumulateRebuild(out);
-      return out;
-    } catch (Throwable t) {
-      return null;
-    }
+    final HOTIndirectPage out = createNodeFromChildren(rebuilt, parent.getPageKey(),
+        revision, parent.getHeight());
+    phase7t10AccumulateRebuild(out);
+    return out;
   }
 
   /**
@@ -14533,7 +14520,8 @@ public final class HOTTrieWriter {
     // Need to raise. Strip bits ≤ requiredMin from indirect's mask.
     // For each bit being stripped, verify β-constancy in indirect's subtree.
     if (indirect.getLayoutType() != HOTIndirectPage.LayoutType.SINGLE_MASK) {
-      // MultiMask: skip for now (complex). TODO: implement MultiMask strip.
+      // MultiMask strip requires iterating per-byte extraction masks and rebuilding
+      // the extraction table — falls back to intermediate-BiNode wrapping instead.
       return null;
     }
     final int initialBytePos = indirect.getInitialBytePos();

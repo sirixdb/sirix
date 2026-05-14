@@ -1482,19 +1482,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       final int oldOffset = slotOffsets[i];
       final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, oldOffset));
       final int valueLen  = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, oldOffset + 2 + suffixLen));
-      final int entrySize = 2 + suffixLen + 2 + valueLen;
+      final int entrySize = Math.addExact(Math.addExact(2 + suffixLen, 2), valueLen);
 
       // Bulk-copy the raw entry bytes [u16 suffixLen][suffix][u16 valueLen][value]
       MemorySegment.copy(slotMemory, ValueLayout.JAVA_BYTE, oldOffset, scratch, newOffset, entrySize);
       slotOffsets[i] = newOffset;
-      newOffset += entrySize;
+      newOffset = Math.addExact(newOffset, entrySize);
     }
 
     // Bulk-copy compacted data back to slotMemory
     final int oldUsed = usedSlotMemorySize;
     MemorySegment.copy(scratch, 0, slotMemory, ValueLayout.JAVA_BYTE, 0, newOffset);
     usedSlotMemorySize = newOffset;
-
+    assert newOffset <= oldUsed : "compact() grew data: " + newOffset + " > " + oldUsed;
 
     return oldUsed - usedSlotMemorySize;
   }
@@ -2884,8 +2884,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       return false;
     }
     guardCount.incrementAndGet();
-    // Double-check after increment to prevent acquire-after-close race
-    if (closed.get()) {
+    // Double-check after increment to prevent acquire-after-close/orphan race
+    if (closed.get() || isOrphaned) {
       guardCount.decrementAndGet();
       return false;
     }

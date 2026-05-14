@@ -46,6 +46,8 @@ import io.sirix.page.interfaces.Page;
 import io.sirix.settings.Constants;
 import io.sirix.settings.VersioningType;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.function.LongSupplier;
@@ -82,6 +84,8 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   /** Maximum navigable tree depth — pre-allocates path arrays at this depth. */
   private static final int MAX_PATH_DEPTH = 64;
+
+  private static final Logger LOG = LoggerFactory.getLogger(AbstractHOTIndexWriter.class);
 
   protected final StorageEngineWriter storageEngineWriter;
   protected final IndexType indexType;
@@ -558,10 +562,16 @@ public abstract class AbstractHOTIndexWriter<K> {
       int childIndex = indirectPage.findChildIndex(keyBuf);
       if (childIndex < 0) childIndex = 0;
       final PageReference childRef = indirectPage.getChildReference(childIndex);
-      if (childRef == null) return null;
+      if (childRef == null) {
+        LOG.warn("HOT navigation: null child ref at index {} in indirect page {}", childIndex, indirectPage.getPageKey());
+        return null;
+      }
       currentRef = childRef;
       page = resolveHOTPageForTraversal(currentRef);
-      if (page == null) return null;
+      if (page == null) {
+        LOG.warn("HOT navigation: unresolvable page for ref key={}", currentRef.getKey());
+        return null;
+      }
     }
     return page instanceof HOTLeafPage hotLeaf ? hotLeaf : null;
   }
