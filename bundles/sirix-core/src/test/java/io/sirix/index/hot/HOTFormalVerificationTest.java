@@ -475,42 +475,6 @@ final class HOTFormalVerificationTest {
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qIntermediateMsbLower();
         io.sirix.access.trx.page.HOTTrieWriter.resetPhase7qIntermediateMsbOk();
 
-        // Stage G diagnostic — wire POST_CREATE_HOOK to detect I4-violating constructions.
-        // Logs the creating call site (stack trace) the FIRST time an indirect with no
-        // zero partial is built. Helps Stage G locate the offending happy-path operation.
-        final boolean[] i4LoggedOnce = {false};
-        io.sirix.page.HOTIndirectPage.POST_CREATE_HOOK = page -> {
-          if (i4LoggedOnce[0]) return;
-          final int[] pk = page.getPartialKeys();
-          if (pk == null || pk.length == 0) return;
-          boolean hasZero = false;
-          for (final int p : pk) { if (p == 0) { hasZero = true; break; } }
-          if (hasZero) return;
-          int min = pk[0];
-          for (int i = 1; i < pk.length; i++) {
-            if (Integer.compareUnsigned(pk[i], min) < 0) min = pk[i];
-          }
-          i4LoggedOnce[0] = true;
-          final StringBuilder sb = new StringBuilder(2048);
-          sb.append("[i4-trace] page=").append(page.getPageKey())
-              .append(" layoutType=").append(page.getLayoutType())
-              .append(" numChildren=").append(page.getNumChildren())
-              .append(" mask=0x").append(Long.toHexString(page.getBitMask()))
-              .append(" initialBytePos=").append(page.getInitialBytePos())
-              .append(" smallestPartial=0x").append(Integer.toHexString(min))
-              .append(" partials=").append(java.util.Arrays.toString(pk))
-              .append('\n');
-          final StackTraceElement[] frames = Thread.currentThread().getStackTrace();
-          int printed = 0;
-          for (final StackTraceElement ste : frames) {
-            if (printed >= 12) break;
-            final String s = ste.toString();
-            if (s.startsWith("java.") || s.startsWith("jdk.")) continue;
-            sb.append("  at ").append(s).append('\n');
-            printed++;
-          }
-          System.out.println(sb);
-        };
         JsonTestHelper.deleteEverything();
         JsonTestHelper.createTestDocument();
         final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());

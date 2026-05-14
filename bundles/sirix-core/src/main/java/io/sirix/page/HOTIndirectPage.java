@@ -126,68 +126,6 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
-   * Diagnostic post-creation hook (Phase 4b-vb.3 deep dive). When non-null, every
-   * {@code createSpanNode/createMultiNode/createSpanNodeMultiMask/createMultiNodeMultiMask/
-   * createBiNode} invocation calls this consumer with the just-built page. The hook is
-   * an instrumentation seam for {@code HOTTrieWriter} — it does NOT participate in
-   * normal page lifecycle and must not retain references.
-   *
-   * <p>Set to non-null only in test/debug contexts; clear in production.
-   */
-  public static volatile java.util.function.Consumer<HOTIndirectPage> POST_CREATE_HOOK;
-
-  private static HOTIndirectPage runPostCreateHook(HOTIndirectPage page) {
-    if (Boolean.getBoolean("hot.debug.phase7x.i11trace")) {
-      final int msb = page.mostSignificantBitIndex & 0xFFFF;
-      for (int ci = 0; ci < page.numChildren; ci++) {
-        final PageReference cr = page.childReferences[ci];
-        if (cr == null) continue;
-        final Page cp = cr.getPage();
-        if (cp instanceof HOTIndirectPage childIndirect) {
-          final int childMsb = childIndirect.mostSignificantBitIndex & 0xFFFF;
-          if (childMsb <= msb) {
-            System.err.println("[I11-CREATE-TRACE] parent pk=" + page.pageKey
-                + " msb=" + msb + " child[" + ci + "] pk=" + childIndirect.pageKey
-                + " childMsb=" + childMsb + " h=" + page.height
-                + " layout=" + page.layoutType + " nChildren=" + page.numChildren);
-            break;
-          }
-        }
-      }
-      if (page.height == 1 && page.numChildren >= 2) {
-        for (int i = 0; i < page.numChildren - 1; i++) {
-          final PageReference r1 = page.childReferences[i];
-          final PageReference r2 = page.childReferences[i + 1];
-          if (r1 == null || r2 == null) continue;
-          final Page p1 = r1.getPage();
-          final Page p2 = r2.getPage();
-          if (p1 instanceof HOTLeafPage l1 && p2 instanceof HOTLeafPage l2
-              && l1.getEntryCount() > 0 && l2.getEntryCount() > 0) {
-            final byte[] fk1 = l1.getKey(0);
-            final byte[] fk2 = l2.getKey(0);
-            if (fk1 != null && fk2 != null && java.util.Arrays.compareUnsigned(fk1, fk2) > 0) {
-              System.err.println("[I8-CREATE-TRACE] indirect pk=" + page.pageKey
-                  + " child[" + i + "].fk=" + bytesToHex(fk1)
-                  + " >= child[" + (i + 1) + "].fk=" + bytesToHex(fk2)
-                  + " n=" + page.numChildren + " h=" + page.height);
-              break;
-            }
-          }
-        }
-      }
-    }
-    final java.util.function.Consumer<HOTIndirectPage> hook = POST_CREATE_HOOK;
-    if (hook != null) hook.accept(page);
-    return page;
-  }
-
-  private static String bytesToHex(byte[] bytes) {
-    final StringBuilder sb = new StringBuilder(bytes.length * 2);
-    for (final byte b : bytes) sb.append(String.format("%02x", b & 0xFF));
-    return sb.toString();
-  }
-
-  /**
    * Compute the most significant discriminative bit index from a {@code bitMask} and
    * {@code initialBytePos}. The MSB is the bit closest to the start of the key (smallest absolute
    * MSB-first bit position).
@@ -370,7 +308,7 @@ public final class HOTIndirectPage implements Page {
     page.sparsePartialKeys = createSparsePartialKeys(page.partialKeys, 2, 1);
     page.childReferences[0] = leftChild;
     page.childReferences[1] = rightChild;
-    return runPostCreateHook(page);
+    return page;
   }
 
   /**
@@ -402,7 +340,7 @@ public final class HOTIndirectPage implements Page {
     page.partialKeys = partialKeys.clone();
     page.sparsePartialKeys = createSparsePartialKeys(partialKeys, children.length, determinePartialKeyWidth(bitMask));
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return runPostCreateHook(page);
+    return page;
   }
 
   /**
@@ -427,7 +365,7 @@ public final class HOTIndirectPage implements Page {
     page.mostSignificantBitIndex = (short) (discriminativeByte * 8);
     page.childIndex = childIndex.clone();
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return runPostCreateHook(page);
+    return page;
   }
 
   /**
@@ -502,14 +440,7 @@ public final class HOTIndirectPage implements Page {
   // ===== Child lookup methods =====
 
   /**
-   * Find child index for the given key.
-   *
-   * <p>Uses the authoritative {@link #childFirstKeys} table (binary
-   * search over sorted first-keys) when populated — correct regardless
-   * of whether the HOT disc-bit-invariance holds for this key shape.
-   * Falls back to the SIMD-accelerated PEXT partial-key lookup when
-   * the table hasn't been populated yet (e.g. for pre-existing pages
-   * without the new field serialised).
+   * Find child index for the given key using SIMD-accelerated PEXT partial-key lookup.
    *
    * @param key the search key
    * @return child index, or {@link #NOT_FOUND} (-1) if not found
@@ -1068,7 +999,7 @@ public final class HOTIndirectPage implements Page {
     // Update the specified child reference
     copy.childReferences[childIndex] = newChildRef;
 
-    return runPostCreateHook(copy);
+    return copy;
   }
 
   /**
@@ -1096,7 +1027,7 @@ public final class HOTIndirectPage implements Page {
     page.partialKeys = partialKeys.clone();
     page.sparsePartialKeys = createSparsePartialKeys(partialKeys, children.length, determinePartialKeyWidth(bitMask));
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return runPostCreateHook(page);
+    return page;
   }
 
   /**
@@ -1124,7 +1055,7 @@ public final class HOTIndirectPage implements Page {
     page.partialKeys = partialKeys.clone();
     page.sparsePartialKeys = createSparsePartialKeys(partialKeys, children.length, determinePartialKeyWidth(bitMask));
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return runPostCreateHook(page);
+    return page;
   }
 
   // ===== MultiMask factory methods (C++ reference: MultiMaskPartialKeyMapping) =====
@@ -1163,7 +1094,7 @@ public final class HOTIndirectPage implements Page {
     page.sparsePartialKeys = createSparsePartialKeys(partialKeys, children.length,
         determinePartialKeyWidthFromBitCount(totalDiscBits));
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return runPostCreateHook(page);
+    return page;
   }
 
   /**
@@ -1200,7 +1131,7 @@ public final class HOTIndirectPage implements Page {
     page.sparsePartialKeys = createSparsePartialKeys(partialKeys, children.length,
         determinePartialKeyWidthFromBitCount(totalDiscBits));
     System.arraycopy(children, 0, page.childReferences, 0, children.length);
-    return runPostCreateHook(page);
+    return page;
   }
 
   // ===== Page interface implementation =====

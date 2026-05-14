@@ -216,142 +216,7 @@ public final class HOTTrieWriter {
     BCH_ENCODING_MISMATCHES.set(0L);
   }
 
-  static {
-    // Phase 4b-vb.3 deep-dive: install a global post-creation hook on HOTIndirectPage
-    // that runs the sparse-path probe. The hook checks the {@code hot.debug.sparsepath}
-    // system property at every invocation — gated at runtime so production has zero
-    // overhead AND tests that set the property after class load still get the probe.
-    HOTIndirectPage.POST_CREATE_HOOK = page -> {
-      if (Boolean.getBoolean("hot.debug.sparsepath")) {
-        probeSparsePathStatic(page, "post-create-hook");
-      }
-    };
-  }
 
-  /**
-   * Static variant of probeSparsePathOnBuild — for use from the global
-   * {@link HOTIndirectPage#POST_CREATE_HOOK}. Cannot use {@code activeReader} so it only
-   * checks children whose first key can be obtained without a load (page-attached refs).
-   */
-  private static void probeSparsePathStatic(HOTIndirectPage built, String label) {
-    final int[] partials = built.getPartialKeys();
-    if (partials == null) return;
-    final int n = built.getNumChildren();
-    final boolean isSingleMask = built.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK;
-    final int initialBytePos = built.getInitialBytePos();
-    final long bitMask = built.getBitMask();
-    final byte[] extPos = built.getExtractionPositions();
-    final long[] extMasks = built.getExtractionMasks();
-
-    StringBuilder log = null;
-    for (int i = 0; i < n; i++) {
-      final PageReference child = built.getChildReference(i);
-      if (child == null) continue;
-      final byte[] fk = staticGetFirstKeyFromChild(child);
-      if (fk == null || fk.length == 0) continue;
-      final int dense;
-      if (isSingleMask) {
-        dense = computePartialKeySingleMask(fk, initialBytePos, bitMask);
-      } else if (extPos != null && extMasks != null) {
-        dense = computePartialKeyMultiMaskDirect(fk, extPos, extMasks, extPos.length);
-      } else {
-        continue;
-      }
-      final int stored = partials[i];
-      if ((stored & ~dense) != 0) {
-        if (log == null) {
-          log = new StringBuilder(512);
-          log.append("[hot.sparsepath] BUILD-VIOLATION pageKey=").append(built.getPageKey())
-             .append(" label=").append(label)
-             .append(" layout=").append(built.getLayoutType())
-             .append(" mask=0x").append(Long.toHexString(bitMask))
-             .append(" initialBytePos=").append(initialBytePos)
-             .append(" numChildren=").append(n).append('\n');
-        }
-        log.append("  [child ").append(i).append("] stored=0x").append(Integer.toHexString(stored))
-           .append(" dense=0x").append(Integer.toHexString(dense))
-           .append(" excess=0x").append(Integer.toHexString(stored & ~dense))
-           .append(" firstKey=").append(bytesToHex(fk)).append('\n');
-      }
-      // I5-strict at-build probe: walk c's swizzled subtree, find any interior key whose
-      // dense PEXT misses bits set in c.stored. Catches multi-entry-leaf β-mixing at
-      // CONSTRUCTION TIME (= the offending build site), not at end-of-test validator time.
-      if (stored != 0 && child.getPage() != null) {
-        final byte[][] failingKey = {null};
-        final int[] failingDense = {-1};
-        staticWalkLeavesUntilFalse(child, leaf -> {
-          final int ec = leaf.getEntryCount();
-          for (int kk = 0; kk < ec; kk++) {
-            final byte[] keyK = leaf.getKey(kk);
-            if (keyK == null || keyK.length == 0) continue;
-            final int denseK;
-            if (isSingleMask) {
-              denseK = computePartialKeySingleMask(keyK, initialBytePos, bitMask);
-            } else if (extPos != null && extMasks != null) {
-              denseK = computePartialKeyMultiMaskDirect(keyK, extPos, extMasks, extPos.length);
-            } else {
-              continue;
-            }
-            if ((stored & ~denseK) != 0) {
-              failingKey[0] = keyK;
-              failingDense[0] = denseK;
-              return false;
-            }
-          }
-          return true;
-        });
-        if (failingKey[0] != null) {
-          if (log == null) {
-            log = new StringBuilder(512);
-            log.append("[hot.sparsepath] I5-LEAF-CONSTANCY-AT-BUILD pageKey=")
-               .append(built.getPageKey())
-               .append(" label=").append(label)
-               .append(" layout=").append(built.getLayoutType())
-               .append(" mask=0x").append(Long.toHexString(bitMask))
-               .append(" initialBytePos=").append(initialBytePos)
-               .append(" numChildren=").append(n).append('\n');
-          }
-          log.append("  [child ").append(i).append("] stored=0x").append(Integer.toHexString(stored))
-             .append(" subtreeKey.dense=0x").append(Integer.toHexString(failingDense[0]))
-             .append(" excess=0x").append(Integer.toHexString(stored & ~failingDense[0]))
-             .append(" firstKey=").append(bytesToHex(fk))
-             .append(" failingKey=").append(bytesToHex(failingKey[0])).append('\n');
-        }
-      }
-    }
-    if (log != null) {
-      final StackTraceElement[] st = Thread.currentThread().getStackTrace();
-      for (int i = 1; i < Math.min(st.length, 18); i++) {
-        log.append("  at ").append(st[i].getClassName()).append('.').append(st[i].getMethodName())
-           .append('(').append(st[i].getFileName()).append(':').append(st[i].getLineNumber())
-           .append(")\n");
-      }
-      log.append('\n');
-      try {
-        java.nio.file.Files.writeString(
-            java.nio.file.Paths.get("/tmp/sirix-sparse-path-violations.log"),
-            log.toString(),
-            java.nio.file.StandardOpenOption.CREATE,
-            java.nio.file.StandardOpenOption.APPEND);
-      } catch (java.io.IOException ignore) { /* best-effort */ }
-    }
-  }
-
-  /**
-   * Static fallback for getFirstKeyFromChild — only consults the page already attached
-   * to the reference. Returns null if not loadable without an activeReader. Sufficient
-   * for the post-create probe because at construction time, freshly-built children
-   * always have their pages attached via setPage.
-   */
-  private static byte[] staticGetFirstKeyFromChild(PageReference ref) {
-    final Page page = ref.getPage();
-    if (page instanceof HOTLeafPage leaf) return leaf.getFirstKey();
-    if (page instanceof HOTIndirectPage indirect) {
-      final PageReference c = indirect.getChildReference(0);
-      return c != null ? staticGetFirstKeyFromChild(c) : null;
-    }
-    return null;
-  }
 
   /**
    * Phase 4b-vb sparse-path-strict: compute the AND of dense PEXT over every key
@@ -424,98 +289,8 @@ public final class HOTTrieWriter {
     }
   }
 
-  /** Walk every leaf reachable from {@code ref} via swizzled pages only. Stops early when
-   * {@code visitor} returns {@code false}. Used by I5-strict at-build probe. */
-  private static void staticWalkLeavesUntilFalse(PageReference ref,
-      java.util.function.Predicate<HOTLeafPage> visitor) {
-    if (ref == null) return;
-    final Page page = ref.getPage();
-    if (page instanceof HOTLeafPage leaf) {
-      visitor.test(leaf);
-      return;
-    }
-    if (page instanceof HOTIndirectPage indirect) {
-      final int n = indirect.getNumChildren();
-      for (int i = 0; i < n; i++) {
-        final PageReference childRef = indirect.getChildReference(i);
-        if (childRef == null) continue;
-        staticWalkLeavesUntilFalse(childRef, visitor);
-      }
-    }
-  }
 
   /**
-   * Diagnostic probe (Phase 4b-vb.3 deep dive): for an indirect just constructed in the
-   * writer, verify the sparse-path NECESSARY condition holds for every child:
-   * {@code (stored & ~dense) == 0}. If a child's stored partial has bits not in its
-   * dense PEXT under the indirect's mask, log the violation + a trimmed stack trace
-   * so the offending construction code path is identifiable.
-   *
-   * <p>Gated on {@code -Dhot.debug.sparsepath=true}. Logs to
-   * {@code /tmp/sirix-sparse-path-violations.log}.
-   *
-   * <p>Call this after EVERY indirect-creation site in the writer. The probe is heavy
-   * (loads child first keys), so do not enable in production.
-   */
-  private void probeSparsePathOnBuild(HOTIndirectPage built, String label) {
-    if (!Boolean.getBoolean("hot.debug.sparsepath")) return;
-    final int[] partials = built.getPartialKeys();
-    if (partials == null) return;
-    final int n = built.getNumChildren();
-    final boolean isSingleMask = built.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK;
-    final int initialBytePos = built.getInitialBytePos();
-    final long bitMask = built.getBitMask();
-    final byte[] extPos = built.getExtractionPositions();
-    final long[] extMasks = built.getExtractionMasks();
-
-    StringBuilder log = null;
-    for (int i = 0; i < n; i++) {
-      final PageReference child = built.getChildReference(i);
-      if (child == null) continue;
-      final byte[] fk = getFirstKeyFromChild(child);
-      if (fk == null || fk.length == 0) continue;
-      final int dense;
-      if (isSingleMask) {
-        dense = computePartialKeySingleMask(fk, initialBytePos, bitMask);
-      } else if (extPos != null && extMasks != null) {
-        dense = computePartialKeyMultiMaskDirect(fk, extPos, extMasks, extPos.length);
-      } else {
-        continue;
-      }
-      final int stored = partials[i];
-      if ((stored & ~dense) != 0) {
-        if (log == null) {
-          log = new StringBuilder(512);
-          log.append("[hot.sparsepath] BUILD-VIOLATION pageKey=").append(built.getPageKey())
-             .append(" label=").append(label)
-             .append(" layout=").append(built.getLayoutType())
-             .append(" mask=0x").append(Long.toHexString(bitMask))
-             .append(" initialBytePos=").append(initialBytePos)
-             .append(" numChildren=").append(n).append('\n');
-        }
-        log.append("  [child ").append(i).append("] stored=0x").append(Integer.toHexString(stored))
-           .append(" dense=0x").append(Integer.toHexString(dense))
-           .append(" excess=0x").append(Integer.toHexString(stored & ~dense))
-           .append(" firstKey=").append(bytesToHex(fk)).append('\n');
-      }
-    }
-    if (log != null) {
-      final StackTraceElement[] st = Thread.currentThread().getStackTrace();
-      for (int i = 1; i < Math.min(st.length, 12); i++) {
-        log.append("  at ").append(st[i].getClassName()).append('.').append(st[i].getMethodName())
-           .append('(').append(st[i].getFileName()).append(':').append(st[i].getLineNumber())
-           .append(")\n");
-      }
-      try {
-        java.nio.file.Files.writeString(
-            java.nio.file.Paths.get("/tmp/sirix-sparse-path-violations.log"),
-            log.toString(),
-            java.nio.file.StandardOpenOption.CREATE,
-            java.nio.file.StandardOpenOption.APPEND);
-      } catch (java.io.IOException ignore) { /* best-effort */ }
-    }
-  }
-
   /** Diagnostic-only helper: format a byte array as a hex string. */
   private static String bytesToHex(byte[] b) {
     if (b == null) return "null";
@@ -1199,53 +974,8 @@ public final class HOTTrieWriter {
       // MSB, violating I11 (parent.MSB < child.MSB at the grandparent→parent edge).
       // If yes, skip addEntry and fall through to intermediate-BiNode placement (which
       // doesn't change parent's mask). Gated on hot.strict.insert.i11gate.
-      boolean i11GateBlocks = false;
-      // Phase 8 (multi-week) — if β would violate I11 AND root exists, try multi-level
-      // closure: absorb β into root's mask (splitting non-β-constant root children).
-      // On success, the BiNode's β is now routed at root level → no I11 violation.
-      if (Boolean.getBoolean("hot.strict.phase8.multilevel") && pathNodes != null
-          && pathNodes.length > 0 && pathNodes[0] != null) {
-        final HOTIndirectPage root = pathNodes[0];
-        final int rootMsb = root.getMostSignificantBitIndex() & 0xFFFF;
-        if (Boolean.getBoolean("hot.debug.phase8")) {
-          System.err.println("[phase8] check β=" + discriminativeBit + " rootMsb=" + rootMsb
-              + " inMask=" + indirectMaskHasAbsBit(root, discriminativeBit)
-              + " currentPathIdx=" + currentPathIdx);
-        }
-        if (discriminativeBit < rootMsb && !indirectMaskHasAbsBit(root, discriminativeBit)) {
-          final HOTIndirectPage absorbed = phase8MultilevelClosure(root, rootReference,
-              discriminativeBit, log, storageEngineReader.getRevisionNumber());
-          if (absorbed != null) {
-            log.put(rootReference, PageContainer.getInstance(absorbed, absorbed));
-            rootReference.setPage(absorbed);
-            if (Boolean.getBoolean("hot.debug.phase8")) {
-              System.err.println("[phase8] absorbed β=" + discriminativeBit
-                  + " into root — restart insert");
-            }
-            // After absorbing β into root, the existing insert state may be stale.
-            // For simplicity, return success — the parent caller can re-route as needed.
-            // (Implementing actual restart requires more work; for now, signal "tried").
-          }
-        }
-      }
-      if (Boolean.getBoolean("hot.strict.insert.i11gate") && currentPathIdx > 0) {
-        final HOTIndirectPage grandparent = pathNodes[currentPathIdx - 1];
-        final int gpMsb = grandparent.getMostSignificantBitIndex() & 0xFFFF;
-        final int currentParentMsb = parent.getMostSignificantBitIndex() & 0xFFFF;
-        final int newParentMsb = Math.min(currentParentMsb, discriminativeBit);
-        // Only block if (a) the new bit DOES lower parent.MSB, AND (b) the result
-        // violates I11 (newMSB <= gpMsb).
-        if (newParentMsb < currentParentMsb && newParentMsb <= gpMsb) {
-          i11GateBlocks = true;
-          if (Boolean.getBoolean("hot.debug.insert.i11gate")) {
-            System.err.println("[i11-gate] BLOCK addEntry: discBit=" + discriminativeBit
-                + " currentParentMsb=" + currentParentMsb + " newParentMsb=" + newParentMsb
-                + " grandparent.MSB=" + gpMsb);
-          }
-        }
-      }
       HOTIndirectPage expandedParent = null;
-      if (!i11GateBlocks && currentNumChildren < NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
+      if (currentNumChildren < NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
         if (parent.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
           expandedParent = addEntryWithPDep(parent, originalChildIndex, leftChild, rightChild,
               discriminativeBit, storageEngineReader.getRevisionNumber());
@@ -1270,11 +1000,6 @@ public final class HOTTrieWriter {
         // newBitByteOffset was out of parent's window). Other addEntry success paths
         // don't introduce a NEW byte position; they just add a bit within an existing
         // byte. Ancestors' masks already cover those bytes (= no propagation needed).
-        if (Boolean.getBoolean("hot.strict.g25.propagate") && currentPathIdx > 0) {
-          propagateBetaToAncestors(storageEngineReader, log, parent, parentRef,
-              expandedParent, originalChildIndex, leftChild, rightChild, discriminativeBit,
-              pathNodes, pathRefs, pathChildIndices, currentPathIdx);
-        }
       } else if (Boolean.getBoolean("hot.strict.binna")) {
         // Phase 3: lazy retroactive sibling rebalance. addEntryWithPDep rejected because
         // the new disc bit β is non-constant in some non-split sibling's subtree
@@ -1352,30 +1077,8 @@ public final class HOTTrieWriter {
           HOTIndirectPage updatedParent =
               parent.withUpdatedChild(originalChildIndex, newBiNodeRef,
                   storageEngineReader.getRevisionNumber());
-          // Phase 6g — try to recompute partials immediately, so the slot's stored partial
-          // reflects the new BiNode's firstKey (= leftChild's firstKey) rather than the
-          // old leaf's. If recompute succeeds, partial-sort matches firstKey-sort at this
-          // ancestor; otherwise leave updatedParent as the withUpdatedChild result.
-          if (Boolean.getBoolean("hot.strict.phase6g")) {
-            final HOTIndirectPage recomputed = recomputePartialsForCurrentFirstKeys(
-                updatedParent, storageEngineReader.getRevisionNumber());
-            if (recomputed != null) {
-              updatedParent = recomputed;
-              if (Boolean.getBoolean("hot.debug.phase6g")) {
-                System.err.println("[phase6g] post-intermediate recompute OK parent="
-                    + updatedParent.getPageKey() + " slot=" + originalChildIndex);
-              }
-            }
-          }
           log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
           INTERMEDIATE_BINODE_FALLBACK_FIRINGS.incrementAndGet();
-          if (Boolean.getBoolean("hot.debug.intermediate")) {
-            final byte[] leftFK = getFirstKeyFromChild(leftChild);
-            final String hex = leftFK == null ? "null" : bytesToHex(leftFK);
-            System.err.println("[intermediate] place BiNode parentPageKey="
-                + parent.getPageKey() + " slot=" + originalChildIndex
-                + " leftFirstKey=" + hex);
-          }
         } else {
           // I8 would break with the intermediate-BiNode approach — fall through to a
           // genuine parent split.
@@ -1474,19 +1177,15 @@ public final class HOTTrieWriter {
   @Nullable
   private HOTIndirectPage phase8MultilevelClosure(HOTIndirectPage rootIndirect,
       PageReference rootRef, int beta, TransactionIntentLog log, int revision) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.phase8");
     if (rootIndirect == null) return null;
     if (beta < 0) return null;
     // Quick win: if root.MSB ≤ β, this β is less significant than root's already-captured
     // bits — no need for root absorption (β will be routed at deeper levels).
     final int rootMsb = rootIndirect.getMostSignificantBitIndex() & 0xFFFF;
     if (rootMsb <= beta) {
-      if (dbg) System.err.println("[phase8] root.MSB=" + rootMsb + " ≤ β=" + beta
-          + " — no absorption needed");
       return null;
     }
     if (indirectMaskHasAbsBit(rootIndirect, beta)) {
-      if (dbg) System.err.println("[phase8] root already has β=" + beta + " in mask");
       return null;
     }
     // Step 1: for each root child, verify β-constancy. Split non-constant ones.
@@ -1496,7 +1195,6 @@ public final class HOTTrieWriter {
     for (int i = 0; i < n; i++) {
       final PageReference cref = rootIndirect.getChildReference(i);
       if (cref == null) {
-        if (dbg) System.err.println("[phase8] null child at i=" + i + " — abort");
         return null;
       }
       final int bv = bitConstantValueInSubtree(cref, beta);
@@ -1511,7 +1209,6 @@ public final class HOTTrieWriter {
       if (ss != null) {
         newChildren[newN++] = ss.leftRef();
         newChildren[newN++] = ss.rightRef();
-        if (dbg) System.err.println("[phase8] split root.child[" + i + "] on β=" + beta);
         continue;
       }
       // splitSubtreeOnBit failed — try recursive lift via liftBetaFromSubtreeRecursive.
@@ -1519,11 +1216,8 @@ public final class HOTTrieWriter {
       if (lw != null && lw.propagates()) {
         newChildren[newN++] = lw.root;
         newChildren[newN++] = lw.propagateRight;
-        if (dbg) System.err.println("[phase8] lifted root.child[" + i + "] via walker on β=" + beta);
         continue;
       }
-      if (dbg) System.err.println("[phase8] split AND lift failed for child=" + i
-          + " — abort");
       return null;
     }
     // Step 2: extend root's mask with β. Build new mask in a MultiMask layout.
@@ -1552,7 +1246,6 @@ public final class HOTTrieWriter {
     maskByBytePos.merge(betaBytePos, betaMaskBit, (a, b) -> a | b);
     final int numBytes = maskByBytePos.size();
     if (numBytes > 64) {
-      if (dbg) System.err.println("[phase8] mask too wide");
       return null;
     }
     final byte[] extractionPositions = new byte[numBytes];
@@ -1571,7 +1264,6 @@ public final class HOTTrieWriter {
     }
     // Step 3: compute partials for each new child.
     if (newN > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
-      if (dbg) System.err.println("[phase8] fanout overflow newN=" + newN);
       return null;
     }
     final int[] newPartials = new int[newN];
@@ -1579,14 +1271,11 @@ public final class HOTTrieWriter {
     for (int i = 0; i < newN; i++) {
       final byte[] fk = getFirstKeyFromChild(newChildren[i]);
       if (fk == null || fk.length == 0) {
-        if (dbg) System.err.println("[phase8] empty firstKey at i=" + i);
         return null;
       }
       newPartials[i] = computePartialKeyMultiMaskDirect(fk, extractionPositions,
           extractionMasks, numBytes);
       if (!seen.add(newPartials[i])) {
-        if (dbg) System.err.println("[phase8] partial collision at i=" + i + " p="
-            + Integer.toHexString(newPartials[i]));
         return null;
       }
     }
@@ -1601,7 +1290,6 @@ public final class HOTTrieWriter {
       final byte[] fk = getFirstKeyFromChild(finalChildren[i]);
       if (fk == null || fk.length == 0) continue;
       if (prev != null && Arrays.compareUnsigned(prev, fk) >= 0) {
-        if (dbg) System.err.println("[phase8] post-sort inversion at i=" + i);
         return null;
       }
       prev = fk;
@@ -1612,7 +1300,6 @@ public final class HOTTrieWriter {
       if (sortedPartials[i] < smallestPartial) smallestPartial = sortedPartials[i];
     }
     if (smallestPartial != 0) {
-      if (dbg) System.err.println("[phase8] I4 violation — smallest partial=" + smallestPartial);
       return null;
     }
     // Step 7: build new root.
@@ -1623,8 +1310,6 @@ public final class HOTTrieWriter {
         : HOTIndirectPage.createMultiNodeMultiMask(rootIndirect.getPageKey(), revision,
             extractionPositions, extractionMasks, numBytes, sortedPartials, finalChildren,
             rootIndirect.getHeight(), newMsb);
-    if (dbg) System.err.println("[phase8] SUCCESS β=" + beta + " newN=" + newN
-        + " newMsb=" + newMsb);
     return built;
   }
 
@@ -1643,43 +1328,6 @@ public final class HOTTrieWriter {
    */
   private boolean intermediateBiNodeRecursiveSlotCheck(HOTIndirectPage[] pathNodes,
       int[] pathChildIndices, int pathDepth, PageReference leftChild) {
-    if (!Boolean.getBoolean("hot.strict.insert.recursivesloter")) return true;
-    final byte[] leftFirstKey = getFirstKeyFromChild(leftChild);
-    if (leftFirstKey == null || leftFirstKey.length == 0) return true;
-    if (Boolean.getBoolean("hot.debug.insert.recursivesloter")) {
-      System.err.println("[recursive-slot] ENTRY pathDepth=" + pathDepth
-          + " leftFirstKey=" + bytesToHex(leftFirstKey)
-          + " slots=" + java.util.Arrays.toString(
-              java.util.Arrays.copyOfRange(pathChildIndices, 0, Math.min(pathDepth, pathChildIndices.length))));
-    }
-    // Walk from immediate parent (= pathDepth-1) up to root. At each level k, if slot[k]
-    // > 0, compare predecessor sibling's firstKey to leftFirstKey. If predecessor >=
-    // leftFirstKey, I8 would violate at that level.
-    for (int k = pathDepth - 1; k >= 0; k--) {
-      final int slot = pathChildIndices[k];
-      if (slot == 0) continue; // firstKey propagates up further
-      // Predecessor at level k.
-      final HOTIndirectPage ancestor = pathNodes[k];
-      final PageReference prevChild = ancestor.getChildReference(slot - 1);
-      if (prevChild == null) continue;
-      final byte[] prevFirstKey = getFirstKeyFromChild(prevChild);
-      if (prevFirstKey == null || prevFirstKey.length == 0) continue;
-      if (Arrays.compareUnsigned(prevFirstKey, leftFirstKey) >= 0) {
-        if (Boolean.getBoolean("hot.debug.insert.recursivesloter")) {
-          System.err.println("[recursive-slot] I8 would violate at depth=" + k
-              + " ancestor.pageKey=" + ancestor.getPageKey()
-              + " slot=" + slot + " prev.firstKey=" + bytesToHex(prevFirstKey)
-              + " new.firstKey=" + bytesToHex(leftFirstKey));
-        }
-        return false;
-      }
-      // I8 holds at this level; the new firstKey doesn't propagate further (slot > 0
-      // means we have a predecessor at this level, so parent.effective.firstKey doesn't
-      // change due to this insertion).
-      return true;
-    }
-    // Reached root with all slots=0. firstKey becomes the trie's new minimum, which is OK
-    // (no I8 violation possible at root level since there's no predecessor).
     return true;
   }
 
@@ -1767,39 +1415,18 @@ public final class HOTTrieWriter {
     //    off-path sibling on most-specific match). Constancy ensures no off-path span exists.
     //    Binna's reference doesn't need this gate because his single-TID leaves trivially
     //    have constancy.
-    // Phase 6d — β-mixed siblings get split on β to maintain constancy. Each split
-    // adds one extra sibling slot (= β=0 half + β=1 half replace the original mixed
-    // sibling). The new mask captures β; partials are repositioned accordingly.
-    // Refuses (returns null) only if a split fails or fanout would exceed the limit.
-    final boolean phase6dEnabled = Boolean.getBoolean("hot.strict.phase6d");
     final int[] siblingBitValues = new int[numChildren];
-    final boolean[] siblingNeedsSplit = phase6dEnabled ? new boolean[numChildren] : null;
-    final SubtreeSplit[] siblingSplits = phase6dEnabled ? new SubtreeSplit[numChildren] : null;
-    int extraSlotsFromSplits = 0;
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) continue;
       final int v = bitConstantValueInSubtree(parent.getChildReference(i), newAbsBit);
       if (v < 0) {
-        if (!phase6dEnabled) return null; // non-constant — caller takes splitParentAndRecurse
-        // Phase 6d: split this sibling on β. Recursive within the sibling subtree.
-        final SubtreeSplit ss = splitSubtreeOnBit(parent.getChildReference(i), newAbsBit, activeLog, revision);
-        if (ss == null) return null;
-        siblingNeedsSplit[i] = true;
-        siblingSplits[i] = ss;
-        extraSlotsFromSplits++;
-        siblingBitValues[i] = -1; // sentinel — will be expanded into two slots
-        continue;
+        return null; // non-constant — caller takes splitParentAndRecurse
       }
       siblingBitValues[i] = v;
     }
-    if (extraSlotsFromSplits > 0
-        && (numChildren + 1 + extraSlotsFromSplits) > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
-      return null; // fanout overflow — caller falls back
-    }
 
     // 4. Build the expanded children + partial-keys arrays.
-    // Phase 6d: each β-mixed sibling is expanded into TWO slots (left=β=0, right=β=1).
-    final int newNumChildren = numChildren + 1 + extraSlotsFromSplits;
+    final int newNumChildren = numChildren + 1;
     final PageReference[] newChildren = new PageReference[newNumChildren];
     final int[] newPartialKeys = new int[newNumChildren];
     final int[] oldPartialKeys = parent.getPartialKeys();
@@ -1820,19 +1447,9 @@ public final class HOTTrieWriter {
       } else {
         final int repositioned = (int) Long.expand(
             Integer.toUnsignedLong(oldPartialKeys[i]), oldPartialMaskInNewLayout);
-        if (phase6dEnabled && siblingNeedsSplit != null && siblingNeedsSplit[i]) {
-          // Phase 6d: expand split sibling into two β-constant halves.
-          newChildren[j] = siblingSplits[i].leftRef();
-          newPartialKeys[j] = repositioned; // β=0 half
-          j++;
-          newChildren[j] = siblingSplits[i].rightRef();
-          newPartialKeys[j] = repositioned | (1 << newBitOutputPos); // β=1 half
-          j++;
-        } else {
-          newChildren[j] = parent.getChildReference(i);
-          newPartialKeys[j] = repositioned | (siblingBitValues[i] << newBitOutputPos);
-          j++;
-        }
+        newChildren[j] = parent.getChildReference(i);
+        newPartialKeys[j] = repositioned | (siblingBitValues[i] << newBitOutputPos);
+        j++;
       }
     }
 
@@ -1956,33 +1573,6 @@ public final class HOTTrieWriter {
         if (p == 0) { hasZero = true; break; }
       }
       if (!hasZero) return null;
-    }
-
-    // Phase 7t-2 — firstKey-monotone post-sort probe at addEntryWithPDep success. The
-    // existing firstKeyMonotone check + G.31 retry above runs ONLY when the partial-sort
-    // produces a non-monotone firstKey order; multi-entry-leaves with null/empty
-    // placeholder firstKeys can SKIP that check entirely (the comparison short-circuits
-    // on prev/curr == null || length == 0). This probe is gated on
-    // -Dhot.strict.phase7t.monotone.probe and runs at SUCCESS — counter-only, no behavior
-    // change.
-    if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
-      PHASE7T_ADDPDEP_INSPECTIONS.incrementAndGet();
-      final int inversionAt = phase7tFirstInversionIdx(newChildren);
-      if (inversionAt >= 0) {
-        PHASE7T_ADDPDEP_INVERSIONS.incrementAndGet();
-        if (Boolean.getBoolean("hot.debug.phase7t")) {
-          phase7tLogInversion("addEntryWithPDep", parent.getPageKey(), parent.getHeight(),
-              newChildren, newPartialKeys, inversionAt);
-        }
-      }
-    }
-    // Phase 7t-6 — β-mixed pair detector at addEntryWithPDep success. Counts (child, mask-bit)
-    // pairs where bitConstantValueInSubtree returns -1. Counter-only; gated on
-    // -Dhot.strict.phase7t.betamixed.probe.
-    if (Boolean.getBoolean("hot.strict.phase7t.betamixed.probe")) {
-      PHASE7T6_ADDPDEP_BUILDS.incrementAndGet();
-      final int mixed = phase7tCountBetaMixedPairsSingleMask(newChildren, oldInitialBytePos, newMask);
-      if (mixed > 0) PHASE7T6_ADDPDEP_MIXED_PAIRS.addAndGet(mixed);
     }
 
     final HOTIndirectPage addEntryResult;
@@ -2125,13 +1715,6 @@ public final class HOTTrieWriter {
     sortChildrenAndPartialsByPartial(newChildren, newPartials);
 
     ADDENTRY_FRESH_POLARITY_FIRINGS.incrementAndGet();
-    if (Boolean.getBoolean("hot.debug.phase4")) {
-      System.out.println("[hot.fresh-polarity] absBit=" + newAbsBit
-          + " betaPos=" + betaOutputPos + " vL=" + vL + " splitChildIdx=" + splitChildIndex
-          + " splitPartial=" + splitChildPartial + " newPartial=" + newPartial
-          + " mask=0x" + Long.toHexString(oldMask) + " k=" + numChildren
-          + " → k+1=" + newNumChildren + " layout=SINGLE_MASK");
-    }
     final HOTIndirectPage freshResult;
     if (newNumChildren <= 16) {
       freshResult = HOTIndirectPage.createSpanNode(parent.getPageKey(), revision,
@@ -2255,13 +1838,6 @@ public final class HOTTrieWriter {
     sortChildrenAndPartialsByPartial(newChildren, newPartials);
 
     ADDENTRY_FRESH_POLARITY_FIRINGS.incrementAndGet();
-    if (Boolean.getBoolean("hot.debug.phase4")) {
-      System.out.println("[hot.fresh-polarity] absBit=" + newAbsBit
-          + " betaPos=" + betaOutputPos + " vL=" + vL + " splitChildIdx=" + splitChildIndex
-          + " splitPartial=" + splitChildPartial + " newPartial=" + newPartial
-          + " newBytePos=" + newBytePos + " newBitInByte=" + newBitInByte
-          + " k=" + numChildren + " → k+1=" + newNumChildren + " layout=MULTI_MASK");
-    }
 
     // Mask tables unchanged — newExtractionPositions / newExtractionMasks are clones.
     final byte[] newExtractionPositions = extractionPositions.clone();
@@ -2384,9 +1960,6 @@ public final class HOTTrieWriter {
       // at this indirect level but deeper keys are β-mixed), RECURSE into children
       // and split each β-mixed child, then partition expanded refs. Gated on
       // hot.strict.phase8.recursivesplit.
-      if (Boolean.getBoolean("hot.strict.phase8.recursivesplit")) {
-        return recursiveSplitOnBit(indirect, absBit, log, revision);
-      }
     }
     return null;
   }
@@ -2402,14 +1975,12 @@ public final class HOTTrieWriter {
   @Nullable
   private SubtreeSplit recursiveSplitOnBit(HOTIndirectPage indirect, int absBit,
       TransactionIntentLog log, int revision) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.phase8");
     final int n = indirect.getNumChildren();
     final PageReference[] expandedRefs = new PageReference[n * 2];
     int expandedN = 0;
     for (int i = 0; i < n; i++) {
       final PageReference cref = indirect.getChildReference(i);
       if (cref == null) {
-        if (dbg) System.err.println("[recursive-split] null child i=" + i);
         return null;
       }
       final int bv = bitConstantValueInSubtree(cref, absBit);
@@ -2421,14 +1992,11 @@ public final class HOTTrieWriter {
       // β-mixed — recurse.
       final SubtreeSplit childSplit = splitSubtreeOnBit(cref, absBit, log, revision);
       if (childSplit == null) {
-        if (dbg) System.err.println("[recursive-split] child i=" + i + " split returned null");
         return null;
       }
       expandedRefs[expandedN++] = childSplit.leftRef();
       expandedRefs[expandedN++] = childSplit.rightRef();
     }
-    if (dbg) System.err.println("[recursive-split] expanded n=" + n + " → expandedN=" + expandedN
-        + " for absBit=" + absBit);
     // Partition by β value of firstKey, build two halves via inherited mask.
     final LiftSplitResult lsr = splitExpandedChildrenOnBeta(indirect, expandedRefs, expandedN,
         absBit, log, revision);
@@ -2523,7 +2091,7 @@ public final class HOTTrieWriter {
     // strictly less than every bucket child's MSB for I11 between bucket-indirect and
     // its children. Compute minChildMsb across bucket children's MSBs (Integer.MAX_VALUE
     // for leaves). Gated on hot.strict.g32.childmsb so legacy behavior is preserved.
-    final boolean childMsbStrict = Boolean.getBoolean("hot.strict.g32.childmsb");
+    final boolean childMsbStrict = true;
     int minChildMsb = Integer.MAX_VALUE;
     if (childMsbStrict) {
       for (int i = 0; i < bucketSize; i++) {
@@ -2533,7 +2101,7 @@ public final class HOTTrieWriter {
       // Phase 7q.15 — if minChildMsb ≤ newParentMsb + 1, range is empty/tight. Try to
       // raise children's MSBs so we have room for the bucket-indirect's MSB. Gated on
       // hot.strict.g32.raisechildmsb.
-      if (Boolean.getBoolean("hot.strict.g32.raisechildmsb")
+      if (false
           && minChildMsb <= newParentMsb + 1) {
         // Need to raise minChildMsb. Aim for minChildMsb > newParentMsb + 1 (so at least
         // one bit fits).
@@ -2555,9 +2123,6 @@ public final class HOTTrieWriter {
           for (int i = 0; i < bucketSize; i++) {
             final int cm = getIndirectMsbOrMax(replacementRefs[i]);
             if (cm < minChildMsb) minChildMsb = cm;
-          }
-          if (Boolean.getBoolean("hot.debug.g32")) {
-            System.err.println("[bucket-build] raised children MSBs, new minChildMsb=" + minChildMsb);
           }
         }
       }
@@ -2606,11 +2171,6 @@ public final class HOTTrieWriter {
     for (int i = 0; i < bucketSize; i++) {
       final byte[] firstKey = getFirstKeyFromChild(replacementRefs[i]);
       if (firstKey == null || firstKey.length == 0) {
-        if (Boolean.getBoolean("hot.debug.phase7q")) {
-          System.err.println("[bucket-build-sm] FAIL: bucketChild=" + i
-              + " firstKey null/empty (childKey=" + replacementRefs[i].getKey() + ")"
-              + " absBit=" + absBit + " bucketSize=" + bucketSize);
-        }
         return null;
       }
       newPartials[i] = computePartialKeySingleMask(firstKey, oldInitialBytePos, newMask);
@@ -2628,7 +2188,7 @@ public final class HOTTrieWriter {
     // sub-indirects — verified empirically as the source of cascade.
     long workingMask = newMask;
     int[] workingPartials = newPartials;
-    if (!haveZero && Boolean.getBoolean("hot.strict.g32.deep")) {
+    if (!haveZero) {
       // Find smallest partial; the bits set in it are CONSTANT-1 across the bucket
       // (otherwise some child would have 0 at those bits — the bucket's lex-smallest).
       int smallestP = Integer.MAX_VALUE;
@@ -2681,11 +2241,6 @@ public final class HOTTrieWriter {
               if (workingPartials[i] == 0) haveZero2 = true;
             }
             if (haveZero2) {
-              if (Boolean.getBoolean("hot.debug.phase7q")) {
-                System.err.println("[bucket-build-sm] I4-recovered: stripped constant-1 bits, "
-                    + "new mask=0x" + Long.toHexString(workingMask) + " absBit=" + absBit
-                    + " bucketSize=" + bucketSize);
-              }
               haveZero = true;
             }
           }
@@ -2693,12 +2248,6 @@ public final class HOTTrieWriter {
       }
     }
     if (!haveZero) {
-      if (Boolean.getBoolean("hot.debug.phase7q")) {
-        int minP = Integer.MAX_VALUE;
-        for (int i = 0; i < bucketSize; i++) if (workingPartials[i] < minP) minP = workingPartials[i];
-        System.err.println("[bucket-build-sm] FAIL: I4 unresolvable — smallest="
-            + Integer.toHexString(minP) + " absBit=" + absBit + " bucketSize=" + bucketSize);
-      }
       return null;
     }
 
@@ -2710,14 +2259,6 @@ public final class HOTTrieWriter {
     for (int i = 1; i < bucketSize; i++) {
       for (int k = 0; k < i; k++) {
         if (workingPartials[i] == workingPartials[k]) {
-          if (Boolean.getBoolean("hot.strict.g32.nowrap")) {
-            if (Boolean.getBoolean("hot.debug.phase7q")) {
-              System.err.println("[bucket-build-sm] FAIL: partial collision at i=" + i
-                  + " k=" + k + " p=" + Integer.toHexString(workingPartials[i])
-                  + " — abandon (g32.nowrap)");
-            }
-            return null;
-          }
           final PageReference[] children = Arrays.copyOf(replacementRefs, bucketSize);
           return wrapBucketInSubtree(children, bucketSize, parentIndirect.getHeight(),
               log, revision);
@@ -2849,7 +2390,7 @@ public final class HOTTrieWriter {
     // by the 7q.6 gate, preserving the architectural ceiling rather than
     // cascading).
     final boolean stripNonConstant =
-        Boolean.getBoolean("hot.strict.phase7q.stripNonConstant");
+        false;
     final int oldParentMsb = parent.getMostSignificantBitIndex() & 0xFFFF;
     final int newParentMsb = Math.min(oldParentMsb, absBit);
     // Phase 7q.15e — port the SingleMask `g32.childmsb` strip-bits-≥-minChildMsb gate
@@ -2863,7 +2404,7 @@ public final class HOTTrieWriter {
     // ≥ minChildMsb for stripping. The existing constancy verify at line 2851+
     // catches non-constant bits and returns null cleanly (= caller falls back to
     // wrap, which is the existing safe path).
-    final boolean childMsbStrictMm = Boolean.getBoolean("hot.strict.g32.childmsb");
+    final boolean childMsbStrictMm = true;
     int minChildMsbMm = Integer.MAX_VALUE;
     if (childMsbStrictMm) {
       for (int i = 0; i < bucketSize; i++) {
@@ -2931,11 +2472,6 @@ public final class HOTTrieWriter {
             if (cref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG) continue;
             final int v = bitConstantValueInSubtree(cref, liftBit);
             if (v < 0) {
-              if (Boolean.getBoolean("hot.debug.phase7q")) {
-                System.err.println("[bucket-build-mm] FAIL (7q.15e): liftBit=" + liftBit
-                    + " (≥ minChildMsb=" + minChildMsbMm + ") non-constant in bucketChild="
-                    + i + " absBit=" + absBit + " bucketSize=" + bucketSize);
-              }
               return null;
             }
           }
@@ -2945,11 +2481,6 @@ public final class HOTTrieWriter {
       for (int i = 0; i < bucketSize; i++) {
         final int v = bitConstantValueInSubtree(replacementRefs[i], liftBit);
         if (v < 0) {
-          if (Boolean.getBoolean("hot.debug.phase7q")) {
-            System.err.println("[bucket-build-mm] FAIL: liftBit=" + liftBit
-                + " non-constant in bucketChild=" + i + " absBit=" + absBit
-                + " bucketSize=" + bucketSize);
-          }
           return null;
         }
       }
@@ -3043,11 +2574,6 @@ public final class HOTTrieWriter {
     for (int i = 0; i < bucketSize; i++) {
       final byte[] firstKey = getFirstKeyFromChild(replacementRefs[i]);
       if (firstKey == null || firstKey.length == 0) {
-        if (Boolean.getBoolean("hot.debug.phase7q") || Boolean.getBoolean("hot.debug.g32")) {
-          System.err.println("[bucket-build-mm] FAIL: bucketChild=" + i
-              + " firstKey null/empty (childKey=" + replacementRefs[i].getKey() + ")"
-              + " absBit=" + absBit + " bucketSize=" + bucketSize);
-        }
         return null;
       }
       newPartials[i] = computePartialKeyMultiMaskDirect(firstKey, newEp, newEm, newNeb);
@@ -3059,7 +2585,7 @@ public final class HOTTrieWriter {
     // 5a. If smallest partial != 0, the new mask captures constant=1 bits. Phase 7q.15:
     // under hot.strict.g32.deep, strip those constant-1 bits from the MultiMask before
     // wrapping (wrap creates malformed sub-indirects via fresh adjacency-derived mask).
-    if (!haveZero && Boolean.getBoolean("hot.strict.g32.deep")) {
+    if (!haveZero) {
       // Identify constant-1 bits across bucket children's firstKeys among bits in new mask.
       // Iterate each mask byte; for each set bit, check all bucket children's firstKey.
       boolean anyStripped = false;
@@ -3140,10 +2666,6 @@ public final class HOTTrieWriter {
             newPartials[i] = computePartialKeyMultiMaskDirect(fk, newEp, newEm, newNeb);
             if (newPartials[i] == 0) haveZero = true;
           }
-          if (Boolean.getBoolean("hot.debug.phase7q")) {
-            System.err.println("[bucket-build-mm] I4-recovered: stripped constant-1 bits"
-                + " absBit=" + absBit + " bucketSize=" + bucketSize + " newNeb=" + newNeb);
-          }
         }
       }
     }
@@ -3157,14 +2679,6 @@ public final class HOTTrieWriter {
     for (int i = 1; i < bucketSize; i++) {
       for (int k = 0; k < i; k++) {
         if (newPartials[i] == newPartials[k]) {
-          if (Boolean.getBoolean("hot.strict.g32.nowrap")) {
-            if (Boolean.getBoolean("hot.debug.phase7q")) {
-              System.err.println("[bucket-build-mm] FAIL: partial collision at i=" + i
-                  + " k=" + k + " p=" + Integer.toHexString(newPartials[i])
-                  + " — abandon (g32.nowrap)");
-            }
-            return null;
-          }
           final PageReference[] childCopy = Arrays.copyOf(replacementRefs, bucketSize);
           return wrapBucketInSubtree(childCopy, bucketSize, parent.getHeight(), log, revision);
         }
@@ -3201,12 +2715,6 @@ public final class HOTTrieWriter {
     // numerically more or equally significant than bucket → child is "above" parent in
     // routing → violates I11). Counters always increment; per-event print gated.
     phase7q15dCheckIntermediateMsb(pageKey, newMsb, absBit, children, bucketSize);
-    if (Boolean.getBoolean("hot.debug.phase7x.i11trace") && newMsb < absBit) {
-      System.err.println("[phase7x-I11-TRACE] bucket pk=" + pageKey + " msb=" + newMsb
-          + " absBit=" + absBit + " parentMsb=" + oldParentMsb + " newParentMsb=" + newParentMsb
-          + " bucketSize=" + bucketSize);
-      new Throwable("[phase7x-I11-TRACE]").printStackTrace(System.err);
-    }
     if (bucketSize <= 16) {
       built = HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision, newEp, newEm,
           newNeb, newPartials, children, parent.getHeight(), (short) newMsb);
@@ -3410,9 +2918,7 @@ public final class HOTTrieWriter {
    */
   private @Nullable PageReference wrapBucketInSubtree(PageReference[] bucket, int n, int height,
       TransactionIntentLog log, int revision) {
-    final boolean wrapDbg = Boolean.getBoolean("hot.debug.g32");
     if (n == 0) {
-      if (wrapDbg) System.err.println("[wrap] FAIL: n=0");
       return null;
     }
     if (n == 1) {
@@ -3421,15 +2927,13 @@ public final class HOTTrieWriter {
     // Trim and build new indirect.
     final PageReference[] children = Arrays.copyOf(bucket, n);
     if (children.length > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
-      if (wrapDbg) System.err.println("[wrap] FAIL: n=" + n + " > MAX");
       return null; // bucket too large — caller falls back to splitParentAndRecurse
     }
     // Phase 7q.15 — constancy-preserving BiNode construction for size==2 under
     // hot.strict.g32.cbinode OR when called via multi-β lift's scope (ThreadLocal).
     // Avoids the recursive wrap cascade where createNodeFromChildren-2273 picks a disc
     // bit via computeDifferingBit(leftMax, rightMin) without β-constancy guarantee.
-    if (n == 2 && (Boolean.getBoolean("hot.strict.g32.cbinode")
-        || (CBINODE_THREAD_LOCAL.get() != null && CBINODE_THREAD_LOCAL.get()))) {
+    if (n == 2 && ((CBINODE_THREAD_LOCAL.get() != null && CBINODE_THREAD_LOCAL.get()))) {
       // I11: discBit must be > parentMsbHint so future parent.MSB < bucketIndirect.MSB.
       // -1 = no constraint (any bit allowed).
       final Integer hint = PARENT_MSB_HINT.get();
@@ -3453,26 +2957,20 @@ public final class HOTTrieWriter {
           cbpBuilt = createBiNodeTraced("constancy-preserving-binode", cbpPageKey, revision,
               constancyDiscBit, leftChild, rightChild, height);
         } catch (Throwable t) {
-          if (wrapDbg) System.err.println("[wrap] FAIL: createBiNodeTraced threw: " + t);
           return null;
         }
         final PageReference cbpRef = new PageReference();
         cbpRef.setKey(cbpPageKey);
         cbpRef.setPage(cbpBuilt);
         log.put(cbpRef, PageContainer.getInstance(cbpBuilt, cbpBuilt));
-        if (wrapDbg) System.err.println("[wrap] CBINODE-OK discBit=" + constancyDiscBit
-            + " pageKey=" + cbpPageKey + " hint=" + minBitExclusive);
         return cbpRef;
       }
-      if (wrapDbg) System.err.println("[wrap] CBINODE-FAIL: no constancy-preserving bit found,"
-          + " falling through to legacy createNodeFromChildren");
     }
     final long pageKey = pageKeyAllocator.getAsLong();
     final HOTIndirectPage built;
     try {
       built = createNodeFromChildren(children, pageKey, revision, height);
     } catch (Throwable t) {
-      if (wrapDbg) System.err.println("[wrap] FAIL: createNodeFromChildren threw: " + t);
       return null;
     }
     final PageReference ref = new PageReference();
@@ -3627,31 +3125,6 @@ public final class HOTTrieWriter {
     final int[] trimPartials = (outIdx == maxNew) ? newPartials
         : Arrays.copyOf(newPartials, outIdx);
     sortChildrenAndPartialsByPartial(trimChildren, trimPartials);
-
-    // Phase 7t-5 — firstKey-monotone post-sort probe at buildRebalancedParentWithInheritedMask
-    // success. This is the indirect-construction path that absorbs a β-mixed leaf split into
-    // a SingleMask parent via mask inheritance + recursive sibling splits. Counter-only;
-    // gated on -Dhot.strict.phase7t.monotone.probe. Localises whether Phase 3 rebalance
-    // produces non-monotone children (an I8 candidate) at the dominant call rate.
-    if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
-      PHASE7T_REBALANCE_INSPECTIONS.incrementAndGet();
-      final int inversionAt = phase7tFirstInversionIdx(trimChildren);
-      if (inversionAt >= 0) {
-        PHASE7T_REBALANCE_INVERSIONS.incrementAndGet();
-        if (Boolean.getBoolean("hot.debug.phase7t")) {
-          phase7tLogInversion("buildRebalancedParentWithInheritedMask",
-              parent.getPageKey(), parent.getHeight(), trimChildren, trimPartials,
-              inversionAt);
-        }
-      }
-    }
-    // Phase 7t-6 — β-mixed pair detector at buildRebalancedParentWithInheritedMask success.
-    // Counter-only; gated on -Dhot.strict.phase7t.betamixed.probe.
-    if (Boolean.getBoolean("hot.strict.phase7t.betamixed.probe")) {
-      PHASE7T6_REBALANCE_BUILDS.incrementAndGet();
-      final int mixed = phase7tCountBetaMixedPairsSingleMask(trimChildren, oldInitialBytePos, newMask);
-      if (mixed > 0) PHASE7T6_REBALANCE_MIXED_PAIRS.addAndGet(mixed);
-    }
 
     // Stage G.31 — I8 firstKey-monotone verification mirroring addEntryWithPDep's G.16.
     // After partial-sort, verify children's firstKeys are also strictly ascending. If not,
@@ -3810,23 +3283,10 @@ public final class HOTTrieWriter {
 
   /** Diagnostic helper — gated on {@code -Dhot.debug.phase3=1}. Counts Phase 3 skips by reason. */
   private static void diagnosePhase3Skip(String reason, HOTIndirectPage parent, int β) {
-    if (!Boolean.getBoolean("hot.debug.phase3")) return;
-    System.err.println("[hot.phase3] skip reason=" + reason
-        + " parentLayout=" + parent.getLayoutType()
-        + " parentBytePos=" + parent.getInitialBytePos()
-        + " parentMask=" + Long.toHexString(parent.getBitMask())
-        + " parentChildren=" + parent.getNumChildren()
-        + " β=" + β);
   }
 
   /** Diagnostic — finer reason for integrate failure. */
   private static void diagnoseIntegrateFail(String reason, HOTIndirectPage parent, int β, int outIdx) {
-    if (!Boolean.getBoolean("hot.debug.phase3")) return;
-    System.err.println("[hot.phase3] integrate-fail reason=" + reason
-        + " parentBytePos=" + parent.getInitialBytePos()
-        + " parentMask=" + Long.toHexString(parent.getBitMask())
-        + " parentChildren=" + parent.getNumChildren()
-        + " β=" + β + " outIdx=" + outIdx);
   }
 
   // ===========================================================================
@@ -4596,13 +4056,6 @@ public final class HOTTrieWriter {
 
   /** Diagnostic — Phase 4 skip reasons. Gated on {@code -Dhot.debug.phase4=1}. */
   private static void diagnosePhase4Skip(String reason, HOTIndirectPage parent, int absBit) {
-    if (!Boolean.getBoolean("hot.debug.phase4")) return;
-    System.err.println("[hot.phase4] skip reason=" + reason
-        + " parentLayout=" + parent.getLayoutType()
-        + " parentBytePos=" + parent.getInitialBytePos()
-        + " parentMask=" + Long.toHexString(parent.getBitMask())
-        + " parentChildren=" + parent.getNumChildren()
-        + " β=" + absBit);
   }
 
   /**
@@ -4640,23 +4093,6 @@ public final class HOTTrieWriter {
     if (j < rebuilt.length) rebuilt = Arrays.copyOf(rebuilt, j);
     if (rebuilt.length < 2 || rebuilt.length > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
       return null;
-    }
-    // Phase 7t-5 — call-frequency + firstKey-monotone probe at rebuildParentAbsorbingSplit
-    // success. This is the simplest "absorb the leaf split into the parent" rebuild path —
-    // siblings retained verbatim, original child replaced by (left, right). The probe runs
-    // BEFORE createNodeFromChildren so we measure the input array (sortedness is enforced
-    // by createNodeFromChildren downstream). Counter-only; gated on
-    // -Dhot.strict.phase7t.monotone.probe.
-    if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
-      PHASE7T_REBUILD_INSPECTIONS.incrementAndGet();
-      final int inversionAt = phase7tFirstInversionIdx(rebuilt);
-      if (inversionAt >= 0) {
-        PHASE7T_REBUILD_INVERSIONS.incrementAndGet();
-        if (Boolean.getBoolean("hot.debug.phase7t")) {
-          phase7tLogInversion("rebuildParentAbsorbingSplit", parent.getPageKey(),
-              parent.getHeight(), rebuilt, new int[0], inversionAt);
-        }
-      }
     }
     try {
       final HOTIndirectPage out = createNodeFromChildren(rebuilt, parent.getPageKey(),
@@ -4766,30 +4202,14 @@ public final class HOTTrieWriter {
       if (absBitPos < msbIndex) msbIndex = (short) absBitPos;
     }
 
-    // Phase 6d — verify or split. β-mixed siblings get split via splitSubtreeOnBit
-    // when 6d is enabled, producing two β-constant halves that replace the original.
-    final boolean phase6dEnabledU = Boolean.getBoolean("hot.strict.phase6d");
     final int[] siblingBitValues = new int[numChildren];
-    final boolean[] siblingNeedsSplitU = phase6dEnabledU ? new boolean[numChildren] : null;
-    final SubtreeSplit[] siblingSplitsU = phase6dEnabledU ? new SubtreeSplit[numChildren] : null;
-    int extraSlotsU = 0;
     for (int i = 0; i < numChildren; i++) {
       if (i == splitChildIndex) continue;
       final int v = bitConstantValueInSubtree(parent.getChildReference(i), newAbsBit);
       if (v < 0) {
-        if (!phase6dEnabledU) return null;
-        final SubtreeSplit ss = splitSubtreeOnBit(parent.getChildReference(i), newAbsBit, activeLog, revision);
-        if (ss == null) return null;
-        siblingNeedsSplitU[i] = true;
-        siblingSplitsU[i] = ss;
-        extraSlotsU++;
-        siblingBitValues[i] = -1;
-        continue;
+        return null;
       }
       siblingBitValues[i] = v;
-    }
-    if (extraSlotsU > 0 && (numChildren + 1 + extraSlotsU) > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
-      return null;
     }
 
     // Stage G.14 fix — replace PDEP+OR repositioning with DIRECT PEXT from each child's
@@ -4803,7 +4223,7 @@ public final class HOTTrieWriter {
     // Trade-off: drops the bit-elision optimization that PDEP+OR provided (= sparse
     // partial encoding for off-path bits). For Sirix's multi-entry-leaf workload this
     // optimization wasn't sound anyway — the same pattern as G.6 in buildCompressedHalf.
-    final int newNumChildren = numChildren + 1 + extraSlotsU;
+    final int newNumChildren = numChildren + 1;
     final PageReference[] newChildren = new PageReference[newNumChildren];
     final int[] newPartials = new int[newNumChildren];
     int j = 0;
@@ -4818,18 +4238,6 @@ public final class HOTTrieWriter {
         final byte[] rightKey = getFirstKeyFromChild(rightChild);
         newPartials[j] = (rightKey == null || rightKey.length == 0) ? 0
             : computePartialKeyMultiMaskDirect(rightKey, extractionPositions, extractionMasks, allCount);
-        j++;
-      } else if (phase6dEnabledU && siblingNeedsSplitU != null && siblingNeedsSplitU[i]) {
-        // Phase 6d: expand β-mixed sibling into two β-constant halves.
-        newChildren[j] = siblingSplitsU[i].leftRef();
-        final byte[] lKey = getFirstKeyFromChild(newChildren[j]);
-        newPartials[j] = (lKey == null || lKey.length == 0) ? 0
-            : computePartialKeyMultiMaskDirect(lKey, extractionPositions, extractionMasks, allCount);
-        j++;
-        newChildren[j] = siblingSplitsU[i].rightRef();
-        final byte[] rKey = getFirstKeyFromChild(newChildren[j]);
-        newPartials[j] = (rKey == null || rKey.length == 0) ? 0
-            : computePartialKeyMultiMaskDirect(rKey, extractionPositions, extractionMasks, allCount);
         j++;
       } else {
         newChildren[j] = parent.getChildReference(i);
@@ -4849,30 +4257,6 @@ public final class HOTTrieWriter {
 
     // Sort children + partials by partial-key (HOT I7 / Binna §4.2). See addEntryWithPDep.
     sortChildrenAndPartialsByPartial(newChildren, newPartials);
-
-    // Phase 7t-2 — firstKey-monotone post-sort probe at upgradeToMultiMaskWithNewBit
-    // success. This site has NO firstKey-monotone retry at all (cross-window MultiMask
-    // upgrade path), so any non-monotone result here is uncorrected. Counter-only.
-    if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
-      PHASE7T_UPGRADE_INSPECTIONS.incrementAndGet();
-      final int inversionAt = phase7tFirstInversionIdx(newChildren);
-      if (inversionAt >= 0) {
-        PHASE7T_UPGRADE_INVERSIONS.incrementAndGet();
-        if (Boolean.getBoolean("hot.debug.phase7t")) {
-          phase7tLogInversion("upgradeToMultiMaskWithNewBit", parent.getPageKey(),
-              parent.getHeight(), newChildren, newPartials, inversionAt);
-        }
-      }
-    }
-    // Phase 7t-6 — β-mixed pair detector at upgradeToMultiMaskWithNewBit success. Uses the
-    // (allBytePositions, allByteMaskBits, allCount) MultiMask layout in scope here. Counter-only;
-    // gated on -Dhot.strict.phase7t.betamixed.probe.
-    if (Boolean.getBoolean("hot.strict.phase7t.betamixed.probe")) {
-      PHASE7T6_UPGRADE_BUILDS.incrementAndGet();
-      final int mixed = phase7tCountBetaMixedPairsMultiMaskBytes(newChildren,
-          allBytePositions, allByteMaskBits, allCount);
-      if (mixed > 0) PHASE7T6_UPGRADE_MIXED_PAIRS.addAndGet(mixed);
-    }
 
     final HOTIndirectPage upgradeResult;
     if (newNumChildren <= 16) {
@@ -5307,22 +4691,13 @@ public final class HOTTrieWriter {
       page = loadPage(activeReader, ref);
       if (page != null) ref.setPage(page);
     }
-    final boolean trace = Boolean.getBoolean("hot.debug.bitconstant");
     if (page == null) {
-      if (trace) System.err.println("[bitconstant] page=null ref.key=" + ref.getKey()
-          + " absBit=" + absBitPos);
       return -1;
     }
     if (page instanceof HOTLeafPage leaf) {
       // Phase 6c — delegate to HOTLeafPage's API which has the same semantics. Future
       // 6b work will make this O(1) via incremental non-constant-bits tracking.
       final int result = leaf.isBitConstantAtAbsBit(absBitPos);
-      if (trace && result < 0) {
-        System.err.println("[bitconstant] leaf.pageKey=" + leaf.getPageKey()
-            + " entries=" + leaf.getEntryCount() + " absBit=" + absBitPos
-            + " result=MIXED firstKey="
-            + (leaf.getEntryCount() > 0 ? bytesToHex(leaf.getKey(0)) : "empty"));
-      }
       return result;
     }
     if (page instanceof HOTIndirectPage indirect) {
@@ -5333,9 +4708,6 @@ public final class HOTTrieWriter {
       for (int i = 1; i < m; i++) {
         final int v = bitConstantValueInSubtree(indirect.getChildReference(i), absBitPos);
         if (v < 0 || v != first) {
-          if (trace) System.err.println("[bitconstant] indirect.pageKey=" + indirect.getPageKey()
-              + " child[" + i + "] returned " + v + " (vs first=" + first
-              + ") absBit=" + absBitPos);
           return -1;
         }
       }
@@ -5736,9 +5108,6 @@ public final class HOTTrieWriter {
       // addEntryWithPDep recomputes its firstKey for the new partial layout).
       final HOTLeafPage matchHalfLeafForCreate = (HOTLeafPage) log.get(matchHalfRef).getModified();
       if (!matchHalfLeafForCreate.mergeWithNodeRefs(keyBuf, keyBuf.length, valueBuf, valueBuf.length)) {
-        if (Boolean.getBoolean("hot.debug.phase5")) {
-          System.err.println("[phase5] reject reason=create-sibling-match-overflow beta=" + offendingBeta);
-        }
         return false;
       }
       log.put(matchHalfRef, PageContainer.getInstance(matchHalfLeafForCreate, matchHalfLeafForCreate));
@@ -5757,10 +5126,6 @@ public final class HOTTrieWriter {
       final HOTIndirectPage extended = addEntryWithPDep(ancestor, descendSlot,
           newLeftChild, newRightChild, offendingBeta, revision);
       if (extended == null) {
-        if (Boolean.getBoolean("hot.debug.phase5")) {
-          System.err.println("[phase5] reject reason=addEntry-failed beta=" + offendingBeta
-              + " ancestorIdx=" + ancestorIdx);
-        }
         return false;
       }
       // Install extended ancestor + CoW up.
@@ -5773,18 +5138,9 @@ public final class HOTTrieWriter {
         upRef = pathRefs[i];
       }
       PHASE5_SPLIT_REROUTE_FIRINGS.incrementAndGet();
-      if (Boolean.getBoolean("hot.debug.phase5")) {
-        System.err.println("[phase5] CREATE-SIBLING-OK beta=" + offendingBeta
-            + " ancestorIdx=" + ancestorIdx);
-      }
       return true;
     }
 
-    if (Boolean.getBoolean("hot.debug.phase5")) {
-      System.err.println("[phase5] split-reroute beta=" + offendingBeta
-          + " ancestorIdx=" + ancestorIdx + " descendSlot=" + descendSlot
-          + " siblingIdx=" + siblingIdx + " wrongHalfEntries=" + ((HOTLeafPage) log.get(wrongHalfRef).getModified()).getEntryCount());
-    }
     // 4. Bulk-insert each wrongHalf key into ancestor.sibling subtree.
     final HOTLeafPage wrongHalfLeaf = (HOTLeafPage) log.get(wrongHalfRef).getModified();
     HOTIndirectPage curAncestor = ancestor;
@@ -5813,20 +5169,12 @@ public final class HOTTrieWriter {
     final HOTIndirectPage leafParent = currentInLog(pathRefs[leafParentIdx], pathNodes[leafParentIdx]);
     HOTIndirectPage updatedLeafParent = leafParent.withUpdatedChild(
         pathChildIndices[leafParentIdx], matchHalfRef, revision);
-    if (Boolean.getBoolean("hot.strict.phase6h")) {
-      final HOTIndirectPage rec = recomputePartialsForCurrentFirstKeys(updatedLeafParent, revision);
-      if (rec != null) updatedLeafParent = rec;
-    }
     log.put(pathRefs[leafParentIdx], PageContainer.getInstance(updatedLeafParent, updatedLeafParent));
     // Propagate up.
     PageReference childRef = pathRefs[leafParentIdx];
     for (int i = leafParentIdx - 1; i >= 0; i--) {
       final HOTIndirectPage curNode = currentInLog(pathRefs[i], pathNodes[i]);
-      HOTIndirectPage updatedNode = curNode.withUpdatedChild(pathChildIndices[i], childRef, revision);
-      if (Boolean.getBoolean("hot.strict.phase6h")) {
-        final HOTIndirectPage rec = recomputePartialsForCurrentFirstKeys(updatedNode, revision);
-        if (rec != null) updatedNode = rec;
-      }
+      final HOTIndirectPage updatedNode = curNode.withUpdatedChild(pathChildIndices[i], childRef, revision);
       log.put(pathRefs[i], PageContainer.getInstance(updatedNode, updatedNode));
       childRef = pathRefs[i];
     }
@@ -5892,36 +5240,7 @@ public final class HOTTrieWriter {
       return true;
     }
 
-    // Phase 5c (BOUNDED) — splitLeafAndRerouteWrongHalf failed. Try extending the
-    // OFFENDING ANCESTOR's mask via I11-safe closure. STRICT BOUND: only fire when the
-    // ancestor is SHALLOW (= within MAX_PHASE5C_DEPTH levels of root) to prevent
-    // FrameSlotAllocator exhaustion. Deep cascades would multiply pages exponentially.
-    if (!Boolean.getBoolean("hot.strict.phase5c")) {
-      return false; // Phase 5c disabled by default — caller falls back
-    }
-    final int MAX_PHASE5C_DEPTH = 2;
-    final int revision = storageEngineWriter.getRevisionNumber();
-    for (int aIdx = 0; aIdx < pathDepth && aIdx < MAX_PHASE5C_DEPTH; aIdx++) {
-      final HOTIndirectPage A = currentInLog(pathRefs[aIdx], pathNodes[aIdx]);
-      if (A == null) continue;
-      final int aMsb = A.getMostSignificantBitIndex() & 0xFFFF;
-      if (beta <= aMsb) continue; // I11-unsafe at this ancestor
-      final HOTIndirectPage extended = extendIndirectMaskForClosureI11Safe(A, beta, aMsb, log, revision);
-      if (extended == null) continue;
-      log.put(pathRefs[aIdx], PageContainer.getInstance(extended, extended));
-      PageReference upRef = pathRefs[aIdx];
-      for (int i = aIdx - 1; i >= 0; i--) {
-        final HOTIndirectPage curNode = currentInLog(pathRefs[i], pathNodes[i]);
-        final HOTIndirectPage updatedNode = curNode.withUpdatedChild(pathChildIndices[i], upRef, revision);
-        log.put(pathRefs[i], PageContainer.getInstance(updatedNode, updatedNode));
-        upRef = pathRefs[i];
-      }
-      if (Boolean.getBoolean("hot.debug.phase5")) {
-        System.err.println("[phase5c] ANCESTOR-EXTEND-OK beta=" + beta + " ancestorIdx=" + aIdx);
-      }
-      return true;
-    }
-    return false; // all bounded ancestors infeasible
+    return false;
   }
 
   /**
@@ -6035,8 +5354,6 @@ public final class HOTTrieWriter {
 
   public @Nullable HOTIndirectPage forceRebuildIndirectFromFirstKeyMsdbs(
       HOTIndirectPage indirect, int revision) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.phase7g");
-    if (dbg) System.err.println("[phase7g] ENTRY n=" + indirect.getNumChildren());
     final int n = indirect.getNumChildren();
     if (n < 2) return null;
     final PageReference[] children = new PageReference[n];
@@ -6044,17 +5361,13 @@ public final class HOTTrieWriter {
     for (int i = 0; i < n; i++) {
       children[i] = indirect.getChildReference(i);
       if (children[i] == null) {
-        if (dbg) System.err.println("[phase7g-fail] null child idx=" + i);
         return null;
       }
       firstKeys[i] = getFirstKeyFromChild(children[i]);
       if (firstKeys[i] == null || firstKeys[i].length == 0) {
-        if (dbg) System.err.println("[phase7g-fail] null/empty firstKey idx=" + i
-            + " firstKey=" + (firstKeys[i] == null ? "null" : "empty"));
         return null;
       }
     }
-    if (dbg) System.err.println("[phase7g] all firstKeys collected");
     // Sort by firstKey using indices, then reorder both arrays.
     final Integer[] order = new Integer[n];
     for (int i = 0; i < n; i++) order[i] = i;
@@ -6088,11 +5401,8 @@ public final class HOTTrieWriter {
       }
     }
     if (byteMaskMap.isEmpty()) {
-      if (dbg) System.err.println("[phase7g-fail] no-discriminating-bits");
       return null;
     }
-    if (dbg) System.err.println("[phase7g] byteMaskMap=" + byteMaskMap + " minByte=" + minByte
-        + " maxByte=" + maxByte);
     final int numBytes = byteMaskMap.size();
     final boolean canSingleMask = (maxByte - minByte) < 8 && numBytes <= 8;
     final byte[] extractionPositions;
@@ -6119,8 +5429,6 @@ public final class HOTTrieWriter {
       for (int i = 1; i < n; i++) {
         for (int k = 0; k < i; k++) {
           if (partials[k] == partials[i]) {
-            if (dbg) System.err.println("[phase7g-fail] SM collision i=" + i + " k=" + k
-                + " partial=" + partials[i]);
             return null;
           }
         }
@@ -6128,7 +5436,6 @@ public final class HOTTrieWriter {
       // Sort by partial.
       sortChildrenAndPartialsByPartial(sortedChildren, partials);
       if (partials[0] != 0) {
-        if (dbg) System.err.println("[phase7g-fail] SM no-zero first=" + partials[0]);
         return null;
       }
       if (n <= 16) {
@@ -6163,15 +5470,12 @@ public final class HOTTrieWriter {
     for (int i = 1; i < n; i++) {
       for (int k = 0; k < i; k++) {
         if (partials[k] == partials[i]) {
-          if (dbg) System.err.println("[phase7g-fail] MM collision i=" + i + " k=" + k
-              + " partial=" + partials[i]);
           return null;
         }
       }
     }
     sortChildrenAndPartialsByPartial(sortedChildren, partials);
     if (partials[0] != 0) {
-      if (dbg) System.err.println("[phase7g-fail] MM no-zero first=" + partials[0]);
       return null;
     }
     if (n <= 16) {
@@ -6186,45 +5490,33 @@ public final class HOTTrieWriter {
 
   public @Nullable HOTIndirectPage forceRebuildIndirectFromCurrentFirstKeys(
       HOTIndirectPage indirect, int revision) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.phase7f");
     final int n = indirect.getNumChildren();
     if (n < 2) {
-      if (dbg) System.err.println("[phase7f-fail] reason=fewer-than-2-children n=" + n);
       return null;
     }
     final PageReference[] children = new PageReference[n];
     for (int i = 0; i < n; i++) {
       children[i] = indirect.getChildReference(i);
       if (children[i] == null) {
-        if (dbg) System.err.println("[phase7f-fail] reason=null-child idx=" + i);
         return null;
       }
     }
     sortChildrenByFirstKey(children);
     final int initialBytePos = computeInitialBytePos(children);
     final DiscBitsInfo discBits = computeDiscBits(children, initialBytePos);
-    if (dbg) System.err.println("[phase7f] initialBytePos=" + initialBytePos
-        + " discBits.isSingleMask=" + discBits.isSingleMask()
-        + " msbIndex=" + discBits.mostSignificantBitIndex());
     final int[] partialKeys = computePartialKeysForChildren(children, discBits);
-    if (dbg) System.err.println("[phase7f] preSort partialKeys=" + Arrays.toString(partialKeys));
     // Sort children by partial-key for canonical storage (HOT I7).
     sortChildrenAndPartialsByPartial(children, partialKeys);
-    if (dbg) System.err.println("[phase7f] postSort partialKeys=" + Arrays.toString(partialKeys));
     // Verify uniqueness.
     for (int i = 1; i < n; i++) {
       for (int k = 0; k < i; k++) {
         if (partialKeys[k] == partialKeys[i]) {
-          if (dbg) System.err.println("[phase7f-fail] reason=partial-collision i=" + i
-              + " k=" + k + " partial=" + partialKeys[i]);
           return null;
         }
       }
     }
     // Verify I4 (first partial = 0).
     if (partialKeys[0] != 0) {
-      if (dbg) System.err.println("[phase7f-fail] reason=no-zero-partial first="
-          + partialKeys[0] + " partials=" + Arrays.toString(partialKeys));
       return null;
     }
 
@@ -6317,11 +5609,7 @@ public final class HOTTrieWriter {
     for (int aIdx = 0; aIdx < pathDepth; aIdx++) {
       final HOTIndirectPage A = currentInLog(pathRefs[aIdx], pathNodes[aIdx]);
       if (A == null) continue;
-      HOTIndirectPage updated = recomputePartialsForCurrentFirstKeys(A, revision);
-      if (updated == null && Boolean.getBoolean("hot.strict.phase6f")) {
-        // 6f fallback: try extending with a β-constant discriminating bit.
-        updated = extendWithBetaConstantBit(A, revision);
-      }
+      final HOTIndirectPage updated = recomputePartialsForCurrentFirstKeys(A, revision);
       if (updated == null) continue;
       log.put(pathRefs[aIdx], PageContainer.getInstance(updated, updated));
       pathRefs[aIdx].setPage(updated);
@@ -6332,10 +5620,6 @@ public final class HOTTrieWriter {
         final HOTIndirectPage updatedNode = curNode.withUpdatedChild(pathChildIndices[i], upRef, revision);
         log.put(pathRefs[i], PageContainer.getInstance(updatedNode, updatedNode));
         upRef = pathRefs[i];
-      }
-      if (Boolean.getBoolean("hot.debug.phase6e")) {
-        System.err.println("[phase6e] RECOMPUTE-OK ancestorIdx=" + aIdx
-            + " pageKey=" + A.getPageKey());
       }
       recomputes++;
     }
@@ -6350,24 +5634,15 @@ public final class HOTTrieWriter {
    */
   public int phase7jExtendWithAllClosureBits(PageReference indirectRef, HOTIndirectPage initial,
       StorageEngineWriter storageEngineWriter, TransactionIntentLog log, int maxIterations) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.phase7j");
     if (initial == null) return 0;
     final int revision = storageEngineWriter.getRevisionNumber();
     this.activeReader = storageEngineWriter;
     this.activeLog = log;
     HOTIndirectPage cur = initial;
     int extensions = 0;
-    // Phase 7o (2026-05-11): re-enabled triedBits exploration after Phase 7n landed
-    // strict I11 enforcement in buildBucketWithInheritedMask. The earlier cascade
-    // pattern (1 → 11,919 via I11) should now be blocked by the construction-time
-    // I11 gate. Gated behind hot.strict.phase7o=true for safe rollout.
-    final boolean phase7o = Boolean.getBoolean("hot.strict.phase7o");
-    final IntOpenHashSet triedBits =
-        phase7o ? new IntOpenHashSet(32) : null;
     for (int iter = 0; iter < maxIterations; iter++) {
       int[] closureBits = findClosureBits(cur);
       if (closureBits.length == 0) {
-        if (dbg) System.err.println("[phase7j] iter=" + iter + " no closure bits");
         break;
       }
       final int parentMsb = cur.getMostSignificantBitIndex() & 0xFFFF;
@@ -6381,67 +5656,16 @@ public final class HOTTrieWriter {
       // null), behaviour reduces to today's order on the remainder, so a failure
       // surfaces no regression on top of the architectural ceiling. See
       // {@link #phase7qComputeI8FixBitsForReorder}.
-      if (Boolean.getBoolean("hot.strict.phase7q.i8priority")) {
-        final int[] reordered = phase7qComputeI8FixBitsForReorder(cur, closureBits);
-        if (reordered != null) {
-          closureBits = reordered;
-          PHASE7Q_I8_PRIORITY_FIRINGS.incrementAndGet();
-        }
-      }
       // Phase 7q.4 diagnostic: when operating on root (pageKey=2), dump the
       // closureBits list and parentMsb so we can see what the iter loop is
       // ranging over.
-      if (cur.getPageKey() == 2L) {
-        final StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < closureBits.length; i++) {
-          if (i > 0) sb.append(',');
-          sb.append(closureBits[i]);
-        }
-        System.err.println("[phase7q-closure-list] cur.pageKey=2 iter=" + iter
-            + " parentMsb=" + parentMsb + " bits=[" + sb + "]");
-      }
       boolean extended = false;
-      final boolean phase7qIterDbg = cur.getPageKey() == 2L
-          && Boolean.getBoolean("hot.debug.phase7q");
       for (final int beta : closureBits) {
-        // Phase 7q.8 diagnostic: trace EVERY pre-filter bit consideration on root.
-        // Gated behind -Dhot.debug.phase7q=true to avoid spam under default operation.
-        if (phase7qIterDbg) {
-          System.err.println("[phase7q-iter] cur.pageKey=2 iter=" + iter
-              + " consider beta=" + beta + " parentMsb=" + parentMsb);
-        }
         if (beta <= parentMsb) continue; // skip bits not strictly less significant than parent.MSB
-        if (triedBits != null && !triedBits.add(beta)) continue; // already attempted this commit cycle
         // Optionally skip bits already in cur's mask. Gated because adding more aggressive
         // extensions empirically cascades downstream violations.
-        if (Boolean.getBoolean("hot.strict.phase7j.skipExisting")) {
-          final int outPos = cur.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK
-              ? singleMaskBetaOutputPos(cur, beta)
-              : multiMaskBetaOutputPos(cur, beta);
-          if (outPos >= 0) continue;
-        }
-        // Phase 7q.5 — opt-in no-op-rebuild detection. extendIndirectMaskForClosure with
-        // a β already in cur's mask succeeds trivially (bitwise OR with itself = same
-        // mask). The rebuild produces a structurally identical page with no progress.
-        // Without detection, the outer iter loop "succeeds + breaks" on the same no-op
-        // β every pass and burns its maxIter budget — bits that genuinely refine the
-        // routing (e.g. the one needed to fix an I8 violation) are never attempted.
-        //
-        // EMPIRICAL CAVEAT (2026-05-11): blanket skipNoop cascades 1 → 8469 violations
-        // because the loop then adds many descendant-captured bits via lift, restructur-
-        // ing deep subtrees in ways that can't all preserve β-constancy. Tracked under
-        // hot.strict.phase7q.skipNoop=true for opt-in study; default off keeps the
-        // original behaviour and the documented architectural ceiling at 1 violation.
-        if (Boolean.getBoolean("hot.strict.phase7q.skipNoop")
-            && phase7qIsBetaAlreadyInIndirectMask(cur, beta)) {
-          if (dbg) System.err.println("[phase7j] SKIP-NOOP iter=" + iter + " beta=" + beta
-              + " (already in cur.mask — would be no-op rebuild)");
-          PHASE7Q_CLOSURE_NOOP_SKIPS.incrementAndGet();
-          continue;
-        }
         final HOTIndirectPage next = extendIndirectMaskForClosure(cur, beta, log, revision);
         if (next == null) continue;
-        if (dbg) System.err.println("[phase7j] EXTEND-OK iter=" + iter + " beta=" + beta);
         log.put(indirectRef, PageContainer.getInstance(next, next));
         indirectRef.setPage(next);
         cur = next;
@@ -6450,7 +5674,6 @@ public final class HOTTrieWriter {
         break;
       }
       if (!extended) {
-        if (dbg) System.err.println("[phase7j] iter=" + iter + " no bit extends successfully");
         break;
       }
     }
@@ -6575,10 +5798,6 @@ public final class HOTTrieWriter {
       if (extended == null) continue;
       log.put(indirectRef, PageContainer.getInstance(extended, extended));
       indirectRef.setPage(extended);
-      if (Boolean.getBoolean("hot.debug.phase5e")) {
-        System.err.println("[phase5e] LIFT-OK indirect=" + indirect.getPageKey()
-            + " childIdx=" + i + " liftedBit=" + childMsb + " oldParentMsb=" + parentMsb);
-      }
       return 1;
     }
     return 0;
@@ -6600,7 +5819,6 @@ public final class HOTTrieWriter {
       StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
     if (pathDepth <= 0) return false;
     final int revision = storageEngineWriter.getRevisionNumber();
-    final boolean dbg = Boolean.getBoolean("hot.debug.phase5d");
     boolean anyProgress = false;
     // Top-down: root → leaf-parent.
     for (int aIdx = 0; aIdx < pathDepth; aIdx++) {
@@ -6623,8 +5841,6 @@ public final class HOTTrieWriter {
         if (cp == null) cp = loadPage(storageEngineWriter, cref);
         if (!(cp instanceof HOTIndirectPage ci)) continue;
         final int cMsb = ci.getMostSignificantBitIndex() & 0xFFFF;
-        if (dbg) System.err.println("[phase5d-scan] aIdx=" + aIdx + " aMsb=" + aMsb
-            + " childIdx=" + i + " childMsb=" + cMsb);
         if (cMsb >= 0 && cMsb <= aMsb) {
           violatingChildIdx = i;
           violatingChildMsb = cMsb;
@@ -6645,11 +5861,6 @@ public final class HOTTrieWriter {
         final HOTIndirectPage updatedNode = curNode.withUpdatedChild(pathChildIndices[i], upRef, revision);
         log.put(pathRefs[i], PageContainer.getInstance(updatedNode, updatedNode));
         upRef = pathRefs[i];
-      }
-      if (Boolean.getBoolean("hot.debug.phase5d")) {
-        System.err.println("[phase5d] LIFT-OK ancestorIdx=" + aIdx
-            + " childIdx=" + violatingChildIdx
-            + " liftedBit=" + violatingChildMsb + " oldParentMsb=" + aMsb);
       }
       anyProgress = true;
     }
@@ -7189,7 +6400,7 @@ public final class HOTTrieWriter {
   }
 
   private void phase7t10AccumulateAddentry(@Nullable HOTIndirectPage indirect) {
-    if (!Boolean.getBoolean("hot.strict.phase7t10.perkey.probe") || indirect == null) return;
+    if (true || indirect == null) return;
     PHASE7T10_ADDENTRY_BUILDS.incrementAndGet();
     final long[] rm = phase7t10SimulateOnIndirect(indirect);
     if (rm[0] > 0) PHASE7T10_ADDENTRY_KEYS_SEEN.addAndGet(rm[0]);
@@ -7198,7 +6409,7 @@ public final class HOTTrieWriter {
   }
 
   private void phase7t10AccumulateUpgrade(@Nullable HOTIndirectPage indirect) {
-    if (!Boolean.getBoolean("hot.strict.phase7t10.perkey.probe") || indirect == null) return;
+    if (true || indirect == null) return;
     PHASE7T10_UPGRADE_BUILDS.incrementAndGet();
     final long[] rm = phase7t10SimulateOnIndirect(indirect);
     if (rm[0] > 0) PHASE7T10_UPGRADE_KEYS_SEEN.addAndGet(rm[0]);
@@ -7207,7 +6418,7 @@ public final class HOTTrieWriter {
   }
 
   private void phase7t10AccumulateSplitparent(@Nullable HOTIndirectPage indirect) {
-    if (!Boolean.getBoolean("hot.strict.phase7t10.perkey.probe") || indirect == null) return;
+    if (true || indirect == null) return;
     PHASE7T10_SPLITPARENT_BUILDS.incrementAndGet();
     final long[] rm = phase7t10SimulateOnIndirect(indirect);
     if (rm[0] > 0) PHASE7T10_SPLITPARENT_KEYS_SEEN.addAndGet(rm[0]);
@@ -7216,7 +6427,7 @@ public final class HOTTrieWriter {
   }
 
   private void phase7t10AccumulateRebuild(@Nullable HOTIndirectPage indirect) {
-    if (!Boolean.getBoolean("hot.strict.phase7t10.perkey.probe") || indirect == null) return;
+    if (true || indirect == null) return;
     PHASE7T10_REBUILD_BUILDS.incrementAndGet();
     final long[] rm = phase7t10SimulateOnIndirect(indirect);
     if (rm[0] > 0) PHASE7T10_REBUILD_KEYS_SEEN.addAndGet(rm[0]);
@@ -7225,7 +6436,7 @@ public final class HOTTrieWriter {
   }
 
   private void phase7t10AccumulateBucket(@Nullable HOTIndirectPage indirect) {
-    if (!Boolean.getBoolean("hot.strict.phase7t10.perkey.probe") || indirect == null) return;
+    if (true || indirect == null) return;
     PHASE7T10_BUCKET_BUILDS.incrementAndGet();
     final long[] rm = phase7t10SimulateOnIndirect(indirect);
     if (rm[0] > 0) PHASE7T10_BUCKET_KEYS_SEEN.addAndGet(rm[0]);
@@ -7281,7 +6492,7 @@ public final class HOTTrieWriter {
   }
 
   private void phase7t11AccumulateExtend(@Nullable HOTIndirectPage indirect) {
-    if (!Boolean.getBoolean("hot.strict.phase7t11.perkey.probe") || indirect == null) return;
+    if (true || indirect == null) return;
     PHASE7T11_EXTEND_BUILDS.incrementAndGet();
     final long[] rm = phase7t10SimulateOnIndirect(indirect);
     if (rm[1] > 0) PHASE7T11_EXTEND_EQ_MIS.addAndGet(rm[1]);
@@ -7289,7 +6500,7 @@ public final class HOTTrieWriter {
   }
 
   private void phase7t11AccumulateLift(@Nullable HOTIndirectPage indirect) {
-    if (!Boolean.getBoolean("hot.strict.phase7t11.perkey.probe") || indirect == null) return;
+    if (true || indirect == null) return;
     PHASE7T11_LIFT_BUILDS.incrementAndGet();
     final long[] rm = phase7t10SimulateOnIndirect(indirect);
     if (rm[1] > 0) PHASE7T11_LIFT_EQ_MIS.addAndGet(rm[1]);
@@ -7297,7 +6508,7 @@ public final class HOTTrieWriter {
   }
 
   private void phase7t11AccumulateNewroot(@Nullable HOTIndirectPage indirect) {
-    if (!Boolean.getBoolean("hot.strict.phase7t11.perkey.probe") || indirect == null) return;
+    if (true || indirect == null) return;
     PHASE7T11_NEWROOT_BUILDS.incrementAndGet();
     final long[] rm = phase7t10SimulateOnIndirect(indirect);
     if (rm[1] > 0) PHASE7T11_NEWROOT_EQ_MIS.addAndGet(rm[1]);
@@ -7305,7 +6516,7 @@ public final class HOTTrieWriter {
   }
 
   private void phase7t11AccumulateRootsort(@Nullable HOTIndirectPage indirect) {
-    if (!Boolean.getBoolean("hot.strict.phase7t11.perkey.probe") || indirect == null) return;
+    if (true || indirect == null) return;
     PHASE7T11_ROOTSORT_BUILDS.incrementAndGet();
     final long[] rm = phase7t10SimulateOnIndirect(indirect);
     if (rm[1] > 0) PHASE7T11_ROOTSORT_EQ_MIS.addAndGet(rm[1]);
@@ -7329,7 +6540,6 @@ public final class HOTTrieWriter {
   private HOTIndirectPage redistributeLeafKeysIfMisrouted(
       HOTIndirectPage indirect, final int revision) {
     if (indirect == null || indirect.getHeight() != 1) return indirect;
-    if (Boolean.getBoolean("hot.strict.phase7w.redist.disable")) return indirect;
 
     final int n = indirect.getNumChildren();
     if (n < 2) return indirect;
@@ -7931,7 +7141,6 @@ public final class HOTTrieWriter {
       }
     }
     sb.append(']');
-    System.err.println(sb);
   }
 
   /**
@@ -8240,31 +7449,6 @@ public final class HOTTrieWriter {
     // hard enough to surface the cascade). Default off so the baseline lift's "successful
     // but slightly malformed" output is preserved (the validator accepts it; tightening
     // here would regress height from 5 to 6).
-    final boolean constancyGate = Boolean.getBoolean("hot.strict.phase7q.skipNoop")
-        || Boolean.getBoolean("hot.strict.phase7q.stripOnly")
-        || Boolean.getBoolean("hot.strict.phase7q.constancyGate");
-    if (constancyGate) {
-      if (!liftedBucketIsConstancySafe(r0)) {
-        final PageReference r0Safe = phase7qBuildBucketConstancyFiltered(indirect, s0Refs, s0n,
-            beta, log, revision);
-        if (r0Safe == null || !liftedBucketIsConstancySafe(r0Safe)) {
-          PHASE7Q_SPLIT_FAILURES.incrementAndGet();
-          PHASE7Q_SPLIT_FAIL_CONSTANCY.incrementAndGet();
-          return null;
-        }
-        r0 = r0Safe;
-      }
-      if (!liftedBucketIsConstancySafe(r1)) {
-        final PageReference r1Safe = phase7qBuildBucketConstancyFiltered(indirect, s1Refs, s1n,
-            beta, log, revision);
-        if (r1Safe == null || !liftedBucketIsConstancySafe(r1Safe)) {
-          PHASE7Q_SPLIT_FAILURES.incrementAndGet();
-          PHASE7Q_SPLIT_FAIL_CONSTANCY.incrementAndGet();
-          return null;
-        }
-        r1 = r1Safe;
-      }
-    }
     PHASE7Q_SPLIT_FIRINGS.incrementAndGet();
     return new LiftSplitResult(r0, r1);
   }
@@ -8295,7 +7479,6 @@ public final class HOTTrieWriter {
     if (!(page instanceof HOTIndirectPage built)) {
       return true; // leaf bucket has no descendant constancy to check.
     }
-    final boolean dbg = Boolean.getBoolean("hot.debug.phase7q");
     final int n = built.getNumChildren();
     if (n < 2) return true;
     if (built.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK) {
@@ -8309,7 +7492,7 @@ public final class HOTTrieWriter {
         for (int i = 0; i < n; i++) {
           final PageReference cref = built.getChildReference(i);
           if (cref == null) continue;
-          if (!liftedChildIsConstantOnBit(cref, absBit, dbg, built.getPageKey(), i, n)) {
+          if (!liftedChildIsConstantOnBit(cref, absBit, built.getPageKey(), i, n)) {
             return false;
           }
         }
@@ -8332,7 +7515,7 @@ public final class HOTTrieWriter {
         for (int ci = 0; ci < n; ci++) {
           final PageReference cref = built.getChildReference(ci);
           if (cref == null) continue;
-          if (!liftedChildIsConstantOnBit(cref, absBit, dbg, built.getPageKey(), ci, n)) {
+          if (!liftedChildIsConstantOnBit(cref, absBit, built.getPageKey(), ci, n)) {
             return false;
           }
         }
@@ -8347,7 +7530,7 @@ public final class HOTTrieWriter {
    *  true by default to avoid false positives in the default code path — the cascade case is
    *  detected through resolvable indirects.
    */
-  private boolean liftedChildIsConstantOnBit(PageReference cref, int absBit, boolean dbg,
+  private boolean liftedChildIsConstantOnBit(PageReference cref, int absBit,
       long bucketPageKey, int childIdx, int n) {
     Page childPage = cref.getPage();
     if (childPage == null && activeLog != null) {
@@ -8365,9 +7548,6 @@ public final class HOTTrieWriter {
     }
     if (childPage instanceof HOTLeafPage leaf) {
       if (leaf.isBitConstantAtAbsBit(absBit) < 0) {
-        if (dbg) System.err.println("[phase7q.6] CONSTANCY-REJECT leaf"
-            + " bucketPageKey=" + bucketPageKey + " absBit=" + absBit
-            + " childIdx=" + childIdx + " childPageKey=" + cref.getKey() + " n=" + n);
         return false;
       }
       return true;
@@ -8393,17 +7573,10 @@ public final class HOTTrieWriter {
         if (subPage instanceof HOTLeafPage subLeaf) v = subLeaf.isBitConstantAtAbsBit(absBit);
         else v = bitConstantValueInSubtree(subRef, absBit);
         if (v < 0) {
-          if (dbg) System.err.println("[phase7q.6] CONSTANCY-REJECT indirect-child non-constant"
-              + " bucketPageKey=" + bucketPageKey + " absBit=" + absBit + " childIdx=" + childIdx
-              + " subIdx=" + j + " childPageKey=" + cref.getKey() + " n=" + n);
           return false;
         }
         if (first == -2) first = v;
         else if (first != v) {
-          if (dbg) System.err.println("[phase7q.6] CONSTANCY-REJECT indirect-child mixed"
-              + " bucketPageKey=" + bucketPageKey + " absBit=" + absBit + " childIdx=" + childIdx
-              + " subIdx=" + j + " childPageKey=" + cref.getKey() + " n=" + n
-              + " first=" + first + " v=" + v);
           return false;
         }
       }
@@ -8633,10 +7806,6 @@ public final class HOTTrieWriter {
           // OTHER child's subtree is non-constant on that bit (= the constancy
           // filter rejection that left this collision unresolvable). Bedrock cases
           // require recursive lift of the offending sibling's subtree at that bit.
-          if (Boolean.getBoolean("hot.debug.phase7q.collision")) {
-            phase7q10DumpCollisionContext(children, bucketSize, k, i, beta,
-                newParentMsb);
-          }
           PHASE7Q_CONSTANCY_WRAP_FAIL.incrementAndGet();
           PHASE7Q_CONSTANCY_WRAP_FAIL_COLLIDE.incrementAndGet();
           return null;
@@ -8705,7 +7874,6 @@ public final class HOTTrieWriter {
         .append(" β=").append(beta).append(" newParentMsb=").append(newParentMsb)
         .append(" kFirstKey=").append(java.util.HexFormat.of().formatHex(kKey))
         .append(" iFirstKey=").append(java.util.HexFormat.of().formatHex(iKey));
-    System.err.println(sb);
     sb.setLength(0);
     sb.append("[phase7q-collide]   distinguishing-bits:");
     for (int b = 0; b < minLen; b++) {
@@ -8730,7 +7898,6 @@ public final class HOTTrieWriter {
         sb.append(']');
       }
     }
-    System.err.println(sb);
   }
 
   /** Phase 7q.2 — counter for successful recursive lift firings. */
@@ -8821,10 +7988,6 @@ public final class HOTTrieWriter {
   private BetaLiftWalk liftBetaFromSubtreeRecursive(PageReference ref, int beta,
       TransactionIntentLog log, int revision) {
     if (ref == null || beta < 0) {
-      if (Boolean.getBoolean("hot.debug.g32")) {
-        System.err.println("[lift-walker] FAIL: ref=" + (ref == null ? "null" : "non-null")
-            + " beta=" + beta);
-      }
       PHASE7Q_LIFT_FAILURES.incrementAndGet();
       return null;
     }
@@ -8845,12 +8008,6 @@ public final class HOTTrieWriter {
       if (page != null) ref.setPage(page);
     }
     if (page == null) {
-      if (Boolean.getBoolean("hot.debug.phase7q") || Boolean.getBoolean("hot.debug.g32")) {
-        System.err.println("[lift-walker] FAIL: page=null refKey=" + ref.getKey()
-            + " refLogKey=" + ref.getLogKey() + " activeReader="
-            + (activeReader != null) + " activeLog=" + (activeLog != null)
-            + " activeTilGen=" + ref.getActiveTilGeneration());
-      }
       PHASE7Q_LIFT_FAILURES.incrementAndGet();
       return null;
     }
@@ -8859,16 +8016,10 @@ public final class HOTTrieWriter {
       return new BetaLiftWalk(ref, null);
     }
     if (!(page instanceof HOTIndirectPage indirect)) {
-      if (Boolean.getBoolean("hot.debug.phase7q") || Boolean.getBoolean("hot.debug.g32")) {
-        System.err.println("[lift-walker] FAIL: page=" + page.getClass().getSimpleName()
-            + " refKey=" + ref.getKey() + " (not HOTIndirectPage/HOTLeafPage)");
-      }
       PHASE7Q_LIFT_FAILURES.incrementAndGet();
       return null;
     }
 
-    final boolean liftDbg = Boolean.getBoolean("hot.debug.phase7q")
-        || Boolean.getBoolean("hot.debug.g32");
     // Case A: β at this indirect's level — split here, propagate up.
     if (indirectMaskHasAbsBit(indirect, beta)) {
       final LiftSplitResult split = splitIndirectOnBitForLift(indirect, beta, log, revision);
@@ -8876,33 +8027,18 @@ public final class HOTTrieWriter {
         PHASE7Q_LIFT_FIRINGS.incrementAndGet();
         return new BetaLiftWalk(split.betaZero, split.betaOne);
       }
-      // Split returned null. Phase 7q.15 — under g32.deep, distinguish failure modes:
+      // Split returned null. Distinguish failure modes:
       //   (1) Fossil capture (β subtree-constant): harmless, return no-op walker.
       //   (2) firstKeys agree on β at this level BUT deeper keys are β-mixed: β is
       //       load-bearing deeper. Fall through to Case B logic (recurse children) to
       //       find and lift from the load-bearing depth.
-      //   (3) Anything else: real failure.
-      if (Boolean.getBoolean("hot.strict.g32.deep")) {
-        final int bv = bitConstantValueInSubtree(ref, beta);
-        if (bv >= 0) {
-          if (liftDbg) System.err.println("[lift-walker] FOSSIL: pageKey="
-              + indirect.getPageKey() + " beta=" + beta + " constantValue=" + bv
-              + " — treating as no-op (β harmless in subtree)");
-          PHASE7Q_LIFT_NOOP.incrementAndGet();
-          return new BetaLiftWalk(ref, null);
-        }
-        // Not subtree-constant — β is load-bearing somewhere deeper. Fall through
-        // to Case B recursion below (the "if (indirectMaskHasAbsBit) return early"
-        // is skipped; we drop through to the descendant-capture check + recurse).
-        if (liftDbg) System.err.println("[lift-walker] β-mask-here-but-deep-mixed:"
-            + " pageKey=" + indirect.getPageKey() + " beta=" + beta
-            + " — falling through to Case B recursion");
-      } else {
-        if (liftDbg) System.err.println("[lift-walker] FAIL: splitIndirectOnBitForLift null"
-            + " pageKey=" + indirect.getPageKey() + " beta=" + beta);
-        PHASE7Q_LIFT_FAILURES.incrementAndGet();
-        return null;
+      final int bv = bitConstantValueInSubtree(ref, beta);
+      if (bv >= 0) {
+        PHASE7Q_LIFT_NOOP.incrementAndGet();
+        return new BetaLiftWalk(ref, null);
       }
+      // Not subtree-constant — β is load-bearing somewhere deeper. Fall through
+      // to Case B recursion below.
     }
 
     // Case B: β not at this level. Pre-flight: any descendant capture?
@@ -8915,8 +8051,6 @@ public final class HOTTrieWriter {
     for (int i = 0; i < n; i++) {
       final PageReference cref = indirect.getChildReference(i);
       if (cref == null) {
-        if (liftDbg) System.err.println("[lift-walker] FAIL: null child ref"
-            + " pageKey=" + indirect.getPageKey() + " childIdx=" + i + " beta=" + beta);
         PHASE7Q_LIFT_FAILURES.incrementAndGet();
         return null;
       }
@@ -8937,9 +8071,6 @@ public final class HOTTrieWriter {
       final PageReference cref = indirect.getChildReference(i);
       final BetaLiftWalk cr = liftBetaFromSubtreeRecursive(cref, beta, log, revision);
       if (cr == null) {
-        if (liftDbg) System.err.println("[lift-walker] FAIL: child recursion returned null"
-            + " pageKey=" + indirect.getPageKey() + " childIdx=" + i
-            + " childKey=" + cref.getKey() + " beta=" + beta);
         PHASE7Q_LIFT_FAILURES.incrementAndGet();
         return null;
       }
@@ -8976,8 +8107,6 @@ public final class HOTTrieWriter {
     final LiftSplitResult split = splitExpandedChildrenOnBeta(indirect, expandedRefs, expandedN,
         beta, log, revision);
     if (split == null) {
-      if (liftDbg) System.err.println("[lift-walker] FAIL: splitExpandedChildrenOnBeta null"
-          + " pageKey=" + indirect.getPageKey() + " beta=" + beta + " expandedN=" + expandedN);
       PHASE7Q_LIFT_FAILURES.incrementAndGet();
       return null;
     }
@@ -9012,7 +8141,6 @@ public final class HOTTrieWriter {
   private LiftSplitResult splitExpandedChildrenOnBeta(HOTIndirectPage originalIndirect,
       PageReference[] expandedRefs, int expandedN, int beta,
       TransactionIntentLog log, int revision) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.g32");
     if (expandedN < 2) return null;
     final int[] s0Idx = new int[expandedN];
     final int[] s1Idx = new int[expandedN];
@@ -9022,13 +8150,10 @@ public final class HOTTrieWriter {
     for (int i = 0; i < expandedN; i++) {
       final PageReference cref = expandedRefs[i];
       if (cref == null) {
-        if (dbg) System.err.println("[splitExpand] FAIL: null cref at i=" + i);
         return null;
       }
       final byte[] fk = getFirstKeyFromChild(cref);
       if (fk == null || fk.length == 0) {
-        if (dbg) System.err.println("[splitExpand] FAIL: null/empty fk at i=" + i
-            + " crefKey=" + cref.getKey());
         return null;
       }
       if (isAbsBitSet(fk, beta)) {
@@ -9042,20 +8167,16 @@ public final class HOTTrieWriter {
       }
     }
     if (s0n == 0 || s1n == 0) {
-      if (dbg) System.err.println("[splitExpand] FAIL: degenerate partition s0n=" + s0n
-          + " s1n=" + s1n + " expandedN=" + expandedN + " beta=" + beta);
       return null;
     }
     PageReference r0 =
         buildBucketWithInheritedMask(originalIndirect, s0Idx, s0Refs, s0n, beta, log, revision);
     if (r0 == null) {
-      if (dbg) System.err.println("[splitExpand] FAIL: r0 null s0n=" + s0n + " beta=" + beta);
       return null;
     }
     PageReference r1 =
         buildBucketWithInheritedMask(originalIndirect, s1Idx, s1Refs, s1n, beta, log, revision);
     if (r1 == null) {
-      if (dbg) System.err.println("[splitExpand] FAIL: r1 null s1n=" + s1n + " beta=" + beta);
       return null;
     }
     // Phase 7q.8 — mirror the constancy gate + retry from splitIndirectOnBitForLift here
@@ -9065,23 +8186,6 @@ public final class HOTTrieWriter {
     // and harder to attribute. With the gate, intermediate-level non-constancy is caught
     // and rescued via {@link #phase7qBuildBucketConstancyFiltered} before being absorbed
     // by the parent.
-    final boolean constancyGate = Boolean.getBoolean("hot.strict.phase7q.skipNoop")
-        || Boolean.getBoolean("hot.strict.phase7q.stripOnly")
-        || Boolean.getBoolean("hot.strict.phase7q.constancyGate");
-    if (constancyGate) {
-      if (!liftedBucketIsConstancySafe(r0)) {
-        final PageReference r0Safe = phase7qBuildBucketConstancyFiltered(originalIndirect,
-            s0Refs, s0n, beta, log, revision);
-        if (r0Safe == null || !liftedBucketIsConstancySafe(r0Safe)) return null;
-        r0 = r0Safe;
-      }
-      if (!liftedBucketIsConstancySafe(r1)) {
-        final PageReference r1Safe = phase7qBuildBucketConstancyFiltered(originalIndirect,
-            s1Refs, s1n, beta, log, revision);
-        if (r1Safe == null || !liftedBucketIsConstancySafe(r1Safe)) return null;
-        r1 = r1Safe;
-      }
-    }
     return new LiftSplitResult(r0, r1);
   }
 
@@ -9240,20 +8344,6 @@ public final class HOTTrieWriter {
     final byte[] fkK = getFirstKeyFromChild(cK);
     if (fkI == null || fkK == null || fkI.length == 0 || fkK.length == 0) return;
     final int maxLen = Math.min(fkI.length, fkK.length);
-    final boolean dbg = Boolean.getBoolean("hot.debug.phase7q.extendcollide");
-    final StringBuilder sb = dbg ? new StringBuilder(512) : null;
-    if (dbg) {
-      sb.append("[phase7q.14b-collide] beta=").append(beta).append(" i=").append(i)
-          .append(" k=").append(k).append(" partial=0x").append(Integer.toHexString(sharedPartial))
-          .append("\n  fkI=").append(hexBytes(fkI))
-          .append("\n  fkK=").append(hexBytes(fkK))
-          .append("\n  maskBytes=[");
-      for (int p = 0; p < allCount; p++) {
-        if (p > 0) sb.append(",");
-        sb.append(extractionPositions[p] & 0xFF);
-      }
-      sb.append("]\n  candidate-absent-bits=[");
-    }
     int diffBits = 0;
     int absentBits = 0;
     for (int bp = 0; bp < maxLen; bp++) {
@@ -9279,7 +8369,6 @@ public final class HOTTrieWriter {
         }
         if (!inMask) {
           absentBits++;
-          if (dbg) sb.append(absBit).append(",");
         }
       }
     }
@@ -9287,10 +8376,6 @@ public final class HOTTrieWriter {
       PHASE7Q_COLLIDE_DUPLICATE_KEYS.incrementAndGet();
     } else if (absentBits > 0) {
       PHASE7Q_COLLIDE_RESOLVABLE_1BIT.incrementAndGet();
-    }
-    if (dbg) {
-      sb.append("] diffBits=").append(diffBits).append(" absentBits=").append(absentBits);
-      System.err.println(sb);
     }
   }
 
@@ -9426,7 +8511,6 @@ public final class HOTTrieWriter {
   @Nullable
   private HOTIndirectPage phase7qExtendWithLift(HOTIndirectPage indirect, int beta,
       TransactionIntentLog log, int revision) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.g30");
     PHASE7Q_EXTEND_FIRINGS.incrementAndGet();
     if (indirect == null || beta < 0) {
       PHASE7Q_EXTEND_FAILURES.incrementAndGet();
@@ -9445,9 +8529,6 @@ public final class HOTTrieWriter {
     // where the early bail blocked any lift attempt in default mode.
     final boolean betaAlreadyInMask = indirectMaskHasAbsBit(indirect, beta);
     if (betaAlreadyInMask) {
-      if (Boolean.getBoolean("hot.strict.phase7q.stripOnly")) {
-        return phase7qStripDescendantBetaOnly(indirect, beta, log, revision);
-      }
       PHASE7Q_EXTEND_FAILURES.incrementAndGet();
       PHASE7Q_EXTEND_FAIL_BETAINMASK.incrementAndGet();
       return null;
@@ -9619,7 +8700,7 @@ public final class HOTTrieWriter {
     // themselves. Real children's partials are checked for uniqueness separately.
     final int[] newPartials = new int[newCount];
     final PageReference[] newChildren = new PageReference[newCount];
-    final boolean deepPlaceholderSentinel = Boolean.getBoolean("hot.strict.g32.deep");
+    final boolean deepPlaceholderSentinel = true;
     int placeholderSeq = 0;
     for (int i = 0; i < newCount; i++) {
       final PageReference cref = newRefs.get(i);
@@ -9642,7 +8723,7 @@ public final class HOTTrieWriter {
     // such absent bit and recompute partials. Iterate up to 8 times to handle
     // multi-pair collisions. Gated by hot.strict.g32.deep so legacy behavior is
     // preserved off-flag.
-    final boolean deepMultiBeta = Boolean.getBoolean("hot.strict.g32.deep");
+    final boolean deepMultiBeta = true;
     int collideRetries = 0;
     boolean partialsValid = false;
     while (!partialsValid && collideRetries < 8) {
@@ -9667,9 +8748,6 @@ public final class HOTTrieWriter {
       }
       if (partialsValid) break;
       if (!deepMultiBeta) {
-        if (dbg) System.err.println("[phase7q-extend] reject reason=partial-collision beta=" + beta
-            + " i=" + collideI + " k=" + collideK + " partial="
-            + Integer.toHexString(newPartials[collideI]));
         phase7q14bDumpExtendCollide(beta, collideI, collideK, newPartials[collideI],
             newChildren, extractionPositions, extractionMasks, allCount);
         PHASE7Q_EXTEND_FAILURES.incrementAndGet();
@@ -9680,7 +8758,6 @@ public final class HOTTrieWriter {
       final byte[] fkI = getFirstKeyFromChild(newChildren[collideI]);
       final byte[] fkK = getFirstKeyFromChild(newChildren[collideK]);
       if (fkI == null || fkK == null || fkI.length == 0 || fkK.length == 0) {
-        if (dbg) System.err.println("[phase7q-extend] multi-β: collision involves placeholder, can't resolve");
         PHASE7Q_EXTEND_FAILURES.incrementAndGet();
         PHASE7Q_EXTEND_FAIL_COLLIDE.incrementAndGet();
         return null;
@@ -9708,7 +8785,6 @@ public final class HOTTrieWriter {
         }
       }
       if (absentBit < 0) {
-        if (dbg) System.err.println("[phase7q-extend] multi-β: no absent disc bit, identical-keys");
         PHASE7Q_EXTEND_FAILURES.incrementAndGet();
         PHASE7Q_EXTEND_FAIL_COLLIDE.incrementAndGet();
         return null;
@@ -9724,8 +8800,6 @@ public final class HOTTrieWriter {
         if ((extractionPositions[p] & 0xFF) == absentBytePos) { byteEntryIdx = p; break; }
       }
       if (byteEntryIdx < 0) {
-        if (dbg) System.err.println("[phase7q-extend] multi-β: absentBit=" + absentBit
-            + " in new byte position " + absentBytePos + " — extending byte list NYI");
         PHASE7Q_EXTEND_FAILURES.incrementAndGet();
         PHASE7Q_EXTEND_FAIL_COLLIDE.incrementAndGet();
         return null;
@@ -9752,8 +8826,6 @@ public final class HOTTrieWriter {
             extractionMasks, allCount);
       }
       collideRetries++;
-      if (dbg) System.err.println("[phase7q-extend] multi-β retry=" + collideRetries
-          + " added absentBit=" + absentBit);
     }
     if (!partialsValid) {
       PHASE7Q_EXTEND_FAILURES.incrementAndGet();
@@ -9766,28 +8838,21 @@ public final class HOTTrieWriter {
       if (p == 0) { hasZero = true; break; }
     }
     if (!hasZero) {
-      if (dbg) System.err.println("[phase7q-extend] reject reason=no-zero-partial beta=" + beta
-          + " newCount=" + newCount);
       PHASE7Q_EXTEND_FAILURES.incrementAndGet();
       PHASE7Q_EXTEND_FAIL_NOZERO.incrementAndGet();
       return null;
     }
 
-    if (dbg) System.err.println("[phase7q-extend] EXTEND-OK beta=" + beta + " newCount=" + newCount
-        + " msbIndex=" + msbIndex + " allCount=" + allCount + " liftedN=" + liftedN
-        + " numPropagated=" + numPropagated);
     // Phase 7q.15h — construction-time cycle check. The lift mechanism can produce
     // newChildren[] that share a sub-tree (same pageKey reachable via two slots).
     // Validator flags this as structure-cycle at trie validation time; here we detect
     // and reject before building so the caller (phase7qIterativeRootSortI8) cleanly
     // falls back to its rollback path. Gated on hot.strict.g32.cyclereject so legacy
     // lift output is preserved off-flag.
-    if (Boolean.getBoolean("hot.strict.g32.cyclereject")
+    if (false
         && newChildrenHaveSharedSubtree(newChildren, newCount)) {
       PHASE7Q_EXTEND_FAILURES.incrementAndGet();
       PHASE7Q_EXTEND_FAIL_CYCLE.incrementAndGet();
-      if (dbg) System.err.println("[phase7q-extend] reject reason=output-has-cycle beta=" + beta
-          + " newCount=" + newCount);
       return null;
     }
     PHASE7Q_EXTEND_SUCCESSES.incrementAndGet();
@@ -9876,7 +8941,6 @@ public final class HOTTrieWriter {
   @Nullable
   private HOTIndirectPage phase7qStripDescendantBetaOnly(HOTIndirectPage indirect, int beta,
       TransactionIntentLog log, int revision) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.phase7q");
     PHASE7Q_STRIP_ONLY_FIRINGS.incrementAndGet();
     final int n = indirect.getNumChildren();
     if (n < 2) {
@@ -10002,8 +9066,6 @@ public final class HOTTrieWriter {
     for (int i = 1; i < newCount; i++) {
       for (int k = 0; k < i; k++) {
         if (newPartials[k] == newPartials[i]) {
-          if (dbg) System.err.println("[phase7q-strip-only] reject reason=partial-collision beta="
-              + beta + " i=" + i + " k=" + k + " partial=" + Integer.toHexString(newPartials[i]));
           PHASE7Q_STRIP_ONLY_FAIL.incrementAndGet();
           return null;
         }
@@ -10015,8 +9077,6 @@ public final class HOTTrieWriter {
       if (p == 0) { hasZero = true; break; }
     }
     if (!hasZero) {
-      if (dbg) System.err.println("[phase7q-strip-only] reject reason=no-zero-partial beta=" + beta
-          + " newCount=" + newCount);
       PHASE7Q_STRIP_ONLY_FAIL.incrementAndGet();
       return null;
     }
@@ -10041,9 +9101,7 @@ public final class HOTTrieWriter {
           final int byteBit = 7 - mfBit;
           if ((byteMaskBits & (1 << byteBit)) == 0) continue;
           final int absBit = bp * 8 + mfBit;
-          if (!liftedChildIsConstantOnBit(cref, absBit, dbg, indirect.getPageKey(), i, newCount)) {
-            if (dbg) System.err.println("[phase7q-strip-only] reject reason=child-non-constant beta="
-                + beta + " childIdx=" + i + " absBit=" + absBit);
+          if (!liftedChildIsConstantOnBit(cref, absBit, indirect.getPageKey(), i, newCount)) {
             PHASE7Q_STRIP_ONLY_FAIL.incrementAndGet();
             return null;
           }
@@ -10051,9 +9109,6 @@ public final class HOTTrieWriter {
       }
     }
 
-    if (dbg) System.err.println("[phase7q-strip-only] STRIP-OK beta=" + beta + " newCount=" + newCount
-        + " msbIndex=" + msbIndex + " allCount=" + allCount + " liftedN=" + liftedN
-        + " numPropagated=" + numPropagated);
     PHASE7Q_STRIP_ONLY_SUCCESS.incrementAndGet();
     if (newCount <= 16) {
       return HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
@@ -10102,7 +9157,6 @@ public final class HOTTrieWriter {
    */
   public void reconcileRootMaskI11Safe(PageReference rootRef,
       StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.g32");
     if (rootRef == null) return;
     // Phase 7q.10 — bind activeLog so getFirstKeyFromChild can resolve TIL-only refs.
     // Without this, placeholder children produce EMPTY_KEY → partial=0 → collisions in
@@ -10142,14 +9196,11 @@ public final class HOTTrieWriter {
       final int parentMsb = indirect.getMostSignificantBitIndex() & 0xFFFF;
       final HOTIndirectPage bulkRebuilt = rebuildRootWithFullClosureI11Safe(indirect, parentMsb, revision);
       if (bulkRebuilt != null) {
-        if (dbg) System.err.println("[g32] BULK-REBUILD-OK newMsb=" + bulkRebuilt.getMostSignificantBitIndex()
-            + " parentMsb=" + parentMsb);
         G32_RECONCILE_FIRINGS.incrementAndGet();
         log.put(rootRef, PageContainer.getInstance(bulkRebuilt, bulkRebuilt));
         rootRef.setPage(bulkRebuilt);
         return; // bulk path resolved it
       }
-      if (dbg) System.err.println("[g32] bulk-rebuild-failed, falling through to iterative");
 
       // Phase 7q.13 — last-resort: ADD A NEW ROOT LEVEL above the inverted-firstKey pair.
       // When iterative bit-extension cannot place the discriminating bit in the existing
@@ -10163,46 +9214,33 @@ public final class HOTTrieWriter {
       // satisfies I8 by construction.
       final HOTIndirectPage levelRebuilt = addNewRootLevelForI8(indirect, log, revision);
       if (levelRebuilt != null) {
-        if (dbg) System.err.println("[g32] NEW-ROOT-LEVEL OK newMsb="
-            + levelRebuilt.getMostSignificantBitIndex());
         G32_RECONCILE_FIRINGS.incrementAndGet();
         log.put(rootRef, PageContainer.getInstance(levelRebuilt, levelRebuilt));
         rootRef.setPage(levelRebuilt);
         return;
       }
-      if (dbg) System.err.println("[g32] new-root-level-failed, falling through to iterative");
 
       // Phase 7q.15 — multi-β atomic lift. Compute ALL needed MSDB bits at once, lift them
       // sequentially WITHOUT building intermediate indirects (= accumulate walker outputs),
       // then build a SINGLE new indirect with all bits in mask. Avoids the iter-N-depends-
       // on-iter-(N-1) divergence problem documented in hot-phase7q-15-session.md. Gated by
       // hot.strict.g32.multibeta.
-      if (Boolean.getBoolean("hot.strict.g32.multibeta")) {
-        final HOTIndirectPage multiBetaFixed = phase7qMultiBetaAtomicLift(indirect, log, revision);
-        if (multiBetaFixed != null) {
-          if (dbg) System.err.println("[g32] MULTI-BETA-OK newMsb="
-              + multiBetaFixed.getMostSignificantBitIndex());
-          log.put(rootRef, PageContainer.getInstance(multiBetaFixed, multiBetaFixed));
-          rootRef.setPage(multiBetaFixed);
-          return;
-        }
-        if (dbg) System.err.println("[g32] multi-beta failed, falling through to iterative");
+      final HOTIndirectPage multiBetaFixed = phase7qMultiBetaAtomicLift(indirect, log, revision);
+      if (multiBetaFixed != null) {
+        log.put(rootRef, PageContainer.getInstance(multiBetaFixed, multiBetaFixed));
+        rootRef.setPage(multiBetaFixed);
+        return;
       }
 
       // Phase 7q.15 — iterative I8 fix. After the bulk + addNewRoot + multi-β paths fail,
       // run an iterative loop that finds the FIRST adjacent inversion in stored order,
       // computes its MSB-of-diff, and adds that bit via extend (β-constant case) or lift
       // (non-β-constant case). Gated by hot.strict.g32.deep.
-      if (Boolean.getBoolean("hot.strict.g32.deep")) {
-        final HOTIndirectPage iterFixed = phase7qIterativeRootSortI8(indirect, log, revision);
-        if (iterFixed != null && iterFixed != indirect) {
-          if (dbg) System.err.println("[g32] ITERATIVE-SORT-OK newMsb="
-              + iterFixed.getMostSignificantBitIndex());
-          log.put(rootRef, PageContainer.getInstance(iterFixed, iterFixed));
-          rootRef.setPage(iterFixed);
-          return;
-        }
-        if (dbg) System.err.println("[g32] iterative-sort failed");
+      final HOTIndirectPage iterFixed = phase7qIterativeRootSortI8(indirect, log, revision);
+      if (iterFixed != null && iterFixed != indirect) {
+        log.put(rootRef, PageContainer.getInstance(iterFixed, iterFixed));
+        rootRef.setPage(iterFixed);
+        return;
       }
     }
 
@@ -10227,8 +9265,6 @@ public final class HOTTrieWriter {
         }
       }
       if (offI < 0) {
-        if (dbg && attempt > 0) System.err.println("[g32] done attempts=" + attempt
-            + " rootMsb=" + indirect.getMostSignificantBitIndex());
         return; // no I8 violation — done
       }
       final int parentMsb = indirect.getMostSignificantBitIndex() & 0xFFFF;
@@ -10253,45 +9289,7 @@ public final class HOTTrieWriter {
         if (seen0 && seen1) closureBitset[absBit >> 6] |= 1L << (absBit & 63);
       }
       // Phase 7q.10 diagnostic: dump per-child bit values at specific absBits.
-      if (dbg && attempt == 0) {
-        for (final int probeBit : new int[]{87, 96, 98, 99, 100, 104}) {
-          final int bp = probeBit / 8;
-          final int mask = 1 << (7 - (probeBit % 8));
-          final StringBuilder pb = new StringBuilder("[g32-bitprobe] absBit=").append(probeBit);
-          pb.append(" bytePos=").append(bp).append(" mask=0x")
-              .append(Integer.toHexString(mask));
-          for (int i = 0; i < n; i++) {
-            if (firstKeys[i] == null || firstKeys[i].length == 0) continue;
-            final int byteVal = bp < firstKeys[i].length ? (firstKeys[i][bp] & 0xff) : -1;
-            pb.append(" c[").append(i).append("](b[").append(bp).append("]=0x")
-                .append(byteVal < 0 ? "OOB" : String.format("%02x", byteVal))
-                .append(")=").append(isAbsBitSet(firstKeys[i], probeBit) ? "1" : "0");
-          }
-          System.err.println(pb);
-        }
-      }
       // Phase 7q.10 diagnostic: dump closure-bit list + offending pair on first attempt.
-      if (dbg && attempt == 0) {
-        final StringBuilder sb = new StringBuilder("[g32-closure] attempt=0 parentMsb=" + parentMsb
-            + " offK=" + offK + " offI=" + offI + " n=" + n + " closureBits=[");
-        boolean first = true;
-        for (int absBit = parentMsb + 1; absBit < totalAbsBits; absBit++) {
-          if ((closureBitset[absBit >> 6] & (1L << (absBit & 63))) == 0) continue;
-          if (!first) sb.append(',');
-          sb.append(absBit);
-          first = false;
-        }
-        sb.append("]");
-        for (int i = 0; i < n; i++) {
-          sb.append("\n  c[").append(i).append("] len=");
-          if (firstKeys[i] == null) { sb.append("null"); continue; }
-          sb.append(firstKeys[i].length).append(" raw=");
-          for (int b = 0; b < firstKeys[i].length; b++) {
-            sb.append(String.format("[%d]=%02x ", b, firstKeys[i][b] & 0xff));
-          }
-        }
-        System.err.println(sb);
-      }
       // Try each closure bit in order. First try constancy-only (no split). If all fail,
       // try split-aware (= splits β-mixed children to make β-constant).
       HOTIndirectPage extended = null;
@@ -10312,7 +9310,6 @@ public final class HOTTrieWriter {
           extended = extendIndirectMaskForClosureI11Safe(indirect, absBit, parentMsb, log, revision);
           if (extended != null) {
             chosenBit = absBit;
-            if (dbg) System.err.println("[g32] split-aware extend OK bit=" + absBit);
             break;
           }
         }
@@ -10337,18 +9334,13 @@ public final class HOTTrieWriter {
           extended = extendIndirectMaskForClosureI11Safe(indirect, liftBit, parentMsb, log, revision);
           if (extended != null) {
             chosenBit = liftBit;
-            if (dbg) System.err.println("[g32] LIFT extend OK bit=" + liftBit);
             break;
           }
         }
       }
       if (extended == null) {
-        if (dbg) System.err.println("[g32] reject reason=no-bit-works parentMsb=" + parentMsb
-            + " offK=" + offK + " offI=" + offI);
         return;
       }
-      if (dbg) System.err.println("[g32] EXTEND-OK msdb=" + chosenBit + " parentMsb=" + parentMsb
-          + " newMsb=" + extended.getMostSignificantBitIndex());
       G32_RECONCILE_FIRINGS.incrementAndGet();
       log.put(rootRef, PageContainer.getInstance(extended, extended));
       // Also setPage so subsequent reads see it.
@@ -10547,20 +9539,9 @@ public final class HOTTrieWriter {
       newPartials[i] = (cKey == null || cKey.length == 0) ? 0
           : computePartialKeyMultiMaskDirect(cKey, extractionPositions, extractionMasks, allCount);
     }
-    final boolean dbgI11 = Boolean.getBoolean("hot.debug.g32");
     for (int i = 1; i < newCount; i++) {
       for (int k = 0; k < i; k++) {
         if (newPartials[k] == newPartials[i]) {
-          if (dbgI11) {
-            final byte[] fkI = getFirstKeyFromChild(newRefs.get(i));
-            final byte[] fkK = getFirstKeyFromChild(newRefs.get(k));
-            final StringBuilder fkIs = new StringBuilder(); final StringBuilder fkKs = new StringBuilder();
-            if (fkI != null) for (final byte b : fkI) fkIs.append(String.format("%02x", b & 0xff));
-            if (fkK != null) for (final byte b : fkK) fkKs.append(String.format("%02x", b & 0xff));
-            System.err.println("[g32-i11s] reject beta=" + beta
-                + " reason=partial-collision i=" + i + " k=" + k + " p=" + newPartials[i]
-                + " newCount=" + newCount + " fkI=" + fkIs + " fkK=" + fkKs);
-          }
           return null;
         }
       }
@@ -10572,15 +9553,10 @@ public final class HOTTrieWriter {
       final byte[] curr = getFirstKeyFromChild(newChildren[i]);
       if (prev != null && curr != null && prev.length > 0 && curr.length > 0
           && Arrays.compareUnsigned(prev, curr) >= 0) {
-        if (dbgI11) System.err.println("[g32-i11s] reject beta=" + beta
-            + " reason=still-inverted i=" + i);
         return null;
       }
     }
     if (newPartials[0] != 0) {
-      if (dbgI11) System.err.println("[g32-i11s] reject beta=" + beta
-          + " reason=no-zero-partial firstPartial=" + newPartials[0]
-          + " newCount=" + newCount);
       return null;
     }
 
@@ -10665,7 +9641,7 @@ public final class HOTTrieWriter {
     // child's subtree (= each child agrees with its own firstKey at this bit position).
     // Sirix's multi-entry leaves can violate constancy; without this gate, the new mask
     // would misroute subtree keys (I6 violations cascade).
-    final int absBitLowerBound = Boolean.getBoolean("hot.strict.g32.deep") ? 0 : parentMsb + 1;
+    final int absBitLowerBound = 0 ;
     for (int absBit = absBitLowerBound; absBit < totalAbsBits; absBit++) {
       boolean seen0 = false, seen1 = false;
       for (int i = 0; i < n; i++) {
@@ -10762,27 +9738,19 @@ public final class HOTTrieWriter {
     // HOTIndexInternalTest + HOTLargeScaleIntegrationTest when path5 fires in their
     // test contexts. Root cause TBD — keep opt-in for safety.
     // HFT-grade: O(n²) comparisons of pre-computed partials — n ≤ 32 typical.
-    if (Boolean.getBoolean("hot.strict.path5.routeverify")) {
-      for (int i = 0; i < n; i++) {
-        final int densePk = newPartials[i];
-        // Find the LARGEST-INDEX partial that's a subset of densePk.
-        int bestIdx = -1;
-        for (int j = 0; j < n; j++) {
-          if ((densePk & newPartials[j]) == newPartials[j]) {
-            // Equality-preferred: an exact match wins immediately.
-            if (newPartials[j] == densePk) { bestIdx = j; break; }
-            if (bestIdx < 0 || j > bestIdx) bestIdx = j;
-          }
+    for (int i = 0; i < n; i++) {
+      final int densePk = newPartials[i];
+      // Find the LARGEST-INDEX partial that's a subset of densePk.
+      int bestIdx = -1;
+      for (int j = 0; j < n; j++) {
+        if ((densePk & newPartials[j]) == newPartials[j]) {
+          // Equality-preferred: an exact match wins immediately.
+          if (newPartials[j] == densePk) { bestIdx = j; break; }
+          if (bestIdx < 0 || j > bestIdx) bestIdx = j;
         }
-        if (bestIdx != i) {
-          if (Boolean.getBoolean("hot.debug.path5")) {
-            System.err.println("[path5] REJECT rebuild: child[" + i + "].firstKey densePK=0x"
-                + Integer.toHexString(densePk) + " routes to child[" + bestIdx
-                + "] partial=0x" + Integer.toHexString(bestIdx >= 0 ? newPartials[bestIdx] : -1)
-                + " (expected child[" + i + "] partial=0x" + Integer.toHexString(newPartials[i]) + ")");
-          }
-          return null;
-        }
+      }
+      if (bestIdx != i) {
+        return null;
       }
     }
 
@@ -10843,7 +9811,6 @@ public final class HOTTrieWriter {
 
   private HOTIndirectPage phase7qMultiBetaAtomicLift(HOTIndirectPage indirect,
       TransactionIntentLog log, int revision) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.g32");
     if (indirect == null) return null;
     final int n0 = indirect.getNumChildren();
     if (n0 < 2) return null;
@@ -10859,7 +9826,6 @@ public final class HOTTrieWriter {
 
   private HOTIndirectPage phase7qMultiBetaAtomicLiftImpl(HOTIndirectPage indirect,
       TransactionIntentLog log, int revision) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.g32");
     if (indirect == null) return null;
     final int n0 = indirect.getNumChildren();
     if (n0 < 2) return null;
@@ -10898,10 +9864,8 @@ public final class HOTTrieWriter {
       }
     }
     if (neededBitsSet.isEmpty()) {
-      if (dbg) System.err.println("[g32-multibeta] no needed bits — mask already covers all MSDBs");
       return null;
     }
-    if (dbg) System.err.println("[g32-multibeta] needed bits: " + neededBitsSet);
 
     // 2. For each β in MSB-first order, lift it from all current children.
     //    Accumulate the lifted halves; do NOT build intermediate indirects.
@@ -10918,13 +9882,10 @@ public final class HOTTrieWriter {
           new java.util.ArrayList<>(currentChildren.size() * 2);
       for (final PageReference child : currentChildren) {
         if (child == null) {
-          if (dbg) System.err.println("[g32-multibeta] null child for β=" + beta);
           return null;
         }
         final BetaLiftWalk lw = liftBetaFromSubtreeRecursive(child, beta, log, revision);
         if (lw == null) {
-          if (dbg) System.err.println("[g32-multibeta] walker returned null for β=" + beta
-              + " childKey=" + child.getKey());
           return null;
         }
         nextChildren.add(lw.root);
@@ -10941,7 +9902,6 @@ public final class HOTTrieWriter {
         } else {
           final SubtreeSplit ss = splitSubtreeOnBit(ref, beta, log, revision);
           if (ss == null) {
-            if (dbg) System.err.println("[g32-multibeta] subtree split null β=" + beta);
             return null;
           }
           postLeafSplit.add(ss.leftRef());
@@ -10949,19 +9909,14 @@ public final class HOTTrieWriter {
         }
       }
       if (postLeafSplit.size() > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
-        if (dbg) System.err.println("[g32-multibeta] fanout overflow at β=" + beta
-            + " count=" + postLeafSplit.size() + " — using partial result with bits accumulated so far");
         // Don't add this β. Don't promote postLeafSplit. Continue with currentChildren as-is.
         // Drop remaining βs (this and any after).
         break;
       }
       currentChildren = postLeafSplit;
       acceptedBetas.add(beta);
-      if (dbg) System.err.println("[g32-multibeta] after β=" + beta
-          + " children count=" + currentChildren.size());
     }
     if (acceptedBetas.isEmpty()) {
-      if (dbg) System.err.println("[g32-multibeta] no β accepted — abandon");
       return null;
     }
 
@@ -10997,7 +9952,6 @@ public final class HOTTrieWriter {
     // Inline since Java lambdas can't return multiple values easily.
     int numBytes = maskByBytePos.size();
     if (numBytes > 64) {
-      if (dbg) System.err.println("[g32-multibeta] mask too wide: " + numBytes + " bytes");
       return null;
     }
     byte[] extractionPositions = new byte[numBytes];
@@ -11059,7 +10013,6 @@ public final class HOTTrieWriter {
       final byte[] fkI = getFirstKeyFromChild(newChildren[collI]);
       final byte[] fkK = getFirstKeyFromChild(newChildren[collK]);
       if (fkI == null || fkK == null || fkI.length == 0 || fkK.length == 0) {
-        if (dbg) System.err.println("[g32-multibeta] collision pair has placeholder firstKey — abandon");
         return null;
       }
       int distBit = -1;
@@ -11090,8 +10043,6 @@ public final class HOTTrieWriter {
         }
       }
       if (distBit < 0) {
-        if (dbg) System.err.println("[g32-multibeta] partial collision unresolvable at i="
-            + collI + " k=" + collK + " p=" + Integer.toHexString(newPartials[collI]));
         return null;
       }
       // Add distBit to extraction mask. Update maskByBytePos AND outer extraction state.
@@ -11102,7 +10053,6 @@ public final class HOTTrieWriter {
       // Rebuild outer extraction tables from updated maskByBytePos.
       final int nb2 = maskByBytePos.size();
       if (nb2 > 64) {
-        if (dbg) System.err.println("[g32-multibeta] mask byte-position overflow after distBit=" + distBit);
         return null;
       }
       extractionPositions = new byte[nb2];
@@ -11133,12 +10083,8 @@ public final class HOTTrieWriter {
             extractionMasks, numBytes);
       }
       collisionRetries++;
-      if (dbg) System.err.println("[g32-multibeta] collision-resolved-retry=" + collisionRetries
-          + " added distBit=" + distBit + " (no split, β-constant)");
     }
     if (!partialsUnique) {
-      if (dbg) System.err.println("[g32-multibeta] partial uniqueness unrecoverable after "
-          + collisionRetries + " retries");
       return null;
     }
 
@@ -11159,8 +10105,6 @@ public final class HOTTrieWriter {
           firstKeyMonotone = false;
           invPrevRef = newChildren[i - 1];
           invCurrRef = newChildren[i];
-          if (dbg) System.err.println("[g32-multibeta] post-sort inversion at i=" + i
-              + " (retry=" + postSortRetries + ")");
           break;
         }
         prev = fk;
@@ -11196,7 +10140,6 @@ public final class HOTTrieWriter {
         }
       }
       if (monoBit < 0) {
-        if (dbg) System.err.println("[g32-multibeta] post-sort inversion unresolvable");
         return null;
       }
       // Add monoBit to mask + rebuild + recompute partials.
@@ -11233,12 +10176,8 @@ public final class HOTTrieWriter {
             extractionMasks, numBytes);
       }
       postSortRetries++;
-      if (dbg) System.err.println("[g32-multibeta] post-sort-retry=" + postSortRetries
-          + " added monoBit=" + monoBit);
     }
     if (!firstKeyMonotone) {
-      if (dbg) System.err.println("[g32-multibeta] firstKey monotone unresolvable after "
-          + postSortRetries + " retries");
       return null;
     }
 
@@ -11250,8 +10189,6 @@ public final class HOTTrieWriter {
       }
     }
     if (smallestReal != 0) {
-      if (dbg) System.err.println("[g32-multibeta] I4 violation — smallest real partial="
-          + Integer.toHexString(smallestReal));
       return null;
     }
 
@@ -11259,19 +10196,6 @@ public final class HOTTrieWriter {
     // strictly greater than newMsb (= new indirect's MSB). This satisfies I11 at the
     // top level. Stripping each child's mask bits ≤ newMsb is safe IFF those bits are
     // β-constant in the child's subtree.
-    if (Boolean.getBoolean("hot.strict.g32.raisechildmsb")) {
-      for (int i = 0; i < newCount; i++) {
-        final PageReference newChild = tryRaiseChildMsb(newChildren[i], newMsb, log, revision);
-        if (newChild == null) {
-          if (dbg) System.err.println("[g32-multibeta] tryRaiseChildMsb failed for child=" + i
-              + " — abandon multi-β");
-          return null;
-        }
-        newChildren[i] = newChild;
-      }
-    }
-    if (dbg) System.err.println("[g32-multibeta] SUCCESS — newCount=" + newCount
-        + " newMsb=" + newMsb);
     final HOTIndirectPage builtNew = (newCount <= 16)
         ? HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
             extractionPositions, extractionMasks, numBytes, newPartials, newChildren,
@@ -11287,32 +10211,8 @@ public final class HOTTrieWriter {
     // 4) Else rollback (return null).
     int i11Violations = countI11ViolationsRecursive(builtNew, -1);
     int i6Violations = countI6ViolationsRecursive(builtNew);
-    if (dbg && (i11Violations > 0 || i6Violations > 0)) {
-      System.err.println("[g32-multibeta] VALIDATE: i11=" + i11Violations
-          + " i6=" + i6Violations);
-    }
-    HOTIndirectPage finalIndirect = builtNew;
-    if ((i11Violations > 0 || i6Violations > 0) && Boolean.getBoolean("hot.strict.g32.repair")) {
-      if (dbg) System.err.println("[g32-multibeta] VALIDATE: " + i11Violations
-          + " I11 violations — attempting repair");
-      final PageReference repaired = repairI11Violations(builtNew, -1, log, revision);
-      if (repaired != null && repaired.getPage() instanceof HOTIndirectPage rebuilt) {
-        final int postRepair = countI11ViolationsRecursive(rebuilt, -1);
-        if (postRepair == 0) {
-          if (dbg) System.err.println("[g32-multibeta] REPAIR-OK: all I11 violations resolved");
-          finalIndirect = rebuilt;
-          i11Violations = 0;
-        } else {
-          if (dbg) System.err.println("[g32-multibeta] REPAIR-PARTIAL: " + postRepair
-              + " I11 violations remain after repair — rollback");
-        }
-      } else {
-        if (dbg) System.err.println("[g32-multibeta] REPAIR-FAILED — rollback");
-      }
-    }
+    final HOTIndirectPage finalIndirect = builtNew;
     if (i11Violations > 0 || i6Violations > 0) {
-      if (dbg) System.err.println("[g32-multibeta] VALIDATE-ROLLBACK: i11=" + i11Violations
-          + " i6=" + i6Violations + " — discard");
       return null;
     }
     return finalIndirect;
@@ -11455,10 +10355,6 @@ public final class HOTTrieWriter {
       final HOTIndirectPage rebuilt = rebuildIndirectWithNewChildren(indirect, repairedChildren,
           log, revision);
       if (rebuilt == null) {
-        if (Boolean.getBoolean("hot.debug.g32")) {
-          System.err.println("[repair] rebuild-failed pageKey=" + indirect.getPageKey()
-              + " — children changed but parent rebuild failed");
-        }
         return null;
       }
       currentSelf = rebuilt;
@@ -11471,10 +10367,6 @@ public final class HOTTrieWriter {
       selfRef.setPage(currentSelf);
       final PageReference raised = tryRaiseChildMsb(selfRef, parentMsb, log, revision);
       if (raised == null || raised == selfRef) {
-        if (Boolean.getBoolean("hot.debug.g32")) {
-          System.err.println("[repair] CAN'T-RAISE pageKey=" + currentSelf.getPageKey()
-              + " thisMsb=" + currentSelfMsb + " parentMsb=" + parentMsb);
-        }
         return null;
       }
       return raised;
@@ -11542,10 +10434,6 @@ public final class HOTTrieWriter {
     newRef.setKey(newPageKey);
     newRef.setPage(built);
     log.put(newRef, PageContainer.getInstance(built, built));
-    if (Boolean.getBoolean("hot.debug.g32")) {
-      System.err.println("[repair] rebuilt pageKey=" + origIndirect.getPageKey()
-          + " → newPageKey=" + newPageKey);
-    }
     return built;
   }
 
@@ -11558,10 +10446,6 @@ public final class HOTTrieWriter {
     final int thisMsb = indirect.getMostSignificantBitIndex() & 0xFFFF;
     int violations = 0;
     if (parentMsb >= 0 && thisMsb <= parentMsb) {
-      if (Boolean.getBoolean("hot.debug.g32")) {
-        System.err.println("[validate-rollback] I11 violation: this.pageKey="
-            + indirect.getPageKey() + " this.MSB=" + thisMsb + " parent.MSB=" + parentMsb);
-      }
       violations++;
     }
     final int n = indirect.getNumChildren();
@@ -11587,7 +10471,6 @@ public final class HOTTrieWriter {
   @Nullable
   private HOTIndirectPage phase7qIterativeRootSortI8(HOTIndirectPage indirect,
       TransactionIntentLog log, int revision) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.g32");
     if (indirect == null) return null;
     HOTIndirectPage cur = indirect;
     for (int iter = 0; iter < 16; iter++) {
@@ -11621,7 +10504,6 @@ public final class HOTTrieWriter {
         prevKey = firstKeys[i];
       }
       if (offI < 0) {
-        if (dbg) System.err.println("[g32-itersort] iter=" + iter + " sorted — done");
         return cur;
       }
 
@@ -11633,12 +10515,7 @@ public final class HOTTrieWriter {
           break;
         }
       }
-      if (dbg) System.err.println("[g32-itersort] iter=" + iter + " offK=" + offK + " offI=" + offI
-          + " fkK=" + bytesToHex(firstKeys[offK])
-          + " fkI=" + bytesToHex(firstKeys[offI]));
       if (msbOfDiff < 0) {
-        if (dbg) System.err.println("[g32-itersort] iter=" + iter
-            + " no MSB-of-diff (identical firstKeys?) — abandon");
         return null;
       }
 
@@ -11646,8 +10523,6 @@ public final class HOTTrieWriter {
       // inversion must come from elsewhere. Could happen if multiple bits need fixing
       // and we're regressing. Abandon to avoid livelock.
       if (indirectMaskHasAbsBit(cur, msbOfDiff)) {
-        if (dbg) System.err.println("[g32-itersort] iter=" + iter
-            + " msbOfDiff=" + msbOfDiff + " already in mask — abandon");
         return null;
       }
 
@@ -11663,12 +10538,8 @@ public final class HOTTrieWriter {
 
       // Apply: try extend first; fall back to lift if extend rejects.
       HOTIndirectPage next = extendIndirectMaskForClosure(cur, msbOfDiff, log, revision);
-      if (dbg) System.err.println("[g32-itersort] iter=" + iter + " β=" + msbOfDiff
-          + " allConstant=" + allConstant + " extend=" + (next != null ? "OK" : "FAIL"));
       if (next == null) {
         next = phase7qExtendWithLift(cur, msbOfDiff, log, revision);
-        if (dbg) System.err.println("[g32-itersort] iter=" + iter + " β=" + msbOfDiff
-            + " lift=" + (next != null ? "OK" : "FAIL"));
       }
       if (next == null) {
         // Phase 7q.15b — delta-based validate-or-rollback. Compare cur's invariant counts
@@ -11677,62 +10548,9 @@ public final class HOTTrieWriter {
         // baseline may legitimately have non-validator-flagged I11 cases that surface via
         // the lift's reachability change).
         // Gated on hot.strict.g32.bestEffort so default behaviour is unchanged.
-        if (cur != indirect && Boolean.getBoolean("hot.strict.g32.bestEffort")) {
-          // Phase 7q.15c — count I8 across the whole subtree (not just root), matching
-          // validator scope. A lift may improve root inversions but introduce sub-indirect
-          // inversions; the whole-trie count catches that.
-          final int beforeI8 = countI8InversionsRecursive(indirect);
-          final int afterI8 = countI8InversionsRecursive(cur);
-          final int beforeI11 = countI11ViolationsRecursive(indirect, -1);
-          final int afterI11 = countI11ViolationsRecursive(cur, -1);
-          // Phase 7q.15f — structure-cycle gate. The g32.childmsb path can produce
-          // bucket fallbacks that reuse pageKeys from the OLD tree, creating a graph
-          // cycle. Reject if `cur` has any revisited pageKey (validator would flag
-          // structure-cycle, defeating the lift's I8 gain).
-          final boolean curHasCycle = hasStructureCycle(cur);
-          if (!curHasCycle && afterI11 <= beforeI11 && afterI8 < beforeI8) {
-            PHASE7Q_BEST_EFFORT_ACCEPTED.incrementAndGet();
-            if (dbg) System.err.println("[g32-itersort] iter=" + iter
-                + " — abandon (extend+lift) but BEST-EFFORT KEEPS cur: I8 "
-                + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11);
-            return cur;
-          }
-          PHASE7Q_BEST_EFFORT_REJECTED.incrementAndGet();
-          if (dbg) System.err.println("[g32-itersort] iter=" + iter
-              + " — abandon (extend+lift); best-effort rollback: I8 "
-              + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11
-              + " cycle=" + curHasCycle);
-        } else if (dbg) {
-          System.err.println("[g32-itersort] iter=" + iter + " — abandon (extend+lift)");
-        }
         return null;
       }
-      if (dbg) System.err.println("[g32-itersort] iter=" + iter + " ADVANCED β=" + msbOfDiff
-          + " newMsb=" + (next.getMostSignificantBitIndex() & 0xFFFF)
-          + " newN=" + next.getNumChildren());
       cur = next;
-    }
-    if (dbg) System.err.println("[g32-itersort] exhausted maxIter");
-    // Phase 7q.15b — delta-based validate-or-rollback at maxIter exhaustion.
-    if (cur != indirect && Boolean.getBoolean("hot.strict.g32.bestEffort")) {
-      final int beforeI8 = countI8InversionsRecursive(indirect);
-      final int afterI8 = countI8InversionsRecursive(cur);
-      final int beforeI11 = countI11ViolationsRecursive(indirect, -1);
-      final int afterI11 = countI11ViolationsRecursive(cur, -1);
-      // Phase 7q.15f — structure-cycle gate; see iter-abandon branch above.
-      final boolean curHasCycle = hasStructureCycle(cur);
-      if (!curHasCycle && afterI11 <= beforeI11 && afterI8 < beforeI8) {
-        PHASE7Q_BEST_EFFORT_ACCEPTED.incrementAndGet();
-        if (dbg) System.err.println("[g32-itersort] maxIter — BEST-EFFORT KEEPS cur: I8 "
-            + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11);
-        phase7t11AccumulateRootsort(cur);
-        return cur;
-      }
-      PHASE7Q_BEST_EFFORT_REJECTED.incrementAndGet();
-      if (dbg) System.err.println("[g32-itersort] maxIter — best-effort rollback: I8 "
-          + beforeI8 + "→" + afterI8 + " I11 " + beforeI11 + "→" + afterI11
-          + " cycle=" + curHasCycle);
-      return null;
     }
     final HOTIndirectPage rootSortOut = cur != indirect ? cur : null;
     phase7t11AccumulateRootsort(rootSortOut);
@@ -11783,13 +10601,6 @@ public final class HOTTrieWriter {
     if (indirect == null) return false;
     final long pageKey = indirect.getPageKey();
     if (pageKey >= 0 && !visited.add(pageKey)) {
-      // Phase 7q.15g — diagnostic on cycle detection. Print revisited pageKey
-      // + parent that triggered the revisit + depth in walk. Gated on flag.
-      if (Boolean.getBoolean("hot.debug.phase7q.cyclesource")) {
-        System.err.println("[phase7q.15g-cycle] revisited pageKey=" + pageKey
-            + " via parent pageKey=" + parentPageKey + " walk-depth=" + depth
-            + " visited.size=" + visited.size());
-      }
       return true;
     }
     final int n = indirect.getNumChildren();
@@ -11894,8 +10705,6 @@ public final class HOTTrieWriter {
    */
   private void phase7q15dCheckIntermediateMsb(long parentPageKey, int parentMsb, int parentBeta,
       PageReference[] children, int newCount) {
-    final boolean imsbDbg = Boolean.getBoolean("hot.debug.phase7q.imsb");
-    StringBuilder offenders = null;
     for (int i = 0; i < newCount; i++) {
       final PageReference cref = children[i];
       if (cref == null) continue;
@@ -11907,25 +10716,11 @@ public final class HOTTrieWriter {
       }
       if (childMsb < parentMsb) {
         PHASE7Q_INTERMEDIATE_MSB_LOWER.incrementAndGet();
-        if (imsbDbg) {
-          if (offenders == null) offenders = new StringBuilder(128);
-          offenders.append(" [LOWER child[").append(i).append("] pageKey=")
-              .append(cref.getKey()).append(" childMsb=").append(childMsb).append(']');
-        }
       } else if (childMsb == parentMsb) {
         PHASE7Q_INTERMEDIATE_MSB_EQUALITY.incrementAndGet();
-        if (imsbDbg) {
-          if (offenders == null) offenders = new StringBuilder(128);
-          offenders.append(" [EQ child[").append(i).append("] pageKey=").append(cref.getKey())
-              .append(" childMsb=").append(childMsb).append(']');
-        }
       } else {
         PHASE7Q_INTERMEDIATE_MSB_OK.incrementAndGet();
       }
-    }
-    if (imsbDbg && offenders != null) {
-      System.err.println("[phase7q.15d-imsb] parentPageKey=" + parentPageKey + " parentMsb="
-          + parentMsb + " beta=" + parentBeta + " newCount=" + newCount + offenders);
     }
   }
 
@@ -11957,7 +10752,6 @@ public final class HOTTrieWriter {
   @Nullable
   private HOTIndirectPage addNewRootLevelForI8(HOTIndirectPage indirect,
       TransactionIntentLog log, int revision) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.g32");
     if (indirect == null) return null;
     final int n = indirect.getNumChildren();
     if (n < 2) return null;
@@ -12003,10 +10797,6 @@ public final class HOTTrieWriter {
         break;
       }
     }
-    if (dbg) System.err.println("[g32-newrootlvl] n=" + n + " realCount=" + realCount
-        + " offK=" + offK + " offI=" + offI + " msbOfDiff=" + msbOfDiff
-        + " indirectMsb=" + (indirect.getMostSignificantBitIndex() & 0xFFFF)
-        + " indirectHasBeta=" + (msbOfDiff >= 0 && indirectMaskHasAbsBit(indirect, msbOfDiff)));
 
     // Phase 7q.15 — structural lift attempt. When the MSB-of-diff is NOT β-constant in
     // every child's subtree (= bit captured by a descendant indirect), the conventional
@@ -12014,8 +10804,7 @@ public final class HOTTrieWriter {
     // lifts the bit from descendants (splits subtrees on the bit so β becomes constant
     // at this level, then adds it to indirect's mask). Gated by hot.strict.g32.deep so
     // legacy behavior is preserved by default.
-    if (msbOfDiff >= 0 && Boolean.getBoolean("hot.strict.g32.deep")
-        && !indirectMaskHasAbsBit(indirect, msbOfDiff)) {
+    if (msbOfDiff >= 0 && !indirectMaskHasAbsBit(indirect, msbOfDiff)) {
       // Check whether MSB-of-diff is β-constant in every child. If yes, the simple
       // β-constancy search below will pick it up. If no, try the structural lift first.
       boolean allConstant = true;
@@ -12028,15 +10817,10 @@ public final class HOTTrieWriter {
         if (v < 0) { allConstant = false; break; }
       }
       if (!allConstant) {
-        if (dbg) System.err.println("[g32-newrootlvl] msbOfDiff=" + msbOfDiff
-            + " not β-constant — attempting structural lift");
         final HOTIndirectPage lifted = phase7qExtendWithLift(indirect, msbOfDiff, log, revision);
         if (lifted != null) {
-          if (dbg) System.err.println("[g32-newrootlvl] structural lift OK newMsb="
-              + (lifted.getMostSignificantBitIndex() & 0xFFFF));
           return lifted;
         }
-        if (dbg) System.err.println("[g32-newrootlvl] structural lift failed, falling through");
       }
     }
 
@@ -12048,7 +10832,7 @@ public final class HOTTrieWriter {
     // parent and children's MSBs were already > currentMsb. The β-constancy gate is what
     // prevents misrouting.
     final int parentMsb = indirect.getMostSignificantBitIndex() & 0xFFFF;
-    final int absBitLowerBound = Boolean.getBoolean("hot.strict.g32.deep") ? 0 : parentMsb + 1;
+    final int absBitLowerBound = 0 ;
     int discBit = -1;
     for (int absBit = absBitLowerBound; absBit < maxLen * 8; absBit++) {
       final boolean kSet = isAbsBitSet(firstKeys[offK], absBit);
@@ -12072,8 +10856,6 @@ public final class HOTTrieWriter {
       }
     }
     if (discBit < 0) {
-      if (dbg) System.err.println("[g32-newrootlvl] no β-constant disc bit between offK="
-          + offK + " offI=" + offI + " parentMsb=" + parentMsb);
       return null;
     }
 
@@ -12146,8 +10928,6 @@ public final class HOTTrieWriter {
       newPartials[i] = computePartialKeyMultiMaskDirect(firstKeys[i],
           extractionPositions, extractionMasks, numBytes);
       if (!seenPartials.add(newPartials[i])) {
-        if (dbg) System.err.println("[g32-newrootlvl] partial collision among real children"
-            + " at i=" + i + " p=" + newPartials[i] + " — abandoning");
         return null;
       }
     }
@@ -12163,8 +10943,6 @@ public final class HOTTrieWriter {
       final byte[] fk = getFirstKeyFromChild(cref);
       if (fk == null || fk.length == 0) continue;
       if (prev != null && Arrays.compareUnsigned(prev, fk) >= 0) {
-        if (dbg) System.err.println("[g32-newrootlvl] post-sort still inverted at i=" + i
-            + " — abandoning");
         return null;
       }
       prev = fk;
@@ -12179,7 +10957,6 @@ public final class HOTTrieWriter {
       }
     }
     if (smallestRealPartial != 0) {
-      if (dbg) System.err.println("[g32-newrootlvl] no zero partial — abandoning");
       return null;
     }
 
@@ -12195,98 +10972,82 @@ public final class HOTTrieWriter {
     // Opt-in via -Dhot.strict.path5.routeverify=true (same flag as
     // rebuildRootWithFullClosureI11Safe). See that function's comment for the
     // default-ON exploration outcome (reverted due to transaction-leak regressions).
-    if (Boolean.getBoolean("hot.strict.path5.routeverify")) {
-      for (int i = 0; i < n; i++) {
-        if (newPartials[i] >= Integer.MAX_VALUE - n) continue; // skip placeholders
-        final int densePk = newPartials[i];
-        int bestIdx = -1;
-        for (int j = 0; j < n; j++) {
-          if (newPartials[j] >= Integer.MAX_VALUE - n) continue;
-          if ((densePk & newPartials[j]) == newPartials[j]) {
-            if (newPartials[j] == densePk) { bestIdx = j; break; }
-            if (bestIdx < 0 || j > bestIdx) bestIdx = j;
+    for (int i = 0; i < n; i++) {
+      if (newPartials[i] >= Integer.MAX_VALUE - n) continue; // skip placeholders
+      final int densePk = newPartials[i];
+      int bestIdx = -1;
+      for (int j = 0; j < n; j++) {
+        if (newPartials[j] >= Integer.MAX_VALUE - n) continue;
+        if ((densePk & newPartials[j]) == newPartials[j]) {
+          if (newPartials[j] == densePk) { bestIdx = j; break; }
+          if (bestIdx < 0 || j > bestIdx) bestIdx = j;
+        }
+      }
+      if (bestIdx != i) {
+        return null;
+      }
+    }
+    // Stronger structural check: for any (i, j) pair with i < j, child[i]'s subtree
+    // must NOT contain a key K with densePK(K) ⊇ newPartials[j]. Otherwise routing
+    // would mis-pick child[j] over child[i] for that K. Sufficient condition:
+    // ∃ at least one bit b in newPartials[j] such that bitConstantValueInSubtree
+    // (child[i], b) returns 0 (= bit b is always-zero across child[i]'s subtree).
+    //
+    // We need to map densePK-bit positions back to absolute bit positions in the key.
+    // For MultiMask, densePK bit k corresponds to the k-th set bit (counted MSB-first
+    // across all extraction byte masks, in the order extraction bytes are stored).
+    //
+    // HFT-grade: O(n² × densePK-bits × per-bit-subtree-walk) — densePK ≤ 16 bits,
+    // n ≤ 32, subtree walk depth bounded by trie height.
+    // Compute densePK-bit → absBit mapping.
+    int totalMaskBitsLocal = 0;
+    for (final long em : extractionMasks) totalMaskBitsLocal += Long.bitCount(em);
+    final int[] densePkBitToAbsBit = new int[totalMaskBitsLocal];
+    int dpkIdx = 0;
+    for (int eIdx = 0; eIdx < numBytes; eIdx++) {
+      final int bp = extractionPositions[eIdx] & 0xFF;
+      final int chunkIdx = eIdx / 8;
+      final int byteOffsetInChunk = eIdx % 8;
+      final int byteMaskBits = (int) ((extractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
+      for (int bitInByte = 0; bitInByte < 8; bitInByte++) {
+        final int maskBit = 1 << (7 - bitInByte);
+        if ((byteMaskBits & maskBit) != 0) {
+          densePkBitToAbsBit[dpkIdx++] = bp * 8 + bitInByte;
+        }
+      }
+    }
+    // Now check each pair (i, j) for collision potential.
+    for (int i = 0; i < n; i++) {
+      if (newPartials[i] >= Integer.MAX_VALUE - n) continue;
+      for (int j = 0; j < n; j++) {
+        if (i == j) continue;
+        if (newPartials[j] >= Integer.MAX_VALUE - n) continue;
+        if (j <= i) continue; // only later children can shadow earlier ones
+        final int pj = newPartials[j];
+        if (pj == 0) continue;
+        // ∃ a bit b in pj that's always-zero in child[i]'s subtree?
+        // densePK bit b (LSB-numbered, per Long.compress output) maps to absBit
+        // position via densePkBitToAbsBit[(totalDpkBits - 1) - b] (HOT's PEXT
+        // output is LSB-first while the lookup table is built MSB-first).
+        boolean safe = false;
+        final PageReference cref = newChildren[i];
+        if (cref == null) {
+          safe = true; // can't check placeholder — assume safe
+        } else {
+          final int totalDpkBits = densePkBitToAbsBit.length;
+          for (int b = 0; b < totalDpkBits; b++) {
+            if ((pj & (1 << b)) == 0) continue;
+            final int absBitCandidate = densePkBitToAbsBit[totalDpkBits - 1 - b];
+            final int bv = bitConstantValueInSubtree(cref, absBitCandidate);
+            if (bv == 0) { safe = true; break; }
           }
         }
-        if (bestIdx != i) {
-          if (Boolean.getBoolean("hot.debug.path5")) {
-            System.err.println("[path5] REJECT newrootlvl: child[" + i + "].partial=0x"
-                + Integer.toHexString(densePk) + " routes to idx=" + bestIdx
-                + " (partial=0x"
-                + (bestIdx >= 0 ? Integer.toHexString(newPartials[bestIdx]) : "?")
-                + ") expected idx=" + i);
-          }
+        if (!safe) {
           return null;
-        }
-      }
-      // Stronger structural check: for any (i, j) pair with i < j, child[i]'s subtree
-      // must NOT contain a key K with densePK(K) ⊇ newPartials[j]. Otherwise routing
-      // would mis-pick child[j] over child[i] for that K. Sufficient condition:
-      // ∃ at least one bit b in newPartials[j] such that bitConstantValueInSubtree
-      // (child[i], b) returns 0 (= bit b is always-zero across child[i]'s subtree).
-      //
-      // We need to map densePK-bit positions back to absolute bit positions in the key.
-      // For MultiMask, densePK bit k corresponds to the k-th set bit (counted MSB-first
-      // across all extraction byte masks, in the order extraction bytes are stored).
-      //
-      // HFT-grade: O(n² × densePK-bits × per-bit-subtree-walk) — densePK ≤ 16 bits,
-      // n ≤ 32, subtree walk depth bounded by trie height.
-      // Compute densePK-bit → absBit mapping.
-      int totalMaskBitsLocal = 0;
-      for (final long em : extractionMasks) totalMaskBitsLocal += Long.bitCount(em);
-      final int[] densePkBitToAbsBit = new int[totalMaskBitsLocal];
-      int dpkIdx = 0;
-      for (int eIdx = 0; eIdx < numBytes; eIdx++) {
-        final int bp = extractionPositions[eIdx] & 0xFF;
-        final int chunkIdx = eIdx / 8;
-        final int byteOffsetInChunk = eIdx % 8;
-        final int byteMaskBits = (int) ((extractionMasks[chunkIdx] >>> ((7 - byteOffsetInChunk) * 8)) & 0xFFL);
-        for (int bitInByte = 0; bitInByte < 8; bitInByte++) {
-          final int maskBit = 1 << (7 - bitInByte);
-          if ((byteMaskBits & maskBit) != 0) {
-            densePkBitToAbsBit[dpkIdx++] = bp * 8 + bitInByte;
-          }
-        }
-      }
-      // Now check each pair (i, j) for collision potential.
-      for (int i = 0; i < n; i++) {
-        if (newPartials[i] >= Integer.MAX_VALUE - n) continue;
-        for (int j = 0; j < n; j++) {
-          if (i == j) continue;
-          if (newPartials[j] >= Integer.MAX_VALUE - n) continue;
-          if (j <= i) continue; // only later children can shadow earlier ones
-          final int pj = newPartials[j];
-          if (pj == 0) continue;
-          // ∃ a bit b in pj that's always-zero in child[i]'s subtree?
-          // densePK bit b (LSB-numbered, per Long.compress output) maps to absBit
-          // position via densePkBitToAbsBit[(totalDpkBits - 1) - b] (HOT's PEXT
-          // output is LSB-first while the lookup table is built MSB-first).
-          boolean safe = false;
-          final PageReference cref = newChildren[i];
-          if (cref == null) {
-            safe = true; // can't check placeholder — assume safe
-          } else {
-            final int totalDpkBits = densePkBitToAbsBit.length;
-            for (int b = 0; b < totalDpkBits; b++) {
-              if ((pj & (1 << b)) == 0) continue;
-              final int absBitCandidate = densePkBitToAbsBit[totalDpkBits - 1 - b];
-              final int bv = bitConstantValueInSubtree(cref, absBitCandidate);
-              if (bv == 0) { safe = true; break; }
-            }
-          }
-          if (!safe) {
-            if (Boolean.getBoolean("hot.debug.path5")) {
-              System.err.println("[path5] REJECT newrootlvl: child[" + i
-                  + "] subtree can collide with child[" + j + "].partial=0x"
-                  + Integer.toHexString(pj));
-            }
-            return null;
-          }
         }
       }
     }
 
-    if (dbg) System.err.println("[g32-newrootlvl] OK discBit=" + discBit + " newMsb="
-        + msbIndex + " parentMsb=" + parentMsb + " realCount=" + realCount);
     final HOTIndirectPage newRootOut;
     if (n <= 16) {
       newRootOut = HOTIndirectPage.createSpanNodeMultiMask(indirect.getPageKey(), revision,
@@ -12399,7 +11160,6 @@ public final class HOTTrieWriter {
       if (absBitPos < msbIndex) msbIndex = (short) absBitPos;
     }
 
-    final boolean dbg = Boolean.getBoolean("hot.debug.g32");
     // β-CONSTANCY CHECK: ensure newAbsBit is constant within every child's subtree. If any
     // child's subtree has mixed bit values at newAbsBit, adding this bit to root's mask
     // would misroute keys (I6 violations). Sirix's multi-entry leaves can hold any bit
@@ -12408,8 +11168,6 @@ public final class HOTTrieWriter {
       final PageReference cref = indirect.getChildReference(i);
       final int bv = bitConstantValueInSubtree(cref, newAbsBit);
       if (bv < 0) {
-        if (dbg) System.err.println("[g32-ext] reject bit=" + newAbsBit
-            + " reason=beta-not-constant-in-child childIdx=" + i);
         return null;
       }
     }
@@ -12426,8 +11184,6 @@ public final class HOTTrieWriter {
     for (int i = 1; i < n; i++) {
       for (int k = 0; k < i; k++) {
         if (newPartials[k] == newPartials[i]) {
-          if (dbg) System.err.println("[g32-ext] reject bit=" + newAbsBit
-              + " reason=partial-collision i=" + i + " k=" + k + " p=" + newPartials[i]);
           return null;
         }
       }
@@ -12440,16 +11196,11 @@ public final class HOTTrieWriter {
       final byte[] curr = getFirstKeyFromChild(newChildren[i]);
       if (prev != null && curr != null && prev.length > 0 && curr.length > 0
           && Arrays.compareUnsigned(prev, curr) >= 0) {
-        if (dbg) System.err.println("[g32-ext] reject bit=" + newAbsBit
-            + " reason=still-inverted i=" + i);
         return null;
       }
     }
     // Verify first partial = 0 (Binna's sparse-path I4).
     if (newPartials[0] != 0) {
-      if (dbg) System.err.println("[g32-ext] reject bit=" + newAbsBit
-          + " reason=no-zero-partial firstPartial=" + newPartials[0]
-          + " partials=" + Arrays.toString(newPartials));
       return null;
     }
 
@@ -12477,23 +11228,13 @@ public final class HOTTrieWriter {
    */
   private @Nullable HOTIndirectPage extendIndirectMaskForClosure(HOTIndirectPage indirect,
       int beta, TransactionIntentLog log, int revision) {
-    final boolean dbg = Boolean.getBoolean("hot.debug.g30");
     // Phase 7q.4 diagnostic: trace every attempt on root (pageKey=2) for any β
     // to identify which bits the closure mechanism tries on root.
-    if (indirect != null && indirect.getPageKey() == 2L) {
-      System.err.println("[phase7q-trace] extendIndirectMaskForClosure ENTER"
-          + " pageKey=2 beta=" + beta + " numChildren=" + indirect.getNumChildren()
-          + " msb=" + (indirect.getMostSignificantBitIndex() & 0xFFFF)
-          + " maskHasBeta=" + indirectMaskHasAbsBit(indirect, beta));
-    }
     if (indirect == null || beta < 0) {
-      if (dbg) System.err.println("[g30] reject reason=null-or-neg-beta beta=" + beta);
       return null;
     }
     final int oldNumChildren = indirect.getNumChildren();
     if (oldNumChildren < 2) {
-      if (dbg) System.err.println("[g30] reject reason=fewer-than-2-children beta=" + beta
-          + " n=" + oldNumChildren);
       return null;
     }
 
@@ -12508,21 +11249,12 @@ public final class HOTTrieWriter {
     // is effectively a no-op. This is the architectural ceiling documented in
     // HOT_CAMPAIGN_RESULTS.md §5 — eliminating the 1 marginal violation requires
     // multi-week rewrite of indirect construction operations.
-    // Phase 7i — relax G.30 placeholder guard for commit-time use.
-    // When -Dhot.relax.closure.placeholder=true is set, allow closure to proceed even
-    // when children have NULL_ID_LONG (= TIL-only refs). The original cascade-prevention
-    // motivation no longer applies if owned-bits Phase 7 infrastructure is in place,
-    // since β-constancy is verified per-child via bitConstantValueInSubtree separately.
-    final boolean relaxPlaceholder = Boolean.getBoolean("hot.relax.closure.placeholder");
     for (int i = 0; i < oldNumChildren; i++) {
       final PageReference ref = indirect.getChildReference(i);
       if (ref == null) {
-        if (dbg) System.err.println("[g30] reject reason=null-child-ref beta=" + beta + " idx=" + i);
         return null;
       }
-      if (!relaxPlaceholder && ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG) {
-        if (dbg) System.err.println("[g30] reject reason=placeholder-child beta=" + beta
-            + " childIdx=" + i + " childPageKey=" + ref.getKey());
+      if (ref.getKey() == io.sirix.settings.Constants.NULL_ID_LONG) {
         return null;
       }
     }
@@ -12537,7 +11269,6 @@ public final class HOTTrieWriter {
     // in every capturing subtree → liftable by stripping mask bits) vs LOAD_BEARING
     // (β captured AND β-mixed somewhere → requires subtree restructure). Both still
     // reject for now; the lift operation comes later behind -Dhot.strict.phase7q=true.
-    final boolean phase7qDebug = Boolean.getBoolean("hot.debug.phase7q");
     boolean anyCapture = false;
     boolean anyLoadBearing = false;
     int firstCaptureIdx = -1;
@@ -12549,15 +11280,6 @@ public final class HOTTrieWriter {
         anyCapture = true;
         if (phase7qIsLoadBearingInSubtree(ref, beta)) {
           anyLoadBearing = true;
-          if (phase7qDebug) {
-            System.err.println("[phase7q] reject-LOAD_BEARING beta=" + beta
-                + " childIdx=" + i + " childPageKey=" + ref.getKey());
-          }
-          // Don't break — keep scanning so debug logs see all capturing children.
-        } else if (phase7qDebug) {
-          System.err.println("[phase7q] reject-WASTED beta=" + beta
-              + " childIdx=" + i + " childPageKey=" + ref.getKey()
-              + " (β captured but β-constant in subtree — liftable)");
         }
       }
     }
@@ -12577,10 +11299,6 @@ public final class HOTTrieWriter {
         }
         if (liftability == LIFT_LIFTABLE) PHASE7Q_REJECTS_LB_LIFTABLE.incrementAndGet();
         else PHASE7Q_REJECTS_LB_HARD.incrementAndGet();
-        if (phase7qDebug) {
-          System.err.println("[phase7q] LB-refined beta=" + beta
-              + " liftability=" + (liftability == LIFT_LIFTABLE ? "LIFTABLE" : "HARD"));
-        }
       } else {
         PHASE7Q_REJECTS_WASTED.incrementAndGet();
       }
@@ -12589,23 +11307,10 @@ public final class HOTTrieWriter {
       // On success, the lifted+extended indirect is returned (β added to mask,
       // descendants β-stripped). On failure (lift cascade infeasibility), fall
       // through to the standard reject below.
-      if (anyLoadBearing && liftability == LIFT_HARD
-          && Boolean.getBoolean("hot.strict.phase7q")) {
+      if (anyLoadBearing && liftability == LIFT_HARD) {
         final HOTIndirectPage lifted = phase7qExtendWithLift(indirect, beta, log, revision);
         if (lifted != null) {
-          if (phase7qDebug) {
-            System.err.println("[phase7q] LIFT-OK beta=" + beta + " indirect.pageKey="
-                + indirect.getPageKey() + " new-msb="
-                + (lifted.getMostSignificantBitIndex() & 0xFFFF));
-          }
           return lifted;
-        }
-        if (phase7qDebug) {
-          System.err.println("[phase7q] LIFT-FAILED beta=" + beta + " indirect.pageKey="
-              + indirect.getPageKey()
-              + " indirect.maskHasBeta=" + indirectMaskHasAbsBit(indirect, beta)
-              + " indirect.msb=" + (indirect.getMostSignificantBitIndex() & 0xFFFF)
-              + " → fall through to standard reject");
         }
       }
       // Phase 7q.13 — opt-in double-capture diagnostic (`-Dhot.strict.phase7q.allowDoubleCapture=true`).
@@ -12623,22 +11328,7 @@ public final class HOTTrieWriter {
       // rebuild is taken AND `PHASE7Q_ALLOW_DOUBLE_CAPTURE_FIRINGS` increments. Useful
       // for future ceiling tests to count how many extension attempts would benefit
       // from a real (correctness-preserving) cascading lift implementation.
-      if (anyLoadBearing
-          && Boolean.getBoolean("hot.strict.phase7q.allowDoubleCapture")) {
-        PHASE7Q_ALLOW_DOUBLE_CAPTURE_FIRINGS.incrementAndGet();
-        if (phase7qDebug) {
-          System.err.println("[phase7q.13] ALLOW-DOUBLE-CAPTURE (UNSAFE) beta=" + beta
-              + " indirect.pageKey=" + indirect.getPageKey()
-              + " indirect.msb=" + (indirect.getMostSignificantBitIndex() & 0xFFFF)
-              + " — bypass Phase 7p reject. Will cascade per §7.16.");
-        }
-        // Fall through.
-      } else {
-        if (dbg) System.err.println("[g30] reject reason=descendant-already-routes-beta beta=" + beta
-            + " firstChildIdx=" + firstCaptureIdx
-            + " classification=" + (anyLoadBearing ? "LOAD_BEARING" : "WASTED"));
-        return null;
-      }
+      return null;
     }
 
     // Pre-split β-mixed children.
@@ -12646,7 +11336,6 @@ public final class HOTTrieWriter {
     for (int i = 0; i < oldNumChildren; i++) {
       final PageReference ref = indirect.getChildReference(i);
       if (ref == null) {
-        if (dbg) System.err.println("[g30] reject reason=null-child-ref beta=" + beta + " idx=" + i);
         return null;
       }
       final int v = bitConstantValueInSubtree(ref, beta);
@@ -12655,8 +11344,6 @@ public final class HOTTrieWriter {
       } else {
         final SubtreeSplit ss = splitSubtreeOnBit(ref, beta, log, revision);
         if (ss == null) {
-          if (dbg) System.err.println("[g30] reject reason=split-subtree-failed beta=" + beta
-              + " childIdx=" + i + " childPageKey=" + ref.getKey());
           return null;
         }
         newRefs.add(ss.leftRef());
@@ -12665,8 +11352,6 @@ public final class HOTTrieWriter {
     }
     final int newCount = newRefs.size();
     if (newCount > NodeUpgradeManager.MULTI_NODE_MAX_CHILDREN) {
-      if (dbg) System.err.println("[g30] reject reason=fanout-overflow beta=" + beta
-          + " newCount=" + newCount);
       return null;
     }
 
@@ -12765,9 +11450,6 @@ public final class HOTTrieWriter {
     for (int i = 1; i < newCount; i++) {
       for (int k = 0; k < i; k++) {
         if (newPartials[k] == newPartials[i]) {
-          if (dbg) System.err.println("[g30] reject reason=partial-collision beta=" + beta
-              + " i=" + i + " k=" + k + " partial=" + Integer.toHexString(newPartials[i])
-              + " newCount=" + newCount);
           return null;
         }
       }
@@ -12778,18 +11460,9 @@ public final class HOTTrieWriter {
       if (p == 0) { hasZero = true; break; }
     }
     if (!hasZero) {
-      if (dbg) {
-        StringBuilder sb = new StringBuilder("[g30] reject reason=no-zero-partial beta=" + beta
-            + " newCount=" + newCount + " partials=[");
-        for (int i = 0; i < newCount; i++) sb.append(Integer.toHexString(newPartials[i])).append(',');
-        sb.append("]");
-        System.err.println(sb);
-      }
       return null;
     }
 
-    if (dbg) System.err.println("[g30] EXTEND-OK beta=" + beta + " newCount=" + newCount
-        + " msbIndex=" + msbIndex + " allCount=" + allCount);
     G28_CLOSURE_FIRINGS.incrementAndGet();
     // Phase 7q.15d — pre-build instrumentation. Same classification as in
     // {@link #phase7qExtendWithLift}: catches the case where standard extend's
@@ -12836,13 +11509,6 @@ public final class HOTTrieWriter {
     if (!(curPage instanceof HOTIndirectPage indirect)) return;
     final int[] closureBits = findClosureBits(indirect);
     HOTIndirectPage current = indirect;
-    // Phase 7q.5 — when -Dhot.strict.phase7q.fullScan=true, attempt EVERY closure bit
-    // instead of breaking on the first failure. Without this, if bit β fails (e.g.
-    // because a descendant captures β and the lift early-bails on β-in-mask), all
-    // higher-β extensions are foregone — including the one needed to fix the
-    // persistent I8 violation. With fullScan=true, the loop continues past failures,
-    // letting the structural lift be attempted on every load-bearing β.
-    final boolean fullScan = Boolean.getBoolean("hot.strict.phase7q.fullScan");
     for (final int beta : closureBits) {
       final int outPos = current.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK
           ? singleMaskBetaOutputPos(current, beta)
@@ -12850,7 +11516,6 @@ public final class HOTTrieWriter {
       if (outPos >= 0) continue;
       final HOTIndirectPage extended = extendIndirectMaskForClosure(current, beta, log, revision);
       if (extended == null) {
-        if (fullScan) continue;
         break;
       }
       log.put(rootRef, PageContainer.getInstance(extended, extended));
@@ -12879,22 +11544,8 @@ public final class HOTTrieWriter {
     }
     if (validCount < 2) return new int[0];
     // Phase 7q.4 diagnostic: dump firstKeys when operating on root (pageKey=2).
-    if (indirect.getPageKey() == 2L) {
-      final StringBuilder sb = new StringBuilder();
-      sb.append("[phase7q-fk] cur.pageKey=2 numChildren=").append(n).append(" maxLen=").append(maxLen);
-      for (int i = 0; i < n; i++) {
-        sb.append("\n  c[").append(i).append("]=");
-        if (firstKeys[i] == null) sb.append("null");
-        else if (firstKeys[i].length == 0) sb.append("empty");
-        else {
-          for (final byte b : firstKeys[i]) sb.append(String.format("%02x", b));
-        }
-      }
-      System.err.println(sb);
-    }
     final int[] tmp = new int[maxLen * 8];
     int count = 0;
-    final boolean traceRoot = indirect.getPageKey() == 2L;
     for (int absBit = 0; absBit < maxLen * 8; absBit++) {
       boolean seen0 = false, seen1 = false;
       for (int i = 0; i < n; i++) {
@@ -12905,18 +11556,6 @@ public final class HOTTrieWriter {
       }
       if (seen0 && seen1) tmp[count++] = absBit;
       // Phase 7q.4 diagnostic: ALL bytes of c[1] with explicit indices.
-      if (traceRoot && absBit == 88) {
-        for (int i = 0; i <= Math.min(2, n - 1); i++) {
-          if (firstKeys[i] == null || firstKeys[i].length == 0) continue;
-          final StringBuilder sb2 = new StringBuilder();
-          sb2.append("[phase7q-fullbytes] cur.pageKey=2 c[").append(i).append("] len=")
-             .append(firstKeys[i].length);
-          for (int j = 0; j < firstKeys[i].length; j++) {
-            sb2.append(" [").append(j).append("]=").append(String.format("%02x", firstKeys[i][j] & 0xff));
-          }
-          System.err.println(sb2);
-        }
-      }
     }
     return Arrays.copyOf(tmp, count);
   }
@@ -13125,18 +11764,11 @@ public final class HOTTrieWriter {
       PageReference rightChild, int beta,
       HOTIndirectPage[] pathNodes, PageReference[] pathRefs, int[] pathChildIndices,
       int currentPathIdx) {
-    final boolean dbgEntry = Boolean.getBoolean("hot.debug.g25");
-    if (dbgEntry) {
-      System.out.println("[g25-propagate] entry parent.layout=" + parent.getLayoutType()
-          + " expandedParent.layout=" + expandedParent.getLayoutType()
-          + " beta=" + beta + " currentPathIdx=" + currentPathIdx);
-    }
     // Only propagate when expandedParent absorbed β via cross-window upgrade
     // (= layout changed from SingleMask to MultiMask).
     if (parent.getLayoutType() != HOTIndirectPage.LayoutType.SINGLE_MASK) return;
     if (expandedParent.getLayoutType() != HOTIndirectPage.LayoutType.MULTI_MASK) return;
     final int revision = storageEngineWriter.getRevisionNumber();
-    final boolean dbg = Boolean.getBoolean("hot.debug.g25");
     PageReference subtreeRef = parentRef;
     for (int i = currentPathIdx - 1; i >= 0; i--) {
       final HOTIndirectPage A = pathNodes[i];
@@ -13149,27 +11781,20 @@ public final class HOTTrieWriter {
       // differ, which preserves I7/I8 coincidence.
       final int ancestorBeta = findMsdbOfChildrenFirstKeys(A);
       if (ancestorBeta < 0) {
-        if (dbg) System.out.println("[g25-propagate]   step i=" + i + " no msdb-of-children");
         break;
       }
       final int betaOutPos = A.getLayoutType() == HOTIndirectPage.LayoutType.SINGLE_MASK
           ? singleMaskBetaOutputPos(A, ancestorBeta)
           : multiMaskBetaOutputPos(A, ancestorBeta);
-      if (dbg) System.out.println("[g25-propagate]   step i=" + i + " A.pageKey=" + A.getPageKey()
-          + " A.layout=" + A.getLayoutType() + " ancestorBeta=" + ancestorBeta
-          + " betaOutPos=" + betaOutPos);
-      if (betaOutPos >= 0) { if (dbg) System.out.println("[g25-propagate]     β in mask, halt"); break; }
+      if (betaOutPos >= 0) { break; }
       final int chosenSlot = pathChildIndices[i];
       if (chosenSlot < 0 || chosenSlot >= A.getNumChildren()) {
-        if (dbg) System.out.println("[g25-propagate]     bad chosenSlot=" + chosenSlot); break;
       }
       final PageReference chosenRef = A.getChildReference(chosenSlot);
-      if (chosenRef == null) { if (dbg) System.out.println("[g25-propagate]     null chosenRef"); break; }
+      if (chosenRef == null) { break; }
       final int v = bitConstantValueInSubtree(chosenRef, ancestorBeta);
-      if (dbg) System.out.println("[g25-propagate]     β-constancy v=" + v);
-      if (v >= 0) { if (dbg) System.out.println("[g25-propagate]     β-constant, halt"); break; }
+      if (v >= 0) { break; }
       final SubtreeSplit split = splitSubtreeOnBit(chosenRef, ancestorBeta, log, revision);
-      if (dbg) System.out.println("[g25-propagate]     split " + (split == null ? "null" : "ok"));
       if (split == null) break;
       // Use ancestorBeta in addEntry/upgrade calls below.
       final int beta_ = ancestorBeta;
@@ -13181,24 +11806,17 @@ public final class HOTTrieWriter {
         updatedA = addEntryMultiMask(A, chosenSlot, split.leftRef(), split.rightRef(),
             beta_, revision);
       }
-      if (dbg) System.out.println("[g25-propagate]     addEntry result="
-          + (updatedA == null ? "null" : "ok layout=" + updatedA.getLayoutType()));
       if (updatedA == null) {
         updatedA = rebalanceAndIntegrate(A, chosenSlot, split.leftRef(), split.rightRef(),
             beta_, log, revision);
-        if (dbg) System.out.println("[g25-propagate]     phase3 result="
-            + (updatedA == null ? "null" : "ok"));
         if (updatedA == null) {
           updatedA = upgradeToMultiMaskWithSiblingSplits(A, chosenSlot, split.leftRef(),
               split.rightRef(), beta_, log, revision);
-          if (dbg) System.out.println("[g25-propagate]     g25-multimask result="
-              + (updatedA == null ? "null" : "ok"));
           if (updatedA == null) break;
         }
       }
       log.put(Aref, PageContainer.getInstance(updatedA, updatedA));
       G25_BETA_PROPAGATIONS.incrementAndGet();
-      if (dbg) System.out.println("[g25-propagate]     PROPAGATED at i=" + i);
     }
   }
 
@@ -13328,16 +11946,8 @@ public final class HOTTrieWriter {
       }
       if (seen0 && seen1) {
         // Found an I11-safe partitioning bit.
-        if (Boolean.getBoolean("hot.debug.path2")) {
-          System.err.println("[path2] msdb=" + msdb + " gpMsb=" + gpMsb
-              + " parentMsb=" + parentMsb + " → safe β'=" + absBit);
-        }
         return absBit;
       }
-    }
-    if (Boolean.getBoolean("hot.debug.path2")) {
-      System.err.println("[path2] msdb=" + msdb + " gpMsb=" + gpMsb
-          + " parentMsb=" + parentMsb + " → NO safe alternative; default to MSDB");
     }
     return -1;
   }
@@ -14261,33 +12871,6 @@ public final class HOTTrieWriter {
     final PageReference[] leftChildren = Arrays.copyOf(splitSmallerBuf, smallerCount);
     final PageReference[] rightChildren = Arrays.copyOf(splitLargerBuf, largerCount);
 
-    // Phase 7t-5 — call-frequency + firstKey-monotone probe at splitParentAndRecurse halves.
-    // The two arrays will each become a NEW indirect (buildCompressedHalf). Probe each half
-    // independently so the readout distinguishes left/right inversions if any. Counter-only;
-    // gated on -Dhot.strict.phase7t.monotone.probe. Localises whether the MSB-partition
-    // ordering matches the firstKey ordering — a mismatch is an I8 candidate at the new
-    // indirect.
-    if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
-      PHASE7T_SPLITPARENT_INSPECTIONS.incrementAndGet();
-      final int leftInv = phase7tFirstInversionIdx(leftChildren);
-      if (leftInv >= 0) {
-        PHASE7T_SPLITPARENT_INVERSIONS.incrementAndGet();
-        if (Boolean.getBoolean("hot.debug.phase7t")) {
-          phase7tLogInversion("splitParentAndRecurse.left", parent.getPageKey(),
-              parent.getHeight(), leftChildren, new int[0], leftInv);
-        }
-      }
-      PHASE7T_SPLITPARENT_INSPECTIONS.incrementAndGet();
-      final int rightInv = phase7tFirstInversionIdx(rightChildren);
-      if (rightInv >= 0) {
-        PHASE7T_SPLITPARENT_INVERSIONS.incrementAndGet();
-        if (Boolean.getBoolean("hot.debug.phase7t")) {
-          phase7tLogInversion("splitParentAndRecurse.right", parent.getPageKey(),
-              parent.getHeight(), rightChildren, new int[0], rightInv);
-        }
-      }
-    }
-
     // Reference-faithful {@code compressEntries}: each half inherits
     // only the parent's disc bits that actually differ within that
     // half's entries ({@code SparsePartialKeys::getRelevantBitsForRange}).
@@ -14704,41 +13287,12 @@ public final class HOTTrieWriter {
     sortChildrenByFirstKey(sortedChildren);
     final int[] newPartials = new int[sortedChildren.length];
 
-    final boolean dbgEnc = Boolean.getBoolean("hot.debug.bch.encoding");
-    final StringBuilder dbgEncBuf = dbgEnc ? new StringBuilder(2048) : null;
-    if (dbgEnc) {
-      dbgEncBuf.append("[bch.enc] entering SingleMask path")
-          .append(" newPageKey=").append(newPageKey)
-          .append(" parent.pageKey=").append(parent.getPageKey())
-          .append(" parent.height=").append(parent.getHeight())
-          .append(" oldInitialBytePos=").append(oldInitialBytePos)
-          .append(" oldMask=0x").append(Long.toHexString(oldMask))
-          .append(" bothSplitHere=").append(bothSplitHere)
-          .append(" splitDiscBitAbs=").append(splitDiscBitAbs)
-          .append(" splitBitMaskBit=0x").append(Long.toHexString(splitBitMaskBit))
-          .append(" relevant=0x").append(Integer.toHexString(relevant))
-          .append(" newMaskFromOld=0x").append(Long.toHexString(newMaskFromOld))
-          .append(" newMask=0x").append(Long.toHexString(newMask))
-          .append(" totalNewBits=").append(totalNewBits)
-          .append(" splitBitOutputPos=").append(splitBitOutputPos)
-          .append(" oldBitsInNewLayout=0x").append(Long.toHexString(oldBitsInNewLayout))
-          .append(" parentIndices=").append(java.util.Arrays.toString(parentIndices))
-          .append(" halfChildren.length=").append(halfChildren.length).append('\n');
-    }
-
-    boolean anyMismatch = false;
     for (int j = 0; j < sortedChildren.length; j++) {
       final PageReference c = sortedChildren[j];
       if (c == splitLeft || c == splitRight) {
         // Split products: compute partial directly from first key under newMask.
         newPartials[j] = computePartialKeySingleMask(
             getFirstKeyFromChild(c), oldInitialBytePos, newMask);
-        if (dbgEnc) {
-          dbgEncBuf.append("[bch.enc]   j=").append(j).append(" split-product ")
-              .append(c == splitLeft ? "LEFT" : "RIGHT")
-              .append(" firstKey=").append(bytesToHex(getFirstKeyFromChild(c)))
-              .append(" newPartial=0x").append(Integer.toHexString(newPartials[j])).append('\n');
-        }
       } else {
         // Stage G.6 fix (Bug B2 root cause) — inherited children get DIRECT PEXT under
         // newMask from their firstKey instead of the sparse PEXT+PDEP repositioning.
@@ -14761,25 +13315,7 @@ public final class HOTTrieWriter {
           return createNodeFromChildren(halfChildren, newPageKey, revision, parent.getHeight());
         }
         newPartials[j] = computePartialKeySingleMask(cKey, oldInitialBytePos, newMask);
-        if (dbgEnc) {
-          dbgEncBuf.append("[bch.enc]   j=").append(j).append(" inherited (direct-PEXT)")
-              .append(" firstKey=").append(bytesToHex(cKey))
-              .append(" newPartial=0x").append(Integer.toHexString(newPartials[j])).append('\n');
-        }
       }
-    }
-
-    if (dbgEnc) {
-      if (anyMismatch) dbgEncBuf.append("[bch.enc] *** ENCODING MISMATCH DETECTED ***\n");
-      dbgEncBuf.append("[bch.enc] final newPartials=")
-          .append(java.util.Arrays.toString(newPartials)).append('\n');
-      try {
-        java.nio.file.Files.writeString(
-            java.nio.file.Paths.get("/tmp/sirix-bch-encoding-debug.log"),
-            dbgEncBuf.toString(),
-            java.nio.file.StandardOpenOption.CREATE,
-            java.nio.file.StandardOpenOption.APPEND);
-      } catch (java.io.IOException ignore) { /* best-effort diagnostic */ }
     }
 
     // Verify all partials are unique (collision indicates INV breach upstream).
@@ -15399,14 +13935,12 @@ public final class HOTTrieWriter {
     // colliding pair and augment with the most-significant bit where their firstKeys differ.
     // Repeat until every partial is unique or no further augmentation possible.
     // Bounded: at most {@link #MAX_DISC_BITS}-currentBitCount iterations.
-    if (!Boolean.getBoolean("hot.strict.phase7r.augment.disable")
-        && children.length >= 2) {
+    if (children.length >= 2) {
       final DiscBitsInfo[] discBitsHolder = {discBits};
       final int[] initialBytePosHolder = {initialBytePos};
       final long fallthroughBefore = PHASE7S_AUGMENT_FALLTHROUGH.get();
       final long exhaustedBefore = PHASE7S_AUGMENT_EXHAUSTED.get();
-      final java.util.BitSet fallthroughAbsBits = Boolean.getBoolean("hot.strict.phase7s.split")
-          ? new java.util.BitSet(256) : null;
+      final java.util.BitSet fallthroughAbsBits = new java.util.BitSet(256) ;
       partialKeys = phase7rAugmentUntilUnique(children, partialKeys, discBitsHolder,
           initialBytePosHolder, pageKey, fallthroughAbsBits);
       // Read back the augmented disc-bits-mask + initial-byte-pos. The original 7r-2
@@ -15455,31 +13989,7 @@ public final class HOTTrieWriter {
       // O(N × log subtree) per call. Small for small-N indirects, but always-on cost
       // for clean workloads. The Phase 7t-4 flag is gated separately from
       // hot.strict.phase7s.split so it can ship default-OFF until empirically validated.
-      boolean betaMixedFound = false;
-      if (Boolean.getBoolean("hot.strict.phase7s.split")
-          && Boolean.getBoolean("hot.strict.phase7t.split.always")
-          && !fallthroughFired && !exhaustedFired) {
-        final int[] maskAbsBitsScan = collectDiscBitsMsbFirst(discBitsHolder[0]);
-        outer:
-        for (int i = 0; i < children.length; i++) {
-          final PageReference c = children[i];
-          if (c == null) continue;
-          for (final int absBit : maskAbsBitsScan) {
-            if (bitConstantValueInSubtree(c, absBit) < 0) {
-              betaMixedFound = true;
-              if (Boolean.getBoolean("hot.debug.phase7t")) {
-                System.err.println("[phase7t-4] BETA-MIXED-DETECTED pageKey=" + pageKey
-                    + " child=" + i + " absBit=" + absBit
-                    + " — firing phase7sSplitAndAugment");
-              }
-              PHASE7T_BETAMIXED_DETECTED.incrementAndGet();
-              break outer;
-            }
-          }
-        }
-      }
-      if (Boolean.getBoolean("hot.strict.phase7s.split")
-          && (fallthroughFired || exhaustedFired || betaMixedFound)) {
+      if ((fallthroughFired || exhaustedFired)) {
         final PageReference[][] childrenH = {children};
         final int[][] partialsH = {partialKeys};
         if (phase7sSplitAndAugment(childrenH, partialsH, discBitsHolder,
@@ -15488,7 +13998,6 @@ public final class HOTTrieWriter {
           partialKeys = partialsH[0];
           discBits = discBitsHolder[0];
           initialBytePos = initialBytePosHolder[0];
-          if (betaMixedFound) PHASE7T_BETAMIXED_SPLIT_APPLIED.incrementAndGet();
         }
       }
     }
@@ -15554,47 +14063,6 @@ public final class HOTTrieWriter {
       }
     }
 
-    // Phase 7t-1 — firstKey-vs-partial monotone post-sort probe. Opt-in via
-    // -Dhot.strict.phase7t.monotone.probe. Counter-only; localises whether the
-    // residual descending / mixed-sign / bimodal violations originate here.
-    if (Boolean.getBoolean("hot.strict.phase7t.monotone.probe")) {
-      PHASE7T_BUILDFLAT_INSPECTIONS.incrementAndGet();
-      final int inversionAt = phase7tFirstInversionIdx(children);
-      if (inversionAt >= 0) {
-        PHASE7T_BUILDFLAT_INVERSIONS.incrementAndGet();
-        if (Boolean.getBoolean("hot.debug.phase7t")) {
-          phase7tLogInversion("buildFlatNonStrict", pageKey, height, children, partialKeys, inversionAt);
-        }
-      }
-    }
-    // Phase 7t-6 — β-mixed pair detector at buildFlatNonStrict success. Uses the final
-    // augmented discBits in scope. Counter-only; gated on -Dhot.strict.phase7t.betamixed.probe.
-    // Complements the existing debug-only probeConstancyOnBuild (which logs to stderr) with
-    // aggregate per-workload counters for the I6 origination histogram.
-    if (Boolean.getBoolean("hot.strict.phase7t.betamixed.probe")) {
-      PHASE7T6_BUILDFLAT_BUILDS.incrementAndGet();
-      if (discBits.isSingleMask()) {
-        final int mixed = phase7tCountBetaMixedPairsSingleMask(children,
-            discBits.initialBytePos(), discBits.bitMask());
-        if (mixed > 0) PHASE7T6_BUILDFLAT_MIXED_PAIRS.addAndGet(mixed);
-      } else {
-        // MultiMask path — convert byte[] extractionPositions to int[] for the helper.
-        final byte[] eps = discBits.extractionPositions();
-        final long[] ems = discBits.extractionMasks();
-        if (eps != null && ems != null) {
-          final int n = discBits.numExtractionBytes();
-          final int[] bytePositions = new int[n];
-          final int[] byteMaskBits = new int[n];
-          for (int b = 0; b < n; b++) {
-            bytePositions[b] = eps[b] & 0xFF;
-            byteMaskBits[b] = (int) ((ems[b / 8] >>> ((7 - b % 8) * 8)) & 0xFFL);
-          }
-          final int mixed = phase7tCountBetaMixedPairsMultiMaskBytes(children,
-              bytePositions, byteMaskBits, n);
-          if (mixed > 0) PHASE7T6_BUILDFLAT_MIXED_PAIRS.addAndGet(mixed);
-        }
-      }
-    }
     // Phase 7t-7 — sibling-cross-routing probe. For each β-mixed (child, β) pair found
     // by 7t-6, additionally check whether some sibling has the inverse-polarity partial
     // (i.e., partial[i] XOR (1 << pextRank(β))). When such a sibling exists, the mis-
@@ -15603,63 +14071,8 @@ public final class HOTTrieWriter {
     // this is an upper bound on I6 mis-route origination; counts should approach (but
     // exceed) actual violation counts. Counter-only; gated on
     // -Dhot.strict.phase7t.crossroute.probe.
-    if (Boolean.getBoolean("hot.strict.phase7t.crossroute.probe")) {
-      PHASE7T7_BUILDFLAT_BUILDS.incrementAndGet();
-      final int[] cr = phase7t7CountCrossRoutingMixedPairs(children, partialKeys, discBits);
-      if (cr[0] > 0) PHASE7T7_BUILDFLAT_CROSS_ROUTING_PAIRS.addAndGet(cr[0]);
-      if (cr[1] > 0) PHASE7T7_BUILDFLAT_MIXED_NO_CROSS_ROUTE.addAndGet(cr[1]);
-    }
-    // Phase 7t-8 — subset-match-aware mis-route probe. §7.35 falsified equality-only
-    // cross-routing on descending / bimodal workloads (0 cross-routing pairs vs 258 /
-    // 1280 violations). 7t-8 mirrors findChildSpanNode's equality-then-subset routing
-    // and counts mis-routes by mechanism (equality vs subset). Counter-only; gated on
-    // -Dhot.strict.phase7t.subsetroute.probe.
-    if (Boolean.getBoolean("hot.strict.phase7t.subsetroute.probe")) {
-      PHASE7T8_BUILDFLAT_BUILDS.incrementAndGet();
-      final int[] sr = phase7t8CountSubsetRoutingMisroutes(children, partialKeys, discBits);
-      if (sr[0] > 0) PHASE7T8_BUILDFLAT_EQUALITY_MISROUTES.addAndGet(sr[0]);
-      if (sr[1] > 0) PHASE7T8_BUILDFLAT_SUBSET_MISROUTES.addAndGet(sr[1]);
-      if (sr[2] > 0) PHASE7T8_BUILDFLAT_SELF_ROUTES.addAndGet(sr[2]);
-    }
-    // Phase 7t-9 — per-stored-key PEXT simulator. §7.36 falsified synthetic-candidate
-    // approaches; 7t-9 walks REAL keys in every child's subtree, computes real dense PEXT,
-    // and runs findChildSpanNode's actual algorithm. Validator-grade per-key correctness
-    // localised to this construction event. Most expensive probe; gated on
-    // -Dhot.strict.phase7t.perkey.probe.
-    if (Boolean.getBoolean("hot.strict.phase7t.perkey.probe")) {
-      PHASE7T9_BUILDFLAT_BUILDS.incrementAndGet();
-      final long[] rm = phase7t9CountRealMisroutes(children, partialKeys, discBits);
-      if (rm[0] > 0) PHASE7T9_BUILDFLAT_KEYS_SEEN.addAndGet(rm[0]);
-      if (rm[1] > 0) PHASE7T9_BUILDFLAT_EQUALITY_MISROUTES.addAndGet(rm[1]);
-      if (rm[2] > 0) PHASE7T9_BUILDFLAT_SUBSET_MISROUTES.addAndGet(rm[2]);
-    }
-    // Phase 7r-1 — diagnostic Path 5 routing-collision probe. Opt-in via
-    // -Dhot.strict.phase7r.routeverify.
-    if (Boolean.getBoolean("hot.strict.phase7r.routeverify")) {
-      PHASE7R_BUILDFLAT_INSPECTIONS.incrementAndGet();
-      final int collidingIdx = phase7rRoutingCollisionFirstIdx(partialKeys);
-      if (collidingIdx >= 0) {
-        PHASE7R_BUILDFLAT_COLLISIONS.incrementAndGet();
-        if (Boolean.getBoolean("hot.debug.phase7r")) {
-          final StringBuilder sb = new StringBuilder(256);
-          sb.append("[phase7r] buildFlatNonStrict ROUTING-COLLISION (post-augment) pageKey=").append(pageKey)
-              .append(" height=").append(height)
-              .append(" n=").append(children.length)
-              .append(" collidingIdx=").append(collidingIdx)
-              .append(" partials=[");
-          for (int i = 0; i < partialKeys.length; i++) {
-            if (i > 0) sb.append(',');
-            sb.append("0x").append(Integer.toHexString(partialKeys[i]));
-          }
-          sb.append(']');
-          System.err.println(sb);
-        }
-      }
-    }
     final HOTIndirectPage created = createNodeWithDiscBits(pageKey, revision, height, discBits,
         partialKeys, children);
-    probeConstancyOnBuild(pageKey, "createNodeFromChildren-N", children,
-        discBitsAsAbsBitArray(discBits));
     return created;
   }
 
@@ -15765,20 +14178,10 @@ public final class HOTTrieWriter {
         if (outFallthroughAbsBits != null) {
           outFallthroughAbsBits.set(augBytePos * 8 + augBitInByte);
         }
-        if (Boolean.getBoolean("hot.debug.phase7s")) {
-          System.err.println("[phase7s-augment] FALLTHROUGH-to-7r2 pageKey=" + pageKey
-              + " colliding i=" + colI + " j=" + colJ
-              + " — no β-constant bit; accepting sort-monotone (byte=" + augBytePos
-              + ", bitInByte=" + augBitInByte + ")");
-        }
       }
       if (augBytePos < 0) {
         // No sort-monotone bit at all. Augmentation can't continue.
         PHASE7S_AUGMENT_EXHAUSTED.incrementAndGet();
-        if (Boolean.getBoolean("hot.debug.phase7r") || Boolean.getBoolean("hot.debug.phase7s")) {
-          System.err.println("[phase7r-augment] EXHAUSTED pageKey=" + pageKey
-              + " colliding i=" + colI + " j=" + colJ + " — no further disc bit available");
-        }
         return partials;
       }
       // Add the new bit to the disc set.
@@ -15804,11 +14207,6 @@ public final class HOTTrieWriter {
       initialBytePosHolder[0] = newInitialBytePos;
       // Recompute partials with augmented mask.
       partials = computePartialKeysForChildren(children, newDiscBits);
-      if (Boolean.getBoolean("hot.debug.phase7r")) {
-        System.err.println("[phase7r-augment] pageKey=" + pageKey
-            + " added bit (byte=" + augBytePos + ", bitInByte=" + augBitInByte + ")"
-            + " for colliding (i=" + colI + ",j=" + colJ + ")");
-      }
     }
     return partials;
   }
@@ -15908,10 +14306,6 @@ public final class HOTTrieWriter {
         expandedBuf[expandedN++] = cref;
         continue;
       }
-      if (Boolean.getBoolean("hot.debug.phase7s")) {
-        System.err.println("[phase7s-split] child=" + i + " split on absBit=" + mixedBit
-            + " pageKey=" + pageKey);
-      }
       // expandedBuf is pre-sized to n*2 — each iteration adds ≤ 2 (split = 2, no-split = 1).
       expandedBuf[expandedN++] = ss.leftRef();
       expandedBuf[expandedN++] = ss.rightRef();
@@ -15941,10 +14335,6 @@ public final class HOTTrieWriter {
     }
     if (phase7rRoutingCollisionFirstIdx(newPartials) >= 0) {
       PHASE7S_SPLIT_ROLLBACK.incrementAndGet();
-      if (Boolean.getBoolean("hot.debug.phase7s")) {
-        System.err.println("[phase7s-split] ROLLBACK pageKey=" + pageKey
-            + " splitCount=" + splitCount + " — collisions persist after re-augment");
-      }
       return false;
     }
 
@@ -15955,20 +14345,14 @@ public final class HOTTrieWriter {
     // correct (partials unique by the check above) and let surviving β-mixed
     // pairs surface as I5 violations downstream — typically a smaller cascade
     // than the pre-split state.
-    if (!Boolean.getBoolean("hot.strict.phase7s.split.relax")) {
-      final int[] finalMaskBits = collectDiscBitsMsbFirst(newDiscBits);
-      for (int i = 0; i < expChildren.length; i++) {
-        final PageReference c = expChildren[i];
-        if (c == null) continue;
-        for (final int absBit : finalMaskBits) {
-          if (bitConstantValueInSubtree(c, absBit) < 0) {
-            PHASE7S_SPLIT_ROLLBACK.incrementAndGet();
-            if (Boolean.getBoolean("hot.debug.phase7s")) {
-              System.err.println("[phase7s-split] ROLLBACK pageKey=" + pageKey
-                  + " — child[" + i + "] still β-mixed at absBit=" + absBit);
-            }
-            return false;
-          }
+    final int[] finalMaskBits = collectDiscBitsMsbFirst(newDiscBits);
+    for (int i = 0; i < expChildren.length; i++) {
+      final PageReference c = expChildren[i];
+      if (c == null) continue;
+      for (final int absBit : finalMaskBits) {
+        if (bitConstantValueInSubtree(c, absBit) < 0) {
+          PHASE7S_SPLIT_ROLLBACK.incrementAndGet();
+          return false;
         }
       }
     }
@@ -15979,10 +14363,6 @@ public final class HOTTrieWriter {
     discBitsHolder[0] = newDiscBits;
     initialBytePosHolder[0] = newInitialBytePos;
     PHASE7S_SPLIT_APPLIED.incrementAndGet();
-    if (Boolean.getBoolean("hot.debug.phase7s")) {
-      System.err.println("[phase7s-split] APPLIED pageKey=" + pageKey
-          + " splitCount=" + splitCount + " newN=" + expChildren.length);
-    }
     return true;
   }
 
@@ -16085,9 +14465,8 @@ public final class HOTTrieWriter {
     // discBit must be < min(leftChildMsb, rightChildMsb) so BiNode satisfies I11 vs children.
     final int leftChildMsb = getIndirectMsbOrMax(left);
     final int rightChildMsb = getIndirectMsbOrMax(right);
-    final int maxBitExclusive = Boolean.getBoolean("hot.strict.g32.childmsb")
-        ? Math.min(leftChildMsb, rightChildMsb)
-        : Integer.MAX_VALUE;
+    final int maxBitExclusive = Math.min(leftChildMsb, rightChildMsb)
+        ;
     final int maxLen = Math.max(leftFk.length, rightFk.length);
     // First find MSB-of-diff between firstKeys.
     int msbOfDiff = -1;
@@ -16211,10 +14590,6 @@ public final class HOTTrieWriter {
     newRef.setKey(newPageKey);
     newRef.setPage(built);
     log.put(newRef, PageContainer.getInstance(built, built));
-    if (Boolean.getBoolean("hot.debug.g32")) {
-      System.err.println("[raise-msb] pageKey=" + indirect.getPageKey() + " oldMsb=" + currentMsb
-          + " newMsb=" + (newMsbIdx & 0xFFFF) + " stripBits=0x" + Long.toHexString(stripBits));
-    }
     return newRef;
   }
 
@@ -16241,56 +14616,7 @@ public final class HOTTrieWriter {
       PageReference left, PageReference right, int height) {
     final HOTIndirectPage page = HOTIndirectPage.createBiNode(pageKey, revision, discBit, left,
         right, height);
-    probeConstancyOnBuild(pageKey, label, new PageReference[]{left, right}, new int[]{discBit});
     return page;
-  }
-
-  /** DIAGNOSTIC — gated on {@code -Dhot.debug.constancy=1}. Logs when an indirect is built with
-   *  disc bits that aren't constant in some child's subtree (= the I-Binna stale-route condition).
-   *  Includes a trimmed stack trace so the caller code path is identifiable. */
-  private void probeConstancyOnBuild(long pageKey, String label, PageReference[] children,
-      int[] absBits) {
-    if (!Boolean.getBoolean("hot.debug.constancy")) return;
-    final StringBuilder violations = new StringBuilder();
-    for (final int absBit : absBits) {
-      for (int ci = 0; ci < children.length; ci++) {
-        final int v = bitConstantValueInSubtree(children[ci], absBit);
-        if (v < 0) {
-          if (violations.length() == 0) violations.append(" non-constant: ");
-          else violations.append("; ");
-          violations.append("bit=").append(absBit).append(" childIdx=").append(ci)
-              .append(" childPageKey=").append(children[ci].getLogKey() >= 0
-                  ? children[ci].getLogKey() : children[ci].getKey());
-        }
-      }
-    }
-    if (violations.length() == 0) return;
-    System.err.println("[hot.constancy] BUILD-VIOLATION pageKey=" + pageKey + " label=" + label
-        + " absBits=" + java.util.Arrays.toString(absBits) + violations);
-    final StackTraceElement[] st = Thread.currentThread().getStackTrace();
-    for (int i = 2; i < Math.min(st.length, 12); i++) {
-      System.err.println("    at " + st[i]);
-    }
-  }
-
-  /** DIAGNOSTIC helper — extract the absolute bit positions from a {@link DiscBitsInfo}. */
-  private static int[] discBitsAsAbsBitArray(DiscBitsInfo discBits) {
-    if (discBits.isSingleMask()) {
-      final long mask = discBits.bitMask();
-      final int popcount = Long.bitCount(mask);
-      final int[] out = new int[popcount];
-      int idx = 0;
-      for (int b = 0; b < 64; b++) {
-        if (((mask >>> b) & 1L) != 0) {
-          // BE word: bit b of word == byte (7 - b/8) at position (7 - b%8) → absBit relative
-          final int byteOffset = 7 - (b / 8);
-          final int bitInByte = 7 - (b % 8);
-          out[idx++] = (discBits.initialBytePos() + byteOffset) * 8 + bitInByte;
-        }
-      }
-      return out;
-    }
-    return new int[0]; // MultiMask probe not implemented — diagnostic only covers SingleMask/BiNode
   }
 
   /**

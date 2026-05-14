@@ -767,30 +767,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     // the "would-make-it-mixed" leaf, into the existing β-correct subtree.
     // Stage G.18+G.19 — ambiguous-routing detection + reactive split.
     // When PEXT-routing for newKey is ambiguous at ancestor A (= densePK(newKey, A.mask)
-    // differs from chosen slot's stored), find the offending bit β and force a leaf
-    // split-and-insert on β. The split-and-integrate path then routes the halves
-    // correctly via the existing addEntry → Phase3/4 → fallback dispatch.
-    if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0
-        && Boolean.getBoolean("hot.strict.ambig.split")) {
-      final byte[] keyBytesG18 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
-      final int ambigIdx = trieWriter.findAmbiguousAncestor(navResult.pathNodes(),
-          navResult.pathChildIndices(), navResult.pathDepth(), keyBytesG18);
-      if (ambigIdx >= 0 && leaf.canSplit()) {
-        final HOTIndirectPage A = navResult.pathNodes()[ambigIdx];
-        final int chosenSlot = navResult.pathChildIndices()[ambigIdx];
-        final int offendingBit = trieWriter.findOffendingBitAtAncestor(A, chosenSlot, keyBytesG18);
-        if (offendingBit >= 0) {
-          final byte[] valueBytes = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
-          final boolean ok = trieWriter.handleLeafSplitAndInsert(
-              storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
-              rootRef, navResult.pathNodes(), navResult.pathRefs(),
-              navResult.pathChildIndices(), navResult.pathDepth(),
-              keyBytesG18, keyLen, valueBytes, valueLen, offendingBit);
-          prepareIndexPage();
-          if (ok) return;
-        }
-      }
-    } else if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
+    if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
       final byte[] keyBytesG18 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
       trieWriter.findAmbiguousAncestor(navResult.pathNodes(),
           navResult.pathChildIndices(), navResult.pathDepth(), keyBytesG18);
@@ -807,19 +784,6 @@ public abstract class AbstractHOTIndexWriter<K> {
       // Stage G.21 — Wire constancy-aware split. When leaf would become β-mixed at
       // ancestor β, split on that β before inserting. Uses handleLeafSplitAndInsert's
       // explicit-bit overload. Gated on -Dhot.strict.constancy.split=true.
-      if (Boolean.getBoolean("hot.strict.constancy.split") && ancestorBits.length > 0
-          && leaf.canSplit()) {
-        final int mixedBit = trieWriter.findFirstMixedAncestorBit(leaf, keyBytesG18, ancestorBits);
-        if (mixedBit >= 0) {
-          final boolean ok = trieWriter.handleLeafSplitAndInsert(
-              storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
-              rootRef, navResult.pathNodes(), navResult.pathRefs(),
-              navResult.pathChildIndices(), navResult.pathDepth(),
-              keyBytesG18, keyLen, valueBytesG20, valueLen, mixedBit);
-          prepareIndexPage();
-          if (ok) return;
-        }
-      }
     }
 
     // Stage G.15 — I8 pre-check + reroute. When newKey would become the new deep-firstKey
@@ -841,10 +805,7 @@ public abstract class AbstractHOTIndexWriter<K> {
           // parent indirect's MSB below the grandparent's MSB (= I11 violation that
           // cascades into I8 at the root). Returns -1 (= default MSDB) when natural
           // MSDB is already safe OR no I11-safe alternative exists.
-          final int explicitBit = Boolean.getBoolean("hot.strict.path2.i11safe")
-              ? trieWriter.chooseI11SafeLeafSplitBit(leaf, keyBytes,
-                  navResult.pathNodes(), navResult.pathDepth())
-              : -1;
+          final int explicitBit = -1;
           final boolean ok = trieWriter.handleLeafSplitAndInsert(
               storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
               rootRef, navResult.pathNodes(), navResult.pathRefs(),
@@ -901,64 +862,12 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Owned bits are set by splitLeafOnBit / splitToWithInsert at leaf creation time.
     // If keyBuf would violate a constraint, strict merge rejects with offendingAbsBit;
     // we then split the leaf on that bit and reroute via Phase 5.
-    if (Boolean.getBoolean("hot.strict.phase7")) {
-      // Strict merge: check + insert atomically.
-      final int strict = leaf.mergeWithNodeRefsStrict(keyBuf, keyLen, valueBuf, valueLen);
-      if (strict > 0) {
-        // Success — K merged compliantly with all owned bits.
-        prepareIndexPage();
-        return;
-      }
-      if (strict < 0) {
-        // β-break at absBit = (-strict - 1). Trigger split-and-reroute on that bit.
-        final int offendingBeta = -strict - 1;
-        final byte[] kBytes = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
-        final byte[] vBytes = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
-        final boolean ok = trieWriter.splitLeafAndRerouteWrongHalf(leaf, navResult.leafRef(),
-            navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
-            navResult.pathDepth(), offendingBeta, kBytes, vBytes,
-            storageEngineWriter, storageEngineWriter.getLog());
-        if (ok) {
-          prepareIndexPage();
-          return;
-        }
-        // Reroute infeasible — fall through to standard merge (= accept stale-partial risk).
-      }
-      // strict == 0: overflow — fall through to standard merge / split path.
-    }
 
     // Phase 7e — Hard I8 gate. Even if β-constancy holds at the leaf, the new key may
     // become the new leaf.firstKey (= K is smaller than all existing keys). If that
     // makes leaf.firstKey < ancestor.children[descendSlot-1].deep-firstKey at some
     // ancestor, parent's I8 invariant breaks. Detect this via findI8MsdbBit; if a
     // breaking ancestor exists, trigger splitLeafAndRerouteWrongHalf with MSDB as β.
-    if (Boolean.getBoolean("hot.strict.phase7e")) {
-      final byte[] kFull = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
-      final int i8Bit = trieWriter.findI8MsdbBit(navResult.pathNodes(), navResult.pathRefs(),
-          navResult.pathChildIndices(), navResult.pathDepth(), leaf, kFull);
-      if (Boolean.getBoolean("hot.debug.phase7e")) {
-        System.err.println("[phase7e] check i8Bit=" + i8Bit + " pathDepth=" + navResult.pathDepth()
-            + " leafEntries=" + leaf.getEntryCount());
-      }
-      if (i8Bit >= 0) {
-        if (Boolean.getBoolean("hot.debug.phase7e")) {
-          System.err.println("[phase7e] I8-break detected i8Bit=" + i8Bit);
-        }
-        final byte[] vFull = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
-        final boolean ok = trieWriter.splitLeafAndRerouteWrongHalf(leaf, navResult.leafRef(),
-            navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
-            navResult.pathDepth(), i8Bit, kFull, vFull,
-            storageEngineWriter, storageEngineWriter.getLog());
-        if (Boolean.getBoolean("hot.debug.phase7e")) {
-          System.err.println("[phase7e] split-reroute result=" + ok + " bit=" + i8Bit);
-        }
-        if (ok) {
-          prepareIndexPage();
-          return;
-        }
-        // Reroute infeasible — caller falls through; the violation may form (accept risk).
-      }
-    }
 
     // Option B Phase 5 — constancy-aware insert. Gated on -Dhot.strict.option-b-phase-5=true.
     // BEFORE mergeWithNodeRefs: if inserting K into leaf would break β-constancy at any
@@ -966,64 +875,26 @@ public abstract class AbstractHOTIndexWriter<K> {
     // subtree. After Phase 5 succeeds, K has already been merged into the matching half;
     // caller skips the regular merge.
     boolean success;
-    if (Boolean.getBoolean("hot.strict.option-b-phase-5")) {
-      final boolean[] didMerge = new boolean[1];
-      final boolean phase5Ok = trieWriter.applyConstancyAwareInsert(
-          leaf, navResult.leafRef(), rootRef, navResult.pathNodes(), navResult.pathRefs(),
-          navResult.pathChildIndices(), navResult.pathDepth(),
-          keyBuf, keyLen, valueBuf, valueLen,
-          storageEngineWriter, storageEngineWriter.getLog(), didMerge);
-      if (phase5Ok && didMerge[0]) {
-        prepareIndexPage();
-        return;
-      }
-      if (!phase5Ok) {
-        // Phase 5 reported infeasible reroute — fall through to standard merge.
-        success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
-      } else {
-        // Phase 5 succeeded but no β-break detected; proceed with regular merge.
-        success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
-      }
-    } else {
       success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
-    }
 
     // Stage G.28 — post-insert mask-closure verification. Walk path from root, verify
     // each indirect's mask covers MSDB-closure of children's firstKeys. Extend if not.
     // Gated on -Dhot.strict.g28.closure=true.
-    if (success && Boolean.getBoolean("hot.strict.g28.closure")) {
-      final byte[] keyBytesG28 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
-      trieWriter.ensureMaskClosure(rootRef, keyBytesG28, storageEngineWriter,
-          storageEngineWriter.getLog());
-      prepareIndexPage();
-    }
 
     // Phase 5d — lift child.MSB into parent when child.MSB.absBit ≤ parent.MSB.absBit
     // (= I11 violation). Walks path from root, applies extendIndirectMaskForClosure with
     // β = violating child's MSB. Bounded: one lift per ancestor per insert.
-    if (success && Boolean.getBoolean("hot.strict.phase5d")) {
-      trieWriter.liftChildMsbsForI11(rootRef, navResult.pathNodes(), navResult.pathRefs(),
-          navResult.pathChildIndices(), navResult.pathDepth(),
-          storageEngineWriter, storageEngineWriter.getLog());
-      prepareIndexPage();
-    }
 
     // Phase 6e — recompute stored partials from current child firstKeys when leaf insert
     // changed the deep-firstKey. If existing mask discriminates current firstKeys, recompute
     // installs the correct order. Else leaves indirect unchanged.
-    if (success && Boolean.getBoolean("hot.strict.phase6e")) {
-      trieWriter.recomputePartialsOnPath(rootRef, navResult.pathNodes(), navResult.pathRefs(),
-          navResult.pathChildIndices(), navResult.pathDepth(),
-          storageEngineWriter, storageEngineWriter.getLog());
-      prepareIndexPage();
-    }
 
     // Stage G.32 — I11-safe root mask reconciliation. Gated on -Dhot.strict.g32=true.
     // Empirical finding: the closure-added bits aren't β-constant in children's subtrees
     // (= multi-entry leaves can hold any bit value at any position), so adding them to
     // root's mask makes subtree keys route to wrong leaves (I6 violations cascade). The
     // reconcile is structurally incompatible with multi-entry leaves at root level.
-    if (success && Boolean.getBoolean("hot.strict.g32")) {
+    if (success) {
       trieWriter.reconcileRootMaskI11Safe(rootRef, storageEngineWriter,
           storageEngineWriter.getLog());
       prepareIndexPage();
@@ -1033,21 +904,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (!success) {
       success = handleInsertFailure(rootRef, navResult, keyBuf, keyLen, valueBuf, valueLen);
       // After failure-recovery insert, also run closure verification.
-      if (success && Boolean.getBoolean("hot.strict.g28.closure")) {
-        final byte[] keyBytesG28 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
-        trieWriter.ensureMaskClosure(rootRef, keyBytesG28, storageEngineWriter,
-            storageEngineWriter.getLog());
-        prepareIndexPage();
-      }
       // Phase 5d post-failure-recovery — fix I11 violations from leaf splits.
-      if (success && Boolean.getBoolean("hot.strict.phase5d")) {
-        trieWriter.liftChildMsbsForI11(rootRef, navResult.pathNodes(), navResult.pathRefs(),
-            navResult.pathChildIndices(), navResult.pathDepth(),
-            storageEngineWriter, storageEngineWriter.getLog());
-        prepareIndexPage();
-      }
       // G.32 reconcile also runs after failure-recovery insert (gated).
-      if (success && Boolean.getBoolean("hot.strict.g32")) {
+      if (success) {
         trieWriter.reconcileRootMaskI11Safe(rootRef, storageEngineWriter,
             storageEngineWriter.getLog());
         prepareIndexPage();
