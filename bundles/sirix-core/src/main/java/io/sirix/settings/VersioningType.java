@@ -996,9 +996,14 @@ public enum VersioningType {
       return pages.getFirst();
     }
 
+    final HOTLeafPage newest = pages.getFirst();
+    if (newest.isCompleteDump()) {
+      return newest;
+    }
+
     // Newest fragment is the base; copy() bulk-copies its entries and resets the dirty bitmap on
     // the result, so cross-fragment fills below are safely tracked as fresh writes if needed.
-    final HOTLeafPage result = pages.getFirst().copy();
+    final HOTLeafPage result = newest.copy();
     // The result is a freshly-merged read-only page — clear the slot-CoW link so it's treated as
     // a fully-materialized (no-completePageRef) leaf by any subsequent CoW.
     result.setCompletePageRef(null);

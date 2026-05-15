@@ -385,76 +385,66 @@ public final class HOTIndexReader<K extends Comparable<? super K>> extends Abstr
         nextEntry = null;
         return;
       }
-      // Skip groups whose prefix is lex-less than the requested fromPrefix. HOT's path-stack
-      // forward walk isn't strictly lex-monotonic for chunked composites — siblings may have
-      // overlapping lex ranges, so PEXT-seek + forward-walk can visit prefixes lex-less than
-      // {@code fromPrefixFilter}. Skip them here so the iterator's emission order is lex-correct
-      // for {@code >=} and {@code >} CAS query semantics.
-      while (cursor.hasNext()) {
-        final byte[] composite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
-        if (composite.length < HOTKeySerializer.CHUNK_IDX_BYTES) {
-          cursor.advance();
-          continue;
-        }
-        if (fromPrefixFilter != null) {
-          final int candidatePrefixLen = composite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
-          if (Arrays.compareUnsigned(composite, 0, candidatePrefixLen,
-              fromPrefixFilter, 0, fromPrefixFilter.length) < 0) {
+      while (true) {
+        while (cursor.hasNext()) {
+          final byte[] composite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
+          if (composite.length < HOTKeySerializer.CHUNK_IDX_BYTES) {
             cursor.advance();
             continue;
           }
-        }
-        break;
-      }
-      if (!cursor.hasNext()) {
-        nextEntry = null;
-        return;
-      }
-
-      // Read first chunk to establish the prefix of the next logical group.
-      byte[] groupComposite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
-      final int prefixLen = groupComposite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
-
-      Roaring64Bitmap merged = null;
-
-      // Accumulate all consecutive same-prefix chunks.
-      while (cursor.hasNext()) {
-        final HOTLeafPage leaf = cursor.currentLeafPage();
-        final int idx = cursor.currentEntryIndex();
-        final byte[] composite = leaf.getKey(idx);
-        if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
-            || Arrays.compareUnsigned(composite, 0, prefixLen, groupComposite, 0, prefixLen) != 0) {
-          // Different prefix — current group is complete. Do not advance the cursor; the next
-          // call to advance() will start a new group from this position.
-          break;
-        }
-        final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
-        final byte[] chunkBytes = leaf.getValue(idx);
-        if (!NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
-          final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
-          final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
-          if (!chunkBitmap.isEmpty()) {
-            if (merged == null) {
-              merged = new Roaring64Bitmap();
-            }
-            final long high = ((long) chunkIdx) << 16;
-            final LongIterator bIt = chunkBitmap.getLongIterator();
-            while (bIt.hasNext()) {
-              merged.add(high | (bIt.next() & 0xFFFFL));
+          if (fromPrefixFilter != null) {
+            final int candidatePrefixLen = composite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
+            if (Arrays.compareUnsigned(composite, 0, candidatePrefixLen,
+                fromPrefixFilter, 0, fromPrefixFilter.length) < 0) {
+              cursor.advance();
+              continue;
             }
           }
+          break;
         }
-        cursor.advance();
-      }
+        if (!cursor.hasNext()) {
+          nextEntry = null;
+          return;
+        }
 
-      if (merged == null || merged.isEmpty()) {
-        // All chunks of this prefix were tombstoned — skip the empty group and try the next.
-        advance();
-        return;
-      }
+        final byte[] groupComposite = cursor.currentLeafPage().getKey(cursor.currentEntryIndex());
+        final int prefixLen = groupComposite.length - HOTKeySerializer.CHUNK_IDX_BYTES;
 
-      final K logicalKey = deserializeKey(groupComposite, 0, prefixLen);
-      nextEntry = new AbstractMap.SimpleImmutableEntry<>(logicalKey, new NodeReferences(merged));
+        Roaring64Bitmap merged = null;
+
+        while (cursor.hasNext()) {
+          final HOTLeafPage leaf = cursor.currentLeafPage();
+          final int idx = cursor.currentEntryIndex();
+          final byte[] composite = leaf.getKey(idx);
+          if (composite.length != prefixLen + HOTKeySerializer.CHUNK_IDX_BYTES
+              || Arrays.compareUnsigned(composite, 0, prefixLen, groupComposite, 0, prefixLen) != 0) {
+            break;
+          }
+          final int chunkIdx = HOTKeySerializer.readChunkIdx(composite, 0, composite.length);
+          final byte[] chunkBytes = leaf.getValue(idx);
+          if (!NodeReferencesSerializer.isTombstone(chunkBytes, 0, chunkBytes.length)) {
+            final NodeReferences chunkRefs = NodeReferencesSerializer.deserialize(chunkBytes);
+            final Roaring64Bitmap chunkBitmap = chunkRefs.getNodeKeys();
+            if (!chunkBitmap.isEmpty()) {
+              if (merged == null) {
+                merged = new Roaring64Bitmap();
+              }
+              final long high = ((long) chunkIdx) << 16;
+              final LongIterator bIt = chunkBitmap.getLongIterator();
+              while (bIt.hasNext()) {
+                merged.add(high | (bIt.next() & 0xFFFFL));
+              }
+            }
+          }
+          cursor.advance();
+        }
+
+        if (merged != null && !merged.isEmpty()) {
+          final K logicalKey = deserializeKey(groupComposite, 0, prefixLen);
+          nextEntry = new AbstractMap.SimpleImmutableEntry<>(logicalKey, new NodeReferences(merged));
+          return;
+        }
+      }
     }
   }
 

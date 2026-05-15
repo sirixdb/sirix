@@ -250,8 +250,7 @@ public final class HOTRangeCursor implements Iterator<HOTRangeCursor.Entry>, Aut
    */
   private void acquireLeafGuard() {
     if (currentLeaf != null && !guardAcquired) {
-      currentLeaf.acquireGuard();
-      guardAcquired = true;
+      guardAcquired = currentLeaf.acquireGuard();
     }
   }
 

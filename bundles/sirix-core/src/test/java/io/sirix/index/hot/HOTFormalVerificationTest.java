@@ -2457,6 +2457,62 @@ final class HOTFormalVerificationTest {
     buildAndValidateCas(10_000, i -> 10_000 - 1 - i, "comprehensive-desc-10K");
   }
 
+  @Test
+  @DisplayName("Range scan integrity — descending 10K (I8 reader fix exercises advanceToNextLeaf)")
+  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  void rangeScanIntegrityDescending10K() {
+    final int n = 10_000;
+    final var database = JsonTestHelper.getDatabase(JsonTestHelper.PATHS.PATH1.getFile());
+    try (final var session = database.beginResourceSession(JsonTestHelper.RESOURCE);
+        final var trx = session.beginNodeTrx()) {
+      final var ic = session.getWtxIndexController(trx.getRevisionNumber());
+      final var pathToValue = io.brackit.query.util.path.Path.parse(
+          "/k/[]/v", io.brackit.query.util.path.PathParser.Type.JSON);
+      final IndexDef def = IndexDefs.createCASIdxDef(false, Type.INR,
+          Collections.singleton(pathToValue), 0, IndexDef.DbType.JSON);
+      ic.createIndexes(Set.of(def), trx);
+      final StringBuilder json = new StringBuilder("{\"k\":[");
+      for (int i = 0; i < n; i++) {
+        if (i > 0) json.append(',');
+        json.append("{\"v\":").append(n - 1 - i).append('}');
+      }
+      json.append("]}");
+      trx.insertSubtreeAsFirstChild(JsonShredder.createStringReader(json.toString()));
+      trx.commit();
+
+      long totalFromRangeScan = 0L;
+      final var iter = ic.openCASIndex(trx.getStorageEngineReader(), def,
+          ic.createCASFilter(Set.of("/k/[]/v"), new Int32(0), SearchMode.GREATER_OR_EQUAL,
+              new JsonPCRCollector(trx)));
+      while (iter.hasNext()) {
+        totalFromRangeScan += iter.next().getNodeKeys().getLongCardinality();
+      }
+
+      long totalFromPointQueries = 0L;
+      int missedValues = 0;
+      for (int v = 0; v < n; v++) {
+        long count = 0L;
+        final var eq = ic.openCASIndex(trx.getStorageEngineReader(), def,
+            ic.createCASFilter(Set.of("/k/[]/v"), new Int32(v), SearchMode.EQUAL,
+                new JsonPCRCollector(trx)));
+        while (eq.hasNext()) {
+          count += eq.next().getNodeKeys().getLongCardinality();
+        }
+        totalFromPointQueries += count;
+        if (count == 0) missedValues++;
+      }
+
+      System.out.println("[range-scan-integrity-desc-10K] rangeScan=" + totalFromRangeScan
+          + " pointQueries=" + totalFromPointQueries + " missedValues=" + missedValues);
+      assertEquals((long) n, totalFromRangeScan,
+          "[range-scan-integrity-desc-10K] range scan missed entries (I8 fix not working)");
+      assertEquals((long) n, totalFromPointQueries,
+          "[range-scan-integrity-desc-10K] point queries missed entries");
+      assertEquals(0, missedValues,
+          "[range-scan-integrity-desc-10K] " + missedValues + " values unreachable");
+    }
+  }
+
   // ---- Phase 7r-1 characterization (always-enabled diagnostic) ------------------
   // Bypasses the Disabled annotation above so the routing-collision counters can
   // be measured in the bulk-JSON descending path without needing to temporarily

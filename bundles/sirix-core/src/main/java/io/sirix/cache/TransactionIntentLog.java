@@ -204,6 +204,13 @@ public final class TransactionIntentLog implements AutoCloseable {
 
     final int existingKey = ref.getLogKey();
     if (existingKey != Constants.NULL_ID_INT && existingKey >= 0 && existingKey < size) {
+      // Close orphaned HOT leaf pages from the overwritten container.
+      // After a leaf split the old complete page (original from disk/copy) is no longer
+      // needed — the modified page has completeDump=true and all entries marked dirty.
+      final PageContainer oldContainer = entries[existingKey];
+      if (oldContainer != null && oldContainer != value) {
+        closeOrphanedHOTLeafPages(oldContainer, value, existingKey);
+      }
       // Reuse existing logKey — update container in-place.
       // This ensures that PageReference copies (from COW operations) that share
       // the same logKey will resolve to the latest container.
@@ -546,6 +553,42 @@ public final class TransactionIntentLog implements AutoCloseable {
     if (container.getModified() != container.getComplete()) {
       closePage(container.getModified());
     }
+  }
+
+  /**
+   * Close HOTLeafPages from an overwritten container that are not reused in the new container.
+   * Prevents FrameSlot memory leaks when leaf splits overwrite TIL entries — the old complete
+   * page (original from disk) is orphaned and its 65KB off-heap MemorySegment must be released.
+   */
+  private void closeOrphanedHOTLeafPages(final PageContainer oldContainer,
+      final PageContainer newContainer, final int excludeIndex) {
+    final Page oldComplete = oldContainer.getComplete();
+    final Page oldModified = oldContainer.getModified();
+    final Page newComplete = newContainer.getComplete();
+    final Page newModified = newContainer.getModified();
+
+    if (oldComplete instanceof HOTLeafPage completeLeaf
+        && completeLeaf != newComplete && completeLeaf != newModified
+        && !isHOTLeafInOtherEntry(completeLeaf, excludeIndex)) {
+      completeLeaf.close();
+    }
+    if (oldModified != oldComplete
+        && oldModified instanceof HOTLeafPage modifiedLeaf
+        && modifiedLeaf != newComplete && modifiedLeaf != newModified
+        && !isHOTLeafInOtherEntry(modifiedLeaf, excludeIndex)) {
+      modifiedLeaf.close();
+    }
+  }
+
+  private boolean isHOTLeafInOtherEntry(final HOTLeafPage page, final int excludeIndex) {
+    for (int i = 0; i < size; i++) {
+      if (i == excludeIndex) continue;
+      final PageContainer entry = entries[i];
+      if (entry != null && (entry.getComplete() == page || entry.getModified() == page)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

@@ -3662,7 +3662,9 @@ public enum PageKind {
         commonPrefix = new byte[0];
       }
 
-      final int entryCount = source.readInt();
+      final int rawEntryCount = source.readInt();
+      final boolean completeDump = (rawEntryCount & 0x80000000) != 0;
+      final int entryCount = rawEntryCount & 0x7FFFFFFF;
       final int usedSlotMemorySize = source.readInt();
 
       // Read slot offsets (allocate MAX_ENTRIES to allow insertions after deserialization)
@@ -3697,19 +3699,16 @@ public enum PageKind {
         releaser = () -> allocator.release(segmentToRelease);
       }
 
-      return new HOTLeafPage(recordPageKey, revision, indexType, slotMemory, releaser,
-                             slotOffsets, entryCount, usedSlotMemorySize, commonPrefix, commonPrefixLen);
+      final HOTLeafPage page = new HOTLeafPage(recordPageKey, revision, indexType, slotMemory,
+          releaser, slotOffsets, entryCount, usedSlotMemorySize, commonPrefix, commonPrefixLen);
+      page.setCompleteDump(completeDump);
+      return page;
     }
 
     @Override
     public void serializePage(ResourceConfiguration resourceConfig, BytesOut<?> sink,
         Page page, SerializationType type) {
       final HOTLeafPage hotLeaf = (HOTLeafPage) page;
-      // Strategy gate: under non-FULL versioning, when the leaf was COW'd from a complete page
-      // (completePageRef != null), emit ONLY the dirty entries — they are the per-revision delta.
-      // The reader-side combine path (VersioningType.combineHOTLeafPages) reconstructs the full
-      // leaf by walking the older fragments and filling in any keys not present here.
-      // FULL strategy and fresh leaves (no completePageRef) emit every entry.
       final VersioningType versioningType = resourceConfig.versioningType;
       final boolean sparseEmit = versioningType != VersioningType.FULL
           && hotLeaf.getCompletePageRef() != null
@@ -3734,7 +3733,9 @@ public enum PageKind {
       if (sparseEmit) {
         final int dirtyCount = hotLeaf.getDirtyEntryCount();
         final int dirtyUsed = hotLeaf.getDirtyEntriesUsedSize();
-        sink.writeInt(dirtyCount);
+        final int encodedDirtyCount = hotLeaf.isCompleteDump()
+            ? dirtyCount | 0x80000000 : dirtyCount;
+        sink.writeInt(encodedDirtyCount);
         sink.writeInt(dirtyUsed);
 
         if (dirtyCount == 0) {
@@ -3752,7 +3753,9 @@ public enum PageKind {
         return;
       }
 
-      sink.writeInt(hotLeaf.getEntryCount());
+      final int encodedFullCount = hotLeaf.isCompleteDump()
+          ? hotLeaf.getEntryCount() | 0x80000000 : hotLeaf.getEntryCount();
+      sink.writeInt(encodedFullCount);
       sink.writeInt(hotLeaf.getUsedSlotsSize());
 
       // Write slot offsets

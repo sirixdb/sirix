@@ -262,6 +262,12 @@ public final class HOTLongIndexWriter extends AbstractHOTIndexWriter<Long> {
     if (!removed) {
       return false;
     }
+
+    if (!chunkRefs.hasNodeKeys()) {
+      leaf.deleteAt(index);
+      return true;
+    }
+
     byte[] valueBuf = VALUE_BUFFER.get();
     final int requiredSize = NodeReferencesSerializer.computeSerializedSize(chunkRefs);
     if (requiredSize > valueBuf.length) {

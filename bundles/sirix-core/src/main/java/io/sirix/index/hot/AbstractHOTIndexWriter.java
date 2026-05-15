@@ -31,6 +31,7 @@ import io.sirix.access.ResourceConfiguration;
 import io.sirix.access.trx.page.HOTTrieWriter;
 import io.sirix.api.StorageEngineWriter;
 import io.sirix.cache.PageContainer;
+import io.sirix.cache.TransactionIntentLog;
 import io.sirix.exception.SirixIOException;
 import io.sirix.index.IndexType;
 import io.sirix.index.redblacktree.keyvalue.NodeReferences;
@@ -383,13 +384,6 @@ public abstract class AbstractHOTIndexWriter<K> {
         return buildNavigationResult(modifiedLeaf, currentRef, pathDepth);
       }
 
-      // CoW + fragment-chain bump: under non-FULL versioning the writer commits a sparse fragment
-      // at a new disk offset, so the prior on-disk offset must be recorded on the reference's
-      // pageFragments before the writer overwrites it. Mirrors KVLP's plumbing in
-      // VersioningType.combineRecordPagesForModification. The bump returns true when the chain
-      // would have overflowed: in that case the chain is reset and we force a full emit so the
-      // soon-to-be-dropped fragment's entries do not become unreachable.
-      // Safe under top-down CoW: currentRef is owned by the CoW'd parent's children array.
       final ResourceConfiguration resourceConfig = storageEngineWriter.getResourceSession().getResourceConfig();
       final VersioningType versioningType = resourceConfig.versioningType;
       final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
@@ -493,8 +487,17 @@ public abstract class AbstractHOTIndexWriter<K> {
     HOTLeafPage leaf = navResult.leaf();
 
     for (int attempt = 0; attempt < MAX_INSERT_RETRIES; attempt++) {
-      // Try compacting first — O(N) memcpy with no allocation, may free
-      // enough fragmented space to avoid the more expensive split entirely.
+      // Compact tombstoned entries first — this reclaims slots occupied by
+      // logically deleted entries and prevents stale keys from corrupting
+      // disc-bit computation during subsequent splits.
+      final int tombstonesRemoved = leaf.compactTombstones();
+      if (tombstonesRemoved > 0) {
+        storageEngineWriter.getLog().put(navResult.leafRef(), PageContainer.getInstance(leaf, leaf));
+        if (leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen)) {
+          return true;
+        }
+      }
+
       final int reclaimedSpace = leaf.compact();
       if (reclaimedSpace > 0) {
         storageEngineWriter.getLog().put(navResult.leafRef(), PageContainer.getInstance(leaf, leaf));
@@ -607,32 +610,6 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
 
     return storageEngineWriter.loadHOTPage(ref);
-  }
-
-  /**
-   * COW all ancestors from leaf parent up to root so updated child references are committed.
-   */
-  private void propagateCowPathToRoot(final int pathDepth, PageReference modifiedChildRef) {
-    PageReference childRef = modifiedChildRef;
-
-    for (int i = pathDepth - 1; i >= 0; i--) {
-      final PageReference parentRef = _pathRefs[i];
-      final int childIndex = _pathChildIndices[i];
-      final PageContainer existingParentContainer = storageEngineWriter.getLog().get(parentRef);
-
-      if (existingParentContainer != null && existingParentContainer.getModified() instanceof HOTIndirectPage parentInLog) {
-        parentInLog.setChildReference(childIndex, childRef);
-        _pathNodes[i] = parentInLog;
-        childRef = parentRef;
-        continue;
-      }
-
-      final HOTIndirectPage parentNode = _pathNodes[i];
-      final HOTIndirectPage updatedParent = parentNode.copyWithUpdatedChild(childIndex, childRef);
-      storageEngineWriter.getLog().put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
-      _pathNodes[i] = updatedParent;
-      childRef = parentRef;
-    }
   }
 
   /**
@@ -790,31 +767,16 @@ public abstract class AbstractHOTIndexWriter<K> {
         trieWriter.recursiveConstancyAwareSplit(leaf, keyBytesG18, valueBytesG20,
             ancestorBits, buckets);
       }
-
-      // Stage G.21 — Wire constancy-aware split. When leaf would become β-mixed at
-      // ancestor β, split on that β before inserting. Uses handleLeafSplitAndInsert's
-      // explicit-bit overload. Gated on -Dhot.strict.constancy.split=true.
     }
 
-    // Stage G.15 — I8 pre-check + reroute. When newKey would become the new deep-firstKey
-    // of the leaf's slot AND that new firstKey would be less than the predecessor sibling's
-    // deep-firstKey at some ancestor, route newKey to the predecessor sibling's subtree
-    // instead. Force-leaf-split-on-offending-bit then integrates correctly.
     if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
       final byte[] keyBytes = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
       final int i8AncestorIdx = trieWriter.findI8OffendingAncestor(
           navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
           navResult.pathDepth(), leaf, keyBytes);
       if (i8AncestorIdx >= 0) {
-        // newKey would break I8 at this ancestor. Force leaf split on the leaf's MSDB-with-K
-        // (= the bit where newKey differs from existing leaf keys at most-significant pos).
-        // The standard split-and-integrate path then routes the halves correctly.
         if (leaf.canSplit()) {
           final byte[] valueBytes = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
-          // Phase 7q-Path2 — when enabled, try to pick a split bit that won't drop the
-          // parent indirect's MSB below the grandparent's MSB (= I11 violation that
-          // cascades into I8 at the root). Returns -1 (= default MSDB) when natural
-          // MSDB is already safe OR no I11-safe alternative exists.
           final int explicitBit = -1;
           final boolean ok = trieWriter.handleLeafSplitAndInsert(
               storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
@@ -827,7 +789,6 @@ public abstract class AbstractHOTIndexWriter<K> {
       }
     }
 
-    // Option B (Stage G.13) — RE-ENABLED with diagnostic to trace cascade source.
     if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
       final byte[] keyBytes = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
       final int offendingBeta = trieWriter.findAnyOffendingAncestorBit(
@@ -886,6 +847,13 @@ public abstract class AbstractHOTIndexWriter<K> {
     // caller skips the regular merge.
     boolean success;
       success = leaf.mergeWithNodeRefs(keyBuf, keyLen, valueBuf, valueLen);
+
+    // I8 (children sorted by firstKey) may become stale after this insert if the new key
+    // became the leaf's firstKey.  We intentionally do NOT rebuild ancestor indirect pages
+    // here: a rebuild recomputes disc bits, which changes PEXT routing and misroutes keys
+    // inserted under the OLD disc bits → I1/I5/I6 violations.  I8 is a normalization
+    // invariant; findChildIndex uses PEXT partial-key matching, not sort order, so routing
+    // is unaffected.  The next split or tree rebuild will restore I8.
 
     // Stage G.28 — post-insert mask-closure verification. Walk path from root, verify
     // each indirect's mask covers MSDB-closure of children's firstKeys. Extend if not.

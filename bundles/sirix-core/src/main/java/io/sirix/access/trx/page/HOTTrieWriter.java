@@ -96,8 +96,7 @@ public final class HOTTrieWriter {
 
   // ===== Strict-Binna intermediate-BiNode fallback firing counter =====
   // Counts how many times the intermediate-BiNode fallback in
-  // updateParentForSplitWithPath (the c868e669c workaround) fires under
-  // -Dhot.strict.binna=true. Each firing grows tree depth by 1 on the affected path.
+  // updateParentForSplitWithPath fires. Each firing grows tree depth by 1.
   // Resettable by the test harness; queryable via getIntermediateBiNodeFallbackFirings.
   // Used by Phase 2 / Phase 3 / Phase 4b regression measurement.
   private static final java.util.concurrent.atomic.AtomicLong INTERMEDIATE_BINODE_FALLBACK_FIRINGS =
@@ -126,7 +125,7 @@ public final class HOTTrieWriter {
   }
 
   // ===== Phase 3 lazy retroactive sibling rebalance counter =====
-  // Counts how many times the Phase 3 rebalance fires under -Dhot.strict.binna=true
+  // Counts how many times the Phase 3 rebalance fires
   // (i.e., addEntryWithPDep rejected because some non-split sibling was non-constant
   // on the new disc bit, and rebalanceSiblingsForBit was invoked to resolve it).
   // Each firing resolves one Case 2b-ii rejection cleanly without growing tree depth.
@@ -302,7 +301,7 @@ public final class HOTTrieWriter {
   }
 
   // ===== Phase 4 β-already-in-mask subtree-merge counter =====
-  // Counts how many times the Phase 4 subtree merge fires under -Dhot.strict.binna=true
+  // Counts how many times the Phase 4 subtree merge fires
   // (i.e., addEntryWithPDep / addEntryMultiMask rejected because the new disc bit β is
   // already in the parent's mask, and the moveHalf of the leaf split was bulk-inserted
   // into the existing β=¬v_L sibling's subtree). Each firing resolves one β-already-in-mask
@@ -328,7 +327,7 @@ public final class HOTTrieWriter {
   // β-already-in-mask rejection by adding a NEW child slot for the moveHalf with stored
   // partial = splitChildPartial XOR β-bit. The mask stays unchanged; the parent grows by one
   // child slot (k → k+1). Each firing avoids both the intermediate-BiNode fallback (no depth
-  // growth) and the Phase 4 subtree-merge (no key relocation). Gate: {@code -Dhot.strict.binna=true}.
+  // growth) and the Phase 4 subtree-merge (no key relocation).
   private static final java.util.concurrent.atomic.AtomicLong ADDENTRY_FRESH_POLARITY_FIRINGS =
       new java.util.concurrent.atomic.AtomicLong(0L);
 
@@ -584,13 +583,13 @@ public final class HOTTrieWriter {
       return null;
     }
 
-    // Create COW copy for modification using deep copy (copies off-heap data + slot offsets)
+    // Create COW copy for modification using deep copy (copies off-heap data + slot offsets).
     HOTLeafPage modifiedLeaf = hotLeaf.copy();
 
     PageContainer leafContainer = PageContainer.getInstance(hotLeaf, modifiedLeaf);
     log.put(leafRef, leafContainer);
 
-    // Propagate COW up the path
+    // Propagate COW up the path (preserves disc bits — safe for existing key routing)
     propagateCOW(log, leafRef);
 
     // Clear references to allow GC
@@ -600,23 +599,27 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Propagate copy-on-write changes up to ancestors. Each modified HOTIndirectPage gets a new copy in
-   * the log. Uses pre-allocated cowPath arrays - ZERO allocations except for page copies!
+   * Propagate copy-on-write changes up to ancestors by updating child references in place.
+   * The parent indirect pages are already COW'd (by prepareLeafOfTree / prepareIndirectPage),
+   * so in-place mutation is safe and avoids deep-copying PageReferences — deep copies create
+   * new reference identities that don't match TIL entries for already-COW'd children,
+   * causing duplicate leaf copies and FrameSlot exhaustion.
    */
   private void propagateCOW(TransactionIntentLog log, PageReference modifiedChildRef) {
     PageReference childRef = modifiedChildRef;
 
-    // Iterate backwards through pre-allocated arrays (no iterator allocation!)
     for (int i = cowPathDepth - 1; i >= 0; i--) {
-      PageReference parentRef = cowPathRefs[i];
-      HOTIndirectPage parentNode = cowPathNodes[i];
-      int childIndex = cowPathChildIndices[i];
+      final PageReference parentRef = cowPathRefs[i];
+      final int childIndex = cowPathChildIndices[i];
 
-      // COW the parent node (this allocation is unavoidable - it's the copy!)
-      HOTIndirectPage newParent = parentNode.copyWithUpdatedChild(childIndex, childRef);
-
-      // Update log
-      log.put(parentRef, PageContainer.getInstance(newParent, newParent));
+      final PageContainer cont = log.get(parentRef);
+      if (cont != null && cont.getModified() instanceof HOTIndirectPage inLog) {
+        inLog.setChildReference(childIndex, childRef);
+      } else {
+        final HOTIndirectPage parentNode = cowPathNodes[i];
+        final HOTIndirectPage newParent = parentNode.copyWithUpdatedChild(childIndex, childRef);
+        log.put(parentRef, PageContainer.getInstance(newParent, newParent));
+      }
 
       childRef = parentRef;
     }
@@ -678,9 +681,7 @@ public final class HOTTrieWriter {
       startReference.setKey(newPageKey);
       log.put(startReference, container);
     } else {
-      // Update parent to include new child
-      // This would require more complex logic for node splits
-      // For now, just propagate the COW
+      // Propagate COW up the path (preserves disc bits — safe for existing key routing)
       propagateCOW(log, newRef);
     }
 
@@ -856,12 +857,16 @@ public final class HOTTrieWriter {
       log.put(rightRef, PageContainer.getInstance(rightPage, rightPage));
       rightPageOwnershipTransferred = true;
 
-      // Swizzle post-split left page onto leafRef
-      leafRef.setPage(fullPage);
-      log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
+      // Both halves are complete dumps after split — release the stale completePageRef
+      // so the orphaned original page can be reclaimed by TIL.put() and GC.
+      fullPage.setCompletePageRef(null);
+      rightPage.setCompletePageRef(null);
 
       // Integrate split into tree (walk up path with COW)
       if (pathDepth > 0) {
+        // Non-root: swizzle left half onto leafRef and update parent.
+        leafRef.setPage(fullPage);
+        log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
         final int parentIdx = pathDepth - 1;
         updateParentForSplitWithPath(storageEngineReader, log, pathRefs[parentIdx],
             pathNodes[parentIdx], pathChildIndices[parentIdx], leafRef, rightRef,
@@ -872,11 +877,17 @@ public final class HOTTrieWriter {
         final long newRootPageKey = pageKeyAllocator.getAsLong();
         final PageReference leftChildRef;
         if (leafRef == rootReference) {
+          // leafRef IS rootReference — create a separate ref for the left child.
+          // Do NOT put fullPage on leafRef first: the subsequent log.put(rootReference, biNode)
+          // would overwrite that entry and closeOrphanedHOTLeafPages would close fullPage
+          // even though it's still the active page at leftChildRef's logKey.
           leftChildRef = new PageReference();
           leftChildRef.setKey(leafRef.getKey());
           leftChildRef.setPage(fullPage);
           log.put(leftChildRef, PageContainer.getInstance(fullPage, fullPage));
         } else {
+          leafRef.setPage(fullPage);
+          log.put(leafRef, PageContainer.getInstance(fullPage, fullPage));
           leftChildRef = leafRef;
         }
         final HOTIndirectPage biNode = createBiNodeTraced("addEntry-promoteToBiNode-589",
@@ -1001,30 +1012,6 @@ public final class HOTTrieWriter {
         // don't introduce a NEW byte position; they just add a bit within an existing
         // byte. Ancestors' masks already cover those bytes (= no propagation needed).
       } else if (Boolean.getBoolean("hot.strict.binna")) {
-        // Phase 3: lazy retroactive sibling rebalance. addEntryWithPDep rejected because
-        // the new disc bit β is non-constant in some non-split sibling's subtree
-        // (Case 2b-ii from the formal verification — Sirix's multi-entry-leaf workload
-        // breaks Binna's single-key-leaf trivial-constancy guarantee). Walk down each
-        // non-constant sibling, split its leaves on β, and rebuild the parent with
-        // β-constant children at every slot via {@link #rebalanceAndIntegrate}, which
-        // uses mask inheritance from the original parent (NOT createNodeFromChildren-N's
-        // adjacent-pair re-derivation that would re-introduce Phase-4-class violations).
-        //
-        // If rebalance succeeds, the result is a height-optimal integration (no +1
-        // wrapping BiNode, faithful to Binna's reference at parent.height ==
-        // splitEntries.height). If rebalance can't proceed (fan-out > 32 after expansion,
-        // MultiMask parent, cross-window β, partial-key collision, etc.), fall through
-        // to the intermediate-BiNode fallback / splitParentAndRecurse.
-        //
-        // CoW correctness: every modified leaf/indirect gets a fresh pageKey, fresh
-        // PageReference, and TIL registration. The original sibling subtree is left
-        // untouched. The new parent is constructed at parent.getPageKey() (logically
-        // unchanged identity) with a new content payload, and registered via log.put,
-        // mirroring the pattern used by the addEntry* paths.
-        // Phase 7q.15 — check ancestor I8 BEFORE invoking rebalanceAndIntegrate. If
-        // placing the new child at slot 0 of an ancestor would propagate firstKey
-        // shifts up to violate I8 at a higher ancestor, abort this path and use
-        // splitParentAndRecurse instead.
         final boolean recursiveCheckOk = intermediateBiNodeRecursiveSlotCheck(
             pathNodes, pathChildIndices, currentPathIdx + 1, leftChild);
         final HOTIndirectPage rebalancedParent = recursiveCheckOk
@@ -1038,34 +1025,9 @@ public final class HOTTrieWriter {
         } else if (tryPhase4SubtreeMerge(parent, parentRef, originalChildIndex, leftChild,
             rightChild, discriminativeBit, storageEngineReader, log,
             pathNodes, pathRefs, pathChildIndices, currentPathIdx)) {
-          // Phase 4: β-already-in-mask subtree merge. addEntry rejected because the leaf-split's
-          // MSDB β is a bit parent already routes on; the resolution is to merge moveHalf's
-          // keys into the existing β=¬v_L sibling subtree (rather than try to extend the
-          // mask). Works for both SingleMask and MultiMask parent layouts. See {@link
-          // #subtreeMerge} for the algorithm and CoW correctness argument.
-          //
-          // Successful firing leaves the parent's mask unchanged (no new disc bit added) and
-          // the parent's children layout possibly altered (slot[splitChildIdx] swapped to
-          // keepHalf; slot[siblingIdx]'s subtree mutated by bulk-inserts). Tree height is
-          // preserved (no +1 wrapping BiNode); I-Binna constancy invariant is preserved.
         } else if (intermediateBiNodePreservesSlotOrder(parent, originalChildIndex, leftChild)
             && intermediateBiNodeRecursiveSlotCheck(pathNodes, pathChildIndices, currentPathIdx + 1,
                 leftChild)) {
-          // Phase 3 couldn't resolve — fall back to c868e669c's intermediate-BiNode workaround.
-          // This should be rare on benign workloads; each firing grows tree depth by 1.
-          //
-          // Strict-Binna fallback: when {@code addEntry} can't extend the parent's mask
-          // without breaking constancy (or hits cross-window / collision edge cases), absorb
-          // the leaf split by inserting an intermediate BiNode at the original child's slot.
-          // The parent's mask stays unchanged, so existing routing remains correct; the new
-          // BiNode distinguishes the two halves at a level below the parent.
-          //
-          // Architectural note (per Binna's HOTSingleThreaded.hpp lines 493-547): this
-          // intermediate-BiNode at parent.height == splitEntries.height is non-faithful —
-          // Binna's reference instead splits the parent (= splitParentAndRecurse). However
-          // {@code buildCompressedHalf}'s sparse-path fallbacks have known correctness gaps,
-          // so this fallback remains the pragmatic safety net for the (now rare) cases
-          // Phase 3 can't resolve.
           final long newBiNodePageKey = pageKeyAllocator.getAsLong();
           final HOTIndirectPage newBiNode = createBiNodeTraced("strict-binna-intermediate-biNode",
               newBiNodePageKey, storageEngineReader.getRevisionNumber(), discriminativeBit,
@@ -1080,23 +1042,11 @@ public final class HOTTrieWriter {
           log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
           INTERMEDIATE_BINODE_FALLBACK_FIRINGS.incrementAndGet();
         } else {
-          // I8 would break with the intermediate-BiNode approach — fall through to a
-          // genuine parent split.
           splitParentAndRecurse(storageEngineReader, log, parentRef, parent,
               originalChildIndex, leftChild, rightChild, discriminativeBit, rootReference,
               pathNodes, pathRefs, pathChildIndices, currentPathIdx);
         }
       } else if (currentNumChildren < 20) {
-        // Height-optimal fallback ONLY for parents with small-to-medium
-        // fan-out. When fan-out is already near-max, rebuild can produce
-        // subtle INV breaches (the augmented computeDiscBits may not
-        // fully untangle all constancy requirements across 20+ children).
-        // Forcing a genuine split path at high fan-out rebuilds halves
-        // from scratch, which is more robust. The threshold is chosen so
-        // most construction operations still use the efficient rebuild
-        // path (preserving height optimality) while high-density parents
-        // use the robust split path. Empirically: threshold=20 keeps the
-        // tree log₃₂-deep and fixes the 8.3% miss at n=5000 multi.
         expandedParent = rebuildParentAbsorbingSplit(parent, originalChildIndex,
             leftChild, rightChild, storageEngineReader.getRevisionNumber());
         if (expandedParent != null) {
@@ -1387,13 +1337,13 @@ public final class HOTTrieWriter {
       // moveHalf needs a new sibling slot whose stored partial = splitChild's partial XOR
       // β-bit. If a sibling already has that partial (Case 2b-iv-a), Phase 4 subtree-merge
       // handles it. Otherwise — "fresh polarity" — we add a new slot here without growing
-      // the mask. Gated on hot.strict.binna so default behavior (intermediate-BiNode
-      // fallback) is unchanged.
+      // the mask. Gated because fresh polarity can produce I5/I6 violations on some
+      // workloads (random shuffle) until the underlying constancy tracking is hardened.
       if (Boolean.getBoolean("hot.strict.binna")) {
         return addEntryFreshPolaritySingleMask(parent, splitChildIndex, leftChild, rightChild,
             newBitMaskBit, revision);
       }
-      return null; // bit already a disc bit — caller handles via split path
+      return null;
     }
     long newMask = oldMask | newBitMaskBit;
 
@@ -2689,18 +2639,11 @@ public final class HOTTrieWriter {
     final PageReference[] children = Arrays.copyOf(replacementRefs, bucketSize);
     sortChildrenAndPartialsByPartial(children, newPartials);
 
-    // Phase 7w bucket augmentation REMOVED — empirically harmful (trades 1 I8 for
-    // 2 I11+I4 on descending workloads; no effect on other workloads). In-place leaf
-    // redistribution (redistributeLeafKeysIfMisrouted) is the correct fix.
-
     final long pageKey = pageKeyAllocator.getAsLong();
     HOTIndirectPage built;
     if (bucketSize == 2) {
-      // BiNode form not supported under MultiMask layout — fall back to wrap. Phase 7q.15:
-      // pass newParentMsb hint so cbinode picks an I11-safe disc bit.
       final PageReference[] childCopy = Arrays.copyOf(replacementRefs, bucketSize);
       final Integer prevHint = PARENT_MSB_HINT.get();
-      // newParentMsb = min(oldParentMsb, absBit) — same convention as SingleMask path.
       final int newParentMsbMm = Math.min(parent.getMostSignificantBitIndex() & 0xFFFF, absBit);
       PARENT_MSB_HINT.set(newParentMsbMm);
       try {
@@ -2710,10 +2653,6 @@ public final class HOTTrieWriter {
         else PARENT_MSB_HINT.set(prevHint);
       }
     }
-    // Phase 7q.15d — bucket-indirect MSB instrumentation. Catches I11 equality/strict
-    // violations where a bucket child has MSB ≤ the bucket-indirect's own MSB (=
-    // numerically more or equally significant than bucket → child is "above" parent in
-    // routing → violates I11). Counters always increment; per-event print gated.
     phase7q15dCheckIntermediateMsb(pageKey, newMsb, absBit, children, bucketSize);
     if (bucketSize <= 16) {
       built = HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision, newEp, newEm,
@@ -3869,25 +3808,32 @@ public final class HOTTrieWriter {
 
     // Try a direct put (cheap path).
     if (modLeaf.put(key, value)) {
-      // Propagate CoW up the descent path back to parent. Each indirect on the descent
-      // path is CoW'd via withUpdatedChild — pageKey-preserving, so identity stays stable.
+      // Propagate CoW up the descent path + parent. Update child references in place
+      // on already-COW'd indirect pages to avoid deep-copying PageReferences.
       PageReference childRef = curRef;
       for (int i = descDepth - 1; i >= 0; i--) {
-        final HOTIndirectPage descNode = descPathNodes[i];
-        final HOTIndirectPage descNodeUpdated =
-            descNode.withUpdatedChild(descPathChildIdx[i], childRef, revision);
-        log.put(descPathRefs[i], PageContainer.getInstance(descNodeUpdated, descNodeUpdated));
+        final PageContainer descCont = log.get(descPathRefs[i]);
+        if (descCont != null && descCont.getModified() instanceof HOTIndirectPage descInLog) {
+          descInLog.setChildReference(descPathChildIdx[i], childRef);
+        } else {
+          final HOTIndirectPage descNode = descPathNodes[i];
+          final HOTIndirectPage descNodeUpdated =
+              descNode.copyWithUpdatedChild(descPathChildIdx[i], childRef);
+          log.put(descPathRefs[i], PageContainer.getInstance(descNodeUpdated, descNodeUpdated));
+        }
         childRef = descPathRefs[i];
       }
-      // Update parent's slot[siblingIdx] to point at the (possibly CoW'd) sibling subtree
-      // root. Only needed if descDepth == 0 (sibling is the leaf itself); when descDepth > 0
-      // the inner loop already updated descPathRefs[0] which IS parent's slot[siblingIdx]'s
-      // ref. Re-fetch parent and update its slot to ensure consistency.
-      final HOTIndirectPage curParent = currentInLog(parentRef, parent);
-      final HOTIndirectPage updatedParent =
-          curParent.withUpdatedChild(siblingIdx, descDepth == 0 ? curRef : descPathRefs[0],
-              revision);
-      log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
+      // Update parent with sibling reference
+      final PageReference siblingRef = descDepth == 0 ? curRef : descPathRefs[0];
+      final PageContainer parentCont = log.get(parentRef);
+      if (parentCont != null && parentCont.getModified() instanceof HOTIndirectPage parentInLog) {
+        parentInLog.setChildReference(siblingIdx, siblingRef);
+      } else {
+        final HOTIndirectPage curParent = currentInLog(parentRef, parent);
+        final HOTIndirectPage updatedParent =
+            curParent.copyWithUpdatedChild(siblingIdx, siblingRef);
+        log.put(parentRef, PageContainer.getInstance(updatedParent, updatedParent));
+      }
       return true;
     }
 
@@ -3977,6 +3923,9 @@ public final class HOTTrieWriter {
       if (leftMax.length == 0 || rightMin.length == 0) return false;
       final int discBit = DiscriminativeBitComputer.computeDifferingBit(leftMax, rightMin);
       if (discBit < 0) return false;
+
+      modLeafCow.setCompletePageRef(null);
+      rightPage.setCompletePageRef(null);
 
       final PageReference rightRef = new PageReference();
       rightRef.setKey(newPageKey);
@@ -4357,12 +4306,12 @@ public final class HOTTrieWriter {
       if ((existingByte & newMaskBit) != 0) {
         // Case 2b-iv-b-β (MultiMask): β already a parent disc bit. Mask unchanged; the
         // leaf split's moveHalf needs a new sibling slot whose stored partial = splitChild's
-        // partial XOR β-bit. Same gates as the SingleMask analog.
+        // partial XOR β-bit. Same as the SingleMask analog. Gated for same reason.
         if (Boolean.getBoolean("hot.strict.binna")) {
           return addEntryFreshPolarityMultiMask(parent, splitChildIndex, leftChild, rightChild,
               newAbsBit, newBytePos, newBitInByte, revision);
         }
-        return null; // duplicate
+        return null;
       }
       newNumBytes = oldNumBytes;
       newExtractionPositions = oldExtractionPositions.clone();
@@ -6630,146 +6579,6 @@ public final class HOTTrieWriter {
     sortChildrenByFirstKeyIfNeeded(indirect, n);
 
     return indirect;
-  }
-
-  private void sortChildrenByFirstKeyIfNeeded(final HOTIndirectPage indirect, final int n) {
-    final PageReference[] refs = new PageReference[n];
-    for (int i = 0; i < n; i++) {
-      refs[i] = indirect.getChildReference(i);
-    }
-    final int inv = phase7tFirstInversionIdx(refs);
-    if (inv < 0) return;
-    final byte[][] firstKeys = new byte[n][];
-    for (int i = 0; i < n; i++) {
-      final Page p = phase7wResolvePage(refs[i]);
-      if (p instanceof HOTLeafPage leaf && leaf.getEntryCount() > 0) {
-        firstKeys[i] = leaf.getKey(0);
-      } else {
-        firstKeys[i] = new byte[0];
-      }
-    }
-    indirect.sortChildrenByFirstKey(firstKeys);
-  }
-
-  private HOTIndirectPage phase7wFixI8InPlace(
-      HOTIndirectPage indirect, DiscBitsInfo discBits, final int n, final int revision) {
-    boolean hasI8 = false;
-    byte[] prevFirstKey = null;
-    for (int i = 0; i < n; i++) {
-      final HOTLeafPage leaf =
-          (HOTLeafPage) phase7wResolvePage(indirect.getChildReference(i));
-      final byte[] fk = (leaf.getEntryCount() > 0) ? leaf.getKey(0) : null;
-      if (fk != null && prevFirstKey != null
-          && java.util.Arrays.compareUnsigned(prevFirstKey, fk) > 0) {
-        hasI8 = true;
-        break;
-      }
-      if (fk != null) prevFirstKey = fk;
-    }
-    if (!hasI8) return indirect;
-
-    final PageReference[] fixRefs = new PageReference[n];
-    for (int i = 0; i < n; i++) fixRefs[i] = indirect.getChildReference(i);
-    sortChildrenByFirstKey(fixRefs);
-
-    final java.util.TreeMap<Integer, Integer> augBits = new java.util.TreeMap<>();
-    if (discBits.isSingleMask()) {
-      final int ibp = discBits.initialBytePos();
-      final long mask = discBits.bitMask();
-      for (int bp = 0; bp < 8; bp++) {
-        final int byteVal = (int) ((mask >>> ((7 - bp) * 8)) & 0xFF);
-        if (byteVal != 0) augBits.put(ibp + bp, byteVal);
-      }
-    } else {
-      final byte[] ep = discBits.extractionPositions();
-      final long[] em = discBits.extractionMasks();
-      for (int i = 0; i < discBits.numExtractionBytes(); i++) {
-        final int chunkIdx = i / 8;
-        final int off = i % 8;
-        final int byteVal = (int) ((em[chunkIdx] >>> ((7 - off) * 8)) & 0xFF);
-        if (byteVal != 0) augBits.put(ep[i] & 0xFF, byteVal);
-      }
-    }
-
-    for (int round = 0; round < 8; round++) {
-      final int[] newPartials = new int[n];
-      final DiscBitsInfo augDiscBits = buildDiscBitsFromMap(augBits);
-      for (int i = 0; i < n; i++) {
-        final byte[] fk = getFirstKeyFromChild(fixRefs[i]);
-        newPartials[i] = (fk != null) ? computePartialKey(fk, augDiscBits) : 0;
-      }
-      sortChildrenAndPartialsByPartial(fixRefs, newPartials);
-      final int inv = phase7tFirstInversionIdx(fixRefs);
-      if (inv < 0) {
-        PHASE7W_REDIST_CALLS.incrementAndGet();
-        return buildIndirectFromMap(augBits, augDiscBits, newPartials, fixRefs,
-            indirect.getPageKey(), revision, indirect.getHeight(), n);
-      }
-      final byte[] fkA = getFirstKeyFromChild(fixRefs[inv - 1]);
-      final byte[] fkB = getFirstKeyFromChild(fixRefs[inv]);
-      if (fkA == null || fkB == null) return indirect;
-      final int msdb = DiscriminativeBitComputer.computeDifferingBit(fkA, fkB);
-      if (msdb < 0) return indirect;
-      final int bytePos = msdb / 8;
-      final int bitInByte = msdb % 8;
-      final int maskBit = 1 << (7 - bitInByte);
-      final Integer existing = augBits.get(bytePos);
-      if (existing != null && (existing & maskBit) != 0) return indirect;
-      augBits.merge(bytePos, maskBit, (a, b) -> a | b);
-    }
-    return indirect;
-  }
-
-  private DiscBitsInfo buildDiscBitsFromMap(java.util.TreeMap<Integer, Integer> bits) {
-    if (bits.isEmpty()) return DiscBitsInfo.singleMask(0, 1L);
-    final int minByte = bits.firstKey();
-    final int maxByte = bits.lastKey();
-    if (maxByte - minByte < 8) {
-      long mask = 0;
-      for (final var e : bits.entrySet()) {
-        final int off = e.getKey() - minByte;
-        mask |= ((long) (e.getValue() & 0xFF)) << ((7 - off) * 8);
-      }
-      return DiscBitsInfo.singleMask(minByte, mask);
-    }
-    final int nb = bits.size();
-    final byte[] ep = new byte[nb];
-    final int numChunks = (nb + 7) / 8;
-    final long[] em = new long[numChunks];
-    int i = 0;
-    short msb = Short.MAX_VALUE;
-    for (final var e : bits.entrySet()) {
-      ep[i] = (byte) (int) e.getKey();
-      final int byteVal = e.getValue();
-      final int chunkIdx = i / 8;
-      final int off = i % 8;
-      em[chunkIdx] |= ((long) (byteVal & 0xFF)) << ((7 - off) * 8);
-      final int highBit = 31 - Integer.numberOfLeadingZeros(byteVal & 0xFF);
-      final int absBit = e.getKey() * 8 + (7 - highBit);
-      msb = (short) Math.min(msb, absBit);
-      i++;
-    }
-    return DiscBitsInfo.multiMask(ep, em, nb, msb);
-  }
-
-  private HOTIndirectPage buildIndirectFromMap(
-      java.util.TreeMap<Integer, Integer> bits, DiscBitsInfo discBits,
-      int[] partials, PageReference[] children, long pageKey, int revision, int height, int n) {
-    if (discBits.isSingleMask()) {
-      return (n <= 16)
-          ? HOTIndirectPage.createSpanNode(pageKey, revision,
-              discBits.initialBytePos(), discBits.bitMask(), partials, children, height)
-          : HOTIndirectPage.createMultiNode(pageKey, revision,
-              discBits.initialBytePos(), discBits.bitMask(), partials, children, height);
-    }
-    final byte[] ep = discBits.extractionPositions();
-    final long[] em = discBits.extractionMasks();
-    final short msb = discBits.mostSignificantBitIndex();
-    return (n <= 16)
-        ? HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision,
-            ep, em, ep.length, partials, children, height, msb)
-        : HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision,
-            ep, em, ep.length, partials, children, height, msb);
   }
 
   private Page phase7wResolvePage(final PageReference ref) {
@@ -13852,24 +13661,29 @@ public final class HOTTrieWriter {
   private HOTIndirectPage buildFromDiscBits(PageReference[] children, DiscBitsInfo discBits,
       int[] partials, long pageKey, int revision, int height) {
     sortChildrenAndPartialsByPartial(children, partials);
+    final HOTIndirectPage built;
     if (discBits.isSingleMask()) {
       if (children.length <= 16) {
-        return HOTIndirectPage.createSpanNode(pageKey, revision,
+        built = HOTIndirectPage.createSpanNode(pageKey, revision,
+            discBits.initialBytePos(), discBits.bitMask(), partials, children, height);
+      } else {
+        built = HOTIndirectPage.createMultiNode(pageKey, revision,
             discBits.initialBytePos(), discBits.bitMask(), partials, children, height);
       }
-      return HOTIndirectPage.createMultiNode(pageKey, revision,
-          discBits.initialBytePos(), discBits.bitMask(), partials, children, height);
+    } else {
+      final byte[] ep = discBits.extractionPositions();
+      final long[] em = discBits.extractionMasks();
+      final int neb = discBits.numExtractionBytes();
+      final short msb = (short) discBits.mostSignificantBitIndex();
+      if (children.length <= 16) {
+        built = HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision,
+            ep, em, neb, partials, children, height, msb);
+      } else {
+        built = HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision,
+            ep, em, neb, partials, children, height, msb);
+      }
     }
-    final byte[] ep = discBits.extractionPositions();
-    final long[] em = discBits.extractionMasks();
-    final int neb = discBits.numExtractionBytes();
-    final short msb = (short) discBits.mostSignificantBitIndex();
-    if (children.length <= 16) {
-      return HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision,
-          ep, em, neb, partials, children, height, msb);
-    }
-    return HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision,
-        ep, em, neb, partials, children, height, msb);
+    return built;
   }
 
   private HOTIndirectPage createNodeFromChildrenCore(PageReference[] children, long pageKey, int revision, int height) {
@@ -14004,7 +13818,7 @@ public final class HOTTrieWriter {
         }
         sortChildrenAndPartialsByPartial(children, partialKeys);
         int invAfter = phase7tFirstInversionIdx(children);
-        for (int augAttempt = 0; augAttempt < 4 && invAfter >= 0; augAttempt++) {
+        for (int augAttempt = 0; augAttempt < 16 && invAfter >= 0; augAttempt++) {
           final byte[] fkA = getFirstKeyFromChild(children[invAfter - 1]);
           final byte[] fkB = getFirstKeyFromChild(children[invAfter]);
           if (fkA == null || fkB == null) break;
@@ -14058,6 +13872,10 @@ public final class HOTTrieWriter {
     // this is an upper bound on I6 mis-route origination; counts should approach (but
     // exceed) actual violation counts. Counter-only; gated on
     // -Dhot.strict.phase7t.crossroute.probe.
+
+    // Final I8 enforcement: re-sort children+partials by firstKey. PEXT routing is
+    // order-independent (SparsePartialKeys.search uses subset matching), so unsorted
+    // partials do not affect point-query correctness. This guarantees I8 (children
     final HOTIndirectPage created = createNodeWithDiscBits(pageKey, revision, height, discBits,
         partialKeys, children);
     return created;
@@ -14672,13 +14490,6 @@ public final class HOTTrieWriter {
     return EMPTY_KEY;
   }
 
-  /**
-   * Sort children by their first key to ensure correct boundary computation.
-   * HOT trie routing can place keys out of key-order (a key may route to a child
-   * covering a different key range based on disc bit values). Without sorting,
-   * the boundary computation between adjacent children may miss discriminative
-   * bits, leading to duplicate partial keys and unreachable children.
-   */
   private void sortChildrenByFirstKey(PageReference[] children) {
     if (children.length <= 1) {
       return;
@@ -14686,12 +14497,27 @@ public final class HOTTrieWriter {
     Arrays.sort(children, (a, b) -> Arrays.compareUnsigned(getFirstKeyFromChild(a), getFirstKeyFromChild(b)));
   }
 
+  private void sortChildrenByFirstKeyIfNeeded(final HOTIndirectPage indirect, final int n) {
+    final PageReference[] refs = new PageReference[n];
+    for (int i = 0; i < n; i++) {
+      refs[i] = indirect.getChildReference(i);
+    }
+    final int inv = phase7tFirstInversionIdx(refs);
+    if (inv < 0) return;
+    final byte[][] firstKeys = new byte[n][];
+    for (int i = 0; i < n; i++) {
+      final Page p = phase7wResolvePage(refs[i]);
+      if (p instanceof HOTLeafPage leaf && leaf.getEntryCount() > 0) {
+        firstKeys[i] = leaf.getFirstKey();
+      } else {
+        firstKeys[i] = new byte[0];
+      }
+    }
+    indirect.sortChildrenByFirstKey(firstKeys);
+  }
+
   /**
-   * Co-sort {@code children} and {@code partials} by ascending partial-key value (HOT I7
-   * invariant: children are stored in sparse-partial-key order, per Binna §4.2 and the
-   * reference {@code SparsePartialKeys}). Since under sparse-path encoding the partial-key
-   * order is the canonical ordering — first-key order can diverge for sibling subtrees with
-   * off-path range overlap — every indirect-node construction site uses this helper.
+   * Co-sort {@code children} and {@code partials} by ascending partial-key value.
    *
    * <p>HFT-grade: in-place insertion sort over the parallel arrays. Children's count is
    * bounded by {@link HOTIndirectPage#MAX_NODE_ENTRIES} = 32, so insertion sort is faster
@@ -14704,7 +14530,6 @@ public final class HOTTrieWriter {
       throw new IllegalArgumentException(
           "partials.length=" + partials.length + " < children.length=" + n);
     }
-    // Insertion sort — partials are unique (HOT I3) so equal pivots can't occur.
     for (int i = 1; i < n; i++) {
       final int curPartial = partials[i];
       final PageReference curChild = children[i];

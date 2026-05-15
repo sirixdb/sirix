@@ -888,8 +888,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       if (logKey >= 0) {
         final PageReference originalRef = log.getOriginalRef(logKey);
         if (originalRef != null && originalRef != reference) {
-          reference.setKey(originalRef.getKey());
-          reference.setHash(originalRef.getHash());
+          if (originalRef.getKey() >= 0) {
+            reference.setKey(originalRef.getKey());
+            reference.setHash(originalRef.getHash());
+          }
         }
       }
       return;
@@ -898,6 +900,18 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
     // Recursively commit indirectly referenced pages and then write self.
     page.commit(this);
     storagePageReaderWriter.write(getResourceSession().getResourceConfig(), reference, page, bufferBytes);
+
+    // Propagate disk offset to TIL back-reference so other PageReference copies
+    // (from CoW'd indirect pages sharing the same logKey) can resolve the disk key
+    // when they hit the isClosed() guard in a subsequent commit(ref) call.
+    final int refLogKey = reference.getLogKey();
+    if (refLogKey >= 0) {
+      final PageReference backRef = log.getOriginalRef(refLogKey);
+      if (backRef != null && backRef != reference && backRef.getKey() < 0) {
+        backRef.setKey(reference.getKey());
+        backRef.setHash(reference.getHash());
+      }
+    }
 
     container.getComplete().close();
     page.close();

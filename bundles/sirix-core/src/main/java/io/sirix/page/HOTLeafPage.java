@@ -203,6 +203,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   // directly. Acts as the HOT analogue of KeyValueLeafPage.completePageRef.
   private @Nullable HOTLeafPage completePageRef;
 
+  // Set after a leaf split: signals that this page contains ALL entries for its page key
+  // (i.e., a complete snapshot, not a delta). The combining logic in mergeHOTFragmentsByKey
+  // must NOT add entries from older fragments when this flag is set, otherwise entries that
+  // were moved to the right-half page during the split get resurrected from the base revision.
+  private boolean completeDump;
+
   // ===== Phase 7a — leaf-owned-bits metadata =====
   // Tracks which absolute MSB-first bit positions are captured by ANY ancestor mask on the
   // path that descends to this leaf. Keys in this leaf MUST have a constant value at each
@@ -1500,6 +1506,51 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
+   * Physically remove tombstoned entries. After compaction, only active (non-tombstoned)
+   * entries remain. The page is marked as a complete dump so fragment combining does not
+   * resurrect removed entries from the base revision.
+   *
+   * @return the number of entries removed
+   */
+  public int compactTombstones() {
+    int activeCount = 0;
+    for (int i = 0; i < entryCount; i++) {
+      final byte[] value = getValue(i);
+      if (!NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
+        activeCount++;
+      }
+    }
+    if (activeCount == entryCount) {
+      return 0;
+    }
+    final byte[][] activeKeys = new byte[activeCount][];
+    final byte[][] activeValues = new byte[activeCount][];
+    int idx = 0;
+    for (int i = 0; i < entryCount; i++) {
+      final byte[] value = getValue(i);
+      if (!NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
+        activeKeys[idx] = getKey(i);
+        activeValues[idx] = value;
+        idx++;
+      }
+    }
+    final int removed = entryCount - activeCount;
+    entryCount = 0;
+    usedSlotMemorySize = 0;
+    commonPrefix = EMPTY_PREFIX;
+    commonPrefixLen = 0;
+    clearDirtyBitmap();
+    pextValid = false;
+    for (int i = 0; i < activeCount; i++) {
+      put(activeKeys[i], activeValues[i]);
+    }
+    recomputePrefix();
+    markAllEntriesDirty();
+    completeDump = true;
+    return removed;
+  }
+
+  /**
    * Get entry count.
    *
    * @return number of entries
@@ -1802,6 +1853,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       // Key exists - merge NodeReferences
       final byte[] existingValue = getValue(index);
 
+      if (NodeReferencesSerializer.isTombstone(existingValue, 0, existingValue.length)) {
+        final byte[] valueSlice = valueLen == value.length ? value : Arrays.copyOf(value, valueLen);
+        return updateValue(index, valueSlice);
+      }
+
       // Deserialize both and merge
       var existingRefs = NodeReferencesSerializer.deserialize(existingValue);
       var newRefs = NodeReferencesSerializer.deserialize(value, 0, valueLen);
@@ -2078,10 +2134,11 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       return false;
     }
 
-    // Success — now safe to recompute prefix with all entries (including the inserted key)
+    markAllEntriesDirty();
+    completeDump = true;
+
     recomputePrefix();
     pextValid = false;
-    // Phase 7d — propagate owned bits to both halves + add msdb as new owned bit.
     propagateOwnedBitsAfterSplit(target, msdb);
     if (newSideOut != null && newSideOut.length > 0) {
       newSideOut[0] = newKeyToRight ? 1 : 0;
@@ -2283,11 +2340,12 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       return -1;
     }
 
-    // Recompute prefixes for both halves now that all entries are settled.
+    markAllEntriesDirty();
+    completeDump = true;
+
     recomputePrefix();
     target.recomputePrefix();
     pextValid = false;
-    // Phase 7d — propagate owned bits to both halves + add splitBit as new owned bit.
     propagateOwnedBitsAfterSplit(target, splitBit);
     return splitBit;
   }
@@ -2387,6 +2445,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     if (entryCount == 0 || target.entryCount == 0) {
       return false;
     }
+
+    markAllEntriesDirty();
+    completeDump = true;
 
     recomputePrefix();
     target.recomputePrefix();
@@ -2838,13 +2899,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public void materializeFromCompletePageRef(final io.sirix.settings.VersioningType type) {
     Objects.requireNonNull(type);
     if (type == io.sirix.settings.VersioningType.FULL) {
-      // FULL → every revision is a full dump → mark all entries dirty so sparse-emit equals full-emit.
       markAllEntriesDirty();
     }
-    // For non-FULL strategies, sparse-emit happens iff at least one entry is dirty AND a
-    // completePageRef is present. Nothing to do here at the bitmap level — the strategy-specific
-    // "full dump every N revisions" trigger is the writer's responsibility (it can call
-    // markAllEntriesDirty() before commit on revision boundaries).
   }
 
   /**
@@ -3272,6 +3328,14 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    */
   public @Nullable HOTLeafPage getCompletePageRef() {
     return completePageRef;
+  }
+
+  public boolean isCompleteDump() {
+    return completeDump;
+  }
+
+  public void setCompleteDump(final boolean completeDump) {
+    this.completeDump = completeDump;
   }
 
   /**
