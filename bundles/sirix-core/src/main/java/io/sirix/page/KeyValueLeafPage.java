@@ -62,7 +62,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * </p>
  */
 @SuppressWarnings({ "unchecked" })
-public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
+public final class KeyValueLeafPage implements KeyValuePage<DataRecord>, io.sirix.cache.CacheablePage {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(KeyValueLeafPage.class);
   /**
@@ -3537,27 +3537,24 @@ public final class KeyValueLeafPage implements KeyValuePage<DataRecord> {
   }
 
   /**
-   * Acquire a guard on this page (increment guard count).
-   * Pages with active guards cannot be evicted.
-   */
-  public void acquireGuard() {
-    guardCount.incrementAndGet();
-  }
-
-  /**
    * Try to acquire a guard on this page.
    * Returns false if the page is orphaned or closed (cannot be used).
    * This is the synchronized version that prevents race conditions with close().
    *
    * @return true if guard was acquired, false if page is orphaned/closed
    */
-  public synchronized boolean tryAcquireGuard() {
+  @Override
+  public synchronized boolean acquireGuard() {
     int flags = (int) STATE_FLAGS_HANDLE.getVolatile(this);
     if ((flags & (ORPHANED_BIT | CLOSED_BIT)) != 0) {
       return false;
     }
     guardCount.incrementAndGet();
     return true;
+  }
+
+  public synchronized boolean tryAcquireGuard() {
+    return acquireGuard();
   }
 
   /**

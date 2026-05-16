@@ -88,6 +88,8 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   private static final Logger LOG = LoggerFactory.getLogger(AbstractHOTIndexWriter.class);
 
+  private static final boolean STRICT_BINNA = Boolean.getBoolean("hot.strict.binna");
+
   protected final StorageEngineWriter storageEngineWriter;
   protected final IndexType indexType;
   protected final int indexNumber;
@@ -380,7 +382,9 @@ public abstract class AbstractHOTIndexWriter<K> {
     if (page instanceof HOTLeafPage hotLeaf) {
       // If leaf is already in log, return the modified instance directly.
       final PageContainer existingLeafContainer = storageEngineWriter.getLog().get(currentRef);
-      if (existingLeafContainer != null && existingLeafContainer.getModified() instanceof HOTLeafPage modifiedLeaf) {
+      if (existingLeafContainer != null
+          && existingLeafContainer.getModified() instanceof HOTLeafPage modifiedLeaf
+          && !modifiedLeaf.isClosed()) {
         return buildNavigationResult(modifiedLeaf, currentRef, pathDepth);
       }
 
@@ -594,14 +598,17 @@ public abstract class AbstractHOTIndexWriter<K> {
     final PageContainer container = storageEngineWriter.getLog().get(ref);
     if (container != null) {
       final Page modified = container.getModified();
-      if (modified != null) {
+      if (modified != null && !modified.isClosed()) {
         return modified;
       }
-      return container.getComplete();
+      final Page complete = container.getComplete();
+      if (complete != null && !complete.isClosed()) {
+        return complete;
+      }
     }
 
     final Page swizzled = ref.getPage();
-    if (swizzled != null) {
+    if (swizzled != null && !swizzled.isClosed()) {
       return swizzled;
     }
 
@@ -754,50 +761,43 @@ public abstract class AbstractHOTIndexWriter<K> {
     // the "would-make-it-mixed" leaf, into the existing β-correct subtree.
     // Stage G.18+G.19 — ambiguous-routing detection + reactive split.
     // When PEXT-routing for newKey is ambiguous at ancestor A (= densePK(newKey, A.mask)
-    if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
-      final byte[] keyBytesG18 = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
-      trieWriter.findAmbiguousAncestor(navResult.pathNodes(),
-          navResult.pathChildIndices(), navResult.pathDepth(), keyBytesG18);
+    if (STRICT_BINNA && navResult.pathDepth() > 0) {
+      final byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
+      final byte[] valSlice = valueLen == valueBuf.length ? valueBuf : Arrays.copyOf(valueBuf, valueLen);
 
-      final byte[] valueBytesG20 = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
+      trieWriter.findAmbiguousAncestor(navResult.pathNodes(),
+          navResult.pathChildIndices(), navResult.pathDepth(), keySlice);
+
       final int[] ancestorBits = trieWriter.collectAncestorDiscBits(
           navResult.pathNodes(), navResult.pathDepth());
       if (ancestorBits.length > 0 && ancestorBits.length <= 6) {
         final byte[][][] buckets = new byte[1 << ancestorBits.length][][];
-        trieWriter.recursiveConstancyAwareSplit(leaf, keyBytesG18, valueBytesG20,
+        trieWriter.recursiveConstancyAwareSplit(leaf, keySlice, valSlice,
             ancestorBits, buckets);
       }
-    }
 
-    if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
-      final byte[] keyBytes = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
       final int i8AncestorIdx = trieWriter.findI8OffendingAncestor(
           navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
-          navResult.pathDepth(), leaf, keyBytes);
+          navResult.pathDepth(), leaf, keySlice);
       if (i8AncestorIdx >= 0) {
         if (leaf.canSplit()) {
-          final byte[] valueBytes = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
           final int explicitBit = -1;
           final boolean ok = trieWriter.handleLeafSplitAndInsert(
               storageEngineWriter, storageEngineWriter.getLog(), leaf, navResult.leafRef(),
               rootRef, navResult.pathNodes(), navResult.pathRefs(),
               navResult.pathChildIndices(), navResult.pathDepth(),
-              keyBytes, keyLen, valueBytes, valueLen, explicitBit);
+              keySlice, keyLen, valSlice, valueLen, explicitBit);
           prepareIndexPage();
           if (ok) return;
         }
       }
-    }
 
-    if (Boolean.getBoolean("hot.strict.binna") && navResult.pathDepth() > 0) {
-      final byte[] keyBytes = keyLen == keyBuf.length ? keyBuf : java.util.Arrays.copyOf(keyBuf, keyLen);
       final int offendingBeta = trieWriter.findAnyOffendingAncestorBit(
-          navResult.pathNodes(), navResult.pathDepth(), leaf, keyBytes);
+          navResult.pathNodes(), navResult.pathDepth(), leaf, keySlice);
       if (offendingBeta >= 0) {
-        final byte[] valueBytes = valueLen == valueBuf.length ? valueBuf : java.util.Arrays.copyOf(valueBuf, valueLen);
         final boolean rerouted = trieWriter.tryReRouteOffendingKey(
             navResult.pathNodes(), navResult.pathRefs(), navResult.pathChildIndices(),
-            navResult.pathDepth(), offendingBeta, keyBytes, valueBytes,
+            navResult.pathDepth(), offendingBeta, keySlice, valSlice,
             storageEngineWriter, storageEngineWriter.getLog());
         prepareIndexPage();
         if (rerouted) return;

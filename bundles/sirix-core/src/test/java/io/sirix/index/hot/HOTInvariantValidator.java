@@ -213,8 +213,15 @@ public final class HOTInvariantValidator {
       }
       final Page child = loadPage(childRef);
       if (child == null) {
+        final Page rawPage = childRef.getPage();
         addViolation("unloadable-child",
-            "indirect[" + indirect.getPageKey() + "].child[" + i + "] could not be loaded", indirect);
+            "indirect[" + indirect.getPageKey() + "].child[" + i + "] could not be loaded"
+                + " (logKey=" + childRef.getLogKey()
+                + " gen=" + childRef.getActiveTilGeneration()
+                + " diskKey=" + childRef.getKey()
+                + " rawPage=" + (rawPage == null ? "null" : rawPage.getClass().getSimpleName()
+                    + (rawPage.isClosed() ? "-CLOSED" : "-OPEN"))
+                + ")", indirect);
         continue;
       }
       // I11 — trie-condition: disc bits become strictly less significant down the tree.
@@ -367,13 +374,30 @@ public final class HOTInvariantValidator {
     }
 
     // I8 — children sorted by first-key.
-    // NOTE: I8 is a normalization invariant that holds immediately after
-    // createNodeFromChildrenCore (build/split time). After incremental inserts into
-    // multi-entry leaves, PEXT routing can legitimately place keys outside a leaf's
-    // original firstKey range (the discriminating bits match, but non-discriminating
-    // bits may differ). This changes a leaf's physical firstKey without updating the
-    // parent's child ordering. I8 does NOT affect routing correctness — findChildIndex
-    // uses PEXT partial-key matching, not sort order. Skipped as a validation failure.
+    // I8 is NOT merely cosmetic: HOTRangeCursor does in-order trie traversal with a parent
+    // stack (no sibling pointers, for CoW-compatibility) and advances by child INDEX, so a
+    // range scan is correct only when child-index order equals key order. In a well-formed
+    // HOT trie I7 (partials ascending) and I8 (children by firstKey) are equivalent — both
+    // express "child index order == lex order"; they diverge only when an indirect's mask
+    // misses a discriminating bit, which is itself the malformation worth catching.
+    byte[] previousFirstKey = null;
+    for (int i = 0; i < n; i++) {
+      final PageReference childRef = indirect.getChildReference(i);
+      if (childRef == null) continue;
+      final byte[] firstKey = firstKeyOfSubtree(childRef);
+      if (firstKey == null) continue;
+      if (previousFirstKey != null) {
+        final int cmp = Arrays.compareUnsigned(previousFirstKey, firstKey);
+        if (cmp >= 0) {
+          addViolation("I8-children-sorted-by-firstkey",
+              "indirect " + indirect.getPageKey() + " child[" + (i - 1) + "].firstKey "
+                  + bytesHex(previousFirstKey) + " >= child[" + i + "].firstKey "
+                  + bytesHex(firstKey), indirect);
+          break;
+        }
+      }
+      previousFirstKey = firstKey;
+    }
 
     // I-Binna — sparse-path encoding (necessary condition).
     //
@@ -829,9 +853,18 @@ public final class HOTInvariantValidator {
   // ===== helpers =====
 
   private @Nullable Page loadPage(PageReference ref) {
+    // Always prefer TIL-aware resolution via reader.loadHOTPage — this ensures we see
+    // the latest version of pages updated mid-transaction (e.g., after leaf splits,
+    // intermediate indirect pages in TIL supersede stale ref.getPage() values).
+    final Page tilPage = reader.loadHOTPage(ref);
+    if (tilPage != null && !tilPage.isClosed()) {
+      return tilPage;
+    }
     final Page inMemory = ref.getPage();
-    if (inMemory != null) return inMemory;
-    return reader.loadHOTPage(ref);
+    if (inMemory != null && !inMemory.isClosed()) {
+      return inMemory;
+    }
+    return null;
   }
 
   /**

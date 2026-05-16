@@ -94,7 +94,7 @@ import java.util.function.IntConsumer;
  * @see KeyValuePage
  * @see HOTIndirectPage
  */
-public final class HOTLeafPage implements KeyValuePage<DataRecord> {
+public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cache.CacheablePage {
 
   /** Sentinel value for "not found" in binary search. */
   public static final int NOT_FOUND = -1;
@@ -242,7 +242,6 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     this.revision = revision;
     this.indexType = Objects.requireNonNull(indexType);
 
-    // Allocate off-heap memory
     MemorySegmentAllocator allocator = Allocators.getInstance();
     this.slotMemory = allocator.allocate(DEFAULT_SIZE);
     // Capture by local variable to avoid releasing wrong memory if slotMemory field is later changed
@@ -769,9 +768,19 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public MemorySegment getValueSlice(int index) {
     Objects.checkIndex(index, entryCount);
     final int offset = slotOffsets[index];
+    final long segSize = slotMemory.byteSize();
+    if (offset < 0 || offset + 2 > segSize) {
+      return MemorySegment.NULL.reinterpret(0);
+    }
     final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
     final int valueOffset = offset + 2 + suffixLen;
+    if (valueOffset + 2 > segSize) {
+      return MemorySegment.NULL.reinterpret(0);
+    }
     final int valueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueOffset));
+    if (valueOffset + 2 + valueLen > segSize) {
+      return MemorySegment.NULL.reinterpret(0);
+    }
     return slotMemory.asSlice(valueOffset + 2, valueLen);
   }
 
@@ -784,7 +793,13 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
   public byte[] getKey(int index) {
     Objects.checkIndex(index, entryCount);
     final int offset = slotOffsets[index];
+    if (offset < 0 || offset + 2 > slotMemory.byteSize()) {
+      return null;
+    }
     final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
+    if (offset + 2 + suffixLen > slotMemory.byteSize()) {
+      return null;
+    }
     final byte[] fullKey = new byte[commonPrefixLen + suffixLen];
     if (commonPrefixLen > 0) {
       System.arraycopy(commonPrefix, 0, fullKey, 0, commonPrefixLen);
@@ -898,6 +913,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
    */
   public byte[] getValue(int index) {
     final MemorySegment slice = getValueSlice(index);
+    if (slice.byteSize() == 0) {
+      return null;
+    }
     final byte[] value = new byte[(int) slice.byteSize()];
     MemorySegment.copy(slice, ValueLayout.JAVA_BYTE, 0, value, 0, value.length);
     return value;
@@ -1280,8 +1298,6 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
     // Invalidate PEXT index (disc bits over suffixes changed)
     pextValid = false;
-
-
   }
 
   /**
@@ -1500,7 +1516,9 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     final int oldUsed = usedSlotMemorySize;
     MemorySegment.copy(scratch, 0, slotMemory, ValueLayout.JAVA_BYTE, 0, newOffset);
     usedSlotMemorySize = newOffset;
-    assert newOffset <= oldUsed : "compact() grew data: " + newOffset + " > " + oldUsed;
+    if (newOffset > oldUsed) {
+      throw new IllegalStateException("compact() grew data: " + newOffset + " > " + oldUsed);
+    }
 
     return oldUsed - usedSlotMemorySize;
   }
@@ -1516,6 +1534,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     int activeCount = 0;
     for (int i = 0; i < entryCount; i++) {
       final byte[] value = getValue(i);
+      if (value == null) continue;
       if (!NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
         activeCount++;
       }
@@ -1528,6 +1547,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     int idx = 0;
     for (int i = 0; i < entryCount; i++) {
       final byte[] value = getValue(i);
+      if (value == null) continue;
       if (!NodeReferencesSerializer.isTombstone(value, 0, value.length)) {
         activeKeys[idx] = getKey(i);
         activeValues[idx] = value;
@@ -1744,7 +1764,7 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
     }
 
     // Get old entry info (suffix-based: [u16 suffixLen][suffix][u16 valueLen][value])
-    final int offset = slotOffsets[index];
+    int offset = slotOffsets[index];
     final int suffixLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, offset));
     final int valueOffset = offset + 2 + suffixLen;
     final int oldValueLen = Short.toUnsignedInt(slotMemory.get(JAVA_SHORT_UNALIGNED, valueOffset));
@@ -1765,6 +1785,8 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
       if (usedSlotMemorySize + newEntrySize > slotMemory.byteSize()) {
         return false;
       }
+      // compact() relocates entries — re-read the current offset
+      offset = slotOffsets[index];
     }
 
     // Copy suffix and new value to end of used space
@@ -3220,29 +3242,29 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord> {
 
   // ===== Utility methods =====
 
-  /**
-   * Get the hot flag for clock-based eviction.
-   *
-   * @return true if recently accessed
-   */
+  @Override
+  public long getActualMemorySize() {
+    return slotMemory != null ? slotMemory.byteSize() : 0;
+  }
+
+  @Override
+  public void markAccessed() {
+    hot = true;
+  }
+
+  @Override
   public boolean isHot() {
     return hot;
   }
 
-  /**
-   * Clear the hot flag (called by clock sweeper).
-   */
+  @Override
   public void clearHot() {
     hot = false;
   }
 
-  /**
-   * Increment version (called when page is reused).
-   *
-   * @return new version
-   */
-  public int incrementVersion() {
-    return version.incrementAndGet();
+  @Override
+  public void incrementVersion() {
+    version.incrementAndGet();
   }
 
   /**

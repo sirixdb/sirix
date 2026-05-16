@@ -948,9 +948,10 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
       final long t0 = timing ? System.nanoTime() : 0;
       parallelSerializationOfKeyValuePages();
 
-      // Recursively write indirectly referenced pages (serializes to buffers).
       final long t1 = timing ? System.nanoTime() : 0;
+      LOGGER.warn("DIAG: TIL size before recursive commit: {}", log.getList().size());
       uberPage.commit(this);
+      LOGGER.warn("DIAG: TIL size after recursive commit: {} (closed entries not cleaned)", log.getList().size());
 
       // Wait for the previous commit's async UberPage fsync to complete.
       // This ensures the previous revision is fully durable before we proceed.
@@ -1261,7 +1262,16 @@ final class NodeStorageEngineWriter extends AbstractForwardingStorageEngineReade
         kvlPage.close();
       }
     } else if (page instanceof HOTLeafPage hotLeaf && !hotLeaf.isClosed()) {
-      hotLeaf.close();
+      // Do NOT free a HOT leaf that is still owned by the shared HOT-leaf buffer cache:
+      // the combined read-side page is handed to the writer as a PageContainer's complete
+      // page, so the SAME instance lives in both places. Closing it here would free the
+      // off-heap MemorySegment out from under concurrent readers (use-after-free).
+      if (!storageEngineReader.getBufferManager().getHOTLeafPageCache().containsPage(hotLeaf)) {
+        if (hotLeaf.getGuardCount() > 0) {
+          hotLeaf.releaseGuard();
+        }
+        hotLeaf.close();
+      }
     }
   }
 

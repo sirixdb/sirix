@@ -2502,8 +2502,6 @@ final class HOTFormalVerificationTest {
         if (count == 0) missedValues++;
       }
 
-      System.out.println("[range-scan-integrity-desc-10K] rangeScan=" + totalFromRangeScan
-          + " pointQueries=" + totalFromPointQueries + " missedValues=" + missedValues);
       assertEquals((long) n, totalFromRangeScan,
           "[range-scan-integrity-desc-10K] range scan missed entries (I8 fix not working)");
       assertEquals((long) n, totalFromPointQueries,

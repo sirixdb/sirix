@@ -115,6 +115,24 @@ public interface Cache<K, V> {
   }
 
   /**
+   * Test whether the given value instance is currently held by this cache.
+   *
+   * <p>Membership is by reference identity for value types that do not override {@code equals}
+   * (e.g. {@link io.sirix.page.HOTLeafPage}). Used by transaction-teardown code to avoid
+   * releasing off-heap memory of a page that is still owned (and shared) by a buffer cache.</p>
+   *
+   * @param value the value instance to look for (may be {@code null}, in which case {@code false}
+   *              is returned)
+   * @return {@code true} if the cache currently holds this exact instance
+   */
+  default boolean containsPage(V value) {
+    if (value == null) {
+      return false;
+    }
+    return asMap().containsValue(value);
+  }
+
+  /**
    * Get all entries corresponding to the keys.
    *
    * @param keys {@link Iterable} of keys

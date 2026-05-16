@@ -343,14 +343,11 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
     if (parentPathNode == null) {
       return;
     }
-    if (parentPathNode.getReferences() <= 0) {
-      return;
+    if (parentPathNode.getReferences() <= 1) {
+      removePathSummaryNode(RemoveSubtreePath.YES);
+    } else {
+      decrementAndPersist(pathNodeKey);
     }
-    final PathNode owned = storageEngineWriter.prepareRecordForModification(pathNodeKey,
-        IndexType.PATH_SUMMARY, 0);
-    owned.decrementReferenceCount();
-    persistPathSummaryRecord(owned);
-    pathSummaryReader.putMapping(owned.getNodeKey(), owned);
   }
 
   /**
@@ -982,14 +979,11 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
   private void deleteOrDecrement() {
     if (nodeRtx.getNode() instanceof ImmutableNameNode) {
       movePathSummary();
-      if (pathSummaryReader.getReferences() <= 0) {
-        return;
+      if (pathSummaryReader.getReferences() == 1) {
+        removePathSummaryNode(RemoveSubtreePath.NO);
+      } else if (pathSummaryReader.getReferences() > 1) {
+        decrementAndPersist(pathSummaryReader.getNodeKey());
       }
-      final PathNode pathNode =
-          storageEngineWriter.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
-      pathNode.decrementReferenceCount();
-      persistPathSummaryRecord(pathNode);
-      pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
     }
   }
 
@@ -1002,15 +996,20 @@ public final class PathSummaryWriter<R extends NodeCursor & NodeReadOnlyTrx>
    */
   public void remove(final ImmutableNameNode node) {
     if (pathSummaryReader.moveTo(node.getPathNodeKey())) {
-      if (pathSummaryReader.getReferences() <= 0) {
-        return;
+      if (pathSummaryReader.getReferences() == 1) {
+        removePathSummaryNode(RemoveSubtreePath.YES);
+      } else if (pathSummaryReader.getReferences() > 1) {
+        decrementAndPersist(pathSummaryReader.getNodeKey());
       }
-      final PathNode pathNode =
-          storageEngineWriter.prepareRecordForModification(pathSummaryReader.getNodeKey(), IndexType.PATH_SUMMARY, 0);
-      pathNode.decrementReferenceCount();
-      persistPathSummaryRecord(pathNode);
-      pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
     }
+  }
+
+  private void decrementAndPersist(final long nodeKey) {
+    final PathNode pathNode =
+        storageEngineWriter.prepareRecordForModification(nodeKey, IndexType.PATH_SUMMARY, 0);
+    pathNode.decrementReferenceCount();
+    persistPathSummaryRecord(pathNode);
+    pathSummaryReader.putMapping(pathNode.getNodeKey(), pathNode);
   }
 
   private void persistDocumentRecord(final DataRecord record) {

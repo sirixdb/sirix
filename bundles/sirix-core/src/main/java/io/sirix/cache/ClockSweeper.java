@@ -1,7 +1,6 @@
 package io.sirix.cache;
 
 import io.sirix.access.trx.RevisionEpochTracker;
-import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,8 +36,8 @@ public final class ClockSweeper implements Runnable {
 
   private static final Logger LOGGER = LoggerFactory.getLogger(ClockSweeper.class);
 
-  private final ShardedPageCache.Shard shard;
-  private final ShardedPageCache cache;
+  private final ShardedPageCache.Shard<?> shard;
+  private final ShardedPageCache<?> cache;
   private final RevisionEpochTracker epochTracker;
   private final AtomicBoolean running = new AtomicBoolean(true);
   private final int sweepIntervalMs;
@@ -63,7 +62,7 @@ public final class ClockSweeper implements Runnable {
    * @param databaseId database ID to filter pages
    * @param resourceId resource ID to filter pages
    */
-  public ClockSweeper(ShardedPageCache.Shard shard, ShardedPageCache cache, RevisionEpochTracker epochTracker,
+  public ClockSweeper(ShardedPageCache.Shard<?> shard, ShardedPageCache<?> cache, RevisionEpochTracker epochTracker,
       int sweepIntervalMs, int shardIndex, long databaseId, long resourceId) {
     this.shard = shard;
     this.cache = cache;
@@ -168,7 +167,7 @@ public final class ClockSweeper implements Runnable {
 
           // ATOMIC: Check guard count (PRIMARY protection)
           if (page.getGuardCount() > 0) {
-            if (KeyValueLeafPage.DEBUG_MEMORY_LEAKS && LOGGER.isDebugEnabled()) {
+            if (ShardedPageCache.DEBUG_MEMORY_LEAKS && LOGGER.isDebugEnabled()) {
               LOGGER.debug("ClockSweeper[{}] skip guarded page key={} type={} rev={} guards={}", shardIndex,
                   page.getPageKey(), page.getIndexType(), page.getRevision(), page.getGuardCount());
             }

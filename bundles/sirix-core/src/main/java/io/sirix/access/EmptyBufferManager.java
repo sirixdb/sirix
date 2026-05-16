@@ -10,6 +10,7 @@ import io.sirix.cache.RBIndexKey;
 import io.sirix.cache.RevisionRootPageCacheKey;
 import io.sirix.index.name.Names;
 import io.sirix.node.interfaces.Node;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
@@ -22,6 +23,8 @@ public final class EmptyBufferManager implements BufferManager {
   private static final EmptyCache<PageReference, KeyValueLeafPage> RECORD_PAGE_FRAGMENT_CACHE = new EmptyCache<>();
 
   private static final EmptyCache<PageReference, Page> PAGE_CACHE = new EmptyCache<>();
+
+  private static final EmptyCache<PageReference, HOTLeafPage> HOT_LEAF_PAGE_CACHE = new EmptyCache<>();
 
   private static final EmptyCache<RevisionRootPageCacheKey, RevisionRootPage> REVISION_ROOT_PAGE_CACHE =
       new EmptyCache<>();
@@ -47,6 +50,11 @@ public final class EmptyBufferManager implements BufferManager {
   @Override
   public Cache<PageReference, Page> getPageCache() {
     return PAGE_CACHE;
+  }
+
+  @Override
+  public Cache<PageReference, HOTLeafPage> getHOTLeafPageCache() {
+    return HOT_LEAF_PAGE_CACHE;
   }
 
   @Override

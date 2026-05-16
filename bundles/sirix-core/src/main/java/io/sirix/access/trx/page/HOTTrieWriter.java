@@ -2687,7 +2687,6 @@ public final class HOTTrieWriter {
       TransactionIntentLog log, int revision) {
     final int n = leaf.getEntryCount();
     if (n < 2) {
-      // Single-entry leaf can't be split — caller's bv check should have ruled this out.
       return null;
     }
 
@@ -2701,21 +2700,26 @@ public final class HOTTrieWriter {
     for (int i = 0; i < n; i++) {
       final byte[] key = leaf.getKey(i);
       final byte[] value = leaf.getValue(i);
+      if (key == null || value == null) {
+        continue;
+      }
       final boolean bitSet = DiscriminativeBitComputer.isBitSet(key, absBit);
       final HOTLeafPage target = bitSet ? rightLeaf : leftLeaf;
       if (!target.put(key, value)) {
-        return null; // out-of-space — bail
+        leftLeaf.close();
+        rightLeaf.close();
+        return null;
       }
       if (bitSet) rightCount++;
       else leftCount++;
     }
 
     if (leftCount == 0 || rightCount == 0) {
-      return null; // degenerate — caller's non-constancy check should have ruled this out
+      leftLeaf.close();
+      rightLeaf.close();
+      return null;
     }
 
-    // Phase 7d — propagate parent leaf's ancestor-owned bits to both halves, AND add
-    // absBit as a new owned bit with the appropriate constant value per half.
     propagateOwnedBitsToSplitHalves(leaf, leftLeaf, rightLeaf, absBit);
 
     final PageReference leftRef = new PageReference();
@@ -4631,8 +4635,10 @@ public final class HOTTrieWriter {
       return -1;
     }
     if (page instanceof HOTLeafPage leaf) {
-      // Phase 6c — delegate to HOTLeafPage's API which has the same semantics. Future
-      // 6b work will make this O(1) via incremental non-constant-bits tracking.
+      if (leaf.isClosed()) {
+        ref.setPage(null);
+        return -1;
+      }
       final int result = leaf.isBitConstantAtAbsBit(absBitPos);
       return result;
     }
@@ -6513,7 +6519,6 @@ public final class HOTTrieWriter {
       }
     }
     if (misrouteCount == 0) {
-      sortChildrenByFirstKeyIfNeeded(indirect, n);
       return indirect;
     }
 
@@ -6549,7 +6554,7 @@ public final class HOTTrieWriter {
 
     boolean overflow = false;
     for (int e = 0; e < idx; e++) {
-      if (allKeys[e] == null) continue;
+      if (allKeys[e] == null || allValues[e] == null) continue;
       final int tc = targetChild[e];
       if (!newLeaves[tc].mergeWithNodeRefs(
               allKeys[e], allKeys[e].length, allValues[e], allValues[e].length)) {
@@ -6557,13 +6562,23 @@ public final class HOTTrieWriter {
         break;
       }
     }
-    if (overflow) return indirect;
+    if (overflow) {
+      for (int i = 0; i < n; i++) {
+        newLeaves[i].close();
+      }
+      return indirect;
+    }
 
     boolean anyEmpty = false;
     for (int i = 0; i < n; i++) {
       if (newLeaves[i].getEntryCount() == 0) { anyEmpty = true; break; }
     }
-    if (anyEmpty) return indirect;
+    if (anyEmpty) {
+      for (int i = 0; i < n; i++) {
+        newLeaves[i].close();
+      }
+      return indirect;
+    }
 
     final TransactionIntentLog log = this.activeLog;
     for (int i = 0; i < n; i++) {
@@ -6576,8 +6591,12 @@ public final class HOTTrieWriter {
     PHASE7W_REDIST_CALLS.incrementAndGet();
     PHASE7W_REDIST_KEYS_MOVED.addAndGet(misrouteCount);
 
-    sortChildrenByFirstKeyIfNeeded(indirect, n);
-
+    // Children stay in partial-key order: child[i] keeps partial[i], redistribution only
+    // swaps in the leaf holding the keys that PEXT-route to partial[i]. Do NOT re-sort by
+    // firstKey here — firstKey order and partial order diverge whenever the mask misses a
+    // discriminating bit, and a firstKey sort would then break I7 (partials ascending),
+    // which findChildIndex's binary search depends on. I8 (firstKey order) is a pure
+    // normalization invariant and is not validated.
     return indirect;
   }
 
@@ -8938,211 +8957,31 @@ public final class HOTTrieWriter {
   }
 
   /**
-   * Stage G.32 — I11-safe root mask reconciliation. When a child subtree's leaves get
-   * inserted into and the subtree's deep-firstKey changes, root's stored partial for that
-   * child may no longer match the firstKey order (stale partial). Walk root's children,
-   * find offending adjacent pairs (= partial order doesn't match firstKey order), find
-   * the MSDB between them, and ADD that bit to root's mask — BUT ONLY if the bit's absBit
-   * is GREATER (= less significant) than root's current MSB. This preserves I11.
+   * Root-mask reconciliation — intentionally a no-op.
    *
-   * <p>The new bit must be in a byte that's already in root's extraction byte-list (=
-   * extending an existing mask byte). Adding a new byte position would change the layout
-   * radically; defer to splitParentAndRecurse for that case.
+   * <p>This formerly tried to repair a stale I8 (root children no longer ordered by
+   * deep-firstKey) by extending the root mask or rebuilding the root. Every variant was
+   * wrong for Sirix's multi-entry-leaf HOT trie:
+   * <ul>
+   *   <li>The mask-extension / rebuild paths speculatively split subtrees on <em>every</em>
+   *       insert via {@code splitSubtreeOnBit}, allocating 64 KiB off-heap leaf pages that
+   *       were never freed once the candidate layout was rejected — an unbounded leak that
+   *       OOMs large single-revision inserts.</li>
+   *   <li>The rebuilt root carried partials that were neither content-accurate nor mutually
+   *       exclusive under PEXT subset-matching, cascading into I5/I6 violations.</li>
+   *   <li>Sorting children by firstKey instead breaks I7 (partials must stay ascending for
+   *       {@code findChildIndex}'s binary search) whenever partial-order and firstKey-order
+   *       disagree — which is exactly the malformed state this tried to repair.</li>
+   * </ul>
    *
-   * <p>HFT-grade: bounded loop (≤ 16 attempts), one allocation per try.
+   * <p>I8 is a normalization invariant only: {@code findChildIndex} routes by PEXT
+   * partial-key matching, not child sort order, and the HOT invariant validator does not
+   * flag I8. Indirect construction already keeps partials sorted (I7) via
+   * {@code sortChildrenAndPartialsByPartial}, so there is nothing left to reconcile.
    */
   public void reconcileRootMaskI11Safe(PageReference rootRef,
       StorageEngineWriter storageEngineWriter, TransactionIntentLog log) {
-    if (rootRef == null) return;
-    // Phase 7q.10 — bind activeLog so getFirstKeyFromChild can resolve TIL-only refs.
-    // Without this, placeholder children produce EMPTY_KEY → partial=0 → collisions in
-    // extendIndirectMaskForClosureI11Safe's partial uniqueness check, blocking the
-    // discriminating bit from being added.
-    this.activeReader = storageEngineWriter;
-    this.activeLog = log;
-    final int revision = storageEngineWriter.getRevisionNumber();
-    final var logEntry = log.get(rootRef);
-    Page curPage = logEntry != null ? logEntry.getModified() : rootRef.getPage();
-    if (curPage == null) curPage = loadPage(storageEngineWriter, rootRef);
-    if (!(curPage instanceof HOTIndirectPage indirect)) return;
-    if (indirect.getNumChildren() < 2) return;
-
-    // First check if there's any I8 violation worth fixing.
-    {
-      final int n = indirect.getNumChildren();
-      final byte[][] firstKeys = new byte[n][];
-      for (int i = 0; i < n; i++) {
-        final PageReference cref = indirect.getChildReference(i);
-        if (cref == null) return;
-        firstKeys[i] = getFirstKeyFromChild(cref);
-      }
-      boolean hasInversion = false;
-      for (int i = 1; i < n; i++) {
-        if (firstKeys[i] == null || firstKeys[i - 1] == null
-            || firstKeys[i].length == 0 || firstKeys[i - 1].length == 0) continue;
-        if (Arrays.compareUnsigned(firstKeys[i - 1], firstKeys[i]) >= 0) {
-          hasInversion = true; break;
-        }
-      }
-      if (!hasInversion) return;
-
-      // Stage G.32 — bulk-rebuild root with FULL MSDB-closure of current firstKeys.
-      // Try this ONCE; if it succeeds, root is reconciled. If it fails, fall through to
-      // the iterative single-bit approach as a safety net.
-      final int parentMsb = indirect.getMostSignificantBitIndex() & 0xFFFF;
-      final HOTIndirectPage bulkRebuilt = rebuildRootWithFullClosureI11Safe(indirect, parentMsb, revision);
-      if (bulkRebuilt != null) {
-        G32_RECONCILE_FIRINGS.incrementAndGet();
-        log.put(rootRef, PageContainer.getInstance(bulkRebuilt, bulkRebuilt));
-        rootRef.setPage(bulkRebuilt);
-        return; // bulk path resolved it
-      }
-
-      // Phase 7q.13 — last-resort: ADD A NEW ROOT LEVEL above the inverted-firstKey pair.
-      // When iterative bit-extension cannot place the discriminating bit in the existing
-      // root.mask (= partial collision from placeholder children, β-mixed leaves blocking
-      // constancy), wrap the existing root structure with a NEW INDIRECT that has the
-      // discriminating bit in its mask. The two new children are the LEFT half (β=0
-      // children of old root) and RIGHT half (β=1 children of old root), each rebuilt
-      // as a sub-indirect inheriting old root's mask filtered to bits > β.
-      //
-      // This relaxes the per-insert fail-stop in favor of a structural rewrite that
-      // satisfies I8 by construction.
-      final HOTIndirectPage levelRebuilt = addNewRootLevelForI8(indirect, log, revision);
-      if (levelRebuilt != null) {
-        G32_RECONCILE_FIRINGS.incrementAndGet();
-        log.put(rootRef, PageContainer.getInstance(levelRebuilt, levelRebuilt));
-        rootRef.setPage(levelRebuilt);
-        return;
-      }
-
-      // Phase 7q.15 — multi-β atomic lift. Compute ALL needed MSDB bits at once, lift them
-      // sequentially WITHOUT building intermediate indirects (= accumulate walker outputs),
-      // then build a SINGLE new indirect with all bits in mask. Avoids the iter-N-depends-
-      // on-iter-(N-1) divergence problem documented in hot-phase7q-15-session.md. Gated by
-      // hot.strict.g32.multibeta.
-      final HOTIndirectPage multiBetaFixed = phase7qMultiBetaAtomicLift(indirect, log, revision);
-      if (multiBetaFixed != null) {
-        log.put(rootRef, PageContainer.getInstance(multiBetaFixed, multiBetaFixed));
-        rootRef.setPage(multiBetaFixed);
-        return;
-      }
-
-      // Phase 7q.15 — iterative I8 fix. After the bulk + addNewRoot + multi-β paths fail,
-      // run an iterative loop that finds the FIRST adjacent inversion in stored order,
-      // computes its MSB-of-diff, and adds that bit via extend (β-constant case) or lift
-      // (non-β-constant case). Gated by hot.strict.g32.deep.
-      final HOTIndirectPage iterFixed = phase7qIterativeRootSortI8(indirect, log, revision);
-      if (iterFixed != null && iterFixed != indirect) {
-        log.put(rootRef, PageContainer.getInstance(iterFixed, iterFixed));
-        rootRef.setPage(iterFixed);
-        return;
-      }
-    }
-
-    // Up to 16 mask-extension attempts (single-bit fallback).
-    for (int attempt = 0; attempt < 16; attempt++) {
-      final int n = indirect.getNumChildren();
-      // Collect current deep-firstKeys.
-      final byte[][] firstKeys = new byte[n][];
-      for (int i = 0; i < n; i++) {
-        final PageReference cref = indirect.getChildReference(i);
-        if (cref == null) return;
-        firstKeys[i] = getFirstKeyFromChild(cref);
-      }
-      // Find offending adjacent pair in STORED (partial) order: firstKey[i-1] >= firstKey[i].
-      int offI = -1, offK = -1;
-      for (int i = 1; i < n; i++) {
-        if (firstKeys[i] == null || firstKeys[i - 1] == null
-            || firstKeys[i].length == 0 || firstKeys[i - 1].length == 0) continue;
-        if (Arrays.compareUnsigned(firstKeys[i - 1], firstKeys[i]) >= 0) {
-          offK = i - 1; offI = i;
-          break;
-        }
-      }
-      if (offI < 0) {
-        return; // no I8 violation — done
-      }
-      final int parentMsb = indirect.getMostSignificantBitIndex() & 0xFFFF;
-      // Compute MSDB-closure: ALL absBits where any pair of children's firstKeys differ,
-      // restricted to absBit > parentMsb (= I11-safe). Then try each in MSDB-first order
-      // (= smallest absBit = most significant first). Pick the first that succeeds.
-      int maxLen = 0;
-      for (int i = 0; i < n; i++) {
-        if (firstKeys[i] != null && firstKeys[i].length > maxLen) maxLen = firstKeys[i].length;
-      }
-      final int totalAbsBits = maxLen * 8;
-      // Bitset of closure bits (= positions where any pair differs).
-      final long[] closureBitset = new long[(totalAbsBits + 63) / 64];
-      for (int absBit = parentMsb + 1; absBit < totalAbsBits; absBit++) {
-        boolean seen0 = false, seen1 = false;
-        for (int i = 0; i < n; i++) {
-          if (firstKeys[i] == null || firstKeys[i].length == 0) continue;
-          if (isAbsBitSet(firstKeys[i], absBit)) seen1 = true;
-          else seen0 = true;
-          if (seen0 && seen1) break;
-        }
-        if (seen0 && seen1) closureBitset[absBit >> 6] |= 1L << (absBit & 63);
-      }
-      // Phase 7q.10 diagnostic: dump per-child bit values at specific absBits.
-      // Phase 7q.10 diagnostic: dump closure-bit list + offending pair on first attempt.
-      // Try each closure bit in order. First try constancy-only (no split). If all fail,
-      // try split-aware (= splits β-mixed children to make β-constant).
-      HOTIndirectPage extended = null;
-      int chosenBit = -1;
-      for (int absBit = parentMsb + 1; absBit < totalAbsBits; absBit++) {
-        if ((closureBitset[absBit >> 6] & (1L << (absBit & 63))) == 0) continue;
-        extended = extendMaskWithBitI11Safe(indirect, absBit, revision);
-        if (extended != null) {
-          chosenBit = absBit;
-          break;
-        }
-      }
-      if (extended == null) {
-        // Constancy-only failed. Try split-aware: splitSubtreeOnBit on β-mixed children
-        // to make every child β-constant, then extend.
-        for (int absBit = parentMsb + 1; absBit < totalAbsBits; absBit++) {
-          if ((closureBitset[absBit >> 6] & (1L << (absBit & 63))) == 0) continue;
-          extended = extendIndirectMaskForClosureI11Safe(indirect, absBit, parentMsb, log, revision);
-          if (extended != null) {
-            chosenBit = absBit;
-            break;
-          }
-        }
-      }
-      if (extended == null) {
-        // Split-aware on closure bits failed. Try LIFTING: for each child's MSB bit,
-        // attempt to split that child on its own MSB and add the MSB to root's mask.
-        // This is the recursive lift operation — children DROP their MSB (= absorbed
-        // into root), children's MSB shifts to less-significant. Eventually root's
-        // mask has enough bits to discriminate via PEXT.
-        final java.util.TreeSet<Integer> childMsbs = new java.util.TreeSet<>();
-        for (int i = 0; i < n; i++) {
-          final PageReference cref = indirect.getChildReference(i);
-          if (cref == null) continue;
-          final Page cp = cref.getPage();
-          if (cp instanceof HOTIndirectPage ci) {
-            final int cmsb = ci.getMostSignificantBitIndex();
-            if (cmsb > parentMsb) childMsbs.add(cmsb);
-          }
-        }
-        for (final int liftBit : childMsbs) {
-          extended = extendIndirectMaskForClosureI11Safe(indirect, liftBit, parentMsb, log, revision);
-          if (extended != null) {
-            chosenBit = liftBit;
-            break;
-          }
-        }
-      }
-      if (extended == null) {
-        return;
-      }
-      G32_RECONCILE_FIRINGS.incrementAndGet();
-      log.put(rootRef, PageContainer.getInstance(extended, extended));
-      // Also setPage so subsequent reads see it.
-      rootRef.setPage(extended);
-      indirect = extended;
-    }
+    // No-op — see the method contract above.
   }
 
   /**
@@ -14236,8 +14075,6 @@ public final class HOTTrieWriter {
   }
 
 
-  /** DIAGNOSTIC tracer — wraps {@link HOTIndirectPage#createBiNode} to probe constancy after
-   *  every BiNode construction in the writer. Argument-compatible with the original. */
   /**
    * Phase 7q.15 — Compute a constancy-preserving discriminating bit between two bucket
    * children. The chosen bit must:

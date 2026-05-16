@@ -569,13 +569,15 @@ public final class TransactionIntentLog implements AutoCloseable {
 
     if (oldComplete instanceof HOTLeafPage completeLeaf
         && completeLeaf != newComplete && completeLeaf != newModified
-        && !isHOTLeafInOtherEntry(completeLeaf, excludeIndex)) {
+        && !isHOTLeafInOtherEntry(completeLeaf, excludeIndex)
+        && !bufferManager.getHOTLeafPageCache().containsPage(completeLeaf)) {
       completeLeaf.close();
     }
     if (oldModified != oldComplete
         && oldModified instanceof HOTLeafPage modifiedLeaf
         && modifiedLeaf != newComplete && modifiedLeaf != newModified
-        && !isHOTLeafInOtherEntry(modifiedLeaf, excludeIndex)) {
+        && !isHOTLeafInOtherEntry(modifiedLeaf, excludeIndex)
+        && !bufferManager.getHOTLeafPageCache().containsPage(modifiedLeaf)) {
       modifiedLeaf.close();
     }
   }
@@ -600,8 +602,16 @@ public final class TransactionIntentLog implements AutoCloseable {
         kvPage.releaseGuard();
       }
       kvPage.close();
-    } else if (page instanceof HOTLeafPage hotLeaf) {
-      hotLeaf.close();
+    } else if (page instanceof HOTLeafPage hotLeaf && !hotLeaf.isClosed()) {
+      // Do NOT free a HOT leaf still owned by the shared HOT-leaf buffer cache — the same
+      // instance backs both a TIL PageContainer and the cache, so closing it here would
+      // free the off-heap MemorySegment out from under concurrent readers.
+      if (!bufferManager.getHOTLeafPageCache().containsPage(hotLeaf)) {
+        while (hotLeaf.getGuardCount() > 0) {
+          hotLeaf.releaseGuard();
+        }
+        hotLeaf.close();
+      }
     }
   }
 

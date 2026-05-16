@@ -1,6 +1,7 @@
 package io.sirix.cache;
 
 import io.sirix.index.name.Names;
+import io.sirix.page.HOTLeafPage;
 import io.sirix.page.KeyValueLeafPage;
 import io.sirix.page.PageReference;
 import io.sirix.page.RevisionRootPage;
@@ -13,6 +14,8 @@ public interface BufferManager extends AutoCloseable {
   Cache<PageReference, KeyValueLeafPage> getRecordPageFragmentCache();
 
   Cache<PageReference, Page> getPageCache();
+
+  Cache<PageReference, HOTLeafPage> getHOTLeafPageCache();
 
   Cache<RevisionRootPageCacheKey, RevisionRootPage> getRevisionRootPageCache();
 

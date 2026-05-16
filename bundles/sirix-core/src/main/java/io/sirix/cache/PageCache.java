@@ -55,8 +55,6 @@ public final class PageCache implements Cache<PageReference, Page> {
           return;
         }
         keyValueLeafPage.close();
-      } else if (page instanceof HOTLeafPage hotLeaf) {
-        hotLeaf.close();
       }
     };
 
@@ -129,6 +127,21 @@ public final class PageCache implements Cache<PageReference, Page> {
   @Override
   public void clear() {
     cache.invalidateAll();
+  }
+
+  /**
+   * Evict all HOTLeafPages from the cache under memory pressure. Called by the
+   * allocator's PressureListener when off-heap budget is exhausted — HOTLeafPages
+   * each hold a 65 KB MemorySegment that counts against the global budget. The
+   * removal listener fires synchronously on invalidate, closing each page and
+   * returning its slot to the allocator.
+   */
+  public void evictHOTLeafPages() {
+    for (final var entry : cache.asMap().entrySet()) {
+      if (entry.getValue() instanceof HOTLeafPage) {
+        cache.invalidate(entry.getKey());
+      }
+    }
   }
 
   @Override

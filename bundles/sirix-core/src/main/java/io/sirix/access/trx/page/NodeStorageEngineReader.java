@@ -1756,40 +1756,31 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
       }
     }
     
-    // Check if page is swizzled (directly on reference)
-    if (rootRef.getPage() instanceof HOTLeafPage hotLeaf) {
-      return hotLeaf;
-    }
-    
-    // For uncommitted pages with no log key, we're done
-    if (rootRef.getKey() < 0 && rootRef.getLogKey() < 0) {
+    // For uncommitted pages with no disk key, we're done
+    if (rootRef.getKey() < 0) {
       return null;
     }
-    
-    // Try to get from buffer cache. On hit, swizzle back onto the reference so the
-    // next access takes the getPage() fast path instead of round-tripping through
-    // the cache map (and through a per-key compute on contention).
-    Page cachedPage = resourceBufferManager.getRecordPageCache().get(rootRef);
-    if (cachedPage instanceof HOTLeafPage hotLeaf) {
-      rootRef.setPage(hotLeaf);
-      return hotLeaf;
-    }
-    
-    // Load from storage with proper versioning fragment combining
-    if (rootRef.getKey() >= 0) {
-      try {
-        final Page loadedPage = pageReader.read(rootRef, resourceConfig);
-        if (loadedPage instanceof HOTLeafPage hotLeaf) {
-          return loadHOTLeafPageWithVersioning(rootRef, hotLeaf);
-        }
-        return null;
-      } catch (SirixIOException e) {
-        // Page doesn't exist or couldn't be loaded
-        return null;
-      }
+
+    // Build canonical cache key (logKey=-1) so writes and reads use the same key
+    final PageReference cacheKey = new PageReference()
+        .setKey(rootRef.getKey())
+        .setDatabaseId(getDatabaseId())
+        .setResourceId(getResourceId());
+
+    final HOTLeafPage cached = resourceBufferManager.getHOTLeafPageCache().get(cacheKey);
+    if (cached != null && !cached.isClosed()) {
+      return cached;
     }
 
-    return null;
+    try {
+      final Page loadedPage = pageReader.read(rootRef, resourceConfig);
+      if (loadedPage instanceof HOTLeafPage hotLeaf) {
+        return loadHOTLeafPageWithVersioning(rootRef, cacheKey, hotLeaf);
+      }
+      return null;
+    } catch (SirixIOException e) {
+      return null;
+    }
   }
   
   /**
@@ -1798,30 +1789,40 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * <p>For FULL versioning, the already-loaded page is complete — no additional I/O needed.
    * For INCREMENTAL/DIFFERENTIAL/SLIDING_SNAPSHOT, loads additional fragments and combines.</p>
    *
-   * @param pageRef the page reference
-   * @param firstPage the already-loaded first page (avoids redundant SSD read)
+   * <p>The fragment chain ({@link PageReference#getPageFragments()}) is read from {@code chainRef}
+   * — the real index-root reference — NOT from {@code cacheKey}. The canonical {@code cacheKey}
+   * carries no chain, so passing it for fragment lookup would silently drop every older revision's
+   * delta fragment and lose all historical entries.</p>
+   *
+   * @param chainRef  the index-root reference carrying the prior-fragment chain
+   * @param cacheKey  the canonical key (logKey=-1) used to store the combined page in the cache
+   * @param firstPage the already-loaded newest fragment (avoids a redundant SSD read)
    * @return the combined HOTLeafPage, or null if not found
    */
-  private @Nullable HOTLeafPage loadHOTLeafPageWithVersioning(PageReference pageRef, HOTLeafPage firstPage) {
+  private @Nullable HOTLeafPage loadHOTLeafPageWithVersioning(PageReference chainRef, PageReference cacheKey,
+      HOTLeafPage firstPage) {
     final VersioningType versioningType = resourceConfig.versioningType;
     final int revsToRestore = resourceConfig.maxNumberOfRevisionsToRestore;
 
-    // FULL versioning fast path: the already-loaded page IS complete — zero additional I/O
     if (versioningType == VersioningType.FULL) {
-      pageRef.setPage(firstPage);
+      resourceBufferManager.getHOTLeafPageCache().put(cacheKey, firstPage);
       return firstPage;
     }
 
-    // Other versioning types: load additional fragments and combine.
-    // Start with the already-loaded first page to avoid re-reading it from SSD.
-    final List<HOTLeafPage> fragments = loadHOTPageFragments(pageRef, firstPage);
+    final List<HOTLeafPage> fragments = loadHOTPageFragments(chainRef, firstPage);
     if (fragments.isEmpty()) {
       return null;
     }
 
-    // Combine fragments using VersioningType
     final HOTLeafPage combinedPage = versioningType.combineHOTLeafPages(fragments, revsToRestore, this);
-    pageRef.setPage(combinedPage);
+
+    for (final HOTLeafPage fragment : fragments) {
+      if (fragment != combinedPage && !fragment.isClosed()) {
+        fragment.close();
+      }
+    }
+
+    resourceBufferManager.getHOTLeafPageCache().put(cacheKey, combinedPage);
     return combinedPage;
   }
   
@@ -1831,16 +1832,16 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
    * <p>Accepts the already-loaded first page to eliminate a redundant SSD read.
    * Additional fragments are loaded sequentially from the versioning chain.</p>
    *
-   * @param pageRef the page reference to the most recent fragment
+   * @param chainRef the index-root reference carrying the prior-fragment chain
    * @param firstPage the already-loaded most recent fragment
    * @return list of HOTLeafPage fragments (newest first)
    */
-  private List<HOTLeafPage> loadHOTPageFragments(PageReference pageRef, HOTLeafPage firstPage) {
+  private List<HOTLeafPage> loadHOTPageFragments(PageReference chainRef, HOTLeafPage firstPage) {
     final List<HOTLeafPage> fragments = new ArrayList<>();
     fragments.add(firstPage);
 
     // Check if there are additional fragments to load
-    final List<PageFragmentKey> pageFragments = pageRef.getPageFragments();
+    final List<PageFragmentKey> pageFragments = chainRef.getPageFragments();
     if (pageFragments.isEmpty()) {
       return fragments;
     }
@@ -1863,19 +1864,17 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
     return fragments;
   }
   
-  @Override
   public @Nullable Page loadHOTPage(PageReference reference) {
     assertNotClosed();
-    
+
     if (reference == null) {
       return null;
     }
-    
+
     // FIRST: Check transaction log for uncommitted pages (write transactions)
     if (trxIntentLog != null) {
       final PageContainer container = trxIntentLog.get(reference);
       if (container != null) {
-        // Try modified first (the one being written to), then complete
         Page modified = container.getModified();
         if (modified instanceof HOTLeafPage || modified instanceof HOTIndirectPage) {
           return modified;
@@ -1886,48 +1885,52 @@ public final class NodeStorageEngineReader implements StorageEngineReader {
         }
       }
     }
-    
+
     // Check if page is swizzled (directly on reference)
     Page swizzled = reference.getPage();
-    if (swizzled instanceof HOTLeafPage || swizzled instanceof HOTIndirectPage) {
+    if (swizzled instanceof HOTLeafPage hotSwizzled) {
+      if (!hotSwizzled.isClosed()) {
+        return hotSwizzled;
+      }
+      reference.setPage(null);
+    } else if (swizzled instanceof HOTIndirectPage) {
       return swizzled;
     }
-    
+
     // For uncommitted pages with no log key, we're done
     if (reference.getKey() < 0 && reference.getLogKey() < 0) {
       return null;
     }
-    
-    // Try to get from buffer cache. On hit, swizzle back onto the reference so the
-    // next access takes the getPage() fast path (line 1888) instead of round-tripping
-    // through the cache map.
-    Page cachedPage = resourceBufferManager.getRecordPageCache().get(reference);
-    if (cachedPage instanceof HOTLeafPage || cachedPage instanceof HOTIndirectPage) {
-      reference.setPage(cachedPage);
-      return cachedPage;
-    }
-    
+
     // Load from storage (only if key >= 0)
     if (reference.getKey() >= 0) {
+      final PageReference canonicalKey = new PageReference()
+          .setKey(reference.getKey())
+          .setDatabaseId(getDatabaseId())
+          .setResourceId(getResourceId());
+
+      final HOTLeafPage cachedHot = resourceBufferManager.getHOTLeafPageCache().get(canonicalKey);
+      if (cachedHot != null && !cachedHot.isClosed()) {
+        reference.setPage(cachedHot);
+        return cachedHot;
+      }
+
       try {
-        // First load the page to determine its type
         final Page loadedPage = pageReader.read(reference, resourceConfig);
 
         if (loadedPage instanceof HOTIndirectPage) {
-          // HOTIndirectPage doesn't need versioning combining - it's stored complete.
-          // Swizzle onto reference so future traversals skip I/O.
           reference.setPage(loadedPage);
           return loadedPage;
         }
 
         if (loadedPage instanceof HOTLeafPage hotLeaf) {
-          // HOTLeafPage may need versioning fragment combining.
-          // Pass the already-loaded first page to avoid a redundant SSD read.
-          final HOTLeafPage combinedPage = loadHOTLeafPageWithVersioning(reference, hotLeaf);
+          final HOTLeafPage combinedPage = loadHOTLeafPageWithVersioning(reference, canonicalKey, hotLeaf);
+          if (combinedPage != null) {
+            reference.setPage(combinedPage);
+          }
           return combinedPage;
         }
       } catch (SirixIOException e) {
-        // Page doesn't exist or couldn't be loaded
         return null;
       }
     }
