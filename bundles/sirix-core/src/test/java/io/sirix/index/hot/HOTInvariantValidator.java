@@ -389,10 +389,28 @@ public final class HOTInvariantValidator {
       if (previousFirstKey != null) {
         final int cmp = Arrays.compareUnsigned(previousFirstKey, firstKey);
         if (cmp >= 0) {
+          // Diagnostic dump: mask + per-child (firstKey, stored partial, dense PEXT). When
+          // partial order and firstKey order disagree, the indirect's mask is missing the
+          // most-significant bit that differs between the inverted pair (MSDB-closure gap).
+          final StringBuilder dump = new StringBuilder(256);
+          dump.append(" mask=0x").append(Long.toHexString(indirect.getBitMask()))
+              .append(" initialBytePos=").append(indirect.getInitialBytePos()).append(" dump=[");
+          for (int k = 0; k < n; k++) {
+            final byte[] fk = firstKeyOfSubtree(indirect.getChildReference(k));
+            final int densePKk = fk == null ? 0 : computeDensePartialKey(indirect, fk);
+            dump.append("c").append(k)
+                .append("(sparse=0x").append(partials != null && partials.length > k
+                    ? Integer.toHexString(partials[k]) : "?")
+                .append(",dense=0x").append(Integer.toHexString(densePKk))
+                .append(",fk=").append(fk == null ? "null"
+                    : bytesHex(fk).substring(0, Math.min(44, bytesHex(fk).length())))
+                .append(") ");
+          }
+          dump.append(']');
           addViolation("I8-children-sorted-by-firstkey",
               "indirect " + indirect.getPageKey() + " child[" + (i - 1) + "].firstKey "
                   + bytesHex(previousFirstKey) + " >= child[" + i + "].firstKey "
-                  + bytesHex(firstKey), indirect);
+                  + bytesHex(firstKey) + dump, indirect);
           break;
         }
       }
