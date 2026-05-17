@@ -207,7 +207,7 @@ public final class HOTBulkBuilder {
    * treated as {@code 0x00}, so {@code "AB"} and {@code "AB\0..."} would be equal — the caller
    * guarantees distinct keys, so a differing bit always exists.
    */
-  private static int msdb(final byte[] a, final byte[] b) {
+  static int msdb(final byte[] a, final byte[] b) {
     final int max = Math.max(a.length, b.length);
     for (int i = 0; i < max; i++) {
       final int av = i < a.length ? (a[i] & 0xFF) : 0;
@@ -226,7 +226,7 @@ public final class HOTBulkBuilder {
    * MSB-first absolute bit lookup: bit at absolute position {@code pos} is byte {@code pos/8},
    * bit-within-byte {@code 7 - pos%8}. Positions past the key length are implicit {@code 0}.
    */
-  private static boolean bitAt(final byte[] key, final int pos) {
+  static boolean bitAt(final byte[] key, final int pos) {
     final int bytePos = pos >>> 3;
     if (bytePos >= key.length) {
       return false;
@@ -403,69 +403,8 @@ public final class HOTBulkBuilder {
         }
       }
       indirectCount++;
-      return assembleIndirect(discBits, partials, children, maxChildHeight + 1);
-    }
-
-    /**
-     * Assemble a {@link HOTIndirectPage} from the discriminative-bit set, the sparse-path
-     * partials, and the child references. Children are already in {@code R(S)} left-to-right
-     * order, which is strictly ascending partial-key order (foundation §4, I7), so no re-sort
-     * is needed. Picks the SingleMask layout when the bits fit an 8-byte window and the
-     * MultiMask layout otherwise — both decode {@code partials} identically.
-     */
-    private HOTIndirectPage assembleIndirect(final int[] discBits, final int[] partials,
-        final PageReference[] children, final int height) {
-      final int numChildren = children.length;
-      final int firstByte = discBits[0] >>> 3;
-      final int lastByte = discBits[discBits.length - 1] >>> 3;
-      final long pageKey = pageKeyAllocator.getAsLong();
-
-      if (lastByte - firstByte < 8) {
-        // SingleMask: an 8-byte window covers every discriminative bit.
-        // Absolute bit (i*8 + b) within the window maps to long bit 63 - (i*8 + b).
-        long bitMask = 0L;
-        for (final int absBit : discBits) {
-          final int bitInWindow = (absBit >>> 3) - firstByte;
-          final int absBitInWindow = bitInWindow * 8 + (absBit & 7);
-          bitMask |= 1L << (63 - absBitInWindow);
-        }
-        return numChildren <= 16
-            ? HOTIndirectPage.createSpanNode(pageKey, revision, firstByte, bitMask, partials,
-                children, height)
-            : HOTIndirectPage.createMultiNode(pageKey, revision, firstByte, bitMask, partials,
-                children, height);
-      }
-
-      // MultiMask: discriminative bits span more than 8 bytes. Group them by key byte.
-      final java.util.TreeMap<Integer, Integer> maskByByte = new java.util.TreeMap<>();
-      for (final int absBit : discBits) {
-        final int bytePos = absBit >>> 3;
-        final int maskBit = 1 << (7 - (absBit & 7));
-        maskByByte.merge(bytePos, maskBit, (x, y) -> x | y);
-      }
-      final int numExtractionBytes = maskByByte.size();
-      final byte[] extractionPositions = new byte[numExtractionBytes];
-      final long[] extractionMasks = new long[(numExtractionBytes + 7) / 8];
-      short msbIndex = Short.MAX_VALUE;
-      int idx = 0;
-      for (final var entry : maskByByte.entrySet()) {
-        final int bytePos = entry.getKey();
-        final int byteMaskBits = entry.getValue();
-        extractionPositions[idx] = (byte) bytePos;
-        // BE chunk packing: extraction byte at chunk-offset o occupies long bits (7-o)*8..+7.
-        extractionMasks[idx / 8] |= ((long) (byteMaskBits & 0xFF)) << ((7 - idx % 8) * 8);
-        final int highBit = 31 - Integer.numberOfLeadingZeros(byteMaskBits & 0xFF);
-        final int absBitPos = bytePos * 8 + (7 - highBit);
-        if (absBitPos < msbIndex) {
-          msbIndex = (short) absBitPos;
-        }
-        idx++;
-      }
-      return numChildren <= 16
-          ? HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision, extractionPositions,
-              extractionMasks, numExtractionBytes, partials, children, height, msbIndex)
-          : HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision, extractionPositions,
-              extractionMasks, numExtractionBytes, partials, children, height, msbIndex);
+      return assembleIndirect(discBits, partials, children, maxChildHeight + 1, revision,
+          pageKeyAllocator);
     }
   }
 
@@ -474,6 +413,83 @@ public final class HOTBulkBuilder {
     final int[][] out = Arrays.copyOf(base, base.length + 1);
     out[base.length] = new int[] {beta, side};
     return out;
+  }
+
+  /**
+   * Assemble a {@link HOTIndirectPage} from the discriminative-bit set, the sparse-path
+   * partials, and the child references. Children must already be in strictly ascending
+   * partial-key order (foundation §4, I7) — {@code R(S)} left-to-right order for a bulk build,
+   * a contiguous re-encoded sub-block for an incremental split — so no re-sort is needed. Picks
+   * the SingleMask layout when the bits fit an 8-byte window and the MultiMask layout otherwise;
+   * both decode {@code partials} identically.
+   *
+   * <p>Package-private: shared with {@link HOTIncrementalInsert}'s {@code splitIndirect} and
+   * {@code addEntry}, which re-encode a node's sub-block exactly as a bulk build encodes an
+   * {@code R(S)} branch.
+   *
+   * @param discBits         discriminative bits as sorted ascending absolute (MSB-first)
+   *                         positions; {@code discBits[0]} is the assembled node's MSB
+   * @param partials         per-child sparse-path partial keys, parallel to {@code children}
+   * @param children         child references in ascending partial-key order
+   * @param height           the assembled node's height ({@code 1 + max child height})
+   * @param revision         the revision stamped onto the created page
+   * @param pageKeyAllocator supplier of a fresh persistent page key
+   * @return a freshly allocated compound node
+   */
+  static HOTIndirectPage assembleIndirect(final int[] discBits, final int[] partials,
+      final PageReference[] children, final int height, final int revision,
+      final LongSupplier pageKeyAllocator) {
+    final int numChildren = children.length;
+    final int firstByte = discBits[0] >>> 3;
+    final int lastByte = discBits[discBits.length - 1] >>> 3;
+    final long pageKey = pageKeyAllocator.getAsLong();
+
+    if (lastByte - firstByte < 8) {
+      // SingleMask: an 8-byte window covers every discriminative bit.
+      // Absolute bit (i*8 + b) within the window maps to long bit 63 - (i*8 + b).
+      long bitMask = 0L;
+      for (final int absBit : discBits) {
+        final int bitInWindow = (absBit >>> 3) - firstByte;
+        final int absBitInWindow = bitInWindow * 8 + (absBit & 7);
+        bitMask |= 1L << (63 - absBitInWindow);
+      }
+      return numChildren <= 16
+          ? HOTIndirectPage.createSpanNode(pageKey, revision, firstByte, bitMask, partials,
+              children, height)
+          : HOTIndirectPage.createMultiNode(pageKey, revision, firstByte, bitMask, partials,
+              children, height);
+    }
+
+    // MultiMask: discriminative bits span more than 8 bytes. Group them by key byte.
+    final java.util.TreeMap<Integer, Integer> maskByByte = new java.util.TreeMap<>();
+    for (final int absBit : discBits) {
+      final int bytePos = absBit >>> 3;
+      final int maskBit = 1 << (7 - (absBit & 7));
+      maskByByte.merge(bytePos, maskBit, (x, y) -> x | y);
+    }
+    final int numExtractionBytes = maskByByte.size();
+    final byte[] extractionPositions = new byte[numExtractionBytes];
+    final long[] extractionMasks = new long[(numExtractionBytes + 7) / 8];
+    short msbIndex = Short.MAX_VALUE;
+    int idx = 0;
+    for (final var entry : maskByByte.entrySet()) {
+      final int bytePos = entry.getKey();
+      final int byteMaskBits = entry.getValue();
+      extractionPositions[idx] = (byte) bytePos;
+      // BE chunk packing: extraction byte at chunk-offset o occupies long bits (7-o)*8..+7.
+      extractionMasks[idx / 8] |= ((long) (byteMaskBits & 0xFF)) << ((7 - idx % 8) * 8);
+      final int highBit = 31 - Integer.numberOfLeadingZeros(byteMaskBits & 0xFF);
+      final int absBitPos = bytePos * 8 + (7 - highBit);
+      if (absBitPos < msbIndex) {
+        msbIndex = (short) absBitPos;
+      }
+      idx++;
+    }
+    return numChildren <= 16
+        ? HOTIndirectPage.createSpanNodeMultiMask(pageKey, revision, extractionPositions,
+            extractionMasks, numExtractionBytes, partials, children, height, msbIndex)
+        : HOTIndirectPage.createMultiNodeMultiMask(pageKey, revision, extractionPositions,
+            extractionMasks, numExtractionBytes, partials, children, height, msbIndex);
   }
 
   private static String hex(final byte[] b) {

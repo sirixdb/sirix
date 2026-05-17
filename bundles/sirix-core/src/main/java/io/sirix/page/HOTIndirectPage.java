@@ -453,6 +453,26 @@ public final class HOTIndirectPage implements Page {
   }
 
   /**
+   * Compute the dense partial key of {@code key} under this node's discriminative-bit mask — the
+   * PEXT extraction of the disc bits, packed MSB-first by absolute key-bit significance. This is
+   * <em>exactly</em> the value {@link #findChildIndex} routes on, so it is the canonical input for
+   * a sparse-path subset check {@code (storedPartial & ~densePartialKey) == 0} (invariant I5).
+   *
+   * <p>For a {@code SINGLE_MASK} node it is {@code Long.compress(keyWord, bitMask)} (the PEXT
+   * intrinsic on the 8-byte big-endian window at {@code initialBytePos}); for {@code MULTI_MASK}
+   * it is the chunked gather + compress. Out-of-range key bytes are treated as {@code 0x00}.
+   *
+   * @param key the key to extract the discriminative bits from
+   * @return the dense partial key (the disc bits of {@code key} packed into an int)
+   */
+  public int computeDensePartialKey(byte[] key) {
+    if (layoutType == LayoutType.MULTI_MASK) {
+      return computeMultiMaskPartialKey(key);
+    }
+    return (int) Long.compress(getKeyWordAt(key, initialBytePos), bitMask);
+  }
+
+  /**
    * SpanNode lookup: Extract partial key and search in partial keys array.
    * 
    * <p>
@@ -471,16 +491,12 @@ public final class HOTIndirectPage implements Page {
    * </p>
    */
   private int findChildSpanNode(byte[] key) {
-    final int densePartialKey;
-    if (layoutType == LayoutType.MULTI_MASK) {
-      densePartialKey = computeMultiMaskPartialKey(key);
-    } else {
-      if (initialBytePos >= key.length) {
-        return 0;
-      }
-      long keyWord = getKeyWordAt(key, initialBytePos);
-      densePartialKey = (int) Long.compress(keyWord, bitMask); // PEXT intrinsic
+    // SingleMask routing on a key shorter than the discriminative window routes to child 0 —
+    // every disc bit is then implicitly 0. MultiMask handles short keys inside its own gather.
+    if (layoutType != LayoutType.MULTI_MASK && initialBytePos >= key.length) {
+      return 0;
     }
+    final int densePartialKey = computeDensePartialKey(key);
 
     // Equality-preferred with subset fallback. HOT paper uses subset-
     // match for SIMD speed, but subset matching can deliver a key to a
