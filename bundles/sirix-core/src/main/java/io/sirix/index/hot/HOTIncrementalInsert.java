@@ -22,9 +22,11 @@ import java.util.function.LongSupplier;
  * {@code docs/HOT_INCREMENTAL_PORT_PLAN.md} for the design and {@code
  * docs/HOT_INCREMENTAL_SPLIT_VERIFICATION.md} for the correctness proofs.
  *
- * <p><b>Work in progress.</b> This class is built incrementally per the port plan. Step 1 (this
- * commit) provides the {@link BiNode} type and the leaf-page split primitive; the descent,
- * integration, and cascade follow in later steps.
+ * <p><b>Work in progress.</b> This class is built incrementally per the port plan. Steps 1-4
+ * provide the {@link BiNode} type, the leaf-page and indirect-node split primitives
+ * ({@link #splitLeafPage}, {@link #splitIndirect}, {@link #addEntry}), the descent analysis
+ * ({@link #analyzeDescent}), and the spine integration with the capacity cascade
+ * ({@link #integrate}). Step 5 — wiring into the live insert path — follows.
  *
  * @author Johannes Lichtenberger
  */
@@ -504,6 +506,141 @@ public final class HOTIncrementalInsert {
     }
     final int affectedChildIndex = insertDepth < 0 ? -1 : pathChildIndices[insertDepth];
     return new DescentAnalysis(leaf, resident, beta, insertDepth, affectedChildIndex, false);
+  }
+
+  /**
+   * Integrate a {@link BiNode} into the descent spine — Binna's {@code integrateBiNodeIntoTree}
+   * ({@code HOTSingleThreaded.hpp:496-547}), adapted for SirixDB's persistent pages.
+   *
+   * <p>{@code biNode} is the split result that must take the position of the spine node at
+   * {@code currentDepth} (the leaf when {@code currentDepth == spineNodes.length}). The four
+   * cases mirror the reference:
+   * <ul>
+   *   <li><b>new root</b> ({@code currentDepth == 0}) — materialize {@code biNode} as a 2-entry
+   *       compound node; it becomes the new index root, growing the height by one.</li>
+   *   <li><b>intermediate node</b> ({@code parent.height > biNode.height}) — materialize
+   *       {@code biNode} as a 2-entry node and slot it where the old node was; the parent's
+   *       block is untouched.</li>
+   *   <li><b>addEntry</b> (parent not full) — fold {@code biNode}'s bit and children into the
+   *       parent's block via {@link #addEntry}.</li>
+   *   <li><b>capacity cascade</b> (parent full) — {@link #splitIndirect} the parent, fold
+   *       {@code biNode} into the half that owns the affected child, and recurse one level
+   *       shallower with the parent's own split {@code BiNode}.</li>
+   * </ul>
+   *
+   * <p><b>Spine.</b> {@code spineNodes[0..D-1]} are the descent path's compound nodes (root
+   * first); {@code spineRefs[i]} is the reference {@code spineNodes[i]} resides under, and
+   * {@code spineRefs[D]} is the leaf's reference; {@code childSlots[i]} is the slot the descent
+   * took at {@code spineNodes[i]}. The descent has already copy-on-written the spine, so
+   * re-pointing a {@code spineRefs[d]} (here via {@link PageReference#setPage}) is observed by
+   * every ancestor without rebuilding it. Every page {@code integrate} creates is swizzled into
+   * its reference; the caller registers the new pages in the transaction-intent log.
+   *
+   * @param spineNodes       the descent path's compound nodes, root first
+   * @param spineRefs        the spine's references — {@code spineNodes.length + 1} of them, the
+   *                         last being the leaf's reference
+   * @param childSlots       the child slot taken at each spine node
+   * @param currentDepth     the depth whose subtree {@code biNode} replaces
+   * @param biNode           the split result to integrate
+   * @param revision         the revision stamped onto every created page
+   * @param pageKeyAllocator supplier of fresh persistent page keys
+   * @return the index-root reference — {@code spineRefs[0]}, re-pointed when the root changed
+   */
+  public static PageReference integrate(final HOTIndirectPage[] spineNodes,
+      final PageReference[] spineRefs, final int[] childSlots, final int currentDepth,
+      final BiNode biNode, final int revision, final LongSupplier pageKeyAllocator) {
+    Objects.requireNonNull(biNode, "biNode");
+    Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
+
+    if (currentDepth == 0) {
+      spineRefs[0].setPage(materialize(biNode, revision, pageKeyAllocator));
+      return spineRefs[0];
+    }
+    final int parentDepth = currentDepth - 1;
+    final HOTIndirectPage parent = spineNodes[parentDepth];
+
+    if (parent.getHeight() > biNode.height()) {
+      // Intermediate node: biNode's subtree is shorter than the parent's level — give it its
+      // own 2-entry compound node in the slot the old node occupied; the parent is untouched.
+      spineRefs[currentDepth].setPage(materialize(biNode, revision, pageKeyAllocator));
+      return spineRefs[0];
+    }
+
+    final int affectedChildIndex = childSlots[parentDepth];
+    if (parent.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
+      spineRefs[parentDepth].setPage(
+          addEntry(parent, biNode, affectedChildIndex, revision, pageKeyAllocator));
+      return spineRefs[0];
+    }
+
+    // Capacity cascade: the parent is full. Its MSB must be more significant than β — the trie
+    // condition; otherwise β could not branch strictly below the parent (Theorem II(d)).
+    if (parent.getMostSignificantBitIndex() >= biNode.discriminativeBitIndex()) {
+      throw new IllegalStateException("trie condition violated at depth " + parentDepth
+          + ": parent.MSB=" + parent.getMostSignificantBitIndex() + " >= beta="
+          + biNode.discriminativeBitIndex());
+    }
+    final int splitPoint = indirectSplitPoint(parent);
+    final BiNode parentSplit = splitIndirect(parent, revision, pageKeyAllocator);
+    final BiNode cascaded = foldIntoHalf(parentSplit, splitPoint, parent.getNumChildren(),
+        affectedChildIndex, biNode, revision, pageKeyAllocator);
+    return integrate(spineNodes, spineRefs, childSlots, parentDepth, cascaded, revision,
+        pageKeyAllocator);
+  }
+
+  /**
+   * Fold {@code biNode} into the half of {@code parentSplit} that owns the affected child and
+   * return the parent's split {@code BiNode} with that half rebuilt. The capacity cascade uses
+   * it: when a full parent splits at {@code splitPoint}, the affected child lands in exactly one
+   * half, which is therefore not full and can absorb {@code biNode} via {@link #addEntry}. The
+   * 1:31 caveat: a half of a single child is a bare reference (no compound wrapper), and
+   * {@code biNode} — the split of exactly that child — replaces it directly.
+   */
+  private static BiNode foldIntoHalf(final BiNode parentSplit, final int splitPoint,
+      final int parentChildCount, final int affectedChildIndex, final BiNode biNode,
+      final int revision, final LongSupplier pageKeyAllocator) {
+    final boolean inLeftHalf = affectedChildIndex < splitPoint;
+    final int halfChildCount = inLeftHalf ? splitPoint : parentChildCount - splitPoint;
+    final PageReference targetRef = inLeftHalf ? parentSplit.left() : parentSplit.right();
+    final PageReference otherRef = inLeftHalf ? parentSplit.right() : parentSplit.left();
+
+    final PageReference rebuiltRef;
+    if (halfChildCount == 1) {
+      // 1:31 — the half is the lone affected child; biNode (its split) replaces it.
+      rebuiltRef = swizzle(materialize(biNode, revision, pageKeyAllocator));
+    } else {
+      final HOTIndirectPage half = (HOTIndirectPage) targetRef.getPage();
+      final int indexInHalf = inLeftHalf ? affectedChildIndex : affectedChildIndex - splitPoint;
+      rebuiltRef = swizzle(addEntry(half, biNode, indexInHalf, revision, pageKeyAllocator));
+    }
+    final PageReference left = inLeftHalf ? rebuiltRef : otherRef;
+    final PageReference right = inLeftHalf ? otherRef : rebuiltRef;
+    final int height = 1 + Math.max(heightOf(left.getPage()), heightOf(right.getPage()));
+    return new BiNode(parentSplit.discriminativeBitIndex(), height, left, right);
+  }
+
+  /** Materialize a virtual {@link BiNode} as a standalone 2-entry compound node. */
+  private static HOTIndirectPage materialize(final BiNode biNode, final int revision,
+      final LongSupplier pageKeyAllocator) {
+    return HOTIndirectPage.createBiNode(pageKeyAllocator.getAsLong(), revision,
+        biNode.discriminativeBitIndex(), biNode.left(), biNode.right(), biNode.height());
+  }
+
+  /**
+   * The split point of an indirect compound node — the index of the first child whose stored
+   * partial has {@code node.MSB} set. {@link #splitIndirect} partitions the children there; the
+   * capacity cascade needs the same point to locate the affected child's half.
+   */
+  private static int indirectSplitPoint(final HOTIndirectPage node) {
+    final int[] discBits = discriminativeBits(node);
+    final int[] partials = node.getPartialKeys();
+    final int topWeight = 1 << (discBits.length - 1);
+    final int n = node.getNumChildren();
+    int s = 0;
+    while (s < n && (partials[s] & topWeight) == 0) {
+      s++;
+    }
+    return s;
   }
 
   /**
