@@ -14,6 +14,7 @@ import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import java.util.AbstractList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 
 /**
@@ -594,41 +595,78 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
-   * Release the off-heap {@code MemorySegment} of a HOT leaf page that incremental leaf
-   * consolidation merged away. The page is no longer reachable from the trie, so the
-   * tree-recursive commit never visits its entry — and a per-reference commit that did reach it
-   * would skip it on the {@code isClosed()} guard. Closing here reclaims the 64KB slot instead
-   * of pinning it until end-of-transaction {@link #clear()}.
+   * Release the off-heap {@code MemorySegment}s of HOT leaf pages that incremental leaf
+   * consolidation or a subtree rebuild merged away. Each page is no longer reachable from the
+   * trie, so the tree-recursive commit never visits its entry — and a per-reference commit that
+   * did reach it would skip it on the {@code isClosed()} guard. Closing here reclaims the 64KB
+   * slots instead of pinning them until end-of-transaction {@link #clear()}.
    *
-   * <p>Guarded exactly as {@link #closeOrphanedHOTLeafPages}: a leaf still shared by another TIL
-   * entry (a CoW reference copy) or held by the HOT-leaf buffer cache is never freed, so no
-   * concurrent reader loses its segment.
+   * <p>Batched on purpose: the sharing guard ("is this leaf still referenced by another TIL
+   * entry — a CoW reference copy") is a scan of the whole log. Doing it once for the whole drop
+   * list is {@code O(size + orphans)}; doing it per leaf would be {@code O(size * orphans)} —
+   * quadratic, since a large transaction's drop list and log both grow with the entry count.
    *
-   * @param orphanRef the reference of the merged-away leaf — carries its TIL log-key
+   * <p>A leaf still shared by another TIL entry or held by the HOT-leaf buffer cache is never
+   * freed, so no concurrent reader loses its segment.
+   *
+   * @param orphanRefs references of the merged-away leaves — each carries its TIL log-key
    */
-  public void releaseOrphanedHOTLeaf(final PageReference orphanRef) {
-    if (orphanRef == null) {
+  public void releaseOrphanedHOTLeaves(final List<PageReference> orphanRefs) {
+    if (orphanRefs == null || orphanRefs.isEmpty()) {
       return;
     }
-    final int logKey = orphanRef.getLogKey();
-    if (logKey < 0 || logKey >= size) {
+    // Map each orphan leaf page to its own TIL index; this set is whittled down to the pages
+    // that are safe to close.
+    final IdentityHashMap<HOTLeafPage, Integer> closeable = new IdentityHashMap<>();
+    for (int r = 0; r < orphanRefs.size(); r++) {
+      final PageReference ref = orphanRefs.get(r);
+      if (ref == null) {
+        continue;
+      }
+      final int logKey = ref.getLogKey();
+      if (logKey < 0 || logKey >= size) {
+        continue;
+      }
+      final PageContainer container = entries[logKey];
+      if (container == null) {
+        continue;
+      }
+      if (container.getModified() instanceof HOTLeafPage leaf) {
+        closeable.putIfAbsent(leaf, logKey);
+      }
+      if (container.getComplete() instanceof HOTLeafPage leaf) {
+        closeable.putIfAbsent(leaf, logKey);
+      }
+    }
+    if (closeable.isEmpty()) {
       return;
     }
-    final PageContainer container = entries[logKey];
-    if (container == null) {
-      return;
+    // One pass over the log: an orphan leaf that also appears at an entry other than its own is
+    // shared (a CoW reference copy) and is dropped from the closeable set.
+    for (int i = 0; i < size; i++) {
+      final PageContainer entry = entries[i];
+      if (entry == null) {
+        continue;
+      }
+      unshareIfElsewhere(entry.getComplete(), i, closeable);
+      if (entry.getModified() != entry.getComplete()) {
+        unshareIfElsewhere(entry.getModified(), i, closeable);
+      }
     }
-    closeOrphanedLeafIfUnshared(container.getModified(), logKey);
-    if (container.getComplete() != container.getModified()) {
-      closeOrphanedLeafIfUnshared(container.getComplete(), logKey);
+    for (final HOTLeafPage leaf : closeable.keySet()) {
+      if (!leaf.isClosed() && !bufferManager.getHOTLeafPageCache().containsPage(leaf)) {
+        leaf.close();
+      }
     }
   }
 
-  private void closeOrphanedLeafIfUnshared(final Page page, final int ownIndex) {
-    if (page instanceof HOTLeafPage leaf && !leaf.isClosed()
-        && !isHOTLeafInOtherEntry(leaf, ownIndex)
-        && !bufferManager.getHOTLeafPageCache().containsPage(leaf)) {
-      leaf.close();
+  private static void unshareIfElsewhere(final Page page, final int entryIndex,
+      final IdentityHashMap<HOTLeafPage, Integer> closeable) {
+    if (page instanceof HOTLeafPage leaf) {
+      final Integer ownIndex = closeable.get(leaf);
+      if (ownIndex != null && ownIndex.intValue() != entryIndex) {
+        closeable.remove(leaf);
+      }
     }
   }
 

@@ -885,7 +885,30 @@ public abstract class AbstractHOTIndexWriter<K> {
     // Decide portability before allocating K's leaf page, so a fallback never orphans it.
     if (!singleEntry && node.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
       if (info.affectedCount() == node.getNumChildren()) {
-        return false; // affected subtree is the whole node — pull-up (beta above node.MSB), unported
+        // The affected subtree is the whole node — beta is more significant than every
+        // discriminative bit of the full node, so K branches above it (Binna's insertNewValue
+        // full-node case, mismatch bit above node.MSB). Wrap the whole node under a BiNode on
+        // beta and integrate at insertDepth; integrate's intermediate-node / split-cascade keeps
+        // the height bounded. Both BiNode children need fresh references — integrate may
+        // re-point insertDepth's spine slot, and aliasing it would make a page its own child.
+        final HOTLeafPage pullUpLeaf =
+            new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
+        if (!pullUpLeaf.put(keySlice, valueSlice)) {
+          throw new SirixIOException(
+              "HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
+        }
+        final PageReference pullUpLeafRef = swizzle(pullUpLeaf);
+        final PageReference wrappedNodeRef = swizzle(node);
+        final int biHeight = node.getHeight() + 1;
+        final HOTIncrementalInsert.BiNode biNode = betaValue == 1
+            ? new HOTIncrementalInsert.BiNode(beta, biHeight, wrappedNodeRef, pullUpLeafRef)
+            : new HOTIncrementalInsert.BiNode(beta, biHeight, pullUpLeafRef, wrappedNodeRef);
+        ensurePathChildrenLoaded(pathNodes);
+        final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(
+            pathNodes, buildSpineRefs(navResult), childSlots, insertDepth, biNode, revision,
+            pageKeyAllocator);
+        registerFreshSubtree(result.touchedRef());
+        return true;
       }
       return branchSplitFullNode(navResult, info, node, insertDepth, beta, betaValue, keySlice,
           valueSlice);
@@ -1006,8 +1029,18 @@ public abstract class AbstractHOTIndexWriter<K> {
    * <p>The child pages are swizzled onto their references before {@code consolidateNodeLeaves}
    * runs: a page already flushed to the transaction-intent log has a {@code null} in-memory page
    * on its reference, and the consolidation reads child pages through {@code getPage()}.
+   *
+   * <p>Every merged-away leaf across the whole sweep is collected and released in one batch — the
+   * transaction-intent log's sharing check is a full-log scan, so a per-leaf release would be
+   * quadratic in the transaction's entry count.
    */
   private void consolidateSubtree(PageReference ref) {
+    final List<PageReference> orphanedLeaves = new ArrayList<>();
+    consolidateSubtree(ref, orphanedLeaves);
+    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(orphanedLeaves);
+  }
+
+  private void consolidateSubtree(PageReference ref, List<PageReference> orphanedLeaves) {
     final Page page = resolveHOTPageForTraversal(ref);
     if (!(page instanceof HOTIndirectPage indirect)) {
       return;
@@ -1022,21 +1055,15 @@ public abstract class AbstractHOTIndexWriter<K> {
         }
       }
       if (childRef.getPage() instanceof HOTIndirectPage) {
-        consolidateSubtree(childRef);
+        consolidateSubtree(childRef, orphanedLeaves);
       }
     }
-    final List<PageReference> droppedLeaves = new ArrayList<>();
     final HOTIndirectPage consolidated = HOTIncrementalInsert.consolidateNodeLeaves(cowed,
         CONSOLIDATION_TARGET, storageEngineWriter.getRevisionNumber(), indexType,
-        pageKeyAllocator, droppedLeaves);
+        pageKeyAllocator, orphanedLeaves);
     if (consolidated != cowed) {
       ref.setPage(consolidated);
       registerFreshSubtree(ref);
-      // A merged-away leaf is unreachable from the consolidated tree — release its off-heap
-      // slot now instead of pinning the 64KB segment in the transaction-intent log until commit.
-      for (int i = 0; i < droppedLeaves.size(); i++) {
-        storageEngineWriter.getLog().releaseOrphanedHOTLeaf(droppedLeaves.get(i));
-      }
     }
   }
 
@@ -1112,13 +1139,11 @@ public abstract class AbstractHOTIndexWriter<K> {
     subtreeRef.setPage(rebuilt);
     registerFreshSubtree(subtreeRef);
     // HOTBulkBuilder.build produced an all-new subtree from the collected entries — every leaf
-    // page of the replaced subtree is now unreachable; release their off-heap slots instead of
-    // pinning the 64KB segments in the transaction-intent log until commit.
+    // page of the replaced subtree is now unreachable; release their off-heap slots in one batch
+    // instead of pinning the 64KB segments in the transaction-intent log until commit.
     final List<PageReference> staleLeafRefs = new ArrayList<>();
     collectSubtreeLeafRefs(subtreeRoot, staleLeafRefs);
-    for (int i = 0; i < staleLeafRefs.size(); i++) {
-      storageEngineWriter.getLog().releaseOrphanedHOTLeaf(staleLeafRefs.get(i));
-    }
+    storageEngineWriter.getLog().releaseOrphanedHOTLeaves(staleLeafRefs);
   }
 
   /**

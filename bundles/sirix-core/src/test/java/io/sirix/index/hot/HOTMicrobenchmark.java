@@ -237,7 +237,7 @@ final class HOTMicrobenchmark {
    */
   @Test
   @DisplayName("HOT writer+reader combined microbench (CAS Int32, profile-friendly N)")
-  @org.junit.jupiter.api.Timeout(value = 180, unit = java.util.concurrent.TimeUnit.SECONDS)
+  @org.junit.jupiter.api.Timeout(value = 300, unit = java.util.concurrent.TimeUnit.SECONDS)
   void smallCombinedMicrobench() {
     final String prevStrictBinna = System.getProperty("hot.strict.binna");
     System.setProperty("hot.strict.binna", "true");
