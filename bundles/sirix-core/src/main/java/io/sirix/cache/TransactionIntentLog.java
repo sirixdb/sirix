@@ -594,6 +594,45 @@ public final class TransactionIntentLog implements AutoCloseable {
   }
 
   /**
+   * Release the off-heap {@code MemorySegment} of a HOT leaf page that incremental leaf
+   * consolidation merged away. The page is no longer reachable from the trie, so the
+   * tree-recursive commit never visits its entry — and a per-reference commit that did reach it
+   * would skip it on the {@code isClosed()} guard. Closing here reclaims the 64KB slot instead
+   * of pinning it until end-of-transaction {@link #clear()}.
+   *
+   * <p>Guarded exactly as {@link #closeOrphanedHOTLeafPages}: a leaf still shared by another TIL
+   * entry (a CoW reference copy) or held by the HOT-leaf buffer cache is never freed, so no
+   * concurrent reader loses its segment.
+   *
+   * @param orphanRef the reference of the merged-away leaf — carries its TIL log-key
+   */
+  public void releaseOrphanedHOTLeaf(final PageReference orphanRef) {
+    if (orphanRef == null) {
+      return;
+    }
+    final int logKey = orphanRef.getLogKey();
+    if (logKey < 0 || logKey >= size) {
+      return;
+    }
+    final PageContainer container = entries[logKey];
+    if (container == null) {
+      return;
+    }
+    closeOrphanedLeafIfUnshared(container.getModified(), logKey);
+    if (container.getComplete() != container.getModified()) {
+      closeOrphanedLeafIfUnshared(container.getComplete(), logKey);
+    }
+  }
+
+  private void closeOrphanedLeafIfUnshared(final Page page, final int ownIndex) {
+    if (page instanceof HOTLeafPage leaf && !leaf.isClosed()
+        && !isHOTLeafInOtherEntry(leaf, ownIndex)
+        && !bufferManager.getHOTLeafPageCache().containsPage(leaf)) {
+      leaf.close();
+    }
+  }
+
+  /**
    * Helper method to release guards and close a page.
    */
   private void closePage(final Page page) {

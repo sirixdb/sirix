@@ -248,6 +248,234 @@ final class HOTIndirectPageSplitFaithfulTest {
   }
 
   // ======================================================================
+  // splitIndirectWithEntry — Binna's full-node split (split + insert fused).
+  // ======================================================================
+
+  @Test
+  @DisplayName("splitIndirectWithEntry splits a node and inserts a branch key — clean, routing-correct")
+  void splitIndirectWithEntryProducesCleanResult() {
+    int checked = 0;
+    for (final Workload workload : Workload.values()) {
+      for (final int size : workload.sizes) {
+        final AtomicLong allocator = new AtomicLong(1);
+        final List<byte[]> keys = workload.generate(size, 7);
+        final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(entries(keys), 1,
+            IndexType.CAS, allocator::getAndIncrement);
+        if (!(built.rootPage() instanceof HOTIndirectPage node) || node.getNumChildren() < 2) {
+          closeLeavesOf(built.rootPage());
+          continue;
+        }
+        final int[] discBits = HOTIncrementalInsert.discriminativeBits(node);
+        if (discBits.length < 2) {
+          closeLeavesOf(built.rootPage());
+          continue;
+        }
+        final Set<String> present = hexSet(keys);
+        final List<HOTLeafPage> freshLeaves = new ArrayList<>();
+        // Direct construction: a branch key K is an existing key (from child entryIndex's
+        // subtree) with exactly bit beta flipped. K agrees with that subtree above beta and
+        // differs at beta — a genuine, consistent branch at this node. beta is a bit strictly
+        // between two of the node's discriminative bits: genuinely new to the node (the
+        // splitIndirectWithEntry precondition), so the affected subtree is one-sided on it.
+        for (int entryIndex = 0; entryIndex < node.getNumChildren(); entryIndex++) {
+          final byte[] baseKey = firstKeyOf(node.getChildReference(entryIndex).getPage());
+          if (baseKey == null) {
+            continue;
+          }
+          for (int d = 0; d + 1 < discBits.length; d++) {
+            if (discBits[d + 1] - discBits[d] < 2) {
+              continue; // adjacent disc bits — no bit strictly between them
+            }
+            final int beta = (discBits[d] + discBits[d + 1]) >>> 1;
+            final byte[] key = flipBit(baseKey, beta);
+            if (present.contains(hex(key))) {
+              continue;
+            }
+            final HOTIncrementalInsert.InsertInfo info =
+                HOTIncrementalInsert.getInsertInformation(node, entryIndex, beta);
+            if (info.affectedCount() == node.getNumChildren()) {
+              continue; // affected subtree is the whole node — pull-up, not split
+            }
+            final int betaValue = HOTBulkBuilder.bitAt(key, beta) ? 1 : 0;
+            final HOTLeafPage freshLeaf =
+                new HOTLeafPage(allocator.getAndIncrement(), 1, IndexType.CAS);
+            assertTrue(freshLeaf.put(key, VALUE), "fresh single-entry leaf must accept the key");
+            freshLeaves.add(freshLeaf);
+
+            final BiNode biNode = HOTIncrementalInsert.splitIndirectWithEntry(node, info, beta,
+                betaValue, swizzle(freshLeaf), 1, allocator::getAndIncrement);
+            final HOTIndirectPage materialized = materialize(biNode, allocator);
+            final PageReference rootRef = swizzle(materialized);
+            final String label = workload + " size=" + size + " e=" + entryIndex + " beta=" + beta;
+
+            final TreeSet<String> expected = collectKeys(node);
+            expected.add(hex(key));
+            assertEquals(expected, collectKeys(materialized),
+                label + ": split-with-entry must yield the node's keys plus the new key");
+            assertClean(rootRef, label);
+            assertRoutesAll(rootRef, toByteList(expected), label);
+            checked++;
+          }
+        }
+        closeLeavesOf(built.rootPage());
+        for (final HOTLeafPage freshLeaf : freshLeaves) {
+          freshLeaf.close();
+        }
+      }
+    }
+    assertTrue(checked > 0, "no splitIndirectWithEntry case exercised — coverage gap");
+    System.out.println("[splitIndirectWithEntry] " + checked + " full-node splits — clean");
+  }
+
+  /** The first key of {@code page}'s subtree (descends to its leftmost leaf), or {@code null}. */
+  private static byte[] firstKeyOf(final Page page) {
+    Page current = page;
+    while (current instanceof HOTIndirectPage indirect) {
+      current = indirect.getChildReference(0).getPage();
+    }
+    return current instanceof HOTLeafPage leaf && leaf.getEntryCount() > 0 ? leaf.getKey(0) : null;
+  }
+
+  /** A copy of {@code key} with the absolute, MSB-first bit {@code beta} flipped. */
+  private static byte[] flipBit(final byte[] key, final int beta) {
+    final byte[] out = key.clone();
+    out[beta >>> 3] ^= (byte) (1 << (7 - (beta & 7)));
+    return out;
+  }
+
+  // ======================================================================
+  // mergeBiNodePairedLeaves — incremental leaf consolidation (inverse of a leaf split).
+  // ======================================================================
+
+  @Test
+  @DisplayName("mergeBiNodePairedLeaves collapses two adjacent leaves — clean, key-set-preserving")
+  void mergeBiNodePairedLeavesProducesCleanResult() {
+    int checked = 0;
+    boolean sawCompoundResult = false;
+    // WIDE_SPAN's 8 byte-0 groups give a height-1 root with small leaf children, so adjacent
+    // BiNode-paired leaves have a union that still fits one page — the mergeable case.
+    for (final int size : new int[] {700, 1_400}) {
+      final AtomicLong allocator = new AtomicLong(1);
+      final List<byte[]> keys = Workload.WIDE_SPAN.generate(size, 3);
+      final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(entries(keys), 1,
+          IndexType.CAS, allocator::getAndIncrement);
+      if (!(built.rootPage() instanceof HOTIndirectPage root) || root.getHeight() != 1) {
+        closeLeavesOf(built.rootPage());
+        continue;
+      }
+      final TreeSet<String> rootKeys = collectKeys(root);
+      final List<HOTLeafPage> mergedLeaves = new ArrayList<>();
+      for (int i = 0; i + 1 < root.getNumChildren(); i++) {
+        if (!HOTIncrementalInsert.areBiNodePaired(root, i)) {
+          continue;
+        }
+        if (!(root.getChildReference(i).getPage() instanceof HOTLeafPage left)
+            || !(root.getChildReference(i + 1).getPage() instanceof HOTLeafPage right)) {
+          continue;
+        }
+        final HOTLeafPage mergedLeaf =
+            new HOTLeafPage(allocator.getAndIncrement(), 1, IndexType.CAS);
+        boolean fits = true;
+        for (int e = 0; e < left.getEntryCount() && fits; e++) {
+          fits = mergedLeaf.put(left.getKey(e), left.getValue(e));
+        }
+        for (int e = 0; e < right.getEntryCount() && fits; e++) {
+          fits = mergedLeaf.put(right.getKey(e), right.getValue(e));
+        }
+        if (!fits) {
+          mergedLeaf.close();
+          continue;
+        }
+        mergedLeaves.add(mergedLeaf);
+
+        final PageReference mergedRef = HOTIncrementalInsert.mergeBiNodePairedLeaves(root, i,
+            mergedLeaf, 1, allocator::getAndIncrement);
+        final String label = "WIDE_SPAN size=" + size + " pair=" + i;
+        if (mergedRef.getPage() instanceof HOTIndirectPage) {
+          sawCompoundResult = true;
+        }
+        assertEquals(rootKeys, collectKeys(mergedRef.getPage()),
+            label + ": a leaf merge must preserve the exact key set");
+        assertClean(mergedRef, label);
+        assertRoutesAll(mergedRef, toByteList(rootKeys), label);
+        checked++;
+      }
+      closeLeavesOf(built.rootPage());
+      for (final HOTLeafPage mergedLeaf : mergedLeaves) {
+        mergedLeaf.close();
+      }
+    }
+    assertTrue(checked > 0, "no mergeBiNodePairedLeaves case exercised — coverage gap");
+    assertTrue(sawCompoundResult, "no compound-node merge result exercised — coverage gap");
+    System.out.println("[mergeBiNodePairedLeaves] " + checked + " leaf merges — clean");
+  }
+
+  @Test
+  @DisplayName("a leaf split's two halves are BiNode-paired and merge back — round-trip")
+  void mergeUndoesLeafSplit() {
+    int checked = 0;
+    for (final Workload workload : Workload.values()) {
+      for (final int size : new int[] {700, 5_000}) {
+        final AtomicLong allocator = new AtomicLong(1);
+        final List<byte[]> keys = workload.generate(size, 1);
+        final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(entries(keys), 1,
+            IndexType.CAS, allocator::getAndIncrement);
+        if (!(built.rootPage() instanceof HOTIndirectPage root) || root.getHeight() != 1) {
+          closeLeavesOf(built.rootPage());
+          continue; // need a height-1 root so the halves' children are leaf pages
+        }
+        // splitIndirect yields a not-full compound node with leaf children — addEntry's target,
+        // guaranteed below capacity (it holds one half of the original root's children).
+        final BiNode split = HOTIncrementalInsert.splitIndirect(root, 1,
+            allocator::getAndIncrement);
+        final PageReference targetRef = split.left().getPage() instanceof HOTIndirectPage
+            ? split.left() : split.right();
+        final PageReference orphanHalf = targetRef == split.left() ? split.right() : split.left();
+        if (!(targetRef.getPage() instanceof HOTIndirectPage target)) {
+          continue;
+        }
+        final int slot = firstLeafChildWithEntries(target, 2);
+        final HOTLeafPage leaf = (HOTLeafPage) target.getChildReference(slot).getPage();
+        final TreeSet<String> targetKeys = collectKeys(target);
+
+        // Split the leaf (re-inserting an existing key keeps the key set) and integrate the
+        // BiNode — the two halves now sit at slot, slot + 1.
+        final BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1,
+            IndexType.CAS, allocator::getAndIncrement);
+        final HOTIndirectPage afterSplit = HOTIncrementalInsert.addEntry(target, leafSplit, slot, 1,
+            allocator::getAndIncrement);
+        final String label = workload + " size=" + size;
+        // The halves carry the split slot's lower discriminative bits, yet they ARE a BiNode pair
+        // — the depth-based test must recognize that (the one-bit-difference test alone failed).
+        assertTrue(HOTIncrementalInsert.areBiNodePaired(afterSplit, slot),
+            label + ": a leaf split's two halves must be detected as BiNode-paired");
+
+        final HOTLeafPage left = (HOTLeafPage) afterSplit.getChildReference(slot).getPage();
+        final HOTLeafPage right = (HOTLeafPage) afterSplit.getChildReference(slot + 1).getPage();
+        final HOTLeafPage mergedLeaf = new HOTLeafPage(allocator.getAndIncrement(), 1,
+            IndexType.CAS);
+        for (int e = 0; e < left.getEntryCount(); e++) {
+          assertTrue(mergedLeaf.put(left.getKey(e), left.getValue(e)));
+        }
+        for (int e = 0; e < right.getEntryCount(); e++) {
+          assertTrue(mergedLeaf.put(right.getKey(e), right.getValue(e)));
+        }
+        final PageReference mergedRef = HOTIncrementalInsert.mergeBiNodePairedLeaves(afterSplit,
+            slot, mergedLeaf, 1, allocator::getAndIncrement);
+        assertEquals(targetKeys, collectKeys(mergedRef.getPage()),
+            label + ": split then merge must round-trip to the original key set");
+        assertClean(mergedRef, label);
+        assertRoutesAll(mergedRef, toByteList(targetKeys), label);
+        checked++;
+
+        closeAll(afterSplit, mergedRef.getPage(), mergedLeaf, orphanHalf.getPage(), leaf);
+      }
+    }
+    assertTrue(checked > 0, "no leaf-split round-trip exercised — coverage gap");
+    System.out.println("[mergeUndoesLeafSplit] " + checked + " round-trips — clean");
+  }
+
+  // ======================================================================
   // Key workloads.
   // ======================================================================
 

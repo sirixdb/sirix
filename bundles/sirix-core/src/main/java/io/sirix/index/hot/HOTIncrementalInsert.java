@@ -22,11 +22,11 @@ import java.util.function.LongSupplier;
  * {@code docs/HOT_INCREMENTAL_PORT_PLAN.md} for the design and {@code
  * docs/HOT_INCREMENTAL_SPLIT_VERIFICATION.md} for the correctness proofs.
  *
- * <p><b>Work in progress.</b> This class is built incrementally per the port plan. Steps 1-4
- * provide the {@link BiNode} type, the leaf-page and indirect-node split primitives
- * ({@link #splitLeafPage}, {@link #splitIndirect}, {@link #addEntry}), the descent analysis
- * ({@link #analyzeDescent}), and the spine integration with the capacity cascade
- * ({@link #integrate}). Step 5 — wiring into the live insert path — follows.
+ * <p>This class provides the {@link BiNode} type, the leaf-page and indirect-node split
+ * primitives ({@link #splitLeafPage}, {@link #splitIndirect}, {@link #addEntry}), the descent
+ * analysis ({@link #analyzeDescent}), and the spine integration with the capacity cascade
+ * ({@link #integrate}). The orchestration that drives them on the live insert path is
+ * {@code AbstractHOTIndexWriter.doIndex}.
  *
  * @author Johannes Lichtenberger
  */
@@ -294,6 +294,403 @@ public final class HOTIncrementalInsert {
   }
 
   /**
+   * Split a <em>full</em> compound node while inserting one new entry — Binna's {@code split}
+   * ({@code HOTSingleThreadedNode.hpp:549}), the full-node case of {@code insertNewValue}. The
+   * node is partitioned at its own most significant discriminative bit ({@code node.MSB}) into
+   * two compound halves; the new entry — described by {@code info} computed on the <em>original</em>
+   * node — folds into whichever half owns its affected subtree, and the result is a {@link BiNode}
+   * on {@code node.MSB} the caller integrates where the node sat.
+   *
+   * <p>The affected half is built by {@link #compressRangeWithEntry} (Binna's
+   * {@code compressEntriesAndAddOneEntryIntoNewNode} — a fused range-compress + entry-insert that
+   * works in the original node's coordinate space, never a re-derivation on an already-compressed
+   * half); the other half by {@link #compressHalf} (a plain range-compress).
+   *
+   * <p><b>Precondition.</b> {@code beta} is a genuinely new discriminative bit of {@code node}
+   * (not one of its existing ones) — only then is the affected subtree one-sided on {@code beta}
+   * (it is the subtree the key branches off, constant on {@code beta} because {@code beta} is
+   * their most significant differing bit). {@code info.affectedCount() < node.getNumChildren()} —
+   * the affected subtree is not the whole node (that is the pull-up case). {@code node} must have
+   * &ge; 2 children and &ge; 1 discriminative bit.
+   *
+   * <p><b>Purity.</b> Allocates only new pages; never mutates {@code node} or any child.
+   *
+   * @param node             the full compound node to split
+   * @param info             the insert information computed on {@code node} ({@link #getInsertInformation})
+   * @param beta             the new entry's discriminative bit (absolute, MSB-first)
+   * @param betaValue        the new key's value at {@code beta} (0 or 1)
+   * @param newChildRef      the new child (the branch key's single-entry leaf)
+   * @param revision         the revision stamped onto every created page
+   * @param pageKeyAllocator supplier of fresh persistent page keys
+   * @return the split result — a {@code BiNode} on {@code node.MSB}
+   */
+  public static BiNode splitIndirectWithEntry(final HOTIndirectPage node, final InsertInfo info,
+      final int beta, final int betaValue, final PageReference newChildRef, final int revision,
+      final LongSupplier pageKeyAllocator) {
+    Objects.requireNonNull(node, "node");
+    Objects.requireNonNull(info, "info");
+    Objects.requireNonNull(newChildRef, "newChildRef");
+    final int[] discBits = discriminativeBits(node);
+    final int n = node.getNumChildren();
+    if (discBits.length == 0 || n < 2) {
+      throw new IllegalArgumentException(
+          "an indirect split needs >= 2 children and >= 1 disc bit, got n=" + n);
+    }
+    if (info.affectedCount() == n) {
+      throw new IllegalArgumentException(
+          "the affected subtree is the whole node — this is the pull-up case, not split");
+    }
+    if (Arrays.binarySearch(discBits, beta) >= 0) {
+      throw new IllegalArgumentException("beta " + beta + " is already a discriminative bit of "
+          + "the node — splitIndirectWithEntry requires a genuinely new discriminative bit (an "
+          + "existing one would give a two-sided affected subtree)");
+    }
+    final int[] partials = node.getPartialKeys();
+    final PageReference[] children = childReferences(node);
+    final int splitPoint = indirectSplitPoint(node);
+    if (splitPoint == 0 || splitPoint == n) {
+      throw new IllegalArgumentException(
+          "node.MSB does not discriminate the children — not a valid HOT node");
+    }
+    final int nodeMsb = discBits[0];
+
+    // The affected subtree shares the descended child's prefix above beta; node.MSB is more
+    // significant than beta, so the whole affected subtree lies in one half — the one holding
+    // the descended child. That half folds the new entry in; the other is a plain compress.
+    final PageReference left;
+    final PageReference right;
+    if (info.firstAffected() >= splitPoint) {
+      left = compressHalf(Arrays.copyOfRange(children, 0, splitPoint),
+          Arrays.copyOfRange(partials, 0, splitPoint), discBits, revision, pageKeyAllocator);
+      right = compressRangeWithEntry(discBits, partials, children, splitPoint, n - splitPoint,
+          info, beta, betaValue, newChildRef, revision, pageKeyAllocator);
+    } else {
+      left = compressRangeWithEntry(discBits, partials, children, 0, splitPoint, info, beta,
+          betaValue, newChildRef, revision, pageKeyAllocator);
+      right = compressHalf(Arrays.copyOfRange(children, splitPoint, n),
+          Arrays.copyOfRange(partials, splitPoint, n), discBits, revision, pageKeyAllocator);
+    }
+    final int height = 1 + Math.max(heightOf(left.getPage()), heightOf(right.getPage()));
+    return new BiNode(nodeMsb, height, left, right);
+  }
+
+  /**
+   * Build one half of a {@link #splitIndirectWithEntry}, folding the new entry in — Binna's
+   * {@code compressEntriesAndAddOneEntryIntoNewNode} ({@code HOTSingleThreadedNode.hpp:511} and
+   * the {@code compressRangeIntoNewNode}+insert constructor at {@code :186}).
+   *
+   * <p>The range {@code [firstIndexInRange, firstIndexInRange + rangeLength)} of {@code node}'s
+   * children is re-compressed onto its own {@code relevantBits} (the discriminative bits that
+   * still branch within the range — Binna's {@code getRelevantBitsForRange}), {@code beta} is
+   * folded in, and the new child is placed beside the affected subtree on {@code beta}'s
+   * {@code betaValue} side. Crucially the {@code info} is the one computed on the <em>original</em>
+   * node — {@code subtreePrefix} is re-encoded into the compressed layout, never re-derived.
+   *
+   * <p>A range of a single child is the {@code 1:31} caveat: the lone child and the new child
+   * become a materialized 2-entry node on {@code beta}.
+   */
+  private static PageReference compressRangeWithEntry(final int[] discBits, final int[] partials,
+      final PageReference[] children, final int firstIndexInRange, final int rangeLength,
+      final InsertInfo info, final int beta, final int betaValue, final PageReference newChildRef,
+      final int revision, final LongSupplier pageKeyAllocator) {
+    if (rangeLength == 1) {
+      // 1:31 — the half is the lone affected child; pair it with the new child under beta.
+      final PageReference existing = children[firstIndexInRange];
+      final PageReference biLeft = betaValue == 1 ? existing : newChildRef;
+      final PageReference biRight = betaValue == 1 ? newChildRef : existing;
+      final int h = 1 + Math.max(heightOf(biLeft.getPage()), heightOf(biRight.getPage()));
+      return swizzle(materialize(new BiNode(beta, h, biLeft, biRight), revision, pageKeyAllocator));
+    }
+    final int m = discBits.length;
+
+    // relevantBits — the discriminative-bit columns that still branch within the range. For a
+    // sorted partial sequence the bits newly set at each step capture exactly the varying columns
+    // (Binna's getRelevantBitsForRange).
+    int relevantBits = 0;
+    for (int i = firstIndexInRange + 1; i < firstIndexInRange + rangeLength; i++) {
+      relevantBits |= partials[i] & ~partials[i - 1];
+    }
+    final int liveCount = Integer.bitCount(relevantBits);
+    final int[] liveOldColumn = new int[liveCount];
+    final int[] liveDiscBits = new int[liveCount];
+    for (int k = 0, li = 0; k < m; k++) {
+      if ((relevantBits & (1 << (m - 1 - k))) != 0) {
+        liveOldColumn[li] = k;
+        liveDiscBits[li] = discBits[k];
+        li++;
+      }
+    }
+
+    // beta is a genuinely new discriminative bit of the node (a splitIndirectWithEntry
+    // precondition) — hence new to the half too. It joins the compressed layout at its sorted
+    // position; liveDiscBits is a subset of the node's disc bits, so beta is never among them.
+    int betaFinalColumn = 0;
+    while (betaFinalColumn < liveCount && liveDiscBits[betaFinalColumn] < beta) {
+      betaFinalColumn++;
+    }
+    final int[] finalDiscBits = new int[liveCount + 1];
+    System.arraycopy(liveDiscBits, 0, finalDiscBits, 0, betaFinalColumn);
+    finalDiscBits[betaFinalColumn] = beta;
+    System.arraycopy(liveDiscBits, betaFinalColumn, finalDiscBits, betaFinalColumn + 1,
+        liveCount - betaFinalColumn);
+    final int m2 = liveCount + 1;
+    final int betaWeight = 1 << (m2 - 1 - betaFinalColumn);
+
+    final int numBefore = info.firstAffected() - firstIndexInRange;
+    final int affectedCount = info.affectedCount();
+    if (numBefore < 0 || numBefore + affectedCount > rangeLength) {
+      throw new IllegalStateException("affected subtree [" + info.firstAffected() + ", +"
+          + affectedCount + ") is not contained in the split range [" + firstIndexInRange + ", +"
+          + rangeLength + ")");
+    }
+    final int newN = rangeLength + 1;
+    final int[] newPartials = new int[newN];
+    final PageReference[] newChildren = new PageReference[newN];
+
+    // Children before the affected subtree — re-encoded, beta column left at 0.
+    for (int t = 0; t < numBefore; t++) {
+      final int src = firstIndexInRange + t;
+      newChildren[t] = children[src];
+      newPartials[t] = reencodeCompressed(partials[src], m, m2, liveCount, liveOldColumn,
+          betaFinalColumn);
+    }
+    // The new child: the affected subtree's above-beta prefix re-encoded, plus beta = betaValue.
+    final int newEntryTarget = numBefore + (betaValue == 1 ? affectedCount : 0);
+    newChildren[newEntryTarget] = newChildRef;
+    newPartials[newEntryTarget] = reencodeCompressed(info.subtreePrefix(), m, m2, liveCount,
+        liveOldColumn, betaFinalColumn) | (betaValue == 1 ? betaWeight : 0);
+    // The affected subtree — re-encoded, on beta's 1 - betaValue side. beta is new to these
+    // children (it is new to the node), so the re-encoding leaves their beta column 0; it is set
+    // uniformly here — the affected subtree is one-sided on beta (beta = msdb).
+    final int firstAffectedTarget = numBefore + (1 - betaValue);
+    for (int a = 0; a < affectedCount; a++) {
+      final int src = info.firstAffected() + a;
+      newChildren[firstAffectedTarget + a] = children[src];
+      int p = reencodeCompressed(partials[src], m, m2, liveCount, liveOldColumn, betaFinalColumn);
+      if (betaValue == 0) {
+        p |= betaWeight;
+      }
+      newPartials[firstAffectedTarget + a] = p;
+    }
+    // Children after the affected subtree — re-encoded, beta column 0.
+    final int afterSrcStart = firstIndexInRange + numBefore + affectedCount;
+    final int afterTargetStart = numBefore + affectedCount + 1;
+    final int afterCount = rangeLength - numBefore - affectedCount;
+    for (int i = 0; i < afterCount; i++) {
+      newChildren[afterTargetStart + i] = children[afterSrcStart + i];
+      newPartials[afterTargetStart + i] = reencodeCompressed(partials[afterSrcStart + i], m, m2,
+          liveCount, liveOldColumn, betaFinalColumn);
+    }
+
+    int maxChildHeight = 0;
+    for (final PageReference child : newChildren) {
+      maxChildHeight = Math.max(maxChildHeight, heightOf(child.getPage()));
+    }
+    return swizzle(HOTBulkBuilder.assembleIndirect(finalDiscBits, newPartials, newChildren,
+        maxChildHeight + 1, revision, pageKeyAllocator));
+  }
+
+  /**
+   * Re-encode an {@code m}-column partial key into the {@code m2}-column layout of a compressed
+   * split half: keep only the columns that survived the compression ({@code liveOldColumn}),
+   * re-pack them MSB-first, and skip {@code betaFinalColumn} (the new {@code beta} column). The
+   * {@code beta} column itself is left 0; the caller sets it.
+   */
+  private static int reencodeCompressed(final int fullPartial, final int m, final int m2,
+      final int liveCount, final int[] liveOldColumn, final int betaFinalColumn) {
+    int out = 0;
+    for (int i = 0; i < liveCount; i++) {
+      if ((fullPartial & (1 << (m - 1 - liveOldColumn[i]))) != 0) {
+        final int finalColumn = i >= betaFinalColumn ? i + 1 : i;
+        out |= 1 << (m2 - 1 - finalColumn);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * For every adjacent child pair of {@code node}, whether it is <em>BiNode-paired</em> — the two
+   * children of a single {@code BiNode} in the node's flattened binary trie whose subtree is
+   * exactly those two children. Their key sets together then form one complete {@code R(S)}-subtree
+   * — the precondition for collapsing them ({@link #mergeBiNodePairedLeaves}).
+   *
+   * <p>This is the port of Binna's flattened-trie traversal ({@code collectEntryDepth},
+   * {@code HOTSingleThreadedNode.hpp}): the sorted partial-key range is recursively partitioned at
+   * its most significant <em>differing</em> bit (the range's root BiNode). A pair is BiNode-paired
+   * exactly when the recursion isolates it as a two-element range — that range <em>is</em> a
+   * BiNode whose two children are precisely those entries. A one-bit partial-key difference alone
+   * is <em>not</em> sufficient: the two entries may sit in different sub-branches of a deeper
+   * BiNode, and merging them would not yield a clean {@code R(S)}-subtree (an I6 routing break).
+   *
+   * @return {@code result[i]} iff children {@code i} and {@code i + 1} are BiNode-paired;
+   *         {@code result} has length {@code max(0, numChildren - 1)}
+   */
+  public static boolean[] biNodePairs(final HOTIndirectPage node) {
+    Objects.requireNonNull(node, "node");
+    final int n = node.getNumChildren();
+    final boolean[] paired = new boolean[Math.max(0, n - 1)];
+    if (n >= 2) {
+      markBiNodePairs(node.getPartialKeys(), 0, n - 1, paired);
+    }
+    return paired;
+  }
+
+  /**
+   * Recursively partition the sorted partial-key range {@code [lo, hi]} at its most significant
+   * differing bit, marking every two-element range as a BiNode pair. {@code partials[lo]} and
+   * {@code partials[hi]} are the range's extremes (sorted ascending, distinct — I7/I3), so the
+   * highest set bit of their XOR is the range's root-BiNode bit.
+   */
+  private static void markBiNodePairs(final int[] partials, final int lo, final int hi,
+      final boolean[] paired) {
+    if (hi <= lo) {
+      return;
+    }
+    if (hi == lo + 1) {
+      paired[lo] = true; // a two-element range is itself a BiNode over those two children
+      return;
+    }
+    final int splitBit = Integer.highestOneBit(partials[lo] ^ partials[hi]);
+    int mid = lo + 1;
+    while ((partials[mid] & splitBit) == 0) {
+      mid++;
+    }
+    markBiNodePairs(partials, lo, mid - 1, paired);
+    markBiNodePairs(partials, mid, hi, paired);
+  }
+
+  /**
+   * Whether children {@code leftIndex} and {@code leftIndex + 1} of {@code node} are
+   * BiNode-paired — see {@link #biNodePairs}. Recomputes the whole pairing; a caller testing many
+   * indices of one node should call {@link #biNodePairs} once instead.
+   */
+  public static boolean areBiNodePaired(final HOTIndirectPage node, final int leftIndex) {
+    Objects.requireNonNull(node, "node");
+    return leftIndex >= 0 && leftIndex + 1 < node.getNumChildren()
+        && biNodePairs(node)[leftIndex];
+  }
+
+  /**
+   * Collapse two adjacent BiNode-paired leaf children of {@code node} into a single merged leaf —
+   * the inverse of a leaf-page split, the structural core of incremental leaf consolidation. The
+   * joining {@code BiNode} disappears; if its discriminative bit discriminated only this pair it
+   * is dropped from the node, otherwise it is kept (it still branches elsewhere). Either way the
+   * re-encoding is delegated to {@link #compressHalf}, which drops exactly the bits that became
+   * constant and re-packs the surviving ones.
+   *
+   * <p>The two leaves' partials already agree everywhere except the joining bit, and the lower
+   * child carries that bit as 0, so the merged leaf inherits {@code partials[leftIndex]}
+   * unchanged — the joining {@code BiNode}'s position.
+   *
+   * <p><b>Purity.</b> Allocates only the new compound page; never mutates {@code node}. The
+   * caller owns {@code mergedLeaf} (it must hold exactly the union of the two children's
+   * entries) and the two collapsed leaf pages.
+   *
+   * @param node             the compound node whose pair is collapsed
+   * @param leftIndex        the lower of the two adjacent (BiNode-paired) child indices
+   * @param mergedLeaf       the leaf page holding the union of the two children's entries
+   * @param revision         the revision stamped onto the created page
+   * @param pageKeyAllocator supplier of fresh persistent page keys
+   * @return the rebuilt node (or, if it collapses to one child, that lone child reference)
+   */
+  public static PageReference mergeBiNodePairedLeaves(final HOTIndirectPage node,
+      final int leftIndex, final HOTLeafPage mergedLeaf, final int revision,
+      final LongSupplier pageKeyAllocator) {
+    Objects.requireNonNull(node, "node");
+    Objects.requireNonNull(mergedLeaf, "mergedLeaf");
+    Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
+    final int n = node.getNumChildren();
+    Objects.checkIndex(leftIndex, n - 1);
+    if (!biNodePairs(node)[leftIndex]) {
+      throw new IllegalArgumentException("children " + leftIndex + " and " + (leftIndex + 1)
+          + " are not BiNode-paired — their union is not a single complete R(S)-subtree");
+    }
+    final int[] partials = node.getPartialKeys();
+    final int[] discBits = discriminativeBits(node);
+    final PageReference[] oldChildren = childReferences(node);
+    final PageReference[] newChildren = new PageReference[n - 1];
+    final int[] newPartials = new int[n - 1];
+    for (int j = 0; j < n - 1; j++) {
+      if (j < leftIndex) {
+        newChildren[j] = oldChildren[j];
+        newPartials[j] = partials[j];
+      } else if (j == leftIndex) {
+        newChildren[j] = swizzle(mergedLeaf);
+        newPartials[j] = partials[leftIndex]; // the lower child already carries the joining bit 0
+      } else {
+        newChildren[j] = oldChildren[j + 1];
+        newPartials[j] = partials[j + 1];
+      }
+    }
+    return compressHalf(newChildren, newPartials, discBits, revision, pageKeyAllocator);
+  }
+
+  /**
+   * Consolidate {@code node}'s leaf children — the thesis's <em>underflow</em> rule (§3.3.2)
+   * applied with the leaf page treated as a {@code k}-constrained node: two sibling leaf pages
+   * whose combined entry count is small enough are an underflow and are node-merged. The
+   * incremental insert leaves the trie over-partitioned (a faithful leaf split at the key-set
+   * MSDB is uneven, freezing a small half; a branch starts a single-entry leaf) — without
+   * consolidation the leaves drift to a fraction of capacity.
+   *
+   * <p>Greedily merges every adjacent BiNode-paired leaf-child pair whose union stays at or below
+   * {@code targetMaxEntries}, repeating until none remain. Each merge is a
+   * {@link #mergeBiNodePairedLeaves} (drops the joining discriminative bit). Only fires while the
+   * node keeps &ge; 3 children, so the node never collapses to a lone leaf (which would drop a
+   * level and stale ancestor heights).
+   *
+   * <p><b>Purity.</b> Allocates only new pages; never mutates {@code node}. Each merge replaces
+   * two leaf pages with one — the two collapsed children's references are appended to
+   * {@code droppedLeavesOut} so the caller can release their off-heap slots (a merged-away leaf
+   * is unreachable from the result and must not pin its 64KB segment until end-of-transaction).
+   *
+   * @param droppedLeavesOut sink for every leaf reference this consolidation merged away
+   * @return the consolidated node, or {@code node} itself when nothing was mergeable
+   */
+  public static HOTIndirectPage consolidateNodeLeaves(final HOTIndirectPage node,
+      final int targetMaxEntries, final int revision, final IndexType indexType,
+      final LongSupplier pageKeyAllocator, final List<PageReference> droppedLeavesOut) {
+    Objects.requireNonNull(node, "node");
+    Objects.requireNonNull(indexType, "indexType");
+    Objects.requireNonNull(pageKeyAllocator, "pageKeyAllocator");
+    Objects.requireNonNull(droppedLeavesOut, "droppedLeavesOut");
+    HOTIndirectPage current = node;
+    boolean merged = true;
+    while (merged && current.getNumChildren() >= 3) {
+      merged = false;
+      final boolean[] pairs = biNodePairs(current);
+      for (int i = 0; i < pairs.length; i++) {
+        if (!pairs[i]
+            || !(current.getChildReference(i).getPage() instanceof HOTLeafPage left)
+            || !(current.getChildReference(i + 1).getPage() instanceof HOTLeafPage right)
+            || left.getEntryCount() + right.getEntryCount() > targetMaxEntries) {
+          continue;
+        }
+        final HOTLeafPage mergedLeaf =
+            new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
+        boolean fits = true;
+        for (int e = 0; e < left.getEntryCount() && fits; e++) {
+          fits = mergedLeaf.put(left.getKey(e), left.getValue(e));
+        }
+        for (int e = 0; e < right.getEntryCount() && fits; e++) {
+          fits = mergedLeaf.put(right.getKey(e), right.getValue(e));
+        }
+        if (!fits) {
+          mergedLeaf.close();
+          continue;
+        }
+        droppedLeavesOut.add(current.getChildReference(i));
+        droppedLeavesOut.add(current.getChildReference(i + 1));
+        current = (HOTIndirectPage) mergeBiNodePairedLeaves(current, i, mergedLeaf, revision,
+            pageKeyAllocator).getPage();
+        merged = true;
+        break;
+      }
+    }
+    return current;
+  }
+
+  /**
    * Integrate a {@link BiNode} into a not-full compound node — Binna's {@code addEntry}
    * ({@code HOTSingleThreadedNode.hpp:415}). The {@code biNode} is the split of {@code node}'s
    * child at {@code affectedChildIndex} (a leaf-page split, or a child compound-node split
@@ -398,6 +795,198 @@ public final class HOTIncrementalInsert {
       p |= 1 << (m2 - 1 - betaColumn);
     }
     return p;
+  }
+
+  /**
+   * The post-analysis of HOT's approximate insert descent — Binna's {@code getInsertInformation}
+   * ({@code HOTSingleThreadedNode.hpp:383}). For the node a branch insert stopped at, the child
+   * slot {@code entryIndex} the descent took, and the mismatch bit {@code beta}, it reports
+   * whether {@code beta} is already a discriminative bit of the node and the extent of the
+   * affected subtree.
+   *
+   * @param betaIsDiscBit   {@code true} iff {@code beta} is already a discriminative bit of the
+   *                        node — the descent misrouted and the key must re-route, not branch
+   * @param affectedCount   number of the node's children {@code beta}'s new BiNode roots — the
+   *                        contiguous run sharing {@code entryIndex}'s above-{@code beta} prefix
+   * @param firstAffected   the lowest child index of that run
+   * @param subtreePrefix   {@code partials[entryIndex]} masked to the columns more significant
+   *                        than {@code beta} — the partial the new key's leaf inherits
+   */
+  public record InsertInfo(boolean betaIsDiscBit, int affectedCount, int firstAffected,
+                           int subtreePrefix) {}
+
+  /**
+   * Compute the {@link InsertInfo} for a branch insert — Binna's {@code getInsertInformation}.
+   * {@code prefixBits} are the partial-key columns whose discriminative bit is more significant
+   * than {@code beta} (Binna's {@code getPrefixBitsMask}); the affected subtree is the children
+   * whose partial agrees with {@code entryIndex}'s on those columns (Binna's
+   * {@code getAffectedSubtreeMask} = {@code (partial & prefixBits) == subtreePrefix}). Children
+   * are in ascending partial-key order (I7) and share a prefix, so the affected set is a
+   * contiguous run.
+   */
+  static InsertInfo getInsertInformation(final HOTIndirectPage node, final int entryIndex,
+      final int beta) {
+    final int[] discBits = discriminativeBits(node);
+    final int m = discBits.length;
+    final int[] partials = node.getPartialKeys();
+    int prefixBits = 0;
+    boolean betaIsDiscBit = false;
+    for (int k = 0; k < m; k++) {
+      if (discBits[k] < beta) {
+        prefixBits |= 1 << (m - 1 - k);   // column k carries weight 1 << (m - 1 - k)
+      } else if (discBits[k] == beta) {
+        betaIsDiscBit = true;
+      }
+    }
+    final int subtreePrefix = partials[entryIndex] & prefixBits;
+    final int n = node.getNumChildren();
+    int count = 0;
+    int first = -1;
+    for (int i = 0; i < n; i++) {
+      if ((partials[i] & prefixBits) == subtreePrefix) {
+        if (first < 0) {
+          first = i;
+        }
+        count++;
+      }
+    }
+    return new InsertInfo(betaIsDiscBit, count, first, subtreePrefix);
+  }
+
+  /**
+   * Fold a new discriminative bit {@code beta} and a new child into a not-full compound node —
+   * Binna's {@code insertNewValue} / {@code addEntry}-with-{@code InsertInformation}. The new
+   * BiNode on {@code beta} roots the affected subtree {@code [firstAffected, firstAffected +
+   * affectedCount)}: those children move to {@code beta}'s {@code 1 - newChildBetaValue} side
+   * (keeping their full partials), and {@code newChildRef} becomes the lone child on
+   * {@code beta}'s {@code newChildBetaValue} side.
+   *
+   * <p>Unlike {@link #addEntry} (which splits one child slot — correct only when both halves
+   * inherit that slot's full partial, e.g. a leaf-page overflow), the new child here inherits
+   * only {@code subtreePrefix} — the affected subtree's prefix above {@code beta} — so its
+   * partial bits <em>below</em> {@code beta} are zero. A branch key agrees with the affected
+   * subtree only above {@code beta}; copying the slot's lower bits would misplace it.
+   *
+   * <p><b>Purity.</b> Returns a fresh compound node; never mutates {@code node}. Requires
+   * {@code node} to be not full (its child count + 1 &le; {@link HOTIndirectPage#MAX_NODE_ENTRIES})
+   * and {@code beta} to not already be a discriminative bit of {@code node}.
+   *
+   * @param node              the not-full compound node {@code beta} joins
+   * @param beta              the new discriminative bit (absolute, MSB-first)
+   * @param newChildBetaValue the new key's value at {@code beta} (0 or 1)
+   * @param firstAffected     the affected subtree's first child index ({@link InsertInfo})
+   * @param affectedCount     the affected subtree's size ({@link InsertInfo})
+   * @param subtreePrefix     the affected subtree's above-{@code beta} prefix ({@link InsertInfo})
+   * @param newChildRef       the new child (the branch key's single-entry leaf)
+   * @param height            the assembled node's height ({@code node}'s height — adding a leaf
+   *                          child never raises it)
+   * @param revision          the revision stamped onto the created page
+   * @param pageKeyAllocator  supplier of a fresh persistent page key
+   * @return a fresh compound node with one more child and {@code beta} as a new disc bit
+   */
+  public static HOTIndirectPage addEntryWithInsertInfo(final HOTIndirectPage node, final int beta,
+      final int newChildBetaValue, final int firstAffected, final int affectedCount,
+      final int subtreePrefix, final PageReference newChildRef, final int height,
+      final int revision, final LongSupplier pageKeyAllocator) {
+    Objects.requireNonNull(node, "node");
+    Objects.requireNonNull(newChildRef, "newChildRef");
+    final int[] discBits = discriminativeBits(node);
+    final int m = discBits.length;
+    final int found = Arrays.binarySearch(discBits, beta);
+    if (found >= 0) {
+      throw new IllegalArgumentException(
+          "split bit " + beta + " is already a discriminative bit of the node");
+    }
+    final int betaColumn = -found - 1;
+    final int[] newDiscBits = new int[m + 1];
+    System.arraycopy(discBits, 0, newDiscBits, 0, betaColumn);
+    newDiscBits[betaColumn] = beta;
+    System.arraycopy(discBits, betaColumn, newDiscBits, betaColumn + 1, m - betaColumn);
+
+    final int[] oldPartials = node.getPartialKeys();
+    final PageReference[] oldChildren = childReferences(node);
+    final int n = oldChildren.length;
+    final int affectedBetaValue = 1 - newChildBetaValue;
+
+    final PageReference[] newChildren = new PageReference[n + 1];
+    final int[] newPartials = new int[n + 1];
+    // Children before the affected subtree — unchanged, beta column 0 (beta is not on their path).
+    for (int i = 0; i < firstAffected; i++) {
+      newChildren[i] = oldChildren[i];
+      newPartials[i] = reencodeWithNewBit(oldPartials[i], m, betaColumn, 0);
+    }
+    // The group [firstAffected, firstAffected + affectedCount]: the affected subtree on beta's
+    // 1 - newChildBetaValue side, the new child alone on the newChildBetaValue side. The beta = 0
+    // side sorts first.
+    final int newChildSlot = newChildBetaValue == 0 ? firstAffected : firstAffected + affectedCount;
+    final int affectedStart = newChildBetaValue == 0 ? firstAffected + 1 : firstAffected;
+    newChildren[newChildSlot] = newChildRef;
+    newPartials[newChildSlot] = reencodeWithNewBit(subtreePrefix, m, betaColumn, newChildBetaValue);
+    for (int a = 0; a < affectedCount; a++) {
+      newChildren[affectedStart + a] = oldChildren[firstAffected + a];
+      newPartials[affectedStart + a] =
+          reencodeWithNewBit(oldPartials[firstAffected + a], m, betaColumn, affectedBetaValue);
+    }
+    // Children after the affected subtree — unchanged, beta column 0.
+    for (int i = firstAffected + affectedCount; i < n; i++) {
+      newChildren[i + 1] = oldChildren[i];
+      newPartials[i + 1] = reencodeWithNewBit(oldPartials[i], m, betaColumn, 0);
+    }
+    return HOTBulkBuilder.assembleIndirect(newDiscBits, newPartials, newChildren, height, revision,
+        pageKeyAllocator);
+  }
+
+  /**
+   * Add a child for a new combination of {@code node}'s <em>existing</em> discriminative bits —
+   * Binna's {@code addEntry} for the case where the mismatch bit is already a discriminative bit
+   * ({@code DiscriminativeBitsRepresentation.insert} is a no-op — no bit is added, only an entry).
+   *
+   * <p>{@code sparsePartialKey} is the new child's sparse-path partial: the discriminative-bit
+   * pattern on the path from {@code node}'s flattened binary trie root to the new child, with
+   * every off-path (more specific) bit zero — a fresh single-entry leaf is its own subtree root.
+   * The discriminative bits, the mask, and every other child's stored partial are unchanged; the
+   * new child slots in at {@code sparsePartialKey}'s ascending position (I7).
+   *
+   * <p><b>Purity.</b> Returns a fresh compound node; never mutates {@code node}. Requires
+   * {@code node} to be not full and {@code sparsePartialKey} to not already be a child partial.
+   *
+   * @param node             the not-full compound node the key branches at
+   * @param sparsePartialKey the new child's sparse-path partial key
+   * @param newChildRef      the new child (the branch key's single-entry leaf)
+   * @param height           the assembled node's height ({@code node}'s height — adding a leaf
+   *                         child never raises it)
+   * @param revision         the revision stamped onto the created page
+   * @param pageKeyAllocator supplier of a fresh persistent page key
+   * @return a fresh compound node with one more child, same discriminative bits
+   */
+  public static HOTIndirectPage addChildAtCombination(final HOTIndirectPage node,
+      final int sparsePartialKey, final PageReference newChildRef, final int height,
+      final int revision, final LongSupplier pageKeyAllocator) {
+    Objects.requireNonNull(node, "node");
+    Objects.requireNonNull(newChildRef, "newChildRef");
+    final int[] discBits = discriminativeBits(node);
+    final int[] oldPartials = node.getPartialKeys();
+    final PageReference[] oldChildren = childReferences(node);
+    final int n = oldChildren.length;
+    // Children are in ascending partial-key order (I7); find sparsePartialKey's insertion point.
+    int pos = 0;
+    while (pos < n && oldPartials[pos] < sparsePartialKey) {
+      pos++;
+    }
+    if (pos < n && oldPartials[pos] == sparsePartialKey) {
+      throw new IllegalArgumentException("sparse partial key " + sparsePartialKey
+          + " is already a child of the node — not a new combination");
+    }
+    final int[] newPartials = new int[n + 1];
+    final PageReference[] newChildren = new PageReference[n + 1];
+    System.arraycopy(oldPartials, 0, newPartials, 0, pos);
+    System.arraycopy(oldChildren, 0, newChildren, 0, pos);
+    newPartials[pos] = sparsePartialKey;
+    newChildren[pos] = newChildRef;
+    System.arraycopy(oldPartials, pos, newPartials, pos + 1, n - pos);
+    System.arraycopy(oldChildren, pos, newChildren, pos + 1, n - pos);
+    return HOTBulkBuilder.assembleIndirect(discBits, newPartials, newChildren, height, revision,
+        pageKeyAllocator);
   }
 
   /**
@@ -509,6 +1098,20 @@ public final class HOTIncrementalInsert {
   }
 
   /**
+   * The outcome of {@link #integrate}: the (possibly new) index-root reference and the single
+   * spine reference whose page {@code integrate} re-pointed via {@link PageReference#setPage}.
+   *
+   * <p>{@code integrate} re-points exactly one spine reference (the capacity cascade recurses,
+   * but only the level where it stops does a {@code setPage}). Every page the integration freshly
+   * created hangs at or below {@code touchedRef}; the caller registers that subtree in the
+   * transaction-intent log by walking down from {@code touchedRef}, stopping at shared subtrees.
+   *
+   * @param rootRef    the index-root reference — {@code spineRefs[0]}, re-pointed if the root grew
+   * @param touchedRef the spine reference {@code integrate} re-pointed; root of the fresh subtree
+   */
+  public record IntegrationResult(PageReference rootRef, PageReference touchedRef) {}
+
+  /**
    * Integrate a {@link BiNode} into the descent spine — Binna's {@code integrateBiNodeIntoTree}
    * ({@code HOTSingleThreaded.hpp:496-547}), adapted for SirixDB's persistent pages.
    *
@@ -536,6 +1139,11 @@ public final class HOTIncrementalInsert {
    * every ancestor without rebuilding it. Every page {@code integrate} creates is swizzled into
    * its reference; the caller registers the new pages in the transaction-intent log.
    *
+   * <p><b>Precondition.</b> Neither child of {@code biNode} may be {@code spineRefs[currentDepth]}
+   * itself — the new-root and intermediate-node cases re-point that slot to a node built from the
+   * BiNode's children, so aliasing it would make the node its own descendant (a page cycle). A
+   * caller wrapping an existing spine subtree must pass a fresh {@link PageReference} to it.
+   *
    * @param spineNodes       the descent path's compound nodes, root first
    * @param spineRefs        the spine's references — {@code spineNodes.length + 1} of them, the
    *                         last being the leaf's reference
@@ -544,9 +1152,9 @@ public final class HOTIncrementalInsert {
    * @param biNode           the split result to integrate
    * @param revision         the revision stamped onto every created page
    * @param pageKeyAllocator supplier of fresh persistent page keys
-   * @return the index-root reference — {@code spineRefs[0]}, re-pointed when the root changed
+   * @return the integration result — the (possibly new) root reference and the touched reference
    */
-  public static PageReference integrate(final HOTIndirectPage[] spineNodes,
+  public static IntegrationResult integrate(final HOTIndirectPage[] spineNodes,
       final PageReference[] spineRefs, final int[] childSlots, final int currentDepth,
       final BiNode biNode, final int revision, final LongSupplier pageKeyAllocator) {
     Objects.requireNonNull(biNode, "biNode");
@@ -554,7 +1162,7 @@ public final class HOTIncrementalInsert {
 
     if (currentDepth == 0) {
       spineRefs[0].setPage(materialize(biNode, revision, pageKeyAllocator));
-      return spineRefs[0];
+      return new IntegrationResult(spineRefs[0], spineRefs[0]);
     }
     final int parentDepth = currentDepth - 1;
     final HOTIndirectPage parent = spineNodes[parentDepth];
@@ -563,14 +1171,14 @@ public final class HOTIncrementalInsert {
       // Intermediate node: biNode's subtree is shorter than the parent's level — give it its
       // own 2-entry compound node in the slot the old node occupied; the parent is untouched.
       spineRefs[currentDepth].setPage(materialize(biNode, revision, pageKeyAllocator));
-      return spineRefs[0];
+      return new IntegrationResult(spineRefs[0], spineRefs[currentDepth]);
     }
 
     final int affectedChildIndex = childSlots[parentDepth];
     if (parent.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
       spineRefs[parentDepth].setPage(
           addEntry(parent, biNode, affectedChildIndex, revision, pageKeyAllocator));
-      return spineRefs[0];
+      return new IntegrationResult(spineRefs[0], spineRefs[parentDepth]);
     }
 
     // Capacity cascade: the parent is full. Its MSB must be more significant than β — the trie
