@@ -1,10 +1,72 @@
 # HOT rebuild-fallback elimination — design plan
 
-**Status:** design, pending review. **Branch:** `fix/hot-strict-binna-conformance`.
+**Status:** Stage 4a landed (`7992b58ff`); **Stage 4b ATTEMPTED + REVERTED** (see callout
+below); Stage 4c+ pending re-design. **Branch:** `fix/hot-strict-binna-conformance`.
 **Follows:** `HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` (Stage 0) + `HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md`
 (Stages 1–2).
 **Empirical trigger:** commit `c8ac969af` (Stage 3a) instrumented the structural self-heal with
 `SELF_HEAL_FIRINGS`; running the HOT test suite yielded **118 firings — Stage 3b BLOCKED**.
+
+---
+
+> ## ⚠ Stage 4b ATTEMPTED + REVERTED — the C2 sub-insert approach breaks routing
+>
+> **Attempted 2026-05-20:** wire the C2 catch at the three `addChildAtCombination` sites
+> (Site A: `tryBranchIncremental` not-full betaIsDiscBit; Site B: `branchFullNodeAtExistingBit`'s
+> `betaCol>=0` half-fold; Site C: boundary-child not-full handler) → on
+> `IllegalArgumentException` collision, call `subInsertAt(collidingChildRef, K, V)` to descend
+> through the colliding child and retry the dispatch.
+>
+> **Result:** the **103 C2 firings dropped to 0** — sub-insert was exercised — but
+> **`HOTVersionedLeafStressTest$DeleteAtScale.interleavedInsertDeleteMultiRev` failed with 11
+> I6 routing violations:** stored keys present in some leaf but root-routing reaches a different
+> leaf. Verbatim (one of 11):
+>
+> > `[I6-pext-routes-to-leaf] PEXT descent for stored key
+> > 8000000000000009000580000000000003e800000000 landed in leaf 18 which does not contain it`
+>
+> Reverted. (Stage 4a infrastructure — `dispatchInsert`, `subInsertAt`, `findChildSlotByPartial`
+> — remains; unused until Stage 4b is re-designed.)
+>
+> **Root cause (post-mortem).** The plan's §3.1 premise — "K structurally belongs in c''s
+> subtree" — does not hold under Sirix's **exact-match-preferred / highest-index-subset-match**
+> `findChildIndex`. After sub-insert places K in c''s subtree, root-routing for K still picks
+> the **affected** child (or another sibling that subset-matches): both `affected.partial` and
+> `c'.partial` subset-match K's `densePK`; highest-index wins; if `affected` outranks `c'` the
+> routing reaches the wrong subtree → misroute. The plan §3.1 noted "empirically
+> affectedChildIndex > c'", correctly diagnosed the descent imprecision, but **wrong-direction**
+> remediated: sub-insert places K where routing won't reach it. The interleaved-insert-delete
+> workload (tombstones + multiple revisions + complex subtree shapes) reliably triggers the
+> misroute; ascending and simple random workloads coincidentally don't (routing happens to
+> agree with sub-insert's placement when below-β bits are tame).
+>
+> **What the canonical (Theorem 2) argument needs.** For sub-insert to be routing-correct, K's
+> `densePK` must NOT subset-match `affected.partial`. That requires `affected.partial` to have
+> some bit set that `K's densePK` lacks. The β-bit on its own doesn't suffice (the sparse
+> encoding stores `0` for the side `affected` takes when that's β's `0` side — no constraint
+> on `dK`). Other distinguishing bits in `affected.partial` would need to disagree with
+> `K`. On a canonical trie that *should* hold, but the actual interleaved state has
+> configurations where it doesn't — the trie has drifted (likely by an *earlier* C2-tolerated
+> sub-insert, or by the canonical-but-non-routing-distinguishing shape the off-path-straddle
+> finding allows).
+>
+> **Re-design directions to evaluate** (deferred):
+>
+> 1. **Merge-into-affected** instead of sub-insert into c'. K joins `affected`'s leaf (off-path
+>    straddle is canonical per Stage 0; I5-route is preserved as long as `affected.partial`'s
+>    β-column is 0). If `affected`'s leaf overflows, `splitLeafPage` at some β; if that β ∈
+>    D(d*) we hit Issue B (which has its own handler to design). This sidesteps the C2 routing
+>    bug entirely — K stays where routing puts it.
+> 2. **Re-organise d*** to make K's natural slot route-correct: e.g. swap `affected` and `c'`'s
+>    indices (re-encode the partials' relative order). Complex; may break I7/I8 for other keys.
+> 3. **Smarter `findChildIndex`** — change Sirix's exact-match-preferred routing to follow the
+>    block-structure more strictly. Risks regressing all of Stage 0/1/2's verification.
+>
+> Direction 1 is the most promising and the natural follow-up. It also unifies with Issue B's
+> design (which is itself a merge-style "L₀ stays in L's slot, L₁ goes elsewhere" handler).
+> Needs its own probe + verification before a Stage 4b retry.
+
+---
 
 This plan covers the two issues the Stage 3a verification surfaced: the **branch-path
 `comboPartial` collision (C2)** and the **merge-path `β ∈ D(N)` off-path overflow**. Both
