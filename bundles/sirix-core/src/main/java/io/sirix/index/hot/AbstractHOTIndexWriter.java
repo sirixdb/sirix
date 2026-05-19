@@ -716,22 +716,41 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
 
     final LeafNavigationResult navResult = prepareLeafOfTree(rootReference, keyBuf, keyLen);
+    final byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
+
+    // Factored merge-vs-branch dispatch — re-used by {@link #subInsertAt} on a C2 re-descend
+    // (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §4.1).
+    dispatchInsert(navResult, keyBuf, keyLen, valueBuf, valueLen, keySlice);
+
+    // Periodic leaf consolidation (the thesis's underflow rule). The incremental insert leaves
+    // the trie over-partitioned — under-full frozen leaves an insert never re-routes to — so a
+    // per-insert trigger cannot reach them; a periodic sweep does. Amortized: one O(index) sweep
+    // per CONSOLIDATION_INTERVAL inserts.
+    if (navResult.pathDepth() > 0 && ++insertsSinceConsolidation >= CONSOLIDATION_INTERVAL) {
+      insertsSinceConsolidation = 0;
+      consolidateSubtree(navResult.pathRefs()[0]);
+    }
+  }
+
+  /**
+   * The merge-vs-branch dispatch core of {@link #doIndex}: run {@code analyzeDescent}, decide
+   * between merge and branch via the merge-vs-branch bound (Â§1.2 of the port plan), invoke the
+   * corresponding handler. Factored out so {@link #subInsertAt} can re-use it on a C2
+   * re-descend ({@code docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md} Â§4.1).
+   */
+  private void dispatchInsert(LeafNavigationResult navResult, byte[] keyBuf, int keyLen,
+      byte[] valueBuf, int valueLen, byte[] keySlice) {
     final int pathDepth = navResult.pathDepth();
     final HOTIndirectPage[] pathNodes = navResult.pathNodes();
-
-    final byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
     final HOTIncrementalInsert.DescentAnalysis analysis = HOTIncrementalInsert.analyzeDescent(
         pathNodes, navResult.pathChildIndices(), pathDepth, navResult.leaf(), keySlice);
 
-    // Merge-vs-branch (plan §1.2). The key merges into the routed leaf when there is no compound
-    // ancestor, when it is already present or the leaf is empty (beta < 0), or when the mismatch
-    // bit beta is strictly less significant than *every* ancestor discriminative bit — i.e. beta
-    // lies inside the leaf's R(S)-subtree, so the key agrees with the leaf's keys on every bit the
-    // path discriminates on and the leaf stays a proper R(S)-subtree (I5). The bound is the
-    // deepest compound node's *least* significant disc bit: by the trie condition (I11) it
-    // dominates every shallower node's disc bits. Comparing against the node's MSB alone is wrong
-    // — it would admit keys that vary on the node's lower disc bits. A larger absolute bit index
-    // means a less significant bit.
+    // Merge-vs-branch: the key merges into the routed leaf when there is no compound ancestor,
+    // when it is already present or the leaf is empty (beta < 0), or when the mismatch bit beta
+    // is strictly less significant than every ancestor discriminative bit -- i.e. beta lies
+    // inside the leaf's R(S)-subtree (I5 holds). The bound is the deepest compound node's least
+    // significant disc bit (I11 dominates the shallower bits). Larger absolute bit index = less
+    // significant.
     final int beta = analysis.mismatchBit();
     final boolean merge = beta < 0 || pathDepth == 0
         || beta > leastSignificantDiscBit(pathNodes[pathDepth - 1]);
@@ -741,15 +760,110 @@ public abstract class AbstractHOTIndexWriter<K> {
     } else {
       branchAboveLeaf(navResult, analysis, keySlice, valueBuf, valueLen);
     }
+  }
 
-    // Periodic leaf consolidation (the thesis's underflow rule). The incremental insert leaves
-    // the trie over-partitioned — under-full frozen leaves an insert never re-routes to — so a
-    // per-insert trigger cannot reach them; a periodic sweep does. Amortized: one O(index) sweep
-    // per CONSOLIDATION_INTERVAL inserts.
-    if (pathDepth > 0 && ++insertsSinceConsolidation >= CONSOLIDATION_INTERVAL) {
-      insertsSinceConsolidation = 0;
-      consolidateSubtree(navResult.pathRefs()[0]);
+  /**
+   * Insert {@code (key, value)} into the subtree rooted at {@code subtreeRef}. Used by the
+   * C2-collision handlers: when {@code addChildAtCombination}'s {@code comboPartial} coincides
+   * with an existing child of d* (or of the boundary node), K structurally belongs INSIDE that
+   * child's subtree -- the descent stopped one level too shallow. This method extends the
+   * descent through {@code subtreeRef} and runs the standard merge-vs-branch dispatch at the
+   * deeper depth ({@code docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md} Â§4.1).
+   *
+   * <p>Uses local descent arrays (not the shared {@code _pathNodes} field) so it is safe under
+   * recursive invocation (a sub-insert that itself triggers another C2). Bounded by tree depth
+   * ({@code MAX_PATH_DEPTH}).
+   *
+   * @return {@code true} iff the insert succeeded incrementally; {@code false} on defensive
+   *         failure (unresolvable descent / depth overflow) -- caller falls back to its scoped
+   *         rebuild.
+   */
+  private boolean subInsertAt(PageReference subtreeRef, byte[] keyBuf, int keyLen,
+      byte[] valueBuf, int valueLen) {
+    if (subtreeRef == null) {
+      return false;
     }
+    final byte[] keySlice = keyLen == keyBuf.length ? keyBuf : Arrays.copyOf(keyBuf, keyLen);
+
+    // Local descent arrays -- subInsertAt is recursion-safe (the shared _pathNodes are reserved
+    // for the outer doIndex's prepareLeafOfTree).
+    final HOTIndirectPage[] subPathNodes = new HOTIndirectPage[MAX_PATH_DEPTH];
+    final PageReference[] subPathRefs = new PageReference[MAX_PATH_DEPTH];
+    final int[] subPathChildIndices = new int[MAX_PATH_DEPTH];
+    int subPathDepth = 0;
+    PageReference currentRef = subtreeRef;
+    Page page = resolveHOTPageForTraversal(currentRef);
+
+    while (page instanceof HOTIndirectPage indirectPage) {
+      if (subPathDepth >= MAX_PATH_DEPTH) {
+        return false;                          // defensive: tree-depth overflow
+      }
+      final HOTIndirectPage cowedIndirect = prepareIndirectPage(currentRef, indirectPage);
+      subPathNodes[subPathDepth] = cowedIndirect;
+      subPathRefs[subPathDepth] = currentRef;
+      final int childIndex = cowedIndirect.findChildIndex(keySlice);
+      if (childIndex < 0) {
+        return false;                          // defensive: descent failed
+      }
+      subPathChildIndices[subPathDepth] = childIndex;
+      subPathDepth++;
+      currentRef = cowedIndirect.getChildReference(childIndex);
+      if (currentRef == null) {
+        return false;
+      }
+      page = resolveHOTPageForTraversal(currentRef);
+    }
+    if (!(page instanceof HOTLeafPage hotLeaf)) {
+      return false;                            // defensive: expected a leaf
+    }
+
+    // CoW the leaf into the TIL (mirrors prepareLeafOfTree's leaf handling).
+    final HOTLeafPage modifiedLeaf;
+    final PageContainer existing = storageEngineWriter.getLog().get(currentRef);
+    if (existing != null
+        && existing.getModified() instanceof HOTLeafPage existingModified
+        && !existingModified.isClosed()) {
+      modifiedLeaf = existingModified;
+    } else {
+      final ResourceConfiguration cfg = storageEngineWriter.getResourceSession().getResourceConfig();
+      final VersioningType versioningType = cfg.versioningType;
+      final boolean forceFullEmit = versioningType.bumpHOTPageFragmentChain(currentRef,
+          hotLeaf.getRevision(), cfg.maxNumberOfRevisionsToRestore,
+          storageEngineWriter.getDatabaseId(), storageEngineWriter.getResourceId());
+      modifiedLeaf = hotLeaf.copy();
+      if (versioningType == VersioningType.FULL || forceFullEmit) {
+        modifiedLeaf.markAllEntriesDirty();
+      }
+      storageEngineWriter.getLog().put(currentRef,
+          PageContainer.getInstance(hotLeaf, modifiedLeaf));
+    }
+
+    final LeafNavigationResult subNav = new LeafNavigationResult(modifiedLeaf, currentRef,
+        Arrays.copyOf(subPathNodes, subPathDepth),
+        Arrays.copyOf(subPathRefs, subPathDepth),
+        Arrays.copyOf(subPathChildIndices, subPathDepth),
+        subPathDepth);
+
+    dispatchInsert(subNav, keyBuf, keyLen, valueBuf, valueLen, keySlice);
+    return true;
+  }
+
+  /**
+   * Find the slot of {@code node}'s child whose stored partial equals {@code partial}, or
+   * {@code -1} if none. Used by the C2-collision handlers to find the colliding child for
+   * {@link #subInsertAt}.
+   */
+  private static int findChildSlotByPartial(HOTIndirectPage node, int partial) {
+    final int[] partials = node.getPartialKeys();
+    if (partials == null) {
+      return -1;
+    }
+    for (int i = 0; i < node.getNumChildren(); i++) {
+      if (partials[i] == partial) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   /**
