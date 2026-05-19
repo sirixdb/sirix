@@ -27,7 +27,6 @@ import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -145,10 +144,9 @@ final class HOTIndirectPageSplitFaithfulTest {
   // ======================================================================
 
   @Test
-  @DisplayName("addEntry folds a leaf-page split into a not-full node, or rejects a straddle")
+  @DisplayName("addEntry folds a leaf-page split into a not-full node — clean, canonical")
   void addEntryIntegratesLeafSplit() {
     int checked = 0;
-    int rejected = 0;
     boolean sawMultiMask = false;
     for (final Workload workload : Workload.values()) {
       for (final int size : new int[] {700, 5_000}) {
@@ -184,40 +182,30 @@ final class HOTIndirectPageSplitFaithfulTest {
         // splitLeafPage with an existing key OR-merges values — the key set is unchanged.
         final BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1,
             IndexType.CAS, allocator::getAndIncrement);
-        // addEntry is total: it either folds the split in cleanly or — when the split bit
-        // straddles a multi-value sibling — rejects with HOTStraddleException. Both are correct;
-        // it must never silently produce a malformed subtree (docs/HOT_ADDENTRY_STRADDLE_FIX.md).
-        try {
-          final HOTIndirectPage integrated = HOTIncrementalInsert.addEntry(target, leafSplit, slot,
-              1, allocator::getAndIncrement);
-          final PageReference rootRef = swizzle(integrated);
-          assertEquals(target.getNumChildren() + 1, integrated.getNumChildren(),
-              label + ": addEntry adds exactly one child");
-          assertClean(rootRef, label);
-          assertRoutesAll(rootRef, toByteList(before), label);
-          assertEquals(before, collectKeys(integrated),
-              label + ": addEntry of a duplicate-key leaf split must preserve the key set");
-          closeAll(integrated, orphanHalf.getPage(), leaf);
-          checked++;
-        } catch (HOTStraddleException straddle) {
-          assertTrue(straddle.getMessage().contains("straddles"),
-              label + ": a straddle rejection must carry a diagnostic message");
-          closeLeavesOf(built.rootPage());
-          rejected++;
-        }
+        // addEntry folds the split in canonically — straddling-sibling folds are off-path and
+        // routing-correct (docs/HOT_STRADDLE_GUARD_REMOVAL_PLAN.md).
+        final HOTIndirectPage integrated = HOTIncrementalInsert.addEntry(target, leafSplit, slot,
+            1, allocator::getAndIncrement);
+        final PageReference rootRef = swizzle(integrated);
+        assertEquals(target.getNumChildren() + 1, integrated.getNumChildren(),
+            label + ": addEntry adds exactly one child");
+        assertClean(rootRef, label);
+        assertRoutesAll(rootRef, toByteList(before), label);
+        assertEquals(before, collectKeys(integrated),
+            label + ": addEntry of a duplicate-key leaf split must preserve the key set");
+        closeAll(integrated, orphanHalf.getPage(), leaf);
+        checked++;
       }
     }
-    assertTrue(checked + rejected > 0, "no addEntry case ran — coverage gap");
+    assertTrue(checked > 0, "no addEntry case ran — coverage gap");
     assertTrue(sawMultiMask, "no MultiMask addEntry target exercised — coverage gap");
-    System.out.println("[addEntry] " + checked + " clean leaf-split integrations, "
-        + rejected + " straddle rejections");
+    System.out.println("[addEntry] " + checked + " clean leaf-split integrations");
   }
 
   @Test
-  @DisplayName("addEntry accepts a brand-new in-range key, or rejects a straddle")
+  @DisplayName("addEntry accepts a brand-new in-range key — clean, canonical")
   void addEntryAcceptsFreshKey() {
     int checked = 0;
-    int rejected = 0;
     for (final int size : new int[] {700, 5_000, 12_000}) {
       final AtomicLong allocator = new AtomicLong(1);
       final List<byte[]> keys = Workload.RANDOM8.generate(size, 2);
@@ -251,85 +239,28 @@ final class HOTIndirectPageSplitFaithfulTest {
 
       final BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(leaf, freshKey, VALUE, 1,
           IndexType.CAS, allocator::getAndIncrement);
-      // addEntry is total — a clean fold or a HOTStraddleException, never silent corruption.
-      try {
-        final HOTIndirectPage integrated = HOTIncrementalInsert.addEntry(target, leafSplit, slot, 1,
-            allocator::getAndIncrement);
-        final PageReference rootRef = swizzle(integrated);
-        assertClean(rootRef, label);
-        assertEquals(expected, collectKeys(integrated),
-            label + ": the new key joins the node's key set");
-        assertRoutesAll(rootRef, toByteList(expected), label);
-        closeAll(integrated, orphanHalf.getPage(), leaf);
-        checked++;
-      } catch (HOTStraddleException straddle) {
-        assertTrue(straddle.getMessage().contains("straddles"),
-            label + ": a straddle rejection must carry a diagnostic message");
-        closeAll(materialize(split, allocator));
-        rejected++;
-      }
+      // addEntry folds the split in canonically (docs/HOT_STRADDLE_GUARD_REMOVAL_PLAN.md).
+      final HOTIndirectPage integrated = HOTIncrementalInsert.addEntry(target, leafSplit, slot, 1,
+          allocator::getAndIncrement);
+      final PageReference rootRef = swizzle(integrated);
+      assertClean(rootRef, label);
+      assertEquals(expected, collectKeys(integrated),
+          label + ": the new key joins the node's key set");
+      assertRoutesAll(rootRef, toByteList(expected), label);
+      closeAll(integrated, orphanHalf.getPage(), leaf);
+      checked++;
     }
-    assertTrue(checked + rejected > 0, "no fresh-key addEntry case ran — coverage gap");
-    System.out.println("[addEntry] " + checked + " clean fresh-key integrations, "
-        + rejected + " straddle rejections");
+    assertTrue(checked > 0, "no fresh-key addEntry case ran — coverage gap");
+    System.out.println("[addEntry] " + checked + " clean fresh-key integrations");
   }
 
   @Test
-  @DisplayName("addEntry rejects a split bit a multi-value sibling straddles — the guard fires")
-  void addEntryRejectsStraddlingSplitBit() {
-    boolean exercised = false;
-    for (final Workload workload : Workload.values()) {
-      for (final int size : new int[] {700, 5_000, 20_000}) {
-        final AtomicLong allocator = new AtomicLong(1);
-        final List<byte[]> keys = workload.generate(size, 3);
-        final HOTBulkBuilder.BuildResult built = HOTBulkBuilder.build(entries(keys), 1,
-            IndexType.CAS, allocator::getAndIncrement);
-        if (!(built.rootPage() instanceof HOTIndirectPage root) || root.getHeight() != 1) {
-          closeLeavesOf(built.rootPage());
-          continue;
-        }
-        final BiNode split = HOTIncrementalInsert.splitIndirect(root, 1,
-            allocator::getAndIncrement);
-        final PageReference targetRef = split.left().getPage() instanceof HOTIndirectPage
-            ? split.left() : split.right();
-        if (!(targetRef.getPage() instanceof HOTIndirectPage target)) {
-          closeLeavesOf(built.rootPage());
-          continue;
-        }
-        final int slot = firstStraddlingLeafSlot(target);
-        if (slot < 0) {
-          closeLeavesOf(built.rootPage());
-          continue; // no straddle in this half — try the next workload
-        }
-        final HOTLeafPage leaf = (HOTLeafPage) target.getChildReference(slot).getPage();
-        final BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1,
-            IndexType.CAS, allocator::getAndIncrement);
-        final String label = workload + " size=" + size;
-        final long before = HOTIncrementalInsert.straddleGuardRejections();
-
-        final HOTStraddleException thrown = assertThrows(HOTStraddleException.class,
-            () -> HOTIncrementalInsert.addEntry(target, leafSplit, slot, 1,
-                allocator::getAndIncrement),
-            label + ": addEntry must reject a split bit a sibling straddles");
-        assertTrue(thrown.getMessage().contains("straddles"),
-            label + ": the exception must carry a straddle diagnostic");
-        assertTrue(HOTIncrementalInsert.straddleGuardRejections() > before,
-            label + ": the straddle-guard rejection counter must advance");
-        exercised = true;
-        closeLeavesOf(built.rootPage());
-      }
-    }
-    assertTrue(exercised, "no straddling split bit produced by any workload — guard unexercised");
-    System.out.println("[addEntry] straddle guard verified — rejects straddling split bits");
-  }
-
-  @Test
-  @DisplayName("addEntry folds a straddle-free leaf split cleanly — the guard accepts it")
+  @DisplayName("addEntry folds a straddle-free leaf split cleanly")
   void addEntryFoldsAStraddleFreeSplit() {
     final AtomicLong allocator = new AtomicLong(1);
     // A 2-child node: a 2-key leaf to split plus a single-entry sibling. A one-key leaf is
-    // constant on every bit, so it can never straddle the split bit — the fold is guaranteed
-    // straddle-free and addEntry must take the clean path (docs/HOT_ADDENTRY_STRADDLE_FIX.md).
+    // constant on every bit, so it can never straddle the split bit — a minimal canonical
+    // addEntry fold (docs/HOT_STRADDLE_GUARD_REMOVAL_PLAN.md).
     final HOTLeafPage splittable = new HOTLeafPage(allocator.getAndIncrement(), 1, IndexType.CAS);
     assertTrue(splittable.put(beKey(0L), VALUE));
     assertTrue(splittable.put(beKey(1L), VALUE));
@@ -519,7 +450,6 @@ final class HOTIndirectPageSplitFaithfulTest {
   @DisplayName("a leaf split's two halves are BiNode-paired and merge back — round-trip")
   void mergeUndoesLeafSplit() {
     int checked = 0;
-    int rejected = 0;
     for (final Workload workload : Workload.values()) {
       for (final int size : new int[] {700, 5_000}) {
         final AtomicLong allocator = new AtomicLong(1);
@@ -552,19 +482,8 @@ final class HOTIndirectPageSplitFaithfulTest {
         // Split the leaf (re-inserting an existing key keeps the key set) and fold the BiNode in.
         final BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1,
             IndexType.CAS, allocator::getAndIncrement);
-        final HOTIndirectPage afterSplit;
-        try {
-          afterSplit = HOTIncrementalInsert.addEntry(target, leafSplit, slot, 1,
-              allocator::getAndIncrement);
-        } catch (HOTStraddleException straddle) {
-          // The split bit straddles a sibling — the guard correctly rejects the fold, so there
-          // is no two-half layout to merge back; the round-trip is verified when addEntry folds.
-          assertTrue(straddle.getMessage().contains("straddles"),
-              label + ": a straddle rejection must carry a diagnostic message");
-          closeLeavesOf(built.rootPage());
-          rejected++;
-          continue;
-        }
+        final HOTIndirectPage afterSplit = HOTIncrementalInsert.addEntry(target, leafSplit, slot, 1,
+            allocator::getAndIncrement);
         // The halves carry the split slot's lower discriminative bits, yet they ARE a BiNode pair
         // — the depth-based test must recognize that (the one-bit-difference test alone failed).
         assertTrue(HOTIncrementalInsert.areBiNodePaired(afterSplit, slot),
@@ -591,9 +510,8 @@ final class HOTIndirectPageSplitFaithfulTest {
         closeAll(afterSplit, mergedRef.getPage(), mergedLeaf, orphanHalf.getPage(), leaf);
       }
     }
-    assertTrue(checked + rejected > 0, "no leaf-split round-trip exercised — coverage gap");
-    System.out.println("[mergeUndoesLeafSplit] " + checked + " clean round-trips, "
-        + rejected + " straddle rejections");
+    assertTrue(checked > 0, "no leaf-split round-trip exercised — coverage gap");
+    System.out.println("[mergeUndoesLeafSplit] " + checked + " clean round-trips");
   }
 
   // ======================================================================
@@ -695,40 +613,12 @@ final class HOTIndirectPageSplitFaithfulTest {
         biNode.discriminativeBitIndex(), biNode.left(), biNode.right(), biNode.height());
   }
 
-  /**
-   * Whether {@code node}'s leaf child at {@code slot} splits on a straddle-free bit — i.e.
-   * {@link HOTIncrementalInsert#addEntry} accepts the fold rather than throwing
-   * {@link HOTStraddleException}. A leaf splits on its key-set MSDB;
-   * {@link HOTIncrementalInsert#splitBitIsSafe} decides whether folding that bit into
-   * {@code node} straddles a sibling subtree (see {@code docs/HOT_ADDENTRY_STRADDLE_FIX.md}).
-   */
-  private static boolean leafSplitIsStraddleFree(final HOTIndirectPage node, final int slot) {
-    final HOTLeafPage leaf = (HOTLeafPage) node.getChildReference(slot).getPage();
-    final int beta = HOTBulkBuilder.msdb(leaf.getKey(0), leaf.getKey(leaf.getEntryCount() - 1));
-    return HOTIncrementalInsert.splitBitIsSafe(node, beta, slot, 1);
-  }
-
   /** The first slot of a {@code >= 2}-entry (so splittable) leaf child of {@code node}, or
    *  {@code -1} if none. */
   private static int firstMultiEntryLeafSlot(final HOTIndirectPage node) {
     for (int i = 0; i < node.getNumChildren(); i++) {
       if (node.getChildReference(i).getPage() instanceof HOTLeafPage leaf
           && leaf.getEntryCount() >= 2) {
-        return i;
-      }
-    }
-    return -1;
-  }
-
-  /**
-   * The first slot of a {@code >= 2}-entry leaf child of {@code node} whose split bit a sibling
-   * subtree straddles, or {@code -1} if every leaf child folds back cleanly — drives the
-   * straddle-guard test.
-   */
-  private static int firstStraddlingLeafSlot(final HOTIndirectPage node) {
-    for (int i = 0; i < node.getNumChildren(); i++) {
-      if (node.getChildReference(i).getPage() instanceof HOTLeafPage leaf
-          && leaf.getEntryCount() >= 2 && !leafSplitIsStraddleFree(node, i)) {
         return i;
       }
     }

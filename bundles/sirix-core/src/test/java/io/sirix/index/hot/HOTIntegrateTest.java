@@ -95,23 +95,15 @@ final class HOTIntegrateTest {
 
     final BiNode biNode = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1,
         IndexType.CAS, allocator::getAndIncrement);
-    // integrate folds the BiNode in via addEntry — total: a clean fold, or a depth-tagged
-    // HOTStraddleException when the split bit straddles a sibling (HOT_ADDENTRY_STRADDLE_FIX.md).
-    try {
-      final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[] {half},
-          new PageReference[] {halfRef, half.getChildReference(slot)},
-          new int[] {slot}, 1, biNode, 1, allocator::getAndIncrement).rootRef();
-      assertSame(halfRef, newRoot, "addEntry re-points the parent's reference, the root reference");
-      assertCleanAndRoutesKeys(newRoot, subtreeKeys, "addEntry");
-      assertEquals(subtreeKeys, collectKeys(newRoot.getPage()), "addEntry preserves the key set");
-      closeAll(newRoot.getPage(), orphanHalfRef.getPage(), leaf);
-      System.out.println("[integrate] addEntry into a not-full node — clean");
-    } catch (HOTStraddleException straddle) {
-      assertTrue(straddle.nodeDepthHint >= 0,
-          "integrate must depth-tag the straddle exception, got " + straddle.nodeDepthHint);
-      closeAll(built.rootPage());
-      System.out.println("[integrate] addEntry into a not-full node — straddle rejected");
-    }
+    // integrate folds the BiNode in via addEntry — a clean canonical fold.
+    final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[] {half},
+        new PageReference[] {halfRef, half.getChildReference(slot)},
+        new int[] {slot}, 1, biNode, 1, allocator::getAndIncrement).rootRef();
+    assertSame(halfRef, newRoot, "addEntry re-points the parent's reference, the root reference");
+    assertCleanAndRoutesKeys(newRoot, subtreeKeys, "addEntry");
+    assertEquals(subtreeKeys, collectKeys(newRoot.getPage()), "addEntry preserves the key set");
+    closeAll(newRoot.getPage(), orphanHalfRef.getPage(), leaf);
+    System.out.println("[integrate] addEntry into a not-full node — clean");
   }
 
   @Test
@@ -129,25 +121,17 @@ final class HOTIntegrateTest {
     final HOTLeafPage leaf = (HOTLeafPage) root.getChildReference(slot).getPage();
     final BiNode biNode = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0),
         VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
-    // The full root cascades — splitIndirect + addEntry into a half + a fresh root — unless the
-    // leaf-split bit straddles a sibling, when the cascade's addEntry is depth-tagged-rejected.
-    try {
-      final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[] {root},
-          new PageReference[] {built.rootReference(), root.getChildReference(slot)},
-          new int[] {slot}, 1, biNode, 1, allocator::getAndIncrement).rootRef();
-      final HOTIndirectPage newRootPage = (HOTIndirectPage) newRoot.getPage();
-      assertEquals(2, newRootPage.getNumChildren(), "the cascade grows a fresh 2-entry root");
-      assertEquals(root.getHeight() + 1, newRootPage.getHeight(), "the trie height grows by one");
-      assertCleanAndRoutes(newRoot, keys, "cascade-new-root");
-      assertEquals(hexSet(keys), collectKeys(newRoot.getPage()), "the cascade preserves the keys");
-      closeAll(newRoot.getPage());
-      System.out.println("[integrate] cascade to a new root — clean");
-    } catch (HOTStraddleException straddle) {
-      assertTrue(straddle.nodeDepthHint >= 0,
-          "integrate must depth-tag the straddle exception, got " + straddle.nodeDepthHint);
-      closeAll(built.rootPage());
-      System.out.println("[integrate] cascade to a new root — straddle rejected");
-    }
+    // The full root cascades — splitIndirect + addEntry into a half + a fresh root.
+    final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[] {root},
+        new PageReference[] {built.rootReference(), root.getChildReference(slot)},
+        new int[] {slot}, 1, biNode, 1, allocator::getAndIncrement).rootRef();
+    final HOTIndirectPage newRootPage = (HOTIndirectPage) newRoot.getPage();
+    assertEquals(2, newRootPage.getNumChildren(), "the cascade grows a fresh 2-entry root");
+    assertEquals(root.getHeight() + 1, newRootPage.getHeight(), "the trie height grows by one");
+    assertCleanAndRoutes(newRoot, keys, "cascade-new-root");
+    assertEquals(hexSet(keys), collectKeys(newRoot.getPage()), "the cascade preserves the keys");
+    closeAll(newRoot.getPage());
+    System.out.println("[integrate] cascade to a new root — clean");
   }
 
   @Test
@@ -181,26 +165,18 @@ final class HOTIntegrateTest {
     final BiNode biNode = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0),
         VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
     // The cascade folds the leaf split through the full mid and the full root via addEntry at
-    // each level — total: a clean two-level cascade, or a depth-tagged HOTStraddleException
-    // when a fold's split bit straddles a sibling (docs/HOT_ADDENTRY_STRADDLE_FIX.md).
-    try {
-      final PageReference newRoot = HOTIncrementalInsert.integrate(
-          new HOTIndirectPage[] {root, mid},
-          new PageReference[] {built.rootReference(), root.getChildReference(midSlot),
-              mid.getChildReference(leafSlot)},
-          new int[] {midSlot, leafSlot}, 2, biNode, 1, allocator::getAndIncrement).rootRef();
-      assertEquals(root.getHeight() + 1, ((HOTIndirectPage) newRoot.getPage()).getHeight(),
-          "a full-path cascade grows the height by exactly one");
-      assertCleanAndRoutes(newRoot, keys, "multi-level-cascade");
-      assertEquals(hexSet(keys), collectKeys(newRoot.getPage()), "the cascade preserves the keys");
-      closeAll(newRoot.getPage());
-      System.out.println("[integrate] multi-level cascade — clean");
-    } catch (HOTStraddleException straddle) {
-      assertTrue(straddle.nodeDepthHint >= 0,
-          "integrate must depth-tag the straddle exception, got " + straddle.nodeDepthHint);
-      closeAll(built.rootPage());
-      System.out.println("[integrate] multi-level cascade — straddle rejected");
-    }
+    // each level — a clean two-level cascade.
+    final PageReference newRoot = HOTIncrementalInsert.integrate(
+        new HOTIndirectPage[] {root, mid},
+        new PageReference[] {built.rootReference(), root.getChildReference(midSlot),
+            mid.getChildReference(leafSlot)},
+        new int[] {midSlot, leafSlot}, 2, biNode, 1, allocator::getAndIncrement).rootRef();
+    assertEquals(root.getHeight() + 1, ((HOTIndirectPage) newRoot.getPage()).getHeight(),
+        "a full-path cascade grows the height by exactly one");
+    assertCleanAndRoutes(newRoot, keys, "multi-level-cascade");
+    assertEquals(hexSet(keys), collectKeys(newRoot.getPage()), "the cascade preserves the keys");
+    closeAll(newRoot.getPage());
+    System.out.println("[integrate] multi-level cascade — clean");
   }
 
   // ======================================================================

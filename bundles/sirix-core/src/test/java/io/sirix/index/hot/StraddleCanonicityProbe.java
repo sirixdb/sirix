@@ -92,10 +92,10 @@ final class StraddleCanonicityProbe {
   //
   // Build canonical roots, splitIndirect into a not-full half (the addEntry target),
   // split one of its leaves (which always splits the leaf page on the leaf's own MSDB),
-  // and fold it in with addEntry — including STRADDLING split bits (the case where the
-  // splitBitIsSafe guard WOULD fire when enabled). Then assert the addEntry output is
-  // CANONICAL: HOTMalformedSubtreeDetector (the production oracle — I3/I4/I5-strong/
-  // I7/I8/I11) reports ZERO malformed subtrees, and every key routes.
+  // and fold it in with addEntry — including STRADDLING split bits (the off-path-straddle
+  // case the removed guard used to reject). Then assert the addEntry output is CANONICAL:
+  // HOTMalformedSubtreeDetector (the production oracle — I3/I4/I5-strong/I7/I8/I11)
+  // reports ZERO malformed subtrees, and every key routes.
   //
   // Note on disc-bit identity: a leaf-page split necessarily introduces one extra disc
   // bit at the node level (one leaf -> two leaf pages). HOTBulkBuilder over the same key
@@ -146,25 +146,15 @@ final class StraddleCanonicityProbe {
         if (java.util.Arrays.binarySearch(absoluteDiscBits(target), beta) >= 0) {
           continue;
         }
-        // Detect straddle INDEPENDENTLY of the guard: scan every non-affected sibling
-        // subtree for bit-constancy at beta. A straddle here is exactly the case the
-        // splitBitIsSafe guard rejects when enabled.
+        // Detect straddle independently: scan every non-affected sibling subtree for
+        // bit-constancy at beta — exactly the case the removed guard used to reject.
         final boolean straddleFree = !someSiblingStraddles(target, slot, beta);
 
         // Re-inserting an existing key keeps the key set unchanged; addEntry folds the split.
         final HOTIncrementalInsert.BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(
             leaf, leaf.getKey(0), VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
-        final HOTIndirectPage integrated;
-        try {
-          integrated = HOTIncrementalInsert.addEntry(target, leafSplit, slot, 1,
-              allocator::getAndIncrement);
-        } catch (HOTStraddleException straddle) {
-          // Guard ENABLED: it rejected a straddling fold. Record it; the probe's point is
-          // that this rejection is a pure performance pessimization (the canaries + the
-          // guard-disabled run prove the fold would have been canonical).
-          guardRejections++;
-          continue;
-        }
+        final HOTIndirectPage integrated = HOTIncrementalInsert.addEntry(target, leafSplit, slot, 1,
+            allocator::getAndIncrement);
         final PageReference integratedRef = new PageReference();
         integratedRef.setPage(integrated);
 
@@ -228,13 +218,12 @@ final class StraddleCanonicityProbe {
   }
 
   // ====================================================================
-  // STEP 3 — minimum-height preservation. Two complementary checks, both with the
-  // splitBitIsSafe guard experimentally disabled:
+  // STEP 3 — minimum-height preservation. Two complementary checks:
   //
   //  (A) OPERATION-LEVEL no-inflation: an addEntry fold of a leaf-page split into a
   //      height-1 node keeps the node at height 1 (height = 1 + max child height; the
-  //      split's halves are leaf pages, height 0). The guard, when enabled, would force
-  //      a rebuildSubtree instead — same height but O(subtree) cost. A pure pessimization.
+  //      split's halves are leaf pages, height 0). The removed guard used to force a
+  //      rebuildSubtree instead — same height but O(subtree) cost. A pure pessimization.
   //
   //  (B) SCALE: a random ~20K key set built by HOTBulkBuilder, and the same set whose
   //      canonical height is what the incremental writer's end-to-end canaries also
@@ -290,14 +279,8 @@ final class StraddleCanonicityProbe {
         final int heightBefore = node.getHeight();
         final HOTIncrementalInsert.BiNode leafSplit = HOTIncrementalInsert.splitLeafPage(
             leaf, leaf.getKey(0), VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
-        final HOTIndirectPage folded;
-        try {
-          folded = HOTIncrementalInsert.addEntry(node, leafSplit, slot, 1,
-              allocator::getAndIncrement);
-        } catch (HOTStraddleException straddle) {
-          foldsRejectedByGuard++;
-          continue; // guard enabled — rejected a straddling fold; tried elsewhere
-        }
+        final HOTIndirectPage folded = HOTIncrementalInsert.addEntry(node, leafSplit, slot, 1,
+            allocator::getAndIncrement);
         node = folded;
         assertTrue(node.getHeight() == heightBefore,
             "seed=" + seed + " slot=" + slot + ": addEntry fold inflated height "
@@ -398,9 +381,8 @@ final class StraddleCanonicityProbe {
 
   /**
    * Whether some non-affected sibling of {@code node} (any child slot != {@code affectedSlot})
-   * has a subtree that straddles bit {@code beta}. This is the predicate the
-   * {@code splitBitIsSafe} guard evaluates — computed here independently so the test still
-   * sees straddles even though the guard is experimentally disabled.
+   * has a subtree that straddles bit {@code beta} — the structural condition the now-removed
+   * straddle guard used to reject; this probe still detects it for diagnostic counting.
    */
   private static boolean someSiblingStraddles(final HOTIndirectPage node, final int affectedSlot,
       final int beta) {
