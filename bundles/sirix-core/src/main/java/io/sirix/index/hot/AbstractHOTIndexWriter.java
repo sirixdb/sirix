@@ -862,7 +862,10 @@ public abstract class AbstractHOTIndexWriter<K> {
     // its own subtree root). The discriminative bits are unchanged — beta is already one of them.
     if (info.betaIsDiscBit()) {
       if (node.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
-        return false; // node full — a node split during a branch insert is not yet ported
+        // betaIsDiscBit + full d* — split + dispatch decomposition
+        // (docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md §4.1).
+        return branchFullNodeAtExistingBit(navResult, node, insertDepth, beta, betaValue,
+            keySlice, valueSlice);
       }
       final int[] nodeDiscBits = HOTIncrementalInsert.discriminativeBits(node);
       final int betaColumn = Arrays.binarySearch(nodeDiscBits, beta);
@@ -1009,6 +1012,113 @@ public abstract class AbstractHOTIndexWriter<K> {
     final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(
         navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
         insertDepth, biNode, revision, pageKeyAllocator);
+    registerFreshSubtree(result.touchedRef());
+    return true;
+  }
+
+  /**
+   * Branch insert into a <em>full</em> compound node at an <em>existing</em> discriminative bit
+   * — Binna's {@code betaIsDiscBit + full d*} case
+   * ({@code docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md} §4.1). The case decomposes into
+   * already-verified primitives:
+   * <ol>
+   *   <li>{@link HOTIncrementalInsert#splitIndirect} the full node at its {@code node.MSB} into
+   *       a {@code BiNode} of two not-full halves.</li>
+   *   <li>K routes (by {@code node.MSB}) into one half.</li>
+   *   <li>In that half, dispatch on whether {@code beta} survived {@code compressHalf} (the
+   *       crux the prior attempts missed):
+   *     <ul>
+   *       <li>{@code beta} survived (still a disc bit of the half) →
+   *           {@link HOTIncrementalInsert#addChildAtCombination} (still
+   *           {@code betaIsDiscBit} for the half — Q1-verified routing-correct).</li>
+   *       <li>{@code beta} dropped (constant across the half) → {@code beta} is a genuinely
+   *           new disc bit for the half →
+   *           {@link HOTIncrementalInsert#addEntryWithInsertInfo} (the existing
+   *           multi-affected branch primitive).</li>
+   *     </ul>
+   *   </li>
+   *   <li>{@link HOTIncrementalInsert#integrate} the {@code BiNode} at {@code insertDepth} —
+   *       the standard capacity cascade.</li>
+   * </ol>
+   *
+   * <p>{@code BetaIsDiscBitRoutingProbe} Q4 verified 74/74 cases route strictly correctly,
+   * including 40-byte MultiMask {@code widespan} keys. The prior 7 decomposition attempts
+   * failed by using {@code addChildAtCombination} unconditionally — the β-survival dispatch
+   * is mandatory.
+   *
+   * <p>Out-of-scope corner cases (§6 C1 / C2) fall back to the existing rebuild — not yet
+   * probe-verified: C1 (1:31 lone-child half) and C2 ({@code comboPartial} collision = a
+   * descent imprecision). On either, this method returns {@code false} and the caller's
+   * scoped {@code rebuildSubtree} handles it (no regression vs. the prior {@code return false}).
+   *
+   * @return {@code true} iff the key was inserted incrementally
+   */
+  private boolean branchFullNodeAtExistingBit(LeafNavigationResult navResult,
+      HOTIndirectPage node, int insertDepth, int beta, int betaValue, byte[] keySlice,
+      byte[] valueSlice) {
+    final int revision = storageEngineWriter.getRevisionNumber();
+    final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
+    if (!keyLeaf.put(keySlice, valueSlice)) {
+      throw new SirixIOException(
+          "HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
+    }
+    ensurePathChildrenLoaded(navResult.pathNodes());
+
+    // 1. Split the full node at its own MSB into BiNode(node.MSB, leftHalf, rightHalf).
+    final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirect(node, revision,
+        pageKeyAllocator);
+
+    // 2. K routes by node.MSB into one half.
+    final int nodeMsb = node.getMostSignificantBitIndex();
+    final boolean kMsbBit = HOTBulkBuilder.bitAt(keySlice, nodeMsb);
+    final PageReference halfRef = kMsbBit ? split.right() : split.left();
+    if (!(halfRef.getPage() instanceof HOTIndirectPage half)) {
+      // C1 — K's half is a lone child (1:31 split, the half is the bare child reference).
+      // Not yet probe-verified; fall back to the caller's scoped rebuildSubtree.
+      keyLeaf.close();
+      return false;
+    }
+
+    // 3. In the half: dispatch on whether beta survived compressHalf.
+    final int[] halfDiscBits = HOTIncrementalInsert.discriminativeBits(half);
+    final int betaCol = Arrays.binarySearch(halfDiscBits, beta);
+    final int childIdx = half.findChildIndex(keySlice);
+    if (childIdx < 0) {
+      // Defensive — a canonical half's descent should always find a child.
+      keyLeaf.close();
+      return false;
+    }
+    final HOTIncrementalInsert.InsertInfo halfInfo = HOTIncrementalInsert.getInsertInformation(
+        half, childIdx, beta);
+    final PageReference keyLeafRef = swizzle(keyLeaf);
+    final HOTIndirectPage foldedHalf;
+    try {
+      if (betaCol >= 0) {
+        // beta survived as a disc bit of the half — still betaIsDiscBit for the half.
+        final int comboPartial = halfInfo.subtreePrefix()
+            | (betaValue == 1 ? 1 << (halfDiscBits.length - 1 - betaCol) : 0);
+        foldedHalf = HOTIncrementalInsert.addChildAtCombination(half, comboPartial, keyLeafRef,
+            half.getHeight(), revision, pageKeyAllocator);
+      } else {
+        // beta was dropped from the half (constant across it) — beta is genuinely new to the
+        // half; addEntryWithInsertInfo folds it as a new disc bit.
+        foldedHalf = HOTIncrementalInsert.addEntryWithInsertInfo(half, beta, betaValue,
+            halfInfo.firstAffected(), halfInfo.affectedCount(), halfInfo.subtreePrefix(),
+            keyLeafRef, half.getHeight(), revision, pageKeyAllocator);
+      }
+    } catch (IllegalArgumentException collisionOrPrecondition) {
+      // C2 — comboPartial collides with an existing child (the descent stopped one level too
+      // shallow), or another fold precondition fails. Not yet probe-verified; fall back to
+      // the caller's scoped rebuildSubtree.
+      keyLeaf.close();
+      return false;
+    }
+    halfRef.setPage(foldedHalf);
+
+    // 4. Integrate the split BiNode at insertDepth — the standard capacity cascade.
+    final HOTIncrementalInsert.IntegrationResult result = HOTIncrementalInsert.integrate(
+        navResult.pathNodes(), buildSpineRefs(navResult), navResult.pathChildIndices(),
+        insertDepth, split, revision, pageKeyAllocator);
     registerFreshSubtree(result.touchedRef());
     return true;
   }
