@@ -343,6 +343,39 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
     }
   }
 
+  /**
+   * Remove a page from the cache by reference identity, without closing it.
+   *
+   * <p>Unlike {@link #remove(PageReference)} this matches on instance identity (HOT leaf and
+   * record pages do not override {@code equals}) and does <em>not</em> release the page's off-heap
+   * memory — the caller keeps ownership. Used so the transaction-intent log can take a dirty,
+   * transaction-private page out of the shared cache, preventing the sweeper and pressure
+   * eviction from reclaiming its slot before commit serializes it.</p>
+   */
+  @Override
+  public void removePage(V page) {
+    if (page == null || map.isEmpty()) {
+      return;
+    }
+    evictionLock.lock();
+    try {
+      for (final var it = map.entrySet().iterator(); it.hasNext();) {
+        final var entry = it.next();
+        if (entry.getValue() == page) {
+          it.remove();
+          final long weight = weightOf(page);
+          if (weight > 0) {
+            currentWeightBytes.addAndGet(-weight);
+          }
+          entry.getKey().setPage(null);
+          break;
+        }
+      }
+    } finally {
+      evictionLock.unlock();
+    }
+  }
+
   @Override
   public java.util.Map<PageReference, V> getAll(Iterable<? extends PageReference> keys) {
     java.util.Map<PageReference, V> result = new java.util.HashMap<>();
@@ -532,6 +565,12 @@ public final class ShardedPageCache<V extends CacheablePage> implements Cache<Pa
         final PageReference ref = entry.getKey();
         map.compute(ref, (k, page) -> {
           if (page == null || page.getGuardCount() > 0) {
+            return page;
+          }
+          // Second-chance: give a recently-accessed page one reprieve before
+          // eviction, matching ClockSweeper.sweep() and evictIfOverBudget().
+          if (page.isHot()) {
+            page.clearHot();
             return page;
           }
           final long pageWeight = weightOf(page);

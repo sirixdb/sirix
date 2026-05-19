@@ -189,6 +189,10 @@ public final class TransactionIntentLog implements AutoCloseable {
     // Remove from caches - TIL takes exclusive ownership of NEW pages
     bufferManager.getRecordPageCache().remove(ref);
     bufferManager.getPageCache().remove(ref);
+    // HOT leaf pages: the same instance can back both a TIL container and the shared
+    // HOT-leaf cache. Take it out of the cache so the background sweeper and pressure
+    // eviction cannot close its off-heap slot while the TIL still owns the page for commit.
+    removeHOTLeavesFromCache(value);
 
     // Close the old cached page if it's different from the pages going into TIL
     if (oldCachedPage != null && !oldCachedPage.isClosed()) {
@@ -235,6 +239,30 @@ public final class TransactionIntentLog implements AutoCloseable {
     if (value.getModified() instanceof KeyValueLeafPage modifiedPage && modifiedPage != value.getComplete()
         && modifiedPage.getGuardCount() > 0) {
       modifiedPage.releaseGuard();
+    }
+  }
+
+  /**
+   * Remove the HOT leaf pages of a TIL container from the shared HOT-leaf buffer cache.
+   *
+   * <p>A {@link HOTLeafPage} instance can be referenced by both a {@link PageContainer} in this
+   * log and the {@code hotLeafPageCache}. Once a page is in the log it is transaction-private and
+   * must survive — unevicted — until commit serializes it. The eviction paths
+   * ({@code ClockSweeper.sweep}, {@code ShardedPageCache.evictUnderPressure}) only gate on guard
+   * count, so a cache-resident dirty leaf would otherwise have its off-heap slot reclaimed under
+   * memory pressure, corrupting the committed page. This mirrors the record-page-cache removal
+   * already performed above for {@link KeyValueLeafPage}s.</p>
+   */
+  private void removeHOTLeavesFromCache(final PageContainer value) {
+    if (value == null) {
+      return;
+    }
+    final Cache<PageReference, HOTLeafPage> hotLeafCache = bufferManager.getHOTLeafPageCache();
+    if (value.getComplete() instanceof HOTLeafPage complete) {
+      hotLeafCache.removePage(complete);
+    }
+    if (value.getModified() instanceof HOTLeafPage modified && modified != value.getComplete()) {
+      hotLeafCache.removePage(modified);
     }
   }
 
