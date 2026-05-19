@@ -918,9 +918,42 @@ public abstract class AbstractHOTIndexWriter<K> {
     }
     if (singleEntry && !leafEntry) {
       final HOTIndirectPage child = pathNodes[insertDepth + 1];
-      if (child.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES
-          && Arrays.binarySearch(HOTIncrementalInsert.discriminativeBits(child), beta) >= 0) {
-        return false; // beta already a disc bit of the boundary node — re-route not yet ported
+      final int[] childDiscBits = HOTIncrementalInsert.discriminativeBits(child);
+      final int betaColAtChild = Arrays.binarySearch(childDiscBits, beta);
+      if (betaColAtChild >= 0) {
+        // beta already a disc bit of the boundary child — apply the betaIsDiscBit handling
+        // one level down (docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md §4.2).
+        if (child.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
+          // Full boundary child + betaIsDiscBit — re-use Stage 1's full-d* decomposition,
+          // anchored at insertDepth+1.
+          return branchFullNodeAtExistingBit(navResult, child, insertDepth + 1, beta, betaValue,
+              keySlice, valueSlice);
+        }
+        // Not-full boundary child + betaIsDiscBit — addChildAtCombination on the child (the
+        // Q1-verified not-full pattern, applied at depth+1).
+        final int childEntryIndex = childSlots[insertDepth + 1];
+        final HOTIncrementalInsert.InsertInfo childInfo = HOTIncrementalInsert.getInsertInformation(
+            child, childEntryIndex, beta);
+        final int comboPartial = childInfo.subtreePrefix()
+            | (betaValue == 1 ? 1 << (childDiscBits.length - 1 - betaColAtChild) : 0);
+        final HOTLeafPage comboLeaf =
+            new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
+        if (!comboLeaf.put(keySlice, valueSlice)) {
+          throw new SirixIOException(
+              "HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
+        }
+        try {
+          final HOTIndirectPage newChild = HOTIncrementalInsert.addChildAtCombination(child,
+              comboPartial, swizzle(comboLeaf), child.getHeight(), revision, pageKeyAllocator);
+          pathRefs[insertDepth + 1].setPage(newChild);
+          registerFreshSubtree(pathRefs[insertDepth + 1]);
+          return true;
+        } catch (IllegalArgumentException collisionOrPrecondition) {
+          // C2 (comboPartial collides with an existing child of the boundary node) — not yet
+          // probe-verified; fall back to the caller's scoped rebuildSubtree.
+          comboLeaf.close();
+          return false;
+        }
       }
     }
 
