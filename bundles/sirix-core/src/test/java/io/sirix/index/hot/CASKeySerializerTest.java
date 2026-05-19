@@ -147,6 +147,84 @@ class CASKeySerializerTest {
   }
 
   @Nested
+  @DisplayName("Large Integer Serialization (lossless 64-bit)")
+  class LargeIntegerSerializationTests {
+
+    @Test
+    @DisplayName("Integers above 2^53 round-trip without precision loss")
+    void testLargeIntegerRoundtrip() {
+      long[] values = {
+          0L, 1L, -1L, 100L, -100L,
+          (1L << 53),       // 9007199254740992 - largest integer exactly representable as double
+          (1L << 53) + 1,   // 9007199254740993 - NOT representable as double
+          (1L << 62), -(1L << 62),
+          Long.MAX_VALUE, Long.MIN_VALUE,
+          Long.MAX_VALUE - 1, Long.MIN_VALUE + 1
+      };
+      for (long value : values) {
+        CASValue original = new CASValue(new Int64(value), Type.LON, 7);
+        byte[] buffer = new byte[256];
+
+        int length = serializer.serialize(original, buffer, 0);
+        CASValue result = serializer.deserialize(buffer, 0, length);
+
+        assertEquals(Long.toString(value), result.getAtomicValue().stringValue(),
+            "long " + value + " must round-trip exactly");
+      }
+    }
+
+    @Test
+    @DisplayName("Distinct integers near 2^53 encode to distinct keys (no collision)")
+    void testLargeIntegerNoCollision() {
+      // Both values collapse to the same double (2^53), so the old double-based
+      // encoding produced identical key bytes - a silent CAS index collision.
+      long a = (1L << 53);       // 9007199254740992
+      long b = (1L << 53) + 1;   // 9007199254740993
+
+      byte[] bufA = new byte[256];
+      byte[] bufB = new byte[256];
+
+      int lenA = serializer.serialize(new CASValue(new Int64(a), Type.LON, 7), bufA, 0);
+      int lenB = serializer.serialize(new CASValue(new Int64(b), Type.LON, 7), bufB, 0);
+
+      assertTrue(compareBytes(bufA, lenA, bufB, lenB) != 0,
+          "consecutive integers above 2^53 must encode to distinct keys");
+    }
+
+    @Test
+    @DisplayName("Large integer order is preserved by byte comparison")
+    void testLargeIntegerOrder() {
+      long[] ascending = {
+          Long.MIN_VALUE, Long.MIN_VALUE + 1, -(1L << 53), -1L, 0L, 1L,
+          (1L << 53), (1L << 53) + 1, Long.MAX_VALUE - 1, Long.MAX_VALUE
+      };
+      for (int i = 1; i < ascending.length; i++) {
+        byte[] lo = new byte[256];
+        byte[] hi = new byte[256];
+        int lenLo = serializer.serialize(new CASValue(new Int64(ascending[i - 1]), Type.LON, 1), lo, 0);
+        int lenHi = serializer.serialize(new CASValue(new Int64(ascending[i]), Type.LON, 1), hi, 0);
+        assertTrue(compareBytes(lo, lenLo, hi, lenHi) < 0,
+            ascending[i - 1] + " must sort before " + ascending[i]);
+      }
+    }
+
+    @Test
+    @DisplayName("xs:integer typed values round-trip exactly (CAS index value type)")
+    void testXsIntegerTypeRoundtrip() {
+      // CAS indexes type integer content as xs:integer (Type.INR); verify that path.
+      long value = (1L << 53) + 12345;
+      CASValue original = new CASValue(new Int64(value), Type.INR, 99);
+      byte[] buffer = new byte[256];
+
+      int length = serializer.serialize(original, buffer, 0);
+      CASValue result = serializer.deserialize(buffer, 0, length);
+
+      assertEquals(Long.toString(value), result.getAtomicValue().stringValue());
+      assertEquals(99, result.getPathNodeKey());
+    }
+  }
+
+  @Nested
   @DisplayName("Boolean Serialization")
   class BooleanSerializationTests {
 
