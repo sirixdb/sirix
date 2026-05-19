@@ -776,6 +776,14 @@ public abstract class AbstractHOTIndexWriter<K> {
     try {
       result = HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult),
           navResult.pathChildIndices(), navResult.pathDepth(), biNode, revision, pageKeyAllocator);
+    } catch (HOTStraddleException straddle) {
+      // The leaf-split bit straddles a multi-value sibling — an incremental fold is impossible
+      // (docs/HOT_ADDENTRY_STRADDLE_FIX.md). Recanonicalize the unsafe node's subtree;
+      // HOTBulkBuilder is canonical by construction, so it re-partitions straddle-free. The
+      // depth is the unsafe node's own spine depth (integrate stamped it), keeping the rebuild
+      // minimally scoped — never a blind whole-index rebuild.
+      rebuildSubtree(navResult, straddle.nodeDepthHint, keySlice, valueSlice);
+      return;
     } catch (IllegalArgumentException | IllegalStateException structuralInconsistency) {
       // The incremental integration hit a structural inconsistency — typically a leaf that varies
       // on an ancestor discriminative bit (an I5 violation an earlier approximate-routing
@@ -824,6 +832,11 @@ public abstract class AbstractHOTIndexWriter<K> {
         // unaffected — this bounds the rebuild and the pages it orphans.
         rebuildSubtree(navResult, analysis.insertDepth(), keySlice, valueSlice);
       }
+    } catch (HOTStraddleException straddle) {
+      // A branch integration's addEntry hit a sibling-straddling discriminative bit. Scoped
+      // recanonicalize at the unsafe node's spine depth (integrate stamped it) — see
+      // docs/HOT_ADDENTRY_STRADDLE_FIX.md.
+      rebuildSubtree(navResult, straddle.nodeDepthHint, keySlice, valueSlice);
     } catch (IllegalArgumentException | IllegalStateException structuralInconsistency) {
       // An integration step hit a structural inconsistency (typically an I5 violation an earlier
       // approximate-routing operation left behind) and may have partially re-pointed the spine —
@@ -1205,17 +1218,17 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
-   * Resolve and swizzle every child page of every height-&ge;2 path compound node, so that
-   * {@link HOTIncrementalInsert}'s split / {@code addEntry} height accounting — which reads
-   * {@code childReference.getPage()} — sees real pages instead of {@code null}. A height-1 node
-   * has only leaf children, and {@code heightOf(null)} already equals {@code heightOf(leaf)}, so
-   * it needs nothing. Runs once per structural overflow (rare), never on the merge fast path.
+   * Resolve and swizzle every child page of every path compound node, so that
+   * {@link HOTIncrementalInsert}'s split / {@code addEntry} height accounting <em>and</em> the
+   * {@code addEntry} straddle guard ({@code splitBitIsSafe} reads a leaf sibling's
+   * {@code getKey(...)}) — both of which read {@code childReference.getPage()} — see real pages
+   * instead of {@code null}. Height-1 path nodes are <em>included</em>: the straddle guard
+   * needs their leaf children resolved (it formerly skipped them because the height accounting
+   * alone did not). Runs once per structural overflow (rare), never on the merge fast path;
+   * a child already in memory is left untouched.
    */
   private void ensurePathChildrenLoaded(HOTIndirectPage[] pathNodes) {
     for (final HOTIndirectPage node : pathNodes) {
-      if (node.getHeight() < 2) {
-        continue;
-      }
       for (int i = 0; i < node.getNumChildren(); i++) {
         final PageReference childRef = node.getChildReference(i);
         if (childRef != null && childRef.getPage() == null) {

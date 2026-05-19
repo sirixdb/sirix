@@ -88,21 +88,30 @@ final class HOTIntegrateTest {
     final HOTIndirectPage half = (HOTIndirectPage) halfRef.getPage();
     assertTrue(half.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES, "half is not full");
 
-    final int slot = firstLeafChild(half);
+    final int slot = firstMultiEntryLeafSlot(half);
+    assertTrue(slot >= 0, "a splitIndirect half must have a splittable leaf child");
     final HOTLeafPage leaf = (HOTLeafPage) half.getChildReference(slot).getPage();
     final TreeSet<String> subtreeKeys = collectKeys(half);
 
     final BiNode biNode = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0), VALUE, 1,
         IndexType.CAS, allocator::getAndIncrement);
-    final PageReference newRoot = HOTIncrementalInsert.integrate(
-        new HOTIndirectPage[] {half}, new PageReference[] {halfRef, half.getChildReference(slot)},
-        new int[] {slot}, 1, biNode, 1, allocator::getAndIncrement).rootRef();
-
-    assertSame(halfRef, newRoot, "addEntry re-points the parent's reference, the root reference");
-    assertCleanAndRoutesKeys(newRoot, subtreeKeys, "addEntry");
-    assertEquals(subtreeKeys, collectKeys(newRoot.getPage()), "addEntry preserves the key set");
-    closeAll(newRoot.getPage(), orphanHalfRef.getPage(), leaf);
-    System.out.println("[integrate] addEntry into a not-full node — clean");
+    // integrate folds the BiNode in via addEntry — total: a clean fold, or a depth-tagged
+    // HOTStraddleException when the split bit straddles a sibling (HOT_ADDENTRY_STRADDLE_FIX.md).
+    try {
+      final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[] {half},
+          new PageReference[] {halfRef, half.getChildReference(slot)},
+          new int[] {slot}, 1, biNode, 1, allocator::getAndIncrement).rootRef();
+      assertSame(halfRef, newRoot, "addEntry re-points the parent's reference, the root reference");
+      assertCleanAndRoutesKeys(newRoot, subtreeKeys, "addEntry");
+      assertEquals(subtreeKeys, collectKeys(newRoot.getPage()), "addEntry preserves the key set");
+      closeAll(newRoot.getPage(), orphanHalfRef.getPage(), leaf);
+      System.out.println("[integrate] addEntry into a not-full node — clean");
+    } catch (HOTStraddleException straddle) {
+      assertTrue(straddle.nodeDepthHint >= 0,
+          "integrate must depth-tag the straddle exception, got " + straddle.nodeDepthHint);
+      closeAll(built.rootPage());
+      System.out.println("[integrate] addEntry into a not-full node — straddle rejected");
+    }
   }
 
   @Test
@@ -115,20 +124,30 @@ final class HOTIntegrateTest {
     assertEquals(HOTIndirectPage.MAX_NODE_ENTRIES, root.getNumChildren(), "root is full");
     assertEquals(1, root.getHeight(), "root is height 1 (leaf children)");
 
-    final Spine spine = walkSpine(built.rootReference(), beKey(keys.get(keys.size() / 2)));
-    assertEquals(1, spine.nodes().length, "a height-1 trie has one compound node on the path");
-    final BiNode biNode = HOTIncrementalInsert.splitLeafPage(spine.leaf(), spine.leaf().getKey(0),
+    final int slot = firstMultiEntryLeafSlot(root);
+    assertTrue(slot >= 0, "a full height-1 root must have a splittable leaf child");
+    final HOTLeafPage leaf = (HOTLeafPage) root.getChildReference(slot).getPage();
+    final BiNode biNode = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0),
         VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
-    final PageReference newRoot = HOTIncrementalInsert.integrate(spine.nodes(), spine.refs(),
-        spine.childSlots(), spine.nodes().length, biNode, 1, allocator::getAndIncrement).rootRef();
-
-    final HOTIndirectPage newRootPage = (HOTIndirectPage) newRoot.getPage();
-    assertEquals(2, newRootPage.getNumChildren(), "the cascade grows a fresh 2-entry root");
-    assertEquals(root.getHeight() + 1, newRootPage.getHeight(), "the trie height grows by one");
-    assertCleanAndRoutes(newRoot, keys, "cascade-new-root");
-    assertEquals(hexSet(keys), collectKeys(newRoot.getPage()), "the cascade preserves the keys");
-    closeAll(newRoot.getPage());
-    System.out.println("[integrate] cascade to a new root — clean");
+    // The full root cascades — splitIndirect + addEntry into a half + a fresh root — unless the
+    // leaf-split bit straddles a sibling, when the cascade's addEntry is depth-tagged-rejected.
+    try {
+      final PageReference newRoot = HOTIncrementalInsert.integrate(new HOTIndirectPage[] {root},
+          new PageReference[] {built.rootReference(), root.getChildReference(slot)},
+          new int[] {slot}, 1, biNode, 1, allocator::getAndIncrement).rootRef();
+      final HOTIndirectPage newRootPage = (HOTIndirectPage) newRoot.getPage();
+      assertEquals(2, newRootPage.getNumChildren(), "the cascade grows a fresh 2-entry root");
+      assertEquals(root.getHeight() + 1, newRootPage.getHeight(), "the trie height grows by one");
+      assertCleanAndRoutes(newRoot, keys, "cascade-new-root");
+      assertEquals(hexSet(keys), collectKeys(newRoot.getPage()), "the cascade preserves the keys");
+      closeAll(newRoot.getPage());
+      System.out.println("[integrate] cascade to a new root — clean");
+    } catch (HOTStraddleException straddle) {
+      assertTrue(straddle.nodeDepthHint >= 0,
+          "integrate must depth-tag the straddle exception, got " + straddle.nodeDepthHint);
+      closeAll(built.rootPage());
+      System.out.println("[integrate] cascade to a new root — straddle rejected");
+    }
   }
 
   @Test
@@ -140,22 +159,48 @@ final class HOTIntegrateTest {
     final HOTIndirectPage root = (HOTIndirectPage) built.rootPage();
     assertEquals(2, root.getHeight(), "50k keys must yield a height-2 root");
 
-    final Spine spine = walkSpine(built.rootReference(), beKey(keys.get(keys.size() / 2)));
-    assertEquals(2, spine.nodes().length, "a height-2 trie has two compound nodes on the path");
-    assertEquals(HOTIndirectPage.MAX_NODE_ENTRIES, spine.nodes()[0].getNumChildren(), "root full");
-    assertEquals(HOTIndirectPage.MAX_NODE_ENTRIES, spine.nodes()[1].getNumChildren(), "mid full");
+    assertEquals(HOTIndirectPage.MAX_NODE_ENTRIES, root.getNumChildren(), "root is full");
+    // Pick a full mid child and a splittable leaf inside it, so the cascade propagates
+    // mid -> root -> new root (a not-full mid would absorb the BiNode without cascading).
+    int midSlot = -1;
+    int leafSlot = -1;
+    for (int ms = 0; ms < root.getNumChildren() && leafSlot < 0; ms++) {
+      if (root.getChildReference(ms).getPage() instanceof HOTIndirectPage mid
+          && mid.getNumChildren() == HOTIndirectPage.MAX_NODE_ENTRIES) {
+        final int ls = firstMultiEntryLeafSlot(mid);
+        if (ls >= 0) {
+          midSlot = ms;
+          leafSlot = ls;
+        }
+      }
+    }
+    assertTrue(leafSlot >= 0, "a height-2 full trie must have a full mid with a splittable leaf");
+    final HOTIndirectPage mid = (HOTIndirectPage) root.getChildReference(midSlot).getPage();
+    final HOTLeafPage leaf = (HOTLeafPage) mid.getChildReference(leafSlot).getPage();
 
-    final BiNode biNode = HOTIncrementalInsert.splitLeafPage(spine.leaf(), spine.leaf().getKey(0),
+    final BiNode biNode = HOTIncrementalInsert.splitLeafPage(leaf, leaf.getKey(0),
         VALUE, 1, IndexType.CAS, allocator::getAndIncrement);
-    final PageReference newRoot = HOTIncrementalInsert.integrate(spine.nodes(), spine.refs(),
-        spine.childSlots(), spine.nodes().length, biNode, 1, allocator::getAndIncrement).rootRef();
-
-    assertEquals(root.getHeight() + 1, ((HOTIndirectPage) newRoot.getPage()).getHeight(),
-        "a full-path cascade grows the height by exactly one");
-    assertCleanAndRoutes(newRoot, keys, "multi-level-cascade");
-    assertEquals(hexSet(keys), collectKeys(newRoot.getPage()), "the cascade preserves the keys");
-    closeAll(newRoot.getPage());
-    System.out.println("[integrate] multi-level cascade — clean");
+    // The cascade folds the leaf split through the full mid and the full root via addEntry at
+    // each level — total: a clean two-level cascade, or a depth-tagged HOTStraddleException
+    // when a fold's split bit straddles a sibling (docs/HOT_ADDENTRY_STRADDLE_FIX.md).
+    try {
+      final PageReference newRoot = HOTIncrementalInsert.integrate(
+          new HOTIndirectPage[] {root, mid},
+          new PageReference[] {built.rootReference(), root.getChildReference(midSlot),
+              mid.getChildReference(leafSlot)},
+          new int[] {midSlot, leafSlot}, 2, biNode, 1, allocator::getAndIncrement).rootRef();
+      assertEquals(root.getHeight() + 1, ((HOTIndirectPage) newRoot.getPage()).getHeight(),
+          "a full-path cascade grows the height by exactly one");
+      assertCleanAndRoutes(newRoot, keys, "multi-level-cascade");
+      assertEquals(hexSet(keys), collectKeys(newRoot.getPage()), "the cascade preserves the keys");
+      closeAll(newRoot.getPage());
+      System.out.println("[integrate] multi-level cascade — clean");
+    } catch (HOTStraddleException straddle) {
+      assertTrue(straddle.nodeDepthHint >= 0,
+          "integrate must depth-tag the straddle exception, got " + straddle.nodeDepthHint);
+      closeAll(built.rootPage());
+      System.out.println("[integrate] multi-level cascade — straddle rejected");
+    }
   }
 
   // ======================================================================
@@ -199,47 +244,19 @@ final class HOTIntegrateTest {
   }
 
   // ======================================================================
-  // Descent walk + page / key utilities.
+  // Leaf selection + page / key utilities.
   // ======================================================================
 
-  /** A walked spine: the compound nodes, their references plus the leaf's, and the leaf. */
-  private record Spine(HOTIndirectPage[] nodes, PageReference[] refs, int[] childSlots,
-                       HOTLeafPage leaf) {}
-
-  private static Spine walkSpine(final PageReference rootRef, final byte[] key) {
-    final List<HOTIndirectPage> nodes = new ArrayList<>();
-    final List<PageReference> refs = new ArrayList<>();
-    final List<Integer> slots = new ArrayList<>();
-    PageReference ref = rootRef;
-    Page page = ref.getPage();
-    while (page instanceof HOTIndirectPage indirect) {
-      nodes.add(indirect);
-      refs.add(ref);
-      int childIndex = indirect.findChildIndex(key);
-      if (childIndex < 0) {
-        childIndex = 0;
-      }
-      slots.add(childIndex);
-      ref = indirect.getChildReference(childIndex);
-      page = ref.getPage();
-    }
-    refs.add(ref); // the leaf's reference
-    final int[] childSlots = new int[slots.size()];
-    for (int i = 0; i < slots.size(); i++) {
-      childSlots[i] = slots.get(i);
-    }
-    return new Spine(nodes.toArray(new HOTIndirectPage[0]), refs.toArray(new PageReference[0]),
-        childSlots, (HOTLeafPage) page);
-  }
-
-  private static int firstLeafChild(final HOTIndirectPage node) {
+  /** The first slot of a {@code >= 2}-entry (so splittable) leaf child of {@code node}, or
+   *  {@code -1} if none. */
+  private static int firstMultiEntryLeafSlot(final HOTIndirectPage node) {
     for (int i = 0; i < node.getNumChildren(); i++) {
       if (node.getChildReference(i).getPage() instanceof HOTLeafPage leaf
           && leaf.getEntryCount() >= 2) {
         return i;
       }
     }
-    throw new IllegalStateException("no leaf child with >= 2 entries");
+    return -1;
   }
 
   private static HOTBulkBuilder.BuildResult build(final List<Long> sortedKeys,

@@ -36,6 +36,21 @@ public final class HOTIncrementalInsert {
     throw new AssertionError("utility class — static primitives only");
   }
 
+  /** Diagnostic counter — {@link #addEntry} straddle-guard rejections (process-wide). Lets a
+   *  verification test confirm the fix path is genuinely exercised. */
+  private static final java.util.concurrent.atomic.AtomicLong STRADDLE_GUARD_REJECTIONS =
+      new java.util.concurrent.atomic.AtomicLong();
+
+  /** Number of {@link #addEntry} straddle-guard rejections since the last reset. */
+  public static long straddleGuardRejections() {
+    return STRADDLE_GUARD_REJECTIONS.get();
+  }
+
+  /** Reset the straddle-guard rejection counter. */
+  public static void resetStraddleGuardRejections() {
+    STRADDLE_GUARD_REJECTIONS.set(0L);
+  }
+
   /**
    * A <b>virtual</b> node — the unit of a split result in flight. It mirrors Binna's ephemeral
    * {@code BiNode} (the return value of {@code split}, immediately consumed by
@@ -734,6 +749,16 @@ public final class HOTIncrementalInsert {
       throw new IllegalArgumentException("split bit " + beta
           + " is already a discriminative bit of the node — not a valid integration");
     }
+    // Straddle guard (docs/HOT_ADDENTRY_STRADDLE_FIX.md): folding beta in re-encodes every
+    // non-affected sibling with beta-column 0, which assumes each sibling subtree is
+    // beta-constant. A Sirix multi-value leaf sibling can span beta — adding beta then
+    // violates I5. The fold is impossible; the driver recanonicalizes (integrate stamps the
+    // depth onto the exception).
+    if (!splitBitIsSafe(node, beta, affectedChildIndex, 1)) {
+      STRADDLE_GUARD_REJECTIONS.incrementAndGet();
+      throw new HOTStraddleException("split bit " + beta + " straddles a non-affected sibling "
+          + "subtree of node " + node.getPageKey() + " — incremental fold would violate I5", -1);
+    }
     final int betaColumn = -found - 1;          // beta's index in the new (m+1)-bit disc-bit set
     final int[] newDiscBits = new int[m + 1];
     System.arraycopy(discBits, 0, newDiscBits, 0, betaColumn);
@@ -773,6 +798,117 @@ public final class HOTIncrementalInsert {
     }
     return HOTBulkBuilder.assembleIndirect(newDiscBits, newPartials, newChildren,
         maxChildHeight + 1, revision, pageKeyAllocator);
+  }
+
+  /**
+   * The key-set MSDB of a child subtree — by Lemma 1 ({@code docs/HOT_ADDENTRY_STRADDLE_FIX.md}
+   * §3.1) every key in it agrees on every strictly-more-significant bit. {@code O(1)} with no
+   * descent: a compound child reports its stored MSB — for a canonical node the most
+   * significant discriminative bit <em>is</em> the most significant bit its key set differs on;
+   * a leaf child computes {@code msdb} of its own first and last key; a one-key leaf is
+   * constant on every bit (Binna's single-entry-leaf case) so it reports the "never straddles"
+   * sentinel {@link Integer#MAX_VALUE} (also avoiding {@code msdb} of equal keys).
+   *
+   * @param subtree the resolved root page of the child subtree
+   * @return the absolute MSB-first index of the subtree's key-set MSDB
+   */
+  private static int subtreeMsdb(final Page subtree) {
+    if (subtree instanceof HOTIndirectPage indirect) {
+      return indirect.getMostSignificantBitIndex();
+    }
+    final HOTLeafPage leaf = (HOTLeafPage) subtree;
+    final int entryCount = leaf.getEntryCount();
+    return entryCount < 2
+        ? Integer.MAX_VALUE
+        : HOTBulkBuilder.msdb(leaf.getKey(0), leaf.getKey(entryCount - 1));
+  }
+
+  /**
+   * Whether the discriminative bit {@code beta} can be folded into {@code node} without
+   * violating I5 — i.e. no <em>non-affected</em> child subtree straddles {@code beta} (has keys
+   * with {@code beta} set and keys with it clear). The affected run {@code [affectedFirst,
+   * affectedFirst + affectedCount)} is exempt — it is the subtree being split <em>on</em>
+   * {@code beta}, and {@code addEntry}'s standing precondition makes its replacements
+   * {@code beta}-constant.
+   *
+   * <p>Each sibling is tested in two steps ({@code docs/HOT_ADDENTRY_STRADDLE_FIX.md} §4.2,
+   * §5.3): a cheap {@code O(1)} pre-filter — {@code beta} strictly more significant than the
+   * sibling's key-set MSDB ⇒ by Lemma 1 it cannot straddle — and, only when that is
+   * inconclusive, a precise {@link #subtreeStraddles} scan. The result is therefore
+   * <em>exact</em> for fully-resolved siblings: no false negatives <em>and</em> no false
+   * positives. An unresolved page (defensive — the driver pre-resolves path children) is
+   * treated conservatively as a straddle.
+   *
+   * @param node          the compound node {@code beta} would be folded into
+   * @param beta          the new discriminative bit (absolute, MSB-first)
+   * @param affectedFirst the first index of the exempt affected run
+   * @param affectedCount the size of the exempt affected run
+   * @return {@code true} iff folding {@code beta} in is straddle-free
+   */
+  static boolean splitBitIsSafe(final HOTIndirectPage node, final int beta,
+      final int affectedFirst, final int affectedCount) {
+    final int n = node.getNumChildren();
+    for (int c = 0; c < n; c++) {
+      if (c >= affectedFirst && c < affectedFirst + affectedCount) {
+        continue;                                   // affected run — exempt (split ON beta)
+      }
+      final PageReference childRef = node.getChildReference(c);
+      final Page childPage = childRef == null ? null : childRef.getPage();
+      if (childPage == null) {
+        return false;                               // unresolved — conservatively unsafe
+      }
+      // Pre-filter: beta strictly more significant (smaller absolute index) than the sibling's
+      // key-set MSDB ⇒ Lemma 1 ⇒ the sibling cannot straddle beta — skip the scan.
+      if (beta < subtreeMsdb(childPage)) {
+        continue;
+      }
+      // Inconclusive — scan the sibling precisely.
+      if (subtreeStraddles(childPage, beta)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Whether {@code subtree}'s key set straddles bit {@code beta} — contains a key with
+   * {@code beta} set and a key with it clear. A precise scan, used by {@link #splitBitIsSafe}
+   * once the cheap MSDB pre-filter is inconclusive. An unresolved descendant page is treated
+   * conservatively as a straddle.
+   */
+  private static boolean subtreeStraddles(final Page subtree, final int beta) {
+    return straddleScan(subtree, beta, new int[] {-1});
+  }
+
+  /**
+   * Recursive helper for {@link #subtreeStraddles}. {@code firstValue} is a one-cell holder:
+   * {@code -1} until the first key is seen, then that key's {@code beta} bit value. Returns
+   * {@code true} as soon as a key disagrees with the first (an early exit).
+   */
+  private static boolean straddleScan(final Page page, final int beta, final int[] firstValue) {
+    if (page == null) {
+      return true;                                  // unresolved descendant — conservatively a straddle
+    }
+    if (page instanceof HOTLeafPage leaf) {
+      final int count = leaf.getEntryCount();
+      for (int i = 0; i < count; i++) {
+        final int v = HOTBulkBuilder.bitAt(leaf.getKey(i), beta) ? 1 : 0;
+        if (firstValue[0] < 0) {
+          firstValue[0] = v;
+        } else if (firstValue[0] != v) {
+          return true;
+        }
+      }
+      return false;
+    }
+    final HOTIndirectPage indirect = (HOTIndirectPage) page;
+    for (int i = 0; i < indirect.getNumChildren(); i++) {
+      final PageReference ref = indirect.getChildReference(i);
+      if (straddleScan(ref == null ? null : ref.getPage(), beta, firstValue)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -1176,8 +1312,13 @@ public final class HOTIncrementalInsert {
 
     final int affectedChildIndex = childSlots[parentDepth];
     if (parent.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
-      spineRefs[parentDepth].setPage(
-          addEntry(parent, biNode, affectedChildIndex, revision, pageKeyAllocator));
+      final HOTIndirectPage folded;
+      try {
+        folded = addEntry(parent, biNode, affectedChildIndex, revision, pageKeyAllocator);
+      } catch (HOTStraddleException straddle) {
+        throw tagStraddle(straddle, parentDepth);   // stamp the unsafe node's spine depth
+      }
+      spineRefs[parentDepth].setPage(folded);
       return new IntegrationResult(spineRefs[0], spineRefs[parentDepth]);
     }
 
@@ -1190,10 +1331,27 @@ public final class HOTIncrementalInsert {
     }
     final int splitPoint = indirectSplitPoint(parent);
     final BiNode parentSplit = splitIndirect(parent, revision, pageKeyAllocator);
-    final BiNode cascaded = foldIntoHalf(parentSplit, splitPoint, parent.getNumChildren(),
-        affectedChildIndex, biNode, revision, pageKeyAllocator);
+    final BiNode cascaded;
+    try {
+      cascaded = foldIntoHalf(parentSplit, splitPoint, parent.getNumChildren(),
+          affectedChildIndex, biNode, revision, pageKeyAllocator);
+    } catch (HOTStraddleException straddle) {
+      throw tagStraddle(straddle, parentDepth);     // the cascade's addEntry into a half straddled
+    }
     return integrate(spineNodes, spineRefs, childSlots, parentDepth, cascaded, revision,
         pageKeyAllocator);
+  }
+
+  /**
+   * Stamp an untagged {@link HOTStraddleException} with {@code nodeDepth} — the spine depth of
+   * the node whose {@code addEntry} straddled — so the driver scopes the recanonicalization to
+   * that node's subtree. An already-tagged exception (a deeper {@code integrate} frame stamped
+   * it first) propagates unchanged.
+   */
+  private static HOTStraddleException tagStraddle(final HOTStraddleException straddle,
+      final int nodeDepth) {
+    return straddle.nodeDepthHint >= 0 ? straddle
+        : new HOTStraddleException(straddle.getMessage(), nodeDepth);
   }
 
   /**
