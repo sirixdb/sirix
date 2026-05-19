@@ -95,6 +95,15 @@ public abstract class AbstractHOTIndexWriter<K> {
 
   private static final Logger LOG = LoggerFactory.getLogger(AbstractHOTIndexWriter.class);
 
+  /**
+   * Diagnostic counter — structural-inconsistency self-heal firings (process-wide). On a tree
+   * kept canonical by the incremental primitives this catch is unreachable; Stage 3 of
+   * {@code docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md} deletes the self-heal once a
+   * canary run confirms zero firings.
+   */
+  public static final java.util.concurrent.atomic.AtomicLong SELF_HEAL_FIRINGS =
+      new java.util.concurrent.atomic.AtomicLong();
+
   protected final StorageEngineWriter storageEngineWriter;
   protected final IndexType indexType;
   protected final int indexNumber;
@@ -777,11 +786,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       result = HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult),
           navResult.pathChildIndices(), navResult.pathDepth(), biNode, revision, pageKeyAllocator);
     } catch (IllegalArgumentException | IllegalStateException structuralInconsistency) {
-      // The incremental integration hit a structural inconsistency — typically a leaf that varies
-      // on an ancestor discriminative bit (an I5 violation an earlier approximate-routing
-      // operation, e.g. a delete writing a tombstone, may have left behind). Self-heal: rebuild
-      // the index canonically so every key is re-placed correctly (HOTBulkBuilder is a
-      // compression of R(S) by construction — the result is invariant-clean).
+      // Self-heal — rebuild the index canonically. Stage 3a verification (2026-05-20) measured
+      // 15 firings here on the HOT test suite: "split bit N is already a discriminative bit of
+      // the node" — splitLeafPage's β coincides with an OFF-path disc bit of N (a NEW finding
+      // not covered by Stage 1+2 of docs/HOT_BETAISDISCBIT_REBUILD_ELIMINATION_PLAN.md). Cannot
+      // be deleted until that case is handled incrementally.
+      SELF_HEAL_FIRINGS.incrementAndGet();
       rebuildWholeIndex(navResult, keySlice, valueSlice);
       return;
     }
@@ -825,9 +835,12 @@ public abstract class AbstractHOTIndexWriter<K> {
         rebuildSubtree(navResult, analysis.insertDepth(), keySlice, valueSlice);
       }
     } catch (IllegalArgumentException | IllegalStateException structuralInconsistency) {
-      // An integration step hit a structural inconsistency (typically an I5 violation an earlier
-      // approximate-routing operation left behind) and may have partially re-pointed the spine —
-      // recanonicalize from the root so the whole index is invariant-clean again.
+      // Self-heal — see the mergeIntoLeaf twin. Stage 3a verification (2026-05-20) measured 103
+      // firings here on the HOT test suite: "sparse partial key N is already a child of the
+      // node" — addChildAtCombination C2 collision (plan §6 C2: K's comboPartial coincides with
+      // an existing child of N; K actually belongs INSIDE that child's subtree, the descent
+      // stopped one level too shallow). Cannot be deleted until the C2 re-descend is handled.
+      SELF_HEAL_FIRINGS.incrementAndGet();
       rebuildWholeIndex(navResult, keySlice, valueSlice);
     }
   }
