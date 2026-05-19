@@ -175,7 +175,18 @@ public final class HOTTrieReader implements AutoCloseable {
   private int pathDepth = 0;
 
   // ===== Currently guarded leaf page =====
+  // This reader holds at most one leaf guard at a time: the most-recently-resolved leaf,
+  // managed entirely by loadPage. A guarded leaf cannot be evicted, so every read of leaf
+  // content by this reader (point lookup, range cursor, lower-bound walk) is safe for as
+  // long as that leaf remains the current one.
   private HOTLeafPage guardedLeaf = null;
+
+  /**
+   * Bound on how many times {@link #loadPage} reloads a leaf after losing the resolve-then-
+   * guard race to a concurrent eviction. Each retry reads a fresh copy from storage, so the
+   * race is independent per attempt; exhausting this many implies pathological thrashing.
+   */
+  private static final int MAX_GUARD_ACQUIRE_RETRIES = 256;
 
   /**
    * Create a new HOTTrieReader.
@@ -207,20 +218,17 @@ public final class HOTTrieReader implements AutoCloseable {
     // that land at the leaf; for now we always re-navigate, which is
     // still cheap for log_32-shallow HOT trees.
 
-    // Release any previously guarded leaf.
-    releaseGuardedLeaf();
+    // navigateToLeaf resolves the leaf through loadPage, which holds the leaf's guard as
+    // this reader's single guarded leaf — it cannot be evicted until the next navigation.
     final HOTLeafPage leaf = navigateToLeaf(rootRef, key);
-    if (leaf == null) return null;
-    if (!leaf.acquireGuard()) return null;
-    guardedLeaf = leaf;
-    try {
-      final int index = leaf.findEntry(key);
-      if (index < 0) return null;
-      return leaf.getValueSlice(index);
-    } catch (Exception e) {
-      releaseGuardedLeaf();
-      throw e;
+    if (leaf == null) {
+      return null;
     }
+    final int index = leaf.findEntry(key);
+    if (index < 0) {
+      return null;
+    }
+    return leaf.getValueSlice(index);
   }
 
   /**
@@ -234,25 +242,10 @@ public final class HOTTrieReader implements AutoCloseable {
     Objects.requireNonNull(rootRef);
     Objects.requireNonNull(key);
 
-    // Release any previously guarded leaf
-    releaseGuardedLeaf();
-
-    HOTLeafPage leaf = navigateToLeaf(rootRef, key);
-    if (leaf == null) {
-      return false;
-    }
-
-    // Acquire guard temporarily. If the page was evicted between navigation
-    // and here, acquireGuard returns false — treat as not found.
-    if (!leaf.acquireGuard()) {
-      return false;
-    }
-    try {
-      int index = leaf.findEntry(key);
-      return index >= 0;
-    } finally {
-      leaf.releaseGuard();
-    }
+    // navigateToLeaf resolves the leaf through loadPage, which guards it as this reader's
+    // single guarded leaf for the duration of the lookup — see get().
+    final HOTLeafPage leaf = navigateToLeaf(rootRef, key);
+    return leaf != null && leaf.findEntry(key) >= 0;
   }
 
   /**
@@ -911,32 +904,49 @@ public final class HOTTrieReader implements AutoCloseable {
    * swizzled is memory-efficient and avoids the dominant cost of random SSD reads.</p>
    */
   private @Nullable Page loadPage(PageReference ref) {
-    // First check if page is already swizzled (in-memory from transaction log or prior load)
-    final Page inMemory = ref.getPage();
-    if (inMemory != null) {
-      return inMemory;
+    // Resolving a HOT leaf and guarding it are fused here so no caller can observe a leaf
+    // between the two steps: a concurrent eviction in that window would otherwise close the
+    // leaf and make a reader mistake an evicted page for a missing key. On a lost race the
+    // leaf is simply reloaded — eviction is transient, not absence.
+    for (int attempt = 0; attempt < MAX_GUARD_ACQUIRE_RETRIES; attempt++) {
+      // A swizzled page that is already closed means a concurrent eviction reclaimed its
+      // off-heap slot; drop it and reload a fresh copy rather than hand back dead memory.
+      Page page = ref.getPage();
+      if (page == null || page.isClosed()) {
+        // CRITICAL: check BOTH storage key AND log key before giving up. A page in the
+        // transaction log has key == NULL_ID_LONG but a valid logKey.
+        if (ref.getKey() < 0 && ref.getLogKey() < 0) {
+          return null; // not in storage and not in the transaction log
+        }
+        // The storage engine handles versioning/fragment combining and the log lookup.
+        page = storageEngineReader.loadHOTPage(ref);
+        if (page == null) {
+          return null;
+        }
+        // Swizzle: pin the loaded page so future descents skip I/O. HOT pages are immutable
+        // once loaded (COW creates new pages for modifications), so setPage is idempotent.
+        ref.setPage(page);
+      }
+
+      if (!(page instanceof HOTLeafPage leaf)) {
+        return page; // an indirect page — eviction only de-swizzles it, never closes it
+      }
+      if (leaf == guardedLeaf) {
+        return leaf; // already this reader's guarded leaf
+      }
+      // Hold exactly one leaf guard: the most-recently-resolved leaf. Acquire the new guard
+      // before releasing the old one so the new leaf is un-evictable across the swap.
+      if (leaf.acquireGuard()) {
+        releaseGuardedLeaf();
+        guardedLeaf = leaf;
+        return leaf;
+      }
+      // Lost the resolve-then-guard race — the leaf was evicted before its guard could be
+      // taken. Drop the closed swizzle and reload a fresh copy on the next attempt.
+      ref.setPage(null);
     }
-
-    // CRITICAL: Check BOTH storage key AND log key before giving up.
-    // When a page is in the transaction log, key is set to NULL_ID_LONG (-1)
-    // but logKey is set to the index in the log. We must call loadHOTPage
-    // which checks the transaction log using the logKey.
-    if (ref.getKey() < 0 && ref.getLogKey() < 0) {
-      return null; // Page not in storage AND not in transaction log
-    }
-
-    // Load from storage via the storage engine reader
-    // The storage engine will handle versioning/fragment combining AND transaction log lookup
-    final Page loaded = storageEngineReader.loadHOTPage(ref);
-
-    // Swizzle: pin the loaded page on the reference so future accesses skip I/O.
-    // This is safe because PageReference.setPage is idempotent and HOT pages are
-    // immutable once loaded (COW creates new pages for modifications).
-    if (loaded != null) {
-      ref.setPage(loaded);
-    }
-
-    return loaded;
+    throw new IllegalStateException("HOT: leaf at " + ref + " evicted on every one of "
+        + MAX_GUARD_ACQUIRE_RETRIES + " load attempts — sustained allocator thrashing");
   }
 
   /**

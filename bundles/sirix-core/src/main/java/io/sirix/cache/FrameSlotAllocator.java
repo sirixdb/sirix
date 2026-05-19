@@ -237,6 +237,22 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
   }
 
   /**
+   * Test-only diagnostic. When {@code true}, {@link #releaseSlot} zero-fills a slot's
+   * physical pages as it is freed. Production deliberately leaves a released slot's bytes
+   * intact (no {@code MADV_DONTNEED} — see {@link #releaseSlot}), so a use-after-close
+   * reads stale-but-valid data and only a real memory-pressure recycle ever clobbers it.
+   * Turning this on makes any use-after-free deterministic instead of pressure-gated: the
+   * freed slot reads back as zeros immediately. Off by default; one volatile read per
+   * release when off, no hot-path cost otherwise.
+   */
+  private static volatile boolean poisonOnRelease;
+
+  /** Test-only: see {@link #poisonOnRelease}. */
+  public static void setPoisonOnReleaseForTesting(final boolean poison) {
+    poisonOnRelease = poison;
+  }
+
+  /**
    * Address → live FrameSlot map used by the {@link #release(MemorySegment)}
    * implementation of the {@link MemorySegmentAllocator} interface. Callers
    * using the native {@link FrameSlot} handle API don't hit this map.
@@ -564,6 +580,13 @@ public final class FrameSlotAllocator implements MemorySegmentAllocator {
     // value between its pre and post snapshots detects the race.
     final long inProgress = prior | 1L;
     c.slotVersion.setRelease(slotIdx, inProgress);
+
+    // Test-only: scribble the freed slot so a use-after-close reads zeros
+    // deterministically. The version is already odd ("writer in progress"), so a
+    // racing optimistic reader retries rather than observing the half-wiped slot.
+    if (poisonOnRelease) {
+      c.region.asSlice((long) slotIdx * c.slotSize, c.slotSize).fill((byte) 0);
+    }
 
     // NB: no MADV_DONTNEED on release. Physical pages stay resident across
     // recycle cycles — the version counter is the logical-safety mechanism,

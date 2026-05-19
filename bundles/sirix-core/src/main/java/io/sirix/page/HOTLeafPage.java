@@ -2962,9 +2962,16 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
       return false;
     }
     guardCount.incrementAndGet();
-    // Double-check after increment to prevent acquire-after-close/orphan race
+    // Double-check after increment to prevent acquire-after-close/orphan race.
     if (closed.get() || isOrphaned) {
-      guardCount.decrementAndGet();
+      // Lost the race with close()/markOrphaned(): undo the guard. If this was the last
+      // guard on an orphaned-but-not-yet-closed page, complete the deferred teardown so
+      // the off-heap slot is not leaked.
+      if (guardCount.decrementAndGet() == 0 && isOrphaned) {
+        if (closed.compareAndSet(false, true)) {
+          releaseMemory();
+        }
+      }
       return false;
     }
     hot = true;
@@ -3019,12 +3026,22 @@ public final class HOTLeafPage implements KeyValuePage<DataRecord>, io.sirix.cac
   }
 
   /**
-   * Close the page and release off-heap memory. Thread-safe; only the first call
-   * actually releases the memory segment.
+   * Close the page and release its off-heap memory. Thread-safe; only the first effective
+   * call releases the memory segment.
+   *
+   * <p><b>Guard-aware teardown.</b> A page with live guards is in active use by a reader, so
+   * the slot release is deferred: the page is marked orphaned and the last {@link #releaseGuard()}
+   * performs the actual teardown. This guarantees eviction can never free a slot out from
+   * under a reader that has already acquired a guard — the reader-side eviction race that
+   * surfaced as silent key loss under memory pressure. A racing {@link #acquireGuard()} sees
+   * {@link #isOrphaned} on its post-increment re-check and retries instead.
    */
   public void close() {
-    if (closed.compareAndSet(false, true)) {
-      releaseMemory();
+    isOrphaned = true;
+    if (guardCount.get() == 0) {
+      if (closed.compareAndSet(false, true)) {
+        releaseMemory();
+      }
     }
   }
 
