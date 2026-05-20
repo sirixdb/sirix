@@ -729,15 +729,39 @@ when implementing, but the routing argument holds.
 > - Branch-path C2: 103 self-heal whole-index-rebuilds → 103 scoped rebuilds at d*.
 > - `interleavedInsertDeleteMultiRev` and all 79 canary tests green.
 >
-> **What true Direction 1 still needs (deferred follow-up).** A per-firing **I8-safety
-> pre-check** before sub-inserting: if K would become the new `firstKey` of `affected`
-> (i.e. K < `affected.firstKey`), verify both `affected−1.firstKey < K < affected+1.firstKey`
-> at d* AND propagate the check up the spine for every ancestor where `affected` is slot
-> 0 (since K could become the new `firstKey` at every such ancestor). On a fail, fall
-> back to the scoped rebuild this iteration uses. On success, sub-insert via §11.5's
-> code.  The pre-check cost is O(height) per firing (one leftmost-walk per checked
-> sibling, bounded by `MAX_PATH_DEPTH`). Worth doing if/when a perf microbench shows the
-> 103 scoped rebuilds dominate write CPU.
+> **Iteration 2 — true Direction 1 with I8-safety pre-check (LANDED 2026-05-20).**
+> Added `isDirectionOneI8Safe(navResult, insertDepth, affectedIdx, keySlice)`:
+> - O(1) short-circuit: if K ≥ affected.firstKey, K cannot become the new leftmost
+>   key of `affected` — no firstKey change propagates → safe.
+> - Else K becomes affected's new firstKey. Check I8 at d* around `affectedIdx`:
+>   `prev.firstKey < K < next.firstKey` must hold (each comparison is one leftmost-walk
+>   per sibling, bounded by tree height).
+> - K's firstKey-change propagates upward as long as the current slot is 0 (leftmost).
+>   Walk the spine from d* upward; at each level where the current slot is 0, repeat
+>   the I8 check around the parent's slot. Stop when a non-zero slot is encountered
+>   (further ancestors unaffected).
+>
+> On safe → `subInsertAt(affectedRef, K, V)` and `DIRECTION_ONE_SUBINSERT++`. On unsafe
+> → `return false` (the iteration 1 scoped-rebuild fallback) and `DIRECTION_ONE_FALLBACK++`.
+> Total cost per firing: O(height × siblings_checked) ≤ O(MAX_PATH_DEPTH²) — tiny vs a
+> rebuild.
+>
+> **Empirical hit rate** (`Direction1HitRateProbe.measureC2HitRateOnInterleavedWorkload`,
+> the same workload pattern as `interleavedInsertDeleteMultiRev` — 10 revs × 1000 entries
+> with overlapping ranges):
+> - C2 firings total: **16**.
+> - Resolved via D1 sub-insert: **11 (68.8%)** — no rebuild.
+> - Fallback to scoped rebuild: **5 (31.3%)** — I8-unsafe (MSDB-closure gap).
+> - `SELF_HEAL_FIRINGS`: 3 (Issue B unchanged — follow-up §4.3).
+>
+> So roughly 2/3 of the C2 firings are now resolved purely incrementally, and the
+> remaining 1/3 use the strictly-smaller scoped rebuild (still better than baseline's
+> whole-index self-heal).
+>
+> **Still deferred.** Sites 2 (`branchFullNodeAtExistingBit`) and 3 (boundary-child
+> not-full handler) keep their existing `return false` catches — applying iteration 2's
+> sub-insert at those sites is a follow-up. Issue B (§4.3) is the bigger remaining win
+> (drops `SELF_HEAL_FIRINGS` to 0 → enables Stage 3b deletion of the self-heal arms).
 >
 > Sites 2 and 3 already do "return false → scoped rebuild" via their existing catches
 > (Stage 1 + Stage 2 conservative implementations). The §11.5 / §11.6 designs for those

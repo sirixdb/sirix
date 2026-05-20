@@ -867,6 +867,119 @@ public abstract class AbstractHOTIndexWriter<K> {
   }
 
   /**
+   * Walk the leftmost path from {@code ref} to its leaf and return that leaf's first key --
+   * the smallest key contained in the subtree rooted at {@code ref}. Bounded by tree height
+   * ({@link #MAX_PATH_DEPTH}); returns {@code null} on an empty subtree or an unresolvable
+   * descent (defensive). Used by the Direction 1 I8-safety pre-check to compare K's lex
+   * position against {@code affected}'s neighbouring siblings.
+   */
+  private byte @Nullable [] firstKeyOfSubtree(@Nullable PageReference ref) {
+    if (ref == null) {
+      return null;
+    }
+    PageReference cur = ref;
+    for (int depth = 0; depth <= MAX_PATH_DEPTH; depth++) {
+      final Page page = resolveHOTPageForTraversal(cur);
+      if (page == null) {
+        return null;
+      }
+      if (page instanceof HOTLeafPage leaf) {
+        if (leaf.getEntryCount() == 0) {
+          return null;
+        }
+        return leaf.getFirstKey();
+      }
+      if (!(page instanceof HOTIndirectPage indirect) || indirect.getNumChildren() == 0) {
+        return null;
+      }
+      cur = indirect.getChildReference(0);
+      if (cur == null) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * I8 (children-sorted-by-firstkey) safety predicate for sub-inserting {@code K} into the
+   * {@code affected} subtree at {@code insertDepth}. Direction 1 sub-insert
+   * ({@code docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md} §11) is routing-correct by the
+   * descent tautology -- but if K becomes the new {@code firstKey} of {@code affected}, that
+   * change PROPAGATES up the spine through every ancestor where {@code affected}'s slot at
+   * that level is 0 (the leftmost child). At each such ancestor, I8 demands {@code K} also
+   * fits between the left and right siblings' first keys. An MSDB-closure gap in the
+   * ancestor's mask can put K outside that interval -- a real failure mode (a regression
+   * surfaced by HOTVersionedLeafStressTest's interleavedInsertDeleteMultiRev).
+   *
+   * <p>Returns {@code true} iff sub-inserting K is safe at every affected level. The cost is
+   * O(height) per check (leftmost-walk per inspected sibling, capped at {@link #MAX_PATH_DEPTH}).
+   *
+   * <p><b>Short-circuit.</b> When {@code K >= affected.firstKey}, K cannot become the new
+   * leftmost key of {@code affected}, so no firstKey changes on the spine -- I8 is trivially
+   * preserved.
+   */
+  private boolean isDirectionOneI8Safe(LeafNavigationResult navResult, int insertDepth,
+      int affectedIdx, byte[] keySlice) {
+    final HOTIndirectPage[] pathNodes = navResult.pathNodes();
+    final int[] childSlots = navResult.pathChildIndices();
+    final HOTIndirectPage dStar = pathNodes[insertDepth];
+
+    final byte[] affectedFirstKey = firstKeyOfSubtree(dStar.getChildReference(affectedIdx));
+    if (affectedFirstKey == null) {
+      return false;                              // defensive: unresolvable subtree
+    }
+    if (Arrays.compareUnsigned(keySlice, affectedFirstKey) >= 0) {
+      return true;                               // K >= affected.firstKey: no firstKey change.
+    }
+
+    // K < affected.firstKey -> K becomes new firstKey of affected. Check I8 at d*.
+    if (!isI8SafeAtSlot(dStar, affectedIdx, keySlice)) {
+      return false;
+    }
+    // K's firstKey-change propagates upward as long as the current slot is 0 (leftmost).
+    int currentSlot = affectedIdx;
+    for (int depth = insertDepth - 1; depth >= 0 && currentSlot == 0; depth--) {
+      final int parentSlot = childSlots[depth];
+      if (!isI8SafeAtSlot(pathNodes[depth], parentSlot, keySlice)) {
+        return false;
+      }
+      currentSlot = parentSlot;
+    }
+    return true;
+  }
+
+  /**
+   * Check I8 around {@code slot} of {@code node} given {@code keySlice} as the slot's new
+   * (smaller) firstKey: {@code prev.firstKey < keySlice < next.firstKey} must hold. Helper
+   * for {@link #isDirectionOneI8Safe}.
+   */
+  private boolean isI8SafeAtSlot(HOTIndirectPage node, int slot, byte[] keySlice) {
+    final int n = node.getNumChildren();
+    if (slot > 0) {
+      final byte[] prevFirstKey = firstKeyOfSubtree(node.getChildReference(slot - 1));
+      if (prevFirstKey == null || Arrays.compareUnsigned(keySlice, prevFirstKey) <= 0) {
+        return false;
+      }
+    }
+    if (slot + 1 < n) {
+      final byte[] nextFirstKey = firstKeyOfSubtree(node.getChildReference(slot + 1));
+      if (nextFirstKey == null || Arrays.compareUnsigned(keySlice, nextFirstKey) >= 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Direction 1 outcome counter -- how often the C2 catch sub-inserts vs falls back to
+   * scoped rebuild. Useful for empirical hit-rate measurement; never read by the writer.
+   */
+  public static final java.util.concurrent.atomic.AtomicLong DIRECTION_ONE_SUBINSERT =
+      new java.util.concurrent.atomic.AtomicLong();
+  public static final java.util.concurrent.atomic.AtomicLong DIRECTION_ONE_FALLBACK =
+      new java.util.concurrent.atomic.AtomicLong();
+
+  /**
    * The merge outcome of {@link #doIndex}: the key belongs inside the routed leaf's bucket.
    * Merges it in; on bucket overflow defragments and retries once, then splits the leaf page and
    * integrates the resulting {@link HOTIncrementalInsert.BiNode} at the leaf's depth.
@@ -1011,15 +1124,21 @@ public abstract class AbstractHOTIndexWriter<K> {
         registerFreshSubtree(pathRefs[insertDepth]);
         return true;
       } catch (IllegalArgumentException c2Collision) {
-        // C2 -- comboPartial coincides with an existing child of d*. Direction 1 (sub-insert
-        // into affected, docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §11) is routing-correct
-        // but can break I8 (range-scan ordering) when K becomes the new firstKey of affected
-        // and the trie has an MSDB-closure gap at d*'s mask (a real failure observed in
-        // HOTVersionedLeafStressTest interleavedInsertDeleteMultiRev). Fall back to a scoped
-        // rebuildSubtree at insertDepth -- canonical re-construction heals the MSDB-closure
-        // gap. Still strictly better than baseline (whole-index rebuild via self-heal) and
-        // drops these firings out of SELF_HEAL_FIRINGS (no exception bubbled up).
+        // C2 -- comboPartial coincides with an existing child of d*. Direction 1 sub-insert
+        // into affected (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §11) is routing-correct
+        // by the descent tautology; the only remaining risk is I8 (range-scan ordering) when
+        // K becomes affected's new firstKey and the trie has an MSDB-closure gap at some
+        // ancestor's mask. Pre-check via isDirectionOneI8Safe; if safe, sub-insert; else
+        // fall back to a scoped rebuildSubtree at insertDepth (cheaper than the baseline's
+        // whole-index self-heal).
         comboLeaf.close();
+        if (isDirectionOneI8Safe(navResult, insertDepth, analysis.affectedChildIndex(),
+            keySlice)) {
+          DIRECTION_ONE_SUBINSERT.incrementAndGet();
+          return subInsertAt(node.getChildReference(analysis.affectedChildIndex()), keySlice,
+              keySlice.length, valueSlice, valueSlice.length);
+        }
+        DIRECTION_ONE_FALLBACK.incrementAndGet();
         return false;
       }
     }
