@@ -151,6 +151,7 @@ test {
     systemProperty "hot.debug.i6trace", System.getProperty("hot.debug.i6trace", "")
     systemProperty "hot.diag.selfHealDetail", System.getProperty("hot.diag.selfHealDetail", "false")
     systemProperty "hot.diag.postHandlerValidate", System.getProperty("hot.diag.postHandlerValidate", "false")
+    systemProperty "hot.diag.directionOneFallback", System.getProperty("hot.diag.directionOneFallback", "false")
 
     // Show test output for diagnostics
     testLogging {

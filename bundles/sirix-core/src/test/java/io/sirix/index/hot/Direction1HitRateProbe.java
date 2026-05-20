@@ -51,6 +51,7 @@ final class Direction1HitRateProbe {
     final long offPathFallbackBefore = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK.get();
     final long escAvoidedBefore = AbstractHOTIndexWriter.REBUILD_HEIGHT_ESCALATION_AVOIDED.get();
     final long propI7FbBefore = AbstractHOTIndexWriter.REBUILD_PROPAGATION_I7_FALLBACK.get();
+    final long rebuildCallsBefore = AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get();
 
     final int entriesPerRev = 1_000;
     final int totalRevs = 10;
@@ -107,6 +108,8 @@ final class Direction1HitRateProbe {
         - escAvoidedBefore;
     final long propI7Fb = AbstractHOTIndexWriter.REBUILD_PROPAGATION_I7_FALLBACK.get()
         - propI7FbBefore;
+    final long rebuildCalls = AbstractHOTIndexWriter.REBUILD_SUBTREE_CALLED.get()
+        - rebuildCallsBefore;
     final long totalC2 = subInserts + fallbacks;
     final long totalIssueB = offPathOk + offPathFallback;
 
@@ -121,6 +124,8 @@ final class Direction1HitRateProbe {
         + (totalIssueB > 0 ? String.format(" (%.1f%%)", 100.0 * offPathOk / totalIssueB) : ""));
     System.err.println("    -> whole rebuild   : " + offPathFallback
         + (totalIssueB > 0 ? String.format(" (%.1f%%)", 100.0 * offPathFallback / totalIssueB) : ""));
+    System.err.println("  rebuildSubtree calls  : " + rebuildCalls
+        + " (each scoped to insertDepth, non-escalating since Stage 3c)");
     System.err.println("  Stage 3c propagation  : " + escAvoided
         + " ancestors re-encoded in place (escalations avoided)");
     System.err.println("  Stage 3c I7 fallbacks : " + propI7Fb

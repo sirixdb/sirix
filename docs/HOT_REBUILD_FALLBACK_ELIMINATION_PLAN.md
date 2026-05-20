@@ -1,6 +1,54 @@
 # HOT rebuild-fallback elimination — design plan
 
-## Status snapshot (2026-05-20, post iter-19)
+## Status snapshot (2026-05-20, post Stages 3c + 3b LANDED `d61a92e6f`)
+
+- **Stage 3c (A) — in-spine propagation LANDED.** `rebuildSubtree`'s height-escalation
+  cascade is gone; new helper `propagateRebuildUpSpine` re-encodes each ancestor in place
+  via `HOTBulkBuilder.assembleIndirect`. Defensive I7-collision fallback is a scoped
+  rebuild at the ancestor depth.
+- **Iter-18 pathDepth==1 unguarded LANDED.** `handleOffPathOverflowFullN` now applies at
+  every pathDepth (the rev-9 corruption iter-19 pinned is gone — confirmed empirically by
+  the canary passing without the `pathDepth < 2` guard).
+- **Stage 3b — catch arms + rebuildWholeIndex + SELF_HEAL_FIRINGS deleted LANDED.** The
+  HOT insert path is now a pure composition of incremental primitives with one residual
+  scoped `rebuildSubtree(insertDepth)` for the I8-unsafe Direction 1 case (Stage 4b iter-3
+  target).
+- **Verification:** 271/271 HOT package tests + 635/635 sirix-core tests green;
+  `HOTFormalVerificationTest` 48 tests, 4 skipped, 0 failures. Probe profile on the
+  SLIDING_SNAPSHOT canary: C2=10 (6 sub-insert + 4 scoped rebuild), Issue B=2 (all
+  incremental, 0 whole rebuild), Stage 3c propagation count = 0 (defensive code unexercised
+  by this workload — the 4 scoped rebuilds happened to preserve height + firstKey).
+
+### Residual: 4 I8-unsafe Direction 1 firings (characterized)
+
+`-Dhot.diag.directionOneFallback=true` on the canary dumps all 4 firings; they share the
+same shape:
+
+| # | insertDepth | dStar.children | affectedIdx | spine     | β    | comboPartial | K vs affected.fk | K vs prev.fk |
+|---|------------:|---------------:|------------:|-----------|------|--------------|------------------|--------------|
+| 1 | 0           | 9              | 6           | [0=slot6] | 133  | 0x10         | K < affected     | K < prev     |
+| 2 | 1           | 7              | 6           | [1=slot6] | 132  | 0xc          | K < affected     | K < prev     |
+| 3 | 1           | 20             | 19          | [1=slot19]| 135  | 0x24         | K < affected     | K < prev     |
+| 4 | 1           | 6              | 3           | [1=slot3] | 136  | 0xc          | K < affected     | K < prev     |
+
+**Pattern:** K's PEXT routes to `affected` slot (highest-index-subset-match at d*), but K's
+lex position is to the LEFT of `prev` (= slot-1). Sub-inserting K into `affected` would
+break I8 locally at d* — `affected`'s new firstKey would be K, and `prev.firstKey > K`.
+
+`HOTInvariantValidator.java:380-382`: "I7 (partials ascending) and I8 (children by
+firstKey) are equivalent — they diverge only when an indirect's mask misses a
+discriminating bit, which is itself the malformation worth catching." Each of these 4
+firings is exactly this MSDB-closure-gap state: d*'s mask is missing the bit that would
+distinguish K from `affected`.
+
+The fix needs to either (B1) lift K to an ancestor where K's PEXT lands cleanly, or
+restructure d* to add the missing disc bit (= a localized routing encoding rewrite). Both
+are larger than a quick iteration. The current scoped rebuild handles them correctly with
+a bounded O(d*'s subtree size) cost — acceptable as a residual.
+
+---
+
+## Pre-Stage-3c snapshot (2026-05-20, post iter-19) — kept for historical context
 
 **Branch:** `fix/hot-strict-binna-conformance`. **Follows:**
 `HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` (Stage 0) +

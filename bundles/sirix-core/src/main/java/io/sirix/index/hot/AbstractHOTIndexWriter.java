@@ -51,6 +51,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.function.LongSupplier;
 
@@ -995,6 +996,57 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   public static final java.util.concurrent.atomic.AtomicLong REBUILD_PROPAGATION_I7_FALLBACK =
       new java.util.concurrent.atomic.AtomicLong();
+  /**
+   * Total invocations of {@link #rebuildSubtree} (any depth, any caller). With
+   * {@link #REBUILD_HEIGHT_ESCALATION_AVOIDED} reports both how often a rebuild occurred
+   * and how often Stage 3c's propagation re-encoded at least one ancestor.
+   */
+  public static final java.util.concurrent.atomic.AtomicLong REBUILD_SUBTREE_CALLED =
+      new java.util.concurrent.atomic.AtomicLong();
+
+  /**
+   * Characterize an I8-unsafe Direction 1 fallback (Stage 4b iter-3 diagnostic). Gated on
+   * {@code -Dhot.diag.directionOneFallback=true}. Dumps the trigger key, d*'s shape, the
+   * affected slot's lex position vs. K, and the leftmost-chain spine -- the inputs needed to
+   * design the "lift K higher" / "reorganize d*" alternatives in plan §12.2.
+   */
+  private void dumpDirectionOneFallback(String site, LeafNavigationResult navResult,
+      int affectedIdx, int insertDepth, int beta, int betaValue, int comboPartial,
+      byte[] keySlice) {
+    final HOTIndirectPage[] pathNodes = navResult.pathNodes();
+    final int[] childSlots = navResult.pathChildIndices();
+    final HOTIndirectPage dStar = pathNodes[insertDepth];
+    final int n = dStar.getNumChildren();
+    final byte[] affectedFirstKey = firstKeyOfSubtree(dStar.getChildReference(affectedIdx));
+    final byte[] prevFirstKey = affectedIdx > 0
+        ? firstKeyOfSubtree(dStar.getChildReference(affectedIdx - 1)) : null;
+    final byte[] nextFirstKey = affectedIdx + 1 < n
+        ? firstKeyOfSubtree(dStar.getChildReference(affectedIdx + 1)) : null;
+    final StringBuilder spine = new StringBuilder(128);
+    int currentSlot = affectedIdx;
+    spine.append('[').append(insertDepth).append("=slot").append(currentSlot);
+    for (int d = insertDepth - 1; d >= 0 && currentSlot == 0; d--) {
+      final int parentSlot = childSlots[d];
+      spine.append(",h=").append(d).append("=slot").append(parentSlot);
+      currentSlot = parentSlot;
+    }
+    spine.append(']');
+    final HexFormat hex = HexFormat.of();
+    final String hexKey = hex.formatHex(keySlice, 0, Math.min(keySlice.length, 22));
+    final String hexAffected = affectedFirstKey == null ? "null"
+        : hex.formatHex(affectedFirstKey, 0, Math.min(affectedFirstKey.length, 22));
+    final String hexPrev = prevFirstKey == null ? "<none>"
+        : hex.formatHex(prevFirstKey, 0, Math.min(prevFirstKey.length, 22));
+    final String hexNext = nextFirstKey == null ? "<none>"
+        : hex.formatHex(nextFirstKey, 0, Math.min(nextFirstKey.length, 22));
+    System.err.println("[D1-FALLBACK " + site + "] K=" + hexKey
+        + " pathDepth=" + navResult.pathDepth() + " insertDepth=" + insertDepth
+        + " dStar.children=" + n + " dStar.height=" + dStar.getHeight()
+        + " affectedIdx=" + affectedIdx + " spine=" + spine
+        + " beta=" + beta + " betaValue=" + betaValue
+        + " comboPartial=0x" + Integer.toHexString(comboPartial)
+        + " affected.fk=" + hexAffected + " prev.fk=" + hexPrev + " next.fk=" + hexNext);
+  }
 
   /**
    * Plan §4.3 -- Issue B incremental off-path-overflow handler. Called from
@@ -1323,6 +1375,10 @@ public abstract class AbstractHOTIndexWriter<K> {
               keySlice.length, valueSlice, valueSlice.length);
         }
         DIRECTION_ONE_FALLBACK.incrementAndGet();
+        if (Boolean.getBoolean("hot.diag.directionOneFallback")) {
+          dumpDirectionOneFallback("site1", navResult, analysis.affectedChildIndex(),
+              analysis.insertDepth(), beta, betaValue, comboPartial, keySlice);
+        }
         return false;
       }
     }
@@ -1404,6 +1460,10 @@ public abstract class AbstractHOTIndexWriter<K> {
                 keySlice.length, valueSlice, valueSlice.length);
           }
           DIRECTION_ONE_FALLBACK.incrementAndGet();
+          if (Boolean.getBoolean("hot.diag.directionOneFallback")) {
+            dumpDirectionOneFallback("site3", navResult, childEntryIndex, insertDepth + 1, beta,
+                betaValue, comboPartial, keySlice);
+          }
           return false;
         }
       }
@@ -1688,6 +1748,7 @@ public abstract class AbstractHOTIndexWriter<K> {
    */
   private void rebuildSubtree(LeafNavigationResult navResult, int depth, byte[] keySlice,
       byte[] valueSlice) {
+    REBUILD_SUBTREE_CALLED.incrementAndGet();
     final HOTIndirectPage[] pathNodes = navResult.pathNodes();
     final int safeDepth = Math.max(0, Math.min(depth, navResult.pathDepth() - 1));
     final HOTIndirectPage subtreeRoot = pathNodes[safeDepth];
