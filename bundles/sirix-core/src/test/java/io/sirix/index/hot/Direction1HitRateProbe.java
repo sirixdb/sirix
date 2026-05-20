@@ -48,6 +48,8 @@ final class Direction1HitRateProbe {
     final long subInsertBefore = AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT.get();
     final long fallbackBefore = AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get();
     final long selfHealBefore = AbstractHOTIndexWriter.SELF_HEAL_FIRINGS.get();
+    final long offPathOkBefore = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_OK.get();
+    final long offPathFallbackBefore = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK.get();
 
     final int entriesPerRev = 1_000;
     final int totalRevs = 10;
@@ -98,16 +100,25 @@ final class Direction1HitRateProbe {
     final long subInserts = AbstractHOTIndexWriter.DIRECTION_ONE_SUBINSERT.get() - subInsertBefore;
     final long fallbacks = AbstractHOTIndexWriter.DIRECTION_ONE_FALLBACK.get() - fallbackBefore;
     final long selfHeal = AbstractHOTIndexWriter.SELF_HEAL_FIRINGS.get() - selfHealBefore;
+    final long offPathOk = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_OK.get() - offPathOkBefore;
+    final long offPathFallback = AbstractHOTIndexWriter.OFF_PATH_OVERFLOW_FALLBACK.get()
+        - offPathFallbackBefore;
     final long totalC2 = subInserts + fallbacks;
+    final long totalIssueB = offPathOk + offPathFallback;
 
-    System.err.println("=== Direction 1 Hit Rate ===");
-    System.err.println("  C2 firings (total) : " + totalC2);
-    System.err.println("  -> sub-insert (D1) : " + subInserts
+    System.err.println("=== Direction 1 + Issue B Hit Rate ===");
+    System.err.println("  C2 firings (total)   : " + totalC2);
+    System.err.println("    -> sub-insert (D1) : " + subInserts
         + (totalC2 > 0 ? String.format(" (%.1f%%)", 100.0 * subInserts / totalC2) : ""));
-    System.err.println("  -> scoped rebuild  : " + fallbacks
+    System.err.println("    -> scoped rebuild  : " + fallbacks
         + (totalC2 > 0 ? String.format(" (%.1f%%)", 100.0 * fallbacks / totalC2) : ""));
-    System.err.println("  SELF_HEAL_FIRINGS  : " + selfHeal + " (Issue B merge-path catches)");
-    System.err.println("============================");
+    System.err.println("  Issue B firings      : " + totalIssueB);
+    System.err.println("    -> incremental     : " + offPathOk
+        + (totalIssueB > 0 ? String.format(" (%.1f%%)", 100.0 * offPathOk / totalIssueB) : ""));
+    System.err.println("    -> whole rebuild   : " + offPathFallback
+        + (totalIssueB > 0 ? String.format(" (%.1f%%)", 100.0 * offPathFallback / totalIssueB) : ""));
+    System.err.println("  SELF_HEAL_FIRINGS    : " + selfHeal + " (cases not yet handled)");
+    System.err.println("=======================================");
   }
 
   private static String buildArray(int n, java.util.function.IntUnaryOperator gen) {

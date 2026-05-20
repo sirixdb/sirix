@@ -980,6 +980,94 @@ public abstract class AbstractHOTIndexWriter<K> {
       new java.util.concurrent.atomic.AtomicLong();
 
   /**
+   * Issue B outcome counters -- how often handleOffPathOverflow succeeds vs falls back to
+   * the caller's whole-index self-heal. Plan §4.3.
+   */
+  public static final java.util.concurrent.atomic.AtomicLong OFF_PATH_OVERFLOW_OK =
+      new java.util.concurrent.atomic.AtomicLong();
+  public static final java.util.concurrent.atomic.AtomicLong OFF_PATH_OVERFLOW_FALLBACK =
+      new java.util.concurrent.atomic.AtomicLong();
+
+  /**
+   * Plan §4.3 -- Issue B incremental off-path-overflow handler. Called from
+   * {@link #mergeIntoLeaf} BEFORE {@link HOTIncrementalInsert#integrate}, when
+   * {@link HOTIncrementalInsert#splitLeafPage} produces a {@link HOTIncrementalInsert.BiNode}
+   * whose split bit β coincides with an already-existing discriminative bit of L's parent N.
+   *
+   * <p>The standard {@code addEntry} fold rejects β-already-disc-bit. The incremental fix
+   * (when applicable): slot-replace L → L₀ in L's slot (β-column-0 partial unchanged) and
+   * add L₁ at {@code comboPartial = L.partial | β-bit} via
+   * {@link HOTIncrementalInsert#addChildAtCombination}. β is NOT added as a new disc bit
+   * (it was already one); the structure is invariant-clean by Stage 0's off-path-straddle
+   * canonicity finding.
+   *
+   * <p>Falls back ({@code return false}) when β is not in D(N), L's β-column is already 1
+   * (not the off-path-straddle case), addChildAtCombination throws C2 collision, or any
+   * defensive failure. Caller then proceeds with standard integrate (which will throw and
+   * land in the self-heal whole-rebuild).
+   *
+   * @return {@code true} if the off-path-overflow was handled incrementally
+   */
+  private boolean handleOffPathOverflow(LeafNavigationResult navResult,
+      HOTIncrementalInsert.BiNode biNode, byte[] keySlice, byte[] valueSlice) {
+    final int pathDepth = navResult.pathDepth();
+    if (pathDepth == 0) {
+      return false;                              // L is the root; no parent to fold into
+    }
+    final HOTIndirectPage parentN = navResult.pathNodes()[pathDepth - 1];
+    final int beta = biNode.discriminativeBitIndex();
+    final int[] discBits = HOTIncrementalInsert.discriminativeBits(parentN);
+    final int betaCol = Arrays.binarySearch(discBits, beta);
+    if (betaCol < 0) {
+      return false;                              // β fresh to N -- standard integrate handles
+    }
+    final int slotOfL = navResult.pathChildIndices()[pathDepth - 1];
+    final int[] oldPartials = parentN.getPartialKeys();
+    if (oldPartials == null || slotOfL >= oldPartials.length) {
+      return false;                              // defensive: malformed partial array
+    }
+    final int lPartial = oldPartials[slotOfL];
+    final int betaBitWeight = 1 << (discBits.length - 1 - betaCol);
+    if ((lPartial & betaBitWeight) != 0) {
+      // L's β-column is already 1 -- not the off-path-straddle case. The plan §3.2 proof
+      // says this can't happen (L's keys would all be β=1, contradicting splitLeafPage's β
+      // = msdb(L ∪ {K})), but stay defensive.
+      return false;
+    }
+    if (parentN.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
+      return false;                              // N full; can't add a new sibling slot
+    }
+    final int comboPartial = lPartial | betaBitWeight;
+
+    // Step 1: slot-replace L → L₀ in N's children array (in-place on the CoW'd N).
+    // The partial at slotOfL is unchanged -- it still has β-column-0, which matches
+    // L₀'s β=0 keys. The follow-on addChildAtCombination snapshots the mutated children.
+    parentN.setChildReference(slotOfL, biNode.left());
+
+    // Step 2: add L₁ at comboPartial. addChildAtCombination throws on C2 collision (existing
+    // sibling at comboPartial).
+    final HOTIndirectPage newN;
+    try {
+      newN = HOTIncrementalInsert.addChildAtCombination(parentN, comboPartial,
+          biNode.right(), parentN.getHeight(),
+          storageEngineWriter.getRevisionNumber(), pageKeyAllocator);
+    } catch (IllegalArgumentException c2Collision) {
+      // C2: comboPartial collides with an existing c'. Direction-1-style sub-insert
+      // of L₁'s keys into c' is the future iteration; for now, restore N's slot and
+      // fall back to the caller's standard integrate path.
+      parentN.setChildReference(slotOfL, navResult.leafRef());
+      OFF_PATH_OVERFLOW_FALLBACK.incrementAndGet();
+      return false;
+    }
+
+    // Step 3: re-point N's reference at its parent + register fresh subtree.
+    navResult.pathRefs()[pathDepth - 1].setPage(newN);
+    registerFreshSubtree(navResult.pathRefs()[pathDepth - 1]);
+    OFF_PATH_OVERFLOW_OK.incrementAndGet();
+    return true;
+  }
+
+  /**
    * The merge outcome of {@link #doIndex}: the key belongs inside the routed leaf's bucket.
    * Merges it in; on bucket overflow defragments and retries once, then splits the leaf page and
    * integrates the resulting {@link HOTIncrementalInsert.BiNode} at the leaf's depth.
@@ -1008,6 +1096,15 @@ public abstract class AbstractHOTIndexWriter<K> {
     final HOTIncrementalInsert.BiNode biNode = HOTIncrementalInsert.splitLeafPage(
         leaf, keySlice, valueSlice, revision, indexType, pageKeyAllocator);
     ensurePathChildrenLoaded(navResult.pathNodes());
+
+    // Issue B (plan §4.3): if β = msdb(L ∪ {K}) is already a disc bit of L's parent N,
+    // standard addEntry will reject. Apply the incremental off-path-overflow handler before
+    // calling integrate -- it slot-replaces L with L₀ and adds L₁ at comboPartial, sidestepping
+    // the rebuild-fallback over-partitioning observed in iterations 3/5/6/7/8.
+    if (handleOffPathOverflow(navResult, biNode, keySlice, valueSlice)) {
+      return;
+    }
+
     final HOTIncrementalInsert.IntegrationResult result;
     try {
       result = HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult),

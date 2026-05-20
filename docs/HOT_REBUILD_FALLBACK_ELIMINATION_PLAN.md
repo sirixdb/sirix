@@ -805,6 +805,36 @@ when implementing, but the routing argument holds.
 > at pathDepth-1 leaves an in-flight reference in an inconsistent state vs the
 > ancestor chain. The root cause needs targeted instrumentation — a follow-up.
 >
+> **Iteration 15 — plan §4.3 true incremental Issue B LANDED (2026-05-20).**
+> Added `handleOffPathOverflow(navResult, biNode, …)` in `AbstractHOTIndexWriter`, called
+> from `mergeIntoLeaf` BEFORE the `integrate` step. When `β = splitLeafPage`'s split bit ∈
+> D(N) (= L's parent), the handler:
+>
+> 1. Slot-replaces L → L₀ in N's child array at `slotOfL` (β-column-0 partial unchanged).
+> 2. Adds L₁ at `comboPartial = L.partial | β-bit` via `addChildAtCombination`.
+> 3. Re-points N's reference + `registerFreshSubtree`.
+>
+> Falls back (`return false`) on any of: `pathDepth==0`, β ∉ D(N), L's β-column already
+> 1, N is full, or `addChildAtCombination` throws C2 collision. Caller then runs the
+> standard integrate path (which throws → existing self-heal whole-rebuild). On C2,
+> N's slot is restored to L (the in-place mutation reverted) so the standard path is
+> equivalent to no-handler.
+>
+> Counter pair `OFF_PATH_OVERFLOW_OK` / `OFF_PATH_OVERFLOW_FALLBACK` reports the hit
+> rate. `Direction1HitRateProbe` updated to dump both.
+>
+> **Empirical hit rate** on the `interleavedInsertDeleteMultiRev` workload:
+> - C2 firings (Direction 1): 14 → 9 sub-insert (64.3%) + 5 scoped rebuild (35.7%).
+> - **Issue B firings: 1 → 1 incremental (100%) + 0 fallback.**
+> - `SELF_HEAL_FIRINGS`: 2 (remaining cases not Issue B-shaped — likely cases where
+>   β is NOT in D(N) but integrate throws for another reason, OR N is full so
+>   §4.3's main path can't add a new child).
+>
+> So `SELF_HEAL_FIRINGS` is now down from the original 118 → 2. **Stage 3b (delete the
+> self-heal arms + `rebuildWholeIndex`) is one or two iterations away** — pin down the
+> remaining 2 firings, handle them (likely a §4.3 extension for full N or for a
+> non-Issue-B integrate exception), and the gate empirically passes.
+>
 > **Iteration 8 — pinpointed: scoped rebuild OVER-PARTITIONS N relative to whole-index
 > (2026-05-20).** A/B diagnostic on the failing test captured exact tree state:
 >
