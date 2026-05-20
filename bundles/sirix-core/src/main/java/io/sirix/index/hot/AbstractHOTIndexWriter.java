@@ -1564,6 +1564,9 @@ public abstract class AbstractHOTIndexWriter<K> {
       // BiNode on beta and integrate at the leaf's depth. The leaf needs a fresh reference:
       // integrate's materialize cases re-point the leaf's own spine slot, and aliasing it would
       // make a page its own descendant (a cycle).
+      if (!canIntegrateBiNodeCleanly(pathNodes, pathDepth, beta, 1)) {
+        return false;
+      }
       final PageReference leafRef = swizzle(navResult.leaf());
       final HOTIncrementalInsert.BiNode biNode = betaValue == 1
           ? new HOTIncrementalInsert.BiNode(beta, 1, leafRef, newLeafRef)
@@ -1628,6 +1631,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       HOTIncrementalInsert.InsertInfo info, HOTIndirectPage node, int insertDepth, int beta,
       int betaValue, byte[] keySlice, byte[] valueSlice) {
     final int revision = storageEngineWriter.getRevisionNumber();
+    // Pre-check: splitIndirectWithEntry returns BiNode(node.MSB, ...); the cascade through
+    // integrate could hit cross-level mask overlap. Bail out cleanly if it would.
+    if (!canIntegrateBiNodeCleanly(navResult.pathNodes(), insertDepth,
+        node.getMostSignificantBitIndex(), 1 + node.getHeight())) {
+      return false;
+    }
     final HOTLeafPage keyLeaf = new HOTLeafPage(pageKeyAllocator.getAsLong(), revision, indexType);
     if (!keyLeaf.put(keySlice, valueSlice)) {
       throw new SirixIOException(
@@ -1680,6 +1689,57 @@ public abstract class AbstractHOTIndexWriter<K> {
    *
    * @return {@code true} iff the key was inserted incrementally
    */
+  /**
+   * Simulate {@link HOTIncrementalInsert#integrate}'s cascade upfront to determine whether the
+   * fold will succeed without violating the trie invariant. The cascade at level {@code d}
+   * dispatches as follows (matching the body of {@code integrate}):
+   *
+   * <ul>
+   *   <li>{@code d == 0}: install as root — succeeds unconditionally.</li>
+   *   <li>{@code parent.height > biNode.height}: intermediate placement — succeeds (no
+   *       {@code addEntry} call; biNode is just placed in the slot).</li>
+   *   <li>{@code parent.numChildren < MAX}: {@code addEntry} is called — requires biNode's
+   *       β NOT to be a discriminative bit of parent.</li>
+   *   <li>{@code parent.numChildren == MAX}: split-and-cascade — the next iteration uses
+   *       a fresh biNode with β = parent.MSB and height = 1 + parent.height.</li>
+   * </ul>
+   *
+   * Returns {@code false} if the cascade would fail (= the trie invariant has cross-level mask
+   * overlap from multi-value-leaf accumulation, and an {@code addEntry} target along the
+   * cascade has β already in its mask). Callers fall back to scoped {@link #rebuildSubtree}.
+   *
+   * @param pathNodes the spine, root-to-leaf order
+   * @param currentDepth where the original biNode is integrated (= {@code insertDepth} or
+   *                     {@code pathDepth} depending on caller)
+   * @param biNodeBeta initial biNode's β
+   * @param biNodeHeight initial biNode's height
+   */
+  private boolean canIntegrateBiNodeCleanly(HOTIndirectPage[] pathNodes, int currentDepth,
+      int biNodeBeta, int biNodeHeight) {
+    int beta = biNodeBeta;
+    int height = biNodeHeight;
+    int depth = currentDepth;
+    while (depth > 0) {
+      final HOTIndirectPage parent = pathNodes[depth - 1];
+      if (parent.getHeight() > height) {
+        return true;                              // intermediate placement; no addEntry needed
+      }
+      final int[] parentDiscBits = HOTIncrementalInsert.discriminativeBits(parent);
+      if (Arrays.binarySearch(parentDiscBits, beta) >= 0) {
+        return false;                             // addEntry's β-fresh precondition violated
+      }
+      if (parent.getNumChildren() < HOTIndirectPage.MAX_NODE_ENTRIES) {
+        return true;                              // addEntry succeeds; cascade terminates
+      }
+      // Parent is full; cascade continues. The next biNode has β = parent.MSB and
+      // height = 1 + parent.height.
+      beta = parent.getMostSignificantBitIndex();
+      height = 1 + parent.getHeight();
+      depth--;
+    }
+    return true;                                  // hit root; install as new root succeeds
+  }
+
   private boolean branchFullNodeAtExistingBit(LeafNavigationResult navResult,
       HOTIndirectPage node, int insertDepth, int beta, int betaValue, byte[] keySlice,
       byte[] valueSlice) {
@@ -1690,6 +1750,19 @@ public abstract class AbstractHOTIndexWriter<K> {
           "HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
     }
     ensurePathChildrenLoaded(navResult.pathNodes());
+
+    // Pre-check: integrate(split) cascades up the spine; at each level it either intermediate-
+    // places, addEntry's, or further-splits. addEntry requires its β to be fresh to the target
+    // node's mask. Under multi-value-leaf adaptation, ancestors can have masks that already
+    // contain biNode.β (= cross-level mask overlap, violating Binna's strict trie invariant).
+    // Simulate the cascade upfront and fall back to scoped rebuild if any addEntry would fail.
+    final int rootBiNodeBeta = node.getMostSignificantBitIndex();
+    final int rootBiNodeHeight = 1 + node.getHeight();
+    if (!canIntegrateBiNodeCleanly(navResult.pathNodes(), insertDepth, rootBiNodeBeta,
+        rootBiNodeHeight)) {
+      keyLeaf.close();
+      return false;
+    }
 
     // 1. Split the full node at its own MSB into BiNode(node.MSB, leftHalf, rightHalf).
     final HOTIncrementalInsert.BiNode split = HOTIncrementalInsert.splitIndirect(node, revision,
