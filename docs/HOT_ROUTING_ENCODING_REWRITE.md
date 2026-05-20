@@ -34,18 +34,61 @@ partials encode subtree content.
 > β''=0) routes to affected's narrowed slot (which contains only β''=0 keys, all
 > with firstKey ≥ K) — and K becoming the new firstKey would propagate normally
 > through the affected.partial-stays-the-same chain.
+
+> ## Phase 2 EXPERIMENTAL RESULT — split-affected primitive is INSUFFICIENT (2026-05-20)
 >
-> This is essentially what a scoped `rebuildSubtree(insertDepth)` does -- but the
-> rewrite would do it more surgically: only split affected (not d*'s whole subtree),
-> O(affected.subtreeSize) instead of O(d*.subtreeSize).
+> Re-used `splitLeafPage` + `handleOffPathOverflow` (already implemented for the Issue B
+> merge path) from the `tryBranchIncremental` C2 + I8-unsafe site in an experimental wire
+> (uncommitted, reverted). Empirical result: **the split primitive is insufficient on its
+> own.**
 >
-> Open: design the split-affected-on-β'' primitive. Re-examine the iter-18
-> `splitIndirectWithSlotReplaceAndInsertion` primitive as a starting point (it
-> already does a slot-replacement + insertion in one step at the parent level).
-> Adapt for a child-level split instead.
+> Effect on the SLIDING_SNAPSHOT canary:
+> - `rebuildSubtree calls`: 21 → 0 (all rebuilds eliminated).
+> - C2 firings: 10 → 18, with 14 Direction 1 sub-inserts + 4 fallbacks.
+> - Issue B firings: 2 → 6 (new firings produced by the wire).
+> - But: **`interleavedInsertDeleteMultiRev` fails at rev 3 with an I8 violation**:
 >
-> The current plan's §2.4 "Recommendation: Option B" is misframed. Update §3
-> "Implementation Plan" accordingly when Phase 2 implementation begins.
+>   ```
+>   [I8-children-sorted-by-firstkey] indirect 23 child[5].firstKey 8000...0400... >=
+>     child[6].firstKey 8000...03e8...
+>     dump=[..., c5(sparse=0x10,dense=0x12,fk=...0400...),
+>                 c6(sparse=0x11,dense=0x11,fk=...03e8...), ...]
+>   ```
+>
+> **Root cause of the failure.** The split primitive places K at affected's slot (now
+> renamed L0 with `partial[β''-col]=0`). L0's new firstKey = K. But K < `prev.firstKey`
+> (= the I8-unsafe condition that triggered the fallback in the first place), so
+> `prev.firstKey > L0.firstKey` ⟹ I8 broken at the prev/L0 boundary.
+>
+> The split fixes the OFF-PATH STRADDLE inside affected, but it does NOT fix the
+> ROUTING-VS-LEX MISMATCH between prev's slot and affected's slot at d* — which is the
+> actual structural defect. To fix that we'd need to ALSO reorganize d*'s siblings (either
+> split prev too, or shuffle slot positions) so K ends up in the lex-correct slot
+> position. That's no longer a "localized split" — it's essentially what a scoped
+> `rebuildSubtree(insertDepth)` does: collect all entries, sort lex-first, canonicalize.
+>
+> **Verdict.** The 4 residual `rebuildSubtree(insertDepth)` firings are STRUCTURALLY
+> NECESSARY at this level of routing-encoding sophistication. Eliminating them would
+> require either:
+>
+> 1. **Multi-slot reorganization at d***. A primitive that splits affected on β'' AND
+>    re-positions K within d*'s slots such that K lands lex-correctly (= shifts slot
+>    indices). The semantics intersect with I7 (partials ascending), so the slot indices
+>    are constrained to follow partial ordering -- which is exactly what the descent
+>    initially used to mis-place K. Solving this requires changing the partial encoding
+>    itself (= the actual routing encoding rewrite, §2.1/§2.3 not §2.2).
+>
+> 2. **A different routing primitive** (e.g., Option A AND-encoding, Option C subtree-OR
+>    recompute) that captures the subtree's CONTENT and not just its firstKey. The
+>    existing §2.1 and §2.3 of this doc explore these. Both have their own tradeoffs
+>    (Option A degenerates to ambiguity as inserts diversify; Option C is O(subtree-size)
+>    per insert).
+>
+> Stage 4b iter-3's verdict from the HOT_REBUILD_FALLBACK_ELIMINATION_PLAN now reads:
+> "**the 4 firings are bounded and bounded-cost; eliminating them is gated on the routing
+> encoding rewrite (§2.1 / §2.3 Option A or C), not a localized incremental primitive**".
+> The scoped rebuild IS the canonical operation for these cases under the current
+> encoding.
 
 ---
 
