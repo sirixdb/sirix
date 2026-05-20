@@ -1015,14 +1015,12 @@ public abstract class AbstractHOTIndexWriter<K> {
     } catch (IllegalArgumentException | IllegalStateException structuralInconsistency) {
       // Issue B (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §3.2 / §4.3): the leaf split
       // bit β = msdb(L ∪ {K}) coincides with an OFF-path discriminative bit of N (= L's
-      // parent). Self-heal via whole-index rebuild for now -- scoping the rebuild to N's
-      // subtree (iteration 3 + iteration 5) was attempted and broke
-      // oracleVerifiedMultiRevRangeQueries even with a K >= N.firstKey escalation guard.
-      // Iteration 6 diagnostic confirmed: 2 firings during the test (pathDepth=1 + 2),
-      // both kGteN=true, both throwing "split bit X is already a discriminative bit".
-      // Scoped rebuild at pathDepth=1 (= whole-index for that firing) is fine; scoped at
-      // pathDepth=2 (deeper) breaks the test even with firstKey preserved. Root cause:
-      // unsettled, see plan §11.X for the three candidate hypotheses.
+      // parent). Self-heal via whole-index rebuild. Iteration 3/5/6/7 each attempted a
+      // narrower scope and broke oracleVerifiedMultiRevRangeQueries; iter-7 specifically
+      // ruled out releaseOrphanedHOTLeaves as the cause (skipping it didn't help). The
+      // root cause is in registerFreshSubtree at pathDepth-1 or in the rebuilt N's
+      // children's sparse-partial shadowing -- needs targeted instrumentation. True
+      // incremental Issue B (plan §4.3) is the follow-up.
       SELF_HEAL_FIRINGS.incrementAndGet();
       rebuildWholeIndex(navResult, keySlice, valueSlice);
       return;

@@ -805,6 +805,17 @@ when implementing, but the routing argument holds.
 > at pathDepth-1 leaves an in-flight reference in an inconsistent state vs the
 > ancestor chain. The root cause needs targeted instrumentation — a follow-up.
 >
+> **Iteration 7 — hypothesis (a) experiment: skip releaseOrphanedHOTLeaves — DOESN'T HELP
+> (2026-05-20).** Implemented a `rebuildSubtreeNoRelease` variant identical to
+> `rebuildSubtree` but with the `releaseOrphanedHOTLeaves` call removed, then routed
+> Issue B's scoped path through it. Test still failed with the same 38/90 range-query
+> result. So **hypothesis (a) is eliminated** — orphaned-leaf close is not the cause.
+> Hypotheses (b) "rebuilt children's sparse-partial shadowing" and (c)
+> "`registerFreshSubtree` post-order ref-state" remain candidates; investigating either
+> needs a targeted state diff (TIL snapshot + root-side partial comparison before/after).
+> The experimental variant was removed; code state remains `rebuildWholeIndex` for
+> Issue B.
+>
 > **Iteration 6 — diagnostic instrumentation on `oracleVerifiedMultiRevRangeQueries`
 > (2026-05-20).** Captured the two Issue B firings during the test verbatim:
 > ```
