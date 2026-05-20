@@ -1016,10 +1016,11 @@ public abstract class AbstractHOTIndexWriter<K> {
       // Issue B (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §3.2 / §4.3): the leaf split
       // bit β = msdb(L ∪ {K}) coincides with an OFF-path discriminative bit of N (= L's
       // parent). Self-heal via whole-index rebuild for now -- scoping the rebuild to N's
-      // subtree (pathDepth-1) was attempted (iteration 3) and broke
-      // oracleVerifiedMultiRevRangeQueries: the rebuild changes N's firstKey but leaves
-      // stale partials at N's parent, causing range-scan misses. True incremental Issue B
-      // (plan §4.3) is the follow-up that eliminates this self-heal entirely.
+      // subtree (iteration 3 + iteration 5) was attempted and broke
+      // oracleVerifiedMultiRevRangeQueries even with a K >= N.firstKey escalation guard.
+      // Root cause still unsettled -- the partial-mismatch hypothesis didn't fully explain
+      // the failure since the iter-5 escalation guard should have caught it. True
+      // incremental Issue B (plan §4.3) is the follow-up that eliminates this self-heal.
       SELF_HEAL_FIRINGS.incrementAndGet();
       rebuildWholeIndex(navResult, keySlice, valueSlice);
       return;

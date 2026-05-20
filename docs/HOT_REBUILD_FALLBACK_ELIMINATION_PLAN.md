@@ -788,6 +788,23 @@ when implementing, but the routing argument holds.
 > §4.3 incremental handler (slot-replacement L → L₀, L₁ placement at comboPartial via
 > `addChildAtCombination` with the I8-safety check from iteration 2 applied per-L₁-key).
 >
+> **Iteration 5 — conditional Issue B scope guard — ATTEMPTED + REVERTED (2026-05-20).**
+> Hypothesis: iter-3's failure was N.firstKey changing → stale parent partial. Add a
+> pre-check: if `keySlice >= N.firstKey`, K can't become N's new firstKey, so a scoped
+> rebuild at pathDepth-1 should be safe. Otherwise, escalate to `rebuildWholeIndex`.
+>
+> **Result:** same `oracleVerifiedMultiRevRangeQueries` failure as iter-3 (38 of 90
+> expected entries). The escalation guard was insufficient — even when
+> `K >= N.firstKey` (so N.firstKey is provably unchanged after the rebuild), the
+> scoped rebuild still breaks range scans on this workload. The stale-parent-partial
+> hypothesis from iter-3 doesn't fully explain it. Open question: what *else* does a
+> scoped rebuild at pathDepth-1 mutate that the whole-index rebuild doesn't? Candidates
+> to investigate next: (a) `releaseOrphanedHOTLeaves` closes leaves still referenced
+> by a CoW chain higher up; (b) the rebuilt N's children's sparse partials shadow some
+> structure that ancestors of N rely on; (c) `registerFreshSubtree`'s post-order walk
+> at pathDepth-1 leaves an in-flight reference in an inconsistent state vs the
+> ancestor chain. The root cause needs targeted instrumentation — a follow-up.
+>
 > Sites 2 and 3 already do "return false → scoped rebuild" via their existing catches
 > (Stage 1 + Stage 2 conservative implementations). The §11.5 / §11.6 designs for those
 > sites are equivalent to the Site 1 change landed now: they keep the same `return false`
