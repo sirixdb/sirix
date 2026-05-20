@@ -1035,7 +1035,12 @@ public abstract class AbstractHOTIndexWriter<K> {
       return false;
     }
     if (parentN.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
-      return false;                              // N full; can't add a new sibling slot
+      // N is full -- the splitIndirect-then-Issue-B handler (iter-16 attempt) caused
+      // I1 cross-leaf-uniqueness violations on interleavedInsertDeleteMultiRev (likely
+      // due to a stale-reference share between the OLD CoW'd parentN and the new halves).
+      // Defer to whole-rebuild self-heal; the residual ~2 firings per test run are a
+      // small absolute cost. True N-full Issue B incremental handler is a follow-up.
+      return false;
     }
     final int comboPartial = lPartial | betaBitWeight;
 
@@ -1066,6 +1071,7 @@ public abstract class AbstractHOTIndexWriter<K> {
     OFF_PATH_OVERFLOW_OK.incrementAndGet();
     return true;
   }
+
 
   /**
    * The merge outcome of {@link #doIndex}: the key belongs inside the routed leaf's bucket.
@@ -1110,18 +1116,10 @@ public abstract class AbstractHOTIndexWriter<K> {
       result = HOTIncrementalInsert.integrate(navResult.pathNodes(), buildSpineRefs(navResult),
           navResult.pathChildIndices(), navResult.pathDepth(), biNode, revision, pageKeyAllocator);
     } catch (IllegalArgumentException | IllegalStateException structuralInconsistency) {
-      // Issue B (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §3.2 / §4.3): the leaf split
-      // bit β = msdb(L ∪ {K}) coincides with an OFF-path discriminative bit of N (= L's
-      // parent). Iterations 3/5/6/7/8 each tried to narrow the rebuild scope; all broke
-      // oracleVerifiedMultiRevRangeQueries. Iteration 8 pinpointed the structural mechanism:
-      // a scoped rebuild produces a CANONICALLY-RIGHT but OVER-PARTITIONED N (e.g. 4 leaves
-      // -> 32 leaves for the same ~400 entries) because HOTBulkBuilder partitions N's
-      // entries in isolation, choosing many disc bits that the WHOLE-index rebuild would
-      // unify across siblings. The over-partitioned new N is full (32/32 children) at fresh
-      // logKeys with NULL persistent keys; commit + read-at-latest-rev then reads only ~half
-      // the entries -- the exact failure mode is still unsettled (commit-time persistence
-      // or read-time routing). Sticking with rebuildWholeIndex for Issue B. True incremental
-      // Issue B (plan §4.3) sidesteps the rebuild entirely.
+      // Residual self-heal: cases handleOffPathOverflow doesn't yet handle. Iter-16
+      // characterized these as Issue B + N full (slot=31, N.children=32). The first
+      // N-full incremental attempt (splitIndirect-then-Issue-B-in-half) caused I1
+      // cross-leaf-uniqueness violations; reverted. Stays as whole-rebuild for now.
       SELF_HEAL_FIRINGS.incrementAndGet();
       rebuildWholeIndex(navResult, keySlice, valueSlice);
       return;

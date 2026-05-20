@@ -835,6 +835,37 @@ when implementing, but the routing argument holds.
 > remaining 2 firings, handle them (likely a §4.3 extension for full N or for a
 > non-Issue-B integrate exception), and the gate empirically passes.
 >
+> **Iteration 16 — characterized residual firings + N-full handler attempted + reverted
+> (2026-05-20).** Diagnostic in the merge-path self-heal catch reported both residual
+> firings on `interleavedInsertDeleteMultiRev`:
+> ```
+> #1 pathDepth=1 beta=132 betaInD(N)=true N.children=32 slotOfL=31 L.partial=0xe0
+> #2 pathDepth=2 beta=131 betaInD(N)=true N.children=32 slotOfL=31 L.partial=0xa0
+> ```
+> Both are **Issue B + N full** (N.children=32, slotOfL=31). Attempted incremental
+> handler `handleOffPathOverflowFullN`: split N at N.MSB via `splitIndirect`, apply
+> §4.3's slot-replace + addChildAtCombination inside the half that holds L's slot, then
+> integrate the BiNode at `pathDepth - 1`. **Result: I1 cross-leaf-uniqueness violations
+> + I6 routing violations on `interleavedInsertDeleteMultiRev$DeleteAtScale`** — keys
+> appeared in multiple leaves.
+>
+> **Likely root cause (post-mortem, unverified).** `splitIndirect` snapshots
+> `parentN.children` via `Arrays.copyOfRange`, so the halves' children arrays *share*
+> `PageReference` *instances* with the original parentN. Mutating `half.children[slotInHalf]`
+> updates the half's view but doesn't affect parentN's view. Meanwhile `integrate` at
+> `pathDepth - 1` cascades via `addEntry` at the root, which may produce a tree that
+> retains references to both the old leafRef (still in parentN's TIL-resident children)
+> and the new L₀/L₁ — depending on the exact CoW + register-fresh + commit interactions.
+> Did not isolate further; reverted to the basic §4.3 (without N-full) which leaves the
+> 2 firings as self-heal whole-rebuilds.
+>
+> **Code state.** `handleOffPathOverflow` covers the not-full N case incrementally;
+> N-full Issue B falls through to whole-rebuild. `SELF_HEAL_FIRINGS = 2` on the test.
+> Stage 3b is gated on either: (a) handling N-full Issue B correctly (probably with a
+> fresh CoW of parentN before the split, to break the reference sharing), or (b) writing
+> a focused probe that exhibits the I1 issue in isolation so the cascade interaction
+> can be traced.
+>
 > **Iteration 8 — pinpointed: scoped rebuild OVER-PARTITIONS N relative to whole-index
 > (2026-05-20).** A/B diagnostic on the failing test captured exact tree state:
 >
