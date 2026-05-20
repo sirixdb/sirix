@@ -1210,9 +1210,18 @@ public abstract class AbstractHOTIndexWriter<K> {
           registerFreshSubtree(pathRefs[insertDepth + 1]);
           return true;
         } catch (IllegalArgumentException collisionOrPrecondition) {
-          // C2 (comboPartial collides with an existing child of the boundary node) — not yet
-          // probe-verified; fall back to the caller's scoped rebuildSubtree.
+          // Site 3 C2 -- comboPartial collides with an existing child of the boundary node.
+          // Apply Direction 1 at the boundary level: sub-insert K into the boundary child's
+          // affected slot if I8-safe (the routing tautology holds at depth+1 just as at d*),
+          // else fall back to the caller's scoped rebuildSubtree
+          // (docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §11 iteration 4).
           comboLeaf.close();
+          if (isDirectionOneI8Safe(navResult, insertDepth + 1, childEntryIndex, keySlice)) {
+            DIRECTION_ONE_SUBINSERT.incrementAndGet();
+            return subInsertAt(child.getChildReference(childEntryIndex), keySlice,
+                keySlice.length, valueSlice, valueSlice.length);
+          }
+          DIRECTION_ONE_FALLBACK.incrementAndGet();
           return false;
         }
       }
