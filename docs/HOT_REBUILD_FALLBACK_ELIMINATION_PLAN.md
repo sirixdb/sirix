@@ -671,3 +671,339 @@ primitives — `splitLeafPage`, `splitIndirect`, `addEntry`, `addChildAtCombinat
 `addEntryWithInsertInfo`, `splitIndirectWithEntry`, `integrate`, `subInsertAt`,
 `handleOffPathOverflow` — with **zero `HOTBulkBuilder` subtree or whole-trie rebuilds
 from any code path**, incremental and minimum-trie-height-preserving after every insert.
+
+---
+
+## §11. Stage 4b re-design — merge-into-affected (Direction 1)
+
+**Status:** designed 2026-05-20 (this session, post-revert of `873065f82`).
+**True Direction 1 BLOCKED on I8 — scoped-rebuild fallback LANDED in this iteration**
+(see §11.X below for the empirical finding).
+**Replaces:** the §3.1 / §4.2 sub-insert-into-c' approach.
+**Scope:** Issue A (the 103 branch-path C2 firings). Issue B (the 15 merge-path
+firings) keeps the §4.3 design — its slot-replacement + `comboPartial` placement is
+already routing-correct under Sirix's sort-by-partial invariant (the L₁ slot lands at a
+strictly higher partial than L's old slot, so highest-index-subset-match picks it for
+L₁'s keys; L₀ inherits L's old slot, so β=0 keys still route there). Re-validate §4.3
+when implementing, but the routing argument holds.
+
+> ### §11.X EMPIRICAL FINDING — true Direction 1 breaks I8
+>
+> **Attempted 2026-05-20 (this session):** wire Site 1's C2 catch to
+> `subInsertAt(affectedRef, K, V)` — sub-insert K into the slot the descent already
+> chose, expecting the routing tautology (§11.1) to make it both correct AND
+> rebuild-free.
+>
+> **Result:** routing IS correct (no I6 violations — Lemma 2 holds empirically), but
+> `HOTVersionedLeafStressTest$DeleteAtScale.interleavedInsertDeleteMultiRev` failed with
+> an **I8 violation** (range-scan ordering). Verbatim diagnostic:
+>
+> > `[I8-children-sorted-by-firstkey] indirect 19 child[5].firstKey 80...040000... >=
+> > child[6].firstKey 80...03e8...`
+>
+> **Mechanism (post-mortem).** When K becomes the new `firstKey` of `affected` (because
+> K < `affected.firstKey` in lex order) AND the trie has an **MSDB-closure gap** at d*'s
+> mask — i.e. d*'s mask is missing the most-significant bit that distinguishes
+> `affected`'s lex range from a sibling — sub-inserting K shifts `affected`'s lex range
+> down to K, and the slot ordering (by sparse partial) no longer matches the lex order
+> (by firstKey). I7 (partials ascending) still holds; I8 (children-by-firstKey) breaks.
+> Per `HOTInvariantValidator.java:377-380`, **"I8 is NOT merely cosmetic: HOTRangeCursor
+> does in-order trie traversal with a parent stack ... so a range scan is correct only
+> when child-index order equals key order"** — so this is a real correctness regression.
+>
+> **The Stage 0 off-path-straddle finding (proven canonical, no I6 misroute) lives
+> WITHIN a child.** True Direction 1 *lifts* the straddle up to the sibling boundary at
+> d*, where I8 requires strict lex ordering — the canonical envelope ends there.
+>
+> **Mitigation landed (Site 1 only, this iteration):** on C2, **`return false`** from
+> `tryBranchIncremental` — caller (`branchAboveLeaf`) falls through to
+> `rebuildSubtree(navResult, analysis.insertDepth(), …)` — a *scoped* rebuild at d*
+> instead of `rebuildWholeIndex` (= scoped at depth 0). Strictly better than the
+> baseline self-heal (smaller scope, bounded by d*'s subtree size, not the index),
+> and the C2 firings drop out of `SELF_HEAL_FIRINGS` entirely (no exception bubbles up,
+> so the `mergeIntoLeaf` / `branchAboveLeaf` catches don't fire on this path).
+>
+> **Net change vs baseline (2026-05-20).**
+> - `SELF_HEAL_FIRINGS`: 118 → 15 (Issue B unchanged; this plan's §4.3 retry is the
+>   follow-up to drop the remaining 15).
+> - Branch-path C2: 103 self-heal whole-index-rebuilds → 103 scoped rebuilds at d*.
+> - `interleavedInsertDeleteMultiRev` and all 79 canary tests green.
+>
+> **What true Direction 1 still needs (deferred follow-up).** A per-firing **I8-safety
+> pre-check** before sub-inserting: if K would become the new `firstKey` of `affected`
+> (i.e. K < `affected.firstKey`), verify both `affected−1.firstKey < K < affected+1.firstKey`
+> at d* AND propagate the check up the spine for every ancestor where `affected` is slot
+> 0 (since K could become the new `firstKey` at every such ancestor). On a fail, fall
+> back to the scoped rebuild this iteration uses. On success, sub-insert via §11.5's
+> code.  The pre-check cost is O(height) per firing (one leftmost-walk per checked
+> sibling, bounded by `MAX_PATH_DEPTH`). Worth doing if/when a perf microbench shows the
+> 103 scoped rebuilds dominate write CPU.
+>
+> Sites 2 and 3 already do "return false → scoped rebuild" via their existing catches
+> (Stage 1 + Stage 2 conservative implementations). The §11.5 / §11.6 designs for those
+> sites are equivalent to the Site 1 change landed now: they keep the same `return false`
+> fallback. No code change at Sites 2 and 3 in this iteration.
+
+### §11.1 The routing tautology
+
+`findChildIndex` is deterministic. The descent for K runs `findChildIndex` at each
+level and ends in some leaf via `affectedChildIndex` at d*. After the insert, the
+partials at d* are unchanged (sub-insert never touches d*'s `partialKeys`), so
+**re-running `findChildIndex(K)` at d* returns the same `affectedChildIndex`**.
+Therefore, if K is placed anywhere inside `affected`'s subtree, root-routing for K
+reaches `affected`, then descends inside `affected` to K's leaf — and K is found.
+Conversely, if K is placed in *any other* subtree under d* (including `c'`), root-routing
+still reaches `affected` and K is unreachable. This is the I6 failure observed in
+Stage 4b's 11 misroutes.
+
+Direction 1 is therefore: **on C2, sub-insert K into `affected`, not into `c'`**.
+
+### §11.2 Why Stage 1's not-full betaIsDiscBit handler does not have this problem
+
+Stage 1's `addChildAtCombination` adds K's leaf as a *new* sibling at slot `comboPartial`.
+By the I7 sort-ascending-partials invariant and `comboPartial > affected.partial` (the
+β-column is the only difference and `comboPartial`'s β-bit equals `betaValue`, while
+`affected.partial`'s β-column is 0 by the off-path-straddle reasoning in §11.3),
+the new sibling's index is strictly greater than `affectedChildIndex`. Highest-index
+subset-match picks the new sibling for K → root-routing reaches K's freshly-folded
+leaf. `BetaIsDiscBitRoutingProbe` Q1 verified 134/134 cases of this.
+
+C2 fires only when `comboPartial` is already occupied. Then `addChildAtCombination`
+cannot create the new sibling — and Direction 1 redirects K downward into `affected`
+instead.
+
+### §11.3 Formal verification
+
+**Convention.** A node's *partial* at d* is the sparse-path encoding: each disc-bit
+column holds `firstKey(child)[bit]` (the first key's bit-value at that disc-bit
+position). I5-route: for every key K' in the child's subtree and every disc-bit column
+`b` of d*, if `partial[b] = 1` then `K'[b] = 1` (the route only constrains when the
+column is *set*; a `0` column allows both values — the off-path-straddle case).
+
+#### Lemma 1 — affected.partial has β-column = 0
+
+> In any C2-firing configuration, `affected.partial[β] = 0`.
+
+*Proof.* C2 fires inside the not-full `betaIsDiscBit` branch of `tryBranchIncremental`.
+Therefore β ∈ D(d*), and `β = mismatchBit(K, residentInAffected)` per
+`analyzeDescent`. By the msdb definition K and residentInAffected agree on bits more
+significant than β and differ at β. K[β] = `betaValue`; residentInAffected[β] =
+`1 − betaValue`.
+
+Assume `affected.partial[β] = 1`. Then by I5-route every key in `affected` has β = 1.
+But residentInAffected ∈ `affected` has β = `1 − betaValue`. So `betaValue = 0` and
+residentInAffected[β] = 1 — consistent only if `affected.partial[β] = 1`.
+
+Conversely if `betaValue = 1`, residentInAffected[β] = 0 — and `affected.partial[β] = 1`
+contradicts I5-route (a key with β=0 cannot live in a slot whose partial requires β=1).
+
+So one of two cases:
+- `betaValue = 0`, `affected.partial[β] = 1` — every `affected` key has β=1 except
+  residentInAffected has β=0. Contradiction. Impossible.
+- `betaValue = 1`, `affected.partial[β] = 1` — every `affected` key has β=1.
+  residentInAffected has β=0. Contradiction. Impossible.
+
+Therefore `affected.partial[β] = 0` in every C2 configuration. ∎
+
+This is the off-path-straddle case proven canonical in
+`HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` §3.1: β ∈ D(d*), `affected.partial[β] = 0`,
+keys in `affected` straddle β.
+
+#### Lemma 2 — root-routing for K reaches `affected`
+
+> Before AND after sub-inserting K into `affected`, `findChildIndex(K)` at d* returns
+> `affectedChildIndex`.
+
+*Proof.* `findChildIndex` reads only d*'s `partialKeys`, `bitMask`, and K's bytes. The
+sub-insert mutates only pages strictly below d*'s child-reference array — never d*'s
+partials or mask. So the inputs to `findChildIndex` at d* are bit-identical before and
+after. Determinism gives the same result: the slot the descent already chose,
+i.e. `affectedChildIndex`. ∎
+
+#### Lemma 3 — sub-inserting K into `affected` preserves I5-route at d*
+
+> Adding K to the key-set of `affected`'s subtree leaves d*'s `partials[affectedChildIndex]`
+> a valid I5-route witness.
+
+*Proof.* I5-route requires that for each column `b` set in `affected.partial`, every key
+in `affected`'s subtree (including the new K) has bit `b` = 1. The descent picked
+`affected` because K's densePK subset-matches or exact-matches `affected.partial`:
+`(affected.partial & ~K_densePK) == 0`. Equivalently every set bit of
+`affected.partial` is set in K_densePK, i.e. K has those disc bits = 1. So K satisfies
+I5-route at every set column of `affected.partial`; the unchanged keys in `affected`
+satisfy it by hypothesis. ∎
+
+#### Theorem 1 — Direction 1 is invariant-clean and routing-correct
+
+> Let `affectedRef = d*.getChildReference(affectedChildIndex)`. If
+> `subInsertAt(affectedRef, K, V)` returns true on a canonical-enough trie, the
+> resulting trie is invariant-clean and root-routes K correctly.
+
+*Proof.* By induction on tree height. Base: `affectedRef` resolves to a leaf — `subInsertAt`'s
+`dispatchInsert` reduces to `mergeIntoLeaf` at depth 0 of the extended path, which is
+the standard merge-vs-branch dispatch — by Stage 0 + this plan's §4.3, invariant-clean.
+Step: `affectedRef` resolves to a compound. `subInsertAt` re-descends through it via
+`findChildIndex(K)` and re-runs `dispatchInsert` at the deeper path. Each handler
+preserves invariants on its subtree by Stage 0/1/2 + §11.4 (the recursive Direction 1
+catch). Splicing the modified subtree under the unchanged d* keeps d*'s invariants
+intact (Lemmas 2, 3).
+
+Routing: root → ... → d* → `affected` (Lemma 2) → ... → K's leaf (the extended-path
+descent that placed K). ∎
+
+#### Theorem 2 — height-minimal preserved
+
+> Direction 1 does not inflate trie height beyond `minheight(S ∪ {K})`.
+
+*Proof.* `subInsertAt` only descends and dispatches the standard handlers, each proven
+height-preserving (Stage 0/1/2 §5.2-3, plan §5.4). It never adds a level above d*.
+Since the standard handlers never raise height beyond the minimum for the post-insert
+key set, height stays at the minimum. ∎
+
+#### Theorem 3 — termination
+
+> Direction 1 terminates in O(height) operations per C2 firing.
+
+*Proof.* `subInsertAt`'s descent strictly extends the path each call; bounded by
+`MAX_PATH_DEPTH` (= 64). Each call does O(node) findChildIndex + O(handler-work). A C2
+at depth d* re-descends to ≤ MAX_PATH_DEPTH − insertDepth deeper levels. Worst case is
+linear in tree height. ∎
+
+### §11.4 Recursive C2
+
+`subInsertAt`'s descent into `affected` may itself fire C2 at a deeper level. The catch
+at each `addChildAtCombination` site (§11.5) handles this — `subInsertAt` recurses into
+the *new* `affectedChildIndex` at the new depth. Bounded by `MAX_PATH_DEPTH`; the
+defensive `return false` in `subInsertAt` (descent-failure) falls back to the caller's
+scoped rebuild, which is unreachable on canonical-enough trees but stays as a defensive
+gate.
+
+### §11.5 The fix — wire the catch at three sites
+
+Each `addChildAtCombination` call inside `tryBranchIncremental` is wrapped:
+
+```java
+try {
+  final HOTIndirectPage newNode = HOTIncrementalInsert.addChildAtCombination(
+      node, comboPartial, swizzle(comboLeaf), node.getHeight(), revision,
+      pageKeyAllocator);
+  pathRefs[insertDepth].setPage(newNode);
+  registerFreshSubtree(pathRefs[insertDepth]);
+  return true;
+} catch (IllegalArgumentException c2Collision) {
+  // Direction 1: comboPartial coincides with an existing child c' of d*. Sub-insert
+  // K into AFFECTED (the slot routing already picked) — see §11.1-3.
+  comboLeaf.close();
+  final PageReference affectedRef = node.getChildReference(analysis.affectedChildIndex());
+  return subInsertAt(affectedRef, keyBuf, keyLen, valueBuf, valueLen);
+}
+```
+
+Three sites:
+1. `tryBranchIncremental` not-full betaIsDiscBit (current uncaught — bubbles to
+   `branchAboveLeaf`'s self-heal): `affected = node.getChildReference(analysis.affectedChildIndex())`
+   where `node = pathNodes[insertDepth]`.
+2. `branchFullNodeAtExistingBit`'s half-fold (Stage 1 — its catch currently returns
+   false to the caller's scoped rebuild): `affected` is the affected half's affected
+   child slot (the half-local index translates via §11.6).
+3. The boundary-child not-full handler (Stage 2 — its catch at line 1078 returns
+   false): `affected = child.getChildReference(childSlots[insertDepth + 1])` where
+   `child = pathNodes[insertDepth + 1]`.
+
+Site 1 needs a try/catch added; sites 2 and 3 already have try/catch arms that just
+need to switch from "return false → rebuild" to "subInsertAt(affectedRef, ...)".
+
+### §11.6 Site-2 specifics — the half-fold affected reference
+
+`branchFullNodeAtExistingBit` splits d* at d*.MSB into two halves, then folds K into
+the half that K's β-bit selects. The fold uses `addChildAtCombination` on the half at a
+half-local `comboPartial`. On C2 inside the half, the colliding child is in the
+half — and the routing tautology applies at the half: `findChildIndex(K)` on the
+half (post-fold) reaches the half's `affected` slot. So:
+
+```java
+final int affectedSlotInHalf = /* the slot the fold computed as the half's affected */;
+final PageReference affectedRefInHalf = half.getChildReference(affectedSlotInHalf);
+return subInsertAt(affectedRefInHalf, keyBuf, keyLen, valueBuf, valueLen);
+```
+
+Concretely the half's affected slot is derived from `info.firstAffected()` mapped to
+the half's coordinates (the fold-time half-local index). The half is a fresh
+`HOTIndirectPage` produced by `compressHalf` — its `partialKeys` re-encode the original
+node's partials, and the half-local affected slot corresponds to the original
+`info.firstAffected()` offset inside the affected run on the post-split half.
+
+### §11.7 Out of scope (this plan iteration)
+
+The merge-path Issue B (§4.3) is independent and is **not modified by this plan
+iteration**. Its slot-replacement + comboPartial placement remains correct under
+Sirix's sort-by-partial invariant: L₁'s `comboPartial` is `L.partial | betaBit` > L's
+partial, so L₁ lands at a strictly higher slot index than L₀; highest-index-subset-match
+routes β=1 keys to L₁ correctly. The L₁'s-combo-collides-with-c' sub-case still has the
+same routing question as Issue A — if it ever fires in practice, the *same* Direction
+1 redirection applies (sub-insert each L₁ key into the affected slot at N, not c'). Stage
+3a's measurement shows Issue B at 15 firings on the canaries; a follow-up probe will
+classify whether the L₁-combo-collides-with-c' sub-case actually arises among them.
+
+### §11.8 Test plan (Stage 4b retry)
+
+1. Wire the catch at site 1 of `tryBranchIncremental` (the not-full betaIsDiscBit case
+   — currently uncaught). Sites 2 and 3 keep their existing catch arms but swap "fall
+   back to scoped rebuild" for "subInsertAt(affectedRef, …)".
+2. Run `HOTVersionedLeafStressTest$DeleteAtScale.interleavedInsertDeleteMultiRev` —
+   the test that produced the 11 I6 violations in Stage 4b. Expected: green, 0
+   I6 violations.
+3. Run `HOTFormalVerificationTest` (all canaries) — expect 0 misroutes, 0 missed
+   values; `SELF_HEAL_FIRINGS` drops from 118 to ≤ 15 (only Issue B remains).
+4. Run `BetaIsDiscBitRoutingProbe`, `StraddleCanonicityProbe`,
+   `HOTIndirectPageSplitFaithfulTest`, `HOTIntegrateTest` — all must stay green.
+5. **New probe — `MergeIntoAffectedProbe`** — construct cases where `comboPartial`
+   collides with an existing c'; verify Direction 1 yields a strict-routing-clean,
+   detector-clean tree (mirror of `BetaIsDiscBitRoutingProbe`'s Q1, but for the C2
+   sub-case).
+6. Stage 3b — if `SELF_HEAL_FIRINGS` drops to 0 after the Issue B handler also lands
+   (separate follow-up), delete the self-heal arms and `rebuildWholeIndex`. If it
+   stays at ~15 (Issue B not yet handled), defer Stage 3b until then.
+
+### §11.9 Review passes
+
+**Pass 1 (the tautology).** *Confirmed.* Routing is deterministic; the descent chose
+`affected`; sub-inserting K into `affected` makes routing find K. Stage 4b broke this
+by retargeting to `c'`.
+
+**Pass 2 (Lemma 1 — `affected.partial[β] = 0`).** *Confirmed.* The off-path-straddle
+finding shows this is canonical (`HOT_STRADDLE_GUARD_REMOVAL_PLAN.md` §3.1).
+
+**Pass 3 (I5-route after sub-insert).** *Confirmed.* Lemma 3 — K satisfies
+`affected.partial`'s set bits because the descent's subset-match condition holds.
+
+**Pass 4 (recursive C2).** *Confirmed.* §11.4 — the catch is at every `addChildAtCombination`
+site, so a deeper C2 dispatches the same redirection. Bounded by `MAX_PATH_DEPTH`.
+
+**Pass 5 (CoW + TIL).** *Confirmed.* `subInsertAt` already CoWs the sub-path
+(local `prepareIndirectPage` chain) and calls `registerFreshSubtree` via `dispatchInsert`
+→ handlers. d*'s parents are unaffected (their child references to d* are unchanged;
+d* itself is in the TIL from the original descent).
+
+**Pass 6 (height-minimal).** *Confirmed.* Theorem 2 — sub-insert never adds a level
+above d*; the recursive handlers are height-preserving.
+
+**Pass 7 (Stage 4b's misroutes will pass).** *Verifying.* The 11 misroutes happened
+because K was placed in c' but routing went to affected → K missed. Direction 1 puts K
+in affected → routing finds K. Expected: 0 I6 violations on the same workload.
+
+**Pass 8 (Site 2 — half-fold).** *Caught.* The half's `affected` slot is the
+half-local mapping of `info.firstAffected()`. §11.6 sketches it; implementation must
+verify the half-local index lookup is correct.
+
+**Pass 9 (no Issue B regression).** *Confirmed.* §11.7 — Issue B's 15 firings still
+self-heal via the existing catch arm; no change to its handling. A separate plan
+iteration handles Issue B (§4.3 retry or follow-up design).
+
+**Pass 10 (orphaned `comboLeaf`).** *Caught.* On C2, the freshly-allocated `comboLeaf`
+was for the abandoned new-sibling approach — must be `.close()`'d to release its
+off-heap slot. The Stage 4b code did this; preserve it.
+
+*Ten passes. Direction 1 is a one-keystroke retarget (`c'-ref → affected-ref`) of the
+existing Stage 4a infrastructure, formally clean by the routing tautology, and
+empirically falsifiable via the Stage 4b regression test. Ready for implementation.*

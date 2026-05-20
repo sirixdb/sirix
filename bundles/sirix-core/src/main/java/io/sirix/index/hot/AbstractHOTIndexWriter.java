@@ -1004,11 +1004,24 @@ public abstract class AbstractHOTIndexWriter<K> {
         throw new SirixIOException(
             "HOT: a single index entry does not fit a fresh leaf page. index=" + indexType);
       }
-      final HOTIndirectPage newNode = HOTIncrementalInsert.addChildAtCombination(node,
-          comboPartial, swizzle(comboLeaf), node.getHeight(), revision, pageKeyAllocator);
-      pathRefs[insertDepth].setPage(newNode);
-      registerFreshSubtree(pathRefs[insertDepth]);
-      return true;
+      try {
+        final HOTIndirectPage newNode = HOTIncrementalInsert.addChildAtCombination(node,
+            comboPartial, swizzle(comboLeaf), node.getHeight(), revision, pageKeyAllocator);
+        pathRefs[insertDepth].setPage(newNode);
+        registerFreshSubtree(pathRefs[insertDepth]);
+        return true;
+      } catch (IllegalArgumentException c2Collision) {
+        // C2 -- comboPartial coincides with an existing child of d*. Direction 1 (sub-insert
+        // into affected, docs/HOT_REBUILD_FALLBACK_ELIMINATION_PLAN.md §11) is routing-correct
+        // but can break I8 (range-scan ordering) when K becomes the new firstKey of affected
+        // and the trie has an MSDB-closure gap at d*'s mask (a real failure observed in
+        // HOTVersionedLeafStressTest interleavedInsertDeleteMultiRev). Fall back to a scoped
+        // rebuildSubtree at insertDepth -- canonical re-construction heals the MSDB-closure
+        // gap. Still strictly better than baseline (whole-index rebuild via self-heal) and
+        // drops these firings out of SELF_HEAL_FIRINGS (no exception bubbled up).
+        comboLeaf.close();
+        return false;
+      }
     }
     final boolean singleEntry = info.affectedCount() == 1;
     final boolean leafEntry = insertDepth + 1 == pathDepth;
