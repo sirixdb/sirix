@@ -866,6 +866,36 @@ when implementing, but the routing argument holds.
 > a focused probe that exhibits the I1 issue in isolation so the cascade interaction
 > can be traced.
 >
+> **Iteration 17 — N-full handler with deep-copy of parentN — ATTEMPTED + REVERTED
+> (2026-05-20).** Re-added `handleOffPathOverflowFullN` with a key change: deep-copy
+> parentN via `new HOTIndirectPage(parentN)` before `splitIndirect`, so the halves'
+> children arrays don't share `PageReference` instances with the live cowedParentN in
+> TIL. **Result: same I1 + I6 violations on `interleavedInsertDeleteMultiRev`.**
+> Reference sharing was NOT the cause.
+>
+> **Diagnostic captured the two firings (both pathDepth=1, parentN = root):**
+> ```
+> #1: parentN.h=1 children=32 slotOfL=31 beta=132 lPartial=0x80
+>     discBits=[60,61,132,133,134,135,136,137]  nSplit.h=2 nSplit.beta=60
+> #2: parentN.h=1 children=32 slotOfL=31 beta=132 lPartial=0xe0
+>     discBits=[60,61,62,132,133,134,135,136]  nSplit.h=2 nSplit.beta=60
+> ```
+>
+> Both firings: parentN.MSB = 60 (the bit splitIndirect uses). After integrate at
+> currentDepth=0, the tree grows by 1 level (new root materializes nSplit as a height-2
+> indirect, vs the original height-1 parentN). The duplicated keys in the I1 violations
+> have prefix `0x800000000000001b...` — these are NOT the inserted Ks (0x...000c,
+> 0x...000f). So the corruption affects pre-existing keys, not just the new key.
+>
+> **Root cause likely lies in commit-time bookkeeping or multi-revision linkage**
+> (cowedParentN is replaced in TIL by the new materialized root; the per-key prefix
+> 0x800000...001b suggests `revision=27` or similar pre-existing data is being
+> duplicated in a path involving the height-grown root). Did not isolate further;
+> reverted to whole-rebuild self-heal. Stage 3b requires either: (a) a focused isolated
+> probe that triggers Issue B + N full in a deterministic setting so the post-handler
+> structure can be inspected directly, or (b) avoiding the height growth — perhaps by
+> requiring the handler to be applicable only at pathDepth >= 2 (= N is not the root).
+>
 > **Iteration 8 — pinpointed: scoped rebuild OVER-PARTITIONS N relative to whole-index
 > (2026-05-20).** A/B diagnostic on the failing test captured exact tree state:
 >

@@ -1035,11 +1035,16 @@ public abstract class AbstractHOTIndexWriter<K> {
       return false;
     }
     if (parentN.getNumChildren() >= HOTIndirectPage.MAX_NODE_ENTRIES) {
-      // N is full -- the splitIndirect-then-Issue-B handler (iter-16 attempt) caused
-      // I1 cross-leaf-uniqueness violations on interleavedInsertDeleteMultiRev (likely
-      // due to a stale-reference share between the OLD CoW'd parentN and the new halves).
-      // Defer to whole-rebuild self-heal; the residual ~2 firings per test run are a
-      // small absolute cost. True N-full Issue B incremental handler is a follow-up.
+      // N is full -- iter-16 and iter-17 attempts both produced I1 cross-leaf-uniqueness
+      // violations on interleavedInsertDeleteMultiRev. Iter-17 (deep-copy of parentN
+      // before splitIndirect) didn't help; the issue isn't reference sharing between
+      // parentN and the halves. Specifically: both failing firings are pathDepth=1
+      // (parentN = root); integrate at currentDepth=0 materializes nSplit as a new root,
+      // growing the tree height by 1. Some downstream interaction with multi-revision
+      // bookkeeping or TIL commit causes the I1 + I6 violations -- not localized in
+      // this session. Defer to whole-rebuild self-heal; the residual ~2 firings per test
+      // run are a small absolute cost. True N-full Issue B incremental handler is a
+      // follow-up that needs a focused isolated probe to debug.
       return false;
     }
     final int comboPartial = lPartial | betaBitWeight;
@@ -1071,7 +1076,6 @@ public abstract class AbstractHOTIndexWriter<K> {
     OFF_PATH_OVERFLOW_OK.incrementAndGet();
     return true;
   }
-
 
   /**
    * The merge outcome of {@link #doIndex}: the key belongs inside the routed leaf's bucket.
