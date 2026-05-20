@@ -353,14 +353,32 @@ reference of `a` are preserved. By Lemma 5, `densePK_{N'}(K) = densePK_N(K)`, an
 by (F1), `S_a ⊆ densePK_N(K)`, hence `S'_{a'} ⊆ densePK_{N'}(K)`. ∎
 
 **Lemma 7 (firstKey monotonicity under content addition).** *Let `c*` be the slot
-of `N'` containing `K`. Then `firstKey'(c*) ≤_lex K`. If `c*` is a fresh slot whose
-content is exactly `{K}`, then `firstKey'(c*) = K`. If `c*` is a slot whose content
-is `keys(C_c) ∪ {K}` for some original `C_c`, then `firstKey'(c*) = min_{<_lex}
-(keys(C_c) ∪ {K})`.*
+of `N'` containing `K`. Then `firstKey'(c*) ≤_lex K`. More specifically,
+`firstKey'(c*) = min_{<_lex} keys(C'_{c*})`, where:*
+- *if `c*` is a fresh slot from ADD with content `{K}`, then `firstKey'(c*) = K`;*
+- *if `c*` is a fresh slot from SPLIT with content `γ_L ∋ K` (or `γ_R ∋ K`), then
+  `firstKey'(c*) = min(γ_L ∪ {K})` (resp. `min(γ_R ∪ {K})`);*
+- *if `c*` is a REPLACE-modified slot with new content `γ ⊇ {K}`, then
+  `firstKey'(c*) = min(γ)`;*
+- *if `c*` is a touched slot whose content is `keys(C_c) ∪ moved-keys ∪ {K}` for
+  some collection of moved keys absorbed from other slots, then `firstKey'(c*) =
+  min(union)`.*
 
-*Proof.* The first claim follows because `K ∈ keys(C'_{c*})`, so `min_{<_lex}
-keys(C'_{c*}) ≤_lex K`. The other two specialize to the cases of ADD with γ = {K}
-and REPLACE/SPLIT respectively. ∎
+*Proof.* `K ∈ keys(C'_{c*})` implies `min keys(C'_{c*}) ≤_lex K`. The detailed
+sub-cases just enumerate the primitive operations from Definition 8 that can
+produce `c*`'s content. In all cases `firstKey'(c*)` is the lex-minimum of the
+resulting content multiset; this is the definition of `firstKey` (Definition 4).
+∎
+
+**Lemma 7.5 (firing-implied lex chain).** *For a firing configuration `(N, K,
+p, a)` (Definition 7) with `p + 1 = a`: `K <_lex firstKey(p) <_lex firstKey(a)
+<_lex firstKey(a+1) <_lex … <_lex firstKey(n-1)`.*
+
+*Proof.* By (F4), `K <_lex firstKey(p)`. By I8 in N (Definition 6), the
+firstKeys are strictly ascending: `firstKey(p) <_lex firstKey(a) <_lex
+firstKey(a+1) <_lex … <_lex firstKey(n-1)`. Chain transitively. ∎
+
+This chain is invoked repeatedly in the proofs of Theorems 1–4.
 
 ### §6.6 Theorem 1
 
@@ -415,36 +433,44 @@ The new slot at index `c_ins` may or may not be in `MATCH_{N'}(K)` depending on 
 For K-storage to be at the new slot, `c* = c_ins` and `γ` contains `K`.
 
 (iv.a) Suppose `c* = c_ins ≤ a`. Then `a' = a + 1 > c*`. By Lemma 6, `a' ∈
-MATCH_{N'}(K)`. By (F3) and the unchanged partials at slots ≠ c_ins, no slot in
-`N'` has exact match for `K` (the new slot at c_ins might, but adding an exact-match
-duplicate of `S_a`'s neighbors would violate I7 if `σ = S_{c'}` for some other `c'`;
-we address this below). Assuming the no-exact-match regime:
-`findChild_{N'}(K) = max MATCH_{N'}(K) ≥ a' > c* = c_ins`. So `findChild_{N'}(K) ≠ c*`.
-SRC for `K` fails. ✗
+MATCH_{N'}(K)`. We split on whether σ produces an exact match for K:
 
-(*Exact-match sub-case.*) Suppose `σ = densePK_{N'}(K)`. Then the new slot at `c_ins`
-is an exact match. But by I7, partials are strictly ordered: `S'_{c_ins - 1} <
-S'_{c_ins} = σ < S'_{c_ins + 1}`. The shifted slot `a' = a + 1` has `S'_{a'} = S_a
-≠ densePK_N(K)` by (F3). Slot `c_ins` is the unique exact match, so
-`findChild_{N'}(K) = c_ins` (smallest-index exact match). ✓ for SRC of K. We
-continue checking other invariants.
+*Non-exact-match regime (σ ≠ densePK_{N'}(K)):* By (F3), no slot in N has
+`S_c = densePK_N(K) = densePK_{N'}(K)` (Lemma 5). Untouched slots in N'
+inherit their original partials, so none has exact match. The new slot has
+`σ ≠ densePK_{N'}(K)` by assumption, so no exact match either. Routing uses
+subset-fallback: `findChild_{N'}(K) = max MATCH_{N'}(K) ≥ a' > c* = c_ins`
+(Lemma 4). So `findChild_{N'}(K) ≠ c*`. SRC for `K` fails. ✗
 
-For I7: `S'_{c_ins - 1} < σ`. If `c_ins = p + 1 = a` originally (before shift),
-then after ADD(a, σ, γ), original slot `a` is at index `a + 1`. The new slot's
-partial σ must satisfy `S_p = S'_p < σ < S'_{a+1} = S_a`. By I7 of `N`: `S_p < S_a`.
-For σ in the open interval `(S_p, S_a)` to exist requires `S_a - S_p ≥ 2`, which
-holds when `S_p + 1 < S_a`. (If `S_p + 1 = S_a`, no σ fits and I7 fails immediately.)
+*Exact-match regime (σ = densePK_{N'}(K)):* handled below.
 
-In the open-interval-exists subcase, σ = densePK_{N'}(K) must lie in `(S_p, S_a)`.
+(*Exact-match sub-case.*) Suppose `σ = densePK_{N'}(K)`. The new slot at
+`c_ins` is the unique exact match for K (by I7, partials in N' are distinct;
+the (iv.b) case below covers `c_ins > a`, so we have `c_ins ≤ a` here).
+Routing picks `c_ins` (Definition 5's exact-match priority). For SRC of K: K
+is in slot `c_ins`. ✓.
 
-For I8: `firstKey'(p) <_lex firstKey'(c_ins) <_lex firstKey'(a+1)`.
-- `firstKey'(p) = firstKey(p)` (unchanged).
-- `firstKey'(c_ins) = K` if γ = {K}, or `≤_lex K` by Lemma 7.
-- `firstKey'(a+1) = firstKey(a)` (unchanged).
+We split on `c_ins`'s position relative to `p` (recall `p = a - 1`):
 
-By (F4), `K <_lex firstKey(p) = firstKey'(p)`. So `firstKey'(c_ins) ≤_lex K <_lex
-firstKey'(p)`. I8 requires `firstKey'(p) <_lex firstKey'(c_ins)`. Contradiction.
-I8 fails. ✗
+*Sub-regime c_ins ∈ (p, a]:* `c_ins ∈ {p+1, …, a}`. After ADD, slot `p` is
+still at index `p` in N' (unchanged, since `c_ins > p`). K is at slot `c_ins`
+with firstKey `K`. The chain from slot `p` to slot `c_ins` in N' has I8-
+ascending firstKeys: `firstKey'(p) = firstKey(p) <_lex firstKey'(p+1) <_lex …
+<_lex firstKey'(c_ins) = K`. So `firstKey(p) <_lex K`. But by (F4), `K <_lex
+firstKey(p)`. Contradiction. I8 fails. ✗
+
+*Sub-regime c_ins ≤ p:* The new slot's partial `σ = densePK_{N'}(K)` must
+satisfy I7 in N': `S'_{c_ins - 1} < σ < S'_{c_ins + 1}`. After ADD at index
+`c_ins`, the slot originally at `c_ins` shifts to `c_ins + 1`, so `S'_{c_ins
++ 1} = S_{c_ins}`. For I7 we need `σ < S_{c_ins}`.
+
+By (F1), `S_a ⊆ densePK_{N'}(K) = σ`, so `S_a ≤ σ` as integers. By (F3),
+`S_a ≠ densePK_{N'}(K)`, so the subset is strict (`S_a` is missing at least
+one bit set in `σ`), forcing `σ > S_a` as integers. By I7 in N, `S_{c_ins}
+< S_a` (since `c_ins ≤ p < a`). Combining: `σ > S_a > S_{c_ins}`. But I7 in
+N' requires `σ < S_{c_ins}`. Contradiction. I7 fails. ✗
+
+Both sub-regimes contradict; the exact-match sub-case of (iv.a) fails. ✗
 
 (iv.b) Suppose `c* = c_ins > a`. Then K is at index `c_ins > a`. For I8:
 `firstKey'(a) <_lex firstKey'(a+1) <_lex … <_lex firstKey'(c_ins)`. Since
@@ -461,19 +487,23 @@ re-labelling) assume `K ∈ keys(γ_L)`.
 subcase, which holds by (F3) for unchanged slots), `findChild_{N'}(K) ≥ a' > c*`.
 SRC for K fails. ✗
 
-(Exact-match sub-case of v.a.) If `σ_L = densePK_{N'}(K)`, then slot `c` is an
-exact match. But this requires σ_L = densePK_N(K), which by (F3) does not equal any
-existing slot's partial. For I7, σ_L < σ_R < S'_{c+2} = S_{c+1}. So σ_L lies in an
-open interval `(S_{c-1}, S_{c+1})`. By (F3) σ_L is not equal to any other slot's
-partial, including in the original `S_a`. Hence the I7 placement is valid.
+(Exact-match sub-case of v.a.) If `σ_L = densePK_{N'}(K)`, the new slot `c`
+in N' (= the left half of the SPLIT) is an exact match for K. By I7 in N',
+partials are distinct, so this is the unique exact match. Routing picks `c`.
+✓ for SRC of K.
 
-For I8: `firstKey'(c-1) = firstKey(c-1)` (unchanged), `firstKey'(c) ≤_lex K`,
-`firstKey'(c+1) = ?` (depends on γ_R content). I8 requires `firstKey'(c-1) <_lex
-firstKey'(c)`. If `c < p`, this requires `firstKey(c-1) <_lex K`, which is not
-guaranteed by the firing precondition and may fail. If `c ≥ p`, then `c-1 ≥ p-1`,
-and we need `firstKey'(c-1) <_lex K`. Since `firstKey(p) >_lex K` by (F4) and I8 in
-`N` gives `firstKey(c-1) ≥_lex firstKey(p)` for `c-1 ≥ p`, we have `firstKey'(c-1)
-≥_lex firstKey(p) >_lex K = firstKey'(c)` (assuming γ_L = {K}). I8 fails. ✗
+For I7 in N': σ_L = densePK_{N'}(K) must satisfy `S'_{c-1} < σ_L < S'_{c+1} =
+σ_R`. By (F1), `S_a ⊆ densePK_{N'}(K) = σ_L`, so `S_a ≤ σ_L` as integers. By
+(F3), `S_a ≠ densePK_{N'}(K)`, so `σ_L > S_a`. By I7 in N, for any slot index
+`c < a` we have `S_c < S_a < σ_L`. So if `c < a` (= splitting some slot to the
+left of `a`), I7 in N' requires `σ_L < S'_{c+1}`. Pre-split, `S'_{c+1}` would
+be `S_c` (= the original split slot's partial, by Definition 8's SPLIT rule
+where σ_L, σ_R replace the original slot's partial). But our constraint is
+that σ_L, σ_R must respect I7: `σ_L < σ_R`, and `σ_R` reflects γ_R's content
+(by Lemma 9 if content-preserved). In any case, σ_L > S_a > S_c contradicts
+σ_L's I7 fit. I7 fails. ✗
+
+(Note: c ≥ a case falls into v.b/v.c below.)
 
 (v.b) Suppose `c = a`. Slot `a` is split. The two new slots are at indices `a`
 (= σ_L, γ_L) and `a + 1` (= σ_R, γ_R). K is in γ_L at index `a`. Then `firstKey'(a)
@@ -548,13 +578,29 @@ present in `N'` by Definition 8. ∎
 **Lemma 9 (subset-match preservation under content-preserving modification).**
 *Suppose a mask-fixed primitive sequence touches slot `c`, leaves it non-empty
 in `N'`, and preserves the content (`keys(C'_{c'}) ⊇ keys(C_c)`, where `c'` is
-the post-shift index of `c`). Then `S'_{c'} ⊆ S_c`.*
+the post-shift index of `c`). Then `S'_{c'} ⊆ ⋂_{K' ∈ keys(C_c)} densePK_N(K')`.
+Furthermore, if N's encoding satisfies the tightness condition `S_c =
+⋂_{K' ∈ keys(C_c)} densePK_N(K')` (which holds under Binna's PEXT when N is
+canonical, and under Option A by construction), then `S'_{c'} ⊆ S_c`.*
 
 *Proof.* SRC for `K' ∈ keys(C_c) ⊆ keys(C'_{c'})` requires `S'_{c'} ⊆
-densePK_{N'}(K')`. By Lemma 5, `densePK_{N'}(K') = densePK_N(K')`. By SRC in `N`,
-`S_c ⊆ densePK_N(K')` for `K' ∈ keys(C_c)`. The most general partial subset-
-matching every `K' ∈ keys(C_c)` is `⋂_{K' ∈ keys(C_c)} densePK_N(K')`, equal to
-`S_c` by SRC tightness in `N`. Hence `S'_{c'} ⊆ S_c`. ∎
+densePK_{N'}(K')`. By Lemma 5, `densePK_{N'}(K') = densePK_N(K')`. Taking the
+intersection over all `K' ∈ keys(C_c)`: `S'_{c'} ⊆ ⋂_{K' ∈ keys(C_c)}
+densePK_N(K')`. Under the tightness condition `S_c = ⋂ densePK_N(K')`, this
+becomes `S'_{c'} ⊆ S_c`. ∎
+
+**Note on tightness.** SRC alone only gives `S_c ⊆ ⋂ densePK`. The equality
+`S_c = ⋂ densePK` is a separate convention (the encoding stores the "most
+general" partial that subset-matches all keys). Binna's PEXT does not enforce
+this — `S_c = PEXT(firstKey, M)`, which may be a strict subset of `⋂ densePK`
+(= when other keys in the leaf have additional bits set). Sirix-HOT's stored
+encoding satisfies tightness when the slot's content is canonically derived
+(addEntry's zero-fill convention ensures `S_c` reflects the firstKey's bits at
+the moment the bit was added to M). For Theorems 1–4's arguments, we use the
+weaker `S'_{c'} ⊆ ⋂ densePK ⊆ S_c` whenever the post-state and pre-state
+encodings satisfy compatible tightness. When tightness fails, the bound
+`S'_{c'} ⊆ ⋂` still holds and the subset-match conservation argument
+(Corollary 3) goes through.
 
 **Corollary 3.** *If slot `c` is touched and content-preserved, and `S_c ⊆
 densePK_N(K)` in `N`, then `S'_{c'} ⊆ densePK_{N'}(K)`, so `c' ∈ MATCH_{N'}(K)`.*
@@ -582,25 +628,36 @@ slots to be touched. The bound matches `μ` (the subset-matcher count) up to a
 constant, and rebuild touches all slots. So the scoped rebuild is asymptotically
 optimal.
 
-**Construction.** Pick `m ≥ ⌈log_2(k+2)⌉` so that `m`-bit partials can encode
-`k + 2` distinct values. Choose any mask `M = (β_1 < β_2 < ⋯ < β_m)`. Set
-`n := k + 2` and define slot partials:
+**Construction.** Pick `m ≥ ⌈log_2(k+3)⌉ + 1` so that the `m`-bit partial space
+includes both `2^{k+1} - 1` (= `S_{k+1}` below) and one additional unused bit at
+position `m-1` that will be set only in `densePK_K`. Choose any mask `M = (β_1
+< β_2 < ⋯ < β_m)`. Set `n := k + 2` and define slot partials:
 
 ```
 S_c := 2^c - 1   for c ∈ {0, 1, …, k+1}
 ```
 
-So `S_0 = 0`, `S_1 = 1`, `S_2 = 3`, `S_3 = 7`, …, `S_{k+1} = 2^{k+1} - 1`.
+So `S_0 = 0`, `S_1 = 1`, `S_2 = 3`, `S_3 = 7`, …, `S_{k+1} = 2^{k+1} - 1`. None
+of these have bit `m-1` set.
 
 Properties:
 - `S_c < S_{c+1}` as integers (I7 satisfied).
 - `S_c ⊆ S_{c+1}` bitwise (each is the bitwise prefix of the next).
-- Equivalently: `S_c ⊆ S_{k+1}` for all `c` (every slot's partial is a subset of
-  the largest one).
+- Every `S_c ⊆ S_{k+1}` (and `S_{k+1}` itself uses bits `0..k`, never `m-1`).
 
-Choose `K` with `densePK_N(K) = S_{k+1} = 2^{k+1} - 1` (every mask bit of K is 1),
-and with non-mask bits chosen so that `K <_lex firstKey(0)`. By Lemma 1 and the
-freedom of non-mask bits, such K exists.
+Choose `K` with `densePK_N(K) := S_{k+1} ∨ 2^{m-1} = 2^{k+1} - 1 + 2^{m-1}` (= K
+has bit `m-1` set in addition to bits `0..k`). With non-mask bits chosen so that
+`K <_lex firstKey(0)`, such K exists by Lemma 1 and the freedom of non-mask
+bits.
+
+Verify the precondition (F3) ("no slot has exact match for densePK_N(K)"):
+densePK_N(K) has bit `m-1` set, but no `S_c` has bit `m-1` set. Hence `S_c ≠
+densePK_N(K)` for every `c`. ✓ (F3) holds.
+
+Verify (F1): for every `c ∈ {0, …, k+1}`, `S_c ⊆ densePK_N(K)`. The bits set in
+`S_c` are a subset of bits `0..k`, all of which are set in `densePK_N(K)`. ✓.
+In particular, `S_a = S_{k+1} ⊆ densePK_N(K)` (strict subset since
+`densePK_N(K)` has bit `m-1` and `S_a` does not).
 
 Populate slot contents `C_c` such that:
 - Each `K' ∈ keys(C_c)` has `densePK_N(K') ⊇ S_c` (SRC in N).
@@ -609,11 +666,10 @@ Populate slot contents `C_c` such that:
 
 This is feasible by adjusting non-mask bits monotonically.
 
-The result: `μ_N(K) = k + 2` (every slot subset-matches K's all-1s densePK). The
-firing precondition holds with `p := k`, `a := k + 1`, `(F1) S_a ⊆ densePK_N(K)`
-(by construction `S_a = S_{k+1} = densePK_N(K)`, an exact match — this is the
-COLLISION sub-case, but the proof below handles it uniformly), (F2) trivially
-(no slot above `a` exists), (F4) `K <_lex firstKey(0) ≤_lex firstKey(p)`.
+The result: `μ_N(K) = k + 2` (every slot subset-matches K's densePK, since every
+`S_c ⊆ densePK_N(K)`). The firing precondition holds with `p := k`, `a := k +
+1`, (F1) `S_a ⊊ densePK_N(K)` (strict subset), (F2) trivially (no slot above
+`a` exists), (F3) no exact match, (F4) `K <_lex firstKey(0) ≤_lex firstKey(p)`.
 
 **Proof of the lower bound.** Suppose, for contradiction, that some mask-fixed
 k-touch primitive `P` is correct for `(N, K)`, producing `N' = P(N, K)`.
@@ -627,69 +683,66 @@ have `firstKey' <_lex K`, but K is the lex-minimum of all content.)
 So `c* = 0` and `firstKey'(0) = K`.
 
 For SRC of K (Definition 9): `findChild_{N'}(K) = 0`. By Definition 5, either
-`0` is the smallest-index exact-match (`S'_0 = densePK_{N'}(K) = S_{k+1}`), or
+`0` is the smallest-index exact-match (`S'_0 = densePK_{N'}(K)`), or
 `MATCH_{N'}(K) ∩ {1, …, n' - 1} = ∅` (= no slot at higher index subset-matches K).
 
-**Sub-case A.** Suppose `S'_0 = S_{k+1}`. By Lemma 9 applied to slot `0` (which
-is touched by `P` since it now contains K), if slot `0` was content-preserved,
-`S'_0 ⊆ S_0 = 0`, forcing `S'_0 = 0`. But `S'_0 = S_{k+1} = 2^{k+1} - 1 ≠ 0`
-(assuming `k ≥ 0`). Hence slot `0` was NOT content-preserved: keys from slot
-`0`'s original content were moved out by `P`. But each such moved key `K' ∈
-keys(C_0)` must land in some `keys(C'_{c''})` with `c'' ≥ 1`. By I8 in N',
+**Sub-case A.** Suppose `S'_0 = densePK_N(K) = S_{k+1} ∨ 2^{m-1}`. By Lemma 9
+applied to slot `0` (which is touched by `P` since it now contains K), if slot
+`0` was content-preserved, `S'_0 ⊆ S_0 = 0`, forcing `S'_0 = 0`. But `S'_0 =
+densePK_N(K) ≠ 0` (it has bit `m-1` and bits `0..k` set). Hence slot `0` was
+NOT content-preserved: keys from slot `0`'s original content were moved out by
+`P`. But each such moved key `K' ∈ keys(C_0)` must land in some
+`keys(C'_{c''})` with `c'' ≥ 1`. By I8 in N',
 `firstKey'(c'') ≥_lex firstKey'(c'' - 1) ≥_lex ⋯ ≥_lex firstKey'(0) = K`. Hence
 `firstKey'(c'')` (= the smallest key in slot c''s content) `≥_lex K`. Since
 keys(C'_{c''}) contains K' (moved from slot 0), we have `K' ≥ firstKey'(c'') ≥
 K`. But also `K' ∈ keys(C_0)` originally, so `K' ≥_lex firstKey(0) >_lex K` by
 construction. ✓ (consistent so far).
 
-Now I7 in N' requires partials strictly ascending. `S'_0 = S_{k+1}` is the max
-partial value (= `2^{k+1} - 1` is the largest in our `m`-bit space when we
-restrict to subsets-of-S_{k+1}). For there to be slots at indices `≥ 1` in N' with
-larger partials, we'd need partials `> 2^{k+1} - 1` (= bits outside the `k+1` we
-constructed). But all partials are subsets of `S_{k+1}` (by Corollary 3 applied
-to every touched-and-content-preserved slot of N, plus the fact that the partials
-in N satisfy this). Untouched slots' partials are unchanged, all `⊆ S_{k+1}` by
-construction. Touched-content-preserved slots' partials `⊆` original by Lemma 9.
-Touched-content-moved slots can have arbitrary new partials, but those must still
-subset every key in their new content; if the content includes keys from slot `c`
-in N with `densePK ⊇ S_c`, the new partial `⊆ ⋂ densePK ⊆ S_c ⊆ S_{k+1}`.
+Now I7 in N' requires partials strictly ascending. `S'_0 = densePK_N(K)` has
+bits `0..k, m-1` set. The other slots in N' inherit from N (touched + content-
+preserved) or are derived from moved content. By Corollary 3, every touched-
+content-preserved slot has `S'_{c'} ⊆ S_c ⊆ S_{k+1}` (= bits `0..k`, no bit
+`m-1`). Untouched slots' partials are unchanged (`⊆ S_{k+1}`). Touched-content-
+moved slots' partials are bounded by the intersection of their new content's
+densePKs; since K's densePK is the only one with bit `m-1` and K is in slot 0
+(not in any other slot's content, by Definition 4's disjointness), no other
+slot's new partial includes bit `m-1`. Hence every slot in N' at index `≥ 1`
+has partial without bit `m-1`, i.e., partial `≤ S_{k+1} < S'_0`.
 
-So every partial in N' is `⊆ S_{k+1}`. Hence no partial in N' exceeds `S_{k+1}`
-in bit-coverage. For I7 strict ascending: `S'_0 = S_{k+1}` must be `< S'_1`. But
-`S'_1 ⊆ S_{k+1}` implies `S'_1 ≤ S_{k+1}` as integers. Strict `<` would require
-`S'_1` to have more bits or a larger bit pattern than `S_{k+1}`, but the subset
-constraint forbids this. Contradiction: no `S'_1 > S'_0 = S_{k+1}` exists in
-the `S_{k+1}`-bounded partial space. I7 fails. ✗
+For I7 strict ascending, slots at index `≥ 1` must have partials `> S'_0`. But
+all such partials are `≤ S_{k+1} < S'_0`. Contradiction. I7 fails. ✗
 
-**Sub-case B.** Suppose `S'_0 ≠ S_{k+1}` and `MATCH_{N'}(K) ∩ {1, …, n' - 1} =
-∅`. For each original slot `c ∈ {1, …, k+1}` of N, consider its fate:
-- If `c` is touched and content-preserved: by Corollary 3, the post-shift slot
-  `c' ∈ {0, …, n'-1}` has `S'_{c'} ⊆ S_c ⊆ densePK_{N'}(K)`. So `c' ∈
-  MATCH_{N'}(K)`. For Sub-case B's premise (no match at index `≥ 1`), `c' = 0`,
-  i.e., `c` shifted to index 0. But K is at index 0 (`c* = 0`), so K's slot
-  IS this shifted `c`. Then K's slot's content = `keys(C_c) ∪ {K} ∪ possibly
-  others from c's content-preservation`. Since K is the only added key,
-  `keys(C'_0) = keys(C_c) ∪ {K}`. So slot `0` is the content-preserved image of
-  slot `c`. Only one of `{0, 1, …, k+1}` can be that image; the others must be
-  touched and content-removed (or touched and shifted to higher index, but
-  Corollary 3 with content-preservation contradicts Sub-case B's premise).
+**Sub-case B.** Suppose `S'_0 ≠ densePK_N(K)` and `MATCH_{N'}(K) ∩ {1, …, n' -
+1} = ∅` (= no slot at index `≥ 1` subset-matches K).
 
-- If `c` is touched and content-removed (some or all keys moved out): then
-  for each removed key `K' ∈ keys(C_c)`, it now resides in some other slot `c''`
-  in N'. Slot `c''` is also touched. Each move requires touching a slot.
+There are `k + 2` original slots in N (indices `0, …, k+1`), and by construction
+every one is a subset-matcher of K (`S_c ⊆ densePK_N(K)` for all `c`). By
+Lemma 8 (content conservation), every key in `⋃ keys(C_c)` survives in N'.
 
-- If `c` is untouched: `S'_{c'} = S_c` for the post-shift index `c'`. By
-  Corollary 3, `c' ∈ MATCH_{N'}(K)`. By Sub-case B premise, `c' = 0`. But only
-  one slot can be at index 0 in N'. So at most one slot from `{1, …, k+1}` can be
-  untouched (and even that requires it to be the slot 0 image, which conflicts
-  with K's placement). So all but possibly one of slots `{1, …, k+1}` must be
-  touched.
+Consider any original slot `c ∈ {0, …, k+1}` of N. There are three exhaustive
+possibilities for its fate in `P`:
 
-Counting touches: at least `k + 1 - 1 = k` original slots `c ∈ {1, …, k+1}` are
-touched. Plus K's slot (slot 0 of N' may correspond to a touched original slot,
-but it's still 1 touch). Plus possibly more for content motion. Minimum touch
-count: `k + 1`. By assumption, `P` is a `k`-touch primitive (Definition 10),
-touching at most `k` slots. Contradiction. ✗
+(i) **Untouched.** Then `S'_{c'} = S_c` at the post-shift index `c'`. By
+    Corollary 3 (applied to `S_c ⊆ densePK_{N'}(K)`), `c' ∈ MATCH_{N'}(K)`. By
+    Sub-case B's premise, `c' = 0` (= the only allowed match index).
+
+(ii) **Touched and content-preserved** (= `keys(C'_{c'}) ⊇ keys(C_c)`). By
+     Corollary 3, `S'_{c'} ⊆ S_c ⊆ densePK_{N'}(K)`, so `c' ∈ MATCH_{N'}(K)`.
+     Again Sub-case B's premise forces `c' = 0`.
+
+(iii) **Touched and content-extracted** (= at least one key from `keys(C_c)` is
+      now in another slot's content in N'). Touch count: ≥ 1 for slot `c`
+      itself (the extraction touch), and ≥ 1 for each destination slot of the
+      moved content (the absorption touch). Hence each (iii)-classified slot
+      contributes ≥ 1 to the touch count.
+
+At most one original slot can be in category (i) or (ii) (because the
+post-shift index 0 is unique). The remaining at-least `k + 1` original slots
+must be in category (iii), each contributing ≥ 1 touch.
+
+Total touches ≥ `k + 1`. By assumption `P` is a k-touch primitive (Definition
+10), so total touches ≤ `k`. But `k + 1 > k`. Contradiction. ✗
 
 Both sub-cases yield a contradiction. No mask-fixed k-touch primitive resolves
 this firing. ∎
@@ -699,7 +752,7 @@ this firing. ∎
 The proof's crux is the **subset-match conservation** (Corollary 3): for any slot
 `c` in N whose partial `S_c ⊆ densePK_N(K)` AND whose content is preserved in N',
 the post-state partial still subset-matches K. By construction, every slot in N
-subset-matches K (because every `S_c ⊆ S_{k+1} = densePK_N(K)`). So every slot
+subset-matches K (because every `S_c ⊆ S_{k+1} ⊊ densePK_N(K)`). So every slot
 that survives a content-preserving touch contributes a subset-match in N',
 forcing the corresponding K-routing to pick a slot at index ≥ 1 (Sub-case B's
 contradiction).
@@ -723,10 +776,11 @@ partials from content; it is asymptotically optimal among mask-fixed primitives.
 ### §6.12 Empirical relevance
 
 The campaign's 23 firings (§5.3 CarveProbe) have:
-- 14 with `S_a = densePK_N(K)` (COLLISION, all-1s-equals-S_a slice of Theorem 2's
-  construction at very small m).
+- 14 with `S_a = densePK_N(K)` (COLLISION; these violate Theorem 2's (F3) and
+  fall outside the formal firing definition, but are empirically related —
+  they reduce to the canonical case via mask extension at the leaf level).
 - 9 with `S_a ⊊ densePK_N(K)` (strict subset, the carve probe's "CARVABLE+wrong-
-  order" verdict).
+  order" verdict; these are valid firings per Definition 7).
 
 For all 23, `μ_N(K)` is small (the partial mask sizes are 4–8 bits in observed
 workloads). A 2- or 3-touch primitive might suffice in principle for some
@@ -906,10 +960,18 @@ subtree agrees"). A tie-breaker rule selects among matches:
 - **Rule TB-m ("most-specific match")**: `findChild_N(K) := argmax_{c ∈
   MATCH_N(K)} stored[c]` — the slot whose agreement set is largest.
 
-> **Theorem 5 (Option-A impossibility for common tie-breakers).** *For each of
-> the three tie-breaker rules TB-h, TB-s, TB-m, there exists a firing
-> configuration under Option-A encoding such that no localized single-slot mask-
-> fixed primitive at the firing node is correct.*
+> **Theorem 5 (Option-A SRC-impossibility for common tie-breakers).** *For each
+> of the three tie-breaker rules TB-h, TB-s, TB-m, there exists a node
+> configuration under Option-A encoding and a target insert key K such that no
+> localized single-slot mask-fixed primitive at the node produces N' satisfying
+> SRC for all keys in `⋃ keys(C'_c)`.*
+>
+> *Note on scope.* The TB-h case (which inherits Theorem 2's proof) shows that
+> no primitive is *correct* in the strict sense of Definition 9 (= I7 + I8 +
+> SRC). The TB-s and TB-m cases below show a weaker but related impossibility:
+> SRC cannot be maintained for *all* keys after primitive application. The
+> distinction matters because TB-s and TB-m's K-routing for K itself can
+> succeed; the failure is for adversarial K' that share densePK behavior with K.
 
 **Proof sketch.** We construct firings that defeat each tie-breaker:
 
@@ -1006,9 +1068,12 @@ versioning interleaves both). Under Option C, each delete triggers an
 total per-delete cost is `Ω(∑_d |keys(C_{c_d})|) = Ω(total subtree size at
 insertDepth)`. This matches the scoped rebuild's cost asymptotically.
 
-For inserts under Option C: incremental update is `O(1)` per slot on the path,
-totaling `O(depth)` per insert. This is cheaper than rebuild — but only for the
-insert-only workload, which is not Sirix's case.
+For inserts under Option C: incremental update is `O(1)` per slot on the
+descent path. Every ancestor on the path from root to the leaf must re-OR
+its stored partial with the new key's densePK. With tree depth `d`, the total
+insert cost is `O(d)` per insert. This is cheaper than the per-delete
+`Ω(content)` cost — but only for an insert-only workload, which is not Sirix's
+case.
 
 > **Corollary 6.** *Under Sirix's multi-revision insert+delete workload, Option
 > C's amortized per-operation cost is no better than the scoped rebuild
@@ -1038,11 +1103,16 @@ rule, but all share the deterministic-routing-on-densePK structure.
 **Observation 1 (multi-value-leaf permits densePK coexistence).** Under any
 densePK-routing encoding combined with Sirix's multi-value leaves, keys with
 identical `densePK_N(K)` at a node's mask coexist in the same slot. The
-leaf-level findEntry distinguishes them by full key. Hence the *trivial*
-densePK-collision (= two keys forced into the same slot by densePK equality)
-is *not* an impossibility under multi-value-leaf semantics. This contrasts with
-Binna's single-entry-leaf model, where densePK-collision forces mask extension
-to split the leaf.
+leaf-level findEntry (`HOTLeafPage.findEntry`, performing binary search over
+sorted full keys per Sirix's leaf-page format §85-§95 of `HOTLeafPage.java`)
+distinguishes them by full-key comparison. The indirect-node routing returns
+the slot; the leaf-level lookup then resolves to the specific entry.
+
+Hence the *trivial* densePK-collision (= two keys forced into the same slot by
+densePK equality) is *not* an impossibility under multi-value-leaf semantics.
+This contrasts with Binna's single-entry-leaf model (cf. Binna §3.3, where
+leaves contain exactly one key), where densePK-collision forces mask extension
+to split the leaf at the time of the second insert.
 
 **Observation 2 (Theorem 2's impossibility cuts across encodings).** Theorem
 2's construction uses slot-stored values
@@ -1115,7 +1185,7 @@ The complete picture across §6:
 | **Theorem 3** | Mask-extension + k touches, content-blind | Constant-cost mask extension defeated by adversarial content. |
 | **Corollary 5** | Mask-extension + k touches, content-aware | Content-aware mask extension's content inspection cost ≥ μ. |
 | **Theorem 4** | Scoped rebuild upper bound | Θ(n) per node; tight against Θ(μ) lower bound in dense-μ regime. |
-| **Theorem 5** | Option A (AND-encoding), any tie-breaker | No deterministic tie-breaker correctness-preserving across all firings. |
+| **Theorem 5** | Option A (AND-encoding), three tie-breakers TB-h, TB-s, TB-m | For each, ∃ a node configuration where SRC cannot be maintained post-insert. |
 | **Theorem 6** | Option C (subtree-OR), update cost | Deletion-correct maintenance Ω(content) per delete. |
 | **Corollary 6** | Option C under multi-rev insert+delete | Amortized cost no better than scoped rebuild. |
 
